@@ -78,7 +78,7 @@ export default componentEntry<Props>({
   load: async () => GalleryHarnessUpdates,
   variants: {
     "three-harnesses": {
-      note: "The chat's Claude Code, Codex and OpenCode: a name and Update each, Update all in the heading; versions wait for Option.",
+      note: "The chat's Claude Code, Codex and OpenCode: a name and a quiet Update each; Update all, the default button, in the heading; versions wait for Option.",
       props: { own: true, rows: [codex, opencode] },
     },
     // David Beyer (Nov 20 call): the versions show only when asked, by holding Option.
@@ -128,7 +128,7 @@ export default componentEntry<Props>({
       },
     },
     "one-harness": {
-      note: "One outdated agent: no Update all, the row's Update is the whole action.",
+      note: "One outdated agent: no Update all; the row's Update is the default button.",
       props: { rows: [opencode] },
     },
     updating: {
@@ -140,7 +140,7 @@ export default componentEntry<Props>({
       },
     },
     "update-failed": {
-      note: "A failed update says so on its row (the updater's words on hover) and offers Try Again.",
+      note: "A failed update says so in its name's place (the updater's words go to the log) and offers Try Again.",
       props: { rows: [codex], updater: "fails" },
       play: async (ctx) => {
         await ctx.click({ selector: '[data-harness-update="codex"] .acpmux-harness-update-run' });

@@ -68,6 +68,16 @@ impl Hub {
             }
         }
         let [named, cased, prefixed, short, short_cased, spaced] = self.key_candidates(key, &own);
+        // No session anywhere has it as its name, in any case: one that had it before a rename
+        // (`former_names.rs`), here or on a peer, ahead of prefixes and short names.
+        if named.is_empty() && cased.is_empty() {
+            if let Some(route) = self.former_route_here(key)? {
+                return Ok(Some(route));
+            }
+            if let Some(route) = self.former_remote_route(key).transpose()? {
+                return Ok(Some(route));
+            }
+        }
         let found = if let Some((host, rest)) = key.split_once('/') {
             // Any other `/` is a sub-session's whole name (`parent/child`) or a machine named
             // in another case or by a prefix (`LANE-VM/td2-a`): the whole name first, never a

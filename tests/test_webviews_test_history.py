@@ -469,6 +469,21 @@ class OneBaseCheck(unittest.TestCase):
                                    str(tmp / "out" / history.HEAD_RESULTS)], capture_output=True, text=True)
             self.assertNotEqual(done.returncode, 0)  # read as one shard's unreadable results were: every red replays
 
+    def test_a_pull_request_joins_only_the_shards_it_ran(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            self.shard(tmp / "in", 1, {TEST: False})
+            self.shard(tmp / "in", 4, {"test/b.test.ts > y": False})
+            matrix = json.dumps([{"shard": 1, "shard_count": 12}, {"shard": 4, "shard_count": 12}])
+            done = subprocess.run([sys.executable, str(SCRIPT), "heads", str(tmp / "in"), "--matrix", matrix, "--out",
+                                   str(tmp / "out")], capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            self.assertEqual(json.loads((tmp / "out/shards.json").read_text()), {FILE: 1, "test/b.test.ts": 4})
+            for bad in ("[]", "{not json", '[{"no": 1}]'):
+                done = subprocess.run([sys.executable, str(SCRIPT), "heads", str(tmp / "in"), "--matrix", bad, "--out",
+                                       str(tmp / "out2")], capture_output=True, text=True)
+                self.assertEqual(done.returncode, 1, bad)
+
     def test_the_rerun_cap_holds_per_head_shard(self):
         where = {f"test/s1-{i}.test.ts": 1 for i in range(25)} | {f"test/s2-{i}.test.ts": 2 for i in range(26)}
         one = [f"test/s1-{i}.test.ts" for i in range(25)]
@@ -502,7 +517,11 @@ class OneBaseCheck(unittest.TestCase):
         self.assertEqual(download["pattern"], "react-apps-head-results-shard*")
         self.assertNotIn("merge-multiple", download)
         join = steps["Join the head shards' results"]
-        self.assertEqual(int(join["env"]["HEAD_SHARDS"]), len(jobs["react-apps-check-shard"]["strategy"]["matrix"]["include"]))
+        # The join reads the very matrix the head shards ran (a pull request's picked shards, webviews_pr_shards.py).
+        self.assertEqual(join["env"]["HEAD_SHARDS"], "${{ needs.web-subarea-scope.outputs.react_shards }}")
+        self.assertEqual(jobs["react-apps-check-shard"]["strategy"]["matrix"]["include"],
+                         "${{ fromJSON(needs.web-subarea-scope.outputs.react_shards) }}")
+        self.assertIn('--matrix "$HEAD_SHARDS"', join["run"])
         self.assertIn('--out "$RUNNER_TEMP/head-results"', join["run"])
         self.assertNotIn("continue-on-error", join)
         self.assertLess(names.index("Join the head shards' results"), names.index("Use the merge parent as the base"))
@@ -1052,6 +1071,12 @@ class Workflow(unittest.TestCase):
         self.assertLess(pick.index("cp scripts/ci/run-webviews-tests.sh"), pick.index("git checkout -q --detach HEAD^1"))
         self.assertLess(pick.index("webviews_affected.py --base HEAD^1 --head HEAD"), pick.index("git checkout -q --detach HEAD^1"))
         self.assertIn("early-files", pick)
+        # A narrowed pick hands the early job its shards' files (RFD 0023 item 3); they replace the affected list.
+        self.assertLess(pick.index("webviews_affected.py --base HEAD^1 --head HEAD"), pick.index("webviews-durations/pr-shard-files"))
+        self.assertLess(pick.index("webviews-durations/pr-shard-files"), pick.index('only=(--only'))
+        scope = {s["name"]: s for s in jobs["web-subarea-scope"]["steps"]}
+        self.assertIn("--files-of", scope["Pick the react-apps-check shards"]["run"])
+        self.assertIn("webviews-durations/pr-shard-files", scope["Upload the duration manifest"]["with"]["path"])
         self.assertEqual(steps["Upload the early base results"]["with"]["name"], "react-apps-base-early-shard${{ matrix.shard }}")
         download = next(s for s in check["steps"] if s["name"] == "Download the early base results")
         self.assertEqual(download["with"]["pattern"], "react-apps-base-early-shard*")

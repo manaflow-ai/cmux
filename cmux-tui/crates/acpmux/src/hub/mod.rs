@@ -279,8 +279,14 @@ mod silent_turn;
 mod stalled_turn;
 mod start_retry;
 mod start_watch;
+pub(crate) mod task_list;
 pub(crate) mod tasks;
 pub use session::{Session, live_tags};
+/// A line of session text as every view may show it: masked (`secret_scan`), then cut to `max`
+/// characters (`task_list.rs`'s steps).
+pub(crate) fn masked_step(s: &str, max: usize) -> String {
+    session::masked_preview(s, max)
+}
 
 /// [`Hub::withdraws`]: each withdraw's answer once its notice is accepted or refused.
 type WithdrawsInFlight =
@@ -329,6 +335,7 @@ pub use paging::{
 };
 pub use spawn::expand_env_value;
 pub mod approvers;
+mod former_names;
 pub(crate) mod key_route;
 pub mod mac_approvers;
 pub mod no_session;
@@ -337,6 +344,7 @@ mod peer_cache;
 pub(crate) mod peer_cache_disk;
 #[cfg(test)]
 mod peer_cache_disk_tests;
+mod peer_closed_bound;
 #[cfg(all(test, target_os = "linux"))]
 mod peer_flap_soak;
 mod peer_grace;
@@ -345,6 +353,7 @@ mod peer_grace_tests;
 mod peer_lease;
 pub(crate) mod peer_snapshot;
 mod spoken_handles;
+mod task_names;
 pub use peer_lease::PeerLease;
 /// Debug builds only: the next `n` reads of whether a copy of `peer` is ahead fail, as a timed
 /// out or dead store would (`peer_snapshot/restore.rs`).
@@ -2321,6 +2330,15 @@ impl Hub {
         drop(sessions);
         if by_name.len() == 1 {
             return Ok(by_name.remove(0));
+        }
+        // No session has it as its name now: one that had it before a rename
+        // (`former_names.rs`), ahead of short names and prefixes. A peer's session that has it
+        // as its name now wins (`resolve_remote`).
+        if by_name.is_empty()
+            && let Some(found) = self.resolve_former_here(key)
+            && self.remote_strict_matches(key) == 0
+        {
+            return found;
         }
         let named = |matched: &[Arc<Session>]| -> Vec<String> {
             matched

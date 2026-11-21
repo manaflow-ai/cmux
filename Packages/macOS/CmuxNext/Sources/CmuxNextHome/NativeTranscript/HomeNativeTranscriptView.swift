@@ -30,6 +30,10 @@ public final class HomeNativeTranscriptView: NSView {
     }
     let transcript: MessagesLabHomeView
     let firstRun = HomeFirstRunView()
+    /// Meet Chief on the empty Chief chat (HomeNativeTranscriptView+ChiefOnboarding.swift); hidden while none shows.
+    let chiefOnboarding = HomeChiefOnboardingCard()
+    /// A click on Meet Chief's card; the host runs it on the app's ``ChiefOnboarding``.
+    public var onChiefOnboarding: (HomeChiefOnboardingAction) -> Void = { _ in }
     var starterSent = false
     var starterIntakes = 0 { didSet { updateStarterAvailability() } }
     let me: ParticipantID
@@ -210,6 +214,9 @@ public final class HomeNativeTranscriptView: NSView {
         wantsLayer = true
         addSubview(transcript)
         addSubview(firstRun)
+        chiefOnboarding.isHidden = true
+        chiefOnboarding.onAction = { [weak self] action in self?.chiefOnboardingClicked(action) }
+        addSubview(chiefOnboarding)
         noticeLabel.isHidden = true
         noticeLabel.font = Typography.caption
         noticeLabel.alignment = .center
@@ -486,6 +493,7 @@ public final class HomeNativeTranscriptView: NSView {
 
     func applyTextScale(_ scale: CGFloat) {
         firstRun.applyScale(scale)
+        chiefOnboarding.applyScale(scale)
         // The notice above the field sits outside the magnified transcript: its caption follows the chat's scale.
         // Default's caption at every density (user 2026-11-16: Compact draws the chat as Default does).
         let caption = Typography.caption
@@ -516,6 +524,7 @@ public final class HomeNativeTranscriptView: NSView {
         let top = transcript.headerHeight + pinnedSectionClearance
         let panel = CGRect(x: 0, y: top, width: bounds.width, height: max(0, transcript.fieldTop - top))
         if firstRun.frame != panel { firstRun.frame = panel }
+        layoutChiefOnboarding(in: panel)
         layoutNotice()
         layoutFind()
         followToasts()
@@ -567,8 +576,10 @@ public final class HomeNativeTranscriptView: NSView {
     }
 
     /// The first-run panel shows only in an empty Chief conversation.
-    private func updateFirstRun() {
-        firstRun.isHidden = holdsFirstRun || welcomesInChat || !(transcript.isEmpty && transcript.conversationSummary?.kind(me: me) == .chief)
+    func updateFirstRun() {
+        // Meet Chief takes the empty Chief chat's front page while it shows.
+        firstRun.isHidden = holdsFirstRun || welcomesInChat || chiefOnboarding.state != nil
+            || !(transcript.isEmpty && transcript.conversationSummary?.kind(me: me) == .chief)
     }
 
     /// The typing hold gives back what it holds while the views are still in the old window.
@@ -621,6 +632,9 @@ public final class HomeNativeTranscriptView: NSView {
             firstRun.applyColors(primary: Palette.textPrimary, secondary: Palette.textSecondary, tertiary: Palette.textTertiary, fill: Palette.elevatedBackground,
                                  hover: Palette.hoverFill, border: Palette.separator, attention: Palette.attention,
                                  danger: Palette.danger, done: Palette.highlight)
+            chiefOnboarding.applyColors(primary: Palette.textPrimary, secondary: Palette.textSecondary, tertiary: Palette.textTertiary,
+                                        fill: Palette.elevatedBackground, hover: Palette.hoverFill, border: Palette.separator,
+                                        accent: Palette.accentFill, onAccent: Palette.onAccent, lit: Palette.litGlyph, danger: Palette.danger)
             noticeLabel.textColor = Palette.textSecondary
         }
         drop.highlight.applyTheme()
