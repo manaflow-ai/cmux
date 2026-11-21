@@ -99,6 +99,7 @@ import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { holdOlderScrollTarget, noteOlderScrollTarget } from "./conversation/olderScrollTarget";
 import { noteTranscriptMount, noteMounted, noteUnmounted } from "./flickerLog";
+import { afterNextPaint } from "./afterNextPaint";
 import { useEndedReplyCheck } from "./conversation/replyJudge";
 import { authoritativeScrollIntent, createScrollPacer, type ScrollFrame } from "./scrollPacer";
 import { type Translate, useT } from "./i18n";
@@ -1220,6 +1221,12 @@ const WARM_VIEWPORTS = 1;
 /// by OLDER_AHEAD_VIEWPORTS. Above the view, so a followed view's end anchors them: their heights
 /// land in the offset in the frame they are measured and no visible row moves.
 const HISTORY_VIEWPORTS = 4;
+
+/// Viewports of history a chat's first commit mounts above its view: the rest (HISTORY_VIEWPORTS) mount
+/// right after its first paint. The first commit renders, lays out and measures every row it mounts, and
+/// four viewports of history were most of that (bench/settled-page.bench.ts chat_switch). One is still
+/// drawn in the first painted frame, so a reader who scrolls up at once finds rows there.
+const OPEN_HISTORY_VIEWPORTS = 1;
 
 /// How far the reader scrolls, in viewports, before the warm rows move with them.
 const WARM_STEP_VIEWPORTS = 0.5;
@@ -2852,6 +2859,12 @@ function TranscriptView({
   /// The room above the rows for history not loaded yet, and the row it is held against.
   const olderRoom = useRef<OlderReserve | undefined>(undefined);
   const olderDragPending = useRef(false);
+  // The chat whose first paint has passed: from then on its history mounts in full (OPEN_HISTORY_VIEWPORTS).
+  const [paintedSession, setPaintedSession] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    if (paintedSession === sessionKey) return;
+    return afterNextPaint(() => setPaintedSession(sessionKey));
+  }, [paintedSession, sessionKey]);
   const [scrollbarRange, setScrollbarRange] = useState<{ session: string; height: number } | undefined>(undefined);
   const draggedHeight = scrollbarRange?.session === sessionKey ? scrollbarRange.height : undefined;
   useLayoutEffect(() => {
@@ -4617,11 +4630,14 @@ function TranscriptView({
   heldWarmAt.current = sessionSwitched ? undefined : warmAt;
   const warmTop = warmAnchorTop(layout, rows, useDeferredValue(warmAt)) ?? liveWarmAt;
   // Above the view the warm rows reach HISTORY_VIEWPORTS: history to scroll up into, built between
-  // frames as the rest of them are.
+  // frames as the rest of them are. Until the chat's first paint has passed (`paintedSession`) they
+  // reach OPEN_HISTORY_VIEWPORTS and none below the view, in this and every commit before it.
+  const historyOpened = paintedSession === sessionKey;
+  const historyViewports = historyOpened ? HISTORY_VIEWPORTS : OPEN_HISTORY_VIEWPORTS;
   const warm = visibleLayoutRange(
     layout,
-    warmTop - height * HISTORY_VIEWPORTS - warmStep / 2,
-    height * (1 + HISTORY_VIEWPORTS + WARM_VIEWPORTS) + warmStep,
+    warmTop - height * historyViewports - warmStep / 2,
+    height * (1 + historyViewports + (historyOpened ? WARM_VIEWPORTS : 0)) + warmStep,
   );
   // A followed view (a chat as it opens, at its latest row) mounts that history in the commit that
   // draws it, not a deferred render later: the deferred anchor of a chat's first commit is the top of
@@ -4629,7 +4645,7 @@ function TranscriptView({
   // nothing to scroll up into. A followed view is anchored at its end, so rows drawn above it at their
   // estimate and measured move the offset, never a visible row. Scrolled up, the warm rows hold it.
   const history = renderFollowing
-    ? visibleLayoutRange(layout, shownTop - height * HISTORY_VIEWPORTS, height * HISTORY_VIEWPORTS, 0)
+    ? visibleLayoutRange(layout, shownTop - height * historyViewports, height * historyViewports, 0)
     : undefined;
   const scrolledRanges = mergeRowRanges([
     ...(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]),
