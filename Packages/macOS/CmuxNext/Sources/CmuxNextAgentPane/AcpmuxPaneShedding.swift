@@ -22,7 +22,12 @@ nonisolated enum AcpmuxPaneShedding {
     /// observer reads (a permission, a prompt's acceptance), which ``AcpmuxRequestIds`` must see.
     /// Anything it cannot read plainly (an escaped key or method) is kept.
     static func sheddable(_ text: String) -> Bool {
-        guard let method = notificationMethod(text) else { return false }
+        sheddable(text, method: notificationMethod(text))
+    }
+
+    /// ``sheddable(_:)`` with the frame's ``notificationMethod(_:)`` already read.
+    static func sheddable(_ text: String, method: String?) -> Bool {
+        guard let method else { return false }
         if method == "_acpmux/event" {
             return !AcpmuxRequestIds.eventObserverMarkers.contains(where: text.contains)
         }

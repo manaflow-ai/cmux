@@ -75,6 +75,8 @@ import CmuxNextWakeups
     private var lastCall: TimeInterval = -.infinity
     /// Calls made (tests).
     private(set) var calls = 0
+    /// Tells the pane's socket whether anyone sees the pane: nobody does, and its chat's stream stays in the daemon.
+    public let streamVisibility: AgentPaneStreamVisibility? = AgentPaneStreamVisibility()
 
     public init(frames: any AgentPaneFrameTicks, fallback: any AgentPaneFallbackDeadline,
                 now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
@@ -194,6 +196,7 @@ import CmuxNextWakeups
 
     /// The pane may have come into sight: frames held while it was hidden go now.
     func visibilityChanged() {
+        streamVisibility?.set(hidden: isHidden())
         guard held || waitingWhileHidden, !isHidden() else { return }
         held = false
         if waitingWhileHidden {

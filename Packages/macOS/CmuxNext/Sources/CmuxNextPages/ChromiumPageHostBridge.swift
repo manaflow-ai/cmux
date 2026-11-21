@@ -298,7 +298,7 @@ public final class ChromiumPageHostBridge: PageHostBridge {
             "contextId": context, "returnByValue": true, "silent": true,
         ])
         let sender = senderJSON.flatMap(ChromiumPageHostWire.Sender.init(evaluation:))
-        let request = PageHostMessage(frameURL: sender?.url, isMainFrame: sender?.isTop ?? false, body: message.body)
+        let request = PageHostMessage(frameURL: sender?.url, isMainFrame: sender?.isTop ?? false, body: message.body, json: message.json)
         if message.name != PageHostTrust.handlerName {
             guard fireAndForget.contains(message.name), request.isMainFrame else { return }
             noteReached()

@@ -329,7 +329,7 @@ import CmuxNextCompat
         requestIds = ids
         let socket = AcpmuxPaneSocket(request: connection.request, wire: wire, limits: limits,
                                       options: permissionOptions, sessions: sessions, decisions: decisions,
-                                      replacements: replacements, connection: id, ids: ids,
+                                      replacements: replacements, connection: id, ids: ids, visibility: pacer.streamVisibility,
                                       agentReplies: connection.remote == nil ? currentAgentReply : nil,
                                       onQuestionStateChanged: onQuestionStateChanged) { [weak self] in
             // task-owner: one wake for the pacer; arrived(_:) ignores a stale connection

@@ -168,7 +168,8 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
             case "newTab.context":
               return later({ newTab: context });
             case "newTab.warm":
-              posts.push(JSON.stringify(request.params?.warm));
+              // The page posts its JSON text, kept as it is (AgentPaneNewTab.warmed).
+              posts.push(String(request.params?.warm));
               return later(null);
             case "project.list":
               return held({
@@ -270,7 +271,8 @@ await requireBrowserLane("new-tab-warm-first-frame.test.ts", async () => {
     // The post after the host's device chats push carries them too.
     const posted = () =>
       (window as unknown as { __posts: string[] }).__posts.filter((post) => post.includes("d-old")).at(-1);
-    await source.waitForFunction(posted, null, { timeout: 5_000 }).catch(() => {});
+    // Posts come at most every two seconds (warmSnapshot.ts POST_DELAY_MS): the list, then the device chats.
+    await source.waitForFunction(posted, null, { timeout: 10_000 }).catch(() => {});
     warmed = await source.evaluate(posted);
     await source.close();
   }
