@@ -1,9 +1,6 @@
 # Pane-operation evidence
 
-Code inspected in `manaflow-ai/cmux`, authorized worktree
-`/home/cmux/Projects/checkouts/cmux/lane--rex-feature-looks`, at observed head
-`d878dee81d42668078f9285bfb7c81fde23d2f0e`. The parent may advance that branch;
-this is the inspection identity, not a test receipt for a later head.
+The action and handler locations below were checked at commit `d878dee81d42668078f9285bfb7c81fde23d2f0e`.
 
 ## Native routes
 
@@ -27,15 +24,12 @@ Setup and preview follow the sibling packs: `cmux-setup.json`, an adjacent
 `keybindings.json`, and a `cmuxProfile: 1` portable profile embedding that file.
 The owning loaders are `cmux-tui/crates/cmux-customize/src/setup.rs`,
 `setup/reference.rs`, and `library/keys.rs`. The latter composes keybinding entries
-by their normalized chord, so the parent must keep reservations distinct even
-when `when` scopes differ.
+by normalized chord. Keep each chord distinct across the combined setup.
 
 ## Official release and reference
 
 The supplied extracted release is `0.1.0-snapshot.2077`, source identity
-`3ea01c01f5f8adde64bdca1f372009b8ef2a15c3`. Its
-`/tmp/rex-plus-bundle-evidence/Rex-strings-offsets.txt` includes these exact action
-identifiers (binary string offsets):
+`3ea01c01f5f8adde64bdca1f372009b8ef2a15c3`. The executable in the release contains the following action identifiers at the listed byte offsets.
 
 | Source ID | Offset |
 | --- | --- |

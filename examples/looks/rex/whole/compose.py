@@ -5,8 +5,8 @@ import json
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-BASE_PACKS = ("appearance", "toolbar", "new-tab", "hosts", "session-picker", "panes",
-         "terminal", "tabs", "palette", "preferences")
+PACKS = ("appearance", "toolbar", "new-tab", "hosts", "session-picker", "panes",
+         "terminal", "tabs", "palette", "preferences", "session-operations", "pane-operations")
 VIEWS = {"new-tab", "hosts", "session-picker"}
 APP_FILES = ("customize/cmux-app.json", "customize/main.js")
 
@@ -74,16 +74,9 @@ def add_binding(by_key, row, source):
     return True
 
 
-def packs(root):
-    # Use the ten base packs in their established order. Discover further
-    # components from their setup manifests, excluding the assembled pack.
-    extra = {p.parent.name for p in root.glob("*/cmux-setup.json")} - set(BASE_PACKS) - {"whole"}
-    return (*BASE_PACKS, *sorted(extra))
-
-
 def compose(root):
     settings, files, bindings, by_key = {}, {}, [], {}
-    for name in packs(root):
+    for name in PACKS:
         pack = root / name
         setup = json.loads((pack / "cmux-setup.json").read_text())
         profile = json.loads((pack / "profile.json").read_text())
@@ -128,4 +121,4 @@ if __name__ == "__main__":
         else:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content)
-    print(f"{len(packs(options.sources))} packs, {len(output)-2} payload files")
+    print(f"{len(PACKS)} packs, {len(output)-2} payload files")

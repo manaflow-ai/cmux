@@ -300,5 +300,55 @@
     "key": "cmd+opt+quote",
     "command": "focusHistoryLast",
     "when": "terminalFocused && !paletteOpen"
+  },
+  {
+    "key": "ctrl+opt+cmd+j n",
+    "command": "nextSidebarTabInGroup",
+    "when": "terminalFocused && !paletteOpen"
+  },
+  {
+    "key": "ctrl+opt+cmd+j p",
+    "command": "prevSidebarTabInGroup",
+    "when": "terminalFocused && !paletteOpen"
+  },
+  {
+    "key": "ctrl+opt+cmd+j l",
+    "command": "workspace.selectLastUsed",
+    "when": "terminalFocused && !paletteOpen"
+  },
+  {
+    "key": "ctrl+opt+cmd+j r",
+    "command": "renameWorkspace",
+    "when": "terminalFocused && !paletteOpen"
+  },
+  {
+    "key": "ctrl+opt+cmd+j w",
+    "command": "closeWorkspace",
+    "when": "terminalFocused && !paletteOpen"
+  },
+  {
+    "key": "ctrl+opt+cmd+w",
+    "command": "closePane",
+    "when": "terminalFocused && !paletteOpen"
+  },
+  {
+    "key": "ctrl+opt+cmd+shift+w",
+    "command": "pane.closeOthers",
+    "when": "terminalFocused && !paletteOpen"
+  },
+  {
+    "key": "ctrl+opt+cmd+t",
+    "command": "pane.moveToNewWorkspace",
+    "when": "terminalFocused && !paletteOpen"
+  },
+  {
+    "key": "ctrl+opt+cmd+n",
+    "command": "pane.moveToNewWindow",
+    "when": "terminalFocused && !paletteOpen"
+  },
+  {
+    "key": "ctrl+opt+cmd+c",
+    "command": "palette.copyPaneID",
+    "when": "terminalFocused && !paletteOpen"
   }
 ]
