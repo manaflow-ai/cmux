@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44863102292",
+  "recorded_at": "2026-11-21T04:02:04Z",
+  "reason": "cmux-tui 36af1c3b4c4c changes the image's cmux-tui (pinned a8e4ea9148eb)",
+  "dry_run": false,
+  "cmux_tui": "36af1c3b4c4ce01233a64b6516b80dc1eced2450",
+  "fixes": [
+    {
+      "sha": "36af1c3b4c4ce01233a64b6516b80dc1eced2450",
+      "mergedAt": "2026-11-20T19:19:13-08:00",
+      "subject": "cloud-dev-stack: each tag stack gets an authenticated public origin, and the backend allowlists name exactly ours (#48344)"
+    },
+    {
+      "sha": "98a7133c89985cbcb9ba10baf57bf474fc604c65",
+      "mergedAt": "2026-11-20T19:10:13-08:00",
+      "subject": "feat: add a Labs-gated guest handoff experiment (#48191)"
+    },
+    {
+      "sha": "933d71d36c221f844ca2b16bd920fca53d715dfb",
+      "mergedAt": "2026-11-20T18:57:39-08:00",
+      "subject": "cmux-tui: shared agent shims start claude/codex through the terminal's own cmux (no cmux in /mcp in older terminals) (#48353)"
+    },
+    {
+      "sha": "1594211048cceea5cd7ec710de92d781efc604a6",
+      "mergedAt": "2026-11-21T02:56:35Z",
+      "subject": "cmux-tui: the public topology fold keeps digests of what it stated, not copies (CMUX-571) (successor of #46174) (#47858)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-21T04:02:04Z",
+    "snapshot_id": "sh-a77c0c43324e4da3a2281cf12e9d0ce1",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44863102292): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "b1eac9699320df7998f4050e261367b5689a8229",
+    "image": "cloud-native-auto-36af1c3b-44863102292-1",
+    "revision": "ci-44863102292-1",
+    "at": "2026-11-21T04:02:04Z"
+  },
+  "rolled_back": false
+}
