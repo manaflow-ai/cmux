@@ -40,7 +40,8 @@ public struct QuitShortcutPresses: Equatable {
         // One key-down can reach both the repeat monitor and the action.
         if lastTimestamp == timestamp { return .wait }
         lastTimestamp = timestamp
-        guard let armedAt, timestamp >= armedAt else { return arm(timestamp) }
+        // A repeat is never a first press: the keys still held after a quit that was refused (Cancel on unsaved changes).
+        guard let armedAt, timestamp >= armedAt else { return isRepeat ? .wait : arm(timestamp) }
         if isRepeat {
             // A repeat follows the press that armed: a new press would not repeat before it was counted.
             guard timestamp - armedAt >= Self.holdDuration else { return .wait }
@@ -77,10 +78,10 @@ public final class QuitShortcutGuard {
     public var onHeldQuit: (() -> Void)?
     /// Ends the warning when the guard disarms (a quit, a timeout, the setting off).
     public var onDisarm: (() -> Void)?
-    private let addMonitor: (@escaping @MainActor (NSEvent) -> NSEvent?) -> Any?
+    private let addMonitor: (@escaping (NSEvent) -> NSEvent?) -> Any?
     private let removeMonitor: (Any) -> Void
 
-    public init(addMonitor: @escaping (@escaping @MainActor (NSEvent) -> NSEvent?) -> Any? = { NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: $0) },
+    public init(addMonitor: @escaping (@escaping (NSEvent) -> NSEvent?) -> Any? = { NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: $0) },
                 removeMonitor: @escaping (Any) -> Void = { NSEvent.removeMonitor($0) }) {
         self.addMonitor = addMonitor
         self.removeMonitor = removeMonitor

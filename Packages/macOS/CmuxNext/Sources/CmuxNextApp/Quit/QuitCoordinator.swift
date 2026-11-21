@@ -75,8 +75,7 @@ final class QuitCoordinator {
     /// shows "Hold ⌘Q or press it again to quit" in the active window.
     func holdsShortcutQuit(_ invocation: ActionInvocation) -> Bool {
         let enabled = !isQuitting && (services.settings?.snapshot.warnBeforeQuitShortcut ?? CmuxConfigSnapshot.warnBeforeQuitShortcutDefault)
-        let event = services.inputDispatch.event ?? NSApp?.currentEvent
-        return shortcutGuard.holds(invocation, event: event, enabled: enabled) { [weak self] in self?.showShortcutWarning($0) ?? false }
+        return shortcutGuard.holds(invocation, event: services.inputDispatch.event, enabled: enabled) { [weak self] in self?.showShortcutWarning($0) ?? false }
     }
 
     private func showShortcutWarning(_ shortcut: String) -> Bool {

@@ -43,6 +43,12 @@ import Testing
         #expect(presses.press(isRepeat: true, timestamp: 10 + QuitShortcutPresses.holdDuration) == .quit)
     }
 
+    @Test func aRepeatWithNothingArmedNeitherWarnsNorQuits() {
+        var presses = QuitShortcutPresses()
+        #expect(presses.press(isRepeat: true, timestamp: 10) == .wait)
+        #expect(!presses.isArmed)
+    }
+
     @Test func oneKeyDownSeenTwiceCountsOnce() {
         var presses = QuitShortcutPresses()
         #expect(presses.press(isRepeat: false, timestamp: 10) == .warn)
@@ -66,7 +72,7 @@ import Testing
     }
 
     @Test func theHeldShortcutsRepeatsQuitThroughTheMonitor() throws {
-        var handler: (@MainActor (NSEvent) -> NSEvent?)?
+        var handler: ((NSEvent) -> NSEvent?)?
         var removed = 0
         let quitGuard = QuitShortcutGuard(addMonitor: { handler = $0; return "monitor" }, removeMonitor: { _ in removed += 1 })
         var quits = 0, disarms = 0
