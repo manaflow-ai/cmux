@@ -35,6 +35,23 @@ struct MuseAgentResumeTests {
         #expect(!MuseExecutableName("muse").isVersionedBinary)
     }
 
+    /// cmux#44791: the process scan asks this about every bare process name, and
+    /// `URL(fileURLWithPath:)` paid a `getcwd` and an `lstat` to resolve each one
+    /// under the working directory. Resolving also folded `muse-bin-1.0.3-R/.`
+    /// down to its folder, which is what gives the old path away here.
+    @Test("Reads the executable name as a string, not a file path", arguments: ["muse-bin-1.0.3-R/.", "muse-bin-1.0.3-R/sub/.."])
+    func versionedBinaryCheckDoesNotResolveTheName(name: String) {
+        #expect(!MuseExecutableName(name).isVersionedBinary)
+    }
+
+    @Test(
+        "Still finds the versioned binary by its last path component",
+        arguments: ["muse-bin-1.0.3-R", "MUSE-BIN-1.0.3-R", "./muse-bin-1.0.3-R", "/opt/muse/bin/muse-bin-1.0.3-R/"]
+    )
+    func versionedBinaryCheckUsesTheLastPathComponent(name: String) {
+        #expect(MuseExecutableName(name).isVersionedBinary)
+    }
+
     @Test("Replaces a prior session reference and drops one-shot launch state")
     func sanitizesCapturedLaunchArguments() {
         #expect(

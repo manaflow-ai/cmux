@@ -495,6 +495,42 @@ struct CmuxTopSnapshotScopeTests {
         #expect((scope) == nil)
     }
 
+    /// #44791: the basename of argv[0] came from `URL(fileURLWithPath:)`, which
+    /// treats a relative name as a file under the app's working directory and
+    /// pays a `getcwd` and an `lstat` to resolve it. Resolving also folded
+    /// `cmux/.` down to `cmux`, which is what gives the old path away here.
+    @Test(arguments: ["cmux/.", "cmux/sub/.."])
+    func testHookMonitorMatchReadsArgv0AsAStringNotAFilePath(argv0: String) {
+        let workspaceID = UUID(uuidString: "77777777-7777-7777-7777-777777777777")!
+
+        let scope = CmuxTopProcessSnapshot.cmuxScope(
+            arguments: [argv0, "hooks", "codex", "monitor", "--workspace", workspaceID.uuidString],
+            environment: [:]
+        )
+
+        #expect(scope == nil)
+    }
+
+    @Test(arguments: [
+        "cmux",
+        "CMUX",
+        "./cmux",
+        "bin/cmux",
+        "/opt/cmux/",
+        "/Applications/cmux.app/Contents/Resources/bin/cmux",
+    ])
+    func testHookMonitorMatchesCmuxByTheLastPathComponentOfArgv0(argv0: String) {
+        let workspaceID = UUID(uuidString: "88888888-8888-8888-8888-888888888888")!
+
+        let scope = CmuxTopProcessSnapshot.cmuxScope(
+            arguments: [argv0, "hooks", "codex", "monitor", "--workspace", workspaceID.uuidString],
+            environment: [:]
+        )
+
+        #expect(scope?.workspaceID == workspaceID)
+        #expect(scope?.attributionReason == "cmux-hook-arguments")
+    }
+
     @MainActor
     @Test func testLaunchdParentedCodexMonitorArgumentsAttachToOwningSurface() throws {
         let workspaceID = UUID(uuidString: "55555555-5555-5555-5555-555555555555")!
