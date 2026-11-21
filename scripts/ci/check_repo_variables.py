@@ -20,6 +20,9 @@ Inputs, from the workflow's expression context (no token can read variables):
   CI_PIN_DAEMON_POOL        the pool of cmux-tui-pin-* pushes' daemon tests; empty,
                             they take CI_LIGHT_LANE_RUNNER (cmux-tui-artifacts.yml)
 
+CI_CONTROL_RUNNER (one of the runner variables) may not name a GitHub-hosted
+label (control_runner_problem).
+
 While that record exists, a runner variable holding exactly the failover the
 switch wrote there is expected, not drift: an owned pool label in
 MACOS_RUNNER_* is otherwise refused.
@@ -37,6 +40,7 @@ from pr_runner_pool import PR_XCODE_VARIABLE, SLOTS_VARIABLE, slot_problems  # n
 from runner_label_policy import HOSTED_MACOS_LABEL, PolicyUnreadable, drifted_runner_variables  # noqa: E402
 from cloud_overflow_switch import (RECORD_VARIABLE, TRUSTED_BLACKSMITH_LABELS, TRUSTED_VARIABLE,  # noqa: E402
                                    parse_record)
+from runner_pools import HOSTED as HOSTED_RUNNER_LABEL  # noqa: E402
 from signing_runner_variables import allowed_value  # noqa: E402
 
 RUNNER_VARIABLES_ENV = "CMUX_CI_RUNNER_VARIABLES"
@@ -44,6 +48,27 @@ DAEMON_POOL_VARIABLE = "CI_NEXT_DAEMON_POOL"
 SIDE_LANE_VARIABLE = "CI_SIDE_LANE_RUNNER"
 PIN_POOL_VARIABLE = "CI_PIN_DAEMON_POOL"
 LIGHT_LANE_VARIABLE = "CI_LIGHT_LANE_RUNNER"
+CONTROL_RUNNER_VARIABLE = "CI_CONTROL_RUNNER"
+
+
+def control_runner_problem(value: str) -> str | None:
+    """Why CI_CONTROL_RUNNER's value is refused, or None when it is fine (empty is the default).
+
+    2026-11-18: it held ubuntu-24.04 (set 2026-11-01 to escape a Blacksmith Linux
+    outage). GitHub-hosted Ubuntu then queued for hours on the organization's
+    hosted concurrency, so nightly-next-tick.yml's request job and
+    nightly-next-feed-watch.yml never started and no NEXT nightly was promoted,
+    with nothing red. So a GitHub-hosted label (runner_pools.HOSTED: ubuntu-*,
+    macos-*, windows-*) is refused; a Blacksmith label such as the documented
+    failover blacksmith-6vcpu-macos-26, or an owned one, is fine.
+    """
+    label = value.strip()
+    if not label or not HOSTED_RUNNER_LABEL.match(label.lower()):
+        return None
+    return (f"{CONTROL_RUNNER_VARIABLE}={label!r} is a GitHub-hosted label: hosted runners queue for hours when "
+            "the organization's hosted concurrency is full, so the nightly-next tick and feed watch never start "
+            "(2026-11-18). Fix: set it to a Blacksmith label that is starting jobs (blacksmith-6vcpu-macos-26 "
+            "while Blacksmith Linux is down), or delete it for blacksmith-2vcpu-ubuntu-2404")
 
 
 def parse_runner_variables(raw: str) -> dict[str, str]:
@@ -129,6 +154,9 @@ def problems(env: dict[str, str]) -> list[str]:
             found.extend(pin_pool_findings(env.get(PIN_POOL_VARIABLE, "").strip(), daemon_pool, variables)[0])
             drifted = list(drifted_runner_variables(variables))
             reported = {name for name, _, _ in drifted}
+            control = control_runner_problem(variables.get(CONTROL_RUNNER_VARIABLE, ""))
+            if control and CONTROL_RUNNER_VARIABLE not in reported:
+                found.append(control)
             for name, value in sorted(variables.items()):
                 # Checked on their own: the drift policy accepts some labels (an older provider's,
                 # say) that no signing job may run on.

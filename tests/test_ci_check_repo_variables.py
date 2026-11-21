@@ -129,6 +129,21 @@ class Values(unittest.TestCase):
                                    CI_CLOUD_OVERFLOW_SAVED=record))
         self.assertTrue(any("MACOS_RUNNER_15" in problem for problem in found), found)
 
+    def test_control_runner_refuses_a_github_hosted_label(self) -> None:
+        # 2026-11-18: CI_CONTROL_RUNNER=ubuntu-24.04 queued the nightly-next
+        # tick and feed watch for hours on hosted concurrency, and nothing
+        # promoted a NEXT nightly. A hosted label fails; Blacksmith, owned and
+        # unset pass.
+        for label in ("ubuntu-24.04", "ubuntu-latest", "macos-15", "macos-latest", "windows-2022", "Ubuntu-24.04"):
+            with self.subTest(label=label):
+                found = check.problems(env(CMUX_CI_RUNNER_VARIABLES=GOOD_RUNNERS + f"CI_CONTROL_RUNNER={label}\n"))
+                self.assertEqual(len(found), 1, found)
+                self.assertIn("CI_CONTROL_RUNNER", found[0])
+        for label in ("blacksmith-6vcpu-macos-26", "blacksmith-2vcpu-ubuntu-2404", ""):
+            with self.subTest(label=label):
+                self.assertEqual(check.problems(env(CMUX_CI_RUNNER_VARIABLES=GOOD_RUNNERS
+                                                    + f"CI_CONTROL_RUNNER={label}\n")), [])
+
     def test_nothing_to_check_is_a_failure_not_a_pass(self) -> None:
         self.assertTrue(check.problems(env(CMUX_CI_RUNNER_VARIABLES="")))
         self.assertTrue(check.problems(env(CMUX_CI_RUNNER_VARIABLES="not a pair")))
