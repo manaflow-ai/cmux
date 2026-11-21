@@ -481,7 +481,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::MoveSessions {
+        Command::MoveSessions(crate::cli::command::MoveSessionsArgs {
             sessions,
             host,
             all_idle,
@@ -492,7 +492,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             cwd,
             dry_run,
             from,
-        } => {
+        }) => {
             let args = super::session_move::MoveArgs {
                 sessions,
                 host,

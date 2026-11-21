@@ -76,6 +76,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // A registration is for the caller's own session on this daemon (`hub/register.rs`): its
     // NAME is the name to take, never a peer session to forward to, and its token stays here.
     method::MUX_REGISTER,
+    // So is an inbox relay: it serves the Claude Code session it runs under, on this machine.
+    method::MUX_INBOX_RELAY,
     // A message to deliver is this daemon's (`outbox.rs`), whatever session it names.
     method::MUX_SEND_QUEUE,
     method::MUX_SEND_STATUS,
