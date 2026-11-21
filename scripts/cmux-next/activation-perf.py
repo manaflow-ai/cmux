@@ -119,15 +119,69 @@ class Session:
                 "chat_tabs": len(made["chat"]), "hibernated": hibernated, "build_s": round(time.monotonic() - start, 1)}
 
 
+REALLY_ACTIVE = "really active"
+
+
+def finder_pid():
+    """Finder's pid, the app a backgrounded cmux hands activation to (None when it does not run)."""
+    found = subprocess.run(["/usr/bin/pgrep", "-x", "Finder"], capture_output=True, text=True).stdout.split()
+    return int(found[0]) if found else None
+
+
+def background(app, seconds=10):
+    """Makes the app really inactive, as after a Cmd-Tab away: `debug.app_activation` refuses to run while it is
+    active, and on a measure host with a console session the launched app is frontmost even under
+    CMUX_NEXT_NO_ACTIVATE (every cycle of the first fleet run, 2026-11-20, answered "really active" and measured
+    nothing). Hands activation to Finder (`debug.focus {deactivate}`) until a probe resign is accepted.
+    Returns whether it is."""
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:  # bounded wait for the window server to move activation away
+        probe = app.rpc("debug.app_activation", {"active": False}) or {}
+        if REALLY_ACTIVE not in str(probe.get("error") or ""):
+            app.rpc("debug.app_activation", {"active": True})  # the probe's resign undone: cycles start from active
+            return True
+        params = {"deactivate": True}
+        pid = finder_pid()
+        if pid:
+            params["activate_pid"] = pid
+        app.rpc("debug.focus", params)
+        time.sleep(0.5)  # test script: the window server applies the activation change
+    return False
+
+
+def main_thread_sample(path, limit=2500):
+    """The main thread's call graph from a `sample` file, its first `limit` lines (heaviest first): the report
+    carries it, since a fleet step uploads only its report.json."""
+    lines, keep = [], False
+    with open(path, errors="replace") as f:
+        for line in f:
+            # `sample` names the main thread "DispatchQueue_1: com.apple.main-thread" or "Main Thread" (the
+            # second on the first fleet run, step 76abb42ac4c65321ef27605b, so nothing was kept).
+            # The main thread is the call graph's first thread, named "com.apple.main-thread", "Main Thread" or, once
+            # Chromium has started, "CrBrowserMain" (the fleet runs' samples, step 84264bd896bee5e0ba517815).
+            if not keep and ("com.apple.main-thread" in line or "Main Thread" in line or "CrBrowserMain" in line):
+                keep = True
+            elif keep and (line.strip().startswith("Total number in stack")
+                           or (lines and "Thread_" in line and line.lstrip().split(" ", 1)[0].isdigit()
+                               and line.split("Thread_", 1)[0].strip().isdigit())):
+                break  # the next thread's header ("    120 Thread_2 ...") or the end of the call graph
+            if keep:
+                lines.append(line.rstrip("\n"))
+                if len(lines) >= limit:
+                    break
+    return lines
+
+
 def cycles(app, count, pid=None, sample_out=None, settle=0.4, window_notices=True):
     """`count` resign/become pairs; per become: observers_ms, drain_ms, round trip and resyncs."""
+    background(app)
     app.rpc("debug.hangs", {"clear": True})
     app.rpc("debug.layout_counters", {"reset": True})
     sampler = None
     if pid and sample_out:
         seconds = max(3, int(count * (settle * 2 + 0.3)) + 2)
         sampler = subprocess.Popen(["/usr/bin/sample", str(pid), str(seconds), "-mayDie", "-file", sample_out],
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                   stdout=subprocess.DEVNULL, stderr=open(sample_out + ".err", "w"))
         time.sleep(0.5)  # test script: sample attaches before the first cycle
     rows = []
     for _ in range(count):
@@ -140,7 +194,8 @@ def cycles(app, count, pid=None, sample_out=None, settle=0.4, window_notices=Tru
         counters = app.rpc("debug.layout_counters", {"reset": False}) or {}
         t2 = time.monotonic()
         rows.append({"round_trip_ms": round((t1 - t0) * 1000, 2), "drain_ms": round((t2 - t1) * 1000, 2),
-                     "observers_ms": reply.get("observers_ms"), "resyncs": counters.get("indicator_resyncs"),
+                     "observers_ms": reply.get("observers_ms"), "parts_ms": reply.get("parts_ms"),
+                     "resyncs": counters.get("indicator_resyncs"),
                      "error": reply.get("error")})
         time.sleep(settle)  # test script: trailing work of this activation ends before the next one
     if sampler:
@@ -154,7 +209,12 @@ def summarize(rows, hangs):
         values = [r[key] for r in rows if isinstance(r.get(key), (int, float))]
         return {"p50": pct(values, 0.5), "p95": pct(values, 0.95), "max": max(values) if values else None}
     total = [r["round_trip_ms"] + r["drain_ms"] for r in rows]
-    return {"cycles": len(rows), "observers_ms": stat("observers_ms"), "round_trip_ms": stat("round_trip_ms"),
+    names = sorted({k for r in rows if isinstance(r.get("parts_ms"), dict) for k in r["parts_ms"]})
+    parts = {}
+    for name in names:
+        values = [r["parts_ms"][name] for r in rows if isinstance((r.get("parts_ms") or {}).get(name), (int, float))]
+        parts[name] = {"p50": pct(values, 0.5), "p95": pct(values, 0.95), "max": max(values) if values else None}
+    return {"cycles": len(rows), "observers_ms": stat("observers_ms"), "parts_ms": parts, "round_trip_ms": stat("round_trip_ms"),
             "drain_ms": stat("drain_ms"), "total_ms": {"p50": pct(total, 0.5), "p95": pct(total, 0.95)},
             "resyncs": stat("resyncs"), "hangs": hangs.get("count", hangs.get("total")),
             "worst_hangs": (hangs.get("hangs") or hangs.get("items") or [])[:3],
@@ -257,8 +317,19 @@ def run(app, opts, pid=None):
     sample_out = os.path.join(opts.out, "activation-sample.txt") if opts.sample and pid else None
     heavy_rows, heavy_hangs = cycles(app, opts.cycles, pid=pid, sample_out=sample_out)
     heavy = summarize(heavy_rows, heavy_hangs)
-    print(f"activation-perf: heavy {json.dumps(heavy)}", flush=True)
+    if sample_out:
+        heavy["main_thread_sample"] = main_thread_sample(sample_out) if os.path.exists(sample_out) else []
+        if not heavy["main_thread_sample"]:
+            # No main thread found: the file's head says what `sample` wrote (two fleet runs kept nothing).
+            heavy["sample_head"] = (open(sample_out, errors="replace").read(6000).splitlines()[:80]
+                                    if os.path.exists(sample_out) else [f"no file at {os.path.abspath(sample_out)}"])
+        if os.path.exists(sample_out + ".err"):
+            heavy["sample_errors"] = open(sample_out + ".err", errors="replace").read()[-2000:]
+    print(f"activation-perf: heavy {json.dumps({k: v for k, v in heavy.items() if k != 'main_thread_sample'})}", flush=True)
     failures = []
+    for name, part in (("light", light), ("heavy_app_only", heavy_app), ("heavy", heavy)):
+        if part["observers_ms"]["p50"] is None:
+            failures.append(f"{name}: no activation was timed (observers_ms missing): {'; '.join(part['errors']) or 'no error'}")
     worst = heavy["resyncs"]["max"]
     if worst is not None and worst > opts.max_resyncs:
         failures.append(f"an activation resynced {worst} status indicators in the heavy session (budget {opts.max_resyncs}: "
@@ -297,7 +368,8 @@ def main():
             json.dump(report, f, indent=1)
     for failure in report.get("failures") or []:
         print(f"FAIL {failure}", flush=True)
-    sys.exit(1 if opts.gate and report.get("failures") else 0)
+    untimed = any("no activation was timed" in f for f in report.get("failures") or [])
+    sys.exit(1 if untimed or (opts.gate and report.get("failures")) else 0)
 
 
 if __name__ == "__main__":

@@ -5,14 +5,14 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { claudeTranscriptModelsProgram, transcriptModels } from "./cloud-journey";
 import { ensureBenchCommand, ensureBenchMarkdown, parseEnsureBench } from "./cloud-journey";
-import { execProbe, execProbeCommand, execProbeHop, execProbeMarkdown, markRanOnGuest, EXEC_PROBE_NONCES, type ExecProbeRun } from "./cloud-journey";
+import { execProbe, execProbeCommand, execProbeHop, execProbeMarkdown, machineStopFields, markRanOnGuest, EXEC_PROBE_NONCES, type ExecProbeRun } from "./cloud-journey";
 import { Api, clientPlatformOrigin, Journey, preclaimDeployFields, preclaimGuestFacts, preclaimHoldMinutes, preclaimMetMarkdown, preclaimRefillImage, preclaimRefillToReady, runPreclaimBurst, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
 import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
-import { directExec, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
+import { directExec, settleBackground, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
 
 describe("cloud journey", () => {
@@ -88,6 +88,10 @@ describe("cloud journey", () => {
       post_bind_login: "receipt",
       first_chat_ms: null,
       first_reply_ms: null,
+      warm_team_matches_claim: null,
+      warm_named: true,
+      warm_reason: null,
+      spare_ready_by: null,
       refill_to_ready_ms: null, refill_to_ready_unavailable: "not recorded", refill_image: null, refill_image_unavailable: "not recorded",
       post_bind_login_ms: null, post_bind_login_ms_unavailable: "not recorded", claim_to_first_text_ms: null, claim_to_first_text_unavailable: "not recorded",
       staging_sha: null, staging_sha_unavailable: "platform: not read; api: not read",
@@ -107,7 +111,7 @@ describe("cloud journey", () => {
     const sleeps: number[] = [];
     const out = await waitForReadySpare(async () => ({ spare: answers.shift() ?? null }), 120_000, { pollMs: 15_000, now: () => t, sleep: async (ms) => { sleeps.push(ms); t += ms; } });
     expect(out.prepared.spare).toBe("vm_spare");
-    expect(out.wait).toEqual({ waited_ms: 30_000, attempts: 3, cold_after_wait: false });
+    expect(out.wait).toEqual({ waited_ms: 30_000, attempts: 3, cold_after_wait: false, ready_by: "warm" });
     expect(sleeps).toEqual([15_000, 15_000]);
   });
 
@@ -116,12 +120,55 @@ describe("cloud journey", () => {
     let calls = 0;
     const out = await waitForReadySpare(async () => { calls++; return { spare: null }; }, 40_000, { pollMs: 15_000, now: () => t, sleep: async (ms) => { t += ms; } });
     expect(out.prepared.spare).toBeNull();
-    expect(out.wait).toEqual({ waited_ms: 30_000, attempts: 3, cold_after_wait: true });
+    expect(out.wait).toEqual({ waited_ms: 30_000, attempts: 3, cold_after_wait: true, ready_by: null });
     expect(calls).toBe(3);
     calls = 0;
     const once = await waitForReadySpare(async () => { calls++; return { spare: null }; }, 0);
     expect(once.wait).toBeNull();
     expect(calls).toBe(1);
+  });
+
+  test("the wait ends when the claim path reports a ready spare the warm did not name, and says so", async () => {
+    // Burst 43951741299: the warm named no spare for 300 s before 9 of 9 claims, and 7 of those claims took a ready spare.
+    let t = 0;
+    const listened: number[] = [];
+    const seen = [null, "vm_Ready0123456789"];
+    const out = await waitForReadySpare(async () => ({ spare: null }), 120_000, {
+      pollMs: 15_000, now: () => t, sleep: async () => { throw new Error("a claim-path probe replaces the sleep"); },
+      ready: async (ms) => { listened.push(ms); t += ms; return seen.shift() ?? null; },
+    });
+    expect(out.prepared.spare).toBeNull();
+    expect(out.wait).toEqual({ waited_ms: 30_000, attempts: 2, cold_after_wait: false, ready_by: "claim_path" });
+    expect(listened).toEqual([15_000, 15_000]);
+  });
+
+  test("a hit is read from the claim answer: a claim object and no fallback, whatever the warm named", () => {
+    expect(claimTookSpare({ machine: { id: "vm_x" }, claim: { behind: false } })).toBe(true);
+    expect(claimTookSpare({ machine: { id: "vm_x" }, claim: { behind: true }, spare_skips: { image: 1 } })).toBe(true);
+    expect(claimTookSpare({ machine: { id: "vm_x" }, spare_fallback: "no_spare", spare_skips: {} })).toBe(false);
+    expect(claimTookSpare({ machine: { id: "vm_x" }, claim: { behind: false }, spare_fallback: "all_skipped" })).toBe(false);
+    expect(claimTookSpare({ machine: { id: "vm_x" } })).toBeNull();
+    const taken = preclaimClaimRecord({ claim: 0, machine: "vm_x", answer: { claim: { behind: false } }, warmNamed: false, warmReason: "spare.none", spareWait: { waited_ms: 15_000, attempts: 2, cold_after_wait: false, ready_by: "claim_path" } });
+    expect(taken).toMatchObject({ lease_hit: true, warm_named: false, warm_reason: "spare.none", spare_ready_by: "claim_path" });
+    const named = preclaimClaimRecord({ claim: 1, machine: "vm_y", spare: "vm_y", answer: { claim: { behind: false } }, spareWait: { waited_ms: 0, attempts: 1, cold_after_wait: false, ready_by: "warm" } });
+    expect(named).toMatchObject({ lease_hit: true, warm_named: true, warm_reason: null, spare_ready_by: "warm" });
+    const cold = preclaimClaimRecord({ claim: 2, machine: "vm_z", answer: { spare_fallback: "no_spare" }, warmNamed: false, warmReason: "vm_private id" });
+    expect(cold).toMatchObject({ lease_hit: false, warm_named: false, warm_reason: null });
+    expect(preclaimSummary([taken, named, cold])).toMatchObject({ lease_hits: 2, lease_misses: 1, claim_taken: 2, warm_named: 1, warm_missed_hits: 1 });
+    const md = preclaimSummaryMarkdown([taken, named, cold]);
+    expect(md).toContain("- claim took a spare (from the claim answer): 2");
+    expect(md).toContain("- warm named a spare: 1");
+    expect(md).toContain("- hits the warm did not name (no login attached in advance): 1");
+    expect(md).toContain("| warm named |");
+  });
+
+  test("the claim path's ready spare: a cloud.spare.ready frame or a snapshot's spares_needing_login on the team's stream", () => {
+    const team = "team_0123456789abcdef0123";
+    expect(anyCloudSpareReady({ t: "ephemeral", stream: `cloud:${team}`, event: "cloud.spare.ready", data: { machine: "vm_A1234567", team } }, team)).toBe("vm_A1234567");
+    expect(anyCloudSpareReady({ t: "snapshot", stream: `cloud:${team}`, spares_needing_login: ["vm_B1234567"] }, team)).toBe("vm_B1234567");
+    expect(anyCloudSpareReady({ t: "snapshot", stream: `cloud:${team}`, spares_needing_login: [] }, team)).toBeNull();
+    expect(anyCloudSpareReady({ t: "ephemeral", stream: "cloud:team_other0123456789", event: "cloud.spare.ready", data: { machine: "vm_C1234567" } }, team)).toBeNull();
+    expect(anyCloudSpareReady({ t: "ephemeral", stream: `cloud:${team}`, event: "cloud.machine.updated", data: { machine: "vm_D1234567" } }, team)).toBeNull();
   });
 
   test("cold creates after a ready spare was reported count apart from claims made after the wait ran out", () => {
@@ -2067,7 +2114,8 @@ except probe.OutOfTime as cut:
     }
   });
 
-  test("a text file of one huge line is read in pieces: bounded memory, and a key across a piece's edge is found", () => {
+  // 76 MiB of reads: bun's 5 s default killed it on a loaded shared pool runner (base run 44851992457, 2026-11-21).
+  test("a text file of one huge line is read in pieces: bounded memory, and a key across a piece's edge is found", { timeout: 60_000 }, () => {
     const dir = mkdtempSync(join(tmpdir(), "key-probe-line-"));
     const big = join(dir, "one-line.txt");
     // 64 MiB with no line break: a key's name across the first read's edge, and one deeper in. The first piece ends
@@ -2102,26 +2150,39 @@ except MemoryError:
     }
   });
 
-  test("a line of many escapes that spell no key is read in linear time", () => {
+  test("a line of many escapes that spell no key is read in linear time", { timeout: 60_000 }, () => {
     const dir = mkdtempSync(join(tmpdir(), "key-probe-escapes-"));
     const file = join(dir, "strings.json");
     // 400,000 escaped spaces on one line: each was a reading of the whole line, then a search back to its start
     // (4.7 s at this size, four times that at twice it). Then a key after 20,000 short lines of escapes, on its own line.
     writeFileSync(file, `{"s": "${"\\u0020".repeat(400_000)}"}\n` + `{"s": "${"\\u0020".repeat(50)}"}\n`.repeat(20_000) + `MISTRAL_API_KEY=Ab3Qx7Hw4Kd9Lm2Px7Zq8\n`);
+    // The same file at half its size: the bound is this machine's own scan of it, not a fixed number of seconds a
+    // loaded runner misses (2.27 s against 1.5 s on a shared pool runner, base run 44851992457). Twice the input
+    // takes about twice the time when linear (1.6-2.1x measured) and four times when quadratic (3.8x before #41283).
+    const half = join(dir, "half.json");
+    writeFileSync(half, `{"s": "${"\\u0020".repeat(200_000)}"}\n` + `{"s": "${"\\u0020".repeat(50)}"}\n`.repeat(10_000) + `MISTRAL_API_KEY=Ab3Qx7Hw4Kd9Lm2Px7Zq8\n`);
     const script = `
 import importlib.util, json, sys, time
 spec = importlib.util.spec_from_file_location("probe", sys.argv[1])
 probe = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(probe)
-t0 = time.monotonic()
-hits = probe.scan_file(sys.argv[2])
-print(json.dumps({"hits": hits, "s": time.monotonic() - t0}))
+def timed(path):
+    best = None
+    for _ in range(2):
+        t0 = time.monotonic()
+        hits = probe.scan_file(path)
+        took = time.monotonic() - t0
+        best = took if best is None else min(best, took)
+    return hits, best
+_, half = timed(sys.argv[3])
+hits, full = timed(sys.argv[2])
+print(json.dumps({"hits": hits, "s": full, "half": half}))
 `;
     try {
-      const r = spawnSync("python3", ["-I", "-c", script, KEY_PROBE_PY, file], { encoding: "utf8" });
+      const r = spawnSync("python3", ["-I", "-c", script, KEY_PROBE_PY, file, half], { encoding: "utf8" });
       const answer = JSON.parse(r.stdout || "{}");
       expect(answer.hits).toEqual([[20_002, "MISTRAL_API_KEY"]]);
-      expect(answer.s).toBeLessThan(1.5);
+      expect(answer.s / answer.half).toBeLessThan(3);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -2148,7 +2209,7 @@ print(time.monotonic() - t0)
     }
   });
 
-  test("a huge login file is read only in part, and still names its kind", () => {
+  test("a huge login file is read only in part, and still names its kind", { timeout: 60_000 }, () => {
     const root = plant({
       "proc/5/comm": "bash\n",
       "proc/5/environ": "HOME=/root\0",
@@ -2445,6 +2506,60 @@ except probe.OutOfTime as cut:
     expect(waits[1]).toBeGreaterThanOrEqual(290_000);
   });
 
+  test("an exec longer than the provider edge holds a request runs as a background request (cut at 125 s)", async () => {
+    const seen: { method: string; path: string; after: string | null; identity: string | null; auth: string | null }[] = [];
+    let polls = 0;
+    const server = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch(req) {
+        const url = new URL(req.url);
+        seen.push({ method: req.method, path: url.pathname, after: req.headers.get("x-freestyle-background-after-secs"), identity: req.headers.get("x-freestyle-identity-access-token"), auth: req.headers.get("authorization") });
+        if (url.pathname === "/v5/vms/vm-1/exec-await") {
+          // The edge's cut: without the header, a request held open past ~120 s answers 524.
+          if (req.headers.get("x-freestyle-background-after-secs") !== "60") return new Response("timeout", { status: 524 });
+          return Response.json({ requestId: "bg-1" }, { status: 202 });
+        }
+        if (url.pathname === "/v5/background-requests/bg-1") {
+          polls++;
+          return polls === 1 ? Response.json({ status: "pending" }, { status: 202 }) : Response.json({ statusCode: 0, stdout: "done\n", stderr: "" });
+        }
+        return new Response("no", { status: 404 });
+      },
+    });
+    try {
+      const base = `http://127.0.0.1:${server.port}`;
+      const api = {
+        raw: async () => ({ status: 200, body: { ok: true, value: { token: "id-tok", vm_id: "vm-1", linux_user: "cmux", api_base_url: base, expires_at: Date.now() + 900_000 } } }),
+      } as any;
+      const r = await directExec(api, "m1", { secrets: [] } as any, 1)("sleep 200; echo done", 290_000);
+      expect(r).toEqual({ code: 0, stdout: "done\n", stderr: "" });
+      expect(seen.map((x) => `${x.method} ${x.path}`)).toEqual(["POST /v5/vms/vm-1/exec-await", "GET /v5/background-requests/bg-1", "GET /v5/background-requests/bg-1"]);
+      for (const x of seen) {
+        expect(x.identity).toBe("id-tok");
+        expect(x.auth).toBeNull();
+      }
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("a background exec whose answer never comes fails as unanswered; a stored refusal keeps its status", async () => {
+    const accepted = { status: 202, body: { requestId: "bg-2" } };
+    let polls = 0;
+    const down = async () => {
+      polls++;
+      return { status: 503, body: {} };
+    };
+    await expect(settleBackground(accepted, "http://fs", {}, Date.now() + 60_000, 1, down)).rejects.toThrow("no answer");
+    expect(polls).toBe(5);
+    const refused = await settleBackground(accepted, "http://fs", {}, Date.now() + 60_000, 1, async () => ({ status: 409, body: { error: "busy" } }));
+    expect(refused.status).toBe(409);
+    await expect(settleBackground({ status: 202, body: { requestId: "../x" } }, "http://fs", {}, Date.now() + 60_000, 1, down)).rejects.toThrow("names no request");
+    const short = { status: 200, body: { statusCode: 0 } };
+    expect(await settleBackground(short, "http://fs", {}, Date.now(), 1, down)).toBe(short);
+  });
+
   test("an answer without the marker line is an error, not a clean machine", () => {
     expect(() => parseKeyProbe("python3: command not found\n")).toThrow("printed no answer");
   });
@@ -2673,6 +2788,7 @@ describe("preclaim MET table fields", () => {
       const cmux = join(dir, "cmux");
       writeFileSync(cmux, `#!/bin/sh\ncat >/dev/null\ncase "$*" in\n  *loginReceipt*) echo '{"installed":true}' ;;\n  *'"installed":'*) echo '{"ok":true}' ;;\n  *'"ready":'*) echo '{"copy":{"generation":"gen-1"}}' ;;\n  *) echo '{"machine":"${spare}"}' ;;\nesac\n`, { mode: 0o755 });
       const guest = (command: string) => command.includes("acp wait") ? "@@wait 0\nThe measured reply." : command.includes("acp ensure") || command.includes("acp send") ? "@@exit 0" : command.includes("own-login") ? "own-login" : "";
+      const requestedSizes: unknown[] = [];
       const api: any = {
         origin: "https://cloud-api-staging.cmux.dev",
         bearer: "session-token",
@@ -2682,7 +2798,10 @@ describe("preclaim MET table fields", () => {
           : route.endsWith("/exec") ? { status: 200, body: { value: { exitCode: 0, stdout: guest(String(body?.command ?? "")) } } }
           : { status: 200, body: { ok: true } },
         read: async (op: string) => op === "cloud.plan.get" ? { usage: { active: 0, saved: 0, vm_hours_used: 4, vm_hours_used_by_you: 1.5 } } : { status: "running", host: "host-1", created_at: 1_000, running_since: 9_000 },
-        op: async () => ({ machine: { id: spare, status: "running" }, claim: { behind: true }, stages_ms: [{ step: "claim", ms: 40 }, { step: "bound", ms: 60 }] }),
+        op: async (_op: string, params: { size: unknown }) => {
+          requestedSizes.push(params.size);
+          return { machine: { id: spare, status: "running" }, claim: { behind: true }, stages_ms: [{ step: "claim", ms: 40 }, { step: "bound", ms: 60 }] };
+        },
         deleteMachine: async () => undefined,
       };
       // The platform's deploy moves during claim 0 (its health_after reads the new commit), then stays.
@@ -2699,6 +2818,7 @@ describe("preclaim MET table fields", () => {
       });
       expect(code).toBe(0);
       const written = JSON.parse(readFileSync(rowsPath, "utf8"));
+      expect(requestedSizes).toEqual(Array(2).fill({ cpu: 4, memory_mb: 16384, disk_mb: 65536 }));
       expect(written.header.burst).toEqual({ claims_expected: 2, hold_minutes_t0: 90, hold_minutes_t0_unavailable: null });
       const [first, second] = written.rows;
       expect(first.lease_hit).toBe(true);
@@ -2722,6 +2842,114 @@ describe("preclaim MET table fields", () => {
       for (const id of [spare, team, "install-1", "host-1", "platform.example"]) expect(summary).not.toContain(id);
     } finally {
       (globalThis as any).WebSocket = realWebSocket;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("preclaim burst: the claim answer says the hit, the warm's naming is its own field", () => {
+  test("a warm that names no spare while the claim path reports one ready: the wait ends, the claim's take is a hit, the warm miss is kept", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "preclaim-claim-hit-test-"));
+    const team = "team_0123456789abcdef0123";
+    const taken = "vm_Taken0123456789";
+    const frame = { t: "ephemeral", stream: `cloud:${team}`, event: "cloud.spare.ready", data: { machine: taken, team, at: 4_000 } };
+    class FakeWire {
+      private on: Record<string, Array<(e: unknown) => void>> = {};
+      constructor() { setTimeout(() => this.emit("open", {}), 0); }
+      addEventListener(type: string, fn: (e: unknown) => void) { (this.on[type] ??= []).push(fn); }
+      send() { setTimeout(() => this.emit("message", { data: JSON.stringify(frame) }), 0); }
+      close() {}
+      private emit(type: string, e: unknown) { for (const fn of this.on[type] ?? []) fn(e); }
+    }
+    const realWebSocket = (globalThis as any).WebSocket;
+    (globalThis as any).WebSocket = FakeWire;
+    try {
+      const cmux = join(dir, "cmux");
+      const warms = join(dir, "warms");
+      writeFileSync(cmux, `#!/bin/sh\ncat >/dev/null\ncase "$*" in\n  *loginReceipt*) echo '{"installed":false}' ;;\n  *) echo x >> '${warms}'; echo '{"ok":true,"machine":null,"fresh":false,"reason":"spare.none"}' ;;\nesac\n`, { mode: 0o755 });
+      const guest = (command: string) => command.includes("acp wait") ? "@@wait 0\nThe measured reply." : command.includes("acp ensure") || command.includes("acp send") ? "@@exit 0" : command.includes("own-login") ? "own-login" : "";
+      let claims = 0;
+      const api: any = {
+        origin: "https://cloud-api-staging.cmux.dev",
+        bearer: "session-token",
+        team,
+        raw: async (_method: string, route: string, body: any) => route === "/v1/client-config" ? { status: 200, body: { platform_origin: "https://platform.example" } }
+          : route === "/v1/health" ? { status: 200, body: { ok: true, environment: "staging", version: "0.1.0" } }
+          : route.endsWith("/client-session") ? { status: 501, body: { ok: false, error: { code: "cloud.provider.unsupported" } } }
+          : route.endsWith("/exec") ? { status: 200, body: { value: { exitCode: 0, stdout: guest(String(body?.command ?? "")) } } }
+          : { status: 200, body: { ok: true } },
+        read: async (op: string) => op === "cloud.plan.get" ? { usage: { active: 0, saved: 0, vm_hours_used: 4 } } : { status: "running", host: "host-1", created_at: 1_000, running_since: 9_000 },
+        // Claim 0 takes the ready spare; claim 1 finds none and falls back to a create.
+        op: async () => claims++ === 0 ? { machine: { id: taken, status: "running" }, claim: { behind: false } } : { machine: { id: "vm_Cold0123456789", status: "running" }, spare_fallback: "no_spare", spare_skips: {} },
+        deleteMachine: async () => undefined,
+      };
+      const fetchJson = async () => ({ status: 200, body: { ok: true, commit: "aaaaaaa1111aaaa" } });
+      const rowsPath = join(dir, "rows.json");
+      const journey = new Journey(resolveBackend("staging"), dir, {}, true);
+      await runPreclaimBurst({
+        backend: resolveBackend("staging"), api, cmux, install: { id: "install-1", token: "install-token" }, account: `user-1/${team}`,
+        login: `sk-ant-oat01-journeystub-${"a".repeat(48)}`, claims: 2, tag: "t", journey, outDir: dir, privateRowsPath: rowsPath, team, user: {}, fetchJson: fetchJson as never,
+        spareWaitMs: 60_000,
+      });
+      const written = JSON.parse(readFileSync(rowsPath, "utf8"));
+      expect(written.failures).toEqual([]);
+      const [hit, cold] = written.rows;
+      expect(hit).toMatchObject({ lease_hit: true, warm_named: false, warm_reason: "spare.none", spare_ready_by: "claim_path", cold_after_wait: false, post_bind_login: "post-bind" });
+      expect(cold).toMatchObject({ lease_hit: false, warm_named: false, spare_ready_by: "claim_path" });
+      // One warm per claim: the claim path's ready frame ended each wait at its first probe.
+      expect(readFileSync(warms, "utf8").trim().split("\n")).toHaveLength(2);
+      expect(written.header.summary).toMatchObject({ lease_hits: 1, claim_taken: 1, warm_named: 0, warm_missed_hits: 1, cold_creates: 1 });
+      const summary = readFileSync(join(dir, "summary.md"), "utf8");
+      expect(summary).toContain("- hits the warm did not name (no login attached in advance): 1");
+      for (const id of [taken, team, "install-1", "host-1", "platform.example"]) expect(summary).not.toContain(id);
+    } finally {
+      (globalThis as any).WebSocket = realWebSocket;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("preclaim burst: the warm and the claim ask one team", () => {
+  const token = (claims: Record<string, unknown>) => `eyJhbGciOiJFUzI1NiJ9.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.sig`;
+
+  test("the install token's team claim is the team the Rust warm warms in", () => {
+    expect(installTokenTeam(token({ sub: "user_a", team: "team_shared0123456789ab" }))).toBe("team_shared0123456789ab");
+    expect(installTokenTeam(token({ sub: "user_a" }))).toBeNull();
+    expect(installTokenTeam("not-a-jwt")).toBeNull();
+  });
+
+  test("a shared-team install warms that team's pool, so the claim is sent in that team too, and the row says they differed", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "preclaim-team-test-"));
+    const shared = "team_shared0123456789ab", personal = "team_personal0123456789";
+    try {
+      const cmux = join(dir, "cmux");
+      writeFileSync(cmux, `#!/bin/sh\ncat >/dev/null\necho '{"ok":true,"machine":null,"fresh":false,"reason":"spare.none"}'\n`, { mode: 0o755 });
+      const guest = (command: string) => command.includes("acp wait") ? "@@wait 0\nThe measured reply." : command.includes("acp ensure") || command.includes("acp send") ? "@@exit 0" : command.includes("own-login") ? "own-login" : "";
+      const claimTeams: Array<string | undefined> = [];
+      const api: any = {
+        origin: "https://cloud-api-staging.cmux.dev",
+        bearer: "session-token",
+        raw: async (_method: string, route: string, body: any) => route === "/v1/client-config" ? { status: 200, body: { platform_origin: "https://platform.example" } }
+          : route.endsWith("/client-session") ? { status: 501, body: { ok: false, error: { code: "cloud.provider.unsupported" } } }
+          : route.endsWith("/exec") ? { status: 200, body: { value: { exitCode: 0, stdout: guest(String(body?.command ?? "")) } } }
+          : { status: 200, body: { ok: true } },
+        read: async () => ({ status: "running", host: "host-1" }),
+        op: async function (this: any) { claimTeams.push(this.team); return { machine: { id: "vm_Taken0123456789", status: "running" }, claim: { behind: false } }; },
+        deleteMachine: async () => undefined,
+      };
+      const rowsPath = join(dir, "rows.json");
+      const journey = new Journey(resolveBackend("staging"), dir, {}, true);
+      await runPreclaimBurst({
+        backend: resolveBackend("staging"), api, cmux, install: { id: "install-1", token: token({ sub: "user-1", team: shared }) }, account: `user-1/${personal}`,
+        login: `sk-ant-oat01-journeystub-${"a".repeat(48)}`, claims: 1, tag: "t", journey, outDir: dir, privateRowsPath: rowsPath, user: { personal_team: personal },
+        fetchJson: (async () => ({ status: 200, body: { ok: true } })) as never,
+      });
+      const written = JSON.parse(readFileSync(rowsPath, "utf8"));
+      expect(written.failures).toEqual([]);
+      expect(claimTeams).toEqual([shared]);
+      expect(written.rows[0]).toMatchObject({ warm_team_matches_claim: false, lease_hit: true });
+      expect(readFileSync(join(dir, "summary.md"), "utf8")).toContain("- warm's team was the claim's default team: no (claims sent in the warm's team)");
+    } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
@@ -2806,6 +3034,13 @@ describe("exec probe bench", () => {
     expect(execProbeHop(run(await answer(524, { raw: "<html>" })))).toBe("edge → Worker (HTTP 524)");
     expect(execProbeHop(run(await answer(200, { ok: true, value: { exitCode: 1, stdout: "", stderr: "x" } })))).toBe("guest command (exit 1)");
     expect(execProbeHop(run({}))).toBeNull();
+  });
+
+  test("a stopped machine's row keeps only the fields that say who stopped it", () => {
+    const row = { id: "m1", status: "paused", pause_reason: "idle", host: "h", env: { A: "1" }, transport: "direct", spec: { cpu: 2 } };
+    expect(machineStopFields(row)).toEqual({ status: "paused", pause_reason: "idle", transport: "direct" });
+    expect(machineStopFields({ status: "running", paused_by: "spend_cap" })).toEqual({ status: "running", paused_by: "spend_cap" });
+    expect(machineStopFields(null)).toEqual({});
   });
 
   test("a probe with no answer is placed by whether the guest holds its nonce", () => {
