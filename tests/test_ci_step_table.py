@@ -425,7 +425,8 @@ class PipelineTest(unittest.TestCase):
                  "swift-acpmux-protocol.yml": "swift-acpmux-protocol",
                  "app-platform.yml": "app-platform", "ci-artifact-transport.yml": "ci-artifact-transport",
                  "cloud-vm-image-lock.yml": "cloud-vm-image-lock", "mux.yml": "mux",
-                 "automation-bench.yml": "automation-bench"}
+                 "automation-bench.yml": "automation-bench",
+                 "repair-nightly-appcast-content-types.yml": "repair-nightly-appcast"}
         steps = ci_steps.load().steps
         for name, step in moved.items():
             with self.subTest(workflow=name):
@@ -433,6 +434,17 @@ class PipelineTest(unittest.TestCase):
                 self.assertNotIn("pull_request", wf.get("on", wf.get(True)), "the step table runs it")
                 self.assertEqual(steps[step].job, "linux")
         self.assertNotIn("validate", yaml.safe_load((ROOT / ".github/workflows/labels-sync.yml").read_text())["jobs"])
+        # These workflows keep the pull_request trigger for a macOS job; the moved Linux job skips it, and
+        # a pull request runs it as a step of the table with the same command.
+        jobs = {("agent-brands.yml", "drift"): "agent-brands-drift",
+                ("terminal-hang-diagnostics.yml", "release-gate"): "terminal-hang-release-gate"}
+        for (name, job), step in jobs.items():
+            with self.subTest(workflow=name, job=job):
+                wf = yaml.safe_load((ROOT / ".github/workflows" / name).read_text())
+                self.assertEqual(wf["jobs"][job]["if"], "github.event_name != 'pull_request'")
+                runs = [s["run"] for s in wf["jobs"][job]["steps"] if "run" in s]
+                self.assertEqual(runs, [steps[step].run])
+                self.assertEqual(steps[step].job, "linux")
 
     def test_a_step_that_runs_bun_or_node_says_so(self) -> None:
         # The tools come from [tools], only for a routed step that lists them; nothing else puts bun or node
