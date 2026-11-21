@@ -48,6 +48,7 @@ export interface AcpmuxRequestMeta {
   parent?: unknown;
   peer?: unknown;
   peerHops?: unknown;
+  peerRowBatches?: unknown;
   personDecision?: unknown;
   personKey?: unknown;
   personStop?: unknown;
@@ -834,6 +835,20 @@ export interface PeerReconnectParams {
   wait?: unknown;
 }
 
+/**
+ * To a watcher that asked for batches (`initialize` `_meta.acpmux.peerRowBatches`), in place of
+ * one `_acpmux/session_changed` per row: `count` rows of `peer` changed or left at once (a peer's
+ * list). Their list positions are consecutive, after `afterSeq` and up to `listSeq`; a client
+ * reads them with `_acpmux/watch {afterSeq, listEpoch}` from a cursor no higher than `afterSeq`,
+ * and keeps its cursor at most `afterSeq` until a list or follow current to `listSeq` is in.
+ */
+export type PeerRowsChanged = {
+  afterSeq: number;
+  count: number;
+  listSeq: number;
+  peer: string;
+} & Record<string, unknown>;
+
 export interface PeerSnapshotParams {
   _meta?: RequestMeta;
   host?: unknown;
@@ -1065,6 +1080,7 @@ export interface ProcessListParams {
   _meta?: RequestMeta;
   cursor?: unknown;
   limit?: unknown;
+  recent?: unknown;
   sessionId?: unknown;
 }
 
@@ -1349,6 +1365,12 @@ export interface SeenParams {
 }
 
 /**
+ * Whose credential a sign-in refusal is about, so a client names that party and offers the one
+ * fix that works: sign in to the agent, replace the provider's key, or sign in to cmux.
+ */
+export type SessionAuthCredential = ("login" | "apiKey" | "cmux");
+
+/**
  * `terminal`: run `command` in a terminal on `host` (null: this machine). `route`: edit or
  * sign in again to the route `routeId`.
  */
@@ -1377,6 +1399,12 @@ export interface SessionAuthParams {
  * or `routeAuthNeeded`; `unknown` never blocks.
  */
 export type SessionAuthResult = {
+  /**
+   * Whose credential refused the chat, for `signedOut`, `expired` and `routeAuthNeeded`: the
+   * agent's own login, an API key a provider issued, or the person's cmux account. Absent when
+   * the evidence does not say (a route of another kind names it by `routeId`).
+   */
+  credential?: (SessionAuthCredential | null);
   /** One sentence: the probe's status, the turn's error, or the check that ran. */
   detail: string;
   /** When the evidence was observed (ms since the epoch); null when `source` is `none`. */
@@ -1391,6 +1419,12 @@ export type SessionAuthResult = {
   host?: (string | null);
   /** How to sign in: only for `signedOut`, `expired` and `routeAuthNeeded`. */
   login?: (SessionAuthLogin | null);
+  /**
+   * The provider that issued a refused API key, by its id as the chat's model names it
+   * (`opencode-go` in `opencode-go/deepseek-v4.1-flash`) or as the agent's family implies it
+   * (`anthropic` for Claude Code); only with `credential` `apiKey`.
+   */
+  provider?: (string | null);
   /** The route the chat is bound to; null when it is not routed. */
   routeId?: (string | null);
   source: SessionAuthSource;
@@ -1484,6 +1518,13 @@ export type SessionDetail = {
   family?: (string | null);
   /** Where a fork branched off its parent. */
   forkSeq?: (number | null);
+  /**
+   * The names it had before its renames, oldest first: each still names it where no session
+   * has it as its current name. Absent when it was never renamed, and from an older acpmux.
+   */
+  formerNames?: string[];
+  /** The session's spoken handle, independent of its task name and ids. Older peers omit it. */
+  handle?: (string | null);
   harness: string;
   /**
    * Unix milliseconds when its harness first refused a command because the harness's own
@@ -1495,6 +1536,12 @@ export type SessionDetail = {
    * harness process ends it (`hub/harness_sandbox.rs`). Omitted for peers.
    */
   harnessSandboxFailing?: boolean;
+  /**
+   * Its composer holds typed text not sent yet (`composerDraft`, non-blank): an app update
+   * that installs when idle (`updates.installWhenIdle`) waits for it. Absent otherwise, and from
+   * a peer on an older acpmux.
+   */
+  hasDraft?: boolean;
   /** The status dot every client draws (`status_indicator`); null for none. */
   indicator?: (Indicator | null);
   /** Since when it waits on the person (`lane`); null while it does not. */
@@ -1667,6 +1714,12 @@ export type SessionDetail = {
   /** Tags that have not expired. */
   tags: Record<string, string>;
   /**
+   * What is done and what is next across the chat's turns (`task_list.rs`): its harness's
+   * latest plan (TodoWrite, update_plan) or the list its agent or Chief keeps
+   * (`_acpmux/task_list/set`); null until one is written. Absent from a peer on an older acpmux.
+   */
+  taskList?: (TaskListSummary | null);
+  /**
    * Incremental wall-time and token attribution for the chat. This is seeded by a detail or
    * attach read and omitted from census rows until then (`hub/time_breakdown.rs`).
    */
@@ -1721,6 +1774,13 @@ export type SessionDetail = {
   waitsForSlot?: boolean;
   /** The family of a conversation another app runs that this chat only shows; null otherwise. */
   watching?: (string | null);
+  /**
+   * Work runs below it with no turn open: a background subagent, a harness background process,
+   * or a sub-session at work (what keeps the idle pass from ending it, `hub/idle.rs`). An app
+   * update that installs when idle waits for it. Absent otherwise, and from a peer on an older
+   * acpmux.
+   */
+  workingBelow?: boolean;
 } & Record<string, unknown>;
 
 /** One record of a session's log (`server::event_value`). */
@@ -1824,6 +1884,13 @@ export type SessionSummary = {
   family?: (string | null);
   /** Where a fork branched off its parent. */
   forkSeq?: (number | null);
+  /**
+   * The names it had before its renames, oldest first: each still names it where no session
+   * has it as its current name. Absent when it was never renamed, and from an older acpmux.
+   */
+  formerNames?: string[];
+  /** The session's spoken handle, independent of its task name and ids. Older peers omit it. */
+  handle?: (string | null);
   harness: string;
   /**
    * Unix milliseconds when its harness first refused a command because the harness's own
@@ -1835,6 +1902,12 @@ export type SessionSummary = {
    * harness process ends it (`hub/harness_sandbox.rs`). Omitted for peers.
    */
   harnessSandboxFailing?: boolean;
+  /**
+   * Its composer holds typed text not sent yet (`composerDraft`, non-blank): an app update
+   * that installs when idle (`updates.installWhenIdle`) waits for it. Absent otherwise, and from
+   * a peer on an older acpmux.
+   */
+  hasDraft?: boolean;
   /** The status dot every client draws (`status_indicator`); null for none. */
   indicator?: (Indicator | null);
   /** Since when it waits on the person (`lane`); null while it does not. */
@@ -2000,6 +2073,12 @@ export type SessionSummary = {
   /** Tags that have not expired. */
   tags: Record<string, string>;
   /**
+   * What is done and what is next across the chat's turns (`task_list.rs`): its harness's
+   * latest plan (TodoWrite, update_plan) or the list its agent or Chief keeps
+   * (`_acpmux/task_list/set`); null until one is written. Absent from a peer on an older acpmux.
+   */
+  taskList?: (TaskListSummary | null);
+  /**
    * Incremental wall-time and token attribution for the chat. This is seeded by a detail or
    * attach read and omitted from census rows until then (`hub/time_breakdown.rs`).
    */
@@ -2053,6 +2132,13 @@ export type SessionSummary = {
   waitsForSlot?: boolean;
   /** The family of a conversation another app runs that this chat only shows; null otherwise. */
   watching?: (string | null);
+  /**
+   * Work runs below it with no turn open: a background subagent, a harness background process,
+   * or a sub-session at work (what keeps the idle pass from ending it, `hub/idle.rs`). An app
+   * update that installs when idle waits for it. Absent otherwise, and from a peer on an older
+   * acpmux.
+   */
+  workingBelow?: boolean;
 } & Record<string, unknown>;
 
 /** Also the page fields of `_acpmux/watch` (`hub::session_pages`). */
@@ -2176,6 +2262,42 @@ export interface SubsessionLimitsParams {
   sessionId?: unknown;
   workspaceId?: unknown;
 }
+
+/** One step of the list. */
+export type TaskItem = {
+  /** The step's words, masked and cut to [`ITEM_CHARS`]. */
+  content: string;
+  status: TaskStatus;
+} & Record<string, unknown>;
+
+/** Who keeps a chat's task list. */
+export type TaskListSource = ("harness" | "agent" | "chief");
+
+/**
+ * What a summary carries of a chat's task list (`SessionSummary::task_list`): the steps, and the
+ * counts and lines a sidebar row or a chat strip draws without counting again.
+ */
+export type TaskListSummary = {
+  /** The first step in progress; null when none is. */
+  current: (string | null);
+  /** The steps completed. */
+  done: number;
+  items: TaskItem[];
+  /**
+   * The first step still pending after the current one (or the first pending one when none is
+   * in progress); null when none is left.
+   */
+  next: (string | null);
+  /** Who keeps it: `harness` (its own plan events), `agent` or `chief` (`_acpmux/task_list/set`). */
+  source: TaskListSource;
+  /** Every step. */
+  total: number;
+  /** When it last changed, Unix ms. */
+  updatedAt: number;
+} & Record<string, unknown>;
+
+/** Where one step stands. */
+export type TaskStatus = "pending" | "in_progress" | "completed";
 
 export type TimeBreakdown = {
   categories: TimeCategory[];

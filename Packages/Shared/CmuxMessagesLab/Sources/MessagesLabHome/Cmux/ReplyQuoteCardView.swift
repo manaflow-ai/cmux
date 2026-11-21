@@ -35,7 +35,7 @@ final class ReplyQuoteCardView: NSView {
         remove.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: CmuxStrings.replyQuoteRemove)?
             .withSymbolConfiguration(.init(pointSize: 13, weight: .regular))
         remove.contentTintColor = .tertiaryLabelColor
-        remove.toolTip = CmuxStrings.replyQuoteRemove
+        remove.setHomeToolTip(CmuxStrings.replyQuoteRemove)
         remove.setAccessibilityLabel(CmuxStrings.replyQuoteRemove)
         remove.target = self
         remove.action = #selector(removeClicked)
