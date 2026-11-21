@@ -258,9 +258,10 @@ fn act(
             // right before the folder goes.
             &|| {
                 let now = options.sessions_now.as_ref()?;
-                now().into_iter().find(|s| s.open && policy::inside(&s.cwd, &fresh.path)).map(|s| {
-                    format!("session {} opened in it while it was archived", s.name)
-                })
+                now()
+                    .into_iter()
+                    .find(|s| s.open && policy::inside(&s.cwd, &fresh.path))
+                    .map(|s| format!("session {} opened in it while it was archived", s.name))
             },
         )
         .map(|manifest| (manifest.freed, Some(manifest.id))),

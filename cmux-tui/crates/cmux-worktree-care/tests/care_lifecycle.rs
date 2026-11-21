@@ -747,7 +747,10 @@ fn care_a_chat_opened_after_the_scan_keeps_its_stale_worktree() {
     let item = report.items.iter().find(|i| i.path == wt).unwrap();
     assert!(item.stale, "stale at the scan: {}", item.verdict.reason);
     let outcome = item.outcome.as_ref().expect("acted on");
-    assert!(!outcome.ok && outcome.error.as_deref().is_some_and(|e| e.contains("late")), "{outcome:?}");
+    assert!(
+        !outcome.ok && outcome.error.as_deref().is_some_and(|e| e.contains("late")),
+        "{outcome:?}"
+    );
     assert!(wt.exists(), "the late chat's worktree stays");
 }
 
@@ -797,7 +800,8 @@ fn care_a_chat_opened_while_it_is_archived_keeps_its_stale_worktree() {
     let item = report.items.iter().find(|i| i.path == wt).unwrap();
     let outcome = item.outcome.as_ref().expect("acted on");
     assert!(
-        !outcome.ok && outcome.error.as_deref().is_some_and(|e| e.contains("while it was archived")),
+        !outcome.ok
+            && outcome.error.as_deref().is_some_and(|e| e.contains("while it was archived")),
         "{outcome:?}"
     );
     assert!(reads.load(std::sync::atomic::Ordering::SeqCst) >= 2, "read again before removal");
