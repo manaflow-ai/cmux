@@ -21,6 +21,7 @@ extension SettingsSchema {
         "appearance.backgroundLight": "domain:backdrop_picture", "appearance.backgroundDark": "domain:backdrop_picture",
         "appearance.backgroundSchedule": "domain:backdrop_schedule",
         "appearance.backgroundLocation": "domain:backdrop_location",
+        "appearance.backgroundMemory": "domain:backdrop_memory",
         "appearance.customDensities": "domain:custom_densities",
         "agentPane.display.commandLabels": "domain:command_labels",
         "browser.customSearchEngine.search": "domain:search_template",
