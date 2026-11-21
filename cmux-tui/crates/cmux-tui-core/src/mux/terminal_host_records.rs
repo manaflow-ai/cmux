@@ -18,12 +18,52 @@ pub(super) fn terminate_discovered_terminal_host_in(
             && incarnation.is_none_or(|expected| record.incarnation == expected)
             && !terminate_host_record(record.clone(), path.clone())
         {
+            end_host_that_ignored_terminate(&path, &record);
             schedule_terminal_host_record_cleanup(record, path);
         }
     }
     pending_terminals::terminate_unadoptable_hosts_in(root, terminal_id);
     let record_path = root.join(format!("{terminal_id}.json"));
     let _ = acknowledge_terminal_exit_sidecar(&record_path, terminal_id, incarnation);
+}
+
+/// The deadline after a terminal's close: the host did not exit within the
+/// close's Terminate waits. A host that published its exit ends on its own.
+/// Any other live host does not act on Terminate (for example its client
+/// input thread died on a poisoned lock) and would outlive the close with
+/// its shell, so the owner logs it and ends it, with proof that the recorded
+/// PID is this host. The record cleanup that follows removes the record.
+#[cfg(any(unix, windows))]
+fn end_host_that_ignored_terminate(
+    record_path: &Path,
+    record: &crate::terminal_host_runtime::TerminalHostRecord,
+) {
+    if terminal_host_record_liveness(record_path, record) != TerminalHostLiveness::Live {
+        return;
+    }
+    if matches!(
+        crate::terminal_host_runtime::terminal_host_exit_record(record_path),
+        Ok(Some((_, exit))) if exit.incarnation == record.incarnation
+    ) {
+        return;
+    }
+    crate::terminal_loss_log::record_host_close_forced(
+        record_path,
+        record,
+        "did not exit after Terminate within the close waits",
+    );
+    if !matches!(
+        crate::terminal_host_runtime::end_unresponsive_terminal_host(record_path, record),
+        Ok(true)
+    ) {
+        eprintln!(
+            "cmux-tui: closed terminal {} without proof its host {} ended; the host may \
+             still run; its record stays at {}",
+            record.terminal_id,
+            record.host_pid,
+            record_path.display()
+        );
+    }
 }
 
 #[cfg(any(unix, windows))]

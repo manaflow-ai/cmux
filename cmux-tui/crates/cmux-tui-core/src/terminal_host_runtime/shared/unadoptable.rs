@@ -127,7 +127,11 @@ pub fn load_unadoptable_terminal_host_records(
 
 /// Open an unadoptable host's live marker when a live process holds it.
 fn held_unadoptable_marker(record: &UnadoptableTerminalHostRecord) -> Option<File> {
-    let marker = record.marker.as_ref()?;
+    held_marker(record.marker.as_ref()?)
+}
+
+/// Open the live marker at `marker` when a live process holds it.
+fn held_marker(marker: &Path) -> Option<File> {
     let file = sys::open_private(marker, PrivateOpen::ExistingNoFollow).ok()?;
     if sys::lease_was_free(&file) {
         return None;
@@ -189,4 +193,26 @@ pub fn terminate_unadoptable_terminal_host(
         return Ok(false);
     }
     Ok(true)
+}
+
+/// End the live host of a readable `record` that does not act on Terminate
+/// (for example its client input thread died). Signals only with the same
+/// proof as [`terminate_unadoptable_terminal_host`]: the live marker the
+/// record names is held, and the record names a host PID that is not this
+/// process. Returns whether a signal was sent; the caller's record cleanup
+/// observes the exit.
+pub fn end_unresponsive_terminal_host(
+    record_path: &Path,
+    record: &TerminalHostRecord,
+) -> anyhow::Result<bool> {
+    let pid = record.host_pid;
+    if pid == 0 || pid == std::process::id() {
+        return Ok(false);
+    }
+    let Some(_held) = held_marker(&liveness_path(record_path, record)) else {
+        return Ok(false);
+    };
+    // The host is a session leader (`setsid` at host start), so its process
+    // group is its PID, and its held marker proves it runs.
+    sys::kill_process_group(pid)
 }
