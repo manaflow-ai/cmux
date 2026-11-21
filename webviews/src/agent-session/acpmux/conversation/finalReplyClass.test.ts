@@ -51,7 +51,7 @@ function replay(events: readonly EventRecord[]): AcpmuxRow[] {
   } finally {
     client.close();
   }
-  return [...rows];
+  return rows.slice();
 }
 
 /// The fold arms finalReplyDrawn.test.ts runs, and the background-turn look's other arm (its default

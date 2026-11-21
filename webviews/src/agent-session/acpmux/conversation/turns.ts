@@ -64,7 +64,6 @@ import {
   backgroundTurnRowId,
   foldBackgroundTurns,
   foldedBackgroundIds,
-  foldsBackground,
   hiddenInBackground,
   openBackgroundTurns,
   endsDrawingRows,
