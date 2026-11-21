@@ -189,15 +189,15 @@ class PrAttribution(unittest.TestCase):
             if "merge-base" in cmd:
                 commit, head = cmd[-2:]
                 return subprocess.CompletedProcess(cmd, 0 if (commit, head) in {
-                    ("m1", "h1"), ("m1", "h2"), ("m2", "h2")
+                    ("m1", "a1a1a1a"), ("m1", "a2a2a2a"), ("m2", "a2a2a2a")
                 } else 1, "", "")
             raise AssertionError(cmd)
 
     def test_merges_map_to_the_first_later_feed_and_keep_missing_rows(self):
         feeds = [
-            {"build": "n0", "sha": "h0", "feed_at": "2026-11-13T12:00:00Z"},
-            {"build": "n1", "sha": "h1", "feed_at": "2026-11-14T01:00:00Z"},
-            {"build": "n2", "sha": "h2", "feed_at": "2026-11-16T00:00:00Z"},
+            {"build": "n0", "sha": "a0a0a0a", "feed_at": "2026-11-13T12:00:00Z"},
+            {"build": "n1", "sha": "a1a1a1a", "feed_at": "2026-11-14T01:00:00Z"},
+            {"build": "n2", "sha": "a2a2a2a", "feed_at": "2026-11-16T00:00:00Z"},
         ]
         result = ns.pr_attribution(feeds, ".", "origin/feat-cmux-next", run=self.Git(),
                                    now=ns.ts("2026-11-20T00:00:00Z"))
@@ -220,7 +220,7 @@ class PrAttribution(unittest.TestCase):
         self.assertEqual(doc["schema"], 2)
         self.assertEqual(doc["pr_attribution"]["count"], 1)
         self.assertEqual(ns.parse_history(body)["pr_attribution"]["p90"], None)
-        text = ns.render_verdict({"build": "n1", "sha": "h1", "merge_to_feed": 20.0,
+        text = ns.render_verdict({"build": "n1", "sha": "a1a1a1a", "merge_to_feed": 20.0,
                                   "verdict": "in budget", "budget_min": 30.0, "window": 1, "over": False,
                                   "p50": 20.0, "p95": 20.0, "feed_at": "2026-11-14T01:00:00Z",
                                   "slow": {}, "diff": None, "bisect": [],
@@ -256,8 +256,8 @@ class PrAttribution(unittest.TestCase):
                     return subprocess.CompletedProcess(cmd, 0, "", "")  # every feed holds every merge
                 raise AssertionError(cmd)
 
-        feeds = [{"build": "n1", "sha": "h1", "feed_at": "2026-11-14T12:00:00Z"},
-                 {"build": "n2", "sha": "h2", "feed_at": "2026-11-16T01:00:00Z"}]
+        feeds = [{"build": "n1", "sha": "a1a1a1a", "feed_at": "2026-11-14T12:00:00Z"},
+                 {"build": "n2", "sha": "a2a2a2a", "feed_at": "2026-11-16T01:00:00Z"}]
         result = ns.pr_attribution(feeds, ".", run=Git(), now=ns.ts("2026-11-20T00:00:00Z"))
         rows = {row["pr"]: row for row in result["rows"]}
         self.assertEqual((rows[1]["status"], rows[1]["reason"], rows[1]["build"]),
@@ -267,7 +267,7 @@ class PrAttribution(unittest.TestCase):
         self.assertEqual(result["reasons"], {ns.BEFORE_FEEDS: 1})
         self.assertEqual((result["p50"], result["p90"]), (ns.quantile([1500.0, 60.0], 0.5), ns.quantile([1500.0, 60.0], 0.9)))
         text = ns.render_verdict({
-            "build": "n2", "sha": "h2", "merge_to_feed": 20.0, "verdict": "in budget", "budget_min": 30.0, "window": 1,
+            "build": "n2", "sha": "a2a2a2a", "merge_to_feed": 20.0, "verdict": "in budget", "budget_min": 30.0, "window": 1,
             "over": False, "p50": 20.0, "p95": 20.0, "feed_at": "2026-11-16T01:00:00Z", "slow": {}, "diff": None,
             "bisect": [], "pr_attribution": result})
         self.assertIn(f"{ns.BEFORE_FEEDS}: 1", text)
