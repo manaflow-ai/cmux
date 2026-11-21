@@ -846,6 +846,8 @@ mod tests {
             force_idr: reason.is_some(),
             idr_reason: reason,
             target_kbps: 8_000,
+            profile: Default::default(),
+            refine: false,
         };
         assert_eq!(idr_reason(&req(Some(IdrReason::Recovery)), None), "recovery");
         assert_eq!(idr_reason(&req(Some(IdrReason::Start)), Some("resize")), "start");
