@@ -1,7 +1,7 @@
 //! hq#2509: a lane's step says what the session is doing now, and a secret
 //! pasted into the prompt never leaves the daemon in it.
 
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 use super::lane;
 
@@ -18,14 +18,18 @@ fn running(prompt: &str) -> Value {
 #[test]
 fn sidebar_requires_open_only_marks_agent_started_sessions() {
     assert_eq!(
-        lane(&json!({"status": "running", "tags": {"lane.reportsTo": "coordinator"}}))["requiresOpen"],
+        lane(&json!({"status": "running", "tags": {"lane.reportsTo": "coordinator"}}))
+            ["requiresOpen"],
         true
     );
     assert_eq!(
         lane(&json!({"status": "running", "parentId": "personal-fork"}))["requiresOpen"],
         false
     );
-    assert_eq!(lane(&json!({"status": "running", "parent": "coordinator"}))["requiresOpen"], true);
+    assert_eq!(
+        lane(&json!({"status": "running", "parent": "coordinator"}))["requiresOpen"],
+        true
+    );
     assert_eq!(
         lane(&json!({"status": "running", "spawnedBy": "coordinator"}))["requiresOpen"],
         true
@@ -42,14 +46,20 @@ fn sidebar_requires_open_only_marks_agent_started_sessions() {
 
 #[test]
 fn a_running_turns_step_is_its_prompt_on_one_line() {
-    assert_eq!(lane(&running("Run the guard\n  tests"))["step"], "Run the guard tests");
+    assert_eq!(
+        lane(&running("Run the guard\n  tests"))["step"],
+        "Run the guard tests"
+    );
 }
 
 #[test]
 fn a_secret_in_the_prompt_is_masked_in_the_step() {
     let token = github_token();
     let step = lane(&running(&format!("push with GITHUB_TOKEN={token} now")))["step"].clone();
-    assert_eq!(step, "push with GITHUB_TOKEN=[GitHub Personal Access Token] now");
+    assert_eq!(
+        step,
+        "push with GITHUB_TOKEN=[GitHub Personal Access Token] now"
+    );
     assert!(!step.to_string().contains(&token));
 }
 
@@ -58,9 +68,15 @@ fn a_secret_past_the_cut_is_masked_before_the_cut() {
     // The token straddles character 240: cutting first would leave its head unmasked.
     let token = github_token();
     let prompt = format!("{} {token} tail", "word ".repeat(46).trim_end());
-    let step = lane(&running(&prompt))["step"].as_str().unwrap_or_default().to_owned();
+    let step = lane(&running(&prompt))["step"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
     assert!(!step.contains("ghp_"), "{step}");
-    assert!(step.contains(" [GitHub"), "the mask starts where the token did: {step}");
+    assert!(
+        step.contains(" [GitHub"),
+        "the mask starts where the token did: {step}"
+    );
 }
 
 #[test]
@@ -80,7 +96,10 @@ fn a_failed_turns_error_is_masked_too() {
                         "lastTurn": {"endedAt": 8, "status": "failed", "errorText": format!("401 for token {token}")}});
     let lane = lane(&failed);
     assert_eq!(lane["state"], "failed", "{lane}");
-    assert_eq!(lane["error"], "401 for token [GitHub Personal Access Token]");
+    assert_eq!(
+        lane["error"],
+        "401 for token [GitHub Personal Access Token]"
+    );
 }
 
 /// A failed turn's error can be a whole pasted log: only its head is
@@ -93,9 +112,17 @@ fn a_huge_error_is_cut_before_it_is_scanned_and_its_head_still_masked() {
                         "lastTurn": {"endedAt": 8, "status": "failed", "errorText": error}});
     let lane = lane(&failed);
     let error = lane["error"].as_str().unwrap();
-    assert!(error.starts_with("401 for [GitHub Personal Access Token] x"), "{}", &error[..60]);
+    assert!(
+        error.starts_with("401 for [GitHub Personal Access Token] x"),
+        "{}",
+        &error[..60]
+    );
     assert!(error.ends_with('…'), "the error was not cut");
-    assert!(error.chars().count() <= 3_073, "{} chars", error.chars().count());
+    assert!(
+        error.chars().count() <= 3_073,
+        "{} chars",
+        error.chars().count()
+    );
 }
 
 #[test]
@@ -103,10 +130,16 @@ fn the_lanes_title_is_masked_and_falls_back_to_the_masked_latest_prompt() {
     let token = github_token();
     let titled = json!({"status": "idle", "turnCount": 1, "updatedAt": 9, "title": format!("rotate {token}"),
                         "lastPrompt": "unused"});
-    assert_eq!(lane(&titled)["title"], "rotate [GitHub Personal Access Token]");
+    assert_eq!(
+        lane(&titled)["title"],
+        "rotate [GitHub Personal Access Token]"
+    );
     let untitled = json!({"status": "idle", "turnCount": 1, "updatedAt": 9,
                           "lastPrompt": format!("push with\n{token}")});
-    assert_eq!(lane(&untitled)["title"], "push with [GitHub Personal Access Token]");
+    assert_eq!(
+        lane(&untitled)["title"],
+        "push with [GitHub Personal Access Token]"
+    );
     assert!(lane(&json!({"status": "idle", "updatedAt": 9}))["title"].is_null());
 }
 
@@ -115,8 +148,14 @@ fn a_huge_prompt_is_cut_before_it_is_scanned_and_its_step_still_masks_the_head()
     // A pasted log: the step reads only its head, so the scan never walks megabytes.
     let token = github_token();
     let prompt = format!("deploy {token} {}", "x".repeat(4_000_000));
-    let step = lane(&running(&prompt))["step"].as_str().unwrap_or_default().to_owned();
-    assert!(step.starts_with("deploy [GitHub Personal Access Token] x"), "{step}");
+    let step = lane(&running(&prompt))["step"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    assert!(
+        step.starts_with("deploy [GitHub Personal Access Token] x"),
+        "{step}"
+    );
 }
 
 #[test]
@@ -125,7 +164,10 @@ fn whitespace_before_a_secret_does_not_move_the_scan_cut_into_it() {
     // inside the token would leave its head unmasked once the blank run folds away.
     let token = github_token();
     let prompt = format!("{}{token} tail", " ".repeat(4_090));
-    let step = lane(&running(&prompt))["step"].as_str().unwrap_or_default().to_owned();
+    let step = lane(&running(&prompt))["step"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
     assert_eq!(step, "[GitHub Personal Access Token] tail");
 }
 
@@ -148,12 +190,27 @@ fn work_below_the_turn_is_working_unless_the_chat_failed_or_its_peer_went() {
     assert_eq!(lane(&ready)["state"], "working");
     assert_eq!(lane(&ready)["since"], 7);
     // Its harness stopped for idleness while a sub-session it started runs.
-    assert_eq!(status_indicator(&at("idle", Some("completed"))), Some("working"));
-    assert_eq!(status_indicator(&at("disconnected", Some("completed"))), Some("working"));
+    assert_eq!(
+        status_indicator(&at("idle", Some("completed"))),
+        Some("working")
+    );
+    assert_eq!(
+        status_indicator(&at("disconnected", Some("completed"))),
+        Some("working")
+    );
     assert_eq!(status_indicator(&at("ready", None)), Some("working"));
-    assert_eq!(status_indicator(&at("ready", Some("failed"))), Some("failed"));
-    assert_eq!(status_indicator(&at("disconnected", Some("cancelled"))), Some("lost"));
-    assert_eq!(status_indicator(&at("unreachable", Some("completed"))), Some("done"));
+    assert_eq!(
+        status_indicator(&at("ready", Some("failed"))),
+        Some("failed")
+    );
+    assert_eq!(
+        status_indicator(&at("disconnected", Some("cancelled"))),
+        Some("lost")
+    );
+    assert_eq!(
+        status_indicator(&at("unreachable", Some("completed"))),
+        Some("done")
+    );
     assert_eq!(status_indicator(&at("unreachable", None)), None);
     assert_eq!(status_indicator(&at("closed", Some("completed"))), None);
     let mut done = at("ready", Some("completed"));
@@ -165,7 +222,7 @@ fn work_below_the_turn_is_working_unless_the_chat_failed_or_its_peer_went() {
 /// shorter one is untouched, its spacing too.
 #[test]
 fn a_summary_title_is_at_most_200_characters() {
-    use super::{TITLE_CHARS, summary_title};
+    use super::{summary_title, TITLE_CHARS};
     let short = "Fix  the\nsidebar";
     assert_eq!(summary_title(short), short);
     let edge = "é".repeat(TITLE_CHARS);
@@ -182,7 +239,10 @@ fn a_peers_census_row_cuts_its_title_too() {
     let row = json!({"sessionId": "p", "title": "x".repeat(5_000), "tools": [], "toolsMutable": true,
         "timeBreakdown": {"totalMs": 1, "spans": [{"turnId": "t"}]}});
     let census = super::without_summary_tools(row);
-    assert_eq!(census["title"].as_str().unwrap().chars().count(), super::TITLE_CHARS + 1);
+    assert_eq!(
+        census["title"].as_str().unwrap().chars().count(),
+        super::TITLE_CHARS + 1
+    );
     assert!(census.get("tools").is_none() && census.get("toolsMutable").is_none());
     // An older peer lists its chats' time breakdowns; a census row here never carries one.
     assert!(census.get("timeBreakdown").is_none(), "{census}");
@@ -199,7 +259,10 @@ fn a_secret_across_the_title_cut_is_masked_before_the_cut() {
     assert!(!cut.contains("ghp_"), "{cut}");
     assert!(cut.chars().count() <= super::TITLE_CHARS + 1, "{cut}");
     let census = super::without_summary_tools(json!({"title": title}));
-    assert!(!census["title"].as_str().unwrap().contains("ghp_"), "{census}");
+    assert!(
+        !census["title"].as_str().unwrap().contains("ghp_"),
+        "{census}"
+    );
 }
 
 /// Leo, 2026-10-30, on his sidebar: "a lot of these subtitles are bad". A running turn's step
@@ -207,7 +270,7 @@ fn a_secret_across_the_title_cut_is_masked_before_the_cut() {
 /// and first line, as `lastPrompt` does (`prompt_line.rs`), never the envelope it came in.
 #[test]
 fn another_agents_message_steps_as_its_sender_and_first_line_never_its_envelope() {
-    use super::super::{Control, TurnInfo, prompt_line::prompt_line};
+    use super::super::{prompt_line::prompt_line, Control, TurnInfo};
     let step = |t: &TurnInfo| lane(&running(&t.masked_preview))["step"].clone();
     // `acpmux send` at a shell: the sender's name in brackets.
     let shell = "[coord] Fix the grid spacing\nmore below";
@@ -225,7 +288,11 @@ fn another_agents_message_steps_as_its_sender_and_first_line_never_its_envelope(
     let t = TurnInfo::prompted("cmux", envelope, "t2", "p2", Control::Local)
         .shown_as(&prompt_line(envelope, "cmux", Some(&p)));
     assert_eq!(step(&t), "coord-deputy: Merged #23727");
-    assert!(!t.masked_preview.contains("Message id"), "{}", t.masked_preview);
+    assert!(
+        !t.masked_preview.contains("Message id"),
+        "{}",
+        t.masked_preview
+    );
     // A lane's report to its parent: its first line, never its session's id.
     let report = "[child] lane report: turn 5 ended, done.\nSession: 01a18a3e-239e-7ef1-8c37-b22b3a8da2e6\nLast message: ok";
     let p = json!({"kind": "lane_report", "from": "s1", "fromName": "child"});
@@ -263,13 +330,24 @@ fn another_agents_message_steps_as_its_sender_and_first_line_never_its_envelope(
     let again = TurnInfo::prompted("cmux", &envelope, "t6", "p6", Control::Local)
         .shown_as(&t.masked_preview);
     assert_eq!(again.masked_preview, t.masked_preview);
-    let t = TurnInfo::prompted("acpmux-cli#7", "[coord] Checking…", "t7", "p7", Control::Local);
+    let t = TurnInfo::prompted(
+        "acpmux-cli#7",
+        "[coord] Checking…",
+        "t7",
+        "p7",
+        Control::Local,
+    );
     assert_eq!(t.masked_preview, "coord: Checking…");
     let again =
         TurnInfo::prompted("x", "y", "t7", "p7", Control::Local).shown_as(&t.masked_preview);
     assert_eq!(again.masked_preview, "coord: Checking…");
     // The person's own prompt stays as it is.
-    let t =
-        TurnInfo::prompted("acpmux-cli#7", "Run the guard\n  tests", "t5", "p5", Control::Local);
+    let t = TurnInfo::prompted(
+        "acpmux-cli#7",
+        "Run the guard\n  tests",
+        "t5",
+        "p5",
+        Control::Local,
+    );
     assert_eq!(step(&t), "Run the guard tests");
 }
