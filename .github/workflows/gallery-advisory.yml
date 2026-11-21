@@ -32,6 +32,8 @@ name: gallery visual evidence (advisory)
 # post reads it, and a capture that breaks on a push never reddens the base. A pull
 # request's squash merge (GitHub's `web-flow` commit with a `(#N)`) had its receipt
 # on the PR, and bot pushes change no UI, so neither runs.
+# Cut from pull requests on 2026-11-21 (ci-time-map: advisory, 'Do not add this check to branch protection'; ~2.4k runner-min a day).
+# The receipt after a direct push to feat-cmux-next stays.
 on:
   push:
     branches: [feat-cmux-next]
@@ -42,16 +44,7 @@ on:
       - "scripts/ci/gallery_select.py"
       - "bun.lock"
       - ".github/workflows/gallery-advisory.yml"
-  pull_request:
-    branches: [feat-cmux-next]
-    types: [opened, synchronize, reopened, edited, ready_for_review]
-    paths:
-      - "webviews/**"
-      - "scripts/gallery-matrix/**"
-      - "scripts/cmux-next/build-agent-pane-web.sh"
-      - "scripts/ci/gallery_select.py"
-      - "bun.lock"
-      - ".github/workflows/gallery-advisory.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -164,6 +157,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: Setup Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -239,7 +233,7 @@ jobs:
           base_build() {
             # Only what a gallery build reads, as the checkout above: the whole tree was ~47,000
             # files to write for one build.
-            git worktree add -q --no-checkout --detach "$RUNNER_TEMP/base" "$base_sha"
+            git worktree add -f -f -q --no-checkout --detach "$RUNNER_TEMP/base" "$base_sha"
             git sparse-checkout list | git -C "$RUNNER_TEMP/base" sparse-checkout set --no-cone --stdin
             git -C "$RUNNER_TEMP/base" checkout -q --detach "$base_sha"
             if [ -f "$RUNNER_TEMP/base/webviews/vite.config.gallery.ts" ] && [ -f "$RUNNER_TEMP/base/webviews/scripts/gallery/manifest.ts" ]; then
@@ -247,7 +241,8 @@ jobs:
               bun install --frozen-lockfile
               bun scripts/gallery/manifest.ts --entries "$ids" --themes pair --widths narrow \
                 --frame component --out "$RUNNER_TEMP/base-all.json"
-              CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-base" bun run gallery:build
+              # A translation the base lacked (a later push added it) must not fail the base build.
+              CMUX_STRINGS_BEST_EFFORT=1 CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-base" bun run gallery:build
             else
               echo '[]' > "$RUNNER_TEMP/base-all.json"
             fi

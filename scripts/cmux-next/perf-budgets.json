@@ -49,6 +49,12 @@
    "floor": 3.0,
    "what": "main-thread ms per second while 15 agents tick (15 busy sidebar spinners; a465's 1/20-spinner xbench rows are in scripts/perf-bench/budgets.json, nightly gate)"
   },
+  "sidebar\\.\\d+\\.ticking\\.row_maps_per_tick": {
+   "p95": 1.0,
+   "unit": "rows",
+   "floor": 0.2,
+   "what": "sidebar rows the row feed maps per agent tick (debug.sidebar_perf row_maps over the ticks): its own row at most, at 100 workspaces as at 1,000 (O(changed), never O(all); Leo's NIGHTLY 2026-11-21)"
+  },
   "panes\\..*\\.frame": {
    "p95": 8.33,
    "unit": "ms",
