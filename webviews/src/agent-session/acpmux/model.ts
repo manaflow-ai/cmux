@@ -23,7 +23,7 @@ import {
   TRANSCRIPT_FOOTER_CONTROL,
   TRANSCRIPT_INNER_GAP,
   TRANSCRIPT_LINE_ROW,
-  TRANSCRIPT_LIVE_STEP_HEIGHT,
+  liveStepHeight,
   transcriptGap,
 } from "./transcriptGrid";
 import type { MachineResources } from "./machineResources";
@@ -3686,7 +3686,7 @@ export function layoutConversation(
           height = custom
             ? customHeight
             : edge === LIVE_STEP_EDGE
-              ? TRANSCRIPT_LIVE_STEP_HEIGHT * chromeScale
+              ? liveStepHeight() * chromeScale
               : measuredRowHeight(
                   row,
                   width,
