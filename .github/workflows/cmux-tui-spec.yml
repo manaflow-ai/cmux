@@ -37,6 +37,7 @@ on:
       # (tests/test_cargo_test_verdict.py keeps this list whole).
       - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
       - "Resources/theme-files/*.json"
+      - "Resources/sidebar-looks/*.json"
       - "docs/remote-agents-and-cloud.md"
       - "plans/cmux-next/spec-proposals/visuals/design-tokens.json"
       - "schemas/build-identity/vectors.json"
