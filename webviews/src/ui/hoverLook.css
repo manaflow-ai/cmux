@@ -30,7 +30,7 @@
 :root[data-hover-look][data-hover-look]
   :is(.ui-tooltip, .ui-title-tooltip, .ui-hint, .ui-card, .cu-tooltip).ui-glass {
   --glass-tint: color-mix(in srgb, var(--glass-surface, var(--surface-popup)) 86%, transparent);
-  --glass-backdrop: blur(20px) saturate(1.8);
+  --glass-backdrop: var(--ds-glass-popover-blur);
   --glass-rim-shadow:
     inset 0 0 0 var(--cmux-hairline, 0.5px) var(--hover-look-ring),
     inset 0 var(--cmux-hairline, 0.5px) 0 0 var(--hover-look-lit);
@@ -67,7 +67,7 @@
 :root[data-hover-look][data-hover-look="soft"]
   :is(.ui-tooltip, .ui-title-tooltip, .ui-hint, .ui-card, .cu-tooltip).ui-glass {
   --glass-tint: color-mix(in srgb, var(--glass-surface, var(--surface-popup)) 72%, transparent);
-  --glass-backdrop: blur(28px) saturate(1.6);
+  --glass-backdrop: var(--ds-glass-menu-blur);
   --glass-rim-shadow: inset 0 var(--cmux-hairline, 0.5px) 0 0 light-dark(color-mix(in srgb, var(--cmux-tone-light, white) 80%, transparent), color-mix(in srgb, var(--cmux-tone-light, white) 14%, transparent));
   --glass-elevation: 0 10px 30px -6px light-dark(color-mix(in srgb, black 18%, transparent), color-mix(in srgb, black 50%, transparent));
 }
