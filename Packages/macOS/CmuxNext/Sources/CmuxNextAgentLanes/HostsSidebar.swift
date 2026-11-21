@@ -198,13 +198,13 @@ public final class HostsSidebar {
             previous = [LayoutItemRef(kind: "client", value: id.rawValue)]
         }
 
-        var header = SidebarItemInfo(title: "Hosts", symbol: "server.rack", badge: machines.isEmpty ? nil : machines.count)
+        var header = SidebarItemInfo(title: HostsSidebarStrings.hosts, symbol: "server.rack", badge: machines.isEmpty ? nil : machines.count)
         header.activity = machines.contains(where: { $0.isConnecting && !$0.failed }) ? .working : .idle
         add(Self.headerID, header)
         guard expanded else { return items }
 
-        var addHost = SidebarItemInfo(title: "Add Host…", symbol: "plus")
-        addHost.caption = "Add Host…"
+        var addHost = SidebarItemInfo(title: HostsSidebarStrings.addHost, symbol: "plus")
+        addHost.caption = HostsSidebarStrings.addHost
         addHost.indent = 1
         add(Self.addID, addHost)
         for machine in machines {
@@ -230,16 +230,16 @@ public final class HostsSidebar {
     }
 
     private static func caption(for machine: MachineSectionRow) -> String {
-        if machine.failed { return "Failed" }
+        if machine.failed { return MachineRowStrings.failed }
         if let state = machine.serverState {
             switch state {
-            case .paused: return "Paused"
-            case .resuming: return "Resuming…"
-            case .failed: return "Failed"
-            case .deleted: return "Deleted"
+            case .paused: return MachineRowStrings.paused
+            case .resuming: return MachineRowStrings.resuming
+            case .failed: return MachineRowStrings.failed
+            case .deleted: return MachineRowStrings.deleted
             }
         }
-        if machine.isConnecting { return "Connecting…" }
-        return machine.isConnected ? "Connected" : "Offline"
+        if machine.isConnecting { return MachineRowStrings.connecting }
+        return machine.isConnected ? MachineRowStrings.connected : MachineRowStrings.offline
     }
 }
