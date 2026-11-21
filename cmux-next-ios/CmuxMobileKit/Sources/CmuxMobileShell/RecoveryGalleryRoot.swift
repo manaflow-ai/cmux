@@ -26,6 +26,10 @@ import SwiftUI
 ///   unavailable on this account), then the variants it was picked from, B and C;
 /// - `cloudmachines`: Settings → Cloud → Cloud Machines with fixed machines, plan and snapshots.
 /// - `theme-mocha`, `theme-solarized`, `theme-wallpaper`: the chrome under a Mac's theme (`MacThemeGallery`).
+/// - `chip`: the terminal's connection chip (Leo 2026-11-21: "a symbol or short thing,
+///   not a sentence. stop layout shifting"): A, the top-center toast the terminal shows,
+///   in its four states; B, the chip just above the composer at the leading edge (the
+///   agent chat's); C, symbol only at the trailing edge.
 /// - `reconnect`: a list riding out a dropped or quiet connection to the Mac with its rows kept
 ///   (Leo 2026-11-21: no "didn't answer in time"): A, the line the Chats list shows
 ///   (`ListStatusRow`), in its three states, then the variants it was picked from, B and C.
@@ -65,6 +69,8 @@ public struct RecoveryGalleryRoot: View {
                 NavigationStack { CloudMachinesScreen(model: .gallery(), openChats: {}) }
             case "reconnect":
                 reconnect
+            case "chip":
+                connectionChips
             case "theme-mocha", "theme-solarized", "theme-wallpaper":
                 MacThemeGallery(variant: scene)
             default:
@@ -179,6 +185,55 @@ public struct RecoveryGalleryRoot: View {
     /// last row and competes with the tab bar).
     /// C: a thin indeterminate bar under the title with the rows dimmed (reads as blocked, and
     /// dimming invites a tap that does nothing different).
+    private var connectionChips: some View {
+        let states: [ConnectionChip.Content] = [
+            .init(word: "Connecting", symbol: nil, sentence: "Connecting to Mac Studio…"),
+            .init(word: "Reconnecting", symbol: nil, sentence: "Reconnecting to Mac Studio…"),
+            .init(word: "Mac offline", symbol: "wifi.slash", sentence: "Mac Studio is offline"),
+            .init(word: "Can't reach", symbol: "exclamationmark.triangle", sentence: "Can't reach this terminal"),
+        ]
+        func page<Chip: View>(_ alignment: Alignment, @ViewBuilder chip: () -> Chip) -> some View {
+            VStack(alignment: .leading, spacing: 2) {
+                // visible-only: a fixed gallery of six rows.
+                ForEach(0..<6, id: \.self) { i in
+                    Text(verbatim: i == 5 ? "$ " : "line \(i + 1) of the build output")
+                        .font(.system(size: 13, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.85))
+                }
+                Spacer(minLength: 0)
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(.white.opacity(0.12))
+                    .frame(height: 44)
+            }
+            .padding(12)
+            .frame(height: 210)
+            .background(Color.black)
+            .overlay(alignment: alignment) { chip().padding(alignment == .top ? .top : .bottom, alignment == .top ? 8 : 64).padding(.horizontal, 12) }
+            .environment(\.colorScheme, .dark)
+        }
+        return ScrollView {
+            VStack(spacing: 12) {
+                // visible-only: four fixed states.
+                ForEach(states, id: \.self) { state in
+                    galleryLabel("A · top center · \(state.word)")
+                    page(.top) { ConnectionChip(state, retry: state.symbol == nil ? nil : {}) }
+                }
+                galleryLabel("B · above the composer, leading")
+                page(.bottomLeading) { ConnectionChip(states[1]) }
+                galleryLabel("C · symbol only, trailing")
+                page(.topTrailing) {
+                    Image(systemName: "wifi.exclamationmark")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 30, height: 26)
+                        .glassEffect(.regular, in: .capsule)
+                        .accessibilityLabel(Text(verbatim: states[1].sentence))
+                }
+            }
+            .padding()
+        }
+    }
+
     private var reconnect: some View {
         let rows = ["Fix the login redirect", "Bump the parser to 2.4", "Why is CI slow on arm64?"]
         func list(_ status: ListStatusRow.State?, dimmed: Bool = false) -> some View {

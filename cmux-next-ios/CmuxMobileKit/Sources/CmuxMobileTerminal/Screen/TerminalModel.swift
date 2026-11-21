@@ -48,6 +48,19 @@ public final class TerminalModel {
     public var connectionLine: String? {
         quietStatus.isShown ? connectionState.quietLine : nil
     }
+    /// ``connectionLine`` as the chip floating above the composer: a symbol
+    /// or spinner and one or two words, the sentence for VoiceOver. It covers
+    /// nothing and moves nothing (Leo, 2026-11-21: "stop layout shifting").
+    public var connectionChip: ConnectionChip.Content? {
+        guard let sentence = connectionLine else { return nil }
+        switch connectionState {
+        case .connecting: return .init(word: String(localized: "Connecting"), symbol: nil, sentence: sentence)
+        case .reattaching: return .init(word: String(localized: "Reconnecting"), symbol: nil, sentence: sentence)
+        case .offline: return .init(word: String(localized: "Mac offline"), symbol: "wifi.slash", sentence: sentence)
+        case .failed: return .init(word: String(localized: "Can't reach"), symbol: "exclamationmark.triangle", sentence: sentence)
+        case .attached: return nil
+        }
+    }
     var sticky = TerminalStickyModifiers()
 
     // Composer
