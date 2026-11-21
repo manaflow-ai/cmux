@@ -22,6 +22,7 @@ import CmuxNextSettings
 ///   agents toast for that answer, decoded as the daemon's is, until closed
 ///   (captures of the toast with no Chief or subagents to stop).
 /// - `{classic_toast: "before" | "short" | "action", window?}`: a classic import toast variant (`CmuxToast.classicImportGallery`).
+/// - `{show: {id, message, tone?}, window?}` shows a toast; `tone` is a ``CmuxToastTone`` (`working` waits for its result).
 /// Every reply also has `undo_steps`: the sidebar and pin undo steps registered so far.
 @MainActor
 enum DebugToast {
@@ -63,6 +64,13 @@ enum DebugToast {
         }
         if let variant = params["classic_toast"]?.stringValue, let toast = CmuxToast.classicImportGallery[variant], let window {
             _ = CmuxToastCenter.shared.show(toast, in: window)  // `action` is the landed look.
+        }
+        // `{show: {id, message, tone?}}`: a toast as an app's `cmux.toast` shows one; `tone: "working"` spins
+        // until the same id shows its result (captures of toasts v2's Running tests… → Tests passed).
+        if case .object(let spec)? = params["show"], let id = spec["id"]?.stringValue, let message = spec["message"]?.stringValue, let window {
+            let tone = spec["tone"]?.stringValue.flatMap(CmuxToastTone.init(rawValue:))
+            _ = CmuxToastCenter.shared.show(CmuxToast(id: id, message: message, duration: tone == .working ? CmuxToast.untilClosed : .seconds(6),
+                                                      tone: tone), in: window)
         }
         if let answer = params["stop_all"] {
             result["stop_all"] = showStopAll(answer, in: window)

@@ -52,6 +52,8 @@ public final class CmuxToastView: NSView {
     public private(set) var secondaryButton: CmuxToastButton?
     /// The leading icon of a style that shows one (``CmuxToastLook/showsIcon``).
     public private(set) var iconView: NSImageView?
+    /// The spinner a working toast leads with (``CmuxToastTone/working``), in every style.
+    public private(set) var spinnerView: StatusIndicatorView?
     /// The SF Symbol the icon shows: an Undo's arrow, else the tone's (``CmuxToastTone/symbolName``).
     public var iconSymbol: String {
         toast.action?.isUndo == true ? "arrow.uturn.backward.circle.fill" : toast.tone.symbolName
@@ -178,9 +180,23 @@ public final class CmuxToastView: NSView {
         let geometry = self.geometry
         let bar = look.accentBar ? Self.accentBarWidth : 0
         let iconSide: CGFloat = look.compact ? 13 : 16
-        let leading = look.showsIcon ? geometry.padding + (CmuxToastButton.height - iconSide) / 2 : geometry.textInset
+        // A working toast leads with the spinner in every style; toasts v2 marks a success, warning or error too.
+        let working = toast.tone == .working
+        let marks = look.showsIcon || (look.marksTone && toast.tone != .neutral)
+        let leading = marks || working ? geometry.padding + (CmuxToastButton.height - iconSide) / 2 : geometry.textInset
         row.edgeInsets = NSEdgeInsets(top: geometry.padding, left: leading + bar, bottom: geometry.padding, right: geometry.padding)
-        if look.showsIcon {
+        if working {
+            let spinner = StatusIndicatorView.spinner()
+            spinner.translatesAutoresizingMaskIntoConstraints = false
+            spinner.widthAnchor.constraint(equalToConstant: iconSide).isActive = true
+            spinner.heightAnchor.constraint(equalToConstant: iconSide).isActive = true
+            spinner.setContentHuggingPriority(.required, for: .horizontal)
+            spinner.setContentCompressionResistancePriority(.required, for: .horizontal)
+            spinner.spin(true)
+            spinnerView = spinner
+            row.insertArrangedSubview(spinner, at: 0)
+            row.setCustomSpacing(Metrics.space4, after: spinner)
+        } else if marks {
             let icon = ThemedImageView()
             let tone = toast.tone
             icon.themeTint = { tone.color }
@@ -205,7 +221,7 @@ public final class CmuxToastView: NSView {
             row.setCustomSpacing(Metrics.space5, after: text)
         }
         if let action = toast.action {
-            let button = CmuxToastButton(style: look.fillsAction ? .filled : .action, title: action.title, target: self, action: #selector(runAction))
+            let button = CmuxToastButton(style: look.inkAction ? .ink : look.fillsAction ? .filled : .action, title: action.title, target: self, action: #selector(runAction))
             actionButton = button
             if action.isUndo { button.themedToolTip = action.title }
             row.addArrangedSubview(button)
@@ -264,7 +280,7 @@ public final class CmuxToastView: NSView {
         // The buttons and the icon keep the same padding to the top and bottom as to the trailing edge
         // (concentric with the toast): without these a one-line toast was its message's height, 31 pt, with its
         // buttons 5 and 4 pt from the edges instead of the padding.
-        let edged: [NSView?] = [iconView, secondaryButton, actionButton, neverShowButton, closeButton]
+        let edged: [NSView?] = [iconView, spinnerView, secondaryButton, actionButton, neverShowButton, closeButton]
         for view in edged.compactMap({ $0 }) {
             NSLayoutConstraint.activate([
                 view.topAnchor.constraint(greaterThanOrEqualTo: row.topAnchor, constant: geometry.padding),

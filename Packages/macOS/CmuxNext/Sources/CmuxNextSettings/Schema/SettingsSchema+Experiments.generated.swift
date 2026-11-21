@@ -8,6 +8,9 @@ extension CmuxConfigSnapshot {
     /// `experiments.composerV2`: Taste prototype: the agent chat composer as a glass panel with an edge light on focus, mode and scope chips in a row inside it (only the active one raised), inline @mention chips, the model picker left and + and Send right, and a round Send dimmed until there is text (webviews useExperimentSwitch("composerV2"), composerV2.css). Off by default; off keeps today's composer.
     public nonisolated static let composerV2Path = ["experiments", "composerV2"]
     public nonisolated static let composerV2Default = false
+    /// `experiments.toastsV2`: Taste prototype: toasts v2. A working toast (a spinner) turns into its result in place; every person's tab close, a single workspace close and a sidebar chat archive show one line with an inline Undo; toasts draw quiet glass with a mark in the tone's color and an ink-filled action (CmuxToastCenter.v2, from experimentSwitches; the web toast arm from useExperimentSwitch("toastsV2")). Off by default; off keeps today's toasts.
+    public nonisolated static let toastsV2Path = ["experiments", "toastsV2"]
+    public nonisolated static let toastsV2Default = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -35,6 +38,16 @@ nonisolated enum ExperimentsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.composerV2Default),
                 keywords: ["experiments", "experimental", "prototype", "composer", "glass", "chips", "mention", "send"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.toastsV2Path,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.experiments.toastsV2", "Toasts v2"),
+                help: SettingsText.keyed("settings.experiments.toastsV2.help", "Spinner toasts that turn into their result in place, and an Undo after closing a tab or workspace or archiving a chat."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.toastsV2Default),
+                keywords: ["labs", "experiments", "experimental", "toasts", "toast", "undo", "spinner"]
             ),
         ]
     }
