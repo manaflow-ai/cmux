@@ -47,10 +47,8 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
     /// Each Chief's avatar beside this conversation's group bubbles, as its Home row draws it.
     private var avatarsWatch: Task<Void, Never>?
     private var agentsWatch: Task<Void, Never>?
-    private var memoryOfferWatch: Task<Void, Never>?
     private var chiefIntroWatch: Task<Void, Never>?
-    /// UserDefaults: the first-run memory offer was clicked (it shows once).
-    static let memoryOfferUsedKey = "home.firstRun.memoryOfferUsed"
+    private var chiefOnboardingWatch: Task<Void, Never>?
     private var shortcutsWatch: Task<Void, Never>?
     private var spellCheckingWatch: Task<Void, Never>?
     /// The Chief's avatar when its profile sets none: `picture` (`AppServices.chosenPicture(of:)`, its
@@ -68,8 +66,8 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
     lazy var turnActions = control.services.home.chiefHomes.turnActions(for: transcript)
     /// Where this Chief runs and its other host, for the settings card (no floating switch over the chat).
     private var hostWatch: Task<Void, Never>?
-    /// The header's location chip and the card's Runs On row, on the Chief that `cmux chief move` moves.
-    private var teleportChips: ChiefTeleportChips?
+    /// The card's Runs On chip, on the Chief that `cmux chief move` moves (the header has none).
+    private var runsOn: ChiefRunsOnChip?
     /// Where attachments open and their right-click menu (the transcript holds it weakly).
     private var fileActions: HomeFileActions?
 
@@ -162,10 +160,9 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
             await service?.renameChief(conversation: conversation, to: name) ?? .noConnection
         }
         settingsView.bindPrimary(directory: service.directory, conversation: conversation)  // the Primary Chief row
-        teleportChips = ChiefTeleportChips(model: services.chiefTeleport)
-        teleportChips?.follow(for: self, { [weak service] in service?.showsTeleport(conversation: conversation) ?? false }) { [weak self] in
-            self?.transcript.headerPillAccessory = $0
-            self?.settingsView.showTeleport($1)
+        runsOn = ChiefRunsOnChip(model: services.chiefTeleport)
+        runsOn?.follow(for: self, { [weak service] in service?.showsTeleport(conversation: conversation) ?? false }) { [weak self] in
+            self?.settingsView.showTeleport($0)
         }
         // The stop button (HomeHostView+StopAll): a click, Esc and Cmd-. stop the Chief; Option-click stops all agents.
         let registry = services.registry
@@ -262,30 +259,13 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
         }
         // The first-run rows run the same registry actions as the sidebar's
         // New Terminal Tab and New Agent Chat, and show their shortcuts.
-        transcript.onFirstRunAction = { [weak self] action in
+        transcript.onFirstRunAction = { action in
             let id: ActionID = switch action {
             case .openTerminal: Self.openTerminalAction
             case .startAgent: Self.startAgentAction
             case .togglePet: "home.toggleChiefPet"
-            case .importMemories: ChiefMemoryImportHandlers.actionID
-            }
-            if action == .importMemories {
-                // The offer is used up by the click: the panel shows it once.
-                UserDefaults.standard.set(true, forKey: Self.memoryOfferUsedKey)
-                self?.transcript.setFirstRunMemoryOffer(nil)
             }
             _ = registry.perform(id, invocation: ActionInvocation(origin: .user))
-        }
-        // Onboarding: the Chief's front page (no messages yet) offers to bring memory from the other tools found on
-        // this Mac. One read off the main thread; nothing found, nothing shown, and a used offer never returns.
-        let muxHome = HomeBrainHost.muxHome(tag: services.environment.tag).path
-        memoryOfferWatch = Task { [weak self] in
-            guard !UserDefaults.standard.bool(forKey: Self.memoryOfferUsedKey) else { return }
-            let sources = await ChiefMemoryImportHandlers.detectForOffer(muxHome: muxHome)
-            guard !Task.isCancelled, !service.isCloudConversation(id), let title = MemorySource.offerTitle(sources),
-                  let summary = store.rows.first(where: { $0.summary.id == id })?.summary,
-                  summary.lastSeq == 0, summary.participants.contains(where: { $0.agentClass == .chief }) else { return }
-            self?.transcript.setFirstRunMemoryOffer(title)
         }
         // The first-run panel's agent rows open the agent's tab like a jump (Search Tabs).
         transcript.onFirstRunAgent = { [weak services] tab in _ = services?.revealTab(tab) }
@@ -313,27 +293,14 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
         // flashes before the welcome.
         let intro = ChiefIntroStore(defaults: .standard)
         transcript.welcomesInChat = intro.welcomePending && !service.isCloudConversation(id)
-        chiefIntroWatch = Task { [weak self] in
-            for await kind in ObservationStream({ () -> ChiefIntroKind? in
-                guard let summary = store.rows.first(where: { $0.summary.id == id })?.summary,
-                      summary.lastSeq == 0, summary.participants.contains(where: { $0.agentClass == .chief }) else { return nil }
-                let me = store.me?.id
-                let others = HomeArchivedChiefs(service.directory.archivedChiefs, me: me).visible(store.rows)
-                    .filter { $0.kind == .chief && $0.id != id }.count
-                return intro.intro(for: id, otherChiefs: others)
-            }) {
-                guard let kind else { continue }
-                guard let self else { return }
-                // A cloud Chief (no local import) or an owner not connected yet keeps the first-run intro.
-                if kind == .welcome, service.chiefWelcome.play(in: id, source: service.homeSource,
-                                                               connection: service.isCloudConversation(id) ? nil : service.chief.connection,
-                                                               intro: intro, text: ChiefWelcome.text(services.registry, anyAppOn: services.settings?.snapshot.startAgentGlobalHotKey ?? false)) { return }
-                self.transcript.welcomesInChat = false
-                intro.markShown(kind, for: id)
-                self.transcript.showFirstRunIntro(kind)
-                return
-            }
+        // Meet Chief (ChiefOnboarding) comes first on a fresh install: the welcome waits until it ends.
+        let onboarding = services.onboarding.chief
+        let archived: @MainActor @Sendable () -> Set<String> = { service.directory.archivedChiefs }
+        chiefIntroWatch = intro.follow(in: transcript, conversation: id, store: store, archivedChiefs: archived, holds: { onboarding.holdsWelcome }) {
+            service.chiefWelcome.play(in: id, source: service.homeSource, connection: service.isCloudConversation(id) ? nil : service.chief.connection,
+                                      intro: intro, text: ChiefWelcome.text(services.registry, anyAppOn: services.settings?.snapshot.startAgentGlobalHotKey ?? false))
         }
+        chiefOnboardingWatch = onboarding.follow(in: transcript, conversation: id, store: store, archivedChiefs: archived, registry: services.registry)
         // The first-run rows' shortcuts and the Switching card follow rebinds
         // (Settings, cmux.json, keybindings.json) while the view lives.
         let switchKeys = services.homeSwitchKeys
@@ -355,7 +322,7 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
         // with history never flashes it (at once when the page is cached).
         transcript.holdsFirstRun = true
         let binding = transcript.binding
-        let reveal = services.launchReveal
+        let reveal = services.launchReveal, spareWait = services.newTabSpares.shownChats // the launch's New Tab spare waits for this page
         // task-owner: lives as long as this view; ends when the first page is in
         firstPage = Task { [weak self] in
             await binding.firstDrawable() // the first page, or an owner-named empty conversation: nothing to read for
@@ -364,7 +331,7 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
             guard let self, !Task.isCancelled else { return }
             transcript.holdsFirstRun = false
             // A launch holds a Home still being made until here (WorkspaceContentController).
-            reveal.markReady(.home); DebugTimings.markLaunch("home.first_page")
+            reveal.markReady(.home); DebugTimings.markLaunch("home.first_page"); spareWait.homePageDrew()
         }
         wantsLayer = true
         clipsToBounds = true
@@ -404,7 +371,7 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
     // the app's claim registry and cancels its wake on the app's timer (both outlive this view). A guard that
     // returned off main skipped all of it.
     nonisolated deinit {
-        for task in [availability, engineWatch, avatarsWatch, hostWatch, agentsWatch, shortcutsWatch, spellCheckingWatch, headerPanelsWatch, needsYouWatch, setupCardWatch, firstPage, memoryOfferWatch, chiefIntroWatch] {
+        for task in [availability, engineWatch, avatarsWatch, hostWatch, agentsWatch, shortcutsWatch, spellCheckingWatch, headerPanelsWatch, needsYouWatch, setupCardWatch, firstPage, chiefIntroWatch, chiefOnboardingWatch] {
             task?.cancel()
         }
         let settings = settings, transcript = transcript, setupCard = setupCard

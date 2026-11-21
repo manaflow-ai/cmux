@@ -27,10 +27,20 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | xbench | `perf-bench.sh` (`scripts/perf-bench/xbench.py`); `--import` reads `results.json` and `scripts/perf-bench/baseline/*.json` | Against other browsers, and the resource budget rows. |
 | idle | `perf-10x-idle.sh` | Idle CPU, wakeups and footprint per process kind. |
 | tui-idle | `tui-idle-ram.sh` (`tui-idle-ram.py`, `dhat-top.py`) on Linux CI | The idle cmux-tui daemon's anonymous PSS, PSS, threads, binary sections and (dhat=1) Rust heap at commits. |
+| daemon-latency | `tui-idle-ram.sh runs=0 latency=1` (`cmux-tui/scripts/bench-daemon-latency.py`, acpmux `start_under_load_bench`) on Linux CI | bin/cmux hot paths at commits in alternating rounds: daemon requests, the CLI end to end, acpmux send to first token (cold and warm). One run per commit, so `compare` matches the sides. |
+| acpmux-watch-bytes | acpmux `hub/stream_tell_tests.rs` (cargo, Linux CI) | Bytes one acpmux watcher is sent while 20 chats stream and the list is read 60 times. |
 | typing | `webviews/bench/composer-typing.bench.ts` (load modes L0-L3, Chromium and WebKit) on Linux CI | Composer keydown-to-paint p95/p99 and key integrity under idle, stream, ten streaming documents and a 100k-row stream. |
 | mcp-fanout | `mcp-fanout.sh` (`mcp-fanout.py`) on a fleet Mac, any published app (`app=`) | MCP tool-server processes, RSS, idle CPU per kind at N open chats; first cmux tool call latency. |
 | workspace-factory | `workspace-factory.sh` (`workspace-factory/`, the `wsfactory` Rust factory) on a fleet Mac | A per-job throwaway workspace (APFS clone of a read-only seed) against today's cold and warm-slot step workspaces: start, build, cache hit, disk left behind. |
+| dev-loop | `dev-loop-ceiling.sh` (`dev-loop/<loop>.sh`, `dev-loop/bound.py`) on a fleet Mac | Edit to running for web swap, daemon restart, Swift inject and the startup loop, each over its simulated stage-floor bound; worst ratio (goal dev-loop-ceiling). |
 
+
+## Dev loop
+
+| name | what it measures | ticket / owner | last touched | status |
+|---|---|---|---|---|
+| `dev-loop-ceiling.sh` | Runs each `dev-loop/<loop>.sh` on one Mac, then `dev-loop/bound.py` (dev-loop bench). | goal dev-loop-ceiling | 2026-11-21 | active |
+| `dev-loop/bound.py` | Each loop's p50 over the Monte Carlo critical path of its stage floors; writes report.json. | goal dev-loop-ceiling | 2026-11-21 | active |
 
 ## Launch and update
 
@@ -106,6 +116,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `pane-perf.sh` | Pane layout motion (split, close, zoom, drag) at 2, 8 and 30 terminals. | panes-perf | 2026-10-27 | active |
 | `pane-zoom.sh` | Cmd-Shift-Enter zoom and unzoom frames in 1x2, 2x2, 2x4 layouts. | pane-zoom | 2026-10-27 | active |
 | `split-spring.sh` | Rapid Cmd-D and Cmd-Shift-D frames, plus the perf cron budgets suite. | - | 2026-11-08 | active |
+| `diff-page-frames.sh` | A large diff tab at two commits: code view open, Plain English first paint, rAF scroll frame times, a clip (`diff-page-frames.py`). | cmux#46299 | 2026-11-20 | active |
 | `perf-10x-drag.sh` | Pane and divider drags at 120 Hz, plus daemon cost per drag value. | perf-10x | 2026-10-22 | active |
 | `perf-10x-drag-daemon.py` | Daemon-side cost of one drag value. | perf-10x | 2026-11-13 | active |
 | `pane-motion-films.sh` | One movie per pane act, for a person to look at (judges nothing). | - | 2026-11-15 | active |
@@ -142,11 +153,13 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `dhat-top.py` | Top allocation sites at a dhat profile's peak. | - | 2026-11-15 | active |
 | `infinite-items.py` | Time-compressed run of N workspaces, tabs and chats against the daemons. | CMUX-571 | 2026-11-15 | active |
 | `infinite-items-linux.sh` | Infinite items on Linux, daemons plus headless chat pages. | CMUX-571 | 2026-11-15 | active |
+| `perf-cron-linux.sh` | One perf cron Linux part on a Linux pool worker, for the build controller. | - | 2026-11-21 | active |
 | `infinite-items-profile.sh` | dhat heap profile of the daemons per item. | CMUX-571 | 2026-11-15 | active |
-| `tui-idle-ram.sh` | Idle cmux-tui daemon memory on Linux at commits (bench tui-idle). | CMUX-571 | 2026-11-16 | active |
+| `tui-idle-ram.sh` | Idle cmux-tui daemon memory on Linux at commits (bench tui-idle); with latency=1 its hot-path latency (bench daemon-latency). | CMUX-571 | 2026-11-16 | active |
 | `tui-idle-ram.py` | One idle headless daemon: smaps, threads, mappings, children. | CMUX-571 | 2026-11-16 | active |
 | `chat-disk-growth.py` | One live chat's history bytes per simulated hour. | - | 2026-11-15 | active |
 | `chat-disk-growth-linux.sh` | Linux entry for chat-disk-growth.py at 100,000 rows. | - | 2026-11-15 | active |
+| `daemon-restart-linux.sh` | Daemon restart to a non-empty chat attach (god_daemon.rs small and god homes), median of up to 3 runs; the perf cron's daemon-restart part. | - | 2026-11-18 | active |
 | `journal-writes.py` | Bytes the acpmux journal writes per hour and write amplification. | hq#11322 | 2026-11-15 | active |
 | `qos-load-bench.sh` | Effect of agent load on foreground work, with and without the QoS tier. | cmux#27587 | 2026-10-29 | active |
 | `qos-load-bench` | C probes (probe.c, spin.c) for qos-load-bench.sh. | cmux#27587 | 2026-10-29 | active |

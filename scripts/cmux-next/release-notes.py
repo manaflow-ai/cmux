@@ -484,6 +484,21 @@ def rev_range(since, head):
     return f"{since}..{head}" if since else head
 
 
+def require_whole_span(since, head):
+    """Refuses a span that a shallow clone cut short. A cut commit inside since..head reads as a root, so git log
+    calls every file in its tree added: build 4485813982701 shipped all 425 highlight files ever written (the
+    real span added 2). No notes beat wrong notes: the next build's span starts at the newest published notes."""
+    if not since or git("rev-parse", "--is-shallow-repository").strip() != "true":
+        return
+    shallow = Path(git("rev-parse", "--git-path", "shallow").strip())
+    cut = set(shallow.read_text().split()) if shallow.is_file() else set()
+    inside = cut.intersection(git("rev-list", f"{since}..{head}").split())
+    if inside:
+        raise SystemExit(f"release notes: the span {since[:12]}..{head[:12]} is cut short at shallow commit(s) "
+                         f"{', '.join(sorted(c[:12] for c in inside))}; deepen the fetch "
+                         "(scripts/cmux-next/fetch-release-notes-span.sh) and run again")
+
+
 def front_matter(text):
     """A highlight file's front matter (lines before the first blank line) and its body."""
     head, _, body = text.partition("\n\n")
@@ -1094,6 +1109,7 @@ def prs(args):
 
 
 def build(args):
+    require_whole_span(args.since, args.head)
     span = rev_range(args.since, args.head)
     commits = span_commits(args.since, args.head)
     changes = [subject for subject, _, _ in commits]

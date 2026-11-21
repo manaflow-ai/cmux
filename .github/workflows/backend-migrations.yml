@@ -42,16 +42,44 @@ concurrency:
 jobs:
   plan:
     if: ${{ !(github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || fromJSON(vars.RUNNER_POOLS).linux }} # ephemeral-required: trusted tokens; CI_TRUSTED_RUNNER picks the Blacksmith size
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted tokens; CI_TRUSTED_RUNNER picks the Blacksmith size
     # Recent runs: 20s median, 51s max (GitHub API reads and a SQL lint).
     timeout-minutes: 10
     permissions:
       contents: read
       pull-requests: read
     outputs:
-      migrations: ${{ steps.files.outputs.migrations }}
+      migrations: ${{ steps.same-tree.outputs.same == 'true' && 'false' || steps.files.outputs.migrations }}
     steps:
+      # Most heads never touch migrations, and the full base checkout below took 176 s at p50 on every
+      # head (2026-11-21, about 3 runner-minutes a PR head, RFD 0023 "one router per push"). A treeless
+      # one-commit fetch of the base and the head answers "same backend/db/migrations tree" in about
+      # 2 s; only when both trees resolve and match does the plan stop here. Anything else (a fetch
+      # error, a missing directory, a different tree) falls through to the full plan below.
+      - name: Same migrations tree as the base?
+        id: same-tree
+        if: github.event_name == 'pull_request_target'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          git init -q probe && cd probe || exit 0
+          git remote add origin "https://github.com/$REPO.git"
+          if ! GIT_TERMINAL_PROMPT=0 timeout 60 git -c protocol.version=2 fetch -q --no-tags --depth=1 --filter=tree:0 origin "$BASE_SHA" "$HEAD_SHA"; then
+            echo "treeless fetch failed: full plan"; exit 0
+          fi
+          base_tree=$(GIT_TERMINAL_PROMPT=0 timeout 60 git rev-parse --verify --quiet "$BASE_SHA:backend/db/migrations") || base_tree=""
+          head_tree=$(GIT_TERMINAL_PROMPT=0 timeout 60 git rev-parse --verify --quiet "$HEAD_SHA:backend/db/migrations") || head_tree=""
+          if [ -n "$base_tree" ] && [ "$base_tree" = "$head_tree" ]; then
+            echo "same=true" >> "$GITHUB_OUTPUT"
+            echo "no migration changes (backend/db/migrations is $base_tree at the base and the head)"
+          else
+            echo "base ${base_tree:-unresolved}, head ${head_tree:-unresolved}: full plan"
+          fi
       - name: Checkout base (trusted tooling)
+        if: steps.same-tree.outputs.same != 'true'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
@@ -59,6 +87,7 @@ jobs:
           persist-credentials: false
       - name: Changed files and head migrations
         id: files
+        if: steps.same-tree.outputs.same != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           EVENT: ${{ github.event_name }}
@@ -171,7 +200,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || fromJSON(vars.RUNNER_POOLS).linux }} # ephemeral-required: trusted tokens; CI_TRUSTED_RUNNER picks the Blacksmith size
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted tokens; CI_TRUSTED_RUNNER picks the Blacksmith size
     # Real migrations: generous so a slow apply is never cut off mid-migration.
     timeout-minutes: 30
     environment: cmux-next-staging
@@ -213,7 +242,7 @@ jobs:
 
   apply-production:
     needs: apply-staging
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || fromJSON(vars.RUNNER_POOLS).linux }} # ephemeral-required: trusted tokens; CI_TRUSTED_RUNNER picks the Blacksmith size
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted tokens; CI_TRUSTED_RUNNER picks the Blacksmith size
     # Real migrations: generous so a slow apply is never cut off mid-migration.
     timeout-minutes: 30
     environment: cmux-next-production
@@ -258,7 +287,7 @@ jobs:
     # merge_group runs this file from the queue commit (PR content), so it never gets an
     # environment or secrets (the environments allow only main and feat-cmux-next); the queue
     # only admits PRs whose pull_request_target gate passed. Fork PRs never get secrets here.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || fromJSON(vars.RUNNER_POOLS).linux }} # ephemeral-required: trusted tokens; CI_TRUSTED_RUNNER picks the Blacksmith size
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted tokens; CI_TRUSTED_RUNNER picks the Blacksmith size
     # Under 10s without migration changes; with them, bun install and a verify.
     timeout-minutes: 15
     # The environment's deployment-branch policy (main, feat-cmux-next, their merge-queue
