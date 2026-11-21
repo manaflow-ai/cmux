@@ -108,7 +108,6 @@ import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./ha
 import {
   injectedNewTabContext,
   useEarlyNewTabContext,
-  useLostSharedPart,
   useNewTabAdoption,
   useNewTabPlaces,
   adoptionPlan,
@@ -117,13 +116,14 @@ import {
   useSessionAdoption,
   type SessionAdoption,
   withHandshakeNewTab,
+  useLostSharedPart,
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import {
   heldPick,
-  withCloudStartFolder,
   withDraftFolder,
   shownCloudStartPick,
+  withCloudStartFolder,
   withCloudStartPick,
 } from "./newtab/draftFolder";
 import {
@@ -140,7 +140,7 @@ import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from ".
 import { TaskGoalStrip } from "./TaskGoalStrip";
 import { hatPlanOf } from "./chatTaskList";
 import { goalHatPlace } from "./goalHat.experiment";
-import { githubFolder, githubFolderRepo } from "./githubRepos";
+import { githubFolderRepo, githubFolder } from "./githubRepos";
 import { StyleSwitch } from "./newtab/StyleSwitch";
 import { useSessionCommands } from "./newtab/useSessionCommands";
 import { screenTemplate, shownTemplate, pageStyle, pickNewTabStyle } from "./newtab/templates";
@@ -496,11 +496,15 @@ import { PendingAsks } from "./conversation/PendingAsks";
 import { forgetInsideTurn } from "./conversation/transcriptDisclosureModel";
 import {
   answerState,
+  answeredAsks,
   bottomAsks,
   claimAnswer,
   dismissAsk,
   dismissedAsks,
+  givenAnswer,
   setAnswerState,
+  subscribeAnswers,
+  withAnswered,
   shownAsks,
 } from "./conversation/waitingAskStore";
 import { turnPreviewUrl, turnServedUrl } from "./conversation/previewUrl";
@@ -592,8 +596,6 @@ import {
   cloudStartTeam,
   makeCloudSignInRetry,
   grantedCloudStart,
-  pickedChatCloudCall,
-  pickOnlyNewChat,
   newTabProjectPick,
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
@@ -602,6 +604,8 @@ import {
   heldPromptShown,
   cloudPickExtras,
   composerCloudStartFolder,
+  pickedChatCloudCall,
+  pickOnlyNewChat,
   pageOnOtherMachine,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
@@ -1364,11 +1368,11 @@ function answerNextStep(question: HatQuestion, label: string, asker: string | un
   const key = question.answerKey;
   const text = answerPrompt(question.prompt, label, asker);
   if (!key) return answerThrough(callNative)(text);
-  if (answerState(key).sending !== undefined) return Promise.resolve();
+  if (givenAnswer(answerState(key)) !== undefined) return Promise.resolve();
   claimAnswer(key, label);
   setAnswerState(key, { sending: label });
   return answerThrough(callNative)(text).then(
-    () => setAnswerState(key, {}),
+    () => setAnswerState(key, { sent: label }),
     (error: unknown) => {
       setAnswerState(key, { failed: true });
       throw error;
@@ -3340,7 +3344,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   }));
   if (askDismissals.sessionId !== shownSessionId)
     setAskDismissals({ sessionId: shownSessionId, keys: dismissedAsks(shownSessionId) });
-  const pinnedAsks = useMemo(() => shownAsks(waitingAskRows, askDismissals.keys), [waitingAskRows, askDismissals]);
+  // A card answered from this page leaves in the click's frame, before its prompt settles it
+  // (waitingAskStore.ts `givenAnswer`): its answer may wait in the queue behind a running turn.
+  const answered = useSyncExternalStore(subscribeAnswers, answeredAsks, answeredAsks);
+  const askedAway = useMemo(() => withAnswered(askDismissals.keys, answered), [askDismissals, answered]);
+  const pinnedAsks = useMemo(() => shownAsks(waitingAskRows, askedAway), [waitingAskRows, askedAway]);
   const dismissPinnedAsk = useCallback(
     (key: string) => setAskDismissals({ sessionId: shownSessionId, keys: dismissAsk(shownSessionId, key) }),
     [shownSessionId],
@@ -4142,8 +4150,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // sub-session's ask): one ask renders once (question/hatSeen.ts `hatQuestionsShown`).
   const onStackCards = useMemo(() => stackCardKeys(pinnedAsks, childAsk), [pinnedAsks, childAsk]);
   const hatQuestionsUnseen = useMemo(
-    () => hatQuestionsShown(hatQuestionsRead, askDismissals.keys, onStackCards),
-    [hatQuestionsRead, askDismissals, onStackCards],
+    () => hatQuestionsShown(hatQuestionsRead, askedAway, onStackCards),
+    [hatQuestionsRead, askedAway, onStackCards],
   );
   const hatQuestionList = sameHatQuestions(hatQuestionsKept.current, hatQuestionsUnseen)
     ? hatQuestionsKept.current
