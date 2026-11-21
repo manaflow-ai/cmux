@@ -14,6 +14,10 @@ final class FeedEdgeUITests: XCTestCase {
     /// it by scrolling past them; the test's slow drags never did in 30 tries, so the rig's
     /// `reveal` scrolls the list by its own offset to it, and a short drag then settles it.
     static let removed = "stress-20"
+    /// The events' own cells. Not "feed.row.": a row's Show More button is "feed.row.showMore",
+    /// and it was measured as the next row (edgeui-5: a 367 pt "pitch" that was the button inside
+    /// the removed row, against the row's real 455 pt).
+    static let rowPrefix = "feed.row.stress-"
 
     override func setUp() {
         continueAfterFailure = false
@@ -55,7 +59,7 @@ final class FeedEdgeUITests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 10), "the rig scrolled to the event\n\(app.debugDescription)")
         RowFrames.bring(row, toMiddleOf: list)
         XCTAssertTrue(row.exists && row.isHittable, "the event to remove is on screen\n\(app.debugDescription)")
-        let before = RowFrames.settled(list, prefix: "feed.row.")
+        let before = RowFrames.settled(list, prefix: Self.rowPrefix)
         XCTAssertNotNil(before["feed.row.\(Self.removed)"], "the event is measured: \(before.keys.sorted())")
         // Mid-list, as a reader is: rows on screen above and below it, and a screen of rows above.
         let gone = before["feed.row.\(Self.removed)"]!
@@ -71,16 +75,14 @@ final class FeedEdgeUITests: XCTestCase {
                       "the swipe actions open\n\(app.debugDescription)")
         let openCount = reads.count
         edgeShot(app, "feed13-1-swipe-open")
-        // What the reader sees just before the Mac withdraws it: opening the swipe actions scrolls
-        // a row whose top is under the bars fully into view (UITableView), so the removal is
-        // measured from here, not from before the swipe (ilc-r2-edgeui-3: 88 pt of that scroll).
-        let opened = RowFrames.settled(list, prefix: "feed.row.")
+        // What the reader sees just before the Mac withdraws it (with the swipe actions open).
+        let opened = RowFrames.settled(list, prefix: Self.rowPrefix)
         edgeNote("before swipe: \(before.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value.minY)" })\n"
                  + "swipe open: \(opened.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value.minY)" })", "feed13-swipe-frames")
 
         RigSignal.post("remove")
         XCTAssertTrue(row.waitForNonExistence(timeout: 10), "the event leaves the Feed\n\(app.debugDescription)")
-        let after = RowFrames.settled(list, prefix: "feed.row.")
+        let after = RowFrames.settled(list, prefix: Self.rowPrefix)
         edgeShot(app, "feed13-2-removed")
         XCTAssertEqual(app.state, .runningForeground, "no crash")
         let noStale = NSPredicate { _, _ in reads.count == closedCount }
@@ -106,13 +108,13 @@ final class FeedEdgeUITests: XCTestCase {
         let (app, list) = launch()
         defer { app.terminate() }
         RowFrames.bring(list.cells["feed.row.\(Self.removed)"], toMiddleOf: list)
-        let before = RowFrames.settled(list, prefix: "feed.row.")
+        let before = RowFrames.settled(list, prefix: Self.rowPrefix)
         let reader = try XCTUnwrap(RowFrames.reader(before, in: list), "an event being read")
         edgeShot(app, "feed14-1-portrait")
         var lines = ["reader \(reader) at \(before[reader]!)", "window \(app.windows.firstMatch.frame)"]
         for (step, orientation) in [UIDeviceOrientation.landscapeLeft, .portrait, .landscapeRight, .portrait].enumerated() {
             XCUIDevice.shared.orientation = orientation
-            let frames = RowFrames.settled(list, prefix: "feed.row.")
+            let frames = RowFrames.settled(list, prefix: Self.rowPrefix)
             let turned = app.windows.firstMatch.frame
             edgeShot(app, "feed14-\(step + 2)-\(orientation == .portrait ? "portrait" : "landscape")")
             lines.append("step \(step) orientation \(orientation.rawValue): window \(turned), reader \(frames[reader].map { "\($0)" } ?? "off screen")")

@@ -191,6 +191,35 @@ import UIKit
         #expect(abs(after.delta - anchor.delta) <= 0.5, "the row being read moved \(after.delta - anchor.delta) pt at rest")
     }
 
+    /// A finger's scroll ends in UIKit's end-of-drag callback, which runs while `isDragging` still
+    /// reads true: the held order applies there (edgeui-5: held=1 rested=0 under a real finger).
+    @Test func theHeldOrderAppliesWhenTheDragEnds() {
+        let host = host()
+        defer {
+            host.window.isHidden = true
+            ListApplyProbe.shared.codeDrivenScroll = false
+        }
+        host.list.update(model: Self.model(100, version: 1), actions: host.actions, animated: false, membershipKey: 0)
+        turn()
+        host.view.contentOffset.y = 1500
+        ListApplyProbe.shared.codeDrivenScroll = true
+        host.view.contentOffset.y += 6
+        var next = Self.model(100, titles: [60: "busy"], version: 2)
+        let key = WorkspacesListModel.rowID("w60")
+        next.sections[0].items.removeAll { $0 == key }
+        next.sections[0].items.insert(key, at: 0)
+        next.patchedFrom = 1
+        next.patchedItems = [key]
+        next.patchedMoves = [key]
+        host.list.update(model: next, actions: host.actions, animated: false, membershipKey: 0)
+        turn()
+        #expect(host.list.deferredReorderCount == 1)
+        // The finger lifts with no fling: UIKit says so while the list still reads as scrolling.
+        host.list.scrollViewDidEndDragging(host.view, willDecelerate: false)
+        #expect(host.list.restedApplyCount == 1)
+        #expect(host.list.shownItemIDs(inSection: "recent") == next.sections[0].items)
+    }
+
     /// Rows coming or going, and a row into Needs You, apply at once even mid-scroll.
     @Test func membershipChangesApplyAtOnceWhileScrolling() {
         let host = host()

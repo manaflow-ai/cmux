@@ -630,8 +630,10 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
 
     /// Applies the order a scroll held back, once the list rests: the row being read stays in
     /// place; at the top, the moved rows slide there (none with Reduce Motion).
-    func applyDeferredOrder() {
-        guard let target = deferredSections, !isScrolling(now: CACurrentMediaTime()) else { return }
+    /// `ended`: the scroll just ended (UIKit's end-of-drag and end-of-deceleration callbacks run
+    /// while `isDragging` / `isDecelerating` still read true, so they do not ask).
+    func applyDeferredOrder(ended: Bool = false) {
+        guard let target = deferredSections, ended || !isScrolling(now: CACurrentMediaTime()) else { return }
         deferredSections = nil
         let plan = ListApplyPlan(orderChanged: target != shownSections, membershipChanged: false, reconfigure: [])
         guard plan.orderChanged else { return }
@@ -661,13 +663,16 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
         #if DEBUG
         guard ListApplyProbe.shared.codeDrivenScroll, !restCheckScheduled else { return }
         restCheckScheduled = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.movingWindow + 0.02) { [weak self] in
+        // A run-loop timer in the common modes, not the main dispatch queue: code that spins the
+        // run loop from inside a main-queue block (a test host, a modal) never drains that queue.
+        let timer = Timer(timeInterval: Self.movingWindow + 0.02, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.restCheckScheduled = false
                 if self.isScrolling(now: CACurrentMediaTime()) { self.scheduleRestCheck() } else { self.applyDeferredOrder() }
             }
         }
+        RunLoop.main.add(timer, forMode: .common)
         #endif
     }
 
@@ -851,15 +856,15 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
         pullToRefresh?.endedDecelerating()
-        applyDeferredOrder()
+        applyDeferredOrder(ended: true)
     }
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-        if !decelerate { applyDeferredOrder() }
+        if !decelerate { applyDeferredOrder(ended: true) }
     }
 
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
-        applyDeferredOrder()
+        applyDeferredOrder(ended: true)
     }
 
     func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint,

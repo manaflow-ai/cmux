@@ -346,8 +346,10 @@ final class ListStressRig: NSObject {
         guard let hz = settings.liveHz, hz > 0 else { return }
         let store = shell.store
         // What each tick costs, by name, once a second; and any slow list apply with its tick.
+        // Opt-in (`CMUX_MOBILE_LIST_PROBE=1`): the counts force each apply's layout inside its
+        // timing, so a run that measures frames (listperf) keeps them off.
         let probe = ListApplyProbe.shared
-        probe.counting = true
+        probe.counting = ProcessInfo.processInfo.environment["CMUX_MOBILE_LIST_PROBE"] == "1"
         probe.onSlowApply = { [weak self, log] line in
             let (tick, row) = self?.liveTick ?? (0, "")
             log.notice("FRAMELOG list-stress slow \(line, privacy: .public) tick=\(tick, privacy: .public) row=\(row, privacy: .public)")
@@ -364,7 +366,7 @@ final class ListStressRig: NSObject {
                 next[index].lastActivityAt = Date()
                 next[index].isWorking.toggle()
                 self?.liveTick = (tick, next[index].id)
-                if CACurrentMediaTime() - second >= 1 {
+                if probe.counting, CACurrentMediaTime() - second >= 1 {
                     second = CACurrentMediaTime()
                     let counts = probe.takeCounts().sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " ")
                     self?.log.notice("FRAMELOG list-stress live-second tick=\(tick, privacy: .public) \(counts, privacy: .public)")
