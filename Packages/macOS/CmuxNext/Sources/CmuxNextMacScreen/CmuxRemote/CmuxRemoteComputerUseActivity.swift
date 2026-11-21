@@ -64,6 +64,20 @@ public struct CmuxRemoteComputerUseSession: Equatable, Sendable {
                                                 stopped: row["stopped"] as? Bool ?? false)
         }.sorted { $0.lastAction > $1.lastAction }
     }
+
+    /// ``sessions(from:)`` read straight from a daemon event's already-parsed `sessions`, with no
+    /// encode and decode on the main actor.
+    public static func sessions(fromEvent list: [CmuxNextDaemon.JSONValue]) -> [CmuxRemoteComputerUseSession] {
+        list.compactMap { row -> CmuxRemoteComputerUseSession? in
+            guard let id = row["session"]?.stringValue, !id.isEmpty, let millis = row["last_action_ms"]?.doubleValue else { return nil }
+            let app = row["app"]
+            let pid = app?["pid"]?.doubleValue.flatMap { Int32(exactly: $0.rounded(.towardZero)) }
+            return CmuxRemoteComputerUseSession(id: id, agent: nonEmpty(row["label"]), appID: nonEmpty(app?["id"]),
+                                                appName: nonEmpty(app?["name"]), appPID: pid.flatMap { $0 > 0 ? $0 : nil },
+                                                lastAction: Date(timeIntervalSince1970: millis / 1000),
+                                                stopped: row["stopped"]?.boolValue ?? false)
+        }.sorted { $0.lastAction > $1.lastAction }
+    }
 }
 
 /// Whether an agent is acting through Computer Use now: one acted within ``window`` (the menu bar
@@ -101,9 +115,8 @@ extension CmuxRemoteComputerUseState {
 
     /// Takes a daemon `computer-use-activity` event's payload.
     public func take(activityEvent payload: CmuxNextDaemon.JSONValue) {
-        guard let data = try? JSONEncoder().encode(payload),
-              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
-        take(activity: CmuxRemoteComputerUseSession.sessions(from: object["sessions"] as? [Any]))
+        guard case .object = payload else { return }
+        take(activity: CmuxRemoteComputerUseSession.sessions(fromEvent: payload["sessions"]?.arrayValue ?? []))
     }
 
     private func settleActing() {
@@ -144,5 +157,10 @@ extension CmuxRemoteService {
 
 nonisolated private func nonEmpty(_ value: Any?) -> String? {
     guard let text = value as? String, !text.isEmpty else { return nil }
+    return text
+}
+
+nonisolated private func nonEmpty(_ value: CmuxNextDaemon.JSONValue?) -> String? {
+    guard let text = value?.stringValue, !text.isEmpty else { return nil }
     return text
 }

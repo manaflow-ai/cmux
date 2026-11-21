@@ -63,6 +63,13 @@ fn permitted(mux: &Mux, client: u64, cmd: &str, request: &Value) -> bool {
     {
         return false;
     }
+    // The ones that write under the file roots: on a machine of the person's own, the owner's
+    // connections only, as for the fs ops.
+    if !matches!(cmd, "cloud.repo.local" | "cloud.repo.remember")
+        && !super::fs_wire::transport_allows_fs(mux, client)
+    {
+        return false;
+    }
     if matches!(principal, Some(super::remote_relay::Principal::Remote(_)))
         && cmd != "cloud.repo.sync"
         && !session_matches_surface(mux, request)
