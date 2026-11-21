@@ -132,7 +132,7 @@ def workflow_filter(workflow: str, rev: str, cwd: str | None) -> list[str] | Non
     return [str(p) for p in paths] if isinstance(paths, list) and paths else None
 
 
-def fix_tree(workflow: str, rev: str, cwd: str | None, markers: dict, fetch: bool = True) -> tuple[str, str]:
+def fix_tree(workflow: str, rev: str, cwd: str | None, markers: dict) -> tuple[str, str]:
     """(the merge tree with the fix put back as its parent had it, why) or ("", why not).
 
     REV is the pull_request run's merge commit, whose second parent is the pull request's head; a REV of one parent
@@ -141,10 +141,7 @@ def fix_tree(workflow: str, rev: str, cwd: str | None, markers: dict, fetch: boo
     sha = git("rev-parse", rev, cwd=cwd)
     merge_parents = parents(sha, cwd)
     head = merge_parents[1] if len(merge_parents) == 2 else sha
-    if fetch and not (have(head, cwd) and all(have(p, cwd) for p in parents(head, cwd))):
-        # The host's checkout is the merge commit alone: the head and its parent, trees only.
-        subprocess.run(["git", "fetch", "--no-tags", "--quiet", "--depth=2", "--filter=blob:none", "origin", head],
-                       cwd=cwd, capture_output=True, timeout=120)
+    # The workflow checks out with fetch-depth 3 (merge, head, head's parent); nothing is fetched here.
     if not have(head, cwd):
         return "", f"head {head[:12]} not readable"
     if not is_fix_commit(git("log", "-1", "--format=%B", head, cwd=cwd), markers):
@@ -194,9 +191,9 @@ def fix_tree(workflow: str, rev: str, cwd: str | None, markers: dict, fetch: boo
 
 
 def fix_keys(workflow: str, jobs: list[str], rev: str = "HEAD", cwd: str | None = None,
-             markers: dict | None = None, fetch: bool = True) -> tuple[dict[str, str], str]:
+             markers: dict | None = None) -> tuple[dict[str, str], str]:
     """Each job's key on the fix's parent tree (see the module doc), and why there is none."""
-    tree, why = fix_tree(workflow, rev, cwd, fix_commits() if markers is None else markers, fetch)
+    tree, why = fix_tree(workflow, rev, cwd, fix_commits() if markers is None else markers)
     if not tree or tree == git("rev-parse", f"{rev}^{{tree}}", cwd=cwd):
         return {}, why
     blob = git("rev-parse", f"{rev}:{workflow}", cwd=cwd)

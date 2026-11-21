@@ -201,7 +201,7 @@ class FixKeys(unittest.TestCase):
         git(self.repo, "commit", "-qm", message)
 
     def fix_keys(self, rev):
-        return s.fix_keys(".github/workflows/w.yml", ["test"], rev, cwd=str(self.repo), markers=MARKERS, fetch=False)
+        return s.fix_keys(".github/workflows/w.yml", ["test"], rev, cwd=str(self.repo), markers=MARKERS)
 
     def test_a_fix_outside_the_paths_reuses_the_tree_before_it(self):
         before = self.key(self.merge())
