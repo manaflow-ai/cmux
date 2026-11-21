@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44865944290",
+  "recorded_at": "2026-11-21T04:36:35Z",
+  "reason": "cmux-tui ad93b0298375 changes the image's cmux-tui (pinned 08fd477892eb)",
+  "dry_run": false,
+  "cmux_tui": "ad93b02983755bd7b04e054e074d884fc6eb7ee3",
+  "fixes": [
+    {
+      "sha": "ad93b02983755bd7b04e054e074d884fc6eb7ee3",
+      "mergedAt": "2026-11-21T03:56:03Z",
+      "subject": "New Cloud Chat in File and New Tab menus (step A), and a paste-to-agent prompt for a first Cloud chat (#48202)"
+    },
+    {
+      "sha": "651d3799f782632fe1b64a0e140152e43c8998fc",
+      "mergedAt": "2026-11-20T19:48:15-08:00",
+      "subject": "acpmux: newRelay runs a configured command when new --machine names no peer (#48346)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-21T04:36:35Z",
+    "snapshot_id": "sh-5c28cd4dc3974b0aa8c01b765fcc60cb",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44865944290): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "fbd3c6cdc747e50524c96bd4515e1090ec0624bd",
+    "image": "cloud-native-auto-ad93b029-44865944290-1",
+    "revision": "ci-44865944290-1",
+    "at": "2026-11-21T04:36:35Z"
+  },
+  "rolled_back": false
+}
