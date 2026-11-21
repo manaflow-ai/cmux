@@ -117,7 +117,7 @@
 .acpmux-overlap-files code{min-width:0;overflow:hidden;color:var(--agent-text);text-overflow:ellipsis;white-space:nowrap}
 .acpmux-overlap-files span{flex:none;font-variant-numeric:tabular-nums}
 .acpmux-overlap-action{display:flex;flex-direction:column;gap:6px;margin:4px 6px 0;padding-top:8px;border-top:.5px solid var(--acpmux-composer-edge);font-size:var(--text-detail)}
-.acpmux-overlap-action button{height:24px;padding:0 10px;border:0;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit}
+.acpmux-overlap-action button{height:24px;padding:0 10px;border:0;border-radius:var(--ds-radius-control);background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit}
 .acpmux-overlap-action button:hover:not(:disabled){background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)))}
 .acpmux-overlap-action button:focus-visible{outline:2px solid var(--agent-accent);outline-offset:1px}
 .acpmux-overlap-action button:disabled{color:var(--agent-muted)}
