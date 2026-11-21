@@ -526,20 +526,14 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/billing-nightly.yml",  # calls billing.yml (ios-billing); feat-cmux-next has its own
     ".github/workflows/cloud-command-deadlines.yml",
     ".github/workflows/cloud-machine-tests.yml",
-    ".github/workflows/cloud-task-local-tests.yml",
     ".github/workflows/app-platform.yml",  # feat-cmux-next only
     ".github/workflows/cmux-next-base-autofix.yml",  # feat-cmux-next only
     ".github/workflows/cmux-next-batch.yml",  # feat-cmux-next only
-    # Main's Cua Driver SDK, dev helper and remote browser host publishers: their unsigned build
-    # takes the side label on attempt 1 of the dispatch (run 43645667029 sat on a Blacksmith queue).
-    ".github/workflows/cmux-next-cua-driver-sdk-publish.yml",
-    ".github/workflows/cmux-next-cua-helper-dev-sign.yml",
     # feat-cmux-next only; its Computer Use helper check takes the side label on attempt 1.
     ".github/workflows/cmux-next-cua-helper-identity.yml",
     ".github/workflows/cmux-next-frame-pacing.yml",  # feat-cmux-next only
     ".github/workflows/cmux-next-media.yml",  # feat-cmux-next only
     ".github/workflows/cmux-next-pr-autofix.yml",  # feat-cmux-next only
-    ".github/workflows/cmux-next-remote-browser-host-publish.yml",
     # feat-cmux-next only; its zsh git HEAD watcher job takes the side label on attempt 1.
     ".github/workflows/cmux-next-shell-integration.yml",
     ".github/workflows/cmux-next-terminal.yml",  # feat-cmux-next only

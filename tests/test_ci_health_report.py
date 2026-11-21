@@ -972,9 +972,11 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertIn('- cron: "37 2,8,14,20 * * *"', self.text)
         self.assertIn("workflow_dispatch:", self.text)
 
-    def test_the_runner_is_the_persistent_linux_pool(self):
+    def test_the_runner_is_the_persistent_linux_pool_behind_the_overflow_switch(self):
         self.assertIn(
-            "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}", self.text
+            "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' "
+            "|| vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}",
+            self.text,
         )
 
     def test_it_can_read_runs_and_write_issue_comments_but_not_cancel(self):
