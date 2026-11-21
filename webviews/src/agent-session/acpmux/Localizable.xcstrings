@@ -411353,266 +411353,530 @@
         }
       }
     },
-    "whoElse.topic": {
-      "comment": "Agent pane: who else works on these files",
+    "whoElse.oneSimilar": {
+      "comment": "Agent pane: who else works on these files: the one other session matched by its topic alone, no file in common",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "الموضوع: {words}"
+            "value": "جلسة أخرى واحدة تعمل على شيء مشابه"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "tema: {words}"
+            "value": "Još 1 sesija radi na nečemu sličnom"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "emne: {words}"
+            "value": "1 anden session arbejder på noget lignende"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Thema: {words}"
+            "value": "1 weitere Sitzung arbeitet an etwas Ähnlichem"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "topic: {words}"
+            "value": "1 other session works on something similar"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "tema: {words}"
+            "value": "1 sesión más trabaja en algo parecido"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "sujet : {words}"
+            "value": "1 autre session travaille sur un sujet proche"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "argomento: {words}"
+            "value": "1 altra sessione lavora su qualcosa di simile"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "トピック: {words}"
+            "value": "ほかに1つのセッションが似た作業をしています"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ប្រធានបទ៖ {words}"
+            "value": "វគ្គ 1 ផ្សេងទៀតកំពុងធ្វើការលើអ្វីដែលស្រដៀងគ្នា"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "주제: {words}"
+            "value": "다른 세션 1개가 비슷한 작업을 하고 있습니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "emne: {words}"
+            "value": "1 annen økt jobber med noe lignende"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "temat: {words}"
+            "value": "1 inna sesja pracuje nad czymś podobnym"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "tópico: {words}"
+            "value": "1 outra sessão trabalha em algo parecido"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "тема: {words}"
+            "value": "Ещё 1 сессия работает над чем-то похожим"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "หัวข้อ: {words}"
+            "value": "อีก 1 เซสชันกำลังทำงานที่คล้ายกัน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "konu: {words}"
+            "value": "1 başka oturum benzer bir şey üzerinde çalışıyor"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "тема: {words}"
+            "value": "Ще 1 сесія працює над чимось схожим"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "chủ đề: {words}"
+            "value": "1 phiên khác đang làm việc tương tự"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "主题：{words}"
+            "value": "另有 1 个会话在做类似的事"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "主題：{words}"
+            "value": "另有 1 個工作階段在做類似的事"
+          }
+        }
+      }
+    },
+    "whoElse.manySimilar": {
+      "comment": "Agent pane: who else works on these files: the other sessions all matched by their topic alone, no file in common",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{count} جلسات أخرى تعمل على شيء مشابه"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Još {count} sesija radi na nečemu sličnom"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{count} andre sessioner arbejder på noget lignende"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{count} weitere Sitzungen arbeiten an etwas Ähnlichem"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} other sessions work on something similar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{count} sesiones más trabajan en algo parecido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{count} autres sessions travaillent sur un sujet proche"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{count} altre sessioni lavorano su qualcosa di simile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ほかに{count}個のセッションが似た作業をしています"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "វគ្គ {count} ផ្សេងទៀតកំពុងធ្វើការលើអ្វីដែលស្រដៀងគ្នា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다른 세션 {count}개가 비슷한 작업을 하고 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{count} andre økter jobber med noe lignende"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{count} inne sesje pracują nad czymś podobnym"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{count} outras sessões trabalham em algo parecido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ещё {count} сессий работают над чем-то похожим"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อีก {count} เซสชันกำลังทำงานที่คล้ายกัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{count} başka oturum benzer bir şey üzerinde çalışıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ще {count} сесій працюють над чимось схожим"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{count} phiên khác đang làm việc tương tự"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "另有 {count} 个会话在做类似的事"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "另有 {count} 個工作階段在做類似的事"
+          }
+        }
+      }
+    },
+    "whoElse.similar": {
+      "comment": "Agent pane: who else works on these files: why a session with no title matched (its topic is close to this one)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعمل على شيء مشابه"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "radi na nečemu sličnom"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "arbejder på noget lignende"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "arbeitet an etwas Ähnlichem"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "working on something similar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "trabaja en algo parecido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "travaille sur un sujet proche"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "lavora su qualcosa di simile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "似た作業をしています"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងធ្វើការលើអ្វីដែលស្រដៀងគ្នា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "비슷한 작업 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "jobber med noe lignende"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "pracuje nad czymś podobnym"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "trabalhando em algo parecido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "работает над чем-то похожим"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังทำงานที่คล้ายกัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "benzer bir şey üzerinde çalışıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "працює над чимось схожим"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "đang làm việc tương tự"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在做类似的事"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在做類似的事"
           }
         }
       }
     },
     "whoElse.unreached": {
-      "comment": "Agent pane: who else works on these files",
+      "comment": "Agent pane: who else works on these files: the machines that did not answer in time, as a list (Couldn't check a and b)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لم يُسأل: {hosts}"
+            "value": "تعذّر التحقق من {hosts}"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nije pitano: {hosts}"
+            "value": "Nije moguće provjeriti {hosts}"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ikke spurgt: {hosts}"
+            "value": "Kunne ikke tjekke {hosts}"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nicht gefragt: {hosts}"
+            "value": "{hosts} konnte nicht geprüft werden"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Not asked: {hosts}"
+            "value": "Couldn't check {hosts}"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sin consultar: {hosts}"
+            "value": "No se pudo comprobar {hosts}"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Non interrogés : {hosts}"
+            "value": "Impossible de vérifier {hosts}"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Non interpellati: {hosts}"
+            "value": "Impossibile controllare {hosts}"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "未確認: {hosts}"
+            "value": "{hosts} を確認できませんでした"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "មិនបានសួរ៖ {hosts}"
+            "value": "មិនអាចពិនិត្យ {hosts} បានទេ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "확인 못 함: {hosts}"
+            "value": "{hosts}을(를) 확인할 수 없음"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ikke spurt: {hosts}"
+            "value": "Kunne ikke sjekke {hosts}"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nie zapytano: {hosts}"
+            "value": "Nie udało się sprawdzić {hosts}"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Não consultados: {hosts}"
+            "value": "Não foi possível verificar {hosts}"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Не опрошены: {hosts}"
+            "value": "Не удалось проверить {hosts}"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่ได้ถาม: {hosts}"
+            "value": "ตรวจสอบ {hosts} ไม่ได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sorulmadı: {hosts}"
+            "value": "{hosts} denetlenemedi"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Не опитані: {hosts}"
+            "value": "Не вдалося перевірити {hosts}"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chưa hỏi: {hosts}"
+            "value": "Không thể kiểm tra {hosts}"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "未询问：{hosts}"
+            "value": "无法检查 {hosts}"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "未詢問：{hosts}"
+            "value": "無法檢查 {hosts}"
           }
         }
       }
