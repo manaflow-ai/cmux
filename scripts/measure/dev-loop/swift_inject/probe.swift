@@ -53,8 +53,10 @@ case "watch":
     var last = FileManager.default.contents(atPath: file)
     let queue = DispatchQueue(label: "watch")
     let stream = FileEvents(dir: (file as NSString).deletingLastPathComponent, queue: queue) { paths in
-        guard paths.contains(where: { real($0) == file }) else { return }
         let heard = now()
+        // Every event's paths, for a reader of watch.log when a round never fired.
+        FileHandle.standardError.write(Data("event at=\(heard) paths=\(paths)\n".utf8))
+        guard paths.contains(where: { real($0) == file }) else { return }
         let bytes = FileManager.default.contents(atPath: file)
         guard bytes != last else { return }  // an event for bytes already injected (or a restore)
         last = bytes
