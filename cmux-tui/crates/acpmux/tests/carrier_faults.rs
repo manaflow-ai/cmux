@@ -30,7 +30,9 @@
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 // This process runs stand-in agents (the fake agents under tests/).
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+// The measurement row's knobs (`hold_plan`, `store`) pass through.
+const HERMETIC: daemon_env::Process =
+    daemon_env::Process::stand_in().keep(&["ACF_HOLD_PLAN", "ACF_DISK_STORE", "RUST_LOG"]);
 
 use acpmux::config::{Config, PeerConfig, PermissionPolicy, StoreMode};
 use acpmux::hub::Hub;
@@ -84,7 +86,16 @@ fn config() -> Config {
     cfg
 }
 
-fn store(cfg: &Config) -> Box<dyn acpmux::store::Store> {
+/// A memory store, or with `ACF_DISK_STORE=1` a local one in `home`, as a daemon runs: its peer
+/// caches and peer snapshots are on disk, so a reconnect runs the same restore read
+/// (`hub/peer_snapshot/restore.rs`) a user's daemon does.
+fn store(cfg: &Config, home: &Path) -> Box<dyn acpmux::store::Store> {
+    if std::env::var_os("ACF_DISK_STORE").is_some_and(|v| v == "1") {
+        let mut store = cfg.store.clone();
+        store.mode = StoreMode::Local;
+        std::fs::create_dir_all(home).unwrap();
+        return acpmux::store::open(&store, home).unwrap();
+    }
     acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap()
 }
 
@@ -277,6 +288,11 @@ enum Cut {
     Reset,
     /// Bytes stop both ways and nothing closes; new connections hang until it is restored.
     BlackHole,
+    /// Bytes stop both ways and neither end is closed until the restore, when the held
+    /// connections close (their dialer gave up on them meanwhile) and new ones go through: a
+    /// relay holding the link, or a network gone from under both machines, where the far end
+    /// hears nothing until the network is back (the reconnect probe's `RelayDrop`).
+    Hold,
 }
 
 trait Carrier: Send + Sync {
@@ -339,6 +355,11 @@ async fn pump(
             Err(_) => return,
         },
     };
+    if how == Cut::Hold {
+        // Neither end hears anything until the restore; then both close.
+        let _ = up.wait_for(|u| *u).await;
+        return;
+    }
     drop(far);
     if how == Cut::BlackHole {
         // Nothing reaches either end again, and this end is never closed by the carrier.
@@ -456,7 +477,7 @@ async fn world(tag: &str, route: Route) -> World {
     setup(&scratch);
     // B: owns the agent and serves WebSocket with a peer token.
     let b_cfg = config();
-    let b = Hub::new(b_cfg.clone(), store(&b_cfg));
+    let b = Hub::new(b_cfg.clone(), store(&b_cfg, &scratch.join("b-home")));
     let auth_home = scratch.join("b-auth");
     let auth = PeerAuth::create(&auth_home).unwrap();
     let peer_token =
@@ -484,7 +505,7 @@ async fn world(tag: &str, route: Route) -> World {
                 Route::Ws => format!("ws://{}", tcp.addr),
                 _ => format!("ssh://box.invalid:{}", tcp.addr.port()),
             };
-            let a = Hub::new(a_cfg.clone(), store(&a_cfg));
+            let a = Hub::new(a_cfg.clone(), store(&a_cfg, &scratch.join("a-home")));
             a.add_peer("b", &url, Some("tok".into()), Some(peer_token.clone()), false)
                 .await
                 .unwrap();
@@ -546,7 +567,11 @@ async fn world(tag: &str, route: Route) -> World {
                 .await
                 .unwrap()
                 .unwrap();
-            let a = Hub::new_with_wireguard(a_cfg.clone(), store(&a_cfg), a_transport.clone());
+            let a = Hub::new_with_wireguard(
+                a_cfg.clone(),
+                store(&a_cfg, &scratch.join("a-home")),
+                a_transport.clone(),
+            );
             transports = vec![a_transport, b_transport];
             (udp, spare, a)
         }
@@ -909,6 +934,122 @@ async fn wireguard_black_hole_mid_turn_redials_and_replays_after_seq() {
     .await;
 }
 
+// ------------------------------------------------------------------ the reconnect probe's flow
+
+/// Nearest rank, as the reconnect probe computes it: the smallest sample at or above 95% of them.
+fn p95(values: &[u128]) -> u128 {
+    let mut ordered = values.to_vec();
+    ordered.sort_unstable();
+    ordered[(ordered.len() * 95).div_ceil(100).max(1) - 1]
+}
+
+/// The holds of [`ssh_hold_then_a_prompt_comes_back_within_2s_at_p95`]: `ACF_HOLD_PLAN` as
+/// `SECONDSxCOUNT,...`, else the reconnect probe's (`remote_reconnect_probe.py`: 12 drops of
+/// 10 s, 4 of 60 s).
+fn hold_plan() -> Vec<u64> {
+    let plan = std::env::var("ACF_HOLD_PLAN").unwrap_or_else(|_| "10x12,60x4".to_owned());
+    plan.split(',')
+        .flat_map(|part| {
+            let (secs, count) = part.split_once('x').expect("ACF_HOLD_PLAN: SECONDSxCOUNT,...");
+            let (secs, count): (u64, usize) = (secs.parse().unwrap(), count.parse().unwrap());
+            std::iter::repeat_n(secs, count)
+        })
+        .collect()
+}
+
+/// One prompt to `b/lane`, sent again every 100 ms while the link refuses it, as the probe's
+/// `round_trip` does: from now until its reply, and how many sends that took.
+async fn round_trip(c: &mut Client, text: &str) -> (Duration, usize) {
+    let start = Instant::now();
+    let mut sends = 0;
+    loop {
+        sends += 1;
+        let id = c
+            .send(
+                method::SESSION_PROMPT,
+                json!({"sessionId": "b/lane", "prompt": [{"type": "text", "text": text}]}),
+            )
+            .await;
+        match c.reply(id, Duration::from_secs(60)).await {
+            Some(Ok(r)) => {
+                assert_eq!(r["stopReason"], "end_turn", "{text}: {r}");
+                return (start.elapsed(), sends);
+            }
+            Some(Err(e)) => {
+                assert!(start.elapsed() < Duration::from_secs(60), "{text}: still refused: {e}");
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            None => panic!("{text}: no answer to a prompt in 60 s"),
+        }
+    }
+}
+
+/// The reconnect probe's reconnect samples (goal remote-reconnect-fast) against two daemons
+/// here: a chat on B through an `ssh://` link, the link held silent both ways for each hold of
+/// [`hold_plan`] (nothing closes on either machine until it ends), then the time from the
+/// restore until a prompt sent to the chat comes back, split into the link being ready again and
+/// the prompt's own answer after that. Its p95 is the goal's: at most 2 s. Each sample prints
+/// `carrier_faults row=ssh-hold-prompt ...`; the last line prints the p95s.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "measurement, about 7 minutes with the probe's holds: run with --ignored (ACF_HOLD_PLAN \
+            sets shorter ones)"]
+async fn ssh_hold_then_a_prompt_comes_back_within_2s_at_p95() {
+    // `RUST_LOG` prints the daemons' lines beside the samples (the probe keeps the same ones).
+    if let Ok(filter) = std::env::var("RUST_LOG") {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::new(filter))
+            .with_ansi(false)
+            .with_writer(std::io::stderr)
+            .try_init();
+    }
+    let w = world("ssh-hold-prompt", Route::Ssh).await;
+    let mut ca = Client::new(&w.a).await;
+    ca.call(method::MUX_ATTACH, json!({"session": "b/lane", "limit": 0})).await.unwrap();
+    round_trip(&mut ca, "warm").await;
+    let (mut total, mut ready, mut after_ready) = (Vec::new(), Vec::new(), Vec::new());
+    for (i, hold) in hold_plan().into_iter().enumerate() {
+        let (before, _) = round_trip(&mut ca, &format!("before-{i}")).await;
+        assert!(
+            before < Duration::from_secs(2),
+            "sample {i}: not live before the hold: {before:?}"
+        );
+        w.carrier.cut(Cut::Hold);
+        tokio::time::sleep(Duration::from_secs(hold)).await;
+        w.carrier.restore();
+        let restored = Instant::now();
+        let a = w.a.clone();
+        let became_ready = tokio::spawn(async move {
+            loop {
+                if link_state(&a).as_deref() == Some("connected") {
+                    return Instant::now();
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        });
+        let (took, sends) = round_trip(&mut ca, &format!("after-{i}")).await;
+        let replied = restored + took;
+        let at = tokio::time::timeout(Duration::from_secs(1), became_ready).await;
+        let ready_at = at.ok().and_then(Result::ok).unwrap_or(replied).min(replied);
+        let (r, q) = (ready_at - restored, replied - ready_at);
+        eprintln!(
+            "carrier_faults row=ssh-hold-prompt i={i} hold_s={hold} ms={} ready_ms={} reply_after_ready_ms={} sends={sends}",
+            took.as_millis(),
+            r.as_millis(),
+            q.as_millis(),
+        );
+        total.push(took.as_millis());
+        ready.push(r.as_millis());
+        after_ready.push(q.as_millis());
+    }
+    let (p, pr, pq) = (p95(&total), p95(&ready), p95(&after_ready));
+    eprintln!(
+        "carrier_faults row=ssh-hold-prompt p95_ms={p} ready_p95_ms={pr} reply_after_ready_p95_ms={pq} samples={} max_ms={}",
+        total.len(),
+        total.iter().max().unwrap()
+    );
+    assert!(p <= 2000, "reconnect p95 {p} ms over the 2000 ms goal: {total:?}");
+}
+
 // ------------------------------------------------------------------ rows that wait for a fix
 
 /// How long the link may take from dropping its dead WireGuard path to being ready on ssh: ssh
@@ -1167,7 +1308,10 @@ async fn hub_outage_delivers_a_waiting_message_once_when_the_hub_returns() {
     setup(&scratch);
     let a_cfg = config();
     let b_cfg = config();
-    let (a, b) = (Hub::new(a_cfg.clone(), store(&a_cfg)), Hub::new(b_cfg.clone(), store(&b_cfg)));
+    let (a, b) = (
+        Hub::new(a_cfg.clone(), store(&a_cfg, &scratch.join("a-home"))),
+        Hub::new(b_cfg.clone(), store(&b_cfg, &scratch.join("b-home"))),
+    );
     let mut on_b = Client::new(&b).await;
     let meta = json!({"acpmux": {"name": "dep-land"}});
     let made = on_b

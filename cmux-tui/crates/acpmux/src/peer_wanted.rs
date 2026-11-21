@@ -197,6 +197,18 @@ impl Peer {
         }
     }
 
+    /// Whether an ask may cut a backoff wait now: at most once per `WANTED_CAP`, so asks that
+    /// keep coming (a person typing) get one attempt per cap, not one per ask. Marks the cut.
+    fn cut_now(&self) -> bool {
+        let now = Instant::now();
+        let mut cut = self.wanted.cut_at.lock().unwrap_or_else(|e| e.into_inner());
+        if cut.is_none_or(|at| now.saturating_duration_since(at) >= Backoff::WANTED_CAP) {
+            *cut = Some(now);
+            return true;
+        }
+        false
+    }
+
     pub(crate) fn is_wanted(&self) -> bool {
         self.wanted
             .until
@@ -211,7 +223,21 @@ impl Peer {
     /// ran on the monotonic clock, which stood still, so the attempt would otherwise come up to
     /// a minute after the wake, while the network that failed before the sleep is likely back.
     pub(super) async fn wait_backoff(&self, delay: Duration) -> BackoffWait {
+        self.wait_backoff_since(delay, Instant::now()).await
+    }
+
+    /// [`Self::wait_backoff`] after a link that ended at `ended`: an ask made since then, before
+    /// this wait listens, cuts it too. `asked` wakes only the waiters there are, and the asks that
+    /// matter most come in that gap: the end of a link that was ready (`link_ending`, which marks
+    /// its peer wanted because chats are open on it) and the prompts the end refused
+    /// (`fail_link_requests`), both before the wait. Lost, a redial with a failure counted since
+    /// its backoff last started over waited out the wanted bound, 0.5-1 s, on a third of
+    /// reconnects (`carrier_faults` `ssh_hold_then_a_prompt_comes_back_within_2s_at_p95`); the
+    /// same race `next_ask_after` closes for an attempt still connecting. Still at most one cut
+    /// per `WANTED_CAP` (`cut_now`), so a link that keeps dying is not redialed in a loop.
+    pub(super) async fn wait_backoff_since(&self, delay: Duration, ended: Instant) -> BackoffWait {
         let started = Instant::now();
+        let mut early = Some(ended);
         let wanted = Backoff::wanted(delay, crate::peer_link::jitter());
         // After a refused ssh login no ask shortens the wait: a chat that keeps asking would
         // otherwise send the remote one refused login a second (`Backoff::login_refused`).
@@ -226,6 +252,20 @@ impl Peer {
             if Instant::now() >= deadline {
                 return BackoffWait::Done;
             }
+            // An ask since the link ended that came before this listened counts once, read
+            // after `asked` is enabled so one in between is not lost either.
+            if let Some(since) = early.take()
+                && heed_asks
+                && self
+                    .wanted
+                    .asked_at
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .is_some_and(|at| at >= since)
+                && self.cut_now()
+            {
+                return BackoffWait::Done;
+            }
             let check = (Instant::now() + SleepWatch::EVERY).min(deadline);
             tokio::select! {
                 _ = tokio::time::sleep_until(check) => {
@@ -238,10 +278,7 @@ impl Peer {
                     // A client asks now: the next attempt goes at once, at most once per
                     // `WANTED_CAP`, so asks that keep coming (a person typing) get one attempt
                     // per cap, not one per ask.
-                    let now = Instant::now();
-                    let mut cut = self.wanted.cut_at.lock().unwrap_or_else(|e| e.into_inner());
-                    if cut.is_none_or(|at| now.saturating_duration_since(at) >= Backoff::WANTED_CAP) {
-                        *cut = Some(now);
+                    if self.cut_now() {
                         return BackoffWait::Done;
                     }
                 }
@@ -280,6 +317,27 @@ mod tests {
         peer.want();
         assert_eq!(wait.await.unwrap(), BackoffWait::Done);
         assert!(started.elapsed() <= Backoff::WANTED_CAP, "{:?}", started.elapsed());
+    }
+
+    /// An ask made after the link ended but before the backoff wait listens (a ready link's own
+    /// end, `link_ending`; a prompt it refused) still starts the next attempt at once, once:
+    /// a later wait with no new ask waits out its bound.
+    #[tokio::test(start_paused = true)]
+    async fn an_ask_between_the_link_ending_and_the_wait_still_cuts_it() {
+        let peer = peer();
+        let ended = Instant::now();
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        peer.want();
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        let started = Instant::now();
+        assert_eq!(peer.wait_backoff_since(Backoff::CAP, ended).await, BackoffWait::Done);
+        assert_eq!(started.elapsed(), Duration::ZERO, "the early ask cut the wait at once");
+        // An ask from before the link ended counts for nothing.
+        tokio::time::sleep(Backoff::WANTED_CAP).await;
+        let later = Instant::now();
+        let started = Instant::now();
+        assert_eq!(peer.wait_backoff_since(Duration::from_secs(5), later).await, BackoffWait::Done);
+        assert!(started.elapsed() >= Backoff::WANTED_CAP / 2, "{:?}", started.elapsed());
     }
 
     /// A client that asks while the link is down gets the next attempt at once, not after
