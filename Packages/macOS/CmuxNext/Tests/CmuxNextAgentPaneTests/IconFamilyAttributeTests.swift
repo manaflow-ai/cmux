@@ -31,14 +31,12 @@ struct IconFamilyAttributeTests {
         #expect(IconFamily.tunableCases == IconFamily.shippedCases)
     }
 
-    /// Settings > Appearance > Icon Theme = Neko draws Neko unless Debug Settings chose a family itself.
+    /// Settings > Appearance > Icon Theme = Neko (the launch overlay) draws Neko unless Debug Settings chose
+    /// a family itself.
     @Test func theSettingsThemeAppliesUnderTheDebugFamily() {
-        defer { IconFamily.useNekoTheme(false) }
-        IconFamily.useNekoTheme(false)
-        #expect(IconFamily.effective(debug: .pack) == .pack)
-        IconFamily.useNekoTheme(true)
-        #expect(IconFamily.effective(debug: .pack) == .neko)
-        #expect(IconFamily.effective(debug: .custom) == .custom)
+        #expect(IconFamily.effective(debug: .pack, overlay: nil) == .pack)
+        #expect(IconFamily.effective(debug: .pack, overlay: IconFamily.neko.overlay) == .neko)
+        #expect(IconFamily.effective(debug: .custom, overlay: IconFamily.neko.overlay) == .custom)
     }
 
     /// Turning another tunable off adds its own attribute beside the family's; neither hides the other,

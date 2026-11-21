@@ -1,5 +1,4 @@
 import Foundation
-import CmuxNextCompat
 
 /// Which drawings the cmux icon pack shows (Debug Settings `icons.family`). `pack` is the shipped
 /// pack (design/icons/source). `custom` lays the cmux custom family over it (design/icons/source-custom,
@@ -21,15 +20,11 @@ public nonisolated enum IconFamily: String, Sendable, CaseIterable, Hashable, Tu
     /// Whether this family's artwork ships.
     public var isShipped: Bool { Self.shippedCases.contains(self) }
 
-    /// `appearance.iconTheme` = neko, as cmux.json held it at launch (the App sets it before the first icon draws).
-    public static func useNekoTheme(_ on: Bool) { nekoTheme.withLock { $0 = on } }
-
-    /// The family icons draw with: the Debug Settings family when it is set, else Neko when Settings chose it.
-    public static func effective(debug: IconFamily) -> IconFamily {
-        debug == .pack && nekoTheme.withLock({ $0 }) ? .neko : debug
+    /// The family icons draw with: the Debug Settings family when it is set, else the launch overlay
+    /// (Settings > Appearance > Icon Theme picks Neko there).
+    public static func effective(debug: IconFamily, overlay: String?) -> IconFamily {
+        debug == .pack ? IconFamily(rawValue: overlay ?? "") ?? .pack : debug
     }
-
-    private static let nekoTheme = Mutex(false)
 
     public var tunableTitle: String {
         switch self {

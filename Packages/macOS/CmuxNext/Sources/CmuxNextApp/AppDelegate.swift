@@ -140,11 +140,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         LastAppCLIPointer.publishAtLaunch()
         // Other copies of this app: a second copy opened says which kept running; a passing copy offers a move.
         appCopyGuide.start(activates: !environment.noActivate)
-        // cmux.json's appearance goes on the Ghostty overrides before the runtime's first config
-        // load, so the first frame needs no reload; appearance.fontSmoothing before any window.
+        // cmux.json's appearance goes on the Ghostty overrides before the first config load (no reload); fonts, icons before any window.
         let settingsRead = SettingsController.readAtLaunch(
             file: CmuxConfigFile.launchFile(), buildDefaults: .thisBuild)
         TerminalThemeSetting.prime(settingsRead.snapshot)
+        AgentPaneTunables.useIconTheme(settingsRead.snapshot.iconTheme)
         // Before the import cards start (AppActions.bind): off at launch, they never scan or resume.
         BrowserImportGate.prime(settingsRead.snapshot)
         DebugTimings.markLaunch("dfl.settings_read")
@@ -178,8 +178,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             firstFrame.whenOpen { [launchReveal = services.launchReveal, weak services] in launchReveal.whenReady(.home, orAfter: .seconds(10)) { recorder.write(marks: DebugTimings.launchMarkTimes(), workspaces: services?.daemon.store.workspaces.count) } }
         }
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.
-        // Settings > Appearance > Icon Theme, before Debug Settings picks the pack the first icon draws with.
-        IconFamily.useNekoTheme(settingsRead.snapshot.iconTheme == .neko)
         services.debugSettings.start()
         DebugTimings.markLaunch("dfl.services")
         AppActions.bind(services)
