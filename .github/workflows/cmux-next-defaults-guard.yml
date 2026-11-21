@@ -121,10 +121,10 @@ jobs:
           git init -q --bare "$trees"
           if [ -n "$MERGE_BASE" ] \
             && timeout 120 git -C "$trees" fetch -q --depth=1 --filter=blob:none --no-tags "https://github.com/$REPO" "$MERGE_BASE" "$HEAD_SHA" \
-            && GIT_NO_LAZY_FETCH=1 git -C "$trees" diff-tree -r --no-renames --name-only "$MERGE_BASE" "$HEAD_SHA" > "$RUNNER_TEMP/changed.txt"; then
+            && GIT_NO_LAZY_FETCH=1 git -C "$trees" diff-tree -r -z --no-renames --name-only "$MERGE_BASE" "$HEAD_SHA" > "$RUNNER_TEMP/changed.txt"; then
             touched="$(python3 -c 'import os, sys
           inputs = [line.strip() for line in os.environ["DEFAULTS_DATA"].splitlines() if line.strip()]
-          names = [line.rstrip("\n") for line in open(sys.argv[1], encoding="utf-8")]
+          names = [name for name in open(sys.argv[1], "rb").read().decode("utf-8", "surrogateescape").split("\0") if name]  # -z: unquoted, any byte
           hits = [n for n in names if any(n == p or n.startswith(p + "/") for p in inputs)]
           print("true" if hits else "false")
           print(f"{len(names)} changed paths, {len(hits)} the guard reads", file=sys.stderr)' "$RUNNER_TEMP/changed.txt")"
