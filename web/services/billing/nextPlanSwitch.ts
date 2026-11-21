@@ -14,6 +14,11 @@ export const NEXT_PLAN_SWITCH_PORTAL_METADATA = { app: "cmux", purpose: "next_pl
 
 const resolvedConfigurations = new Map<string, string>();
 
+/** Tests only: forget the configurations found or made, so each test starts from Stripe. */
+export function resetNextPlanSwitchCacheForTests(): void {
+  resolvedConfigurations.clear();
+}
+
 /** The NEXT plans for sale (their Price is configured), lowest first. */
 function nextPlansForSale(): NextPlanId[] {
   return NEXT_PLAN_IDS.filter((plan) => nextPlanPriceId(plan) !== null);

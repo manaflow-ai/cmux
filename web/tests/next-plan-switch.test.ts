@@ -15,13 +15,14 @@ mock.module("../services/billing/stripe", () => ({
   }),
 }));
 
-const { nextPlanSwitchPortalSession, resolveNextPlanSwitchPortalConfiguration } = await import("../services/billing/nextPlanSwitch");
+const { nextPlanSwitchPortalSession, resetNextPlanSwitchCacheForTests, resolveNextPlanSwitchPortalConfiguration } = await import("../services/billing/nextPlanSwitch");
 
 const ENV = ["STRIPE_PRICE_NEXT_PLUS_MONTHLY", "STRIPE_PRICE_NEXT_PRO_MONTHLY", "STRIPE_PRICE_NEXT_MAX_MONTHLY"] as const;
 
 describe("NEXT plan switch portal configuration", () => {
   beforeEach(() => {
     for (const name of ENV) process.env[name] = `configured_${name}`;
+    resetNextPlanSwitchCacheForTests();
     for (const fn of [listConfigurations, createConfiguration, createSession, retrievePrice]) fn.mockClear();
     listConfigurations.mockImplementation(async () => ({ data: [] as Configuration[] }));
   });
