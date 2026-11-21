@@ -4,6 +4,8 @@ import Foundation
 extension OnboardingStrings {
     /// The window's title in the Window menu and for VoiceOver.
     static var agentToolsTitle: String { String(localized: "onboarding.agentTools.title", defaultValue: "cmux Tools", bundle: .module) }
+    /// The window title of the first run's setup screen (cmux#48416).
+    static var makeItYoursTitle: String { String(localized: "onboarding.makeItYours.title", defaultValue: "Make cmux Yours", bundle: .module) }
     /// The primary button before the person answered.
     static var turnOnTools: String {
         String(localized: "onboarding.agentTools.add", defaultValue: "Turn On", bundle: .module)

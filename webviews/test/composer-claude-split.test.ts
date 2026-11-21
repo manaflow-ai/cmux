@@ -90,7 +90,7 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
     {
       name: "New Tab composer",
       entry: "agent-pane.new-tab",
-      // Cards (composer-mic pins it), the first dot, draws the split; Default keeps its chips in the box.
+      // Minimal, the page cmux ships, draws the split.
       variant: "composer-mic",
       composer: ".nt-composer",
       box: ".nt-box",
