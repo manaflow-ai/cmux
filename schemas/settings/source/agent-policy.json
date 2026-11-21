@@ -89,6 +89,7 @@
         "sidebar.stepping",
         "sidebar.steppingWraps",
         "sidebar.side",
+        "sidebar.look",
         "sidebar.style",
         "sidebar.spacesPosition",
         "sidebar.spacesVisibility",
@@ -288,6 +289,7 @@
         "appearance.fontSmoothing",
         "appearance.interfaceScale",
         "appearance.borders",
+        "appearance.previousGlass",
         "appearance.sidebarSurface",
         "appearance.chromeStyle",
         "appearance.titleAreaTone",
@@ -469,7 +471,8 @@
       "agent": "settable",
       "why": "Experiments are taste prototypes of how a surface looks (looks only), each off by default.",
       "keys": [
-        "experiments.glassToolbarGroups"
+        "experiments.glassToolbarGroups",
+        "experiments.composerV2"
       ]
     },
     {
@@ -489,8 +492,9 @@
     },
     {
       "agent": "settable",
-      "why": "Where the docked Chief sits, how the floating one looks and where its links open (layout choices, like pane placement).",
+      "why": "Whether the Chief stays docked as a side panel, where the docked Chief sits, how the floating one looks and where its links open (layout choices, like pane placement).",
       "keys": [
+        "home.chiefDock.sidePanel",
         "home.chiefDock.edge",
         "home.chiefPanel.style",
         "home.chiefDock.openBeside"

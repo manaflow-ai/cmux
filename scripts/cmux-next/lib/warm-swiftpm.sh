@@ -45,6 +45,24 @@ cmux_next_warm_ci_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/ci"
 source "$cmux_next_warm_ci_dir/swift-test-debug-info.sh" || return 2
 # shellcheck source=scripts/ci/swiftpm-binary-module-guard.sh
 source "$cmux_next_warm_ci_dir/swiftpm-binary-module-guard.sh" || return 2
+# A fleet step builds with its pool's pinned Xcode (scripts/ci/xcode-pins.txt), as
+# run-swift-testing-suites.sh does since c80ce904, never the host's xcode-select default:
+# on 2026-11-21 aws-m4pro-2 defaulted to Xcode 26.3, whose generated Bundle.module takes
+# CmuxNext's MainActor default isolation, so regenerate-settings-exports.sh failed there
+# on FileGridStrings.swift (cmux#47467). The host default stays as it is
+# (CMUX_CI_SKIP_XCODE_SELECT); a caller's DEVELOPER_DIR wins.
+if [ -n "${CMUX_CI_STEP_KEY:-}" ] && [ -z "${DEVELOPER_DIR:-}" ]; then
+  cmux_next_xcode_env="$(mktemp)"
+  GITHUB_ENV="$cmux_next_xcode_env" CMUX_CI_SKIP_XCODE_SELECT=1 \
+    "${CMUX_SELECT_CI_XCODE:-$cmux_next_warm_ci_dir/../select-ci-xcode.sh}" >&2 || { rm -f "$cmux_next_xcode_env"; return 2; }
+  DEVELOPER_DIR="$(sed -n 's/^DEVELOPER_DIR=//p' "$cmux_next_xcode_env" | tail -n 1)"
+  rm -f "$cmux_next_xcode_env"
+  if [ -z "$DEVELOPER_DIR" ]; then
+    echo "error: select-ci-xcode.sh selected no Xcode for this fleet step" >&2
+    return 2
+  fi
+  export DEVELOPER_DIR
+fi
 cmux_next_swift_args=(${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"})
 if [ "${CMUX_NEXT_JOB_BUILT:-}" = plain ]; then
   cmux_next_swift_args=()

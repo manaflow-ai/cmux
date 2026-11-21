@@ -112,7 +112,7 @@ extension SidebarSectionsSetting {
     public nonisolated static let groupHeaderUnreadCountDefault = false
     /// `sidebar.groupHeader.background`.
     public nonisolated static let groupHeaderBackgroundPath = ["sidebar", "groupHeader", "background"]
-    public nonisolated static let groupHeaderBackgroundDefault: SidebarGroupBackgroundStyle = .auto
+    public nonisolated static let groupHeaderBackgroundDefault: SidebarGroupBackgroundStyle = .folder
     /// `sidebar.groupPalette`.
     public nonisolated static let groupPalettePath = ["sidebar", "groupPalette"]
     public nonisolated static let groupPaletteDefault: GroupPalette = .glass
@@ -125,6 +125,13 @@ extension SidebarSectionsSetting {
     /// `sidebar.cards.tips`.
     public nonisolated static let tipsPath = ["sidebar", "cards", "tips"]
     public nonisolated static let tipsDefault = false
+}
+
+extension SidebarLookPreset {
+    /// `sidebar.look`.
+    public nonisolated static let configPath = ["sidebar", "look"]
+    public nonisolated static let fallback = "cmux"
+    public nonisolated static let values = ["cmux", "claude", "codex", "studio"]
 }
 
 extension WorkspaceColorsSetting {
