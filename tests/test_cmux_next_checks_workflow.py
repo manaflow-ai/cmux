@@ -1820,11 +1820,16 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
             r"fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+", "", OVERFLOW_FAILOVER.sub("", runs_on)
         )
         self.assertNotIn("vars.", route_without_pools, "an ephemeral Linux VM, never a reused mini")
-        # The same gate, except that the Mac half also follows the route (MacFastTierFollowsTheRoute).
+        # The same gate, except that the Mac half follows the Mac route (MacFastTierFollowsTheRoute) and a pull
+        # request runs the cargo half only when its change reaches a cargo or script entry (FastTierCargoRoute).
         self.assertEqual(cargo["if"], mac["if"].replace(
-            " && needs.path_route.outputs.macos != 'false' && needs.path_route.outputs.fast_tier != 'false'", ""))
+            " && needs.path_route.outputs.macos != 'false' && needs.path_route.outputs.fast_tier != 'false'", "")
+            .replace(" }}", " && (github.event_name != 'pull_request' || "
+                     "needs.path_route.outputs.fast_tier_cargo != 'false') }}"))
         self.assertNotEqual(cargo["if"], mac["if"])
-        self.assertEqual(cargo["needs"], ["push-head-preflight"])
+        self.assertEqual(cargo["needs"], ["push-head-preflight", "path_route"])
+        self.assertEqual(jobs["path_route"]["outputs"]["fast_tier_cargo"],
+                         "${{ steps.route.outputs.fast_tier_cargo }}")
         self.assertEqual(cargo["concurrency"]["group"], mac["concurrency"]["group"].replace("-fast-tier'", "-fast-tier-cargo'"))
         self.assertNotEqual(cargo["name"], mac["name"])
         self.assertEqual(cargo["name"], "cmux-next fast tier (cargo)")
@@ -2871,10 +2876,12 @@ class PortablePlacementBootstrapAdmission(unittest.TestCase):
         jobs = yaml.safe_load((ROOT / ".github/workflows/cmux-next.yml").read_text())["jobs"]
         bootstrap = one_runs_on(jobs["portable-placement"])
         for fleet in ("", "cmux-fleet-linux-x64", "stale-fleet-label"):
-            # Blacksmith on every attempt, never GitHub-hosted Ubuntu (it left the job queued for hours, cmux#45735).
-            # A few seconds of work: the 2 vCPU size like the other placement bootstraps, overflow or not.
-            for attempt, overflow, expected in ((1, "", "blacksmith-2vcpu-ubuntu-2404"),
-                                                (1, "1", "blacksmith-2vcpu-ubuntu-2404"),
+            # Never GitHub-hosted Ubuntu (it left the job queued for hours, cmux#45735). A same-repository pull
+            # request's first attempt takes the persistent pool's cmux-linux (it took the reserved PR control
+            # label, #48405, until that label's one-job VMs queued 1,860 jobs); a re-run takes Blacksmith, the
+            # 2 vCPU size like the other placement bootstraps, overflow or not.
+            for attempt, overflow, expected in ((1, "", "cmux-linux"),
+                                                (1, "1", "cmux-linux"),
                                                 (2, "", "blacksmith-2vcpu-ubuntu-2404"),
                                                 (2, "1", "blacksmith-2vcpu-ubuntu-2404")):
                 with self.subTest(fleet=fleet, attempt=attempt, overflow=overflow):
@@ -4489,6 +4496,54 @@ class ChecksBringNodeAndTimeoutToAMini(unittest.TestCase):
         result = self.prepare()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("lacks timeout (no GNU timeout, gtimeout or perl)", result.stdout)
+
+
+class FastTierCargoRoute(unittest.TestCase):
+    """scripts/ci/fast_tier_cargo_route.py: a pull request runs fast-tier-cargo only when its change reaches it."""
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location("fast_tier_cargo_route",
+                                                      ROOT / "scripts/ci/fast_tier_cargo_route.py")
+        cls.route = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.route)
+
+    def reaches(self, *changed, labels=()):
+        return self.route.reaches(list(changed), set(labels), ROOT)[0]
+
+    def test_a_cargo_workspace_or_build_input_change_runs_it(self):
+        for path in ("cmux-tui/crates/cmux-tui-core/src/lib.rs", "cmux-tui/Cargo.lock", "ghostty-next",
+                     "scripts/cmux-next/fast-tier.json", ".github/workflows/cmux-next.yml",
+                     ".github/actions/setup-cmux-tui-rust/action.yml", "scripts/perf-bench/budget.py",
+                     "scripts/cmux-next/tests/test_perf_completeness.py"):
+            with self.subTest(path=path):
+                self.assertTrue(self.reaches("docs/x.md", path))
+
+    def test_every_tree_input_runs_it(self):
+        # The crates' embeds and build scripts outside cmux-tui/ (check_cmux_tui_tree_inputs.py keeps the list whole).
+        for raw in (ROOT / "scripts/cmux-next/cmux-tui-tree-inputs.txt").read_text(encoding="utf-8").splitlines():
+            parts = raw.split("#", 1)[0].split()
+            if len(parts) == 2:
+                with self.subTest(line=raw):
+                    self.assertTrue(self.reaches(parts[1] + ("/x" if parts[0] == "tree" else "")))
+
+    def test_every_registry_entry_runs_it(self):
+        registry = json.loads((ROOT / "scripts/cmux-next/fast-tier.json").read_text(encoding="utf-8"))
+        for entry in registry["entries"]:
+            if entry["kind"] in ("cargo", "script"):
+                with self.subTest(entry=entry["name"]):
+                    path = entry["path"] + ("/src/lib.rs" if entry["kind"] == "cargo" else "")
+                    self.assertTrue(self.reaches(path))
+
+    def test_a_change_that_reaches_no_entry_skips_it(self):
+        self.assertFalse(self.reaches("Packages/macOS/CmuxNext/Sources/CmuxNext/App.swift", "webviews/src/app.tsx",
+                                      "docs/ci/x.md", ".github/workflows/ci-web.yml"))
+        self.assertFalse(self.reaches())
+
+    def test_full_ci_and_an_unreadable_registry_run_it(self):
+        self.assertTrue(self.reaches("docs/x.md", labels=("full-ci",)))
+        with tempfile.TemporaryDirectory() as empty:
+            self.assertTrue(self.route.reaches(["docs/x.md"], set(), Path(empty))[0])
 
 
 if __name__ == "__main__":

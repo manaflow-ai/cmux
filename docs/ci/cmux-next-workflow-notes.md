@@ -7,7 +7,8 @@ explanations live here; the workflow keeps a `# Why: ...#note-N` line where each
 
 ## note-1
 
-Above `pr-quiet-period` in `.github/workflows/cmux-next.yml`.
+Above `macos-placement`'s step `Wait until the pull request has had no push for the quiet period` in
+`.github/workflows/cmux-next.yml` (the `pr-quiet-period` job until 2026-11-21).
 
 A pull request's run waits until the PR has had no push for about 5 minutes before any Mac
 job starts. The run's group cancels in progress on a newer push, so a second push inside the
@@ -20,9 +21,13 @@ runner that placement finds is still idle when the job it placed starts. The Lin
 at once: portable-placement, path_route, checks, fast-tier-cargo, web-bundles and the build
 fleet's app compile (app-compile-placement, app-compile-fleet). Leo, 2026-11-08, choosing
 "the Linux checks start at once and only the Mac jobs wait": "yeah". A superseded head spends
-3 to 8 Linux runner-minutes before the newer push cancels its run (41% of runs). It sleeps on the
-smallest Blacksmith Linux size (the linux_2 pool), so it holds no fleet runner or mini. It is
-not on hosted Ubuntu: the org runs at most 20 hosted jobs at once, and on 2026-11-07 its
+3 to 8 Linux runner-minutes before the newer push cancels its run (41% of runs).
+Since 2026-11-21 the wait is macos-placement's first step, not a job of its own (cmuxterm-hq#16094: the job was
+1.64% of pull request runner-minutes over 11-13..19 and never red; Leo, 2026-11-21: "id rather we simply cut
+shit now and revisit later"). Only a run that places Mac jobs sleeps, on macos-placement's Linux pool runner, and
+the routing before it counts toward the window; a fork pull request, or a run with vars.CI_PR_POOL_OWNED unset,
+has no macos-placement and so no wait. The job it replaced slept on the linux_2 pool. Neither is
+on hosted Ubuntu: the org runs at most 20 hosted jobs at once, and on 2026-11-07 its
 2,103 sleeps held 6 of them on average (8,400 of 21,600 hosted minutes), so the routers and
 report steps that must start fast queued 1.5-2 min at the median through the busy hours. Its
 own start costs nothing on any runner: the sleep ends at the push time plus the window, so a
@@ -1205,15 +1210,17 @@ A new no-verdict description needs only the marker; a real compile failure must 
 
 ## note-85
 
-Above `pr-quiet-period: runs-on` in `.github/workflows/cmux-next.yml`.
+Was above `pr-quiet-period: runs-on` in `.github/workflows/cmux-next.yml`; that job is now macos-placement's
+quiet period step (note-1), which takes macos-placement's runner. Kept for the history.
 
 A fork pull request's sleep takes the fixed 2 vCPU label like every fork route (no pool read).
 
 ## note-86
 
-Above `pr-quiet-period: continue-on-error` in `.github/workflows/cmux-next.yml`.
+Above the quiet period step's `continue-on-error` in `macos-placement`, `.github/workflows/cmux-next.yml`.
 
-A failed or timed-out wait never holds the checks: every job after it runs on !cancelled().
+A failed or timed-out wait never holds the checks: the step continues on error, and macos-placement places the
+Mac jobs after it.
 
 ## note-87
 
@@ -3824,6 +3831,9 @@ The base Mac tier (daemon tests, generated files, the Debug app scheme compile) 
 at most once every 15 minutes on the tip, in the run cmux-next-base-tier-kick.yml
 dispatches (cmuxterm-hq#5424). The Release compiles (nightly-next's input), the DEV
 landing compile and the fast tier still run on this push.
+
+The Swift canary (changed CmuxNext targets) is off on this push too: the scheduled tip Swift suite
+(`tip_swift_suite`, about once an hour) runs every target on the tip and is the base verdict for it.
 
 ## note-407
 

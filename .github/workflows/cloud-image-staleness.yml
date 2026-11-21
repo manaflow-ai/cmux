@@ -12,8 +12,6 @@ name: cloud image staleness
 # a rebake from the tip and a promotion (images/cmux-vm/promote.ts), never a change here.
 
 on:
-  schedule:
-    - cron: "41 8 * * *"
   workflow_dispatch:
 
 permissions:

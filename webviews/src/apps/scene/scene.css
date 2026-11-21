@@ -428,3 +428,74 @@
       text-decoration-color var(--cmux-motion-micro) var(--cmux-app-scene-ease);
   }
 }
+
+.cmux-app-scene-move-row {
+  position: relative;
+}
+.cmux-app-scene-move-row[data-drop-edge]::after {
+  position: absolute;
+  right: 0;
+  left: 0;
+  height: var(--cmux-hairline);
+  background: var(--cmux-accent, currentColor);
+  pointer-events: none;
+  content: "";
+}
+.cmux-app-scene-move-row[data-drop-edge="before"]::after { top: 0; }
+.cmux-app-scene-move-row[data-drop-edge="after"]::after { bottom: 0; }
+
+/* Text `fontDesign`: the system font's designs, at the type scale's sizes (sceneStyle.ts DESIGNS).
+   Heavy and rounded is the Lock Screen's time. */
+.cmux-app-scene-root {
+  --cmux-app-scene-font-rounded: ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
+  --cmux-app-scene-font-serif: ui-serif, "New York", Georgia, serif;
+  --cmux-app-scene-font-monospaced: ui-monospace, var(--font-mono), monospace;
+}
+/* A ticking Text (`date`, sceneDate.ts) keeps its width as its digits turn over. */
+.cmux-app-scene-text[data-date-style] {
+  font-variant-numeric: tabular-nums;
+}
+.cmux-app-scene-line {
+  flex: none;
+}
+
+/* SwiftUI's flexible frame. `frame({maxHeight: "infinity"})` fills the height its parent has: down a
+   vertical stack's main axis, across a row's or a ZStack's cross axis, and the tile's whole height at
+   the root (the widget host's card). `frame({maxWidth: "infinity"})` fills the width the same way:
+   along a row (it takes the free width, no Spacer needed), across a column, and in a ZStack. */
+.cmux-app-scene-root:has(> [data-fill-height]) {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.cmux-app-scene-root > [data-fill-height],
+:is(.cmux-app-scene-vstack, .cmux-app-scene-lazyvstack, .cmux-app-scene-reorderable, .cmux-app-scene-panel) > [data-fill-height] {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+:is(.cmux-app-scene-hstack, .cmux-app-scene-zstack) > [data-fill-height] {
+  align-self: stretch;
+}
+.cmux-app-scene-hstack > [data-fill-width] {
+  flex: 1 1 0;
+  min-width: 0;
+}
+:is(.cmux-app-scene-vstack, .cmux-app-scene-lazyvstack, .cmux-app-scene-reorderable, .cmux-app-scene-panel, .cmux-app-scene-root) > [data-fill-width] {
+  align-self: stretch;
+}
+.cmux-app-scene-zstack > [data-fill-width] {
+  justify-self: stretch;
+}
+
+/* A ZStack child's `position`: its center at `--app-x`, `--app-y` (points or a fraction of the stack),
+   out of the stack's sizing, as the native ZStack lays it out (a calendar's events and now line on its hour grid). */
+.cmux-app-scene-zstack {
+  position: relative;
+}
+.cmux-app-scene-zstack > [data-positioned],
+.cmux-app-scene-zstack > :is(.cmux-app-scene-foreach, .cmux-app-scene-group) > [data-positioned] {
+  position: absolute;
+  left: var(--app-x);
+  top: var(--app-y);
+  translate: -50% -50%;
+}
