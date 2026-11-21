@@ -80,7 +80,8 @@ pub(super) fn dispatch(
     // An earlier attempt's path answers this one too; a first attempt goes
     // right only for a chat that is alone.
     let split_name = ResourceOperation::PaneSplit.wire_name();
-    if !record["operation"].as_str().map_or(chat.alone, |operation| operation == split_name) {
+    let made_by = record.get("operation").and_then(Value::as_str);
+    if !made_by.map_or(chat.alone, |operation| operation == split_name) {
         return Ok(None);
     }
     let mut split = Map::new();
@@ -95,7 +96,8 @@ pub(super) fn dispatch(
     split.insert(PANE_SPLIT_FIT_FIELD.to_string(), json!(true));
     let mut created = inner(mux, request, ResourceOperation::PaneSplit, split, key)?;
     let name = params.get("name").filter(|name| name.is_string());
-    if let (Some(name), Some(tab)) = (name, created["value"]["tab_id"].as_str()) {
+    let tab = created.pointer("/value/tab_id").and_then(Value::as_str).map(str::to_owned);
+    if let (Some(name), Some(tab)) = (name, tab) {
         let mut rename = Map::new();
         for selector in ["machine", "session"] {
             if let Some(value) = params.get(selector) {
@@ -106,7 +108,13 @@ pub(super) fn dispatch(
         rename.insert("name".to_string(), name.clone());
         match inner(mux, request, ResourceOperation::TabRename, rename, &name_key(key)) {
             // The revision a caller chains from is the one after the name.
-            Ok(renamed) => created["revision"] = renamed["revision"].clone(),
+            Ok(renamed) => {
+                if let (Some(reply), Some(revision)) =
+                    (created.as_object_mut(), renamed.get("revision"))
+                {
+                    reply.insert("revision".to_string(), revision.clone());
+                }
+            }
             // The same key with another name: refused, as the daemon's own
             // path refuses a key sent again with other input.
             Err(error) if error.code == "idempotency.conflict" => return Err(error),
@@ -140,6 +148,6 @@ fn inner(
 /// retry replays the rename.
 fn name_key(key: &str) -> String {
     let digest = Sha256::digest(key.as_bytes());
-    let hash: String = digest[..16].iter().map(|byte| format!("{byte:02x}")).collect();
+    let hash: String = digest.iter().take(16).map(|byte| format!("{byte:02x}")).collect();
     format!("tab-beside-chat-name-{hash}")
 }
