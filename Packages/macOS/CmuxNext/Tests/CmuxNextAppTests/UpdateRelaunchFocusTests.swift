@@ -163,7 +163,7 @@ import Testing
         }
     }
 
-    @Test func helperLooksUpTheInstallerThenWaitsForTheAppThenOpensInTheBackground() {
+    @Test func helperLooksUpTheInstallerThenWaitsForTheAppThenOpensInTheBackground() throws {
         let app = URL(fileURLWithPath: "/Applications/cmux NEXT.app")
         let label = UpdateRelaunchBehind.installerJobLabel(bundleIdentifier: "com.cmuxterm.app.next")
         #expect(label == "com.cmuxterm.app.next-sparkle-updater")
