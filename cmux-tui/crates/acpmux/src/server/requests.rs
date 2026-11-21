@@ -935,6 +935,8 @@ pub(super) async fn handle_request(
     mut params: Value,
     sender_token: Option<crate::sender_token::Presented>,
 ) -> Result<Value, RpcError> {
+    // Freed memory goes back to the system once requests stop (malloc_quiet_trim.rs).
+    cmux_tui_platform::malloc_quiet_trim::note_activity();
     if conn.is_trigger() && !m.starts_with("trigger/chat.") {
         return Err(RpcError::new(
             -32001,
@@ -1582,9 +1584,8 @@ async fn dispatch_request_with_identity(
                         "credentials start an agent on this machine only, never on a peer",
                     ));
                 }
-                let peer = hub
-                    .peer_by_name(peer_name)
-                    .ok_or_else(|| RpcError::not_found(format!("no peer {peer_name:?}")))?;
+                let peer =
+                    hub.peer_by_name(peer_name).ok_or_else(|| RpcError::no_peer(peer_name))?;
                 if super::trust_gate::gated(conn.origin, &params) && !peer.supports_trust_gate() {
                     return Err(super::trust_gate::peer_unsupported(&peer.name));
                 }
