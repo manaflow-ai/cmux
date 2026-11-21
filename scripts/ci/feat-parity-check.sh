@@ -63,10 +63,10 @@ case "$mode" in
     [[ $# -eq 2 && "$workspace" =~ ^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$ && "/$workspace/" != *"/../"* && "/$workspace/" != *"/./"* ]] || usage
     ;;
   sdk-rust | sdk-msrv | cef-shim-cpp | web | notices) [[ $# -eq 1 ]] || usage ;;
+  *) usage ;;
 esac
 case "$mode" in
   clippy-changed | react-doctor) [[ "$workspace" =~ ^[0-9a-f]{40}$ ]] || usage ;;
-  *) usage ;;
 esac
 umask 022
 root="$(pwd -P)"
