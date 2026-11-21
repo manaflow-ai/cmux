@@ -34,6 +34,42 @@ class FakeRecorder:
 
 
 class LaunchTimeProfile(unittest.TestCase):
+    def test_callback_entry_keeps_later_work_in_its_actual_phase(self):
+        # The process starts at trace 1 s. The callback schedules an async bootstrap;
+        # finishLaunching starts 1 s after entry, on a different main-thread turn.
+        samples = [
+            (1_010_000_000, 1_000_000, [("AppDelegate.applicationDidFinishLaunching(_:)", "cmux")]),
+            (2_700_000_000, 1_000_000, [("AppActions.bind(_:)", "cmux")]),
+        ]
+        marks = {"main_start": 5.0, "app.did_finish_launching_entry": 10.0,
+                 "did_finish_launching_start": 1010.0, "dfl.services": 1100.0,
+                 "dfl.bind": 2500.0, "first_window_frame_committed": 2800.0}
+        summary = launch_time_profile.summarize(samples, marks)
+        binding = next(gap for gap in summary["gaps"] if gap["from"] == "dfl.services")
+        self.assertEqual(binding["to"], "dfl.bind")
+        self.assertEqual(binding["busy_ms"], 1.0)
+        self.assertIn(["AppActions.bind(_:)", 1.0], binding["top"])
+        after_binding = next(gap for gap in summary["gaps"] if gap["from"] == "dfl.bind")
+        self.assertEqual(after_binding["busy_ms"], 0.0)
+        self.assertIn("app.did_finish_launching_entry", summary["clock"])
+
+    def test_entry_mark_without_later_finish_mark_still_aligns(self):
+        samples = [(1_010_000_000, 1_000_000,
+                    [("AppDelegate.applicationDidFinishLaunching(_:)", "cmux")])]
+        origin, _ = launch_time_profile.align(samples, {"app.did_finish_launching_entry": 10.0})
+        self.assertEqual(origin, 1_000_000_000)
+
+    def test_async_closure_alone_does_not_identify_callback_entry(self):
+        samples = [
+            (1_000_000_000, 1_000_000, [("start", "dyld")]),
+            (2_010_000_000, 1_000_000,
+             [("closure #1 in AppDelegate.applicationDidFinishLaunching(_:)", "cmux")]),
+        ]
+        origin, clock = launch_time_profile.align(samples, {
+            "app.did_finish_launching_entry": 10.0, "did_finish_launching_start": 1010.0})
+        self.assertEqual(origin, 1_000_000_000)
+        self.assertIn("first main-thread sample", clock)
+
     def test_self_test(self):
         launch_time_profile.self_test()
 

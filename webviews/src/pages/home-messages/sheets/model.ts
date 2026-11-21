@@ -3,15 +3,13 @@
 // HomeMessageRequest, HomeGroupInfo, HomeGroupMember, ChiefBackend), with the same strings. The
 // host sends these shapes on the wire (`kind` plus the case's fields).
 import type { Strings } from "../../shared/i18n";
-import type { PendingSend } from "../../home-channels/store";
 import type { HomeContact } from "./recipients";
 
 // ---------- Starting a conversation, sending an invite ----------
 
 export type ComposeOutcome =
-  /** The conversation exists; the page shows it. `pending`: its first send got no answer, so the
-   * page shows it as its own, not sent, with Retry (HomeMessagesFirstSend.swift). */
-  | { kind: "opened"; conversation: string; pending?: readonly PendingSend[] }
+  /** The conversation exists; the page shows it. */
+  | { kind: "opened"; conversation: string }
   /** The invite went out (in its own DM when the owner made one). */
   | { kind: "invited"; conversation?: string }
   /** The owner refused a person the user cannot reach (`not_reachable`). */
@@ -50,17 +48,8 @@ export function composeMessage(outcome: ComposeOutcome, strings: Strings): strin
 
 /** The conversation a finished action shows (an opened one, a sent invite's DM), or undefined
  * when the sheet stays open and says why. `closes` is true for both kinds that close it. */
-export function composeCloses(outcome: ComposeOutcome): {
-  closes: boolean;
-  conversation?: string;
-  pending?: readonly PendingSend[];
-} {
-  if (outcome.kind === "opened")
-    return {
-      closes: true,
-      conversation: outcome.conversation,
-      ...(outcome.pending?.length ? { pending: outcome.pending } : {}),
-    };
+export function composeCloses(outcome: ComposeOutcome): { closes: boolean; conversation?: string } {
+  if (outcome.kind === "opened") return { closes: true, conversation: outcome.conversation };
   if (outcome.kind === "invited") return { closes: true, conversation: outcome.conversation };
   return { closes: false };
 }

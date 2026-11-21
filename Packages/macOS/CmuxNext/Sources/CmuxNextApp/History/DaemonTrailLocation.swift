@@ -40,7 +40,7 @@ extension DaemonHistoryClient {
            let document = try? await Self.decode(HistoryTrailDocument.self, from: stored.projection) {
             return document.steps
         }
-        let rows = try await list(kinds: [.location], text: "", range: .all, limit: 5_000)
+        let rows = try await list(kinds: [.location], text: "", range: .all, limit: 5_000).entries
         return rows.reversed().compactMap { row in row.trailLocation.map { ($0, row.time) } }
     }
 }

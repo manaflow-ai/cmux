@@ -626,13 +626,6 @@ pub fn from_next(value: &Value) -> Option<Machine> {
         json::whole(policy.get("idle_seconds")?.as_f64()? / 60.0)
     });
     machine.idle_pause = fields.get("idlePause").and_then(IdlePauseDiagnostics::read);
-    // The contract's `size` (`cpu`, `memory_mb`, `disk_mb`); a field of another type drops itself.
-    machine.size = fields.get("size").and_then(Value::as_object).map(|size| Size {
-        name: None,
-        cpu: size.get("cpu").and_then(int),
-        memory_mb: size.get("memory_mb").and_then(int),
-        storage_mb: size.get("disk_mb").and_then(int),
-    });
     // Why cmux paused the machine by itself: `idle` and the cost backstop `no_report` are both its
     // own idle pause, which an attach resumes; a VM stopped from inside (`provider_stopped`,
     // `provider_paused`) and a person's pause (null) carry no reason the app shows.
@@ -647,6 +640,19 @@ pub fn from_next(value: &Value) -> Option<Machine> {
         let code = error.get("code")?.as_str().filter(|code| !code.is_empty())?;
         let message = json::text(error.get("message")).unwrap_or_default();
         Some(ChangeFailure::new(code.to_owned(), message, error.get("at").and_then(Value::as_f64)))
+    });
+    // The machine's size (protocol `CloudMachineSize`: `cpu`, `memory_mb`, `disk_mb`), which the
+    // classic record names `cpu`, `memoryMb`, `storageMb`. A field that is not a whole number drops
+    // only itself; a size with none of the three is no size.
+    machine.size = fields.get("size").and_then(Value::as_object).and_then(|size| {
+        let read = Size {
+            name: None,
+            cpu: size.get("cpu").and_then(int),
+            memory_mb: size.get("memory_mb").and_then(int),
+            storage_mb: size.get("disk_mb").and_then(int),
+        };
+        (read.cpu.is_some() || read.memory_mb.is_some() || read.storage_mb.is_some())
+            .then_some(read)
     });
     machine.server_revision = json::text(fields.get("revision"));
     // The machine serves `desktop` (cloud-machine-ops.ts CloudMachine.desktop); absent from an older server.
@@ -678,6 +684,23 @@ pub fn is_agent_infrastructure(name: Option<&str>) -> bool {
     AGENT_INFRASTRUCTURE_PREFIXES.iter().any(|prefix| name.starts_with(prefix))
 }
 
+/// The prefix of the name `cmux cloud start-chat` gives the machine it makes (cmux-tui
+/// `cloud_start_chat`'s `fresh_name`): `chat-` and 16 hex characters of a fresh UUID.
+pub const CHAT_MACHINE_NAME_PREFIX: &str = "chat-";
+
+/// The name `cmux cloud start-chat` gives a machine it makes, from a fresh UUID's simple form.
+pub fn chat_machine_name(uuid_simple: &str) -> String {
+    format!("{CHAT_MACHINE_NAME_PREFIX}{}", uuid_simple.chars().take(16).collect::<String>())
+}
+
+/// Whether `name` is one cmux generated rather than words a person reads: a start-chat
+/// machine's `chat-` and 16 hex characters (trimmed, case-insensitive).
+pub fn is_generated_name(name: &str) -> bool {
+    let name = name.trim().to_lowercase();
+    name.strip_prefix(CHAT_MACHINE_NAME_PREFIX)
+        .is_some_and(|hex| hex.len() == 16 && hex.chars().all(|c| c.is_ascii_hexdigit()))
+}
+
 /// What the app reads off one record, in one answer.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -696,6 +719,10 @@ pub struct Facts {
     pub agent_infrastructure: bool,
     /// Open Desktop's viewer when none is named (`rd` or `web`) for the signed-in user.
     pub desktop_viewer: &'static str,
+    /// The name for a title a person reads: the shown name, or none when the machine has no
+    /// name or only a generated one ([`is_generated_name`]), so the app names it "Cloud machine"
+    /// instead of showing an id.
+    pub human_name: Option<String>,
 }
 
 /// The facts of `machine` for the signed-in `user`.
@@ -717,6 +744,11 @@ pub fn facts(machine: &Machine, user: Option<&str>) -> Facts {
             .any(|status| matches!(status, Status::Destroyed | Status::Deleting)),
         agent_infrastructure: is_agent_infrastructure(machine.shown_name()),
         desktop_viewer: desktop_viewer(machine, &capabilities, user),
+        human_name: machine
+            .shown_name()
+            .map(str::trim)
+            .filter(|name| !name.is_empty() && !is_generated_name(name))
+            .map(str::to_owned),
         capabilities,
     }
 }

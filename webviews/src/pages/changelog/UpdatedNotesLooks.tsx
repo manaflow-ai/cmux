@@ -41,7 +41,7 @@ export function NotesRow({
       <button
         type="button"
         className="wn-notes-row"
-        onClick={() => actions.openChangelog({ area: entry.area, title: entry.title })}
+        onClick={() => actions.openChangelog({ area: entry.area, title: entry.target ?? entry.title })}
       >
         <span className="wn-notes-row-title">{entry.title}</span>
         {!titlesOnly && entry.detail && <span className="wn-notes-row-detail">{entry.detail}</span>}
@@ -185,7 +185,7 @@ export function HeadlineNotes({
             <button
               type="button"
               className="wn-notes-row"
-              onClick={() => actions.openChangelog({ area: entry.area, title: entry.title })}
+              onClick={() => actions.openChangelog({ area: entry.area, title: entry.target ?? entry.title })}
             >
               <span className="wn-notes-headline-area">{areaLabel(entry.area, strings)}</span>
               <span className="wn-notes-row-title">{entry.title}</span>
@@ -226,7 +226,7 @@ export function LedgerNotes({
             <button
               type="button"
               className="wn-notes-row"
-              onClick={() => actions.openChangelog({ area: entry.area, title: entry.title })}
+              onClick={() => actions.openChangelog({ area: entry.area, title: entry.target ?? entry.title })}
             >
               <span className="wn-notes-ledger-area" aria-hidden={!first}>
                 {first ? areaLabel(entry.area, strings) : ""}

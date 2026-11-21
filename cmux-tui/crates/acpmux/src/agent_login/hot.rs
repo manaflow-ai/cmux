@@ -9,14 +9,17 @@ use super::parse::{self, Offer};
 
 pub(super) fn offer(agent: Agent, output: &str) -> Option<Offer> {
     #[cfg(feature = "hot-modules")]
-    if let Some(slot) = acpmux_hot::daemon() {
+    {
+        // The module's ABI knows Claude and Codex; the others read natively.
         let hot_agent = match agent {
-            Agent::Claude => acpmux_hot::Agent::Claude,
-            Agent::Codex => acpmux_hot::Agent::Codex,
-            // The live module's interface names no Cursor: native code reads its output.
-            Agent::Cursor => return parse::offer(agent, output),
+            Agent::Claude => Some(acpmux_hot::Agent::Claude),
+            Agent::Codex => Some(acpmux_hot::Agent::Codex),
+            Agent::Gemini | Agent::Grok | Agent::Cursor => None,
         };
-        if let Some(answer) = slot.login_offer(hot_agent, output) {
+        if let Some(hot_agent) = hot_agent
+            && let Some(slot) = acpmux_hot::daemon()
+            && let Some(answer) = slot.login_offer(hot_agent, output)
+        {
             return answer.map(|o| Offer { url: o.url, user_code: o.user_code });
         }
     }

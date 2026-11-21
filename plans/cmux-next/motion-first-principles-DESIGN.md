@@ -21,9 +21,11 @@ different rule in each motion. The result is the set of defects people see: fram
 moves or lags behind its pane, a TUI picture cut at a size it did not draw, a change that shows only at the landing.
 
 The answer in one paragraph: a pane motion is not a resize animation. It is a transition between two pictures, the
-one the content drew at the old size and the one it draws at the new size. The app tells the content its final size
+one the content drew at the old size and the one it draws at the new size. The app tells a terminal its final size
 once, in the turn of the input, and then moves only a position and a clip, on the display's clock, with no layout
-per frame. The motion's length is the time the content has to draw; nothing changes at the landing.
+per frame. The motion's length is the time the content has to draw; nothing changes at the landing. For a page
+the same rule is the recommendation, and films decide it, because Chrome on macOS resizes a page on each frame
+(section 3).
 
 ## How to read the evidence
 
@@ -35,6 +37,7 @@ Nothing in this document was measured for it. No build or test can run where it 
   design depends on, not every line.
 - **[measured by ...]**: a number another owner measured; the source is named. It was not measured again.
 - **[source]**: fetched from the named upstream file. **[recalled]**: from memory, not checked against a source.
+- **[source, 2nd]**: fetched from the named upstream file by a helper agent; the author did not fetch it again.
 
 ## 1. What the code does today
 
@@ -76,8 +79,9 @@ Nothing in this document was measured for it. No build or test can run where it 
 - The program hold (keep the last frame until the program redraws, at most 3 refreshes) is on only for a key resize
   or a drag of a terminal on the alternate screen
   (`S/CmuxNextTerminal/TerminalSurfaceView+FrameOwner.swift:116-137`). A split, close or zoom has no program hold.
-- Movement snaps in every window while any window is in a live resize or a full screen transition: `Motion`'s base
-  policy reads the app-wide `LiveResizeWindows.shared.isActive` (`S/CmuxNextDesign/Motion/Motion.swift:58`).
+- Movement snaps only in the window that is in a live resize or a full screen transition: a gate's policy for a
+  window reads `Motion.isLiveResizing(window)` (`MotionGate.policy(in:)`, `S/CmuxNextDesign/Motion/MotionGate.swift`).
+  Motion in the other windows runs as usual.
 
 ### 1.3 Content hand-off today, per motion
 
@@ -187,13 +191,23 @@ excerpts, so a quote is an excerpt and "not found" means not in the excerpt]:
   "input and animations [are] responsively handled on one thread while the other thread is busy"
   (`docs/how_cc_works.md`). The browser's own UI layers use the same path: `ui/compositor/layer_animator.h` adds
   "threaded animations" and `StartTogether` gives a group "the same effective start time even when some of them
-  start on the compositor thread".
-- **A page that changed size never holds the browser's frame.** On macOS a new view size makes a new surface id
-  with a deadline of 0 frames (`content/browser/renderer_host/browser_compositor_view_mac.mm`,
+  start on the compositor thread". For the browser's UI layers this holds for transform and opacity only. A
+  change of a view's bounds steps
+  on the UI thread: the tab strip's `BoundsAnimator` gets one step per compositor frame, with the frame's time
+  (`ui/views/animation/animation_delegate_views.cc` installs a `CompositorAnimationRunner`; its
+  `OnAnimationStep` calls `Step(timestamp)`), and each step calls `SetBoundsRect`
+  (`ui/views/animation/bounds_animator.cc`, `AnimationProgressed`) [source, 2nd]. A panel does the same: the
+  browser view's layout reads the panel's animation value
+  (`chrome/browser/ui/views/frame/layout/browser_view_tabbed_layout_impl.cc`, `side_panel->GetAnimationValue()`),
+  so the browser view lays out on the UI thread on each step. Which runner steps the panel was not read.
+- **By default a page that changed size does not hold the browser's frame.** On macOS a new view size makes a
+  new surface id with a deadline of 0 frames (`content/browser/renderer_host/browser_compositor_view_mac.mm`,
   `UpdateSurfaceFromNSView`: `cc::DeadlinePolicy::UseSpecifiedDeadline(0u)`). The reason is in
   `content/browser/renderer_host/delegated_frame_host.cc`: "we would like to produce new content as soon as
   possible or the OS will create an additional black gutter. Until we can block resize on surface synchronization
-  on these platforms, we will not block UI on the top-level renderer."
+  on these platforms, we will not block UI on the top-level renderer." Two exceptions get the default deadline
+  (`GetResizeDeadlinePolicy` in the same file): a remote window (the PWA app shim) and the panel motion on an
+  ARM64 Mac, below.
 - **Until the page's frame at the new size comes, the old frame shows unscaled with a gutter.** The page's layer is
   shown with `stretch_content_to_fill_bounds` false (`delegated_frame_host.cc`, `EmbedSurface`). The display
   compositor draws the fallback surface at its own size, cut to the quad, and fills the rest with the page's root
@@ -201,7 +215,7 @@ excerpts, so a quote is an excerpt and "not found" means not in the excerpt]:
   `EmitGutterQuadsIfNecessary`; its comment: "the surface content may be stretched or have gutter"). The gutter
   colour is the last frame's root background (`render_widget_host_view_mac.mm`,
   `BrowserCompositorMacGetGutterColor`).
-- **A window live resize is the one case where the UI thread waits.** It waits in the Core Animation pre-commit
+- **In a window live resize the UI thread waits.** It waits in the Core Animation pre-commit
   for a frame "of same size as the NSView", so that window and content "are resized in lock-step"
   (`ui/accelerated_widget_mac/window_resize_helper_mac.h`), for at most 500 ms
   (`components/remote_cocoa/app_shim/native_widget_ns_window_bridge.mm`, `kUIPaintTimeout`). The same file turns
@@ -215,12 +229,43 @@ excerpts, so a quote is an excerpt and "not found" means not in the excerpt]:
   timing of how the slot animates, leading to hitches". Tabs keep their width while the pointer is in the strip
   after a close, "so that as the user closes tabs with the mouse a tab continues to fall under the mouse". The
   first tab and a closing browser do not animate.
-- **Interrupt.** `LayerAnimator`'s default is `IMMEDIATELY_SET_NEW_TARGET`: the running animation goes to its end
-  and the new one starts. cmux differs on purpose: a new target starts from the value on screen (Lawrence's
+- **Interrupt.** Chrome's view animations start a new target from the value on screen:
+  `ui/gfx/animation/slide_animation.cc` sets `value_start_ = value_current_`, and `BoundsAnimator::AnimateViewTo`
+  starts from the view's bounds now (`ui/views/animation/bounds_animator.cc`; its defaults are 200 ms and
+  ease-out) [source, 2nd]. `LayerAnimator`'s default (`IMMEDIATELY_SET_NEW_TARGET`) is different: the running
+  animation and the new one both go to their end at once, so nothing animates. cmux follows the first (Lawrence's
   2026-10-28 rule).
-
-No Chrome surface that was read animates the SIZE of a page: the tab strip and the UI layers animate bounds of
-views that hold no page, and a page's size changes only with the window. Not read: Chrome's side panel.
+- **A panel that changes the size of the page beside it** (the side panel, the vertical tab strip) has three
+  models in `chrome/browser/ui/views/animations/common_animation_values.h`, `PanelAnimationType`:
+  `kClipAndSingleReflow` ("Web contents are laid out once at the target size and clipped during the animation"),
+  `kContinuousFrameResize` ("continuously resized on each animation frame") and
+  `kContinuousFrameResizeWithSurfaceSync` (the same "with surface synchronization when the content origin
+  changes"). `GetPanelAnimationType()` picks at compile time: single reflow on every platform but macOS,
+  continuous resize on an Intel Mac, continuous resize with surface synchronization on an ARM64 Mac. The file
+  gives no reason for the macOS choice. The side panel opens and closes in 350 ms
+  (`chrome/browser/ui/views/animations/side_panel_animations.cc`, `kDefaultAnimationMs`). The long expand motion
+  is 400 ms to show and 350 ms to hide with continuous resize, and 300 ms and 250 ms with single reflow
+  (`common_animation_values.cc`, `GetLongExpandShowMs`, `GetLongExpandHideMs`): the single reflow motion is the
+  shorter one. In the single reflow model the layout paints the main background under the clip so that no crack
+  shows (`browser_view_tabbed_layout_impl.cc`) [source, 2nd].
+- **The surface synchronization of the ARM64 arm is small.** While the page's bounds animate AND its origin
+  changes, `ContentsWebView::SetIsAnimatingBounds` asks the page's view for the default deadline in place of 0
+  (`chrome/browser/ui/views/frame/contents_web_view.cc`; its comment: "This is a best effort synchronization
+  between browser and web contents"). The default deadline is 4 frames
+  (`components/viz/common/constants.cc`, `kDefaultActivationDeadlineInFrames`) [source, 2nd]. The display
+  compositor holds the frame for the page; the UI thread does not block. A panel that does not move the page's
+  origin gets no synchronization.
+- **The bookmarks bar** uses "fast resize" while it animates: `NativeViewHost` "will move the native view and clip
+  its visible region… will not resize the content… Make sure you do a real resize at the end"
+  (`ui/views/controls/native/native_view_host.h`, `chrome/browser/ui/views/frame/browser_view.cc`) [source, 2nd].
+  That is so on every platform but macOS: Aura, the host on Windows, Linux and ChromeOS, implements it
+  (`native_view_host_aura.cc`, `if (host_->fast_resize())`). On macOS fast resize is not implemented
+  (`ui/views/controls/native/native_view_host_mac.mm`: "TODO(crbug.com/41132564): Implement
+  host_->fast_resize()", and its clip functions are `NOTIMPLEMENTED()`), so the page gets its full new bounds on
+  each frame there too.
+- **Pointer input is aligned to the frame**: mouse move, wheel and touch move events are queued, coalesced and
+  dispatched with the frame (`third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`,
+  `DispatchRafAlignedInput`) [source, 2nd].
 
 WebKit [source, same limits; `WebKit/WebKit` `main`]:
 
@@ -231,17 +276,26 @@ WebKit [source, same limits; `WebKit/WebKit` `main`]:
   and scrolling has its own thread
   (`Source/WebKit/UIProcess/RemoteLayerTree/mac/RemoteLayerTreeDrawingAreaProxyMac.mm`; for a zoom: "Hold this
   scale until the web process catches up").
+- One size is in flight at a time: `sizeDidChange` sends one asynchronous `UpdateGeometry`, later sizes wait, and
+  `didUpdateGeometry` sends the newest size if it changed
+  (`Source/WebKit/UIProcess/RemoteLayerTree/RemoteLayerTreeDrawingAreaProxy.mm`) [source, 2nd].
+- An animated resize on iOS sends ONE update with the final layout size and scales the old content until the
+  commit for that update comes (`Source/WebKit/UIProcess/API/ios/WKWebViewIOS.mm`,
+  `_beginAnimatedResizeWithUpdates:`) [source, 2nd]. cmux takes the single size and not the scale.
 - [recalled] The older macOS drawing area waited up to 500 ms for the web process in a live resize
   (`TiledCoreAnimationDrawingAreaProxy`); that file is not at its old path now.
 
 What cmux takes from this:
 
 - The picture between two sizes is settled by Chrome itself: the old frame, unscaled, cut by its container, with
-  the page's own background in the rest, and the UI never waits. cmux's CEF path already does this
-  (section 1.3), and #39993 fixes the corner it holds.
-- Chrome avoids the problem this document has to solve: it does not animate a page's size. So there is no Chrome
-  model for "a pane that changes size over 100 ms". The nearest ones are the compositors of section 2.3's last
-  item: one size, the target, at the start.
+  the page's own background in the rest, and by default the frame does not wait for the page. cmux's CEF path
+  already does this (section 1.3), and #39993 fixes the corner it holds.
+- Chrome has both answers for a page beside a moving panel, and it does not use the same one everywhere. "One
+  layout at the target size" is its model on Windows, Linux and ChromeOS (it clips), WebKit's model for an
+  animated resize on iOS (it scales) and the model of the compositors in the terminal list above (they stretch).
+  On macOS, the platform cmux runs on, Chrome gives the page a size on each frame, for a panel (350 to 400 ms)
+  and for the bookmarks bar. So "one size at the start" for a page is one of Chrome's models and not its macOS
+  choice; section 3 says why this design still recommends it and what must be filmed before the other path goes.
 - cmux does not copy the 500 ms wait of the window live resize. The repository's rule is that the main thread
   never blocks; cmux's deadlines for a page default to 0 (`CEFLayerHosting`). The cost is a gutter at the window's
   edge in a fast live resize, in the page's background colour.
@@ -250,12 +304,14 @@ What cmux takes from this:
 ## 3. First principles
 
 1. **One clock: the display's refresh.** A motion whose end is known when it starts is sampled by the render
-   server, with no main-thread work per frame. Only motion that follows a pointer steps on the main thread, once
-   per refresh, because each frame needs a new input sample.
+   server, with no main-thread work per frame (a pane with a page: only if the page decision below gives a page
+   one size). Motion that follows a pointer steps on the main thread, once per refresh, because each frame needs
+   a new input sample.
 2. **The content gets its final size once, in the turn of the input.** Never a size in between, never a size at
-   the landing. This holds for the PTY grid, the terminal surface, a Chromium page and a WebKit page, in every
-   motion with a known end. Motion that follows a pointer has no known end: it sends at most one size per refresh
-   and always sends the last one.
+   the landing. For the PTY grid and the terminal surface this is a rule, in every motion with a known end. For a
+   Chromium page and a WebKit page it is the recommendation, and films decide it (the page decision, below).
+   Motion that follows a pointer has no known end: it sends at most one size per refresh and always sends the
+   last one.
 3. **A motion is a transition between two pictures.** In every frame a pane shows the newest picture its content
    has drawn: unscaled, with its top-left corner on the pane's top-left corner (a terminal on the primary screen
    may keep its bottom rows instead, as `motionAnchor` does today), clipped by the pane. Where the picture does
@@ -263,9 +319,10 @@ What cmux takes from this:
    stretched picture, never a still copy in place of live content, never the window's background, never a pixel
    outside the pane.
 4. **The motion is the time the content has to draw.** A terminal needs at most 3 refreshes (25 ms at 120 Hz) and
-   a page some frames. A motion of about 100 ms covers both, so the frame at the landing already shows the final
-   picture and nothing changes at rest. A motion of one frame cannot hide this time: the old picture then shows at
-   the final geometry until the new one comes. A longer motion buys nothing more.
+   a page some frames. A motion of about 100 ms covers both when the content got its final size at the start, so
+   the frame at the landing already shows the final picture and nothing changes at rest. A motion of one frame
+   cannot hide this time: the old picture then shows at the final geometry until the new one comes. A longer
+   motion buys nothing more.
 5. **Position never passes its target.** Critical damping or a curve that only rises. A new target starts from the
    value on screen; velocity carries over only when it points at the new target and cannot pass it. This is "no
    bounce" as a testable rule: overshoot is 0 pixels.
@@ -275,29 +332,50 @@ What cmux takes from this:
    animation waits for another** (Lawrence 2026-10-28). The local model changes in the input's turn; the daemon
    reconciles later.
 
-Principle 2 and 4 together say why "send the final size at the start" is right for every content type, not only
-for terminals. With a size per frame the content is late in every frame of the motion and its final picture
-arrives after the landing. With one size at the start the content is late once, at the start, when the container
-has moved least.
+Principle 2 and 4 together say why "send the final size at the start" is right for a terminal and is the
+recommendation for a page. With a size per frame the content draws for a size the pane has already left, in each
+frame of the motion, and its final picture can arrive after the landing. With one size at the start the content
+is late once, at the start, when the container has moved least.
 
 The visible cost is for a pane that shrinks: its final picture is smaller than the pane until the landing, so a
 strip of the pane's ground shows beside it. For a terminal this is what a split does today. For a page it is new:
 today a page gets a size per frame and its last frame is cut by the pane, which hides the lag while the pane
-shrinks and shows it while the pane grows. The first owner films both arms on a heavy page before the per-frame
-path is deleted; if the strip is worse than the lag, a page that shrinks keeps its old picture, cut, until the
-frame at the final size comes, and nothing else in this design changes.
+shrinks and shows it while the pane grows.
+
+**The page decision.** For a terminal principle 2 is not a choice: a program has no correct picture at a size in
+between (2.1). For a page it is a choice, and Chrome on macOS makes the other one (2.3: a size on each frame,
+for a panel and for the bookmarks bar). This design recommends one size at the start for a page for three
+reasons, none of them measured:
+
+- A cmux pane motion at the 100 ms candidates is about 12 refreshes, where Chrome's panel motion on macOS is 42
+  to 48. A page that is 2 to 4 frames late is late for a large part of 12 refreshes. Where Chrome's two models
+  differ in length (the long expand motion), the single reflow one is the shorter.
+- Chrome's ARM64 arm lets the frame wait for the page, up to 4 frames, while the page's origin moves. cmux's page
+  deadline is 0 so that its commit never waits for a page. A size per frame in cmux has no such synchronization.
+- One rule for every content type lets the whole container leave the main thread (3.1).
+
+Because this differs from Chrome on macOS, it is a film decision and not a removal that can go at once. The first
+owner films both arms (one size at the start; a size per frame as today) on a light and a heavy page, growing
+and shrinking, and counts with the page rule of the judge (4.2). If the per-frame arm stays for pages, then for a
+pane with a page: removal 8 does not happen, the window layout per frame of removal 7 stays, stage 1 and stage 2
+of 3.1 do not hold (it keeps a layout per frame on the main thread), and "sizes sent" is at most one per
+refresh. Every statement below about one size for a page
+depends on this decision.
 
 ### 3.1 Why the render server, and what stays on the main thread
 
-Chrome's rule is that the main thread never has to run for an animation frame. In cmux the render server is the
-thread that plays that part. A motion that obeys principle 2 changes nothing but a position and a clip after its
-first frame, and Core Animation can run both without the app. The tab strip and the sidebar rows already work this
-way. Pane motion does not: it sets view frames and lays out on the main thread per frame, and one long main-thread
-task stops the motion.
+Chrome's compositor runs a transform or opacity animation with no UI-thread work per frame. Chrome's bounds
+animations (the tab strip, a panel) are not like that: they step on the UI thread once per frame (2.3). In cmux
+the render server can play the compositor's part. A motion whose content took its final size at the start
+changes nothing but a position and a clip after its first frame, and Core Animation can run both without the
+app. This goes further than Chrome goes for a change of bounds. The tab strip and the sidebar rows already work
+this way. Pane motion does not: it sets view frames and lays out on the main thread per frame, and one long
+main-thread task stops the motion.
 
 The design moves pane motion in two stages, and the first is useful alone:
 
-- **Stage 1, no layout per frame.** Every content type takes its final size at the start (principle 2). The pane's
+- **Stage 1, no layout per frame.** Content takes its final size at the start (principle 2: terminals; pages if
+  the page decision says so). The pane's
   own chrome (its tab strip, a browser toolbar) is laid out for the final size at the start too. The frame clock
   then writes only a position and a clip per pane. Budget: the motion's main-thread step is at most 1 ms p99.
 - **Stage 2, no main thread per frame.** The same position and clip run as one render server animation group per
@@ -306,6 +384,9 @@ The design moves pane motion in two stages, and the first is useful alone:
 
 Where cmux differs from Chrome, and why:
 
+- Chrome lays out on its UI thread on each frame of a bounds animation; this design takes a known-end pane motion
+  off the main thread. The reason is the repository's rule that one long main-thread task must not stop a motion.
+- Chrome on macOS gives a page a size on each frame; this design recommends one size (the page decision).
 - Pointer-driven motion (a divider drag, a sidebar width drag, a window live resize) stays on the main thread:
   the pointer is the clock. Chrome does the same for a window resize.
 - A pane edge on the render server is not put on the device-pixel grid in each frame, as `pixelEdges` does today.
@@ -319,27 +400,28 @@ on split before it ports another motion.
 
 ## 4. The contract, per motion
 
-Classes: **K** = known end (principle 2: final size once, at the start). **P** = follows a pointer (one size per
-refresh at most). **N** = no content size changes.
+Classes: **K** = known end (principle 2: final size once, at the start; for a page as the page decision of
+section 3 says). **P** = follows a pointer (one size per refresh at most). **N** = no content size changes.
 
 For every class K motion the same content rule holds, so the table does not repeat it:
 
 - Terminal: one grid to the PTY and one surface size, both final, in the input's turn. Alternate screen: Ghostty
   keeps the last program frame until the program's redraw or 3 refreshes (the rule of #40174, section 4.1 of the
   #40040 design); primary screen: the reflow frame at once.
-- Page (CEF and WebKit): one layout at the final size, in the input's turn. The last frame stays, unscaled, top-left,
-  clipped, with the page's background in the gap, until the page's frame at the final size comes.
+- Page (CEF and WebKit): one layout at the final size, in the input's turn (recommended; the films of section 3
+  decide between this and today's size per frame). In both arms the last frame stays, unscaled, top-left, clipped,
+  with the page's background in the gap, until the page's next frame comes.
 - In between: principle 3. Interrupt: principle 5.
 
 | Motion | Class | Clock (design) | What differs from the common rule | Today's gap |
 | --- | --- | --- | --- | --- |
-| Split open | K | render server (stage 2) | the new pane paints its ground from its first frame (#40052) | pages get a size per frame; no program hold; layout per frame |
+| Split open | K | render server (stage 2) | the new pane paints its ground from its first frame (#40052) | no program hold; layout per frame; pages get a size per frame (the page decision) |
 | Pane close | K | render server | survivors get their final grid once (already so); the closing pane shows its ground or fades | key cycle over budget; under the close motion hold |
 | Zoom, unzoom | K | render server | the model changes in the key's turn; unzoom is the exact inverse | waits for the daemon (50 to 60 ms); text wraps again at rest |
 | Move, swap | K | render server | the model changes in the key's turn; panes move as whole pictures at their final sizes | waits for the daemon; no motion |
-| Equalize | K | render server | none | pages get a size per frame (terminals already get one grid) |
+| Equalize | K | render server | none | layout per frame; pages get a size per frame (the page decision) |
 | Key resize | K | render server, or one frame per press | each press is one intent: one grid per press | size and grid per frame of the spring (see section 8) |
-| Sidebar show or hide | K | render server | every pane of the screen takes its final size at the start; the sidebar and the content area move as layers | grid at the END; window layout per frame |
+| Sidebar show or hide | K | render server | every terminal of the screen takes its final grid at the start (pages: the page decision); the sidebar and the content area move as layers | grid at the END; window layout per frame |
 | Full screen | K | AppKit's transition | final size at the start for surfaces AND grids | grids wait for the end |
 | Column reveal | N | render server | a translation of the strip; no size changes | hand-stepped spring, damping 0.9 |
 | Pin, unpin (sidebar, tab) | N | render server | the row or tab moves from where it shows to its slot | draft #38267 waits for the pick |
@@ -348,7 +430,7 @@ For every class K motion the same content rule holds, so the table does not repe
 | Overlays, popups, hover cards | N | render server (already) | never delay input: the surface takes keys in the turn it opens | three tokens and `grow()` pass their target |
 | Divider drag | P | pointer, one sample per refresh | terminal: surface and grid per refresh, hold rule of #40174; page: one size per refresh at most; the release adds no travel | release carries velocity; page window detaches |
 | Sidebar width drag | P | pointer, one sample per refresh | as a divider drag | one layout per event, not per refresh |
-| Window live resize | P | AppKit | as a divider drag; only THIS window's motion snaps | movement snaps in every window |
+| Window live resize | P | AppKit | as a divider drag; only THIS window's motion snaps | only this window's movement snaps |
 | Space change, screen change | none | one frame | no motion (ordered); a finger swipe follows the finger and lands with no bounce | slide and fade |
 
 ### 4.1 Acceptance, the same for every motion
@@ -364,8 +446,8 @@ Each is a distribution (p50, p95, p99, max) over at least 20 runs, light and und
 | Holes | frames in which a pane's area shows the window's background | 0 |
 | Settle lag | refreshes after the landing until every pane shows its final picture | 0 for a motion of 100 ms or more with terminals; reported for pages |
 | Overshoot | the farthest any edge goes past its target | 0 px |
-| Sizes sent | sizes each content got in one class K motion | exactly 1 |
-| Main-thread step | main-thread time per motion frame | stage 1: 1 ms p99; stage 2: 0 |
+| Sizes sent | sizes each content got in one class K motion | terminal: exactly 1; page: exactly 1 in the one-size arm, at most 1 per refresh in the other |
+| Main-thread step | main-thread time per motion frame, for a pane whose content took one size | stage 1: 1 ms p99; stage 2: 0 |
 
 After #40169 the present callback (reason `reflow`, `program`, `bound`) gives the wrong-size and settle counts with
 no film. "Sizes sent" is a counter at the three hand-off seams (`TerminalGridReporter`, `beginPageSync`, the
@@ -388,6 +470,29 @@ A film fails when any frame in it is:
 A strip of the pane's own ground between a final-size picture and a moving pane edge is not a failure during the
 motion. It is the visible cost of principle 2 for a pane that shrinks, and it is why the motion is short.
 
+The page rule, for the films of the page decision: the judge above does not choose between the two page arms,
+because it passes the strip of one arm and has no bound for the lag of the other. In both arms the page's
+picture is not at its pane's size in most frames of the motion, so a count of such frames does not decide
+either. The owner compares the arms on the heavy page. Each arm has two films, one with the pane growing and one
+with the pane shrinking, each of at least 20 runs (4.1). The number of an arm for a measure is the p95 over the
+runs of each film, added over the two films, so one number per arm and per measure. The two films are added
+because they disagree by construction: a shrinking pane shows ground in the one-size arm, a growing pane shows
+ground in the per-frame arm.
+
+1. Gate: a pixel of the page outside its pane, in any run, fails that arm as filmed (Lawrence's rule: a page
+   never protrudes). The owner corrects the protrusion and films the arm again. An arm that protrudes is not
+   compared and cannot stay.
+2. Settle lag: refreshes after the landing in which the page's picture is not the final one. The arm whose
+   number is lower by more than 1 refresh stays.
+3. If test 2 does not decide, ground shown: the sum, over the frames of the motion, of the width of the pane's
+   ground between the page's picture and the pane's edge, in point-frames. The arm whose number is lower by more
+   than 10% of the higher number stays. A cut picture does not count: the pane's edge hides it.
+4. If test 3 does not decide: today's path stays, since that is Chrome's on macOS.
+
+Settle lag is before ground shown because a change at rest is what principle 4 removes. The order, the p95, the
+addition of the two films and the two margins are this document's choice and are not measured. The owner also
+writes what a person sees in each film, and reports the main-thread step time of each arm.
+
 ## 5. Candidates for Motion Lab (no pick here)
 
 Names K2 to K12 are the Motion Lab curve set of build v13: K2 ease-out 100 ms, K3 ease-out 120 ms, K4 ease-out
@@ -402,7 +507,7 @@ that still covers the content's time, and films decide.
 
 | Motion | Candidates | Recommendation and reason |
 | --- | --- | --- |
-| Split open | one frame; K2; K3; K11 | K2: 12 refreshes cover the terminal bound and a page's first frames; the ground strip shows for the shortest time |
+| Split open | one frame; K2; K3; K11 | K2: 12 refreshes cover the terminal bound and a page's first frames; a ground strip (terminals; pages in the one-size arm) shows for the shortest time |
 | Pane close | V1 one frame; V0 slide (today); V3 slide out; V6 fade and grow, each on K2 or K3 | V6 on K2: a survivor grows, so its final picture is only uncovered (no strip); the fade hides the closing pane's bare ground |
 | Zoom, unzoom | one frame; Z0 cover (today); Z4 grow and fade, on K2 or K3 | Z4 on K3 (Lawrence's stated target); the travel is the longest of the pane motions |
 | Move, swap | one frame (today); whole panes translate on K2; cross-fade 100 ms | translate on K2: it shows which pane went where; one frame when a script did it |
@@ -441,12 +546,14 @@ Found by the inventory. None needs a curve pick unless it says so:
 6. Velocity that can carry an edge past its target: the divider release seed (`SplitMotion.seed`), a retarget with
    velocity, the swipe release on `settle`.
 7. The sidebar slide's "grid at the landing" hold (`WindowRootView+ContentAreaMotion.swift`) and its window layout
-   per frame.
-8. A page size per frame in a class K motion (the CEF page's layout in each frame after `beginPageSync(.paneSpring)`,
-   which is called once per spring start; the WebKit container's
-   autoresizing per frame). The rule a focused CEF page already has (`holdPageAtRest`) becomes the only rule.
+   per frame (the layout part: for a screen with a page, only if the films of section 3 choose one size).
+8. Only if the films of section 3 choose it (Chrome on macOS keeps a size per frame): a page size per frame in a
+   class K motion (the CEF page's layout in each frame after `beginPageSync(.paneSpring)`, which is called once
+   per spring start; the WebKit container's autoresizing per frame). The rule a focused CEF page already has
+   (`holdPageAtRest`) then becomes the only rule.
 9. The daemon round trip before a zoom or a swap shows.
-10. The app-wide live resize snap; it becomes per window.
+10. Done (#40387): the app-wide live resize snap is per window. A child panel is in its parent window's resize; a
+    popup's shrink and a hover card's morph ask about their own window.
 11. With #40174: `TerminalFramePresenter`, the frame owner, the spring draw-ahead and the Reduce Motion snap wait.
 12. After the key resize pick: the per-frame follow of a key resize (`PaneMotionHoldFollowing`, the reflow preview
     in a spring).
@@ -465,9 +572,9 @@ macOS 14 or 15. Each owner writes its red test first and runs it itself on the f
 
 | # | Owner | Red test (fails today) | Main files (`S/`) | Needs | Start |
 | --- | --- | --- | --- | --- | --- |
-| 1 | SPLIT OPEN (also proves stage 1 and stage 2) | a Chromium page and a WebKit page each get more than 1 size in one split; a 50 ms main-thread stall in the motion stops the pane edge | `CmuxNextLayout/Views/ScreenContentView+Motion.swift`, `SplitMotion.swift`, `PaneArrival.swift`, `CmuxNextBrowser/CEF/CEFTabContentView+PaneMotion.swift`, `CmuxNextBrowser/WebKit/WebKitPageContainer+PaneMotion.swift` | #40052, #39993 first; the terminal hold on a split comes with #40174; curve from Motion Lab | now (pages, stage 1); stage 2 after stage 1 |
+| 1 | SPLIT OPEN (films the two page arms of section 3 first; also proves stage 1 and stage 2) | a 50 ms main-thread stall in the motion stops the pane edge; if the films choose one size for a page: a Chromium page and a WebKit page each get more than 1 size in one split | `CmuxNextLayout/Views/ScreenContentView+Motion.swift`, `SplitMotion.swift`, `PaneArrival.swift`, `CmuxNextBrowser/CEF/CEFTabContentView+PaneMotion.swift`, `CmuxNextBrowser/WebKit/WebKitPageContainer+PaneMotion.swift` | #40052, #39993 first; the terminal hold on a split comes with #40174; curve from Motion Lab | now (pages, stage 1); stage 2 after stage 1 |
 | 2 | PANE CLOSE | the key cycle is over one refresh; a film misses refreshes | `ClosingPanes.swift`, `ScreenContentView+Motion.swift` | the close pick (close motion hold); #40174 for the Reduce Motion snap | after the pick; owner CLOSE PERF holds the key cycle now |
-| 3 | SIDEBAR SHOW OR HIDE | an alternate-screen fixture gets its grid at the end of the slide, not in the key's turn; the window lays out on every frame | `CmuxNextSidebar/Views/SidebarContainerView+WidthMotion.swift`, `CmuxNextApp/WindowRootView+ContentAreaMotion.swift`, `CmuxNextApp/Windows/ShellWindow+ContentAreaMotion.swift` | nothing; tell the sidebar owner ([OWNERS.md](OWNERS.md)); curve from Motion Lab | now |
+| 3 | SIDEBAR SHOW OR HIDE | an alternate-screen fixture gets its grid at the end of the slide, not in the key's turn; the window lays out on every frame (for a pane with a page this part waits for the page decision) | `CmuxNextSidebar/Views/SidebarContainerView+WidthMotion.swift`, `CmuxNextApp/WindowRootView+ContentAreaMotion.swift`, `CmuxNextApp/Windows/ShellWindow+ContentAreaMotion.swift` | nothing; tell the sidebar owner ([OWNERS.md](OWNERS.md)); curve from Motion Lab | now |
 | 4 | ZOOM | the first changed frame comes after the daemon's answer, not in the key's turn; a zoom out changes text after the landing | `CmuxNextApp/Handlers/PaneHandlers.swift`, `PaneZoomMotion.swift` | the zoom pick for the motion; none for the key's turn | now (model in the key's turn); motion after the pick |
 | 5 | NO BOUNCE (removals 3 to 6) | a spring trace from rest and from a retarget passes its target | `CmuxNextDesignTokens/Motion/`, `CmuxNextDesign/HoverCards/`, `Packages/Shared/CmuxMessagesLab`, `webviews/src` | nothing | now |
 | 6 | KEY RESIZE | an alternate-screen fixture gets more than 1 grid per press | `CmuxNextLayout/Views/LayoutRootView+KeyResize.swift`, `CmuxNextTerminal/TerminalHostView+PaneMotion.swift` | #40174 (it deletes the paths this uses); the key resize pick | after #40174 |
@@ -475,19 +582,21 @@ macOS 14 or 15. Each owner writes its red test first and runs it itself on the f
 | 8 | TAB STRIP | the overflow reveal and the drag ghost pass their target | `CmuxNextTabs/`, `CmuxNextApp/Drag/` | nothing; tell the tab strip owner | now |
 | 9 | SIDEBAR ROWS and PIN | the card slot lays out on main per frame; pin has no motion | `CmuxNextSidebar/Views/` | the pin pick (draft #38267); tell the sidebar owner | card slot now; pin after the pick |
 | 10 | OVERLAYS and HOVER CARDS | an overlay's first frame comes later than the next refresh after the key | `CmuxNextDesign/Motion/Motion+Popup.swift`, `CmuxNextDesign/HoverCards/` | the overlay pick for curves | now for the first-frame test |
-| 11 | WINDOW RESIZE and FULL SCREEN | a live resize in window A snaps a motion in window B; in full screen the grid goes at the end | `CmuxNextDesign/Motion/Motion+LiveResize.swift`, `CmuxNextBridge/ResizeCoordinator.swift`, `CmuxNextApp/Windows/WindowController+FullScreen.swift` | #40174 for the terminal part | now for the per-window snap |
+| 11 | WINDOW RESIZE and FULL SCREEN | (the per-window snap is done, #40387: a live resize in window A no longer snaps a motion in window B) in full screen the grid goes at the end | `CmuxNextDesign/Motion/Motion+LiveResize.swift`, `CmuxNextBridge/ResizeCoordinator.swift`, `CmuxNextApp/Windows/WindowController+FullScreen.swift` | #40174 for the terminal part | the per-window snap is merged; the full screen part after #40174 |
 | 12 | COLUMN REVEAL | the camera passes its target; it steps on main | `CmuxNextLayout/Views/ScreenContentView+Scrolling.swift` | curve from Motion Lab | now |
 | 13 | MOVE and SWAP | the first changed frame comes after the daemon's answer | `CmuxNextApp/Handlers/PaneHandlers+Verbs.swift` | the move pick for the motion | now (model in the key's turn) |
 | 14 | SPACE and SCREEN CHANGE | owned: SPACE SWITCH and SCREEN SWITCH INSTANT | | | running |
 
 Stage 2 (render server) is owner 1's second part. When split passes on it, each pane motion owner ports its own
-motion; no second clock path stays behind.
+motion. For content that takes one size no second clock path stays behind; a pane with a page keeps the frame
+clock if the page decision keeps a size per frame.
 
 ## 8. Other designs and open pull requests
 
 - **#40040 (Ghostty integration design)** agrees: section 4.3 says the app calls `set_size` with the final size
   at the start of the motion and animates only the clip and the position. This document extends that rule to the
-  key resize and the sidebar slide, which that section does not name, and to pages. One difference in words:
+  key resize and the sidebar slide, which that section does not name, and recommends it for pages (the page
+  decision of section 3). One difference in words:
   #40040 keeps a "draw-ahead" for a drag; a drag has no final size, so here it gets one size per refresh.
 - **#40174 (Ghostty times resize frames)** is the terminal half of the in-between rule and this design depends on
   it. Three points to settle there: it changes when a Reduce Motion close, zoom and key snap show, which touches
@@ -496,7 +605,8 @@ motion; no second clock path stays behind.
 - **#40169 (present callback)** gives the wrong-size and settle metrics of section 4.1 their data.
 - **#40091 (main thread scheduling)** agrees in direction: no main task over 4 ms; today's spring frame (6 to 9 ms)
   breaks that. It conflicts in one line: its frame order treats springs as an unbudgeted class that runs first.
-  Here a class K motion leaves the main thread (stage 2), and until then its step has a 1 ms budget.
+  Here a class K motion whose content takes one size leaves the main thread (stage 2), and until then its step
+  has a 1 ms budget.
 - **#39993 (hosted page top-left anchor)** is the page half of principle 3 for one host. `ChromiumHostPageView`
   has the same bottom-left pattern and is not fixed there; owner 1 takes it.
 - **#40052 (new pane ground)** is the "no hole" rule for a split.
@@ -506,8 +616,8 @@ motion; no second clock path stays behind.
   (cmux-ad m18, m19). Principle 2 makes each press one intent with one grid. This is a visible change, so it is in
   the Motion Lab list (section 5) and nothing is removed before that pick.
 - **"Content must move while it animates"** (Lawrence 2026-10-18, quoted in `SplitMotion.swift`) stays true in
-  the sense that the code already took on 2026-10-23: content is live and rides its pane; it is not laid out again
-  at each size.
+  the sense that the code already took on 2026-10-23 for terminals: content is live and rides its pane; a terminal
+  is not laid out again at each size.
 
 ## 9. Not verified
 
@@ -517,7 +627,10 @@ motion; no second clock path stays behind.
 - The terminal grid order in a window live resize (inferred).
 - Stage 2's two open points (section 3.1).
 - Sidebar and tab pin code, `CollapsedBandReveal`, six vendor springs in MessagesLab: not read.
-- iTerm2 and Terminal.app: no source was read. Chrome's side panel and the old WebKit drawing area: not read.
+- iTerm2 and Terminal.app: no source was read. The old WebKit drawing area: not read.
+- Why Chrome picks continuous resize for a panel on macOS, and the code where `kContinuousFrameResize` drives
+  the layout on each frame: not found in the files read. Chrome was not observed on a
+  Mac; all of 2.3 is from source.
 - The Chromium and WebKit quotes came through a fetch tool that returns excerpts; the files were not read whole.
 - How long a Chromium or WebKit page needs for its first frame at a new size in cmux: no distribution exists.
   Owner 1 measures it; the 100 ms reasoning in principle 4 rests on #39993's 2 to 4 frames for one page.

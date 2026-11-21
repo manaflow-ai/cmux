@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
-import { MockStatsProvider, type MockStatsKind } from "./mockProvider";
+import { MockStatsProvider, type MockStatsKind, type MockUsageKind } from "./mockProvider";
 import { StatsPage } from "./StatsPage";
 import { StatsStore } from "./store";
 import type { Range, StatsSummary } from "./types";
@@ -15,12 +15,13 @@ type Props = {
   range?: Range;
   longestStreak?: number;
   failure?: { code: string; message: string };
+  usage?: MockUsageKind;
 };
 
-function StatsGallery({ kind = "busy", range = 84, longestStreak, failure }: Props) {
+function StatsGallery({ kind = "busy", range = 84, longestStreak, failure, usage = "on" }: Props) {
   // UTC, so every capture draws the same calendar wherever it runs.
   const [store] = useState(() => {
-    const provider = new MockStatsProvider(kind, failure);
+    const provider = new MockStatsProvider(kind, failure, usage);
     if (longestStreak !== undefined) {
       const call = provider.call.bind(provider);
       provider.call = async <R,>(op: string, params: unknown): Promise<R> => {
@@ -66,6 +67,18 @@ export default componentEntry<Props>({
       props: { longestStreak: 366 },
     },
     empty: { note: "No agent has run in range yet.", props: { kind: "empty" } },
+    "usage-off": {
+      note: "Usage Patterns with the setting off (the default): the section says how to turn it on.",
+      props: { usage: "off" },
+    },
+    "usage-older-acpmux": {
+      note: "An acpmux without usage patterns: no section at all.",
+      props: { usage: "none" },
+    },
+    "usage-week": {
+      note: "Usage Patterns on, at the narrow week range: commands, splits, agents, connections.",
+      props: { usage: "on", range: 7 },
+    },
     failed: {
       note: "acpmux did not answer.",
       props: { failure: { code: "cmux.stats.unavailable", message: "The agent service is not running." } },

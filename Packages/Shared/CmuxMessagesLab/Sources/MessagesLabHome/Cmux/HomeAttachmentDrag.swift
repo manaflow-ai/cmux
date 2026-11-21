@@ -6,13 +6,12 @@ import UniformTypeIdentifiers
 /// (``HomeAttachmentPasteboard``: the file URL, and an image's bytes); before then it is a file
 /// promise that fetches the bytes when the drop asks, so a drag never waits on the network.
 /// It is also the drag's source: a copy everywhere (Home's bytes stay where they are).
-/// The Messages page starts the same drag from its host (`HomePageAttachmentDrag`).
-public final class HomeAttachmentDrag: NSObject, NSDraggingSource, NSFilePromiseProviderDelegate {
+final class HomeAttachmentDrag: NSObject, NSDraggingSource, NSFilePromiseProviderDelegate {
     /// The attachment's name, the dropped file's name.
-    public let name: String
+    let name: String
     private let resolve: @MainActor @Sendable () async -> URL?
 
-    public init(name: String, resolve: @escaping @MainActor @Sendable () async -> URL?) {
+    init(name: String, resolve: @escaping @MainActor @Sendable () async -> URL?) {
         self.name = name
         self.resolve = resolve
     }
@@ -24,7 +23,7 @@ public final class HomeAttachmentDrag: NSObject, NSDraggingSource, NSFilePromise
     }
 
     /// The drag's pasteboard writer: the file when `file` is fetched, else a promise of it.
-    public func writer(file: URL?) -> NSPasteboardWriting {
+    func writer(file: URL?) -> NSPasteboardWriting {
         if let file { return HomeAttachmentPasteboard().item(for: file) }
         let type = UTType(filenameExtension: (fileName as NSString).pathExtension) ?? .data
         return NSFilePromiseProvider(fileType: type.identifier, delegate: self)
@@ -32,7 +31,7 @@ public final class HomeAttachmentDrag: NSObject, NSDraggingSource, NSFilePromise
 
     /// The drag image: the picture itself for an image (at most 240 pt on its long side), else
     /// the file type's icon.
-    public func preview(file: URL?, size: CGSize) -> NSImage {
+    func preview(file: URL?, size: CGSize) -> NSImage {
         if let file, let type = UTType(filenameExtension: file.pathExtension), type.conforms(to: .image),
            let image = NSImage(contentsOf: file), image.size.width > 0, image.size.height > 0 {
             let side = min(240, max(size.width, size.height, 64))
@@ -48,17 +47,17 @@ public final class HomeAttachmentDrag: NSObject, NSDraggingSource, NSFilePromise
 
     // MARK: NSDraggingSource
 
-    public func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
         .copy
     }
 
     // MARK: NSFilePromiseProviderDelegate
 
-    public func filePromiseProvider(_ filePromiseProvider: NSFilePromiseProvider, fileNameForType fileType: String) -> String {
+    func filePromiseProvider(_ filePromiseProvider: NSFilePromiseProvider, fileNameForType fileType: String) -> String {
         fileName
     }
 
-    public func filePromiseProvider(_ filePromiseProvider: NSFilePromiseProvider, writePromiseTo url: URL,
+    func filePromiseProvider(_ filePromiseProvider: NSFilePromiseProvider, writePromiseTo url: URL,
                              completionHandler: @escaping (Error?) -> Void) {
         let resolve = self.resolve
         // task-owner: one fetch for the drop; ends when the file is written or refused

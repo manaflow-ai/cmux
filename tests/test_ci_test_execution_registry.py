@@ -18,7 +18,14 @@ import tempfile
 import unittest
 from unittest import mock
 from pathlib import Path
-import git_fixture_env  # noqa: F401  (disables git auto maintenance)
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # tests/ itself: `python3 -I` puts no script folder on sys.path
 from test_ci_change_areas import (
     GUARD_WORKFLOW as GUARD_WORKFLOW_PATH,
     workflow_job_block,
@@ -29,11 +36,10 @@ from test_ci_change_areas import (
 ROOT = Path(__file__).resolve().parents[1]
 VALIDATOR = ROOT / "scripts" / "ci" / "validate_test_execution_registry.py"
 
-spec = importlib.util.spec_from_file_location("validate_test_execution_registry", VALIDATOR)
-assert spec and spec.loader
-validator = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = validator
-spec.loader.exec_module(validator)
+# Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+if str(ROOT / "scripts/ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+import validate_test_execution_registry as validator  # noqa: E402
 
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 RUNNER = ROOT / "scripts" / "ci" / "run_python_test_lane.py"
@@ -212,26 +218,26 @@ class RegistryBlastRadiusTests(unittest.TestCase):
         root = self.recipe_root("- run: python3 scripts/verify-local.py")
         errors, warnings, _ = validator.validate(root, added=set())
         self.assertEqual(errors, [])
-        self.assertNotIn("tests/test_recipe.py: linux-guard lane is not run by any workflow", warnings)
+        self.assertNotIn(validator.unrun_linux_guard("tests/test_recipe.py"), errors)
 
     def test_a_commented_out_recipe_run_does_not_make_its_tests_live(self) -> None:
         root = self.recipe_root("# - run: python3 scripts/verify-local.py")
         errors, warnings, _ = validator.validate(root, added=set())
-        self.assertIn("tests/test_recipe.py: linux-guard lane is not run by any workflow", warnings)
+        self.assertIn(validator.unrun_linux_guard("tests/test_recipe.py"), errors)
 
     def test_a_step_that_only_names_the_recipe_does_not_make_its_tests_live(self) -> None:
         root = self.recipe_root("- name: Document scripts/verify-local.py")
         errors, warnings, _ = validator.validate(root, added=set())
-        self.assertIn("tests/test_recipe.py: linux-guard lane is not run by any workflow", warnings)
+        self.assertIn(validator.unrun_linux_guard("tests/test_recipe.py"), errors)
 
     def test_an_only_selection_credits_just_the_selected_checks(self) -> None:
         root = self.recipe_root("- run: python3 scripts/verify-local.py --only other")
         errors, warnings, _ = validator.validate(root, added=set())
-        self.assertIn("tests/test_recipe.py: linux-guard lane is not run by any workflow", warnings)
+        self.assertIn(validator.unrun_linux_guard("tests/test_recipe.py"), errors)
         root = self.recipe_root("- run: python3 scripts/verify-local.py --only recipe")
         errors, warnings, _ = validator.validate(root, added=set())
         self.assertEqual(errors, [])
-        self.assertNotIn("tests/test_recipe.py: linux-guard lane is not run by any workflow", warnings)
+        self.assertNotIn(validator.unrun_linux_guard("tests/test_recipe.py"), errors)
 
     def test_an_invocation_that_may_skip_checks_does_not_make_its_tests_live(self) -> None:
         for args in ("--affected", "--affected=origin/main", "--list", "--only recipe --list",
@@ -239,7 +245,7 @@ class RegistryBlastRadiusTests(unittest.TestCase):
             with self.subTest(args=args):
                 root = self.recipe_root(f"- run: python3 scripts/verify-local.py {args}")
                 errors, warnings, _ = validator.validate(root, added=set())
-                self.assertIn("tests/test_recipe.py: linux-guard lane is not run by any workflow", warnings)
+                self.assertIn(validator.unrun_linux_guard("tests/test_recipe.py"), errors)
 
     def test_full_recipe_options_keep_its_tests_live(self) -> None:
         for args in ("--all", "--timeout 120", "--receipt out.json", "--only=recipe", "&& echo done"):
@@ -247,7 +253,7 @@ class RegistryBlastRadiusTests(unittest.TestCase):
                 root = self.recipe_root(f"- run: python3 scripts/verify-local.py {args}")
                 errors, warnings, _ = validator.validate(root, added=set())
                 self.assertEqual(errors, [])
-                self.assertNotIn("tests/test_recipe.py: linux-guard lane is not run by any workflow", warnings)
+                self.assertNotIn(validator.unrun_linux_guard("tests/test_recipe.py"), errors)
 
     def test_a_commented_out_recipe_check_is_not_live(self) -> None:
         root = self.recipe_root("- run: python3 scripts/verify-local.py")
@@ -256,7 +262,7 @@ class RegistryBlastRadiusTests(unittest.TestCase):
             encoding="utf-8",
         )
         errors, warnings, _ = validator.validate(root, added=set())
-        self.assertIn("tests/test_recipe.py: linux-guard lane is not run by any workflow", warnings)
+        self.assertIn(validator.unrun_linux_guard("tests/test_recipe.py"), errors)
 
     def test_write_registers_a_test_a_workflow_already_runs(self) -> None:
         root = self.make_root(tests=["test_kept.py", "test_new.py"], registry=self.kept_registry())
@@ -377,7 +383,7 @@ class RegistryBlastRadiusTests(unittest.TestCase):
                     text=True,
                 )
 
-            subprocess.run(["git", "init", "--bare", str(origin)], check=True, capture_output=True, text=True)
+            git_fixture_env.init_repo(origin, "--bare")
             repo.mkdir()
             git("init", "-b", "main")
             git("remote", "add", "origin", str(origin))
@@ -547,7 +553,9 @@ class RegistryFindingsJudgedAgainstTheBase(unittest.TestCase):
 
     A test that does not run warns, whoever added it. Any other registry finding the base already
     has warns, naming the file and the commit that added it; only one this change adds fails.
-    With --warn-only (a push) nothing fails.
+    A linux-guard lane the workflows contradict is such a finding: the lane is derived from the
+    workflows, and --write fixes it without making any test run. With --warn-only (a push)
+    nothing fails.
     """
 
     def setUp(self) -> None:
@@ -608,15 +616,59 @@ class RegistryFindingsJudgedAgainstTheBase(unittest.TestCase):
         self.assertIn("linux-guard lane is not run by any workflow", warning, result.stdout)
         self.assertIn(added_by[:12], warning)
 
-    def test_a_dead_registration_this_branch_adds_only_warns(self) -> None:
+    def test_a_dead_registration_this_branch_adds_fails_and_write_fixes_it(self) -> None:
+        """#30360: registered linux-guard, no step runs it. The lane is derived from the workflows
+        (Leo, 2026-11-16: "fewer sources of truth for individual things"), so the change that makes
+        the two disagree fails, and --write fixes it without making any test run."""
         base = self.git("rev-parse", "HEAD")
         self.git("checkout", "-b", "feature")
         self.direct_push_of_a_dead_registration()
 
         result = self.run_validator(base)
 
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("tests/test_direct.py: linux-guard lane is not run by any workflow", result.stdout)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(validator.unrun_linux_guard("tests/test_direct.py"), result.stderr)
+
+        fixed = self.run_validator(base, "--write")
+        self.assertEqual(fixed.returncode, 0, fixed.stdout + fixed.stderr)
+        self.assertIn("moved tests/test_direct.py to lane manual", fixed.stdout)
+        entry = next(e for e in validator.load_tree(self.repo) if e["path"] == "tests/test_direct.py")
+        self.assertEqual(entry, {"path": "tests/test_direct.py", "lane": "manual",
+                                 "reason": validator.derived_reason("tests/test_direct.py")})
+
+    def test_removing_a_step_fails_until_write_follows_and_restoring_it_moves_back(self) -> None:
+        """The step is the only edit: --write (the pre-commit hook runs it) keeps the entry in step."""
+        base = self.git("rev-parse", "HEAD")
+        self.git("checkout", "-b", "feature")
+        self.write(".github/workflows/ci-guards.yml", "name: guards\njobs:\n  guard:\n    steps: []\n")
+        self.commit("remove the step")
+
+        result = self.run_validator(base)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(validator.unrun_linux_guard("tests/test_base.py"), result.stderr)
+
+        self.assertEqual(validator.rederive_lanes(self.repo, only=set()), [])  # the hook's scope holds
+        self.assertEqual(validator.rederive_lanes(self.repo), [("tests/test_base.py", "manual")])
+        self.commit("derive the lane")
+        self.assertEqual(self.run_validator(base).returncode, 0)
+
+        self.write(".github/workflows/ci-guards.yml",
+                   "name: guards\njobs:\n  guard:\n    steps:\n      - run: python3 tests/test_base.py\n")
+        result = self.run_validator(base)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(validator.stale_derived_manual("tests/test_base.py"), result.stderr)
+        self.assertEqual(validator.rederive_lanes(self.repo), [("tests/test_base.py", "linux-guard")])
+        entry = next(e for e in validator.load_tree(self.repo) if e["path"] == "tests/test_base.py")
+        self.assertEqual(entry, {"path": "tests/test_base.py", "lane": "linux-guard"})
+        self.assertEqual(self.run_validator(base).returncode, 0)
+
+    def test_a_persons_manual_reason_is_never_rederived(self) -> None:
+        self.write("tests/test-execution.toml",
+                   'version = 1\n\n[[test]]\npath = "tests/test_base.py"\nlane = "manual"\n'
+                   'reason = "needs a signed-in Mac"\n')
+        self.assertEqual(validator.rederive_lanes(self.repo), [])
+        errors, _, _ = validator.validate(self.repo, added=set())
+        self.assertEqual(errors, [])
 
     def test_a_stale_entry_this_branch_adds_still_fails(self) -> None:
         base = self.git("rev-parse", "HEAD")

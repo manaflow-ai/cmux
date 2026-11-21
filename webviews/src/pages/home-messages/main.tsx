@@ -7,13 +7,9 @@
 // The host adds only what the app knows (host.ts: the row and compose menus, the traffic lights).
 // In the gallery and dev loop (`?mock`) the Channels page's in-memory mock provider stands in.
 import "../shared/desktop";
-// Before any part that reads the pane's table: the Channels rows' keys, the mic's and the chips'.
-import "./paneStrings";
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
-import { holdWebSwap } from "../shared/webSwap";
-import { settle, SETTLE_OP } from "./settle";
 import { createStrings, type Strings } from "../shared/i18n";
 import type { DaemonSocket } from "../shared/daemonSocket";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
@@ -23,11 +19,7 @@ import { HomeChannelsStore, PendingCarry } from "../home-channels/store";
 import { DaemonGate, type DaemonSource, type HostCredential } from "../home-channels/DaemonGate";
 import { DaemonHomeClient } from "../home-channels/daemonHome";
 import { MessagesApp } from "./App";
-import { MessagesDetail as MessagesDetailView } from "./detail/MessagesDetail";
-import { noMessagesHost, pageAttachmentKeeper, pageDraftKeeper, pageMessagesHost } from "./host";
-import { KeptPendingCarry, pageOutboxKeeper } from "./outbox";
-import { MessagesNav } from "./nav";
-import { singleConversation } from "./single";
+import { noMessagesHost, pageMessagesHost } from "./host";
 import type { MessagesDetail, MessagesHost } from "./types";
 import table from "./generated/strings.json";
 import "../shared/pageBase.css";
@@ -35,11 +27,8 @@ import "../../ui/ui.css";
 import "./styles.css";
 import "./list/list.css";
 
-/** The detail slot the page mounts: the transcript, New Message, the sheets and the cards. */
-const pageDetail: MessagesDetail = (props) => <MessagesDetailView {...props} />;
-
 /** The page on an in-memory provider (the gallery, `?mock`). */
-export function mountMockMessagesPage(root: HTMLElement, detail: MessagesDetail = pageDetail): HomeChannelsStore {
+export function mountMockMessagesPage(root: HTMLElement, detail?: MessagesDetail): HomeChannelsStore {
   const store = new HomeChannelsStore(new MockHomeProvider());
   const strings = createStrings(table);
   document.title = strings.t("home.title");
@@ -50,7 +39,7 @@ export function mountMockMessagesPage(root: HTMLElement, detail: MessagesDetail 
         strings={strings}
         host={null}
         messages={noMessagesHost}
-        detail={detail}
+        {...(detail ? { detail } : {})}
         widthStorage={null}
       />
     </UiProvider>,
@@ -63,35 +52,12 @@ export function mountMessagesPage(
   root: HTMLElement,
   source: DaemonSource,
   client: PageClient | null,
-  detail: MessagesDetail = pageDetail,
+  detail?: MessagesDetail,
 ): void {
   const strings = createStrings(table);
   document.title = strings.t("home.title");
-  const single = singleConversation(location.hash);
   // One per mount: each reconnect makes a new store, and unsent messages carry over to it.
-  // The app keeps them across launches too (outbox.ts): a relaunch shows a send it never took.
-  // One per mount too: a reconnect keeps the drafts, the files, New Message and what showed.
-  const nav = new MessagesNav(
-    client ? pageDraftKeeper(client) : undefined,
-    client ? pageAttachmentKeeper(client) : undefined,
-  );
-  // A sent file's kept bytes pass from its tray to the outbox once the outbox keeps the send.
-  const carry = client
-    ? new KeptPendingCarry(pageOutboxKeeper(client), (hashes) => nav.attachments.handedOver(hashes))
-    : new PendingCarry();
-  if (carry instanceof KeptPendingCarry) void carry.load();
-  // WEB-SWAP: a web update's reload waits while anything lives only in this page: a draft, a staged
-  // file or a send the app has not said it holds (nav.ts, attachmentDrafts.ts, outbox.ts). Each
-  // composer's own hold ends with it; this one is the page's whole life.
-  const heldAlone = () => nav.holdReason() ?? (carry instanceof KeptPendingCarry ? carry.holdReason() : null);
-  holdWebSwap(heldAlone);
-  // Before the app ends this document (a conversation tab or the Chief panel closing), everything
-  // held alone goes to its owner first (settle.ts).
-  client?.handle(SETTLE_OP, (params) => settle(() => nav.flushDrafts(), heldAlone, params));
-  void nav.loadDrafts();
-  void nav.attachments.load();
-  // The page's whole life: what was typed in the last pause is kept before the document ends.
-  window.addEventListener("pagehide", () => nav.flushDrafts());
+  const carry = new PendingCarry();
   const messages = client ? pageMessagesHost(client) : noMessagesHost;
   createRoot(root).render(
     <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
@@ -104,9 +70,7 @@ export function mountMessagesPage(
             messages={messages}
             strings={strings}
             carry={carry}
-            nav={nav}
-            detail={detail}
-            {...(single ? { single } : {})}
+            {...(detail ? { detail } : {})}
           />
         )}
       </DaemonGate>
@@ -122,9 +86,7 @@ function DaemonMessages({
   messages,
   strings,
   carry,
-  nav,
   detail,
-  single,
 }: {
   daemon: DaemonSocket;
   owner?: DaemonSocket;
@@ -132,29 +94,17 @@ function DaemonMessages({
   messages: MessagesHost;
   strings: Strings;
   carry: PendingCarry;
-  nav: MessagesNav;
-  detail: MessagesDetail;
-  single?: string;
+  detail?: MessagesDetail;
 }) {
-  const [store] = useState(() => {
-    const made = new HomeChannelsStore(new DaemonHomeClient(daemon, owner), carry, host);
-    // In the app the app opens the default conversation (its preferred Chief), on the first load
-    // as later; a reconnect reopens what showed.
-    if (host) made.pickDefault = (conversations) => nav.restorable(conversations);
-    // Read receipts follow the transcript on screen (New Message hides it), as natively.
-    made.readsOnView = true;
-    return made;
-  });
+  const [store] = useState(() => new HomeChannelsStore(new DaemonHomeClient(daemon, owner), carry, host));
   return (
     <MessagesApp
       store={store}
       strings={strings}
       host={host}
       messages={messages}
-      detail={detail}
-      nav={nav}
+      {...(detail ? { detail } : {})}
       widthStorage={globalThis.localStorage ?? null}
-      {...(single ? { single } : {})}
     />
   );
 }

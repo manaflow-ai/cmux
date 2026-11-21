@@ -159,6 +159,7 @@ fn rest_in_the_background(socket: &Path, local: &Path, remote: &str, job: &str) 
         .stderr(cmux_process::Stdio::null())
         .new_session();
     let Ok(mut child) = child.spawn() else { return false };
+    child.detach("copy-rest renews the hold after this command exits (its own session)");
     let Some(stdout) = child.stdout.take() else { return false };
     let mut line = String::new();
     // One blocking read: the child writes its line once it renews, or exits.

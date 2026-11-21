@@ -70,6 +70,7 @@ export function preserveScrollAnchorTop({
   newRows,
   liveTop,
   anchorTop,
+  folds,
 }: {
   oldLayout: GeometrySource;
   newLayout: GeometrySource;
@@ -77,10 +78,41 @@ export function preserveScrollAnchorTop({
   newRows: readonly Pick<AcpmuxRow, "id">[];
   liveTop: number;
   anchorTop: number;
+  /// The folds a ride showed (conversation/foldRide.ts): each folding row's old index and how far its
+  /// height was from its old one. The rows under a fold already show that much below their old tops,
+  /// mounted or not, so the placement moves them that much less.
+  folds?: readonly { index: number; delta: number }[];
 }): number | undefined {
-  const first = firstVisible(oldLayout, liveTop);
   const oldGeometry = geometryOf(oldLayout);
   const newGeometry = geometryOf(newLayout);
+  let first = firstVisible(oldLayout, liveTop);
+  const sorted = folds?.length ? [...folds].sort((a, b) => a.index - b.index) : [];
+  const shown = (at: number) => sorted.reduce((sum, fold) => (fold.index < at ? sum + fold.delta : sum), 0);
+  // Rows under a fold show away from their old tops: the row at the view's top is the one shown
+  // there, which may be the folding row itself (an open, however far into its body) or a row below
+  // (a close). Between two folds every row shows by one shift, so each run is one lookup: O(folds)
+  // lookups, whatever the fold's size or the rows mounted (review of #39917 at 4d8ff5ab: "corrects
+  // scrollTop 3900 to 7900, although 3900 remains inside the prompt").
+  for (let k = 0, shift = 0, start = 0; k <= sorted.length; k += 1) {
+    const fold = sorted[k];
+    const end = fold ? fold.index : oldGeometry.count - 1;
+    const at = firstVisible(oldLayout, liveTop - shift);
+    // Above this run's first row as shown: in the folding row that ends the run before it.
+    if (at < start) {
+      first = start - 1;
+      break;
+    }
+    // The folding row, unless a close shows the row after it at the view's top already.
+    const passed =
+      fold && at === end && end + 1 < oldGeometry.count && oldGeometry.topAt(end + 1) + shift + fold.delta <= liveTop;
+    if (at <= end && !passed) {
+      first = at;
+      break;
+    }
+    if (!fold) break;
+    shift += fold.delta;
+    start = end + 1;
+  }
   // A row's own resize must not move its top edge. The first visible row is
   // therefore the anchor; rows below it are irrelevant to this correction. A simple prepend or
   // stream resolves in constant time. Build an id index only after that fast path misses, which
@@ -95,7 +127,7 @@ export function preserveScrollAnchorTop({
       newIndex = movedIndex(newRows, id, oldIndex, newRows.length - oldRows.length, indexById);
     }
     if (newIndex < 0) continue;
-    return anchorTop + newGeometry.topAt(newIndex) - oldGeometry.topAt(oldIndex);
+    return anchorTop + newGeometry.topAt(newIndex) - oldGeometry.topAt(oldIndex) - shown(oldIndex);
   }
   return undefined;
 }

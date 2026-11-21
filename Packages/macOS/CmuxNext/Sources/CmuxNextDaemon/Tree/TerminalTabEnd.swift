@@ -54,6 +54,18 @@ public struct TerminalTabEnd: Sendable, Hashable, Decodable {
         }
     }
 
+    /// Why the launch of a restart failed; unknown future values decode as `.other`.
+    public enum LaunchFailure: String, Sendable, Hashable, Decodable {
+        /// The launch found no free PTY: closing terminals frees one.
+        case ptyCapacityExhausted = "pty_capacity_exhausted"
+        case other
+
+        public init(from decoder: any Decoder) throws {
+            let raw = try decoder.singleValueContainer().decode(String.self)
+            self = LaunchFailure(rawValue: raw) ?? .other
+        }
+    }
+
     public var kind: Kind
     public var code: Int32?
     public var signal: Int32?
@@ -63,6 +75,9 @@ public struct TerminalTabEnd: Sendable, Hashable, Decodable {
     /// For a host loss, the evidence its host left (cx-0tgl): the first
     /// signal it recorded and who sent it, and whether it had panicked.
     public var cause: Cause?
+    /// For a `restart_failed` host loss, why the launch failed, when the daemon
+    /// names it (wire `end.launch_failure`; older daemons and ends omit it).
+    public var launchFailure: LaunchFailure?
 
     /// Wire `end.cause`. Every field is optional; older daemons omit it.
     public struct Cause: Sendable, Hashable, Decodable {
@@ -97,7 +112,8 @@ public struct TerminalTabEnd: Sendable, Hashable, Decodable {
     }
 
     public init(kind: Kind, code: Int32? = nil, signal: Int32? = nil, coreDumped: Bool? = nil,
-                reason: HostLostReason? = nil, detail: String? = nil, cause: Cause? = nil) {
+                reason: HostLostReason? = nil, detail: String? = nil, cause: Cause? = nil,
+                launchFailure: LaunchFailure? = nil) {
         self.kind = kind
         self.code = code
         self.signal = signal
@@ -105,10 +121,12 @@ public struct TerminalTabEnd: Sendable, Hashable, Decodable {
         self.reason = reason
         self.detail = detail
         self.cause = cause
+        self.launchFailure = launchFailure
     }
 
     enum CodingKeys: String, CodingKey {
         case kind, code, signal, reason, detail, cause
         case coreDumped = "core_dumped"
+        case launchFailure = "launch_failure"
     }
 }

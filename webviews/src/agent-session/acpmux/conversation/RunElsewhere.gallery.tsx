@@ -1,17 +1,22 @@
 // l10n-allow-file: gallery fixtures (sample commands, paths and machine names), not shipped UI.
 // "Run on a bigger machine" (RunElsewhere.tsx) on the real CommandRow and ToolRow, over a stand-in
 // for acpmux's `_acpmux/run_elsewhere/*` and `_acpmux/bg/output`. Three chip looks, then the states
-// under the row: the panel that shows what goes, a refused command, no machine, the run streaming,
-// and runs that ended. References: claude/live/panel-environment
-// (plain rows with a small machine icon, a caption over each group, no card chrome).
+// under the row: the panel that shows what goes, a command that stays here (acpmux's reason, the
+// app's host refusing to relay the run, no machine) in three looks, the run streaming, and runs that
+// ended. References: claude/live/panel-environment (plain rows with a small machine icon, a caption
+// over each group, no card chrome), claude/live/transcript-new-session-proposal-card (a ghost
+// secondary action beside one solid primary) and claude/live/transcript-tool-rows-and-task-list
+// (a row's status is quiet dim text, never a card).
 import { useMemo } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { AcpmuxActivity } from "../model";
 import { CommandRow } from "./CommandRow";
+import { afterPlan, afterPlanError } from "./RunElsewhere";
 import { ToolRow } from "./ToolRow";
 import {
   RunElsewhereContext,
   RunElsewhereStore,
+  resetHostRelays,
   type RunElsewhere,
   type RunPlan,
   type RunState,
@@ -19,8 +24,11 @@ import {
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 
 type Look = "text" | "icon" | "accent";
-type Shown = "chip" | "panel" | "refused" | "no-machine" | "running" | "finished" | "failed";
-type Props = { look: Look; shown: Shown };
+type Shown = "chip" | "panel" | "refused" | "host-refused" | "no-machine" | "running" | "finished" | "failed";
+/** How a command that stays here reads: the shipped quiet line, the reason at the row's edge, or
+ * the line in the panel's card chrome. */
+type NoteLook = "line" | "edge" | "card";
+type Props = { look: Look; shown: Shown; note?: NoteLook };
 
 /** Long ago, so the chip's 20 s have passed in every capture. */
 const STARTED = Date.UTC(2026, 10, 8, 10, 0, 0);
@@ -64,20 +72,25 @@ test cache::evicts_oldest ... ok
 test cache::keeps_hot ... ok
 `;
 
-function stateFor(shown: Shown): RunState | undefined {
+function stateFor(shown: Shown, store: RunElsewhereStore): RunState | undefined {
   switch (shown) {
     case "chip":
       return undefined;
     case "panel":
       return { phase: "choosing", plan: PLAN, machine: "build-box", send: [] };
     case "refused":
-      return {
-        phase: "choosing",
-        plan: { eligible: false, why: "vim needs this machine", machines: PLAN.machines },
-        send: [],
-      };
+      return afterPlan({ eligible: false, why: "vim needs this machine", machines: PLAN.machines });
+    case "host-refused": {
+      const state = afterPlanError(
+        { store, client: NEVER_CLIENT },
+        { code: "transport.method_refused", message: "Refused by the cmux host" },
+      );
+      // This stage's store keeps the refusal (its chips go); the gallery's other stages do not.
+      resetHostRelays();
+      return state;
+    }
     case "no-machine":
-      return { phase: "choosing", plan: { ...PLAN, machines: [] }, send: [] };
+      return afterPlan({ ...PLAN, machines: [] });
     case "running":
       return { phase: "running", machine: "build-box", taskId: "bg-1", output: OUTPUT };
     case "finished":
@@ -101,18 +114,20 @@ function stateFor(shown: Shown): RunState | undefined {
   }
 }
 
-function Stage({ look, shown }: Props) {
+const never = () => new Promise<never>(() => undefined);
+const NEVER_CLIENT = { plan: never, start: never, output: never, stop: async () => undefined };
+
+function Stage({ look, shown, note = "line" }: Props) {
   const runs = useMemo<RunElsewhere>(() => {
     const store = new RunElsewhereStore();
-    const state = stateFor(shown);
+    const state = stateFor(shown, store);
     if (state) store.set("test", state);
-    const never = () => new Promise<never>(() => undefined);
-    return { store, client: { plan: async () => PLAN, start: never, output: never, stop: async () => undefined } };
+    return { store, client: { ...NEVER_CLIENT, plan: async () => PLAN } };
   }, [shown]);
   return (
     <TranscriptDisclosureProvider sessionId="gallery-run-elsewhere">
       <RunElsewhereContext.Provider value={runs}>
-        <div className="acpmux-shell cv-run-elsewhere-looks" data-look={look} style={{ padding: 16 }}>
+        <div className="acpmux-shell cv-run-elsewhere-looks" data-look={look} data-note={note} style={{ padding: 16 }}>
           <div className="cv-tools">
             <CommandRow item={call("test", "cargo test -p cmux-core")} />
           </div>
@@ -136,10 +151,19 @@ export default componentEntry<Props>({
   ],
   load: async () => Stage,
   styles: () =>
-    Promise.all([import("../styles.css"), import("./conversation.css"), import("./RunElsewhere.gallery.css")]),
+    Promise.all([
+      import("../styles.css"),
+      import("../../../ui/controls.css"),
+      import("./conversation.css"),
+      import("./RunElsewhere.gallery.css"),
+    ]),
   height: 420,
   widths: { narrow: 360, normal: 640 },
-  anchors: [{ selector: ".cv-run-elsewhere-chip" }, { selector: ".cv-run-elsewhere" }],
+  anchors: [
+    { selector: ".cv-run-elsewhere-chip" },
+    { selector: ".cv-run-elsewhere" },
+    { selector: ".cv-run-elsewhere-line" },
+  ],
   variants: {
     text: {
       note: "Shipped look: a small machine icon and the words in the row's dim ink at its trailing edge, accent on hover. It arrives 20 s into a running command, in the slot a running row leaves empty, so nothing moves.",
@@ -154,15 +178,27 @@ export default componentEntry<Props>({
       props: { look: "accent", shown: "chip" },
     },
     panel: {
-      note: "A click opens what goes under the row: the commit, each changed file, the secret-looking file left out unless ticked, the untracked files that stay. Return runs it; Escape closes.",
+      note: "A click opens what goes under the row: the commit, each changed file, the secret-looking file left out unless ticked, the untracked files that stay. Cancel is the design system's ghost button and Run its one solid one (ui/Button.tsx), with no keycaps: Return runs it and Escape closes from anywhere in the panel.",
       props: { look: "text", shown: "panel" },
     },
     refused: {
-      note: "A command that needs this machine (an editor, sudo, a local service) says why and offers nothing to run.",
-      props: { look: "text", shown: "refused" },
+      note: "Shipped: a command that needs this machine (an editor, sudo, a local service) gets one quiet line under the row's words with acpmux's reason, in the failed call's cause grammar. No card, no Cancel: nothing to press.",
+      props: { look: "text", shown: "refused", note: "line" },
+    },
+    "refused-edge": {
+      note: "Alternative: the reason at the row's trailing edge, where the chip was. Keeps the row one line, but a reason that long is cut to a few words there, so it never says why.",
+      props: { look: "text", shown: "refused", note: "edge" },
+    },
+    "refused-card": {
+      note: "Alternative: the same line in the panel's ring and fill. Reads as something to act on, which is what the card with a Cancel did wrong: it adds weight for a status.",
+      props: { look: "text", shown: "refused", note: "card" },
+    },
+    "host-refused": {
+      note: 'This app\'s host does not relay the run (an app older than the feature): the line says so in plain words instead of "Refused by the cmux host", and the chip goes from every row of the chat.',
+      props: { look: "text", shown: "host-refused" },
     },
     "no-machine": {
-      note: "Nothing connected: one line pointing to Machines.",
+      note: "Nothing connected: the same one quiet line, pointing to Machines.",
       props: { look: "text", shown: "no-machine" },
     },
     running: {

@@ -13,6 +13,9 @@ import unittest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 SCRIPT = ROOT / "scripts/ci/nightly_sign_yield.py"
 WORKFLOW = ROOT / ".github/workflows/nightly.yml"
 spec = importlib.util.spec_from_file_location("nightly_sign_yield", SCRIPT)
@@ -310,11 +313,11 @@ class SignYieldWiringTest(unittest.TestCase):
         self.assertEqual(self.names[at - 1], "Claim the whole Mac for signing")
         step = self.sign["steps"][at]
         self.assertEqual(step["run"], "python3 .nightly-signing-control/scripts/ci/nightly_sign_yield.py")
-        self.assertNotIn("secrets.", str(step))
+        self.assertEqual(workflow_jobs.secret_names(step), set())
         self.assertNotIn("continue-on-error", step)
         self.assertNotIn("if", step)
         for earlier in self.sign["steps"][:at]:
-            self.assertNotIn("secrets.", str(earlier), earlier.get("name"))
+            self.assertEqual(workflow_jobs.secret_names(earlier), set(), earlier.get("name"))
         self.assertEqual(self.sign["outputs"]["yielded"], "${{ steps.sign-yield.outputs.yielded }}")
 
     def test_report_nightly_failure_skips_only_a_yielded_sign(self):

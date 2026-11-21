@@ -65,7 +65,7 @@ impl Hub {
             // so its summary already says so. Every new turn drops the note.
             let unread = !works
                 && session.unread_after_work.swap(false, Ordering::SeqCst)
-                && !self.shown(session)
+                && !self.attended(session)
                 && {
                     let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
                     !std::mem::replace(&mut meta.unread, true)
@@ -110,6 +110,8 @@ impl Hub {
     /// The harness is gone and its background subagents with it.
     pub(super) fn end_background_subagents(&self, session: &Session) {
         session.subagents.lock().unwrap_or_else(|e| e.into_inner()).end_background();
+        // Each one it took down can be resumed from its transcript (`subagent_resume.rs`).
+        self.subagents_lost(session);
         self.refresh_work_below(session);
         // Reports left for its subagents go to it now (`lane_report_subagents.rs`).
         self.subagent_notices_sweep(session);
@@ -122,7 +124,9 @@ impl Hub {
     /// progress event its lines reached clients untagged, as the chat's own (a helper's grep read
     /// as the chat still running grep after its turn ended). A harness start ends the background
     /// subagents of the one before, and a turn start the foreground ones, as live.
-    pub(super) fn seed_subagents_from_log(&self, session: &Session) {
+    /// This is the read of the whole log, run off the executor (`hosts.rs` `read_whole_log`);
+    /// [`Hub::seed_subagents`] applies what it found.
+    pub(super) fn subagents_in_log(&self, session: &Session) -> crate::subagents::SubagentTree {
         let meta = session.meta();
         let mut tree = crate::subagents::SubagentTree::default();
         tree.set_own(meta.agent_session_id.as_deref());
@@ -149,6 +153,11 @@ impl Hub {
             }
             true
         });
+        tree
+    }
+
+    /// The live tree takes what [`Hub::subagents_in_log`] read.
+    pub(super) fn seed_subagents(&self, session: &Session, tree: crate::subagents::SubagentTree) {
         let (running_before, running_after) = {
             let mut live = session.subagents.lock().unwrap_or_else(|e| e.into_inner());
             let before = live.running_count();

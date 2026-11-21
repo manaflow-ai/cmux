@@ -18,6 +18,9 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Codable {
         /// A machine whose daemon can be reached (or soon will be).
         public var isLive: Bool { CloudMachineRules.statuses.live.contains(self) }
 
+        /// Paused, or a pause the server accepted: nothing should dial it until a person resumes it.
+        public var isPaused: Bool { self == .paused || self == .pausing }
+
         /// A pause, resume or delete is on its way.
         public var isChanging: Bool { CloudMachineRules.statuses.changing.contains(self) }
 
@@ -148,6 +151,8 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Codable {
 
     public var id: String
     public var provider: String
+    /// The provider region, when the Cloud API supplies one.
+    public var region: String?
     public var status: Status
     public var displayName: String?
     public var slug: String?
@@ -194,7 +199,7 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Codable {
 
     /// The crate's JSON names two fields as the classic record does.
     enum CodingKeys: String, CodingKey {
-        case id, provider, status, displayName, slug, kind, image, imageVersion, createdAt, createdBy, team, address, size
+        case id, provider, region, status, displayName, slug, kind, image, imageVersion, createdAt, createdBy, team, address, size
         case declaredCapabilities = "capabilities"
         case pauseReason, idlePauseMinutes, idlePause, hourlyRateUsd, updatedAt, serverRevision, runningSince, evictAt, sizePick
         case lastChangeFailure = "error"
@@ -210,16 +215,6 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Codable {
     /// Sidebar and menu title: ``shownName``, else the id.
     public var title: String { shownName ?? id }
 
-    /// The record's size and idle pause (0 is Off) as `cloud new-machine` answers them (`cpu`, `memory_mb`,
-    /// `idle_pause_minutes`), for `cloud machine-status`: `cmux vm redo` makes the same machine again from them.
-    public var recordFields: [String: Int] {
-        var fields: [String: Int] = [:]
-        if let cpu = size?.cpu { fields["cpu"] = cpu }
-        if let memory = size?.memoryMb { fields["memory_mb"] = memory }
-        if let minutes = idlePauseMinutes { fields["idle_pause_minutes"] = minutes }
-        return fields
-    }
-
     /// What the app reads off this record (one FFI call; read it once per use).
     public var facts: CloudMachineRules.Facts { CloudMachineRules().facts(self) }
 
@@ -232,12 +227,13 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Codable {
     /// Agent infrastructure (by its shown name), not one of its owner's own machines.
     public var isAgentInfrastructure: Bool { facts.agentInfrastructure }
 
-    public init(id: String, provider: String = "freestyle", status: Status = .running, displayName: String? = nil,
+    public init(id: String, provider: String = "freestyle", region: String? = nil, status: Status = .running, displayName: String? = nil,
                 slug: String? = nil, address: Address? = nil, capabilities: Capabilities? = nil,
                 pauseReason: PauseReason? = nil, idlePauseMinutes: Int? = nil,
                 idlePause: IdlePauseDiagnostics? = nil, updatedAt: Date? = nil, lastChangeFailure: ChangeFailure? = nil) {
         self.id = id
         self.provider = provider
+        self.region = region
         self.status = status
         self.displayName = displayName
         self.slug = slug

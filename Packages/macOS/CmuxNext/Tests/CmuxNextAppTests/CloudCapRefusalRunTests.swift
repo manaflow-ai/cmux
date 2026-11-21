@@ -69,7 +69,7 @@ struct CloudCapRefusalRunTests {
         let cards = Cards()
         let failure = try await report { flow($0, capCard: false, gate: .upgrade(.init(reason: .freePlan)), refusing: ActionFailure(message: "unreached"), cards: cards) }
         #expect(cards.shown == 0)
-        #expect(failure?.code == CloudHandlers.planRequiredCode)
+        #expect(failure?.code == "cloud.plan.required")
         #expect(failure?.message.contains("(plan: pro)") == true)
     }
 

@@ -1,5 +1,4 @@
 import AppKit
-import CmuxNextDesign
 
 /// Screen views: which one shows.
 extension LayoutRootView {
@@ -11,18 +10,22 @@ extension LayoutRootView {
         for (id, view) in screenViews {
             let hides = id != active
             guard view.isHidden != hides else { continue }
+            // AppKit tells the screen and its views in this call (`viewDidHide`, `viewDidUnhide`): the screen that hides
+            // gives back its divider hover and resize cursor (`ScreenContentView.viewDidHide`), and each scrollbar's
+            // thumb gives or takes its occluder (`StripScrollbarView`). Neither is done again here.
             view.isHidden = hides
             if hides {
-                // No frame steps a hidden screen: its pane springs land now, not when it shows again.
+                // No frame steps a hidden screen: its cameras and its pane springs land now, not when it shows again
+                // (a switch shows a screen at rest).
+                view.settleCameras()
                 view.settleMotion()
                 // Nor does it land a resize drag: its pages lay out now.
                 view.finishResizeGesture()
+            } else {
+                // It shows under a possibly still pointer: its divider hover and resize cursor follow.
+                view.refreshDividerHover()
             }
-            // It showed or hid under a possibly still pointer: its divider hover and resize cursor follow.
-            view.refreshDividerHover()
             setNeedsOverlaySync()
-            // The thumb's occluder follows the screen's hidden state.
-            view.scrollbar?.syncOccluder()
         }
     }
 

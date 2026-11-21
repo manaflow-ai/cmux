@@ -1,17 +1,18 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextSettings
 import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextHome
 import Foundation
-import ImageIO
-import UniformTypeIdentifiers
 
 /// Design mode in browser panes (plans/cmux-next/design-mode-DESIGN.md): turns it on and off for a
 /// tab (`toggleBrowserDesignMode`: the toolbar button, the palette, Ctrl-Opt-Cmd-D and the CLI all
-/// run this one path), and sends each new highlight as a card to the Home Messages composer shown in
-/// the browser's window, else to the agent chat of the browser's workspace whose pane was focused last.
+/// run this one path), and sends each added pick (a click, its comment, Return) as one card to the
+/// Chief's Home composer shown in the browser's window, else to the agent chat of the browser's
+/// workspace whose pane was focused last. A pick the chat lets go of (its chip removed, or sent)
+/// leaves the page, so the pins always match the chips.
 @MainActor
 final class BrowserDesignModeController {
     private weak var services: AppServices?
@@ -46,14 +47,14 @@ final class BrowserDesignModeController {
             if let entry = services.cache.existingBrowser(key), entry.state.modes.designMode { toggle(entry, key: key) }
             return
         }
-        guard var tracker = cards[key] else { return }
+        guard var tracker = cards[key], !page.completeDesignModeCapture(message) else { return }
         let change = tracker.change(message, pageURL: page.state.url)
         cards[key] = tracker
         guard !change.cards.isEmpty || !change.removed.isEmpty else { return }
-        // The Home Messages page in the browser's window first (Home on the left, the page on the
+        // The Chief's Home chat in the browser's window first (Home on the left, the page on the
         // right), else the workspace's last-used agent chat. A variation pick is sent to Home at once
         // through a304's `home.sendMessage`; other highlights wait in the composer.
-        let home = HomeComposerHandoff.shown(in: page.contentView.window)
+        let home = HomeNativeTranscriptView.shown(in: page.contentView.window).flatMap { $0.canAttach ? $0 : nil }
         let chat = home == nil ? chatView(near: key) : nil
         // A highlight removed on the page takes its card out of whichever composer holds it.
         for id in change.removed { takeOut(id, home: home, chat: chat) }
@@ -69,45 +70,71 @@ final class BrowserDesignModeController {
         }
         let rest = zip(made, deliveries).filter { if case .sendToHome = $0.1 { return false } else { return true } }.map(\.0)
         guard !rest.isEmpty else { return }
-        Task { [weak self, weak page, weak chat] in
+        Task { [weak self, weak page, weak chat, weak home] in
             guard let page else { return }
-            let shot = await Self.capture(page)
+            // Only the agent chat shows the crop; Home's one file per pick is the card's text.
+            let shot = home == nil ? await page.designModeSnapshot() : nil
             for card in rest {
-                let png = shot.flatMap { Self.crop($0, to: card) }
+                let png = shot.flatMap { card.crop(from: $0) }
                 if let home {
-                    await self?.attach(card, png: png, to: home)
+                    // One file per pick: Home draws each file as its own chip, and two per pick
+                    // (the text and the crop) was the clutter David Beyer pointed at.
+                    await self?.attach(card, to: home)
                 } else if let chat {
-                    // The same id replaces an edited card's chips in the agent chat composer.
+                    // One chip per pick, its crop inside it; the same id replaces an edited card's chip.
                     AgentPaneDesignSelection(id: card.id, name: card.name, text: card.text, png: png).push(to: chat)
+                    chat.designSelectionReleased = { [weak self] ids in self?.release(ids) }
                 }
             }
         }
     }
 
-    /// Takes card `id` out of the Home composer (its files, by the card's group) or the agent chat
-    /// composer (its chips).
-    private func takeOut(_ id: String, home: HomeComposerHandoff?, chat: AgentPaneView?) {
-        if let home {
-            // task-owner: one page call; ends with its answer (bounded by HomeComposerHandoff.answerDeadline)
-            Task { await home.remove(group: id) }
-        } else if let chat {
+    /// Takes the picks of card `ids` off their pages: a chat removed their chips, or sent them.
+    func release(_ ids: [String]) {
+        for id in ids {
+            guard let (key, tracker) = cards.first(where: { $0.value.selector(of: id) != nil }), let selector = tracker.selector(of: id),
+                  let page = services?.cache.existingBrowser(key)?.tab else { continue }
+            Task { [weak page] in await page?.removeDesignModePick(selector) }
+        }
+    }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// `debug.design_mode {draft?, comment?, commit?}` (captures and tours): types `draft` into the
+    /// open comment bubble of the tab in design mode, or `comment` and adds it, or adds what is typed
+    /// (`commit: true`), through the runtime's own path. `ok` false when no tab is in design mode.
+    static func debugDrive(_ params: [String: CmuxNextSettings.JSONValue], services: AppServices?) async -> CmuxNextSettings.JSONValue {
+        let cards = services?.designMode.cards ?? [:]
+        guard let page = services?.cache.browsers.first(where: { cards[$0.key] != nil })?.value.tab else { return ["ok": .bool(false)] }
+        let commit = params["comment"] != nil || params["commit"]?.boolValue == true
+        return ["ok": .bool(await page.driveDesignMode(draft: params["comment"]?.stringValue ?? params["draft"]?.stringValue, commit: commit))]
+    }
+    #endif
+
+    /// The Home draft attachments each card added: an edit or a removal takes them back; a sent or removed chip frees its pick.
+    private var homePicks = BrowserDesignModeHomePicks()
+
+    /// Takes card `id` out of the Home composer (its attachments) or the agent chat composer (its chips).
+    private func takeOut(_ id: String, home: HomeNativeTranscriptView?, chat: AgentPaneView?) {
+        if let hashes = homePicks.take(id) { home?.removeDraftAttachments(hashes) } else if let chat {
             AgentPaneDesignSelection.remove(id, from: chat)
         }
     }
 
-    /// Where cards become files for the Home composer; each card's folder goes once the page has
-    /// read them (``HomeComposerHandoff/attach(_:group:)`` answers), the rest at quit.
+    /// Where cards become files for the Home composer; each card's folder goes once Home has its
+    /// copy (``HomeNativeTranscriptView/attachmentsReady()``), the rest at quit.
     nonisolated static let tempFiles = BrowserDesignModeTempFiles(
         root: FileManager.default.temporaryDirectory.appendingPathComponent("cmux-design-mode", isDirectory: true))
 
-    /// Gives the Home composer `card` as files (as a drop), in the card's group, replacing what an
-    /// earlier version of the card added, then removes the files once the page holds them.
-    private func attach(_ card: BrowserDesignModeCard, png: Data?, to home: HomeComposerHandoff) async {
-        await home.remove(group: card.id)
+    /// Gives the Home composer `card` as files, through its own intake (as a drop), replacing what an
+    /// earlier version of the card added, then removes the files once the draft holds Home's copies.
+    private func attach(_ card: BrowserDesignModeCard, to home: HomeNativeTranscriptView) async {
+        if let old = homePicks.take(card.id) { home.removeDraftAttachments(old) }
+        home.onDraftAttachmentsChange = { [weak self] hashes in if let self { release(homePicks.released(keeping: hashes)) } }
         let temp = Self.tempFiles, folder = temp.newFolder()
         defer { temp.remove(folder) }
-        guard let files = try? BrowserDesignModeCardFiles(folder: folder).write(card, png: png) else { return }
-        _ = await home.attach(files, group: card.id)
+        guard let files = try? BrowserDesignModeCardFiles(folder: folder).write(card, png: nil),
+              let added = await home.addDraftFiles(files.map(\.path)) else { return }
+        homePicks.record(card.id, added: added)
     }
 
     /// The agent chat in the workspace of browser tab `key` whose pane was focused last.
@@ -123,27 +150,5 @@ final class BrowserDesignModeController {
             }
         }
         return nil
-    }
-
-    /// The page as shown, without design mode's own outline and badges.
-    private static func capture(_ page: any BrowserTab) async -> CGImage? {
-        _ = try? await page.evaluate("globalThis.__cmuxDesignMode?.prepareCapture(); true", world: .isolated, gesture: .cmux)
-        let image = try? await page.snapshot()
-        _ = try? await page.evaluate("globalThis.__cmuxDesignMode?.finishCapture(); true", world: .isolated, gesture: .cmux)
-        return image
-    }
-
-    /// The card's element cut from the page image, as PNG; nil when it is off the page or empty.
-    nonisolated static func crop(_ image: CGImage, to card: BrowserDesignModeCard) -> Data? {
-        guard card.viewportWidth > 0 else { return nil }
-        let scale = Double(image.width) / card.viewportWidth
-        let rect = CGRect(x: card.bounds.minX * scale, y: card.bounds.minY * scale,
-                          width: card.bounds.width * scale, height: card.bounds.height * scale)
-            .integral.intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height))
-        guard !rect.isNull, rect.width >= 1, rect.height >= 1, let cut = image.cropping(to: rect) else { return nil }
-        let data = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil) else { return nil }
-        CGImageDestinationAddImage(destination, cut, nil)
-        return CGImageDestinationFinalize(destination) ? data as Data : nil
     }
 }

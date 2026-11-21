@@ -10,6 +10,9 @@
 #     [--arg=force_full_tools=1] [--arg=turns=N] [--arg=real=1 --arg=min_hit=PCT] --timeout 6000
 # count_url= is a Claude route that needs no credential (a router that signs
 # requests itself); only count_tokens goes there, never a turn (except real=1).
+# Use SR2, http://100.120.48.119:4016 (by IP: fleet workers do not resolve
+# sr2-gateway); the old subrouter on :31415 answers 502 to every Claude request.
+# real=1 sends one tiny request first and stops (exit 3) when it gets a 5xx.
 # force_full_tools=1 proves the guard red: Claude Code gets a --settings file
 # with ENABLE_TOOL_SEARCH=false (it wins over the turn's project
 # settings), which is the behavior before session_dir::TURN_SETTINGS_ENV: every
@@ -74,6 +77,11 @@ if [[ "$real" == 1 ]]; then
   # The turns run on this route: it must be up.
   if [[ "$ready" == 503 ]]; then echo "FIRST-TURN-COST the route $count_url answered 503. Stop: the route is down." >&2; exit 3; fi
   [[ "$ready" == 200 ]] || { echo "FIRST-TURN-COST the route $count_url is not reachable from this worker ($ready)" >&2; exit 1; }
+  # Ready says nothing about Claude: the old subrouter answered 200 here while every
+  # request got 502 (2026-11-09), and each turn then waited out its timeout.
+  probe_status=0
+  python3 -I Native/OptChat/optchat-chief/measure/first_turn_cost.py probe --url "$count_url" || probe_status=$?
+  [[ "$probe_status" == 0 ]] || exit "$probe_status"
 elif [[ "$ready" != 200 ]]; then
   # The stand-in runs the turn; count_tokens falls back to the byte estimate.
   echo "FIRST-TURN-COST WARNING the route $count_url answered $ready to ready; count_tokens may fall back to the byte estimate" >&2

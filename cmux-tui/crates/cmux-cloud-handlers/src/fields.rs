@@ -247,6 +247,11 @@ pub struct Status {
     pub memory_total_mb: Option<f64>,
     pub disk_used_mb: Option<f64>,
     pub disk_total_mb: Option<f64>,
+    /// The record's size and idle pause (0 is Off), as `cloud new-machine` takes them: `cmux vm
+    /// redo` makes the same machine again from them. The stats' `cpus` is not the record's.
+    pub cpu: Option<i64>,
+    pub memory_mb: Option<i64>,
+    pub idle_pause_minutes: Option<i64>,
     pub ipv4: Option<String>,
     pub desktop: bool,
     pub cost: Option<Cost>,
@@ -346,6 +351,9 @@ pub fn status_fields(status: &Status) -> Fields {
     put("memory_total_mb", status.memory_total_mb.map(Value::from));
     put("disk_used_mb", status.disk_used_mb.map(Value::from));
     put("disk_total_mb", status.disk_total_mb.map(Value::from));
+    put("cpu", status.cpu.map(Value::from));
+    put("memory_mb", status.memory_mb.map(Value::from));
+    put("idle_pause_minutes", status.idle_pause_minutes.map(Value::from));
     put("address", status.ipv4.clone().map(Value::from));
     fields.insert("desktop".into(), json!(status.desktop));
     if let Some(cost) = &status.cost {

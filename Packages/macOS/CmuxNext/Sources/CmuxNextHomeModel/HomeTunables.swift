@@ -60,7 +60,7 @@ public nonisolated struct HomeTunables {
         help: "How the messages end at the top of the chat as they scroll under the avatar and name pill: the chat's own background (the default), a glass band, a soft fade, a progressive blur, a material band with a hairline, a hard edge with a shadow, a fade that starts below the pill, or Messages' blurred bar. Changes every open chat at once.",
         default: .backgroundTint, code: "HomeTunables.topFadeStyle")
 
-    /// The avatar-only list with only one conversation in it (the Messages list): off by default,
+    /// The avatar-only list with only one conversation in it (`HomeSidebarSplitView`): off by default,
     /// so a lone Chief takes no column and the chat gets the width (visual QA 2026-10-21: one avatar in
     /// an empty band); on keeps the avatar-only column for it.
     public static let loneConversationRail = Tunable<Bool>.toggle(

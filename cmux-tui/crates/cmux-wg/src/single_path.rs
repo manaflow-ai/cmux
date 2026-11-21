@@ -15,7 +15,9 @@ use crate::{WgConfig, WgError, WgNet};
 pub const MIN_SEND_BUFFER: usize = 16 * 1024;
 
 /// The largest UDP payload the tunnel sends for an MTU: one WireGuard data
-/// message (16-byte header, the packet padded to 16 bytes, 16-byte tag).
+/// message (16-byte header, the packet, 16-byte tag). boringtun does not pad
+/// the packet, so rounding it up to 16 bytes here errs large, which is safe for
+/// a send buffer floor.
 fn largest_underlay_datagram(mtu: u16) -> usize {
     usize::from(mtu).next_multiple_of(16) + 32
 }

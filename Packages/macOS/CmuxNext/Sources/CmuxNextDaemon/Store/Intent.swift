@@ -24,6 +24,8 @@ public enum Intent: Sendable, Hashable {
     case setScreenIcon(screen: ScreenID, icon: String?)
     /// `set-screen-pinned`.
     case setScreenPinned(screen: ScreenID, pinned: Bool)
+    /// `set-divider-visible`: whether split `split`'s divider on `screen` draws its line (Hide / Show Divider).
+    case setDividerVisible(screen: ScreenID, split: SplitID, visible: Bool)
     /// `rename-workspace`.
     case renameWorkspace(key: WorkspaceKey, name: String)
     /// `workspace.update` / `set-workspace-metadata` with `color` (a palette name); nil clears it.

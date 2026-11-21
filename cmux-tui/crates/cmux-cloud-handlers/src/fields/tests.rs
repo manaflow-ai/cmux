@@ -262,6 +262,22 @@ fn machine_status_text_rounds_like_the_app() {
     assert_eq!(fields["address"], json!("10.0.0.7"));
 }
 
+/// machine-status answers the record's size and idle pause (0 is Off), which the state-only
+/// stats do not carry: `cmux vm redo` makes the same size again with the same idle pause.
+#[test]
+fn machine_status_answers_the_records_size_and_idle_pause() {
+    let status: Status = serde_json::from_value(json!({
+        "machineId": "vm-sized", "state": "running", "cpu": 12, "memoryMb": 24576, "idlePauseMinutes": 0,
+    }))
+    .unwrap();
+    let fields = status_fields(&status);
+    assert_eq!(fields["cpu"], json!(12));
+    assert_eq!(fields["memory_mb"], json!(24576));
+    assert_eq!(fields["idle_pause_minutes"], json!(0));
+    assert!(!fields.contains_key("cpus"));
+    assert!(!status_fields(&Status::default()).contains_key("idle_pause_minutes"));
+}
+
 #[test]
 fn machine_status_fields_carry_the_cost() {
     let cost = Cost {

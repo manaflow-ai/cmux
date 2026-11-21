@@ -156,6 +156,22 @@ fn respond_tabs(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> {
                 "harness": tabs::harness(request.agent.as_deref()),
             })
         }
+        // Toggle Terminal and Chat's route for the focused tab.
+        b"window_tabs_terminal_chat_toggle" => value(&tabs::terminal_chat_toggle(&read(request)?))?,
+        // Where a Toggle Terminal and Chat swap lands in the other view: the same turn.
+        b"window_tabs_terminal_place" => value(&tabs::place::terminal_place(&read(request)?))?,
+        b"window_tabs_chat_place" => value(&tabs::place::chat_place(&read(request)?))?,
+        // What a swap carries of the unsent draft: the composer's into the terminal, or back.
+        b"window_tabs_draft_to_terminal" => value(&tabs::draft::to_terminal(&read(request)?))?,
+        b"window_tabs_draft_to_chat" => value(&tabs::draft::to_chat(&read(request)?))?,
+        // The harness's approval dialog on a terminal's screen, for its paired chat; the keys a
+        // click on the chat's card types.
+        b"window_tabs_terminal_approval" => {
+            json!({ "approval": value(&tabs::approval::terminal_approval(&read(request)?))? })
+        }
+        b"window_tabs_terminal_approval_keys" => {
+            json!({ "keys": value(&tabs::approval::answer_keys(&read(request)?))? })
+        }
         // Duplicate Tab per tab; `actions` null: refused (a page tab opens once).
         b"window_tabs_duplicate" => {
             let request: Tabs = read(request)?;
@@ -195,6 +211,7 @@ fn respond_tabs(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> {
         b"window_panes_split" => value(&panes::split(&read(request)?))?,
         b"window_panes_auto_direction" => value(&panes::auto_direction(read(request)?))?,
         b"window_panes_tab_bar" => value(&panes::tab_bar(read(request)?))?,
+        b"window_tabs_plus_menu" => value(&tabs::plus_menu::rows(&read(request)?))?,
         b"window_panes_terminal_bindings" => json!({ "bindings": panes::TERMINAL_BINDINGS }),
         b"window_panes_clear_failure" => {
             let request: Text = read(request)?;

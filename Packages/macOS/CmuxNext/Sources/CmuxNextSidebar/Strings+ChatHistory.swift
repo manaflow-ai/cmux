@@ -1,11 +1,8 @@
 import Foundation
 
+// The block's own words (Earlier, Show More, Loading chats…) are the page's (webviews/src/pages/sidebar-chats,
+// through webviews/scripts/pages/gen-strings.mjs from this package's catalog); the menu's stay here.
 extension Strings {
-    /// The session tree's history of chats no open workspace shows (`sidebar.sessionTree`).
-    static var chatHistoryEarlier: String {
-        String(localized: "sidebar.chatHistory.earlier", defaultValue: "Earlier", bundle: .module)
-    }
-
     /// A history row's right-click menu: keep the chat at the top.
     static var chatHistoryPin: String {
         String(localized: "sidebar.chatHistory.pin", defaultValue: "Pin", bundle: .module)
@@ -13,15 +10,5 @@ extension Strings {
 
     static var chatHistoryUnpin: String {
         String(localized: "sidebar.chatHistory.unpin", defaultValue: "Unpin", bundle: .module)
-    }
-
-    /// Earlier's only row while acpmux has not sent the chats yet (connecting, or its index starting after a relaunch).
-    static var chatHistoryLoading: String {
-        String(localized: "sidebar.chatHistory.loading", defaultValue: "Loading chats…", bundle: .module)
-    }
-
-    /// The row under Earlier's page that lists the next one.
-    static var chatHistoryShowMore: String {
-        String(localized: "sidebar.chatHistory.showMore", defaultValue: "Show More", bundle: .module)
     }
 }

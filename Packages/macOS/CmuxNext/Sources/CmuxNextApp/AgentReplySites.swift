@@ -25,7 +25,7 @@ struct AgentReplySites {
 
     func sites(for urls: [URL]) -> [URL: AgentPaneReplySite] {
         var tabs: [(url: URL, icon: URL?, title: String, key: String)] = []
-        for workspace in services.daemon.store.workspaces where !workspace.ephemeral {
+        for workspace in services.daemon.store.workspaces where !services.windows.isIncognito(workspace: workspace) {
             for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs) {
                 guard let address = tab.url, let url = URL(string: address) else { continue }
                 tabs.append((url, tab.faviconURL.flatMap(URL.init(string:)), tab.titleText, tab.id))

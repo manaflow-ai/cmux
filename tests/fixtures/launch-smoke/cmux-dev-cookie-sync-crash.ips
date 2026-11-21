@@ -1,0 +1,144 @@
+{"app_name":"cmux DEV","timestamp":"2026-11-11 09:23:12.00 -0800","app_version":"1.0.0","build_version":"108","platform":1,"bundleID":"com.cmuxterm.app.debug.cap2616865988","bug_type":"309","name":"cmux DEV"}
+{
+  "version": 2,
+  "captureTime": "2026-11-11 09:23:10.8419 -0800",
+  "pid": 79502,
+  "cpuType": "ARM-64",
+  "procLaunch": "2026-11-11 09:23:07.7053 -0800",
+  "procName": "cmux DEV",
+  "procPath": "/tmp/*/cmux DEV cap2616865988.app/Contents/MacOS/cmux DEV",
+  "bundleInfo": {
+    "CFBundleShortVersionString": "1.0.0",
+    "CFBundleVersion": "108",
+    "CFBundleIdentifier": "com.cmuxterm.app.debug.cap2616865988"
+  },
+  "parentProc": "Python",
+  "parentPid": 78738,
+  "termination": {
+    "flags": 0,
+    "code": 11,
+    "namespace": "SIGNAL",
+    "indicator": "Segmentation fault: 11",
+    "byProc": "exc handler",
+    "byPid": 79502
+  },
+  "bug_type": "309",
+  "exception": {
+    "type": "EXC_BAD_ACCESS",
+    "signal": "SIGSEGV",
+    "subtype": "KERN_INVALID_ADDRESS"
+  },
+  "faultingThread": 0,
+  "threads": [
+    {
+      "triggered": true,
+      "name": "cmux-cookie-sync",
+      "frames": [
+        {
+          "symbol": "sqlite3HashInsert",
+          "symbolLocation": 996,
+          "imageIndex": 0
+        },
+        {
+          "symbol": "sqlite3FindFunction",
+          "symbolLocation": 672,
+          "imageIndex": 0
+        },
+        {
+          "symbol": "sqlite3CreateFunc",
+          "symbolLocation": 644,
+          "imageIndex": 0
+        },
+        {
+          "symbol": "createFunctionApi",
+          "symbolLocation": 264,
+          "imageIndex": 0
+        },
+        {
+          "symbol": "sqlite3_overload_function",
+          "symbolLocation": 392,
+          "imageIndex": 0
+        },
+        {
+          "symbol": "sqlite3Fts3Init",
+          "symbolLocation": 428,
+          "imageIndex": 0
+        },
+        {
+          "symbol": "openDatabase",
+          "symbolLocation": 1912,
+          "imageIndex": 0
+        },
+        {
+          "symbol": "rusqlite::inner_connection::InnerConnection::open_with_flags::hc30e390504881de5",
+          "symbolLocation": 124,
+          "imageIndex": 0
+        },
+        {
+          "symbol": "cmux_cookie_sync::fingerprint::fingerprint::h6dccd492206a0c6b",
+          "symbolLocation": 1724,
+          "imageIndex": 0
+        },
+        {
+          "symbol": "cmux_cookie_sync::engine::measure::hc904c2c80b3aa564",
+          "symbolLocation": 184,
+          "imageIndex": 0
+        },
+        {
+          "symbol": "cmux_cookie_sync::engine::run::_$u7b$$u7b$closure$u7d$$u7d$::hecfa70daa97b49c5",
+          "symbolLocation": 596,
+          "imageIndex": 0
+        },
+        {
+          "symbol": "cmux_cookie_sync::engine::run::h6e209750d0783779",
+          "symbolLocation": 3000,
+          "imageIndex": 0
+        },
+        {
+          "symbol": "std::sys::backtrace::__rust_begin_short_backtrace::h268863ff64174739",
+          "symbolLocation": 76,
+          "imageIndex": 0
+        },
+        {
+          "symbol": "core::ops::function::FnOnce::call_once$u7b$$u7b$vtable.shim$u7d$$u7d$::h4b86441289c2eba7",
+          "symbolLocation": 136,
+          "imageIndex": 0
+        },
+        {
+          "symbol": "_RNvNvMs0_NtNtNtCsg55jX0GwzBC_3std3sys6thread4unixNtB7_6Thread3new12thread_start",
+          "symbolLocation": 408,
+          "imageIndex": 0
+        },
+        {
+          "symbol": "_pthread_start",
+          "symbolLocation": 136,
+          "imageIndex": 1
+        },
+        {
+          "symbol": "thread_start",
+          "symbolLocation": 8,
+          "imageIndex": 1
+        }
+      ]
+    }
+  ],
+  "usedImages": [
+    {
+      "source": "P",
+      "arch": "arm64",
+      "path": "/private/tmp/*/cmux DEV cap2616865988.app/Contents/MacOS/cmux DEV",
+      "name": "cmux DEV"
+    },
+    {
+      "source": "P",
+      "arch": "arm64e",
+      "path": "/usr/lib/system/libsystem_pthread.dylib",
+      "name": "libsystem_pthread.dylib"
+    }
+  ],
+  "legacyInfo": {
+    "threadTriggered": {
+      "name": "cmux-cookie-sync"
+    }
+  }
+}

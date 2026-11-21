@@ -5,13 +5,16 @@ import os
 private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "openPanel")
 
 /// What ``MadeAheadOpenPanel`` does, over any ``ReusableOpenPanel``: keep one panel made ahead of the click, hand
-/// it out while it is free, and make it while the person is idle. The panel factory, the warm-up check and the
-/// clock are injected, so a test drives it with stand-in panels and a manual clock, and awaits each check on
-/// ``checksRan`` (`MadeAheadPanelStoreTests`).
+/// it out while it is free, and make it while the person is idle, only when the app's last make proved its panel
+/// service fast (``OpenPanelMakeHistory``) and at most once per process. The panel factory, the warm-up check, the
+/// make history and the clocks are injected, so a test drives it with stand-in panels, a slow stand-in make and a
+/// manual clock, and awaits each check on ``checksRan`` (`MadeAheadPanelStoreTests`).
 @MainActor
 final class MadeAheadPanelStore<Panel: ReusableOpenPanel> {
     private let makePanel: @MainActor () -> Panel
     private let warmCheck: @MainActor () -> OpenPanelWarmCheck
+    private let history: OpenPanelMakeHistory
+    private let now: @MainActor () -> ContinuousClock.Instant
     private let timer: DemandTimer
     /// The panel made ahead and the texts it had when it was made (both or neither).
     private var made: (panel: Panel, defaults: OpenPanelDefaults)?
@@ -35,15 +38,22 @@ final class MadeAheadPanelStore<Panel: ReusableOpenPanel> {
     private let checkRan: AsyncStream<Void>.Continuation
     /// Whether the one notice for a warm-up that may never run (``OpenPanelWarmCheck/never(reason:)``) was logged.
     private var saidNever = false
+    /// Whether the one notice for a warm-up the make history refused was logged.
+    private var saidUnproven = false
 
     /// - Parameters:
     ///   - clock: The clock of the warm-up's checks; tests pass a manual clock.
     ///   - makePanel: Makes a new panel (`NSOpenPanel()`, 105 to 300 ms on the main thread).
     ///   - warmCheck: Whether a warm-up may make the panel now; read when a check fires.
+    ///   - history: The app's record of its last makes; a warm-up makes a panel only when it proves the service fast.
+    ///   - now: Times each make for `history`; tests pass a clock their slow stand-in make moves.
     init(clock: any Clock<Duration> = ContinuousClock(), makePanel: @escaping @MainActor () -> Panel,
-         warmCheck: @escaping @MainActor () -> OpenPanelWarmCheck) {
+         warmCheck: @escaping @MainActor () -> OpenPanelWarmCheck, history: OpenPanelMakeHistory,
+         now: @escaping @MainActor () -> ContinuousClock.Instant = { .now }) {
         self.makePanel = makePanel
         self.warmCheck = warmCheck
+        self.history = history
+        self.now = now
         timer = DemandTimer(owner: "openPanel.madeAhead.warm", clock: clock)
         let ran = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
         checksRan = ran.stream
@@ -63,7 +73,7 @@ final class MadeAheadPanelStore<Panel: ReusableOpenPanel> {
             kept.defaults.apply(to: kept.panel)
             return kept.panel
         }
-        let panel = makePanel()
+        let panel = make(speculative: false)
         guard OpenPanelDefaults(of: panel) != nil else {
             dropDead(onClick: true)
             return nil
@@ -73,7 +83,8 @@ final class MadeAheadPanelStore<Panel: ReusableOpenPanel> {
     }
 
     /// Makes the panel once the person has paused: the first check 2 s from now, then one a second while busy,
-    /// ten at most. Nothing after a dead panel (``warmGaveUp``).
+    /// ten at most. Nothing after a dead panel (``warmGaveUp``), and nothing unless ``OpenPanelMakeHistory`` proves
+    /// the panel service fast when the check fires.
     func warmWhenIdle() {
         guard made == nil, !warmGaveUp, !timer.isScheduled else { return }
         check(after: .seconds(2), triesLeft: 10)
@@ -101,6 +112,16 @@ final class MadeAheadPanelStore<Panel: ReusableOpenPanel> {
         )
     }
 
+    /// `makePanel()`, timed into ``history``: marked before the main thread waits, so a launch that ends inside the
+    /// wait is remembered too.
+    private func make(speculative: Bool) -> Panel {
+        history.willMake(speculative: speculative)
+        let start = now()
+        let panel = makePanel()
+        history.didMake(took: start.duration(to: now()), alive: OpenPanelDefaults(of: panel) != nil, speculative: speculative)
+        return panel
+    }
+
     private func check(after delay: Duration, triesLeft: Int) {
         timer.schedule(after: delay) { @MainActor [weak self] in
             guard let self else { return }
@@ -117,7 +138,16 @@ final class MadeAheadPanelStore<Panel: ReusableOpenPanel> {
             case .busy:
                 if triesLeft > 1 { check(after: .seconds(1), triesLeft: triesLeft - 1) }
             case .ready:
-                keep(makePanel())
+                // A speculative make waits on the panel service on the main thread with no deadline (2 to 60 s on a
+                // loaded Mac, hang 2dc58e2ab1): only on a record that proves the service fast, once per process.
+                if let refusal = history.warmUpRefusal() {
+                    if !saidUnproven {
+                        saidUnproven = true
+                        logger.notice("open panel warm-up skipped: \(refusal, privacy: .public); the click makes its panel")
+                    }
+                    return
+                }
+                keep(make(speculative: true))
             }
         }
     }

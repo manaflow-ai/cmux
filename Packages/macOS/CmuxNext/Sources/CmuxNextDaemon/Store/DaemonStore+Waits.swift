@@ -2,9 +2,9 @@
 /// lookup under observation until it matches or its time limit ends, so the lookup reads the one id it waits for (the
 /// index) and the counters that tell it the tree changed, never a walk of every workspace, pane and tab.
 ///
-/// Still session-wide: `tabListRevision`, which ``locatedTab(surface:)`` and ``listsConversationTab(inWorkspace:)``
-/// read, moves on every tab add, move or close in any workspace (`publishTabListChange`). Each such wake costs O(1) or
-/// O(one workspace's tabs), not a walk; ``listedWorkspace(resourceID:)`` reads its own id's cell only.
+/// Still session-wide: `tabListRevision`, which ``locatedTab(surface:)`` reads, moves on every tab add, move or close
+/// in any workspace (`publishTabListChange`). Each such wake costs O(1), not a walk. ``listedWorkspace(resourceID:)``
+/// and ``listsConversationTab(inWorkspace:)`` read their own id's cell only.
 extension DaemonStore {
     /// The tab on `surface`, with its pane and workspace, once the tree lists it. O(1) from the index; it reads
     /// `tabListRevision` (and `workspaces`), so a tracked wait hears the tab come, as `AppServices.locateTab` does.
@@ -14,12 +14,14 @@ extension DaemonStore {
         return (tab, pane, workspace)
     }
 
-    /// Whether the workspace with key `key` lists a conversation tab now. The workspace comes from the index; it reads
-    /// `workspaces`, `workspaceSetRevision` (a workspace confirmed under its key) and `tabListRevision` (a tab comes),
-    /// then that one workspace's tabs only.
+    /// Whether the workspace with key `key` lists a conversation tab now. O(1) to the workspace from the index; it
+    /// reads `key`'s own cell (``IDWaitCells``), which the index touches when a workspace is keyed under `key` or
+    /// dropped from it, then that one workspace's screens, panes and tabs. So a tracked wait hears its workspace come
+    /// and a tab come in it; a tab that comes, goes or moves in any other workspace wakes no wait for `key`.
     public func listsConversationTab(inWorkspace key: String) -> Bool {
-        _ = (workspaces, workspaceSetRevision, tabListRevision)
-        return workspace(key: WorkspaceKey(rawValue: key))?.screens
+        let key = WorkspaceKey(rawValue: key)
+        index.workspaceKeyWaits.read(key)
+        return index.workspacesByKey[key]?.screens
             .flatMap(\.panes).flatMap(\.tabs).contains(where: { $0.kind == .conversation }) ?? false
     }
 
