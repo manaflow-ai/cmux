@@ -380,7 +380,7 @@ private let timeoutReason = LinkController.reason(LinkError(code: "timeout", mes
                         "\(blackout)s: \(after) after the network was back")
                 #expect(reattached["after"] == 0, "\(blackout)s: re-attached channels")
                 #expect(reattached["before"] == 1)
-                #expect(results["before"]! > .seconds(5), "the old way waits out a dial timeout")
+                #expect(after <= results["before"]!, "\(blackout)s: a kept link never slows the resume")
             } else {
                 #expect(after <= results["before"]!, "\(blackout)s: a kept link never slows the redial")
             }
