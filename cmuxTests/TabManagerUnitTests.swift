@@ -1716,7 +1716,9 @@ final class TabManagerWarnBeforeClosingWorkspaceTests: XCTestCase {
         XCTAssertTrue(manager.tabs.contains(where: { $0.id == workspace.id }))
     }
 
-    func testRunningProcessWorkspaceCloseStillWarnsWhenSettingDisabled() {
+    /// #44785: with Warn Before Closing Workspace off, a workspace with a
+    /// running process closes at once, as the setting's Off subtitle says.
+    func testRunningProcessWorkspaceClosesWithoutPromptWhenSettingDisabled() {
         let manager = makeManager(warnBeforeClosingWorkspace: false)
         let workspace = manager.tabs[1]
         markRunningProcess(workspace)
@@ -1727,8 +1729,124 @@ final class TabManagerWarnBeforeClosingWorkspaceTests: XCTestCase {
             return false
         }
 
+        XCTAssertTrue(manager.closeWorkspaceWithConfirmation(workspace))
+        XCTAssertEqual(prompts, [])
+        XCTAssertFalse(manager.tabs.contains(where: { $0.id == workspace.id }))
+    }
+
+    /// #44785: the Close Tab gesture and the sidebar's X button on a workspace
+    /// follow the same setting.
+    func testRunningProcessWorkspaceCloseGesturesSkipPromptWhenSettingDisabled() {
+        let manager = makeManager(warnBeforeClosingWorkspace: false)
+        let first = manager.tabs[0]
+        let second = manager.tabs[1]
+        markRunningProcess(first)
+        markRunningProcess(second)
+
+        var promptCount = 0
+        manager.confirmCloseHandler = { _, _, _ in
+            promptCount += 1
+            return false
+        }
+
+        XCTAssertTrue(manager.closeWorkspaceFromCloseTabGesture(first))
+        XCTAssertTrue(manager.closeWorkspaceFromTabCloseButton(second))
+        XCTAssertEqual(promptCount, 0)
+        XCTAssertEqual(manager.tabs.count, 1)
+    }
+
+    /// Closing a busy workspace's last surface is a tab close: its tab prompt
+    /// still asks with the workspace warning off, as it would if the
+    /// workspace had more surfaces, and "Don't ask again" offers tab kinds.
+    func testLastSurfaceCloseKeepsTabPromptWhenWorkspaceSettingDisabled() {
+        let manager = makeManager(warnBeforeClosingWorkspace: false)
+        let workspace = manager.tabs[1]
+        markRunningProcess(workspace)
+
+        var promptCount = 0
+        var offered: [CloseWarningKinds] = []
+        manager.confirmCloseHandler = { _, _, _ in
+            promptCount += 1
+            return false
+        }
+        manager.confirmCloseDontAskAgainHandler = { kinds in
+            offered.append(kinds)
+            return false
+        }
+
+        XCTAssertFalse(manager.closeWorkspaceFromCloseTabGesture(workspace, closesLastSurface: true))
+        XCTAssertEqual(promptCount, 1)
+        XCTAssertEqual(offered, [[.tab, .safety]])
+        XCTAssertTrue(manager.tabs.contains(where: { $0.id == workspace.id }))
+    }
+
+    func testIdleLastSurfaceClosesWithoutPromptWhenWorkspaceSettingDisabled() {
+        let manager = makeManager(warnBeforeClosingWorkspace: false)
+        let workspace = manager.tabs[1]
+
+        var promptCount = 0
+        manager.confirmCloseHandler = { _, _, _ in
+            promptCount += 1
+            return false
+        }
+
+        XCTAssertTrue(manager.closeWorkspaceFromCloseTabGesture(workspace, closesLastSurface: true))
+        XCTAssertEqual(promptCount, 0)
+    }
+
+    /// #44785: closing several workspaces (not the whole window) with a
+    /// running process in one of them does not ask with the setting off.
+    func testMultiWorkspaceCloseWithRunningProcessSkipsPromptWhenSettingDisabled() {
+        let manager = makeManager(warnBeforeClosingWorkspace: false)
+        markRunningProcess(manager.tabs[0])
+        let targets = [manager.tabs[0].id, manager.tabs[1].id]
+        let survivor = manager.tabs[2].id
+
+        var promptCount = 0
+        manager.confirmCloseHandler = { _, _, _ in
+            promptCount += 1
+            return false
+        }
+
+        manager.closeWorkspacesWithConfirmation(targets, allowPinned: true)
+
+        XCTAssertEqual(promptCount, 0)
+        XCTAssertEqual(manager.tabs.map(\.id), [survivor])
+    }
+
+    func testMultiWorkspaceCloseWithRunningProcessWarnsWhenSettingUnset() {
+        let manager = makeManager(warnBeforeClosingWorkspace: nil)
+        markRunningProcess(manager.tabs[0])
+        let targets = [manager.tabs[0].id, manager.tabs[1].id]
+        let originalIds = manager.tabs.map(\.id)
+
+        var promptCount = 0
+        manager.confirmCloseHandler = { _, _, _ in
+            promptCount += 1
+            return false
+        }
+
+        manager.closeWorkspacesWithConfirmation(targets, allowPinned: true)
+
+        XCTAssertEqual(promptCount, 1)
+        XCTAssertEqual(manager.tabs.map(\.id), originalIds)
+    }
+
+    func testAlwaysConfirmStillAsksForRunningProcessWhenWarningDisabled() {
+        let manager = makeManager(warnBeforeClosingWorkspace: false)
+        manager.closeTabWarningDefaults.set(true, forKey: AppCatalogSection().alwaysConfirmWorkspaceClose.userDefaultsKey)
+        let workspace = manager.tabs[1]
+        markRunningProcess(workspace)
+
+        var offered: [CloseWarningKinds] = []
+        manager.confirmCloseHandler = { _, _, _ in false }
+        manager.confirmCloseDontAskAgainHandler = { kinds in
+            offered.append(kinds)
+            return false
+        }
+
         XCTAssertFalse(manager.closeWorkspaceWithConfirmation(workspace))
-        XCTAssertEqual(prompts, [closeWorkspaceTitle])
+        XCTAssertEqual(offered, [[.alwaysConfirmWorkspace]], "Only Always Confirm made this prompt show")
         XCTAssertTrue(manager.tabs.contains(where: { $0.id == workspace.id }))
     }
 
@@ -2004,7 +2122,7 @@ final class TabManagerCloseDontAskAgainTests: XCTestCase {
 
         drainMainQueue()
         XCTAssertTrue(manager.closeWorkspaceWithConfirmation(second))
-        XCTAssertEqual(promptCount, 2, "The safety warning cannot be disabled")
+        XCTAssertEqual(promptCount, 1, "Don't ask again stops the running-process workspace prompt (#44785)")
     }
 
     func testUntickedDontAskAgainKeepsWarningOn() {
