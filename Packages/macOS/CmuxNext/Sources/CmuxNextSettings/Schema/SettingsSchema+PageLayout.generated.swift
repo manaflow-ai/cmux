@@ -32,8 +32,6 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case mobile
         case devices
         case chiefPet
-        /// Personalization, the profile menu's fast path to every visual choice: the theme studio, the background picker, the Chief's look, chat text and density, and sounds, each drawing the same keys as its home category.
-        case personalization
         /// The density tiles, preview and custom density editor (plans/cmux-next/density-DESIGN.md).
         case density
         /// What this Mac has that cmux can bring over (CmuxNextImportCards), every card found.
@@ -58,7 +56,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case tailnet
         /// Settings > Privacy and Security > Shared Links: every chat this Mac shared by link or invite, with Revoke and Revoke All (design chat-multiplayer.md 2); `cmux.settings.shares.*`. Deep link: #/settings/privacy?focus=card.sharedLinks.
         case sharedLinks
-        /// Personalization > Customization Library: everything the person applied (an ask, a profile, a kept try-on, an import), kept as entries that turn on and off and stack top first, the higher winning (cmux-customize library.rs); the bundled CLI's `cmux customize library`, `cmux.settings.customize.library`.
+        /// Appearance > Customization Library: everything the person applied (an ask, a profile, a kept try-on, an import), kept as entries that turn on and off and stack top first, the higher winning (cmux-customize library.rs); the bundled CLI's `cmux customize library`, `cmux.settings.customize.library`.
         case customizeLibrary
         /// Settings > Appearance > Looks: a gallery of look repos (setup repos, docs/cmux-next/setup-repos.md) from the reviewed catalog, each previewed on the golden sample, installed in one click after its consent card, then stacked top first with on/off, order and uninstall; the bundled CLI's `cmux setup gallery|preview|install|remove|on|off|order`, `cmux.settings.looks`. The gallery itself changes nothing about the default look.
         case looksGallery
@@ -112,6 +110,9 @@ public nonisolated struct SettingsPageLayout: Sendable {
         public var title: SettingText?
         /// The categories of the run, in sidebar order.
         public var categories: [CategorySpec]
+        /// The page draws the run closed under its header (More) until a person opens it, and
+        /// opens it while one of its categories is shown: the sidebar's top level stays short.
+        public var collapsed = false
     }
 
     /// A resolved group card: its rows in display order.
