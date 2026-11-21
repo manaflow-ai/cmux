@@ -10,7 +10,8 @@ import CmuxNextCompat
 /// cover (``AgentPaneLoadingView``): the page's background with the busy mark in the middle, no chat and no composer.
 /// ``draw(_:makeable:in:size:within:)`` waits for the page to be makeable, then for its first paint, both within one
 /// bound (``bound``), and the caller keeps what shows until it returns.
-public enum AgentPaneDrawFirst {
+public struct AgentPaneDrawFirst {
+    public init() {}
     /// The longest the page in sight stays for its replacement. Past the page's own last resort (App.tsx
     /// `CHAT_DRAW_HOLD_MS`, 10 s after its handshake, when it reports its first paint whether its chat is read or not)
     /// plus a cold page load and the handshake: a page that has said nothing by then shows as it is.
