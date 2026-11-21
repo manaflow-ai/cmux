@@ -50,8 +50,10 @@ export function StartFailure({
       {install && (
         <StartRecovery
           key={`${failure.harness ?? ""}:${failure.code ?? ""}:${failure.error}`}
+          kind="install"
           sentence={view.sentence}
-          onInstall={install}
+          label={t("switch.action.install")}
+          onAction={install}
         />
       )}
       <span role="alert">{view.sentence}</span>{" "}

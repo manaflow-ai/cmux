@@ -6,6 +6,7 @@ import { JSDOM } from "jsdom";
 import { SwitchNotice } from "./SwitchNotice";
 import { StartFailure } from "./newtab/StartFailure";
 import { setStartRecoveryPreview } from "./startRecoveryPreview";
+import { SIGN_IN_REQUIRED } from "./startRefusal";
 import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
@@ -198,4 +199,62 @@ test("unknown authentication, quota and outdated CLI failures do not open instal
     );
     expect(doc.querySelector('[role="dialog"]')).toBeNull();
   }
+});
+
+function signedOut(ran: string[], props: { installs?: boolean; runsLogin?: boolean } = {}) {
+  return (
+    <SwitchNotice
+      switching={{
+        harness: "codex",
+        name: "Codex",
+        phase: "failed",
+        code: SIGN_IN_REQUIRED,
+        error: "Codex isn't signed in on this machine.",
+      }}
+      installs={props.installs ?? true}
+      runsLogin={props.runsLogin ?? true}
+      onRetry={() => ran.push("retry")}
+      onAction={(action) => ran.push(`codex:${action}`)}
+    />
+  );
+}
+
+test("signed out on this Mac: Labs off draws no dialog; the card's Sign in stays", async () => {
+  const ran: string[] = [];
+  const doc = render(signedOut(ran));
+  expect(doc.querySelector('[role="dialog"]')).toBeNull();
+  expect(doc.querySelector(".acpmux-host-error-actions")?.textContent).toContain("Codex");
+  expect(ran).toEqual([]);
+});
+
+test("signed out on this Mac, Labs on: Sign in runs the card's own sign-in once, never Install", async () => {
+  const ran: string[] = [];
+  const doc = render(signedOut(ran));
+  await enable();
+  const dialog = doc.querySelector('[role="dialog"]');
+  expect(dialog).toBeTruthy();
+  expect(dialog?.querySelector('button[data-variant="solid"]')?.textContent).toContain("Codex");
+  expect(ran).toEqual([]);
+  await click(doc, '[role="dialog"] button[data-variant="solid"]');
+  expect(ran).toEqual(["codex:signIn"]);
+  expect(doc.querySelector('[role="dialog"]')).toBeNull();
+  expect(doc.querySelector(".acpmux-host-error-message")).toBeTruthy();
+});
+
+test("signed out: dismissal signs nothing in; Retry stays on the card", async () => {
+  const ran: string[] = [];
+  const doc = render(signedOut(ran));
+  await enable();
+  await click(doc, '[role="dialog"] button[data-variant="subtle"]');
+  expect(ran).toEqual([]);
+  expect(doc.querySelector('[role="dialog"]')).toBeNull();
+  expect(doc.querySelector(".acpmux-host-error-actions")?.textContent).toContain("Retry");
+});
+
+test("signed out with no login command, or on another machine, opens no sign-in dialog", async () => {
+  const doc = render(signedOut([], { runsLogin: false }));
+  await enable();
+  expect(doc.querySelector('[role="dialog"]')).toBeNull();
+  await act(async () => root!.render(signedOut([], { installs: false })));
+  expect(doc.querySelector('[role="dialog"]')).toBeNull();
 });

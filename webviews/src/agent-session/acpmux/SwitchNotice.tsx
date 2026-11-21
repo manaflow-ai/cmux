@@ -77,11 +77,15 @@ export function SwitchNotice({
   const hint = refusal === "signIn" && signIn === undefined && !installs ? t("switch.signInElsewhere") : undefined;
   return (
     <div className="acpmux-host-error acpmux-switch-failed" role="alert">
-      {action === "install" && onAction && (
+      {(action === "install" || action === "signIn") && onAction && (
         <StartRecovery
           key={`${switching.harness}:${switching.code ?? ""}:${switching.error ?? ""}`}
+          kind={action}
           sentence={view.sentence}
-          onInstall={() => onAction("install")}
+          label={
+            action === "signIn" ? t("switch.action.signInTo", { harness: switching.name }) : t("switch.action.install")
+          }
+          onAction={() => onAction(action)}
         />
       )}
       <div className="acpmux-host-error-card">

@@ -5,7 +5,8 @@ import { defineExperiment } from "../../experiments/experiment";
 export const startRecoveryLook = defineExperiment({
   id: "start-recovery",
   title: "Start recovery",
-  description: "A missing local agent's existing Install action in a dismissible recovery dialog.",
+  description:
+    "A missing or signed-out local agent's existing Install or Sign in action in a dismissible recovery dialog.",
   arms: {
     compact: {
       label: "Compact side",
