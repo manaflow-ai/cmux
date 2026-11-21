@@ -128,13 +128,13 @@ final class AppControl {
             .mainActor("apps.views") { [weak services] call in .value(services?.apps.client.viewsReport(app: call.params["app"]?.stringValue) ?? .null) },
             // Ghostty config keys and keybind actions cmux does not apply (R92).
             GhosttyDiagnosticsControl().method,
-            // `cmux app chat perf`: a chat page's frames and record-to-paint times, read-only; finds the page, never shows it.
-            AgentChatPerfControl { [weak services] id in
-                guard let services, let (tab, _) = services.locateTab(id) else { return .missing }
-                guard tab.agentSession != nil else { return .notAgentChat }
-                return services.madeAgentTabs.flatMap { $0.views[$0.tabKey(of: tab)] }.map { .page($0) } ?? .notLoaded
-            }.controlMethod(),
         ])
+        // `cmux app chat perf` (frames and record-to-paint times, read-only) and `agent.chat.drive` (a held hover and wheel ticks): the chat page by tab id, never shown.
+        service.router.register(AgentChatPerfControl { [weak services] id in
+            guard let services, let (tab, _) = services.locateTab(id) else { return .missing }
+            guard tab.agentSession != nil else { return .notAgentChat }
+            return services.madeAgentTabs.flatMap { $0.views[$0.tabKey(of: tab)] }.map { .page($0) } ?? .notLoaded
+        }.controlMethods())
         // Diagnostics for tagged DEV builds; a release build registers none (ControlRouter drops them: Configuration.allowsDebugMethods).
         #if DEBUG || CMUX_BENCH_HOOKS
         // The newest action runs and the over-budget counters (zero-latency.md, the budget contract).
