@@ -3,10 +3,12 @@
 //! takes it. Any client moves it between the two (the app, a Move to Cloud service, `acpmux
 //! transfer`), so neither daemon needs to reach the other:
 //!
-//! 1. source `_acpmux/transfer_begin {sessionId, interrupt?, to?: {socket, ssh?, host?},
-//!    gatesQueueApproval?}`: the chat stops
-//!    taking prompts and starting queued ones (a running turn refuses the move, or stops with
-//!    `interrupt`), and its bundle (`transfer.rs` export) is made. A turn `interrupt` stops goes
+//! 1. source `_acpmux/transfer_begin {sessionId, interrupt?, atToolBoundary?, to?: {socket,
+//!    ssh?, host?}, gatesQueueApproval?}`: the chat stops
+//!    taking prompts and starting queued ones (a running turn refuses the move, stops with
+//!    `interrupt`, or with `atToolBoundary` stops once no tool call of it runs and until then
+//!    answers `transfer.tool_in_flight`: [`TurnCut`]), and its bundle (`transfer.rs` export) is
+//!    made. A turn the move stops goes
 //!    on: its continuation is queued first (`restart_resume.rs`, reason `moved`), so it runs where
 //!    the chat lands, or here when the move is aborted. Answers `{schema, transferId,
 //!    sessionId, files: [{path, size}], session, continues?}` (`continues`: that continuation's
@@ -99,6 +101,42 @@ pub(super) fn sweep_transfers(moving: &[String]) {
             let _ = crate::home_fs::remove_dir_all(entry.path());
         }
     }
+}
+
+/// How `transfer_begin` treats a running turn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::hub) enum TurnCut {
+    /// Refuses the move (`transfer.busy`): no `interrupt`, no `atToolBoundary`.
+    Refuse,
+    /// Cuts it now (`interrupt`), a tool call in flight or not.
+    Now,
+    /// Cuts it only while no tool call of it runs (`atToolBoundary`): between a tool's result and
+    /// the model's next step, or while it waits on the person's permission, when nothing it
+    /// started is under way. Else `transfer.tool_in_flight`, and the client asks again. Every tool
+    /// result so far is in the agent's transcript, which the bundle carries, and the turn's
+    /// continuation (`restart_resume.rs` `Cut::Move`) goes on from it on the target. Leo,
+    /// 2026-11-21: "you're supposed to be able to move shit while it's running. that's teh whole
+    /// point."
+    AtToolBoundary,
+}
+
+/// The `transfer.` code of a begin that waits for a tool call to end ([`TurnCut::AtToolBoundary`]).
+pub(crate) const TOOL_IN_FLIGHT: &str = "tool_in_flight";
+
+/// Whether a tool call `doing` holds in flight runs: one that only waits on the person's answer to
+/// a permission request in `pending` (`Session::pending_permissions`) has not started.
+pub(in crate::hub) fn tool_runs(
+    doing: &super::activity::TurnActivity,
+    pending: &[(String, Value)],
+) -> bool {
+    if doing.open_past_cap > 0 {
+        return true;
+    }
+    let asked: std::collections::BTreeSet<&str> = pending
+        .iter()
+        .filter_map(|(_, r)| r.pointer("/toolCall/toolCallId").and_then(Value::as_str))
+        .collect();
+    doing.open_tools.iter().any(|id| !asked.contains(id.as_str()))
 }
 
 fn transfer_error(what: &str, message: impl std::fmt::Display) -> RpcError {
@@ -254,7 +292,15 @@ impl Hub {
                 // The client hands the bundle only to a receiver whose own `initialize` listed
                 // queue approval when it carries approved prompts that still wait.
                 let gates = params.get("gatesQueueApproval").and_then(Value::as_bool) == Some(true);
-                self.transfer_begin(&session, interrupt, socket, ssh, host, gates).await
+                // A running turn is cut only between its tool calls (`transfer_begin`).
+                let at_boundary =
+                    params.get("atToolBoundary").and_then(Value::as_bool) == Some(true);
+                let cut = match (interrupt, at_boundary) {
+                    (true, _) => TurnCut::Now,
+                    (false, true) => TurnCut::AtToolBoundary,
+                    (false, false) => TurnCut::Refuse,
+                };
+                self.transfer_begin(&session, cut, socket, ssh, host, gates).await
             }
             "read" => {
                 let offset = params.get("offset").and_then(Value::as_u64).unwrap_or(0);
@@ -309,7 +355,7 @@ impl Hub {
     async fn transfer_begin(
         self: &Arc<Self>,
         session: &Arc<Session>,
-        interrupt: bool,
+        cut: TurnCut,
         to: Option<&str>,
         to_ssh: Option<&str>,
         to_host: Option<&str>,
@@ -357,9 +403,22 @@ impl Hub {
             e
         };
         // No turn may run while the bundle is made: one that runs stops only if asked.
-        if let Some(running) = session.turn().map(|t| t.turn_id) {
-            if !interrupt {
-                return Err(unfreeze(transfer_error("busy", "a turn is running"), None));
+        if let Some(turn) = session.turn() {
+            let running = turn.turn_id.clone();
+            match cut {
+                TurnCut::Refuse => {
+                    return Err(unfreeze(transfer_error("busy", "a turn is running"), None));
+                }
+                TurnCut::AtToolBoundary
+                    if tool_runs(&turn.doing, &session.pending_permissions()) =>
+                {
+                    let e = transfer_error(
+                        TOOL_IN_FLIGHT,
+                        "a tool call of the running turn is in flight; the move cuts the turn once it ends",
+                    );
+                    return Err(unfreeze(e, None));
+                }
+                TurnCut::AtToolBoundary | TurnCut::Now => {}
             }
             // A Stop while Claude compacts withdraws the person's queued prompts (`cancel.rs`):
             // the move waits for the compaction instead of losing them.
@@ -392,7 +451,7 @@ impl Hub {
             }
         }
         let carried = carried.as_deref();
-        let wait = std::time::Duration::from_secs(if interrupt { 20 } else { 2 });
+        let wait = std::time::Duration::from_secs(if cut == TurnCut::Refuse { 2 } else { 20 });
         let Ok(guard) = tokio::time::timeout(wait, session.turn_lock.lock()).await else {
             return Err(unfreeze(transfer_error("busy", "the running turn did not stop"), carried));
         };
@@ -754,6 +813,20 @@ impl Hub {
 #[cfg(test)]
 mod fencing_tests {
     use super::*;
+
+    #[test]
+    fn a_tool_call_runs_unless_it_only_waits_on_a_permission() {
+        let mut doing = super::super::activity::TurnActivity::default();
+        assert!(!tool_runs(&doing, &[]), "no tool call: a move may stop the turn");
+        doing.open_tools.insert("t-1".into());
+        assert!(tool_runs(&doing, &[]), "a call in flight runs");
+        let asked = json!({"toolCall": {"toolCallId": "t-1"}});
+        assert!(!tool_runs(&doing, &[("r".into(), asked.clone())]), "it waits on the person");
+        doing.open_tools.insert("t-2".into());
+        assert!(tool_runs(&doing, &[("r".into(), asked)]), "another call runs beside it");
+        let past = super::super::activity::TurnActivity { open_past_cap: 1, ..Default::default() };
+        assert!(tool_runs(&past, &[]), "a call past the id cap runs");
+    }
 
     #[test]
     fn a_delayed_owner_is_rejected_for_every_transfer_write_path() {

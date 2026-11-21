@@ -24,6 +24,8 @@ Behaviour per prompt text:
   "goal: <objective>" -> a Codex goal as session_info_update _meta.goal (running 32 min), then a short reply
   "/goal pause|resume|clear|<text>" -> that goal paused, running again, gone, or set to <text>
   "work-gate: <p>" -> a plan step in progress and a running tool call, then as "gate:"
+  "tool-then-cancel: <p>" -> a running tool call tc-1 until a write to FIFO <p>, its result, then
+                 as "until-cancel" (a turn a move may stop between its tool calls)
   "elapsed-tour:" -> a finished shell, a shell gone on in the background, then a shell
                  held running in the foreground (until session/cancel, else 300 s)
   image blocks -> the echo ends with " image:<sha256 of its bytes>" for each
@@ -782,6 +784,24 @@ def handle_prompt(rid, params):
     # tool call (TITLE, else "Run cargo test"), then blocks on the FIFO at PATH
     # (as "gate:") and ends: "worked" and end_turn, or cancelled when a
     # session/cancel came while it was blocked.
+    if text.startswith("tool-then-cancel:"):
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "tc-1", "title": "Run the build",
+                     "kind": "execute", "status": "in_progress"})
+        with open(text[len("tool-then-cancel:"):].strip()) as gate:
+            gate.read()
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "tc-1", "status": "completed",
+                     "rawOutput": "built"})
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "running"}})
+        for _ in range(600):
+            with lock:
+                was_cancelled = sid in cancelled
+                cancelled.discard(sid)
+            if was_cancelled:
+                send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+                return
+            time.sleep(0.05)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text.startswith("work-gate:"):
         path, _, title = text[len("work-gate:"):].partition(" | ")
         update(sid, {"sessionUpdate": "plan", "entries": [
