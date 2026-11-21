@@ -469,19 +469,21 @@ extension TerminalSurface {
 #endif
     }
 
+    /// Rebuilds the renderer once per visibility episode after a presentation probe fails.
     @MainActor
     private func recoverRendererPresentationIfNeeded(reason: String) {
         guard renderHealth != .shellExited,
               !rendererPresentationState.recoveryAttempted,
               rendererPortalVisible,
+              rendererWindowVisible,
               rendererPresentationPhase == .presented,
               liveSurfaceForGhosttyAccess(reason: "renderer.recover.\(reason)") != nil else {
             return
         }
         rendererPresentationState.recoveryAttempted = true
-        forceRefresh(reason: "renderer.recover.\(reason)")
+        rendererPresentationPhase = .awaitingFirstPresentation
         renderHealth = .awaitingFrame
-        requestRendererPresentationProbe(reason: "recovery.\(reason)")
+        ensureRendererPresented(presentationReady: true)
     }
 
     /// Records that the child process has exited while retaining the pane for
