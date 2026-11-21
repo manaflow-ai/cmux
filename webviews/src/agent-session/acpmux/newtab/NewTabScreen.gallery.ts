@@ -1046,23 +1046,40 @@ export default agentPaneEntry({
       },
     },
     "typed-prompt": {
-      note: "A typed instruction: Ask first (Return's, highlighted), then a web search in the popover. Unrelated creation commands stay hidden; the cards stay where they were.",
+      note: "A typed instruction (David Beyer 2026-11-20): Return asks the agent the model chip names, so the popover has no row for it and nothing is highlighted; the web search is the one row, a Down away. Unrelated creation commands stay hidden; the cards stay where they were.",
       ready: newTab({ projects: [CWD] }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
         await typePrompt(ctx, "fix the flaky upload test");
+        await ctx.waitFor(() => ctx.document.querySelector('.nt-popover .nt-row[data-type="search"]'));
+        if (ctx.document.querySelector('.nt-row[data-type="ask"], .nt-row.is-selected'))
+          throw new Error("the prompt for the chip's agent shows as a row, or a row holds Return");
       },
     },
     "typed-command": {
-      note: "A shell command typed with no ! first: Run in Terminal leads (Return's, highlighted), Ask the agent second.",
+      note: "A shell command typed with no ! first: Run in Terminal leads (Return's, highlighted, ↩ at its end) and Send shows the terminal glyph, so Return's action shows before Return (David Beyer 2026-11-20); Ask the agent second.",
       ready: newTab({ projects: [CWD] }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
         await typePrompt(ctx, "git status");
+        await ctx.waitFor(() => ctx.document.querySelector('.nt-row[data-type="run"].is-selected .nt-row-return'));
+        if (!ctx.document.querySelector('.nt-send[data-returns="run"] svg[data-icon="terminal"]'))
+          throw new Error("Send does not show Run's terminal glyph");
+      },
+    },
+    "typed-lone-word": {
+      note: 'One word that names a program and a prompt ("test", David Beyer 2026-11-20: a word he typed ran as a shell command): Return asks the agent (no row, nothing highlighted, Send\'s arrow), Run in Terminal is the first row, a Down away.',
+      ready: newTab({ projects: [CWD] }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await typePrompt(ctx, "test");
+        await ctx.waitFor(() => ctx.document.querySelector('.nt-popover .nt-row[data-type="run"]'));
+        if (ctx.document.querySelector(".nt-row.is-selected, .nt-send[data-returns]"))
+          throw new Error("Return does something other than asking the agent");
       },
     },
     "typed-hover": {
-      note: '"helo" typed, the pointer resting on the web search suggestion. Ask Claude Code keeps Return\'s highlight, so Return sends the prompt.',
+      note: "\"helo\" typed, the pointer resting on the web search suggestion. Return stays the prompt's (nothing highlighted, Send's arrow), so Return sends it.",
       ready: newTab({ projects: [CWD] }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
@@ -1087,21 +1104,23 @@ export default agentPaneEntry({
       },
     },
     "typed-keywords": {
-      note: 'Leo 2026-10-20 (no Search | Ask switch) and 2026-10-24 ("Search the web. Do you really want that first?"): plain keywords. Ask Claude Code leads (Return\'s, highlighted), the web search is the last row.',
+      note: 'Leo 2026-10-20 (no Search | Ask switch) and 2026-10-24 ("Search the web. Do you really want that first?"): plain keywords. Return asks the agent the chip names (no row, nothing highlighted: David Beyer 2026-11-20), the web search is the last row.',
       ready: newTab({ projects: [CWD] }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
         await typePrompt(ctx, "rust serde");
-        await ctx.waitFor(() => ctx.document.querySelector('#nt-row-0[data-type="ask"][aria-selected="true"]'));
+        await ctx.waitFor(() => ctx.document.querySelector('.nt-popover .nt-row[data-type="search"]'));
+        if (ctx.document.querySelector(".nt-row.is-selected")) throw new Error("a row holds the prompt's Return");
       },
     },
     "typed-question": {
-      note: "A question: Ask Claude Code leads (Return's, highlighted), the web search one row down.",
+      note: "A question: Return asks the agent the chip names (no row, nothing highlighted), the web search one Down away.",
       ready: newTab({ projects: [CWD] }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
         await typePrompt(ctx, "why does the upload test flake?");
-        await ctx.waitFor(() => ctx.document.querySelector('#nt-row-0[data-type="ask"][aria-selected="true"]'));
+        await ctx.waitFor(() => ctx.document.querySelector('.nt-popover .nt-row[data-type="search"]'));
+        if (ctx.document.querySelector(".nt-row.is-selected")) throw new Error("a row holds the prompt's Return");
       },
     },
     "typed-tab-match": {
@@ -1250,7 +1269,7 @@ export default agentPaneEntry({
       },
     },
     "typed-address": {
-      note: "An address: open it first (highlighted), then a web search and Ask.",
+      note: "An address: open it first (highlighted, ↩ at its end, Send's link glyph), then a web search and Ask.",
       ready: newTab(),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
@@ -1398,8 +1417,6 @@ export default agentPaneEntry({
           throw new Error("command shortcuts are missing");
         if (ctx.document.querySelector('.nt-row[data-type="action"] .nt-row-detail'))
           throw new Error("command group labels still show");
-        if (!ctx.document.querySelector('.nt-row[data-type="ask"] .nt-row-detail')?.textContent)
-          throw new Error("Ask model is missing");
         if (ctx.document.querySelector(".nt-section, .nt-popover .nt-row-action"))
           throw new Error("suggestion labels still show");
       },
