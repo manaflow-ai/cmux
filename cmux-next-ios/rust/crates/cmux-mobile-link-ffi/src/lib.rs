@@ -14,12 +14,14 @@ use cmux_mobile_link::{
 };
 use tokio::runtime::Runtime;
 
+mod auth_coordinator;
 mod browser;
 mod classic_leftovers;
 mod link_side;
 mod terminal_chat;
 mod terminal_prediction;
 
+pub use auth_coordinator::AuthCoordinator;
 pub use browser::{BrowserFrame, BrowserObserver, BrowserStats, BrowserStream};
 pub use classic_leftovers::{ClassicCleanupPlan, KeychainDelete, KeychainLeftover};
 pub use link_side::{LinkOpenSide, link_open_side};

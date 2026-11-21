@@ -1342,6 +1342,13 @@ dependencies = [
 [[package]]
 name = "cmux-auth-coordinator"
 version = "0.1.0"
+dependencies = [
+ "base64",
+ "cmux-stack-auth",
+ "serde",
+ "serde_json",
+ "tokio",
+]
 
 [[package]]
 name = "cmux-automations"

@@ -20,6 +20,8 @@ redundant_clone = "warn"
 cmux-mobile-link = { path = "crates/cmux-mobile-link" }
 # The build space value and its fail-closed rule, shared with the Mac's other Rust cloud clients.
 cmux-build-space = { path = "../../cmux-tui/crates/cmux-build-space" }
+# The sign-in and session reducer, in the phone's process (the Mac links it through cmux-app-ffi).
+cmux-auth-coordinator = { path = "../../cmux-tui/crates/cmux-auth-coordinator" }
 cmux-wg = { path = "../../cmux-tui/crates/cmux-wg" }
 cmux-transport = { path = "../../cmux-tui/crates/cmux-transport" }
 # cmux.rd/1 + cmux.rb/1 (streamed browser tabs, verify/browser-stream.md).

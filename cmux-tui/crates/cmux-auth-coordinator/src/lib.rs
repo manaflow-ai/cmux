@@ -16,11 +16,18 @@
 //! Deadlines, task cancellation and joins stay with the caller; [`AuthPhase`]
 //! says which runner and [`PhaseBudget`] which deadline each call uses, and
 //! [`PhaseDamper`] is the timed-out-phase registry.
+//!
+//! [`wire`] is the JSON both app libraries speak, in process on both
+//! platforms (iOS runs no daemon): [`ffi`] is the macOS app's C ABI
+//! (`include/cmux_auth_coordinator.h`, linked through cmux-app-ffi), and
+//! `cmux-mobile-link-ffi`'s `AuthCoordinator` the iOS app's UniFFI object.
 
 mod coordinator;
 mod event;
+pub mod ffi;
 mod model;
 mod phase;
+pub mod wire;
 
 pub use coordinator::Coordinator;
 pub use event::{

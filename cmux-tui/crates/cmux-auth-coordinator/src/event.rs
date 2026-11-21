@@ -3,12 +3,15 @@
 
 use std::time::Duration;
 
+use serde::{Deserialize, Serialize};
+
 use crate::model::{AuthTeam, AuthUser, SessionIdentity, TeamScope};
 use crate::phase::{AuthPhase, PhaseBudget};
 
 /// A failure, already classified by the caller (the display-safe reading of
 /// a client or SDK error).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum AuthFailure {
     /// A cancellation: a newer session transition won.
     Cancelled,
@@ -20,6 +23,7 @@ pub enum AuthFailure {
     InvalidCode,
     /// The sign-in service answered 429.
     RateLimited {
+        #[serde(default, with = "crate::wire::ms_opt")]
         retry_after: Option<Duration>,
     },
     /// A transient failure the caller may retry.
@@ -28,7 +32,8 @@ pub enum AuthFailure {
 }
 
 /// What the session cache last read when the coordinator was built.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct Persisted {
     pub cached_user: Option<AuthUser>,
     pub has_tokens: bool,
@@ -36,7 +41,8 @@ pub struct Persisted {
 }
 
 /// The staleness context a restore captures at entry (Swift `checkExistingSessionBody`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RestoreTicket {
     /// Which restore run this answer belongs to: one run at a time owns the
     /// restore, and the answers of a finished run are dropped.
@@ -49,7 +55,8 @@ pub struct RestoreTicket {
 
 /// The staleness context a sign-in flow captures before its first await
 /// (Swift `SignInFlowContext`), plus how it was asked for.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SignInFlow {
     pub generation: u64,
     pub attempt: u64,
@@ -59,7 +66,8 @@ pub struct SignInFlow {
 }
 
 /// Which sign-in a flow runs.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum SignInKind {
     /// A magic-link code against the pending nonce.
     VerifyCode,
@@ -83,7 +91,8 @@ impl SignInKind {
 }
 
 /// What runs once a team-list read finishes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum AfterTeams {
     /// Nothing: a plain refresh.
     Nothing,
@@ -94,7 +103,8 @@ pub enum AfterTeams {
 }
 
 /// The context of one team-list read (Swift `refreshTeams(generation:)`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TeamRefreshTicket {
     /// Which read this is: each read is answered once, and a repeated or
     /// unknown answer is dropped.
@@ -108,14 +118,16 @@ pub struct TeamRefreshTicket {
 }
 
 /// A team-list read's answer: the teams and the server's selected team.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TeamList {
     pub teams: Vec<AuthTeam>,
     pub server_selected_team_id: Option<String>,
 }
 
 /// Where the restore's automatic sign-in takes its credentials from.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum AutoLoginSource {
     /// The launch environment's credentials.
     Environment,
@@ -124,14 +136,16 @@ pub enum AutoLoginSource {
 }
 
 /// Which token read found nothing usable.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum TokenReadKind {
     AccessToken,
     ForceRefreshAccessToken,
 }
 
 /// How the restore was asked for.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum RestoreTrigger {
     /// `start()`: launch bootstrap.
     Launch,
@@ -142,7 +156,8 @@ pub enum RestoreTrigger {
 }
 
 /// An input to the reducer.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Event {
     /// A restore entry point.
     Restore(RestoreTrigger),
@@ -279,7 +294,8 @@ impl Event {
 }
 
 /// An output of the reducer: I/O or a publication for the caller to run.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Effect {
     /// Runs before every session generation change the caller did not announce.
     NotifySessionWillTransition,
@@ -321,6 +337,7 @@ pub enum Effect {
     CheckTokenStorageAvailable(RestoreTicket),
     RetryProbeAfter {
         ticket: RestoreTicket,
+        #[serde(with = "crate::wire::ms")]
         delay: Duration,
     },
     /// Run a password sign-in with `sets_loading: false`, then send
@@ -355,7 +372,9 @@ pub enum Effect {
     /// Run the post-sign-in hook under [`AuthPhase::PostSignIn`].
     RunPostSignInHook(TeamRefreshTicket),
     SessionCheckRateLimited {
+        #[serde(with = "crate::wire::ms_opt")]
         retry_after: Option<Duration>,
+        #[serde(with = "crate::wire::ms")]
         backoff: Duration,
         attempt: u32,
     },
@@ -366,6 +385,7 @@ pub enum Effect {
     /// [`Effect::CancelTeamScopeRecovery`] with the same id.
     SleepTeamScopeRecovery {
         id: u64,
+        #[serde(with = "crate::wire::ms")]
         delay: Duration,
     },
     CancelTeamScopeRecovery {

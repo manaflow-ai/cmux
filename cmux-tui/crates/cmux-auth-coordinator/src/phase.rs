@@ -4,8 +4,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
+use serde::Serialize;
+
 /// The sign-in or session phase a deadline applies to (Swift `AuthPhase`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum AuthPhase {
     SendCode,
     VerifyCode,
@@ -70,7 +73,8 @@ pub enum PhaseRunner {
 }
 
 /// Which of the timeout table's deadlines a call uses (Swift `AuthTimeouts`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub enum PhaseBudget {
     /// 300 s by default: flows with a system sign-in sheet.
     Interactive,
