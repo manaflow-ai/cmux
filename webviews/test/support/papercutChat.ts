@@ -138,6 +138,9 @@ export async function papercutPane(
     /// does (`hub/paging.rs`), instead of the `attachPage` size: a scroll-up bench reads the page sizes
     /// the pane asks for (direct.ts OLDER_PAGE_RECORDS, OLDER_PAGE_BYTES).
     askedPageSize?: boolean;
+    /// `_acpmux/attachment` answers: a sent image's bytes by its id (hub/prompt_images.rs). Unset,
+    /// the stand-in has none (a null reply).
+    attachments?: Record<string, { mimeType: string; data: string }>;
   },
 ) {
   const { createServer } = await import("vite");
@@ -174,6 +177,8 @@ export async function papercutPane(
           ...(options.daemonIndexes && options.attachPage ? { turnOpener } : {}),
         };
       }
+      case "_acpmux/attachment":
+        return options.attachments?.[String(params?.id)] ?? null;
       case "_acpmux/events": {
         const before = typeof params?.beforeSeq === "number" ? params.beforeSeq : undefined;
         if (!options.attachPage || before === undefined) return { events: [], hasMore: false, lastSeq: events.length };
