@@ -47,7 +47,8 @@ else, and never waits:
 2. a pick claims a host only when its label resolves to exactly one idle runner: an idle DEV slot or root
    runner pinned by its static label, or the one idle DEV slot when there is only one; the nearest record
    wins, a slot first at equal distance;
-3. otherwise the shared DEV slot label when a slot is idle, then the side label, at once;
+3. otherwise the shared DEV slot label when a slot is idle, at once; never the side label, whose queue GitHub hands
+   out oldest first, so an idle side runner in the listing is no place in line (run 44941204257, 2026-11-21);
 4. with nothing owned idle, the Blacksmith macOS label whose queue moves (blacksmith_overflow(): the nightly
    signer's pick, nightly_sign_runner.pick(), from the queue janitor's pool snapshot), the routing order's last
    resort, as nightly-next's app build overflows (nightly_build_runner.blacksmith_route()). The DEV slot label
@@ -290,7 +291,6 @@ def place_daily(side_label: str, fresh_label: str, read_runners: Callable[[], Se
     idle = [(str(runner["name"]), {str(label.get("name")) for label in runner.get("labels") or []
                                    if isinstance(label, Mapping)}) for runner in online if not runner.get("busy")]
     slots = [(name, labels) for name, labels in idle if fresh_label in labels]
-    sides = [name for name, labels in idle if side_label in labels]
     scored = []
     for name, labels in idle:
         if host_of(name) in occupied:
@@ -313,9 +313,10 @@ def place_daily(side_label: str, fresh_label: str, read_runners: Callable[[], Se
     if slots:
         return {**DAILY_KEEP, "runs_on": json.dumps(fresh_label), "runner_label": fresh_label, "pool": "owned",
                 "reason": f"no idle runner on a free host with a cache record; {len(slots)} DEV slots are idle"}
-    if sides:
-        return {**DAILY_KEEP, "runs_on": json.dumps(side_label), "runner_label": side_label, "pool": "owned",
-                "reason": f"no idle runner on a free host with a cache record; {len(sides)} side runners are idle"}
+    # Never the shared side label, even with a side runner idle in this one listing: GitHub hands that label's queue
+    # out oldest first, so the compile joins the tail behind every PR job queued there (run 44941204257, 2026-11-21:
+    # queued 76 min on glaeda-side-std-xcode-26.6 behind about 130 jobs, then refused for capacity). Leo's rule:
+    # "Nightlies come first on the fleet".
     label, why, stalled_everywhere = overflow() if overflow is not None else ("", "no Blacksmith pick", True)
     if label and not stalled_everywhere:
         return {**DAILY_KEEP, "runs_on": json.dumps(label), "runner_label": label, "pool": "blacksmith",
