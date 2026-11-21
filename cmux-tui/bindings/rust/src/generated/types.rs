@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 9e23695456a61db1d4ae9aa726f4287919ff5a51a8c001cf11da3b30c1555dd2.
+// cmux-tui mux protocol 12, IR 5feb097e63a0b89cd29bb190b63d648400b8e4791f9ad5ee8878f009fdb461e4.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1903,6 +1903,8 @@ pub struct ServerStatsConnections {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsDisk {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub checkpoints: Optional<ServerStatsDiskCheckpoints>,
     pub error: Nullable<String>,
     pub files: Vec<ServerStatsDiskFile>,
     pub files_truncated: bool,
@@ -1915,6 +1917,16 @@ pub struct ServerStatsDisk {
     pub segments: Nullable<ServerStatsDiskSegments>,
     pub shm_bytes: u64,
     pub wal_bytes: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsDiskCheckpoints {
+    pub budget_bytes: u64,
+    pub bytes: u64,
+    pub checkpoints: u64,
+    pub largest_bytes: u64,
+    pub over_budget: bool,
 }
 
 #[rustfmt::skip]
