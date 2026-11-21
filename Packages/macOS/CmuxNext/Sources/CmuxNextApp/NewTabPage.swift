@@ -57,12 +57,12 @@ enum NewTabPage {
     static func omnibar(_ services: AppServices, excluding selectedID: String?, paletteActions: Bool = true) -> AgentPaneOmnibar {
         let (tabs, workspaces, folders) = places(services, excluding: selectedID)
         let history = services.cache.history(for: .default).entries.prefix(AgentPaneOmnibar.maximumEntries).map {
-            AgentPaneOmnibar.Page(url: $0.url.absoluteString, title: $0.title, icon: AppServices.dataURL(services.siteFavicon($0.url, profile: .default)))
+            AgentPaneOmnibar.Page(url: $0.url.absoluteString, title: $0.title, icon: Self.faviconDataURL(services.siteFavicon($0.url, profile: .default)))
         }
         let bookmarks = services.bookmarks.tree(BrowserProfileRecord.defaultID).bookmarks.prefix(AgentPaneOmnibar.maximumEntries).compactMap { bookmark -> AgentPaneOmnibar.Page? in
             guard let url = bookmark.url else { return nil }
             let icon = services.bookmarks.favicon(of: bookmark, profile: BrowserProfileRecord.defaultID, fetching: true)
-            return AgentPaneOmnibar.Page(url: url.absoluteString, title: bookmark.displayTitle, icon: AppServices.dataURL(icon))
+            return AgentPaneOmnibar.Page(url: url.absoluteString, title: bookmark.displayTitle, icon: Self.faviconDataURL(icon))
         }
         let commands = services.history.commands.entries().prefix(AgentPaneOmnibar.maximumEntries).compactMap(\.title)
         // Every Commands palette (Cmd-Shift-P) action, from the palette's own rows (one source).
@@ -84,6 +84,14 @@ enum NewTabPage {
         BenchSpans.measure("newTab.paletteActions") { services.palette.commandEntries().map(AgentPaneOmnibar.Action.init(paletteEntry:)) }
     }
 
+    /// Converts an icon already available to the app into the inline row image. A non-nil image means the
+    /// browser/favicon store answered synchronously from its cache. This mark is debug-bench evidence only and
+    /// is compiled out of release builds, so it never adds work to the field's key path.
+    private static func faviconDataURL(_ image: TabImage?) -> String? {
+        if image != nil { BenchSpans.mark("newTab.favicon.cacheHit") }
+        return AppServices.dataURL(image)
+    }
+
     /// The bar's places from the rows that the places feed keeps (a page's open maps no workspace), with
     /// each listed row's icon read here, as the strip draws it (a kept row has none); before the feed's
     /// first rows, from one walk of every machine's workspaces. `current` is the workspace the page's window shows (the active
@@ -96,7 +104,10 @@ enum NewTabPage {
         return services.newTabPlaces.places(current: current, excluding: selectedID, limit: limit, icon: { machine, id in
             // The row's own machine, also while its feature is off: the walk gave each listed row its own tab's icon.
             let tab = machine.flatMap { services.machines.anyDaemon(machine: $0) }?.store.tab(idOrResource: id)
-            return tab.flatMap { services.tabFavicon($0) }.flatMap { image in services.newTabPlaces.icon(image) { AppServices.dataURL(image) } }
+            return tab.flatMap { services.tabFavicon($0) }.flatMap { image in
+                BenchSpans.mark("newTab.favicon.cacheHit")
+                return services.newTabPlaces.icon(image) { AppServices.dataURL(image) }
+            }
         }, walk: { services.machines.allWorkspaces.map { workspace, daemon in services.newTabPlaces.mapped(workspace, machine: daemon.machineID) } })
     }
 
