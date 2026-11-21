@@ -17,6 +17,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import workflow_jobs  # noqa: E402
+from runs_on_labels import resolve_labels  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -44,6 +45,12 @@ def runs_on_text(job: dict, where: str) -> str:
     return cells[0]
 
 
+def labels_at(route: str, event: str, head: str = "manaflow-ai/cmux") -> set:
+    return resolve_labels(route, context={"github.event_name": event, "github.repository": "manaflow-ai/cmux",
+                                         "github.event.pull_request.head.repo.full_name": head,
+                                         "github.ref": "refs/heads/feature", "github.sha": "abc"})
+
+
 class RunnerSetTests(unittest.TestCase):
     def test_secret_bearing_changes_takes_live_placement_then_ephemeral_blacksmith(self) -> None:
         # Its credentialed body takes a live verified fleet Linux placement when available, then
@@ -66,8 +73,14 @@ class RunnerSetTests(unittest.TestCase):
             with self.subTest(workflow=workflow, job=name):
                 job = workflow_jobs.jobs(WORKFLOWS / workflow)[name]
                 route = runs_on_text(job, name)
-                expected = "cmux-gcp-pr-control-jit-x64" if name == "comment" else "cmux-linux"
-                self.assertEqual(labels_at(route, "pull_request"), {expected})
+                if name in {"path_route", "guard-status"}:
+                    # Current feat-cmux-next places these through the portable selector so the
+                    # writer does not reserve one fixed label while the live placement is known.
+                    self.assertIn("needs.portable-placement", route)
+                    self.assertNotIn("ubuntu-24.04", labels_at(route, "pull_request"))
+                else:
+                    expected = "cmux-gcp-pr-control-jit-x64" if name == "comment" else "cmux-linux"
+                    self.assertEqual(labels_at(route, "pull_request"), {expected})
                 fork_labels = labels_at(route, "pull_request", "outside/fork")
                 if name == "comment":
                     self.assertEqual(fork_labels, {"ubuntu-24.04"})
