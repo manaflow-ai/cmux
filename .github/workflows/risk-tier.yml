@@ -57,7 +57,9 @@ jobs:
         run: |
           history="$RUNNER_TEMP/base-history"
           git init -q "$history"
-          if timeout 120 git -C "$history" fetch -q --no-tags --shallow-since="9 days ago" "https://github.com/$REPO.git" \
+          # Blobless: commits and trees only (16 MB in 5 s, against 681 MB in 115 s with blobs, 11-21); risk_tier.py
+          # fetches the versions of the files it blames in one round trip (prefetch_blobs).
+          if timeout 120 git -C "$history" fetch -q --no-tags --filter=blob:none --shallow-since="9 days ago" "https://github.com/$REPO.git" \
               "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"; then
             echo "BASE_HISTORY=$history" >> "$GITHUB_ENV"
           else
