@@ -111,7 +111,7 @@ declare namespace Cmux {
   type ConductorImportRecordResult = { workspace: string; stage: "pending" | "done"; cmux_workspace: string | null; runs: number }
   type ConfirmationRequiredDetails = { confirmation_token: string; revision: string; closes_panes: Array<string /* pane_… */> }
   type ConfirmLevel = "strict" | "destructive-only" | "off"
-  type Connection = { id: Cmux.ConnectionId; owner: Cmux.TeamId; created_by: Cmux.UserId; provider: Cmux.IntegrationProvider; account: { key: string; name: string; url?: string } | null; scopes_requested: Array<string>; scopes_granted: Array<string>; status: Cmux.ConnectionStatus; status_detail?: string; sharing: "private" | "team"; resources?: { repos: Array<string> | null }; created_at: number; updated_at: number }
+  type Connection = { id: Cmux.ConnectionId; owner: Cmux.TeamId; created_by: Cmux.UserId; provider: Cmux.IntegrationProvider; account: { key: string; name: string; url?: string } | null; scopes_requested: Array<string>; scopes_granted: Array<string>; status: Cmux.ConnectionStatus; status_detail?: string; sharing: "private" | "team"; resources?: { repos: Array<string> | null; linked_by_github_id?: number }; created_at: number; updated_at: number }
   type ConnectionId = string
   type ConnectionStatus = "pending" | "active" | "needs_reauth" | "error" | "revoked" | "expired"
   type ConversationChangedItem = { type: "conversation"; conversation: string; rev: number; summary: Cmux.ConversationSummary }
