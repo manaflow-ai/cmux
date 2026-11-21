@@ -20,11 +20,6 @@ on:
 permissions:
   contents: read
 
-env:
-  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh). It
-  # switches itself off at 2026-11-22 00:00 UTC. These runs (about 800 an hour each) had no attribution.
-  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
-
 jobs:
   evidence:
     # Every event grades, with no job-level `if`: a skipped `risk evidence` run would be the newest
@@ -47,9 +42,7 @@ jobs:
         with:
           ref: ${{ github.workflow_sha }}
           persist-credentials: false
-          sparse-checkout: |
-            scripts/ci/risk_tier.py
-            scripts/ci/api_call_log
+          sparse-checkout: scripts/ci/risk_tier.py
           sparse-checkout-cone-mode: false
       # The base's last 9 days of history, for the check that flags taking back a change another
       # pull request merged recently (a stale base). A fresh repository with full blobs, not the
