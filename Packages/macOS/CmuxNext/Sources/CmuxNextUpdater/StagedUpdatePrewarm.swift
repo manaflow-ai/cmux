@@ -113,6 +113,17 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
         return runs
     }
 
+    /// Raised once someone waits for the pre-warm (an install click, ``UpdaterService/installAfterPrewarm(_:)``):
+    /// a run that starts from then on runs at ``WorkPriority/userBlocking``, not best effort. A run already
+    /// started keeps its priority.
+    public final class Urgency: Sendable {
+        private let raised = Atomic<Bool>(false)
+        public init() {}
+        public func raise() { raised.store(true, ordering: .relaxed) }
+        public var isRaised: Bool { raised.load(ordering: .relaxed) }
+        var priority: TaskPriority { (isRaised ? WorkPriority.userBlocking : .bestEffort).taskPriority }
+    }
+
     /// Finds the staged bundle on `work`'s files lane, then starts each run (``AsyncProcess``, nothing
     /// waits on a thread). `progress` gets a line for the update log once the scan ends and as each run
     /// ends, so a pre-warm cut short by the relaunch still says how far it got. Returns the last line.
@@ -132,9 +143,10 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
     /// and three passed a 20 s cap, the first helper among them, which pays the CEF framework's cold load for the
     /// others (desktop-leo's third read-back). A helper started with no `--type` loads the framework, then
     /// `CefExecuteProcess` returns -1 (CEFShim/src/helper_main.mm): exit 255 is a helper that ran to its end.
+    /// Each run starts at `urgency`'s priority: best effort until an install click waits for the pre-warm.
     public func perform(work: BackgroundWork, processes: AsyncProcess = AsyncProcess(),
                         timeout: Duration = Self.runTimeout, total: Duration = Self.totalTimeout,
-                        clock: any Clock<Duration> = ContinuousClock(), marker: URL? = nil,
+                        clock: any Clock<Duration> = ContinuousClock(), marker: URL? = nil, urgency: Urgency = Urgency(),
                         progress: (@Sendable (String) -> Void)? = nil) async -> String {
         let asked = ContinuousClock.now
         let scanned = try? await work.run(.userVisible, mayBlock: .files) { [self] () -> (URL, [Run])? in
@@ -157,7 +169,7 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
             await withTaskGroup(of: (Int, String)?.self) { group in
                 for index in wave {
                     let run = planned[index]
-                    group.addTask {
+                    group.addTask(priority: urgency.priority) {
                         let started = ContinuousClock.now
                         let status: String
                         do {

@@ -2,7 +2,23 @@
 // file renders it and turns clicks and form submits into store intents. It never shows a password:
 // Show and Copy ask the app, which authenticates the person and uses a native sheet or the
 // pasteboard. Keys belong to the app's key dispatcher; the page handles none itself.
-import { useSyncExternalStore, type FormEvent } from "react";
+// Each section's list is windowed: only the rows near the viewport are mounted, plus the focused
+// row and the one whose username is being edited. Rows are memoized on their row and offset with
+// stable handlers, so a focus, a scroll step or a reply that changes one row draws only that row.
+import {
+  memo,
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type FocusEvent,
+  type FormEvent,
+  type ReactNode,
+} from "react";
+import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
+import { useStableHandlers } from "../../agent-session/acpmux/stableHandlers";
 import type { Strings } from "../shared/i18n";
 import { useLasting } from "../../ui/lasting";
 import {
@@ -10,13 +26,31 @@ import {
   filterPasskeys,
   filterPasswords,
   groupBySite,
+  type LoginItem,
+  loginList,
+  rowList,
   siteInitial,
   sortExceptions,
   sortPasskeys,
   type SortMode,
+  type Windowed,
 } from "./model";
 import type { PasswordsStore } from "./store";
-import type { SavedPassword } from "./types";
+import type { PasswordException, SavedPasskey, SavedPassword } from "./types";
+
+/** Item heights before the first of their kind is measured (styles.css): a site's header carries its
+ *  group's 4 px above, its last login the 4 px below. */
+const ESTIMATES = { site: 32, login: 30, "login-end": 34, passkey: 30, exception: 30 } as const;
+type SizeKind = keyof typeof ESTIMATES;
+/** About one viewport of rows above and below the visible ones. */
+const OVERSCAN = 20;
+
+const dateFormats = new Map<string, Intl.DateTimeFormat>();
+function dateFormat(language: string): Intl.DateTimeFormat {
+  let format = dateFormats.get(language);
+  if (!format) dateFormats.set(language, (format = new Intl.DateTimeFormat(language, { dateStyle: "medium" })));
+  return format;
+}
 
 const focusOnMount = (node: HTMLInputElement | null) => node?.focus();
 const editOnMount = (node: HTMLInputElement | null) => {
@@ -73,21 +107,46 @@ export function PasswordsPage({ store, strings }: { store: PasswordsStore; strin
   // A lost link keeps the list on screen and says so only once it lasts (ui/lasting.ts): a daemon
   // restart drops it for a few seconds, and the person has nothing to do (Leo, 2026-11-14).
   const downLasting = useLasting(disconnected);
-  const passwords = groupBySite(filterPasswords(snap.passwords, snap.text), snap.sort);
-  const passkeys = sortPasskeys(filterPasskeys(snap.passkeys, snap.text));
-  const exceptions = sortExceptions(filterExceptions(snap.exceptions, snap.text));
+  const logins = useMemo(
+    () => loginList(groupBySite(filterPasswords(snap.passwords, snap.text), snap.sort)),
+    [snap.passwords, snap.text, snap.sort],
+  );
+  const passkeys = useMemo(
+    () => rowList(sortPasskeys(filterPasskeys(snap.passkeys, snap.text)), "passkey"),
+    [snap.passkeys, snap.text],
+  );
+  const exceptions = useMemo(
+    () => rowList(sortExceptions(filterExceptions(snap.exceptions, snap.text)), "exception"),
+    [snap.exceptions, snap.text],
+  );
   const searching = snap.text.trim().length > 0;
-  const dates = new Intl.DateTimeFormat(strings.language, { dateStyle: "medium" });
+  const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
+  // The row that holds focus stays mounted however far the list scrolls (its key: `login:<id>`).
+  const [focused, setFocused] = useState<string | undefined>(undefined);
+  const onFocus = (event: FocusEvent) =>
+    setFocused((event.target as HTMLElement).closest<HTMLElement>("[data-key]")?.dataset.key);
+  const onBlur = (event: FocusEvent<HTMLElement>) => {
+    if (!event.currentTarget.contains(event.relatedTarget)) setFocused(undefined);
+  };
 
   const empty = (key: string) => <p className="pw-empty">{searching ? t("passwords.page.noMatches") : t(key)}</p>;
 
-  // Return submits the editor's form; Escape reaches the page as the dispatcher's `reset` command
-  // (main.tsx), and leaving the field cancels. The page reads no key events itself.
-  const submitUsername = (row: SavedPassword) => (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const field = event.currentTarget.elements.namedItem("username") as HTMLInputElement | null;
-    void store.commitUsername(row, field?.value ?? row.username);
-  };
+  // One function per handler for every render: a memo row draws again only when its own props change.
+  const handlers = useStableHandlers({
+    onReveal: (row: SavedPassword) => void store.reveal(row),
+    onCopy: (row: SavedPassword) => void store.copy(row),
+    onEdit: (row: SavedPassword) => store.editUsername(row),
+    onDelete: (row: SavedPassword) => void store.removePassword(row),
+    onCommit: (row: SavedPassword, username: string) => void store.commitUsername(row, username),
+    onCancel: () => store.cancelEdit(),
+    onRemovePasskey: (row: SavedPasskey) => void store.removePasskey(row),
+    onRemoveException: (row: PasswordException) => void store.removeException(row),
+  });
+  const kept = (list: Windowed<unknown>, ...keys: (string | undefined)[]) =>
+    keys.flatMap((key) => {
+      const index = key === undefined ? undefined : list.place.get(key);
+      return index === undefined ? [] : [index];
+    });
 
   const notice = snap.notice && (
     <output className={`pw-notice ${snap.notice.kind}`}>
@@ -187,7 +246,7 @@ export function PasswordsPage({ store, strings }: { store: PasswordsStore; strin
         </div>
       </header>
       {notice}
-      <div className="pw-scroll">
+      <div ref={setScroller} className="pw-scroll" onFocus={onFocus} onBlur={onBlur}>
         {downLasting ? (
           <p className="pw-empty pw-disconnected">{t("passwords.page.disconnected")}</p>
         ) : snap.loading ? (
@@ -203,70 +262,43 @@ export function PasswordsPage({ store, strings }: { store: PasswordsStore; strin
               </h2>
               {!snap.sections.passwords ? (
                 <Unavailable text={t("passwords.page.availableAfterUpdate")} />
-              ) : passwords.length === 0 ? (
+              ) : logins.items.length === 0 ? (
                 empty("passwords.page.empty.passwords")
               ) : (
-                passwords.map((group) => (
-                  <div key={group.site} className="pw-site" data-site={group.site}>
-                    <div className="pw-site-header">
-                      <span className="pw-site-badge" aria-hidden="true">
-                        {siteInitial(group.site)}
-                      </span>
-                      <span className="pw-site-name">{group.site}</span>
-                    </div>
-                    {group.rows.map((row) => (
-                      <div key={row.id} className="pw-row" data-id={row.id}>
-                        {snap.editing === row.id ? (
-                          <form className="pw-username-form" onSubmit={submitUsername(row)}>
-                            <input
-                              ref={editOnMount}
-                              name="username"
-                              className="pw-username-input"
-                              aria-label={t("passwords.page.editUsername")}
-                              defaultValue={row.username}
-                              onBlur={() => store.cancelEdit()}
-                            />
-                          </form>
-                        ) : (
-                          <span className={row.username ? "pw-username" : "pw-username none"}>
-                            {row.username || t("passwords.page.noUsername")}
-                          </span>
-                        )}
-                        <span className="pw-badges">
-                          {row.weak && <span className="pw-badge">{t("passwords.page.weak")}</span>}
-                          {row.reused && <span className="pw-badge">{t("passwords.page.reused")}</span>}
-                        </span>
-                        <span className="pw-meta">
-                          {row.last_used == null
-                            ? t("passwords.page.neverUsed")
-                            : strings.format("passwords.page.lastUsed", dates.format(new Date(row.last_used)))}
-                        </span>
-                        <span className="pw-actions">
-                          <RowButton
-                            icon="reveal"
-                            label={t("passwords.page.reveal")}
-                            onClick={() => void store.reveal(row)}
-                          />
-                          <RowButton
-                            icon="copy"
-                            label={t("passwords.page.copy")}
-                            onClick={() => void store.copy(row)}
-                          />
-                          <RowButton
-                            icon="edit"
-                            label={t("passwords.page.editUsername")}
-                            onClick={() => store.editUsername(row)}
-                          />
-                          <RowButton
-                            icon="delete"
-                            label={t("passwords.page.delete")}
-                            onClick={() => void store.removePassword(row)}
-                          />
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                ))
+                <WindowedList
+                  scroller={scroller}
+                  list={logins}
+                  size={loginSize}
+                  // The focused row, and the row whose username is being edited (its field has focus and
+                  // what was typed), stay mounted.
+                  kept={kept(logins, focused, snap.editing === undefined ? undefined : `login:${snap.editing}`)}
+                  item={(index, top, measure) => {
+                    const item = logins.items[index]!;
+                    return item.kind === "site" ? (
+                      <SiteHeader key={logins.keys[index]} index={index} top={top} measure={measure} site={item.site} />
+                    ) : (
+                      <LoginRow
+                        key={logins.keys[index]}
+                        index={index}
+                        top={top}
+                        measure={measure}
+                        row={item.row}
+                        site={item.site}
+                        last={item.last}
+                        position={item.position}
+                        setSize={logins.rows}
+                        editing={snap.editing === item.row.id}
+                        strings={strings}
+                        onReveal={handlers.onReveal}
+                        onCopy={handlers.onCopy}
+                        onEdit={handlers.onEdit}
+                        onDelete={handlers.onDelete}
+                        onCommit={handlers.onCommit}
+                        onCancel={handlers.onCancel}
+                      />
+                    );
+                  }}
+                />
               )}
             </section>
             <section className="pw-section" aria-labelledby="pw-passkeys">
@@ -276,25 +308,27 @@ export function PasswordsPage({ store, strings }: { store: PasswordsStore; strin
               <p className="pw-help">{t("passwords.page.passkeysHelp")}</p>
               {!snap.sections.passkeys ? (
                 <Unavailable text={t("passwords.page.availableAfterUpdate")} />
-              ) : passkeys.length === 0 ? (
+              ) : passkeys.items.length === 0 ? (
                 empty("passwords.page.empty.passkeys")
               ) : (
-                passkeys.map((row) => (
-                  <div key={row.id} className="pw-row" data-id={row.id}>
-                    <span className="pw-site-badge" aria-hidden="true">
-                      {siteInitial(row.rp_id)}
-                    </span>
-                    <span className="pw-site-name">{row.rp_id}</span>
-                    <span className="pw-username">{row.user_display_name || row.user_name}</span>
-                    <span className="pw-actions">
-                      <RowButton
-                        icon="delete"
-                        label={t("passwords.page.delete")}
-                        onClick={() => void store.removePasskey(row)}
-                      />
-                    </span>
-                  </div>
-                ))
+                <WindowedList
+                  scroller={scroller}
+                  list={passkeys}
+                  size={passkeySize}
+                  kept={kept(passkeys, focused)}
+                  item={(index, top, measure) => (
+                    <PasskeyRow
+                      key={passkeys.keys[index]}
+                      index={index}
+                      top={top}
+                      measure={measure}
+                      row={passkeys.items[index]!}
+                      setSize={passkeys.rows}
+                      strings={strings}
+                      onRemove={handlers.onRemovePasskey}
+                    />
+                  )}
+                />
               )}
             </section>
             <section className="pw-section" aria-labelledby="pw-exceptions">
@@ -304,24 +338,27 @@ export function PasswordsPage({ store, strings }: { store: PasswordsStore; strin
               <p className="pw-help">{t("passwords.page.exceptionsHelp")}</p>
               {!snap.sections.exceptions ? (
                 <Unavailable text={t("passwords.page.availableAfterUpdate")} />
-              ) : exceptions.length === 0 ? (
+              ) : exceptions.items.length === 0 ? (
                 empty("passwords.page.empty.exceptions")
               ) : (
-                exceptions.map((row) => (
-                  <div key={row.id} className="pw-row" data-id={row.id}>
-                    <span className="pw-site-badge" aria-hidden="true">
-                      {siteInitial(row.site)}
-                    </span>
-                    <span className="pw-site-name">{row.site}</span>
-                    <span className="pw-actions">
-                      <RowButton
-                        icon="delete"
-                        label={t("passwords.page.remove")}
-                        onClick={() => void store.removeException(row)}
-                      />
-                    </span>
-                  </div>
-                ))
+                <WindowedList
+                  scroller={scroller}
+                  list={exceptions}
+                  size={exceptionSize}
+                  kept={kept(exceptions, focused)}
+                  item={(index, top, measure) => (
+                    <ExceptionRow
+                      key={exceptions.keys[index]}
+                      index={index}
+                      top={top}
+                      measure={measure}
+                      row={exceptions.items[index]!}
+                      setSize={exceptions.rows}
+                      strings={strings}
+                      onRemove={handlers.onRemoveException}
+                    />
+                  )}
+                />
               )}
             </section>
           </>
@@ -330,3 +367,280 @@ export function PasswordsPage({ store, strings }: { store: PasswordsStore; strin
     </div>
   );
 }
+
+const loginSize = (item: LoginItem): SizeKind => (item.kind === "site" ? "site" : item.last ? "login-end" : "login");
+const passkeySize = (): SizeKind => "passkey";
+const exceptionSize = (): SizeKind => "exception";
+
+interface WindowedListProps<T> {
+  /** The page's scroller: every section's list scrolls in it, each from its own offset. */
+  scroller: HTMLElement | null;
+  list: Windowed<T>;
+  size: (item: T) => SizeKind;
+  /** Items that stay mounted wherever the list scrolls. */
+  kept: number[];
+  item: (index: number, top: number, measure: (element: HTMLElement | null) => void) => ReactNode;
+}
+
+/** One section's list, windowed in the page's scroller: the items near the viewport, about one
+ *  viewport each side, and the kept ones. */
+function WindowedList<T>({ scroller, list, size, kept, item }: WindowedListProps<T>) {
+  const space = useRef<HTMLDivElement | null>(null);
+  // Where the list starts in the scroller's content: below the sections and the lists above it.
+  // Read once it mounts and again when a section resizes, never on a scroll.
+  const [margin, setMargin] = useState(0);
+  useLayoutEffect(() => {
+    if (!scroller) return;
+    const update = () => setMargin(space.current?.offsetTop ?? 0);
+    update();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(update);
+    for (const section of scroller.children) observer.observe(section);
+    return () => observer.disconnect();
+  }, [scroller]);
+  // One function per list: TanStack measures every item again when it changes.
+  const itemKey = useCallback((index: number) => list.keys[index]!, [list]);
+  // The first mounted item of each kind sizes every one not yet mounted, so the rows a scroll brings
+  // in measure as estimated: TanStack places all N items again whenever a measure differs.
+  const sizes = useRef(new Map<SizeKind, number>());
+  // react-doctor-disable-next-line react-hooks-js/incompatible-library -- TanStack Virtual returns functions the React Compiler cannot memoize safely, so each passwords section list stays uncompiled on purpose; it needs a stable getItemKey (so one changed login does not re-measure all N items) and keeps two rows mounted (the focused one and the login being edited), and ui/VirtualList keys items by index and keeps only one active row, so ui/VirtualList does not fit.
+  const virtualizer = useVirtualizer({
+    count: list.items.length,
+    getScrollElement: () => scroller,
+    estimateSize: (index) => {
+      const kind = size(list.items[index]!);
+      return sizes.current.get(kind) ?? ESTIMATES[kind];
+    },
+    getItemKey: itemKey,
+    overscan: OVERSCAN,
+    scrollMargin: margin,
+    rangeExtractor: (range: Range) => {
+      const indexes = defaultRangeExtractor(range);
+      for (const index of kept)
+        if (!indexes.includes(index)) {
+          indexes.push(index);
+          indexes.sort((a, b) => a - b);
+        }
+      return indexes;
+    },
+  });
+  const measure = useCallback(
+    (node: HTMLElement | null) => {
+      const kind = node?.dataset.size as SizeKind | undefined;
+      if (node && kind && !sizes.current.has(kind) && node.offsetHeight > 0) sizes.current.set(kind, node.offsetHeight);
+      virtualizer.measureElement(node);
+    },
+    [virtualizer],
+  );
+  return (
+    <div
+      ref={space}
+      className="pw-list"
+      // A list of absolutely placed items: a site's header is not a list item, so no `ul`.
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+      role="list"
+      style={{ height: virtualizer.getTotalSize() }}
+    >
+      {virtualizer.getVirtualItems().map(({ index, start }) => item(index, start - margin, measure))}
+    </div>
+  );
+}
+
+/** Where a windowed item sits: its index (TanStack measures it by `data-index`) and offset. */
+interface Placed {
+  index: number;
+  top: number;
+  measure: (element: HTMLElement | null) => void;
+}
+
+const SiteHeader = memo(function SiteHeader({ index, top, measure, site }: Placed & { site: string }) {
+  return (
+    <div
+      ref={measure}
+      data-index={index}
+      data-size="site"
+      data-key={`site:${site}`}
+      className="pw-site pw-site-head"
+      data-site={site}
+      style={{ transform: `translateY(${top}px)` }}
+    >
+      <div className="pw-site-header">
+        <span className="pw-site-badge" aria-hidden="true">
+          {siteInitial(site)}
+        </span>
+        <span className="pw-site-name">{site}</span>
+      </div>
+    </div>
+  );
+});
+
+interface LoginRowProps extends Placed {
+  row: SavedPassword;
+  site: string;
+  /** The site's last login: it carries the group's space below. */
+  last: boolean;
+  /** 1-based place among every shown login, and their count: the screen reader's "3 of 1000". */
+  position: number;
+  setSize: number;
+  editing: boolean;
+  strings: Strings;
+  onReveal: (row: SavedPassword) => void;
+  onCopy: (row: SavedPassword) => void;
+  onEdit: (row: SavedPassword) => void;
+  onDelete: (row: SavedPassword) => void;
+  onCommit: (row: SavedPassword, username: string) => void;
+  onCancel: () => void;
+}
+
+const LoginRow = memo(function LoginRow({
+  index,
+  top,
+  measure,
+  row,
+  site,
+  last,
+  position,
+  setSize,
+  editing,
+  strings,
+  onReveal,
+  onCopy,
+  onEdit,
+  onDelete,
+  onCommit,
+  onCancel,
+}: LoginRowProps) {
+  const { t } = strings;
+  // Return submits the editor's form; Escape reaches the page as the dispatcher's `reset` command
+  // (main.tsx), and leaving the field cancels. The page reads no key events itself.
+  const submitUsername = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const field = event.currentTarget.elements.namedItem("username") as HTMLInputElement | null;
+    onCommit(row, field?.value ?? row.username);
+  };
+  return (
+    <div
+      ref={measure}
+      data-index={index}
+      data-size={last ? "login-end" : "login"}
+      data-key={`login:${row.id}`}
+      className={`pw-site${last ? " pw-site-end" : ""}`}
+      data-site={site}
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+      role="listitem"
+      aria-posinset={position}
+      aria-setsize={setSize}
+      style={{ transform: `translateY(${top}px)` }}
+    >
+      <div className="pw-row" data-id={row.id}>
+        {editing ? (
+          <form className="pw-username-form" onSubmit={submitUsername}>
+            <input
+              ref={editOnMount}
+              name="username"
+              className="pw-username-input"
+              aria-label={t("passwords.page.editUsername")}
+              defaultValue={row.username}
+              onBlur={onCancel}
+            />
+          </form>
+        ) : (
+          <span className={row.username ? "pw-username" : "pw-username none"}>
+            {row.username || t("passwords.page.noUsername")}
+          </span>
+        )}
+        <span className="pw-badges">
+          {row.weak && <span className="pw-badge">{t("passwords.page.weak")}</span>}
+          {row.reused && <span className="pw-badge">{t("passwords.page.reused")}</span>}
+        </span>
+        <span className="pw-meta">
+          {row.last_used == null
+            ? t("passwords.page.neverUsed")
+            : strings.format("passwords.page.lastUsed", dateFormat(strings.language).format(new Date(row.last_used)))}
+        </span>
+        <span className="pw-actions">
+          <RowButton icon="reveal" label={t("passwords.page.reveal")} onClick={() => onReveal(row)} />
+          <RowButton icon="copy" label={t("passwords.page.copy")} onClick={() => onCopy(row)} />
+          <RowButton icon="edit" label={t("passwords.page.editUsername")} onClick={() => onEdit(row)} />
+          <RowButton icon="delete" label={t("passwords.page.delete")} onClick={() => onDelete(row)} />
+        </span>
+      </div>
+    </div>
+  );
+});
+
+interface ListRowProps<T> extends Placed {
+  row: T;
+  setSize: number;
+  strings: Strings;
+  onRemove: (row: T) => void;
+}
+
+const PasskeyRow = memo(function PasskeyRow({
+  index,
+  top,
+  measure,
+  row,
+  setSize,
+  strings,
+  onRemove,
+}: ListRowProps<SavedPasskey>) {
+  return (
+    <div
+      ref={measure}
+      data-index={index}
+      data-size="passkey"
+      data-key={`passkey:${row.id}`}
+      className="pw-row"
+      data-id={row.id}
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+      role="listitem"
+      aria-posinset={index + 1}
+      aria-setsize={setSize}
+      style={{ transform: `translateY(${top}px)` }}
+    >
+      <span className="pw-site-badge" aria-hidden="true">
+        {siteInitial(row.rp_id)}
+      </span>
+      <span className="pw-site-name">{row.rp_id}</span>
+      <span className="pw-username">{row.user_display_name || row.user_name}</span>
+      <span className="pw-actions">
+        <RowButton icon="delete" label={strings.t("passwords.page.delete")} onClick={() => onRemove(row)} />
+      </span>
+    </div>
+  );
+});
+
+const ExceptionRow = memo(function ExceptionRow({
+  index,
+  top,
+  measure,
+  row,
+  setSize,
+  strings,
+  onRemove,
+}: ListRowProps<PasswordException>) {
+  return (
+    <div
+      ref={measure}
+      data-index={index}
+      data-size="exception"
+      data-key={`exception:${row.id}`}
+      className="pw-row"
+      data-id={row.id}
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+      role="listitem"
+      aria-posinset={index + 1}
+      aria-setsize={setSize}
+      style={{ transform: `translateY(${top}px)` }}
+    >
+      <span className="pw-site-badge" aria-hidden="true">
+        {siteInitial(row.site)}
+      </span>
+      <span className="pw-site-name">{row.site}</span>
+      <span className="pw-actions">
+        <RowButton icon="delete" label={strings.t("passwords.page.remove")} onClick={() => onRemove(row)} />
+      </span>
+    </div>
+  );
+});
