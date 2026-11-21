@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44868800161",
+  "recorded_at": "2026-11-21T05:14:12Z",
+  "reason": "cmux-tui fa39367953bb changes the image's cmux-tui (pinned 650df72d3f0c)",
+  "dry_run": false,
+  "cmux_tui": "fa39367953bb2f3713ee0f9e7d02c8a551842636",
+  "fixes": [
+    {
+      "sha": "fa39367953bb2f3713ee0f9e7d02c8a551842636",
+      "mergedAt": "2026-11-20T20:32:47-08:00",
+      "subject": "acpmux: put every codex -c before app-server so GUI Codex keeps root overrides (#48354) (#48475)"
+    },
+    {
+      "sha": "ab5d1152eddf731c017ebb3c58e57281f3a83128",
+      "mergedAt": "2026-11-21T04:31:11Z",
+      "subject": "New Tab: Cards, Default, Threads and Console become templates you build (#47719)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-21T05:14:12Z",
+    "snapshot_id": "sh-4692fb0d7f4f455285fc90642c4aadc9",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44868800161): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "8b7c92a55969c6b13c08c0082316dfb6c1bddc32",
+    "image": "cloud-native-auto-fa393679-44868800161-1",
+    "revision": "ci-44868800161-1",
+    "at": "2026-11-21T05:14:12Z"
+  },
+  "rolled_back": false
+}
