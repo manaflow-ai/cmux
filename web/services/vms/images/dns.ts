@@ -103,59 +103,78 @@ RELOAD="\${CMUX_RESOLVED_RELOAD:-systemctl try-reload-or-restart systemd-resolve
 PENDING="\${CMUX_RESOLVED_RELOAD_PENDING:-/run/cmux-edge-resolver.reload-pending}"
 STAMP="\${CMUX_EDGE_RESOLVER_STAMP:-${DEVBOX_EDGE_RESOLVER_STAMP}}"
 
-# glibc reads the agent's resolv.conf directly. Put the IPv6 listener first,
-# and give each try 2 s: the listener takes about 1.5 s per query, and at the
-# agent's 1 s glibc abandons it before the answer arrives.
-# Replace the file only while it still holds what was read: the agent can
-# rewrite it during this run (the last TLS rule removed restores public DNS),
-# and an edit of the older contents must never land over that newer write.
-# On a change, start again from the new contents; after 5 tries exit 1 and
-# let systemd run it again.
-tries=0
-while :; do
-  rm -f "$RESOLV.cmux-src" "$RESOLV.cmux-tmp"
-  [ -f "$RESOLV" ] && [ ! -L "$RESOLV" ] || break
-  tries=$((tries + 1))
-  [ "$tries" -le 5 ] || { echo "cmux-edge-resolver: $RESOLV kept changing; will retry" >&2; exit 1; }
-  cp "$RESOLV" "$RESOLV.cmux-src" || exit 1
-  grep -qxF '${FREESTYLE_TLS_RESOLV_HEADER}' "$RESOLV.cmux-src" &&
-    grep -qxF "nameserver $V4" "$RESOLV.cmux-src" || break
-  has6=0
-  grep -qxF "nameserver $V6" "$RESOLV.cmux-src" && has6=1
-  awk -v v4="nameserver $V4" -v v6="nameserver $V6" -v has6="$has6" '
-    $1 == "options" { for (i = 2; i <= NF; i++) if ($i == "timeout:1") $i = "timeout:2" }
-    $0 == v4 && has6 == 0 { print v6 }
-    { print }' "$RESOLV.cmux-src" > "$RESOLV.cmux-tmp" || exit 1
-  eval "\${CMUX_EDGE_RESOLVER_AFTER_READ:-}"
-  cmp -s "$RESOLV.cmux-tmp" "$RESOLV.cmux-src" && break
-  if cmp -s "$RESOLV.cmux-src" "$RESOLV"; then
-    chmod 0644 "$RESOLV.cmux-tmp" && mv -f "$RESOLV.cmux-tmp" "$RESOLV" || exit 1
-    break
-  fi
-done
-rm -f "$RESOLV.cmux-src" "$RESOLV.cmux-tmp"
-
-# resolved: the same resolver, IPv6 first, only while the agent's drop-in names it.
-if [ -f "$AGENT" ] && grep -qxF "DNS=$V4" "$AGENT"; then
-  if ! printf '%s\\n' '# Written by cmux-edge-resolver (manaflow-ai/cmux#46670).' '[Resolve]' 'DNS=' "DNS=$V6 $V4" | cmp -s - "$OURS"; then
-    : > "$PENDING" || exit 1
-    printf '%s\\n' '# Written by cmux-edge-resolver (manaflow-ai/cmux#46670).' '[Resolve]' 'DNS=' "DNS=$V6 $V4" > "$OURS.cmux-tmp" &&
-      chmod 0644 "$OURS.cmux-tmp" && mv -f "$OURS.cmux-tmp" "$OURS" || exit 1
-  fi
-elif [ -e "$OURS" ]; then
-  : > "$PENDING" || exit 1
-  rm -f "$OURS" || exit 1
-fi
-
-if [ -e "$PENDING" ]; then
-  $RELOAD || { echo "cmux-edge-resolver: systemd-resolved reload failed; will retry" >&2; exit 1; }
-  rm -f "$PENDING"
-fi
-
-# The completion signal: what the three files held when this run finished.
-# The image verifier waits until it matches them (devboxEdgeResolverSettledCommand).
 ${EDGE_STATE_FUNCTION}
-edge_state "$RESOLV" "$AGENT" "$OURS" > "$STAMP.cmux-tmp" && mv -f "$STAMP.cmux-tmp" "$STAMP" || exit 1
+
+# One pass over the agent's files. Exits 1 (systemd retries) on a failed write or reload.
+apply_pass() {
+  # glibc reads the agent's resolv.conf directly. Put the IPv6 listener first,
+  # and give each try 2 s: the listener takes about 1.5 s per query, and at the
+  # agent's 1 s glibc abandons it before the answer arrives.
+  # Replace the file only while it still holds what was read: the agent can
+  # rewrite it during this run (the last TLS rule removed restores public DNS),
+  # and an edit of the older contents must never land over that newer write.
+  # On a change, start again from the new contents; after 5 tries exit 1 and
+  # let systemd run it again.
+  tries=0
+  while :; do
+    rm -f "$RESOLV.cmux-src" "$RESOLV.cmux-tmp"
+    [ -f "$RESOLV" ] && [ ! -L "$RESOLV" ] || break
+    tries=$((tries + 1))
+    [ "$tries" -le 5 ] || { echo "cmux-edge-resolver: $RESOLV kept changing; will retry" >&2; exit 1; }
+    cp "$RESOLV" "$RESOLV.cmux-src" || exit 1
+    grep -qxF '${FREESTYLE_TLS_RESOLV_HEADER}' "$RESOLV.cmux-src" &&
+      grep -qxF "nameserver $V4" "$RESOLV.cmux-src" || break
+    has6=0
+    grep -qxF "nameserver $V6" "$RESOLV.cmux-src" && has6=1
+    awk -v v4="nameserver $V4" -v v6="nameserver $V6" -v has6="$has6" '
+      $1 == "options" { for (i = 2; i <= NF; i++) if ($i == "timeout:1") $i = "timeout:2" }
+      $0 == v4 && has6 == 0 { print v6 }
+      { print }' "$RESOLV.cmux-src" > "$RESOLV.cmux-tmp" || exit 1
+    eval "\${CMUX_EDGE_RESOLVER_AFTER_READ:-}"
+    cmp -s "$RESOLV.cmux-tmp" "$RESOLV.cmux-src" && break
+    if cmp -s "$RESOLV.cmux-src" "$RESOLV"; then
+      chmod 0644 "$RESOLV.cmux-tmp" && mv -f "$RESOLV.cmux-tmp" "$RESOLV" || exit 1
+      break
+    fi
+  done
+  rm -f "$RESOLV.cmux-src" "$RESOLV.cmux-tmp"
+
+  # resolved: the same resolver, IPv6 first, only while the agent's drop-in names it.
+  if [ -f "$AGENT" ] && grep -qxF "DNS=$V4" "$AGENT"; then
+    if ! printf '%s\\n' '# Written by cmux-edge-resolver (manaflow-ai/cmux#46670).' '[Resolve]' 'DNS=' "DNS=$V6 $V4" | cmp -s - "$OURS"; then
+      : > "$PENDING" || exit 1
+      printf '%s\\n' '# Written by cmux-edge-resolver (manaflow-ai/cmux#46670).' '[Resolve]' 'DNS=' "DNS=$V6 $V4" > "$OURS.cmux-tmp" &&
+        chmod 0644 "$OURS.cmux-tmp" && mv -f "$OURS.cmux-tmp" "$OURS" || exit 1
+    fi
+  elif [ -e "$OURS" ]; then
+    : > "$PENDING" || exit 1
+    rm -f "$OURS" || exit 1
+  fi
+
+  if [ -e "$PENDING" ]; then
+    $RELOAD || { echo "cmux-edge-resolver: systemd-resolved reload failed; will retry" >&2; exit 1; }
+    rm -f "$PENDING"
+  fi
+}
+
+# Repeat passes until one starts and ends on the same three files, so a
+# write the agent makes during a pass (systemd's path unit does not watch
+# while this oneshot runs) is handled before the run ends, and the stamp
+# below only ever names contents this script has processed.
+passes=0
+while :; do
+  passes=$((passes + 1))
+  [ "$passes" -le 10 ] || { echo "cmux-edge-resolver: resolver files kept changing; will retry" >&2; exit 1; }
+  before="$(edge_state "$RESOLV" "$AGENT" "$OURS")"
+  apply_pass
+  after="$(edge_state "$RESOLV" "$AGENT" "$OURS")"
+  [ "$before" = "$after" ] && break
+done
+
+# The completion signal: what the three files held when this run finished,
+# after a pass that changed nothing. The image verifier waits until it
+# matches them (devboxEdgeResolverSettledCommand).
+printf '%s\\n' "$after" > "$STAMP.cmux-tmp" && mv -f "$STAMP.cmux-tmp" "$STAMP" || exit 1
 exit 0
 `;
 }

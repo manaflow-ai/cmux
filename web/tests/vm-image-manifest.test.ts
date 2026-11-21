@@ -27,6 +27,9 @@ import {
   type DevboxManifestEntry,
 } from "../scripts/devbox-image-common";
 
+/** A bake that installs nothing from generated text: schemas 1 and 2 are judged as they were before schema 3. */
+const noGenerated = () => ({});
+
 // The checked-in image manifest (services/vms/images/manifest.json) is the
 // source of truth for the image Cloud VM users get: the resolver serves the
 // entry flagged defaultForKind when no env selector is set, also in deployed
@@ -150,19 +153,27 @@ describe("devboxSourceDriftProblems", () => {
   });
 
   test("flags a default whose recorded source digest is not this checkout's, per layer set", () => {
-    const drifted = devboxSourceDriftProblems(manifestOf(current("desktop", { devboxSource: { layers: "desktop", digest: "0".repeat(64) } })));
+    const drifted = devboxSourceDriftProblems(manifestOf(current("desktop", { devboxSource: { layers: "desktop", digest: "0".repeat(64) } })), "freestyle", dockerfile, noGenerated);
     expect(drifted).toHaveLength(1);
     expect(drifted[0]).toContain("baked from devbox sources 000000000000");
     // A desktop image promoted as the base kind is held to the desktop sources it was baked from.
     expect(devboxSourceDriftProblems(manifestOf(current("base", { devboxSource: { layers: "desktop", digest: devboxSourceDigest("desktop", dockerfile), schema: DEVBOX_SOURCE_SCHEMA } })))).toEqual([]);
     expect(devboxSourceDriftProblems(manifestOf(current("base", { devboxSource: { layers: "desktop", digest: devboxSourceDigest("base", dockerfile), schema: DEVBOX_SOURCE_SCHEMA } })))).toHaveLength(1);
-    expect(devboxSourceDriftProblems(manifestOf(current("base", { devboxSource: { layers: "vnc" as "base", digest: "x" } })))[0]).toContain("is not desktop|base");
+    expect(devboxSourceDriftProblems(manifestOf(current("base", { devboxSource: { layers: "vnc" as "base", digest: "x" } })), "freestyle", dockerfile, noGenerated)[0]).toContain("is not desktop|base");
     // An entry keeps the formula it was recorded with: a schema-1 record (no
     // `schema` field, the first promoted ladders) is checked with schema 1 and
     // stays valid across a formula change; an unknown schema is refused.
-    expect(devboxSourceDriftProblems(manifestOf(current("base", { devboxSource: { layers: "base", digest: devboxSourceDigest("base", dockerfile, 1) } })))).toEqual([]);
-    expect(devboxSourceDriftProblems(manifestOf(current("base", { devboxSource: { layers: "base", digest: devboxSourceDigest("base", dockerfile, 1), schema: 2 } })))).toHaveLength(1);
+    expect(devboxSourceDriftProblems(manifestOf(current("base", { devboxSource: { layers: "base", digest: devboxSourceDigest("base", dockerfile, 1) } })), "freestyle", dockerfile, noGenerated)).toEqual([]);
+    expect(devboxSourceDriftProblems(manifestOf(current("base", { devboxSource: { layers: "base", digest: devboxSourceDigest("base", dockerfile, 1), schema: 2 } })), "freestyle", dockerfile, noGenerated)).toHaveLength(1);
     expect(devboxSourceDriftProblems(manifestOf(current("base", { devboxSource: { layers: "base", digest: "x", schema: 9 } })))[0]).toContain("is not a known formula");
+    // While the bake installs generated text (dns.ts), schema 1 and 2 records
+    // cannot show they carry this checkout's version, so they are drift and
+    // need a new bake; a schema-3 record of the same sources is not.
+    const schema2 = devboxSourceDriftProblems(manifestOf(current("base", { devboxSource: { layers: "base", digest: devboxSourceDigest("base", dockerfile, 2), schema: 2 } })));
+    expect(schema2).toHaveLength(1);
+    expect(schema2[0]).toContain("devbox source schema 2 does not cover what the bake installs from generated text (edge-resolver-check, edge-resolver-install)");
+    expect(devboxSourceDriftProblems(manifestOf(current("base", { devboxSource: { layers: "base", digest: devboxSourceDigest("base", dockerfile, 2), schema: 2 } })), "freestyle", dockerfile, noGenerated)).toEqual([]);
+    expect(devboxSourceDriftProblems(manifestOf(current("base")))).toEqual([]);
     // A Dockerfile change is what makes the checkout drift from the default.
     const bumped = dockerfile.replace(/^ENV CMUX_IMAGE_EPOCH=.*$/m, "ENV CMUX_IMAGE_EPOCH=2099-01-01-r1");
     const problems = devboxSourceDriftProblems(manifestOf(current("desktop")), "freestyle", bumped);
@@ -358,7 +369,7 @@ describe("upgradeDevboxSourceRecords (promote --upgrade-source-schema)", () => {
       // Up to schema 2 only: schema 3's generated bake inputs are in no record, so only a bake records it.
       expect(entry.devboxSource).toEqual({ layers: entry.kind, digest: devboxSourceDigest(entry.kind!, dockerfile, DEVBOX_PROVABLE_SOURCE_SCHEMA), schema: DEVBOX_PROVABLE_SOURCE_SCHEMA });
     }
-    expect(devboxSourceDriftProblems(result.manifest)).toEqual([]);
+    expect(devboxSourceDriftProblems(result.manifest, "freestyle", dockerfile, noGenerated)).toEqual([]);
     // Idempotent: nothing left to upgrade.
     expect(upgradeDevboxSourceRecords(result.manifest, { dockerfileAt: sameDockerfile }).upgraded).toEqual([]);
     // A Dockerfile that differs only in comments at the bake commit is the same recipe.

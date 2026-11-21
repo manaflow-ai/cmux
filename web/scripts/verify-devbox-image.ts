@@ -377,6 +377,8 @@ async function verifyEdgeResolverWithTlsRule(
 ): Promise<boolean> {
   const created = await fs.tls.rules.create({ action: "allow", domain: TLS_RULE_PROBE_DOMAIN, source: { vmId }, destination: { public: true } }) as { id?: string; rule?: { id?: string } };
   const ruleId = created.id ?? created.rule?.id;
+  // Without an id the rule could not be deleted below; fail loudly instead of leaving it behind.
+  if (!ruleId) throw new Error(`TLS rule for ${TLS_RULE_PROBE_DOMAIN} on ${vmId} came back without an id: ${JSON.stringify(created)}`);
   try {
     // Wait for the service's own completion signal (its stamp matches the
     // agent's files), bounded, instead of a settling delay.
@@ -388,7 +390,7 @@ async function verifyEdgeResolverWithTlsRule(
     }
     return await runChecks("freestyle-tls-rule", [devboxEdgeResolverTlsCheckCommand(TLS_RULE_PROBE_DOMAIN)], exec);
   } finally {
-    if (ruleId) await fs.tls.rules.delete(ruleId).catch((err) => console.log(`could not delete TLS rule ${ruleId}: ${String(err)}`));
+    await fs.tls.rules.delete(ruleId).catch((err) => console.log(`could not delete TLS rule ${ruleId}: ${String(err)}`));
   }
 }
 

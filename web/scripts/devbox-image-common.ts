@@ -1613,7 +1613,13 @@ export function devboxSourceDriftProblems(
   manifest: DevboxImageManifest,
   provider: DevboxProvider = "freestyle",
   dockerfile = readDevboxDockerfile(),
+  generated: () => Record<string, string> = devboxBakeGeneratedInputs,
 ): string[] {
+  // Schemas 1 and 2 never hashed what the bake installs from generated text,
+  // so while the bake installs any, an entry recorded below schema 3 cannot
+  // show it carries this checkout's version of it (#46670 review: the
+  // promoted defaults kept an older edge-resolver script while dns.ts moved).
+  const generatedNames = Object.keys(generated()).sort();
   const problems: string[] = [];
   const epoch = devboxImageEpoch(dockerfile);
   const digests = new Map<string, string>();
@@ -1632,6 +1638,10 @@ export function devboxSourceDriftProblems(
     const schema = source.schema ?? 1;
     if (schema !== 1 && schema !== 2 && schema !== 3) {
       problems.push(`${entry.version}: devboxSource.schema ${String(source.schema)} is not a known formula (1, 2 or 3)`);
+      continue;
+    }
+    if (schema < 3 && generatedNames.length > 0) {
+      problems.push(`${entry.version}: devbox source schema ${schema} does not cover what the bake installs from generated text (${generatedNames.join(", ")}); promote a new bake, which records schema ${DEVBOX_SOURCE_SCHEMA}`);
       continue;
     }
     const key = `${source.layers}/${schema}`;

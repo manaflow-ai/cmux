@@ -93,7 +93,8 @@ writes):
   with (absent: 1), so a formula change never forces a rebake; new bakes
   record `DEVBOX_SOURCE_SCHEMA`, and `bun run devbox:promote -- freestyle
   --upgrade-source-schema` moves older defaults up (to schema 2: no record
-  proves the generated inputs, so schema 3 comes only from a bake) only where
+  proves the generated inputs, so schema 3 comes only from a bake; while the
+  bake installs any generated text, a default below schema 3 is drift) only where
   every input the newer schema adds is proven from what the entry recorded:
   its digest at its own schema, its `builderScriptVersion` against this
   checkout's bake script, and the Dockerfile's instructions at its
