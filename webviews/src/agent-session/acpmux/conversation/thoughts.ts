@@ -1,7 +1,7 @@
 // What a finished thought draws (Leo 2026-10-20, as Claude Desktop and Codex do): consecutive
 // thoughts in one step are one row, and a thought with nothing to read draws no row at all.
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
-import { PrefixFlatCache, type PrefixFlat } from "./prefixFlatMap";
+import { keptPrefix, noteKeptPrefix, PrefixFlatCache, type PrefixFlat } from "./prefixFlatMap";
 
 /// A thought shorter than this many characters (trimmed)...
 export const QUIET_THOUGHT_CHARS = 40;
@@ -84,16 +84,54 @@ export function withoutQuietThoughts(rows: AcpmuxRow[], live = false): AcpmuxRow
   // the last one kept (prefixFlatMap.ts), so a snapshot costs the rows it changed. The last row
   // with `live` keeps its streaming thought and is shaped on its own.
   const split = live && rows.length > 0;
+  const previous = lastQuiet?.read.deref();
   const head = split ? rows.slice(0, -1) : rows;
+  // The head is a new array each snapshot: it keeps as much of the last head as the rows kept of
+  // the last rows (an O(1) answer for the client's snapshots), so the pass below need not walk it.
+  const lastRows = lastQuiet?.rows.deref();
+  if (split && previous && lastRows) noteKeptPrefix(head, previous.rows, keptPrefix(lastRows, rows));
   const read = quietReads.read(head);
   const last = split ? shapeRow(rows.at(-1)!, true) : undefined;
+  lastQuiet = { rows: new WeakRef(rows), read: new WeakRef(read) };
   const kept = quietOutputs.get(read);
   if (kept && kept.split === split && kept.last === last) return kept.out;
-  let changed = read.items.length !== head.length || (split && last !== rows.at(-1));
-  for (let index = 0; !changed && index < head.length; index += 1) changed = read.items[index] !== head[index];
+  const same = sameUntil(read, previous);
+  const changed = read.items.length !== head.length || same < head.length || (split && last !== rows.at(-1));
   const out = changed ? (last ? [...read.items, last] : [...read.items]) : rows;
+  // A copy keeps the last copy's leading items as far as the pass kept them.
+  const lastOut = previous && quietOutputs.get(previous)?.out;
+  if (changed && lastOut && lastOut !== out)
+    noteKeptPrefix(out, lastOut, Math.min(keptPrefix(previous!.items, read.items), previous!.items.length));
   quietOutputs.set(read, { split, last, out });
   return out;
+}
+
+/// The last call's rows and pass, held weakly: the next call's head and output say how much of
+/// them they kept.
+let lastQuiet: { rows: WeakRef<AcpmuxRow[]>; read: WeakRef<PrefixFlat<AcpmuxRow, AcpmuxRow>> } | undefined;
+
+/// How many leading items of a pass are its rows' own objects (a row shaping left as it was), read
+/// only past what the pass kept of `previous`'s items and rows: a long chat's snapshot compares its
+/// changed rows, not every row (bench/transcript-replay.bench.ts, god log).
+const sameUntilOf = new WeakMap<PrefixFlat<AcpmuxRow, AcpmuxRow>, number>();
+function sameUntil(read: PrefixFlat<AcpmuxRow, AcpmuxRow>, previous?: PrefixFlat<AcpmuxRow, AcpmuxRow>): number {
+  const known = sameUntilOf.get(read);
+  if (known !== undefined) return known;
+  let from = 0;
+  const before = previous && previous !== read ? sameUntilOf.get(previous) : undefined;
+  if (previous && before !== undefined) {
+    // Where both the items and the rows are the last pass's, each pair compares as it did.
+    const kept = Math.min(keptPrefix(previous.items, read.items), keptPrefix(previous.rows, read.rows));
+    if (before < kept) {
+      sameUntilOf.set(read, before);
+      return before;
+    }
+    from = kept;
+  }
+  const limit = Math.min(read.items.length, read.rows.length);
+  while (from < limit && read.items[from] === read.rows[from]) from += 1;
+  sameUntilOf.set(read, from);
+  return from;
 }
 
 /// One row as `withoutQuietThoughts` draws it: none for a step of quiet thoughts only.

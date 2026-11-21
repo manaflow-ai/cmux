@@ -8,7 +8,9 @@ import {
 } from "../summary/transcriptPullRequests";
 import { ChildRowView, type ChildEntry } from "./childRows";
 import { hiddenCall, isPlumbingName, showsNothing } from "../hiddenTools";
+import { toolForName } from "../toolNames";
 import { applyRetry, applyRetryStep, type RetryState } from "./retryState";
+import { applyResume } from "./resumeState";
 import { mergeWorkflowAgents, workflowPhases, type WorkflowAgent, type WorkflowPhase } from "./workflowAgents";
 import {
   type AgentRun,
@@ -21,6 +23,9 @@ import {
   runModel,
   runReply,
 } from "./agentRuns";
+
+/// A call titled only by its shell tool's name ("Bash", "shell"), not by what it runs.
+const isBareShellTitle = (title: string): boolean => /^\S+$/.test(title.trim()) && toolForName(title) === "shell";
 
 /// The transcript row of a batch of subagents (SubagentGroup.tsx).
 export const SUBAGENTS = "subagents";
@@ -115,6 +120,12 @@ export type Subagent = {
   retry?: RetryState;
   retryable?: boolean;
   retriedOut?: RetryState;
+  /// acpmux can start this stopped (or lost) subagent again from its transcript and brief, the
+  /// run a Resume started that continues it (its old id), and the run that continues this one
+  /// (resumeState.ts).
+  resumable?: boolean;
+  resumes?: string;
+  resumedBy?: string;
   /// Why it failed, as acpmux recorded it (`error`): its end line says it.
   error?: string;
   /// When it last did anything (a line of its own, a call, new tokens) while none of its calls is
@@ -245,6 +256,45 @@ export class SubagentFold {
     for (const agent of promoted) this.moveAgent(agent, null);
     return named;
   }
+  /// Lets go of subagents only records a chat let go of named (direct.ts `dropHeldRun`): their group rows left with
+  /// those records, and a fold of the records kept never met them, so nothing of them stays to draw a row again (a
+  /// turn's stop ending one still "running", a later batch joining its group) or to hold memory. O(what they left)
+  /// plus a walk of the per-call sets.
+  forget(ids: ReadonlySet<string>): void {
+    if (ids.size === 0) return;
+    for (const id of ids) {
+      const group = this.groupOf.get(id);
+      if (group) {
+        group.ids = group.ids.filter((child) => !ids.has(child));
+        if (group.ids.length === 0) {
+          this.changed.delete(group);
+          if (this.open === group) this.open = undefined;
+        }
+      }
+      this.agents.delete(id);
+      this.progressSource.remove(id);
+      this.startedSeq.delete(id);
+      this.groupOf.delete(id);
+      this.own.delete(id);
+      this.viewRevisions.delete(id);
+      this.settledViews.delete(id);
+      this.viewTools.delete(id);
+      this.viewToolSummaries.delete(id);
+      this.replyMessageIds.delete(id);
+      this.drawn.delete(id);
+      this.versions.delete(id);
+      this.turn.delete(id);
+      this.ended.delete(id);
+      this.latestCall.delete(id);
+      this.called.delete(id);
+    }
+    for (const map of [this.spawnedBy, this.runs, this.children])
+      for (const [key, agent] of map) if (ids.has(agent)) map.delete(key);
+    const owner = (key: string) => key.slice(0, key.indexOf("\u0000"));
+    for (const set of [this.shellCalls, this.bareShellCalls, this.calls, this.openCalls, this.hiddenCalls])
+      for (const key of set) if (key.includes("\u0000") && ids.has(owner(key))) set.delete(key);
+  }
+
   /// Removes a root thread that was folded as a subagent before its identity was known.
   private dropPhantom(id: string): void {
     const groups = new Set<Group>([...this.groupOf.values(), ...this.changed, ...(this.open ? [this.open] : [])]);
@@ -275,6 +325,8 @@ export class SubagentFold {
   private readonly latestCall = new Map<string, string>();
   /// Each subagent's calls whose ACP kind is `execute` (`agent\u0000call`): a shell call's title is its command.
   private readonly shellCalls = new Set<string>();
+  /// Calls titled only by their shell tool's name (`isBareShellTitle`), by `<owner>\u0000<call>`.
+  private readonly bareShellCalls = new Set<string>();
   private readonly calls = new Set<string>();
   /// Each subagent's calls still open (`agent\u0000call`): one with any open is not quiet (``quietSince``).
   private readonly openCalls = new Set<string>();
@@ -364,17 +416,31 @@ export class SubagentFold {
         this.latestCall.set(owner.id, call);
       }
       const newest = call === undefined || (this.latestCall.get(owner.id) ?? call) === call;
-      if (tool && update.title && newest) {
-        owner.action = String(update.title);
+      const key = call === undefined ? undefined : `${owner.id}\u0000${call}`;
+      // A call titled only by its shell tool ("Bash", announced before its input) is its command,
+      // whether the command comes with that title or in a later update that repeats no title.
+      const title = update?.title ? String(update.title) : undefined;
+      if (tool && key && title !== undefined) {
+        if (isBareShellTitle(title)) this.bareShellCalls.add(key);
+        else this.bareShellCalls.delete(key);
+      }
+      const command = update?.rawInput?.command;
+      const typed =
+        typeof command === "string" &&
+        command.trim() !== "" &&
+        (title !== undefined ? isBareShellTitle(title) : key !== undefined && this.bareShellCalls.has(key));
+      if (tool && newest && (title !== undefined || typed)) {
+        owner.action = typed ? command : title!;
         // A shell call's title is its command as typed (ACP kind `execute`); the tray says it in words.
         // An update that omits its kind keeps what its own call said, never another call's.
-        const key = call === undefined ? undefined : `${owner.id}\u0000${call}`;
         if (key && typeof update.kind === "string") {
           if (update.kind === "execute") this.shellCalls.add(key);
           else this.shellCalls.delete(key);
         }
         const shell =
-          update.kind === "execute" || (update.kind === undefined && key !== undefined && this.shellCalls.has(key));
+          typed ||
+          update.kind === "execute" ||
+          (update.kind === undefined && key !== undefined && this.shellCalls.has(key));
         if (shell) owner.actionShell = true;
         else delete owner.actionShell;
       }
@@ -418,6 +484,11 @@ export class SubagentFold {
   /// Whether shell call `call` started an agent, which draws as that agent and not as the call.
   isRun(call: string): boolean {
     return this.runs.has(call);
+  }
+
+  /// Whether `call` spawned a subagent acpmux named (its record's `toolCallId`): Claude Code's Agent call.
+  isSpawnCall(call: string): boolean {
+    return this.spawnCalls.has(call);
   }
 
   /// A call becomes a session card only after `reduceChild` receives its explicit child-session
@@ -869,6 +940,29 @@ export class SubagentFold {
     return [...this.agents.values()];
   }
 
+  /// The subagent ids record `event` names, for a rebuild's cut (direct.ts `rebuild`): its
+  /// `_meta.acpmux` tag and progress list (ids and parents), a child session under the chat's
+  /// (`ownerOf`) and an acpmux child's session. More than the fold reads is
+  /// fine: a name too many only moves a cut back.
+  static namedIn(event: Event, update: any, chat: string | undefined, add: (id: string) => void): void {
+    const params = event.msg?.params;
+    const mux = params?._meta?.acpmux;
+    if (typeof mux?.subagent === "string") add(mux.subagent);
+    if (Array.isArray(mux?.subagents))
+      for (const change of mux.subagents) {
+        if (typeof change?.id === "string") add(change.id);
+        if (typeof change?.parent === "string") add(change.parent);
+      }
+    const session = params?.sessionId;
+    if (typeof session === "string" && chat && session.startsWith(`${chat}/`)) add(session);
+    if (typeof event.msg?.childSessionId === "string") add(event.msg.childSessionId);
+  }
+
+  /// Whether `id` is the chat's own thread, never one of its subagents (``isChat``).
+  isChatThread(id: string): boolean {
+    return this.isChat(id);
+  }
+
   /// Each subagent's own view (its text, thoughts and tool calls, and the subagents it spawned
   /// as group rows), for the child view. Unchanged views keep their rows.
   views(): Record<string, AcpmuxRow[]> {
@@ -1111,6 +1205,13 @@ export class SubagentFold {
         if (value !== undefined) agent[key] = value;
       }
     }
+    // A completed subagent's whole last reply, which acpmux puts on its end (subagents.rs): what its
+    // report card shows, where `lastMessage` is only a 240-character preview. A sub-session's
+    // record says its reply (`reduceChild`) and is not overwritten.
+    const said = text(change.result);
+    if (said && change.state === "completed" && !this.recorded.has(agent.id)) agent.result = said;
+    // A resumed run's reply is a new one: the last run's result is not it.
+    else if (change.state === "running" && !this.recorded.has(agent.id)) delete agent.result;
     if (change.background === true) agent.background = true;
     const done = count(change.agents?.done);
     const started = count(change.agents?.started);
@@ -1131,6 +1232,7 @@ export class SubagentFold {
     if (!spawn) agent.progressVersion = event.seq;
     if (change.reason === "paused") agent.paused = true;
     applyRetry(agent, change);
+    applyResume(agent, change);
     const state = text(change.state);
     // An end the harness reported holds against a progress report that trails it; a spawn or a
     // state update saying it runs again still does.

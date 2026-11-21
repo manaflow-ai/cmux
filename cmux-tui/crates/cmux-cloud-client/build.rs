@@ -21,6 +21,7 @@ fn main() -> Result<(), String> {
     let mut doc: serde_json::Value =
         serde_json::from_str(&text).map_err(|e| format!("openapi.json: {e}"))?;
     normalize::normalize(&mut doc);
+    always_send_capabilities(&mut doc);
     let spec: openapiv3::OpenAPI = serde_json::from_value(doc)
         .map_err(|e| format!("openapi.json is not OpenAPI 3.0 after normalization: {e}"))?;
     let mut generator = progenitor::Generator::new(&progenitor::GenerationSettings::default());
@@ -29,4 +30,29 @@ fn main() -> Result<(), String> {
     let out = PathBuf::from(std::env::var("OUT_DIR").map_err(|e| format!("OUT_DIR: {e}"))?);
     std::fs::write(out.join("generated.rs"), prettyplease::unparse(&file))
         .map_err(|e| format!("write generated.rs: {e}"))
+}
+
+/// The request bodies whose `capabilities` list is always sent, an empty one too: the platform
+/// reads a missing list as a machine joined before it took one (cmux-platform#1015), and an
+/// optional list would be left out when empty. Required here only, so the generated field is a
+/// plain list; every body the platform takes still has one.
+const SEND_CAPABILITIES: &[&str] = &["JoinRedeem", "MachineCredentialRotate"];
+
+fn always_send_capabilities(doc: &mut serde_json::Value) {
+    for name in SEND_CAPABILITIES {
+        let Some(schema) = doc.pointer_mut(&format!("/components/schemas/{name}")) else {
+            continue;
+        };
+        if schema.pointer("/properties/capabilities").is_none() {
+            continue;
+        }
+        let Some(object) = schema.as_object_mut() else { continue };
+        let required =
+            object.entry("required").or_insert_with(|| serde_json::Value::Array(Vec::new()));
+        if let Some(list) = required.as_array_mut()
+            && !list.iter().any(|v| v == "capabilities")
+        {
+            list.push(serde_json::Value::from("capabilities"));
+        }
+    }
 }

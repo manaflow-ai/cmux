@@ -14,7 +14,6 @@ import { useComposerLook } from "./composerLook";
 import { readLevel, subscribeLevel, type Dictation } from "./dictation";
 import "./dictation.css";
 import { useT } from "./i18n";
-import { readOutsideLevel, subscribeOutsideLevel } from "./outsideDictation";
 import { tooltipProps } from "./shortcuts";
 
 /// Resting dots at each end of the waveform.
@@ -53,23 +52,6 @@ export function DictationWave({ state }: { state: Dictation["state"] }) {
       ))}
       {ends.map((index) => (
         <span key={`tail-${index}`} data-dot="" />
-      ))}
-    </span>
-  );
-}
-
-/// Another app's measured input level in the mic's place (outsideDictation.ts), drawn as the
-/// waveform's bars so it reads as cmux's own: newest on the right, each bar's `--level` its height.
-export function OutsideLevelBars() {
-  const samples = useSyncExternalStore(subscribeOutsideLevel, readOutsideLevel);
-  return (
-    <span className="acpmux-mic-level" aria-hidden="true">
-      {samples.map((sample, index) => (
-        <span
-          key={index}
-          data-bar=""
-          style={{ "--level": barLevel(sample, index, samples.length) } as React.CSSProperties}
-        />
       ))}
     </span>
   );

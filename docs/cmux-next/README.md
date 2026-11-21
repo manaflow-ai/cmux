@@ -57,7 +57,7 @@ The terminal daemon outlives the app. An update (Sparkle or the DEV script) quit
 swaps it, and relaunches it. The new build takes over the running terminals, so shells,
 scrollback and running agent turns keep going. Screens also come back after a reboot.
 
-To go back one build: palette **Roll Back to Previous Version**, or `cmux update rollback`.
+To go back one build: palette **Roll Back to Previous Version**, or `cmux settings rollback-update --confirm`.
 It's refused, with a message, when the newer build has already changed stored data that the
 older one can't read.
 
@@ -101,8 +101,15 @@ move only the tab. Classic agent chats resume by session id.
 
 ## Hot reload for the web UI
 
-Every cmux build picks up web UI edits from your own checkout live, with no build or relaunch:
+Every cmux build picks up web UI edits from your own checkout live, with no build or relaunch
+(cmux Live, once called Live Web Reload; its switch is Settings > General > cmux Live):
 `cmux live start` in a checkout, or Cmd-Shift-P > **Edit cmux Live…** (also at the end of Settings >
 General). `cmux live stop` goes back. A NIGHTLY can also follow each merge's
 web UI (Settings > Updates > Web UI Updates > Every Merge). Details and troubleshooting are in
 [hot-reload.md](hot-reload.md).
+
+## Why the app never waits on its main thread
+
+cmux NEXT borrows Chrome's threading model: the main thread handles input and paints, and disk,
+network, processes and long work run on named lanes that reply back to it. Debug and Nightly builds
+record any blocking call that slips onto the main thread. Why and how: [main-thread.md](main-thread.md).

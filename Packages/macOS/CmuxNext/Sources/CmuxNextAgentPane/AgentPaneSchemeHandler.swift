@@ -49,7 +49,7 @@ final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
             task.didFinish()
             return
         }
-        if task.request.httpMethod.map({ $0 == "GET" }) ?? true, let url = task.request.url, let media = Self.mediaFile(for: url) {
+        if task.request.httpMethod.map({ $0 == "GET" }) ?? true, let url = task.request.url, let media = Self.mediaSource(for: url) {
             return serveMedia(media, url: url, task: task)
         }
         if task.request.httpMethod.map({ $0 == "GET" }) ?? true, let url = task.request.url, Self.isLibrary(url) {

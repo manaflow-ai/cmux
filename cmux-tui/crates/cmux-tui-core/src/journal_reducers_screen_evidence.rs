@@ -11,7 +11,7 @@ use super::{
     AGENT_HOOK_PRODUCER_ID, AgentRoster, RosterEntry, RosterEvent, agent_state_from_str,
     valid_component,
 };
-use crate::AgentState;
+use crate::{AgentSource, AgentState};
 
 /// The last state a userland plugin child saw on a terminal's screen, kept
 /// whether or not that observation won source arbitration. The record names
@@ -224,5 +224,56 @@ impl AgentRoster {
             && existing.agent_state() == AgentState::Blocked
             && matches!(state, AgentState::Working | AgentState::Idle)
             && observed_at_ms > existing.updated_at_ms
+    }
+}
+
+impl AgentRoster {
+    /// Whether `event`, a plugin's `state.changed` that is not in the journal
+    /// yet, repeats what the roster holds from the same plugin child: the
+    /// same producer, generation, state and process, in the screen record
+    /// and in the terminal's entry, which that plugin owns. Folding such a
+    /// report moves two times and nothing else (the record's `observed_at_ms`
+    /// and the entry's `updated_at_ms`): no state, no source, no fence, no
+    /// [`ScreenNote`]. The screen detector sends one each 800 ms while a
+    /// dialog is visible. On an entry a hook owns, the same report is
+    /// evidence the roster orders by its time, so this says `false`.
+    pub(crate) fn plugin_report_moves_only_its_time(&self, event: &RosterEvent<'_>) -> bool {
+        if event.plugin_event_name() != Some("state.changed") {
+            return false;
+        }
+        let Some(state) = event.normalized("state").and_then(agent_state_from_str) else {
+            return false;
+        };
+        let generation_tag = event.normalized("plugin_generation");
+        if state == AgentState::Done
+            || self.plugin_observation_is_fenced(event.producer_id, generation_tag)
+        {
+            return false;
+        }
+        let Some(terminal_id) = event.terminal_id() else { return false };
+        let generation = generation_tag.and_then(|value| value.parse::<u64>().ok());
+        let session = event.normalized("source_session");
+        let observed_at_ms = event.plugin_observed_at_ms().unwrap_or(event.committed_at_ms);
+        let record_holds = self.screen_evidence.get(terminal_id).is_some_and(|stored| {
+            stored.producer == event.producer_id
+                && stored.generation == generation
+                && stored.state == state.as_str()
+                && stored.source_session.as_deref() == session
+                && observed_at_ms >= stored.observed_at_ms
+        });
+        record_holds
+            && self.entries.get(terminal_id).is_some_and(|entry| {
+                entry.agent_source() == AgentSource::Plugin
+                    && entry.producer.as_deref() == Some(event.producer_id)
+                    && entry
+                        .producer_generation
+                        .as_deref()
+                        .and_then(|value| value.parse::<u64>().ok())
+                        == generation
+                    && entry.state == state.as_str()
+                    && entry.session.as_deref() == session
+                    && event.adapter_id().is_none_or(|agent| entry.agent.as_deref() == Some(agent))
+                    && observed_at_ms >= entry.updated_at_ms
+            })
     }
 }

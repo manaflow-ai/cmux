@@ -177,6 +177,44 @@ async fn lane_report_subagent_a_reply_whose_caller_left_before_it_came_is_report
     person.exactly(&parent, 1).await;
 }
 
+/// Review F2 of #41361: a waiting send whose client cancels its request (`$/cancel_request`)
+/// and stays connected reads nothing any more. Its turn still settles, and its lane report goes
+/// to the lead, as for a caller that left.
+#[tokio::test]
+async fn lane_report_subagent_a_reply_whose_request_was_cancelled_is_reported() {
+    let hub = hub();
+    let mut person = Client::new(&hub);
+    let parent = person.new_session("parent", json!({})).await;
+    let lane =
+        Client::as_session(&hub, &parent).await.new_session("cancelled-lane", json!({})).await;
+    let mut waiting = Client::as_session(&hub, &parent).await;
+    waiting.send("session/prompt", subagent_prompt(&lane, "until-cancel", true)).await;
+    let id = waiting.2;
+    person
+        .ok("_acpmux/wait", json!({"sessions": [lane], "until": ["running"], "timeoutMs": 5000}))
+        .await;
+    // The CLI gives up on its call (a Ctrl-C it forwards) and its connection stays open.
+    let cancel =
+        Message::notification(acpmux::rpc::method::CANCEL_REQUEST, json!({"requestId": id}));
+    waiting.0.send(cancel.to_line()).await.unwrap();
+    let answer = loop {
+        let line = tokio::time::timeout(WAIT, waiting.1.recv()).await.expect("answered").unwrap();
+        let v: Value = serde_json::from_str(&line).unwrap();
+        if v.get("id") == Some(&json!(id)) {
+            break v;
+        }
+    };
+    assert_eq!(
+        answer["error"]["code"],
+        json!(acpmux::request_cancel::REQUEST_CANCELLED),
+        "{answer}"
+    );
+    // The cancelled prompt's turn is stopped and settles; nobody read its reply.
+    turn_ended(&hub, &lane, 1).await;
+    person.exactly(&parent, 1).await;
+    drop(waiting);
+}
+
 #[tokio::test]
 async fn lane_report_subagent_the_lane_reads_the_subagent_as_its_sender() {
     let hub = hub();

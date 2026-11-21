@@ -46,6 +46,20 @@ pub(crate) fn daemon_workspace_service(
     WorkspaceService::new()
 }
 
+/// This Cloud machine's platform `vm_…` id ([`machine_id`] from the host's carrier grant config,
+/// else `CMUX_VM_ID`), or `None` off a Cloud machine (`cmux host share`, `platform_shares.rs`).
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub(crate) fn this_machine_id() -> Option<String> {
+    let grant = std::fs::read_to_string(DEFAULT_GRANT_CONFIG);
+    machine_id(grant.ok().as_deref(), crate::coderouter_usage::machine_vm_id)
+}
+
+/// Only a Linux Cloud machine has a platform id of its own.
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+pub(crate) fn this_machine_id() -> Option<String> {
+    None
+}
+
 /// The platform's `vm_…` id the device seals for: the carrier grant
 /// config's `machine` (the id the carrier itself admits), else `CMUX_VM_ID`.
 /// Never the provider's instance id.

@@ -33,6 +33,8 @@ and exits 1 when an assertion fails.
 """
 import argparse, json, os, shutil, socket, statistics, subprocess, sys, threading, time
 from concurrent.futures import ThreadPoolExecutor
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -253,7 +255,7 @@ class Trace:
             self.proc.terminate()
             out = "timeout"
         if self.proc.returncode != 0:
-            print(f"xctrace {self.template} exit {self.proc.returncode}: {(out or '')[-300:]}", flush=True)
+            safe_print(f"xctrace {self.template} exit {self.proc.returncode}: {(out or '')[-300:]}", flush=True)
         return False
 
 

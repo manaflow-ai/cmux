@@ -51,9 +51,10 @@ import Testing
             pacer.refusedBusy()
             delays.append(pacer.failed() ?? .zero)
         }
-        #expect(delays.allSatisfy { $0 >= .milliseconds(40) }, "a busy refusal was asked again within 40 ms: \(delays)")
+        // The pacer's computed delays, not a measured time.
+        #expect(delays.allSatisfy { delay in delay >= .milliseconds(40) }, "a busy refusal was asked again within 40 ms: \(delays)")
         #expect(delays.allSatisfy { $0 <= RetryPacer.busyRetryCap }, "\(delays)")
-        #expect(delays.last.map { $0 >= .milliseconds(800) } == true, "busy refusals never backed off toward the cap: \(delays)")
+        #expect(delays.last.map { last in last >= .milliseconds(800) } == true, "busy refusals never backed off toward the cap: \(delays)")
         #expect(pacer.failures == 0, "busy refusals spend no budget")
     }
 

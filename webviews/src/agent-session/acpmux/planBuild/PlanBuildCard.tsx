@@ -21,6 +21,7 @@ import {
   type PlanBuildReply,
 } from "./planBuild";
 import "./planBuild.css";
+import { signed } from "../../../ui/Typography";
 
 export type PlanBuildCardProps = {
   build: PlanBuild;
@@ -236,7 +237,7 @@ function PlanBuildColumn({
             </li>
           ))
         )}
-        {more > 0 && <li className="acpmux-plan-builds-more">{t("planBuild.moreFiles", { n: more })}</li>}
+        {more > 0 && <li className="acpmux-plan-builds-more">{signed(t("planBuild.moreFiles", { n: more }))}</li>}
       </ul>
       <div className="acpmux-plan-builds-actions">
         <button

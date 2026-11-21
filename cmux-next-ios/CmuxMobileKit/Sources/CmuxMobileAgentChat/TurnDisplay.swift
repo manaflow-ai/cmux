@@ -13,9 +13,11 @@ public enum TurnRow: Identifiable, Hashable, Sendable {
     case permission(PermissionRecord)
     case question(String)
     case subagents(id: String, ids: [String])
+    case steer(SteeredMessage)
 
     public var id: String {
         switch self {
+        case .steer(let message): "st-\(message.promptID)"
         case .subagents(let id, _): "s-\(id)"
         case .message(let id, _): "m-\(id)"
         case .thought(let id, _): "t-\(id)"
@@ -84,6 +86,9 @@ extension AgentTurn {
             case .subagents(let id, let ids):
                 flush()
                 rows.append(.subagents(id: id, ids: ids))
+            case .steer(let message):
+                flush()
+                rows.append(.steer(message))
             }
         }
         flush()
@@ -207,7 +212,8 @@ extension Array where Element == TurnRow {
             return !calls.contains(where: \.isRunning)
         case .permission(let record):
             return record.resolution != nil
-        case .plan, .subagents:
+        // A message just steered in: the agent is still working on it.
+        case .plan, .subagents, .steer:
             return true
         }
     }

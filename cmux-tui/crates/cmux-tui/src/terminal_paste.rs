@@ -116,7 +116,7 @@ fn connect_socket(path: &Path) -> Result<UnixStream> {
     address.sun_family = libc::sa_family_t::try_from(libc::AF_UNIX)
         .map_err(|_| "terminal-paste-daemon-unavailable")?;
     let bytes = path.as_os_str().as_bytes();
-    if bytes.contains(&0) || bytes.len() >= address.sun_path.len() {
+    if bytes.contains(&0) {
         return Err("terminal-paste-daemon-unavailable");
     }
     for (destination, byte) in address.sun_path.iter_mut().zip(bytes) {

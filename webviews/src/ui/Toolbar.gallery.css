@@ -35,7 +35,7 @@
 }
 
 .toolbar-gallery .ui-toolbar-group {
-  gap: 2px;
+  gap: var(--grid-half-step);
 }
 
 .toolbar-gallery .ui-toolbar-button {
@@ -57,8 +57,8 @@
 }
 
 .toolbar-gallery .ui-toggle-group {
-  gap: 2px;
-  padding: 2px;
+  gap: var(--grid-half-step);
+  padding: var(--grid-half-step);
   border-radius: 6px;
   background: color-mix(in srgb, CanvasText 5%, transparent);
 }

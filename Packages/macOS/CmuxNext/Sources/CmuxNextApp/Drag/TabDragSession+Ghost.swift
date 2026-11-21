@@ -134,7 +134,7 @@ extension TabDragSession {
     /// Animates the ghost to its landing and closes it when it settles.
     func land(_ drag: Drag, at rect: CGRect, cardness: CGFloat, opacity: CGFloat, scale: CGFloat) {
         finishLanding()
-        // The release settles with a slightly under-damped spring.
+        // The release lands on the settle spring; its velocity cannot take the ghost past its landing (`TabDragGhostMotion.step`).
         drag.motion.rectSpring = Motion.tabs.spring(.settle)
         drag.motion.setTarget(rect, cardness: cardness, opacity: opacity, scale: scale, jump: true,
                               velocity: drag.releaseVelocity(at: CACurrentMediaTime()))

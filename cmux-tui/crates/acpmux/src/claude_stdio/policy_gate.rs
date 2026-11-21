@@ -13,8 +13,13 @@
 //!
 //! The gate keeps no policy of its own: a policy changed while a call waits, a daemon that
 //! restarts, or an agent started before the hub knew the chat's policy cannot leave it open.
-//! The matcher's `onFailure` is `block`: a hook callback answer Claude Code cannot use counts as
-//! a block (Claude Code 2.1.319), so the gate fails closed there too.
+//! It fails closed on every path, measured on Claude Code 2.1.319 (W5-L follow-up, 2026-11-08,
+//! `--dangerously-skip-permissions`, a Bash `touch` the hook did not allow):
+//! - no answer before [`GATE_TIMEOUT_S`]: Claude Code cancels the callback and does not run the
+//!   call ("PreToolUse hook did not respond before its timeout ... The tool call was not
+//!   executed"), with or without `onFailure`;
+//! - an error answer, or one Claude Code cannot use: blocked, because the matcher's `onFailure`
+//!   is `block` (without it, that call ran).
 
 use super::*;
 
@@ -22,7 +27,8 @@ use super::*;
 pub(super) const GATE_CALLBACK: &str = "acpmux-policy-gate";
 
 /// How long Claude Code waits for the gate's answer, in seconds: the hub answers at once, but a
-/// daemon that restarts adopts the agent's host first.
+/// daemon that restarts adopts the agent's host first. A call still unanswered then does not run
+/// (module docs).
 pub(super) const GATE_TIMEOUT_S: u64 = 600;
 
 /// Claude Code's tools that act on nothing outside Claude Code itself (its plan, its task list,

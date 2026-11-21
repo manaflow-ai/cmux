@@ -76,7 +76,7 @@ extension HomeService {
         return local ?? teleportNotice(for: id) ?? migrationNotice
     }
 
-    /// Where the Chief runs, on the conversations that show its location chip (``showsTeleport(conversation:)``):
+    /// Where the Chief runs, on the conversations whose Chief card shows its Runs On row (``showsTeleport(conversation:)``):
     /// a move that runs or failed, where it went and when, a rollback, or its fork in cmux Cloud.
     func teleportNotice(for id: ConversationID) -> String? {
         showsTeleport(conversation: id.rawValue) ? services.chiefTeleport.notice() : nil

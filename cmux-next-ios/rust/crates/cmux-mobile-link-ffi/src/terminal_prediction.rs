@@ -111,6 +111,13 @@ impl TerminalPrediction {
         self.engine().missed_output(at(now_us))
     }
 
+    /// The grid or the font changed under the glyphs with no output lost (a
+    /// resize): what is drawn goes, and what the engine knows of the screen
+    /// stays.
+    pub fn layout_changed(&self, now_us: u64) -> bool {
+        self.engine().layout_changed(at(now_us))
+    }
+
     /// A rendered frame reached the screen: held confirmations retire.
     pub fn presented_frame(&self, now_us: u64) -> bool {
         self.engine().presented_frame(at(now_us))

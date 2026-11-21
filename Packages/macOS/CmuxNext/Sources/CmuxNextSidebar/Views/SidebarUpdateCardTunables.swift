@@ -19,7 +19,33 @@ public nonisolated enum SidebarUpdateToggleLook: String, Sendable, CaseIterable,
     }
 }
 
+/// How big the update card draws its Automatic Updates control (Debug Settings
+/// `sidebar.updateCard.automaticSize`). Leo 2026-11-07: "at least let's just make the automatic updates
+/// thing, like, bigger ... Why is the font so small in general". The default sets the label in the
+/// sidebar rows' body size and grows the switch with it; Compact is the caption-size control from before.
+public nonisolated enum SidebarUpdateToggleSize: String, Sendable, CaseIterable, Hashable, TunableChoice {
+    /// The label in the caption size, the switch an icon's size less a step (before 2026-11-09).
+    case compact
+    /// The label in the body size of the sidebar's rows, the switch an icon's size (the default).
+    case regular
+    /// The label in the emphasized body size, the switch an icon's size and a step.
+    case large
+
+    public var tunableTitle: String {
+        switch self {
+        case .compact: "Compact"
+        case .regular: "Regular"
+        case .large: "Large"
+        }
+    }
+}
+
 nonisolated extension SidebarTunables {
+    public static let updateCardAutomaticSize = Tunable<SidebarUpdateToggleSize>.choice(
+        "sidebar.updateCard.automaticSize", .sidebar, "Update card Automatic Updates size",
+        help: "How big the update card draws its Automatic Updates control: Regular (body text), Large, or the earlier Compact caption size.",
+        default: .regular, code: "SidebarTunables.updateCardAutomaticSize")
+
     public static let updateCardAutomaticControl = Tunable<SidebarUpdateToggleLook>.choice(
         "sidebar.updateCard.automaticControl", .sidebar, "Update card Automatic Updates control",
         help: "How the update card draws its Automatic Updates control: a themed switch or the checkbox.",

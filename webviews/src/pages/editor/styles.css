@@ -95,7 +95,7 @@ body {
 .ed-button {
   border: 1px solid var(--page-separator);
   background: transparent;
-  border-radius: 5px;
+  border-radius: var(--ds-radius-control);
   padding: 2px 8px;
   cursor: default;
   white-space: nowrap;

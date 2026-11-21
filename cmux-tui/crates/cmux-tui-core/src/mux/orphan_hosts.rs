@@ -77,6 +77,15 @@ impl Mux {
             &recovered,
         )?;
         self.emit_terminal_registry_changed(&registry, revision);
+        // The presentation snapshot lists recovered terminals (`workspace-recovered-v1`), so the
+        // recovery workspace is marked from the first tree read on. The terminal is recovered
+        // either way; a failed reload only delays the mark to the next reload.
+        if let Err(error) = self.reload_presentation(&registry) {
+            eprintln!(
+                "cmux-tui: presentation reload after recovering {}: {error:#}",
+                recovered.terminal_id
+            );
+        }
         drop(registry);
         eprintln!(
             "cmux-tui: terminal {} had a live host but no registry row; recovered it into \

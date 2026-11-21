@@ -530,6 +530,67 @@ fn an_upload_sends_a_dropped_folder_without_its_secrets() {
     }
 }
 
+/// A folder that cannot go whole still goes: a dot folder this Mac's user
+/// cannot read (`.config` of mode 000) is skipped, never a failed upload,
+/// in a plain folder and in a git working copy, and the skipped count names
+/// every path left out, symlinks and sockets and FIFOs included.
+#[test]
+fn an_upload_skips_an_unreadable_dot_folder_and_counts_every_path_left_out() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let world = World::new();
+    let home = &world.home;
+    let base = home.parent().unwrap().to_path_buf();
+    let tmp = base.join("tmp");
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::create_dir_all(base.join("elsewhere")).unwrap();
+    std::fs::write(base.join("elsewhere/other.txt"), "fake-odds-outside\n").unwrap();
+    let mode = |path: &Path, mode: u32| {
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+    };
+
+    let odds = home.join("projects/odds");
+    std::fs::create_dir_all(odds.join(".config")).unwrap();
+    std::fs::write(odds.join("readme.txt"), "odds\n").unwrap();
+    std::fs::write(odds.join(".config/app.toml"), "fake-odds-config\n").unwrap();
+    std::fs::write(odds.join(".env"), "TOKEN=fake-odds-env\n").unwrap();
+    std::os::unix::fs::symlink(base.join("elsewhere/other.txt"), odds.join("out.txt")).unwrap();
+    std::os::unix::fs::symlink("readme.txt", odds.join("in.txt")).unwrap();
+    let fifo = std::ffi::CString::new(odds.join("pipe").to_str().unwrap()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o644) }, 0, "no FIFO");
+    let _socket = UnixListener::bind(odds.join("s.sock")).unwrap();
+    mode(&odds.join(".config"), 0o000);
+
+    let (ok, sent) = upload(&world, &tmp, &[&odds]);
+    mode(&odds.join(".config"), 0o755);
+    assert!(ok, "an unreadable dot folder failed the upload: {sent}");
+    let entry = &sent["uploads"][0];
+    assert_eq!(entry["files"], 1, "{sent}");
+    // `.config/`, `.env`, the two symlinks, the FIFO and the socket.
+    assert_eq!(entry["skipped"], 6, "{sent}");
+    let at = PathBuf::from(entry["path"].as_str().unwrap());
+    assert_eq!(std::fs::read_to_string(at.join("readme.txt")).unwrap(), "odds\n");
+
+    // In git, a tracked file in the unreadable folder is skipped with it.
+    let repo = home.join("projects/odds-repo");
+    std::fs::create_dir_all(repo.join(".config")).unwrap();
+    git(&repo, &["init", "-q"]);
+    std::fs::write(repo.join("readme.txt"), "repo\n").unwrap();
+    std::fs::write(repo.join(".config/app.toml"), "fake-odds-tracked\n").unwrap();
+    std::fs::write(repo.join(".config/more.toml"), "fake-odds-tracked\n").unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-qm", "first"]);
+    mode(&repo.join(".config"), 0o000);
+    let (ok, sent) = upload(&world, &tmp, &[&repo]);
+    mode(&repo.join(".config"), 0o755);
+    assert!(ok, "an unreadable dot folder in git failed the upload: {sent}");
+    assert_eq!(sent["uploads"][0]["files"], 1, "{sent}");
+    assert_eq!(sent["uploads"][0]["skipped"], 1, "{sent}");
+    for bytes in files_below(&world.machine_home) {
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(!text.contains("fake-odds"), "a left-out file reached the machine: {text}");
+    }
+}
+
 /// A folder in a git working copy goes by git's ignore rules, its top or any
 /// folder inside it, and listing it never runs what the repository's own
 /// config names (here an fsmonitor that would leave a mark).

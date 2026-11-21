@@ -45,24 +45,26 @@ pub(super) fn fill_unfinished(folder: &Path) -> bool {
     std::fs::symlink_metadata(folder.join(".git").join(FILLING)).is_ok()
 }
 
-/// The head's non-cone patterns, in the order sparse-checkout's cone mode writes them: the
-/// root's files, its harness folders whole, then each subpath folder's own files and its
-/// harness folders (a later pattern wins, so each folder re-includes what its parent's
-/// `!.../*/` left out).
+/// The head's non-cone patterns: the root's files, then each subpath folder's own files
+/// (each re-includes what its parent's `!.../*/` left out), then every head folder's harness
+/// folders whole. A folder is judged by the last pattern that matches the folder itself, and
+/// `/.claude/` matches only `.claude`: with a subpath inside it (`.claude/skills/task`),
+/// `!/.claude/*/` would leave `.claude/rules/` out. So each harness folder also gets
+/// `/.claude/**`, which matches every folder below it, after every exclusion.
 pub(super) fn head_patterns(head: &HeadFirst) -> String {
     let mut patterns = String::from("/*\n!/*/\n");
+    let mut folders = vec![String::new()];
     let mut at = String::new();
-    let harness = |patterns: &mut String, at: &str| {
-        for dir in cmux_git::harness_head::HEAD_DIRS {
-            patterns.push_str(&format!("{at}/{dir}/\n"));
-        }
-    };
-    harness(&mut patterns, &at);
     for part in &head.subpath {
         at.push('/');
         at.push_str(part);
         patterns.push_str(&format!("{at}/\n!{at}/*/\n"));
-        harness(&mut patterns, &at);
+        folders.push(at.clone());
+    }
+    for folder in &folders {
+        for dir in cmux_git::harness_head::HEAD_DIRS {
+            patterns.push_str(&format!("{folder}/{dir}/\n{folder}/{dir}/**\n"));
+        }
     }
     patterns
 }
@@ -106,6 +108,27 @@ fn origin_url(git: &Git, folder: &Path) -> Option<String> {
         )
         .ok()?;
     Some(String::from_utf8_lossy(&out).trim().to_owned())
+}
+
+/// Whether two remote URLs name one GitHub repository: `https://github.com/O/N(.git)`,
+/// `git@github.com:O/N(.git)` and `ssh://git@github.com/O/N(.git)` alike, owner and name
+/// compared as GitHub does (case aside). Any other URL must be the same string.
+pub(super) fn same_github_repo(a: &str, b: &str) -> bool {
+    fn repo(url: &str) -> Option<String> {
+        let url = url.trim();
+        let rest = ["https://github.com/", "ssh://git@github.com/", "git@github.com:"]
+            .into_iter()
+            .find_map(|prefix| url.strip_prefix(prefix))?;
+        let rest = rest.trim_end_matches('/');
+        let rest = rest.strip_suffix(".git").unwrap_or(rest);
+        let (owner, name) = rest.split_once('/')?;
+        let fine = |part: &str| {
+            !part.is_empty()
+                && part.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        };
+        (fine(owner) && fine(name)).then(|| format!("{owner}/{name}").to_ascii_lowercase())
+    }
+    a == b || matches!((repo(a), repo(b)), (Some(x), Some(y)) if x == y)
 }
 
 pub struct Seed {
@@ -205,6 +228,7 @@ impl Seed {
         self.job.enter(Phase::Bundle);
         self.check_delta(&since)?;
         self.apply_bundle()?;
+        self.check_ignored(&since)?;
         self.checkout_delta(&since)?;
         let changed = self.changed_paths(&since)?;
         self.submodules(Some(&changed))?;
@@ -400,7 +424,8 @@ impl Seed {
         let is_clone =
             std::fs::symlink_metadata(self.folder.join(".git")).is_ok_and(|meta| meta.is_dir());
         if !is_clone
-            || origin_url(&self.git, &self.folder).as_deref() != Some(self.params.url.as_str())
+            || !origin_url(&self.git, &self.folder)
+                .is_some_and(|origin| same_github_repo(&origin, &self.params.url))
         {
             return Err(mismatch("the folder is not a seed of this repository"));
         }
@@ -409,7 +434,7 @@ impl Seed {
                 .ok()
                 .map(|out| String::from_utf8_lossy(&out).trim().to_owned())
         };
-        let Some(record) = super::export::RECORDS
+        let Some(record) = super::export::DELTA_RECORDS
             .into_iter()
             .find(|record| read(&format!("{record}/work^{{commit}}")).as_deref() == Some(since))
         else {
@@ -436,6 +461,56 @@ impl Seed {
         }
         if snapshot.work != work {
             return Err(changed("files changed on the machine since the last seed"));
+        }
+        Ok(())
+    }
+
+    /// A delta writes every path WORK changed since `since`. `check_delta`'s snapshot covers
+    /// every file of the folder but its ignored ones, so a path the delta writes that the folder
+    /// has on disk and `since` does not track is an ignored file of the machine's (or one in a
+    /// folder the delta puts a file where), which the checkout would overwrite: refused, before
+    /// anything is written.
+    fn check_ignored(&self, since: &str) -> Result<(), Failed> {
+        let wrap = |failure: Failure| step_failed(&failure, "seed.checkout_failed");
+        let changed = self
+            .git(&[
+                "diff-tree",
+                "-r",
+                "-z",
+                "--no-renames",
+                "--name-only",
+                since,
+                &self.params.work,
+            ])
+            .map_err(wrap)?;
+        // Each path, and each folder above it that is a file on disk (a folder there is fine).
+        let mut on_disk = Vec::new();
+        for path in changed.split(|byte| *byte == 0).filter(|path| !path.is_empty()) {
+            let Ok(text) = std::str::from_utf8(path) else { continue };
+            if std::fs::symlink_metadata(self.folder.join(text)).is_ok() {
+                on_disk.push(text.to_owned());
+            }
+            let mut above = Path::new(text).parent();
+            while let Some(dir) = above.filter(|dir| !dir.as_os_str().is_empty()) {
+                if std::fs::symlink_metadata(self.folder.join(dir)).is_ok_and(|meta| !meta.is_dir())
+                {
+                    on_disk.push(dir.to_string_lossy().into_owned());
+                }
+                above = dir.parent();
+            }
+        }
+        if on_disk.is_empty() {
+            return Ok(());
+        }
+        let tracked =
+            self.git(&["ls-tree", "-r", "-t", "-z", "--name-only", since]).map_err(wrap)?;
+        let tracked: std::collections::HashSet<&[u8]> =
+            tracked.split(|byte| *byte == 0).filter(|path| !path.is_empty()).collect();
+        if let Some(path) = on_disk.iter().find(|path| !tracked.contains(path.as_bytes())) {
+            return Err(failed(
+                "seed.machine_changed",
+                format!("{path} is on the machine and not in the last seed (an ignored file)"),
+            ));
         }
         Ok(())
     }
@@ -630,12 +705,42 @@ impl Seed {
     fn mark_head(&self, head: &HeadFirst, barrier: &mut Barrier) {
         let folders = head.folders();
         let folders: Vec<&Path> = folders.iter().map(Path::new).collect();
-        if cmux_git::harness_head::head_allowed(&self.folder, &folders) {
+        if cmux_git::harness_head::head_allowed(&self.folder, &folders)
+            && !self.head_has_submodule(head)
+        {
             barrier.head_ready();
             self.job.reached_head();
         }
         #[cfg(test)]
         hold::at_head(&self.folder);
+    }
+
+    /// Whether a submodule is in the head: its folder is still empty (submodules come after
+    /// the fill), so a `.claude` kept as a submodule would start a harness with none of its
+    /// instructions or settings. A gitlink (`160000`) in the index (WORK here) is in the head
+    /// when it is a subpath folder, or a harness folder of a head folder or inside one (git
+    /// does not mark a gitlink outside the patterns skip-worktree, so the path decides). An
+    /// unreadable index counts as one: such a head is never marked.
+    fn head_has_submodule(&self, head: &HeadFirst) -> bool {
+        let Ok(listing) = self.git(&["ls-files", "-s", "-z"]) else { return true };
+        let subpath = head.folders();
+        let folders: Vec<String> = std::iter::once(String::new())
+            .chain(subpath.iter().map(|folder| format!("{folder}/")))
+            .collect();
+        let in_head = |path: &str| {
+            subpath.iter().any(|folder| folder == path)
+                || folders.iter().any(|folder| {
+                    path.strip_prefix(folder.as_str()).is_some_and(|rest| {
+                        let first = rest.split('/').next().unwrap_or(rest);
+                        cmux_git::harness_head::HEAD_DIRS.contains(&first)
+                    })
+                })
+        };
+        listing.split(|byte| *byte == 0).any(|entry| {
+            let entry = String::from_utf8_lossy(entry);
+            entry.starts_with("160000 ")
+                && entry.split_once('\t').is_some_and(|(_, path)| in_head(path))
+        })
     }
 
     /// The rest of the checkout, under the barrier the head was marked on. The index is
@@ -907,35 +1012,5 @@ fn clean_folder(folder: &Path, existed: bool) {
 /// A test's hold of a seed at its head ([`Seed::mark_head`]), so it can read the
 /// checkout and the barrier there.
 #[cfg(test)]
-pub(super) mod hold {
-    use std::path::{Path, PathBuf};
-    use std::sync::Mutex;
-    use std::sync::mpsc::{Receiver, Sender};
-
-    struct Hold {
-        folder: PathBuf,
-        reached: Sender<()>,
-        release: Receiver<()>,
-    }
-
-    static HOLDS: Mutex<Vec<Hold>> = Mutex::new(Vec::new());
-
-    /// The seed of `folder` stops at its head until `release` sends or drops; `reached`
-    /// hears when it gets there.
-    pub(in super::super) fn at(folder: &Path, reached: Sender<()>, release: Receiver<()>) {
-        let hold = Hold { folder: folder.to_path_buf(), reached, release };
-        HOLDS.lock().unwrap().push(hold);
-    }
-
-    pub(super) fn at_head(folder: &Path) {
-        let hold = {
-            let mut holds = HOLDS.lock().unwrap();
-            let at = holds.iter().position(|hold| hold.folder == folder);
-            at.map(|at| holds.remove(at))
-        };
-        if let Some(hold) = hold {
-            let _ = hold.reached.send(());
-            let _ = hold.release.recv();
-        }
-    }
-}
+#[path = "run_hold_tests.rs"]
+pub(super) mod hold;

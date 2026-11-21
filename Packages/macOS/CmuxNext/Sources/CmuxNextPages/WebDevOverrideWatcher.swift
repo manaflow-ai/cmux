@@ -10,6 +10,11 @@ public import WebKit
 public final class WebDevOverrideWatcher {
     public static let shared = WebDevOverrideWatcher()
 
+    /// Runs after a page did not start from the overlay and every page fell back to the bundled ones
+    /// (``WebDevOverride/overlayDidNotStart(_:page:why:)``), with the one-line reason: the app says
+    /// why and turns the layer off (`cmux customize library off --code`).
+    public var onFallBack: ((String) -> Void)?
+
     private var fileWatcher: ConfigFileWatcher?
     private var manifestWatcher: ConfigFileWatcher?
     private var file: URL?
@@ -82,7 +87,7 @@ public final class WebDevOverrideWatcher {
     /// Reloads every page and agent pane from where the override now says, in both engines: the
     /// same URL again, which the WebKit scheme handlers and (with ``PageChromiumHosting/setLivePages(_:)``)
     /// Chromium's page host answer from the dev server, the overlay, a web update or the bundle.
-    /// Also run when the Live Web Reload setting changes (``WebDevOverride/setAllowed(_:)``).
+    /// Also run when the cmux Live setting changes (``WebDevOverride/setAllowed(_:)``).
     ///
     /// - Parameters:
     ///   - live: Whether the override points pages at a server or an overlay.

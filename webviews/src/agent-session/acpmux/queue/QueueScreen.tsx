@@ -7,7 +7,17 @@
 // question opens its chat, whose card asks the whole of it. An answer goes the way Needs you sends
 // it; its row leaves in the frame the person decides and closes up over the house settle, and a
 // refusal brings it back with the reason under it.
-import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, {
+  createContext,
+  memo,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { age } from "../homeListsModel";
 import { useT, type Translate } from "../i18n";
 import { Keycap } from "../Keycap";
@@ -16,7 +26,8 @@ import type { NeedsYouAnswer } from "../needsYou/model";
 import { formatCost } from "../ledger/ledgerModel";
 import { SHORTCUT_ACTIONS, useShortcut } from "../shortcuts";
 import { queueAnswers, queueCommand, queueReasons, type QueueItem, type QueueReason } from "./queueModel";
-import { useQueue } from "./useQueue";
+import { useQueue, type QueueCache } from "./useQueue";
+import { paneComments, useComments, type Comments } from "./comments";
 import "./queue.css";
 
 /// How a row reads (gallery `agent-pane.review-queue`): `inbox` two lines with the answers on the
@@ -31,7 +42,7 @@ export type QueueActions = {
   /// "opened" when the chat had to take it instead.
   answer(item: QueueItem, choice: NeedsYouAnswer): Promise<"answered" | "opened">;
   /// A pull request's verdict (`_acpmux/review_verdict`).
-  verdict(item: QueueItem, verdict: "accept" | "changes"): Promise<unknown>;
+  verdict(item: QueueItem, verdict: "accept" | "changes", comment?: string): Promise<unknown>;
   /// Shows the item's chat in this tab, as History's own rows open one (`chat.select`).
   open(item: QueueItem): void;
   /// Copies the audit trail (`_acpmux/audit`); resolves to how many entries it copied.
@@ -45,11 +56,20 @@ type Props = QueueActions & {
   refreshKey?: string;
   look?: QueueLook;
   now?: number;
+  /// History's copy of the last answer, so a return to the tab shows it without a read.
+  cache?: QueueCache;
+  /// Request changes words kept outside the page (comments.ts); the pane's own copy by default.
+  comments?: Comments;
 };
 
+/// `detail`: words the person wrote that reached nowhere, shown whole so they can copy them.
 type Notice = { tone: "ok" | "error"; text: string };
 
 const NO_ITEMS: QueueItem[] = [];
+
+/// The time the rows' ages count to (the read's, or the gallery's): a context, so a new read's time
+/// draws the age labels alone, not every row.
+const QueueNow = createContext<number | undefined>(undefined);
 const rowId = (id: string) => `wq-row-${id.replace(/[^A-Za-z0-9_-]/g, "_")}`;
 
 export function QueueScreen({
@@ -62,17 +82,30 @@ export function QueueScreen({
   refreshKey = "",
   look = "inbox",
   now,
+  cache,
+  comments = paneComments,
 }: Props) {
   const t = useT();
-  const { state, refresh } = useQueue(load, refreshKey);
+  const { state, refresh } = useQueue(load, refreshKey, cache);
   /// Items the person answered here that acpmux may still list: hidden until a read drops them.
   const [answered, setAnswered] = useState<ReadonlySet<string>>(() => new Set());
   const [failures, setFailures] = useState<ReadonlyMap<string, string>>(() => new Map());
   const [selected, setSelected] = useState<string | undefined>();
+  // The open Request changes box and any comment neither the chat nor the clipboard took: kept
+  // outside the page (comments.ts), so no tab switch, opened chat or late verdict loses them.
+  const { draft: comment, unsent } = useComments(comments);
+  const setComment = comments.setDraft;
   const [notice, setNotice] = useState<Notice | undefined>();
   const lastIndex = useRef(0);
   const list = useRef<HTMLDivElement>(null);
 
+  // The actions History hands in are new on each of the pane's renders: the rows get stable ones
+  // that call the latest, so a pane render draws no row.
+  const actions = useRef({ answer, verdict, open });
+  useLayoutEffect(() => {
+    actions.current = { answer, verdict, open };
+  });
+  const openItem = useCallback((item: QueueItem) => actions.current.open(item), []);
   const reply = "reply" in state ? state.reply : undefined;
   const all = useMemo(() => reply?.items ?? NO_ITEMS, [reply]);
   const items = useMemo(() => all.filter((item) => !answered.has(item.id)), [all, answered]);
@@ -111,7 +144,9 @@ export function QueueScreen({
         (outcome) => {
           // The chat took it instead: the row comes back until acpmux says it was answered.
           if (outcome === "opened") setAnswered((previous) => withoutId(previous, item.id));
-          refresh();
+          // The page shown now, which may be a later one than the page that answered.
+          if (cache) cache.refresh();
+          else refresh();
         },
         () => {
           setAnswered((previous) => withoutId(previous, item.id));
@@ -120,26 +155,43 @@ export function QueueScreen({
         },
       );
     },
-    [refresh],
+    [refresh, cache],
   );
 
   const give = useCallback(
     (item: QueueItem, choice: NeedsYouAnswer | undefined) => {
       if (!choice) return false;
-      settle(item, () => answer(item, choice), t("waiting.answerFailed"));
+      settle(item, () => actions.current.answer(item, choice), t("waiting.answerFailed"));
       return true;
     },
-    [answer, settle, t],
+    [settle, t],
   );
 
   const sendVerdict = useCallback(
-    (item: QueueItem, kind: "accept" | "changes") => {
-      // A verdict carries no comment: acpmux records only the verdict, so the page asks for no
-      // words it would drop. What should change is said in the chat (the row opens it).
-      settle(item, () => verdict(item, kind), t("waiting.answerFailed"));
+    (item: QueueItem, kind: "accept" | "changes", text?: string) => {
+      // The box closes with the row; a refused verdict brings both back with what was typed, so
+      // the person never writes the request again.
+      // Only this row's box: another row's words being written stay.
+      comments.close(item.id);
+      setNotice(undefined);
+      settle(
+        item,
+        async () => {
+          const reply = await actions.current.verdict(item, kind, text);
+          // The chat did not get the words: say where they went (historyPages.ts `verdict`).
+          const copied = (reply as { commentCopied?: unknown } | null)?.commentCopied;
+          if (copied === true) setNotice({ tone: "ok", text: t("waiting.commentCopied") });
+          // Neither the chat nor the clipboard took it: the words stay on the page to copy by hand,
+          // after any earlier ones still kept.
+          else if (copied === false && text) comments.keepUnsent(text);
+          return reply;
+        },
+        t("waiting.answerFailed"),
+        text === undefined ? undefined : () => comments.restore({ id: item.id, text }),
+      );
       list.current?.focus({ preventScroll: true });
     },
-    [settle, verdict, t],
+    [settle, t, comments],
   );
 
   const runExport = useCallback(() => {
@@ -169,7 +221,7 @@ export function QueueScreen({
         return true;
       }
       if (!current) return false;
-      open(current);
+      openItem(current);
       return true;
     })();
     if (handled) event.preventDefault();
@@ -181,13 +233,19 @@ export function QueueScreen({
   shortcut.current = (kind) => {
     if (!current || current.host) return;
     if (current.kind === "pr") {
-      sendVerdict(current, kind === "allow" ? "accept" : "changes");
+      if (kind === "allow") sendVerdict(current, "accept");
+      else comments.open(current.id);
       return;
     }
-    give(
-      current,
-      queueAnswers(current).find((each) => each.tone === kind),
-    );
+    // An ask with no single-use answer of that kind (only a lasting grant, or a question) is
+    // answered in its chat: the shortcut opens it rather than doing nothing.
+    if (
+      !give(
+        current,
+        queueAnswers(current).find((each) => each.tone === kind),
+      )
+    )
+      openItem(current);
   };
   useEffect(() => {
     const events = [
@@ -201,17 +259,25 @@ export function QueueScreen({
   }, []);
   const allowKey = useShortcut(SHORTCUT_ACTIONS.permissionAllowOnce);
   const denyKey = useShortcut(SHORTCUT_ACTIONS.permissionDeny);
+  const cancelComment = useCallback(() => {
+    setComment(undefined);
+    list.current?.focus({ preventScroll: true });
+  }, [setComment]);
 
   const status =
     state.phase === "older"
       ? t("waiting.older")
-      : state.phase === "failed" && !reply
+      : // A failed read says so whatever is kept: rows that may be old, or an empty list that may
+        // no longer be empty.
+        state.phase === "failed"
         ? t("waiting.failed")
         : state.phase === "loading" && !reply
           ? t("waiting.loading")
           : items.length === 0
             ? t("waiting.empty")
             : "";
+  // acpmux cut the list at the read's limit: say how many more wait (`total` counts them all).
+  const more = reply && reply.total > reply.items.length ? reply.total : undefined;
 
   return (
     <div className="wq" data-look={look}>
@@ -237,32 +303,40 @@ export function QueueScreen({
         aria-keyshortcuts="j k Enter x"
         onKeyDown={onKeyDown}
       >
-        <ul className="wq-rows" aria-label={t("waiting.title")}>
-          {/* An answered row stays until acpmux drops it, collapsed: it leaves over the settle and the
+        <QueueNow.Provider value={now ?? reply?.now}>
+          <ul className="wq-rows" aria-label={t("waiting.title")}>
+            {/* An answered row stays until acpmux drops it, collapsed: it leaves over the settle and the
             rows below close up with it, never in a jump. */}
-          {all.map((item) => (
-            <Row
-              key={item.id}
-              item={item}
-              leaving={answered.has(item.id)}
-              enters={!firstRead.current?.has(item.id)}
-              look={look}
-              now={now ?? reply?.now}
-              selected={item === current}
-              failure={failures.get(item.id)}
-              onSelect={setSelected}
-              onOpen={open}
-              onAnswer={give}
-              allowKey={allowKey}
-              denyKey={denyKey}
-              onVerdict={sendVerdict}
-            />
-          ))}
-        </ul>
+            {all.map((item) => (
+              <Row
+                key={item.id}
+                item={item}
+                leaving={answered.has(item.id)}
+                enters={!firstRead.current?.has(item.id)}
+                look={look}
+                selected={item === current}
+                failure={failures.get(item.id)}
+                comment={comment?.id === item.id ? comment.text : undefined}
+                onSelect={setSelected}
+                onOpen={openItem}
+                onAnswer={give}
+                allowKey={allowKey}
+                denyKey={denyKey}
+                onVerdict={sendVerdict}
+                onComment={setComment}
+                onOpenComment={comments.open}
+                onCancel={cancelComment}
+              />
+            ))}
+          </ul>
+        </QueueNow.Provider>
         {/* One status line, always the same height, so the list never moves when a read lands. */}
         <div className="wq-status" aria-live="polite">
           {status}
-          {state.phase === "failed" && !reply && (
+          {more !== undefined && (
+            <span className="wq-meta">{t("waiting.more", { shown: reply!.items.length, total: more })}</span>
+          )}
+          {state.phase === "failed" && (
             <button type="button" className="wq-link" onClick={refresh}>
               {t("waiting.retry")}
             </button>
@@ -300,6 +374,15 @@ export function QueueScreen({
             {t("waiting.key.export")}
           </span>
         </div>
+        {unsent !== undefined && (
+          <div className="wq-unsent" role="alert">
+            <span className="wq-unsent-text">{t("waiting.commentNotCopied")}</span>
+            <span className="wq-notice-detail">{unsent}</span>
+            <button type="button" className="wq-link" onClick={comments.dismissUnsent}>
+              {t("waiting.dismissComment")}
+            </button>
+          </div>
+        )}
         <output className="wq-notice" data-tone={notice?.tone}>
           {notice?.text ?? ""}
         </output>
@@ -342,16 +425,20 @@ type RowProps = {
   leaving: boolean;
   enters: boolean;
   look: QueueLook;
-  now?: number;
   selected: boolean;
   failure?: string;
+  comment?: string;
   onSelect(id: string): void;
   onOpen(item: QueueItem): void;
   onAnswer(item: QueueItem, choice: NeedsYouAnswer): boolean;
   /// The app's Allow Once and Deny shortcuts, shown on the selected row's answers.
   allowKey?: string | undefined;
   denyKey?: string | undefined;
-  onVerdict(item: QueueItem, verdict: "accept" | "changes"): void;
+  onVerdict(item: QueueItem, verdict: "accept" | "changes", comment?: string): void;
+  onComment(comment: { id: string; text: string } | undefined): void;
+  /// Opens this row's Request changes box, keeping words already typed (comments.ts `open`).
+  onOpenComment(id: string): void;
+  onCancel(): void;
 };
 
 /// One item. Memoized: moving the cursor redraws the two rows it leaves and enters, whatever the
@@ -361,20 +448,22 @@ const Row = memo(function Row({
   leaving,
   enters,
   look,
-  now,
   selected,
   failure,
+  comment,
   onSelect,
   onOpen,
   onAnswer,
   allowKey,
   denyKey,
   onVerdict,
+  onComment,
+  onOpenComment,
+  onCancel,
 }: RowProps) {
   const t = useT();
   const answers = queueAnswers(item);
   const reasons = queueReasons(item);
-  const when = age(item.at, now, t);
   const where = item.host ?? t("waiting.thisMac");
   const showsAnswers = look === "cards" || selected;
   const acceptKey = selected ? allowKey : undefined;
@@ -391,7 +480,11 @@ const Row = memo(function Row({
       data-enters={enters || undefined}
       data-kind={item.kind}
       onClick={() => onSelect(item.id)}
-      onDoubleClick={() => onOpen(item)}
+      onDoubleClick={(event) => {
+        // A double click in the comment box selects a word; only the row's own text opens the chat.
+        if ((event.target as Element).closest?.("textarea, input, button, a")) return;
+        onOpen(item);
+      }}
     >
       <div className="wq-row-inner">
         <span className="wq-mark" aria-hidden="true">
@@ -402,7 +495,7 @@ const Row = memo(function Row({
             <span className="wq-kind">{t(`waiting.kind.${item.kind}`)}</span>
             <span className="wq-ask">{item.ask || item.title}</span>
             <span className="wq-fill" />
-            {when && <span className="wq-meta wq-age">{when}</span>}
+            <QueueAge at={item.at} />
           </div>
           {look !== "compact" && (
             <div className="wq-line wq-sub">
@@ -444,7 +537,7 @@ const Row = memo(function Row({
                     className="wq-button"
                     tabIndex={-1}
                     aria-keyshortcuts={changesKey}
-                    onClick={() => onVerdict(item, "changes")}
+                    onClick={() => onOpenComment(item.id)}
                   >
                     {changesKey && <Keycap>{changesKey}</Keycap>}
                     {t("waiting.pr.changes")}
@@ -469,14 +562,85 @@ const Row = memo(function Row({
                   );
                 })
               ) : (
-                <span className="wq-meta">
+                <button type="button" className="wq-link" tabIndex={-1} onClick={() => onOpen(item)}>
                   {item.host ? t("waiting.answerThere", { host: item.host }) : t("waiting.answerInChat")}
-                </span>
+                </button>
               )}
             </div>
+          )}
+          {comment !== undefined && (
+            <CommentBox
+              text={comment}
+              onChange={(text) => onComment({ id: item.id, text })}
+              onSend={(text) => onVerdict(item, "changes", text)}
+              onCancel={onCancel}
+            />
           )}
         </div>
       </div>
     </li>
   );
 });
+
+function CommentBox({
+  text,
+  onChange,
+  onSend,
+  onCancel,
+}: {
+  text: string;
+  onChange(text: string): void;
+  onSend(text: string): void;
+  onCancel(): void;
+}) {
+  const t = useT();
+  const field = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    field.current?.focus();
+  }, []);
+  return (
+    <div className="wq-comment">
+      <textarea
+        ref={field}
+        className="wq-comment-field"
+        rows={2}
+        value={text}
+        placeholder={t("waiting.comment.placeholder")}
+        aria-label={t("waiting.pr.changes")}
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={(event) => {
+          event.stopPropagation();
+          if (event.nativeEvent.isComposing) return;
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onCancel();
+          } else if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            if (text.trim()) onSend(text);
+          }
+        }}
+      />
+      <div className="wq-comment-actions">
+        <button type="button" className="wq-button" onClick={onCancel}>
+          {t("waiting.comment.cancel")}
+        </button>
+        <button
+          type="button"
+          className="wq-button"
+          data-tone="allow"
+          disabled={!text.trim()}
+          onClick={() => onSend(text)}
+        >
+          {t("waiting.comment.send")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/// A row's age ("5m"), to the read's time: it draws again when a read brings a new time, its row does not.
+function QueueAge({ at }: { at: number }) {
+  const t = useT();
+  const when = age(at, useContext(QueueNow), t);
+  return when ? <span className="wq-meta wq-age">{when}</span> : null;
+}

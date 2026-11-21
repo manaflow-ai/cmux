@@ -354,12 +354,13 @@ pub fn session_name(tag: Option<&str>) -> Option<String> {
     (!cleaned.is_empty()).then(|| format!("cmux-app-{cleaned}"))
 }
 
-/// `<applicationSupport>/cmux/tags/<tag>/tui`.
+/// `<applicationSupport>/cmux-next/tags/<tag>/tui`: NEXT's own folder, never
+/// classic's `cmux` (CmuxNext `DaemonLauncher.nextSupport`, `StateFolderMove`).
 pub fn tag_state_directory(tag: &str, application_support: &str) -> String {
     let component = session_name(Some(tag))
         .and_then(|s| s.strip_prefix("cmux-app-").map(str::to_string))
         .unwrap_or_else(|| "default".into());
-    join(application_support, &format!("cmux/tags/{component}/tui"))
+    join(application_support, &format!("cmux-next/tags/{component}/tui"))
 }
 
 /// `CMUX_NEXT_TUI_BIN` when executable, then `<Resources>/bin/cmux-tui`;

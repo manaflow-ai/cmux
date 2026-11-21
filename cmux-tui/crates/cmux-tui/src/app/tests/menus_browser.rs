@@ -162,10 +162,12 @@ fn vertical_split_drag_keeps_nested_pane_tab_bars_visible() {
 #[test]
 fn ancestor_split_minimum_accounts_for_descendant_ratios() {
     let root = Node::Split {
+        divider_hidden: false,
         id: 1,
         dir: SplitDir::Down,
         ratio: 0.5,
         a: Box::new(Node::Split {
+            divider_hidden: false,
             id: 2,
             dir: SplitDir::Down,
             ratio: 0.05,
@@ -192,10 +194,12 @@ fn ancestor_split_minimum_accounts_for_descendant_ratios() {
 #[test]
 fn infeasible_full_minimum_falls_back_to_bar_only_minimums() {
     let root = Node::Split {
+        divider_hidden: false,
         id: 1,
         dir: SplitDir::Down,
         ratio: 0.5,
         a: Box::new(Node::Split {
+            divider_hidden: false,
             id: 2,
             dir: SplitDir::Down,
             ratio: 0.5,

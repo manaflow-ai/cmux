@@ -118,7 +118,7 @@ const ALIASES: [(&str, &str); 7] = [
 static MODELS: std::sync::LazyLock<Vec<(String, String)>> = std::sync::LazyLock::new(|| {
     let mut models: Vec<(String, String)> =
         ALIASES.iter().map(|(id, name)| (id.to_string(), name.to_string())).collect();
-    let catalog = crate::catalog::schema::parse(crate::catalog::BUNDLED.as_bytes());
+    let catalog = crate::catalog::schema::parse(crate::catalog::BUNDLED.inflate().as_bytes());
     let releases =
         catalog.iter().flat_map(|catalog| &catalog.harnesses).filter(|h| h.id == "claude");
     for model in releases.flat_map(|harness| &harness.models) {
@@ -301,13 +301,17 @@ mod hook_callback_tests;
 mod inbound;
 // What the log keeps of Claude's raw assistant and user lines (`logged_bodies.rs`).
 mod logged_bodies;
-pub use logged_bodies::leave_out_bodies;
+pub use logged_bodies::{PROMPT_BODY_KEPT_UNDER, leave_out_bodies, leave_out_prompt_bodies};
+// What the log keeps of Claude's raw system/init lines (`logged_init.rs`).
+mod logged_init;
+pub use logged_init::{InitSections, LoggedInit};
 mod live_name;
 #[cfg(test)]
 mod live_name_tests;
 mod loops;
 #[cfg(test)]
 mod loops_tests;
+pub(crate) mod native_messaging;
 mod outbound;
 mod policy_gate;
 #[cfg(test)]
@@ -321,6 +325,9 @@ mod result_images;
 pub(crate) use result_images::result_images;
 #[cfg(test)]
 mod result_images_tests;
+// A prompt Claude Code queued behind a turn of its own (`queued_prompt_tests.rs`).
+#[cfg(test)]
+mod queued_prompt_tests;
 #[cfg(test)]
 mod steer_now_tests;
 // Other sessions' messages steered into one step go in as one line (`steer_batch.rs`).
@@ -437,6 +444,10 @@ pub struct SpawnPlan {
     pub args: Vec<String>,
 }
 
+/// Moves Claude Code's per-machine system prompt sections into the first user message, so
+/// every chat on every folder shares one cached system prompt (`spawn_plan`).
+pub const EXCLUDE_DYNAMIC_FLAG: &str = "--exclude-dynamic-system-prompt-sections";
+
 /// Build the claude command line. `resume` reopens an existing Claude
 /// session (or forks it); `fresh_id` pins the id of a brand-new one so acpmux
 /// knows it before the first turn.
@@ -493,6 +504,16 @@ pub fn spawn_plan(
         args.push("--thinking-display".into());
         args.push("summarized".into());
     }
+    // Claude Code's default system prompt carries per-machine sections (cwd, env info, memory
+    // paths, git status), so two chats in two folders shared no cached system prompt: every new
+    // chat wrote its system prompt to the prompt cache again. This flag moves those sections into
+    // the first user message, after the shared prefix. Measured with one harness (two fresh
+    // `claude -p` chats in two repos, Claude Code 2.1.312): the second chat read 24,079 tokens
+    // from cache and wrote 7,795 without it, read 25,595 and wrote 6,048 with it (Leo,
+    // 2026-11-09: "if we're doing th eproper cutting edge stuff"). A profile may pin it itself.
+    if !profile.argv.iter().any(|a| a == EXCLUDE_DYNAMIC_FLAG) {
+        args.push(EXCLUDE_DYNAMIC_FLAG.into());
+    }
     // A later --model wins over one the profile pins in its argv.
     if let Some(m) = model.filter(|m| !m.is_empty() && *m != "default") {
         args.push("--model".into());
@@ -500,21 +521,53 @@ pub fn spawn_plan(
     }
     // Lets the chat switch to bypassPermissions ("Bypass permissions") later; a
     // process that cannot take it is never given bypassPermissions at spawn.
-    let bypass = bypass_allowed(profile);
-    if bypass {
+    if bypass_allowed(profile) {
         args.push(ALLOW_BYPASS_FLAG.into());
+    }
+    if !argv_names_mode(&profile.argv) {
+        let mode = spawn_mode(profile, mode);
+        if !mode.is_empty() {
+            args.push("--permission-mode".into());
+            args.push(mode.into());
+        }
+    }
+    SpawnPlan { program, args }
+}
+
+/// The profile's argv passes `--permission-mode` itself (`--permission-mode X` or
+/// `--permission-mode=X`): `spawn_plan` then adds none.
+fn argv_names_mode(argv: &[String]) -> bool {
+    argv.iter().any(|a| a == "--permission-mode" || a.starts_with("--permission-mode="))
+}
+
+/// The `--permission-mode` value the profile's argv pins, if any.
+fn pinned_mode(argv: &[String]) -> Option<&str> {
+    argv.iter().enumerate().find_map(|(i, a)| match a.strip_prefix("--permission-mode") {
+        Some("") => argv.get(i + 1).map(String::as_str),
+        Some(rest) => rest.strip_prefix('='),
+        None => None,
+    })
+}
+
+/// The mode a Claude Code process that `spawn_plan` starts for `mode` runs in: the mode the
+/// profile's argv pins, else `mode`, with `bypassPermissions` moved to [`OWN_MODE`] when the
+/// process could not take it. The translator starts in this mode, so a chat's first answer
+/// (`session/new` is answered before Claude Code's `system/init`, which comes with the first
+/// turn) already tells the truth: a profile pinned to Manual showed Auto until then.
+pub fn spawn_mode<'a>(profile: &'a HarnessProfile, mode: &'a str) -> &'a str {
+    if let Some(pinned) = pinned_mode(&profile.argv) {
+        return pinned;
     }
     // A profile that passes a skip flag itself takes the mode as it is.
     let own_skip = profile
         .argv
         .iter()
         .any(|a| a == ALLOW_BYPASS_FLAG || a == "--dangerously-skip-permissions");
-    let mode = if mode == "bypassPermissions" && !bypass && !own_skip { OWN_MODE } else { mode };
-    if !profile.argv.iter().any(|a| a == "--permission-mode") && !mode.is_empty() {
-        args.push("--permission-mode".into());
-        args.push(mode.into());
+    if mode == "bypassPermissions" && !bypass_allowed(profile) && !own_skip {
+        OWN_MODE
+    } else {
+        mode
     }
-    SpawnPlan { program, args }
 }
 
 /// Per-process translation state.
@@ -549,6 +602,9 @@ pub struct Translator {
     pub prompt_suggestions: AtomicBool,
     /// Whether this process asked Claude Code for prompt suggestions at `initialize`.
     suggestions_offered: AtomicBool,
+    /// Whether Claude Code's suggestions are paused now, as acpmux last told it
+    /// (`set_prompt_suggestions_paused`): the chat's pick, or a turn no person started.
+    suggestions_paused: AtomicBool,
     /// This chat's `RECAP_OPTION`: `default`, `on` or `off`.
     recap: Mutex<&'static str>,
     in_turn: AtomicBool,
@@ -558,6 +614,10 @@ pub struct Translator {
     /// The `uuid` of the turn's prompt line until Claude Code echoes it
     /// (`isReplay` carries the line's `uuid`).
     prompt_echo: Mutex<Option<String>>,
+    /// Claude Code queued the turn's prompt line behind a turn of its own (`command_lifecycle`
+    /// `queued` for the line's uuid) and has not started it yet: a model turn's result meanwhile
+    /// is that other turn's, never the prompt's (`queued_prompt_tests.rs`).
+    prompt_queued: AtomicBool,
     /// The `/rename` lines written and not yet answered, oldest first (`live_name.rs`).
     renaming: Mutex<std::collections::VecDeque<live_name::Rename>>,
     /// Prompts still unanswered when the next one went out: acpmux ended
@@ -769,10 +829,12 @@ impl Translator {
             fast: Mutex::new(false),
             prompt_suggestions: AtomicBool::new(true),
             suggestions_offered: AtomicBool::new(false),
+            suggestions_paused: AtomicBool::new(false),
             recap: Mutex::new("default"),
             in_turn: AtomicBool::new(false),
             turn_output: AtomicBool::new(false),
             prompt_echo: Mutex::new(None),
+            prompt_queued: AtomicBool::new(false),
             renaming: Mutex::new(std::collections::VecDeque::new()),
             abandoned: Mutex::new(Vec::new()),
             steers: Mutex::new(std::collections::VecDeque::new()),

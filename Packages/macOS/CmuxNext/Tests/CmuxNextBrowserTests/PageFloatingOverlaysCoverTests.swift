@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextBrowser
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// ZOOM VARIANTS 2, 2026-11-08 (zoom films, G4P): on Cmd-Shift-Enter the zooming pane grows over
@@ -9,7 +10,7 @@ import Testing
 /// the window's overlay host, above every pane; the pane in front cuts only the page
 /// (`PaneHostView.setStripClip`, read by `CEFClipShape`). A card whose place a pane in front covers
 /// now leaves until the page shows that place again.
-@MainActor @Suite(.serialized) struct PageFloatingOverlaysCoverTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct PageFloatingOverlaysCoverTests {
     struct Scene {
         let window: NSWindow
         let host: NSView

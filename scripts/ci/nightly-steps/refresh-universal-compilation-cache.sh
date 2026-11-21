@@ -5,19 +5,24 @@ set -euo pipefail
 # The warmer only fills the Swift compilation cache; the Chromium
 # engine is a prebuilt artifact the shipped build embeds itself.
 # Bundle cmux-tui bundles none (deferred): this build only fills the cache.
-fleet_cache_settings=()
-while IFS= read -r setting; do
-  fleet_cache_settings+=("$setting")
-done < <(bash scripts/ci/fleet-compilation-cache.sh)
-CMUX_NEXT_TUI_MODE=deferred CMUX_NEXT_SKIP_CEF=1 CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
-  -destination 'generic/platform=macOS' \
-  -clonedSourcePackagesDirPath .spm-cache \
-  -packageCachePath "$PWD/.spm-cache/.package-cache" \
-  -showBuildTimingSummary \
-  ARCHS="arm64 x86_64" \
-  ONLY_ACTIVE_ARCH=NO \
-  COMPILATION_CACHE_ENABLE_CACHING=YES \
-  COMPILATION_CACHE_LIMIT_SIZE=3221225472 \
-  "${fleet_cache_settings[@]}" \
-  COMPILER_INDEX_STORE_ENABLE=NO \
-  CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
+# shellcheck source=scripts/ci/lib/fleet-cache-fallback.sh
+source scripts/ci/lib/fleet-cache-fallback.sh
+warm_build() {
+  local fleet_cache_settings=()
+  while IFS= read -r setting; do
+    fleet_cache_settings+=("$setting")
+  done < <(bash scripts/ci/fleet-compilation-cache.sh)
+  CMUX_NEXT_TUI_MODE=deferred CMUX_NEXT_SKIP_CEF=1 CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
+    -destination 'generic/platform=macOS' \
+    -clonedSourcePackagesDirPath .spm-cache \
+    -packageCachePath "$PWD/.spm-cache/.package-cache" \
+    -showBuildTimingSummary \
+    ARCHS="arm64 x86_64" \
+    ONLY_ACTIVE_ARCH=NO \
+    COMPILATION_CACHE_ENABLE_CACHING=YES \
+    COMPILATION_CACHE_LIMIT_SIZE=3221225472 \
+    "${fleet_cache_settings[@]}" \
+    COMPILER_INDEX_STORE_ENABLE=NO \
+    CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
+}
+cmux_fleet_cache_build scripts/ci "${RUNNER_TEMP:-/tmp}/refresh-compilation-cache-build.log" warm_build

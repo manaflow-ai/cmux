@@ -55,6 +55,7 @@ export function AgentRunCard({ agent }: { agent: Subagent }) {
       // lines too"): the model and the machine beside the name, its reply and Raw in the panel.
       model={[agent.kind, agent.host].filter(Boolean).join(" · ") || undefined}
       disclosure
+      disclosureChevron={false}
       disclosureKey={`agent-run:${agent.id}`}
       state={cardState(agent)}
       time={formatDuration(elapsed(agent, now))}

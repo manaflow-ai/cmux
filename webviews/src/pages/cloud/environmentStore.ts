@@ -42,7 +42,12 @@ export type EnvironmentState = {
     | "value"
     | "header"
     | "route"
-    | "dropped";
+    | "dropped"
+    | "vaultDown"
+    | "vaultHost"
+    | "vaultText"
+    | "vaultUnreadable"
+    | "vaultRefused";
 };
 
 /** The platform's secret refusals (cmux-platform#1008), shown as the same sentence the editor's own check shows.
@@ -53,6 +58,17 @@ const refusals: Record<string, EnvironmentState["error"]> = {
   "cloud_environment.secret_value_required": "secret",
   "cloud_environment.invalid_secret_route": "route",
   "cloud_environment.invalid_value": "value",
+  // Saving a secret sent to hosts writes it to the secret store; its refusals (cmux-platform#1046). Another
+  // vault.* code (one only a machine's start gives) stays the generic save error.
+  "vault.unavailable": "vaultDown",
+  "vault.unreachable": "vaultDown",
+  "vault.upstream_failed": "vaultDown",
+  "vault.not_configured": "vaultDown",
+  "vault.pin_public_suffix": "vaultHost",
+  "vault.secret_not_ascii": "vaultText",
+  "vault.secret_unreadable": "vaultUnreadable",
+  "vault.grant_refused": "vaultRefused",
+  "vault.request_rejected": "vaultRefused",
 };
 
 /** One draft for every entry point; stale reads never resurrect a closed or different editor. */
@@ -188,7 +204,10 @@ export class EnvironmentStore {
       this.close();
     } catch (error) {
       const code = error instanceof Object && "code" in error ? error.code : undefined;
-      this.set({ saving: false, error: (typeof code === "string" && refusals[code]) || "save" });
+      this.set({
+        saving: false,
+        error: (typeof code === "string" && Object.hasOwn(refusals, code) && refusals[code]) || "save",
+      });
     }
   }
 }

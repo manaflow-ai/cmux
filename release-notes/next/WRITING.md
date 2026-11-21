@@ -65,7 +65,10 @@ With no `gallery:` line, a New or Improved entry still gets a picture when its c
 `*.gallery.ts` file: the first variant the commit added, else the one whose lines it changed most.
 An Improved entry with no `before:` line gets the same state rendered at the commit before it, so a
 look you changed in place still has its before. Name the states when the pick would be wrong (for
-example when the commit touched several entries).
+example when the commit touched several entries). A gallery file your change adds has no state at the
+commit before it, so draw the old look in it too: a variant whose note opens "Before:" (as
+`notes-flat` does beside `notes-sections`) is the before, rendered beside the after. The pre-push hook
+refuses an Improved entry whose only gallery change is a new file with no such variant.
 The pre-push hook (`scripts/cmux-next/prepush-gate.py`, "What's New pictures") refuses a New or
 Improved entry the push adds with none of these: a `gallery:` or `clip:` line, a clip spec
 (`release-notes/next/clips/<id>.json`, below), or a `*.gallery.ts(x)` change on the branch. A native

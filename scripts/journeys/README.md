@@ -248,7 +248,7 @@ truecolor cells under its text line, and reads it back from the snapshot's pixel
   {"daemon_line": "ok-${nonce}-42"}, {"app_text_line": "ok-${nonce}-42"}, {"frame_marker": "ok-${nonce}-42"}]}
 ```
 
-`marker_install` writes the program to `/tmp/jr-m-<nonce>` and binds `${marker}`; the program prints the token as a
+`marker_install` writes the program to `/tmp/jr-m-<nonce>-<random>` (made exclusively) and binds `${marker}`; the program prints the token as a
 text line (the daemon and app checks see what `echo` printed), a blank line, the marker and a blank line (no glyph of
 a text line can reach a marker pixel row). It needs the pane's own width to be at least 30 columns (it reads the
 terminal's size, not an exported `COLUMNS`; it exits 3 when the pane is narrower and 4 when its output is no

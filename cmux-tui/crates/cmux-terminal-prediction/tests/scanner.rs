@@ -1,7 +1,8 @@
 //! Port of classic cmux's `TerminalOutputScannerTests.swift`.
 
 use cmux_terminal_prediction::OutputSignal::{
-    AlternateScreen, ClearAtCursor, CursorLeft, CursorLeftBy, Disruptive, Ignorable, Printable,
+    AlternateScreen, ClearAtCursor, Concealed, CursorLeft, CursorLeftBy, Disruptive, Ignorable,
+    Printable,
 };
 use cmux_terminal_prediction::{OutputSignal, TerminalOutputScanner};
 
@@ -209,4 +210,120 @@ fn designating_another_character_set_is_disruptive() {
     // matches the key that was typed.
     assert_eq!(scan("\x1b(0x"), [Disruptive, Printable(0x78)]);
     assert_eq!(scan("\x1b#8x"), [Disruptive, Printable(0x78)]);
+}
+
+#[test]
+fn conceal_and_reveal_are_reported_once_each() {
+    assert_eq!(scan("\x1b[8m"), [Concealed(true)]);
+    assert_eq!(
+        scan("\x1b[8ma\x1b[8m\x1b[0m"),
+        [Concealed(true), Printable(0x61), Ignorable, Concealed(false)]
+    );
+    assert_eq!(scan("\x1b[8m\x1b[28m"), [Concealed(true), Concealed(false)]);
+    assert_eq!(scan("\x1b[8m\x1b[m"), [Concealed(true), Concealed(false)]);
+    assert_eq!(scan("\x1b[8m\x1bc"), [Concealed(true), AlternateScreen(false)]);
+}
+
+#[test]
+fn conceal_after_a_long_parameter_list_is_still_read() {
+    let mut scanner = TerminalOutputScanner::new();
+    scanner.scan(b"\x1b[38;2;255;255;255;48;2;10;20;30;1;8m");
+    assert!(scanner.is_concealed());
+}
+
+#[test]
+fn colour_operands_are_not_conceal() {
+    for text in ["\x1b[38;5;8m", "\x1b[48;2;8;8;8m", "\x1b[38:5:8m", "\x1b[58;5;8m", "\x1b[>8m"] {
+        let mut scanner = TerminalOutputScanner::new();
+        scanner.scan(text.as_bytes());
+        assert!(!scanner.is_concealed(), "{text:?}");
+    }
+}
+
+#[test]
+fn a_cursor_restore_brings_back_the_saved_conceal_state() {
+    let mut scanner = TerminalOutputScanner::new();
+    scanner.scan(b"\x1b7\x1b[8mX\x1b8");
+    assert!(!scanner.is_concealed());
+    scanner.scan(b"\x1b[8m\x1b7\x1b[0mX\x1b8");
+    assert!(scanner.is_concealed());
+}
+
+#[test]
+fn a_restart_keeps_the_conceal_state_a_cursor_save_holds() {
+    // SGR 8, ESC 7, SGR 0, then a resize: the terminal's ESC 8 still brings
+    // concealment back.
+    let mut scanner = TerminalOutputScanner::new();
+    scanner.scan(b"\x1b[8m\x1b7\x1b[0m");
+    assert!(!scanner.is_concealed());
+    let mut scanner = scanner.restarted();
+    assert_eq!(scanner.scan(b"\x1b8"), [Concealed(true)]);
+}
+
+#[test]
+fn a_csi_cursor_restore_brings_back_the_saved_conceal_state() {
+    let mut scanner = TerminalOutputScanner::new();
+    assert_eq!(
+        scanner.scan(b"\x1b[8m\x1b[s\x1b[0m\x1b[u"),
+        [Concealed(true), Concealed(false), Concealed(true)]
+    );
+    assert!(scanner.is_concealed());
+    scanner.scan(b"\x1b[0m\x1b[sX\x1b[8m\x1b[u");
+    assert!(!scanner.is_concealed());
+}
+
+#[test]
+fn leaving_the_alternate_screen_restores_the_saved_conceal_state() {
+    let mut scanner = TerminalOutputScanner::new();
+    scanner.scan(b"\x1b[8m\x1b[?1049h\x1b[0m");
+    assert!(!scanner.is_concealed());
+    scanner.scan(b"\x1b[?1049l");
+    assert!(scanner.is_concealed());
+}
+
+#[test]
+fn an_sgr_pop_never_reveals() {
+    let mut scanner = TerminalOutputScanner::new();
+    scanner.scan(b"\x1b[8m\x1b[#{\x1b[0m\x1b[#}");
+    assert!(scanner.is_concealed());
+    // A pop of an unconcealed pen while concealed keeps concealing.
+    let mut scanner = TerminalOutputScanner::new();
+    scanner.scan(b"\x1b[#{\x1b[8m\x1b[#}");
+    assert!(scanner.is_concealed());
+}
+
+#[test]
+fn each_screen_keeps_its_own_saved_conceal_state() {
+    let mut scanner = TerminalOutputScanner::new();
+    scanner.scan(b"\x1b[8m\x1b[?1049h\x1b[0m\x1b7\x1b8\x1b[?1049l");
+    assert!(scanner.is_concealed());
+    // A save on the primary screen, then one in a full-screen program that
+    // conceals: back on the primary screen, its own save restores revealed.
+    let mut scanner = TerminalOutputScanner::new();
+    scanner.scan(b"\x1b7\x1b[?47h\x1b[8m\x1b7\x1b[?47l\x1b8");
+    assert!(!scanner.is_concealed());
+}
+
+#[test]
+fn modes_in_a_list_apply_one_by_one() {
+    let mut scanner = TerminalOutputScanner::new();
+    scanner.scan(b"\x1b[8m\x1b[?1048;25h\x1b[0m\x1b[?25;1048l");
+    assert!(scanner.is_concealed());
+    assert_eq!(scanner.scan(b"\x1b[?25;1049h"), [AlternateScreen(true)]);
+}
+
+#[test]
+fn a_mode_list_past_the_parameter_cap_is_still_read() {
+    let mut scanner = TerminalOutputScanner::new();
+    scanner.scan(b"\x1b[8m\x1b[?25;25;25;25;1048h\x1b[0m\x1b[?1048l");
+    assert!(scanner.is_concealed());
+    assert_eq!(scanner.scan(b"\x1b[?25;25;25;25;25;1049h"), [AlternateScreen(true)]);
+}
+
+#[test]
+fn a_c0_control_inside_a_control_sequence_runs_and_the_sequence_goes_on() {
+    assert_eq!(scan("\x1b[8\x07m"), [Disruptive, Concealed(true)]);
+    assert_eq!(scan("\x1b[3\x7f2m"), [Ignorable]);
+    assert_eq!(scan("\x1b[8\x18m"), [Disruptive, Printable(b'm')]);
+    assert_eq!(scan("\x1b[8\x1b[0m"), [Ignorable]);
 }
