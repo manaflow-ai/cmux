@@ -82,6 +82,10 @@ pub const HOME_INBOX_CAPABILITY: &str = "home-inbox-v1";
 /// carries `revision` and the rows changed and ids removed since, or the
 /// whole list with `full: true` when the change log does not reach back.
 pub const HOME_INBOX_SINCE_CAPABILITY: &str = "home-inbox-since-v1";
+/// `home-inbox` takes `offset`+`limit` or `ids` for `owners: ["local"]`: the
+/// owner builds only those rows; the reply carries `window: true`, `total`,
+/// and `offset` (a range) or `order` (ids; each row has its `index`).
+pub const HOME_INBOX_WINDOW_CAPABILITY: &str = "home-inbox-window-v1";
 
 /// `conversation-create`: a retry with the same `idempotency_key` and request
 /// returns the conversation it created.
@@ -140,6 +144,54 @@ pub(super) struct HomeInboxParams {
     /// revision. Absent: the reply is exactly the one without this field.
     #[serde(default)]
     since: Option<u64>,
+    /// A window of the local rows (`home-inbox-window-v1`, owners
+    /// `["local"]`): `limit` (1-500) rows from `offset` (default 0), or the
+    /// rows of up to 64 conversations (`ids`, each row with its `index`),
+    /// never both. Only the window's rows are built; the reply says `total`
+    /// (and `offset`, or `order` with `ids`: the list order's digest).
+    /// Absent: the whole list, exactly as before.
+    #[serde(default)]
+    offset: Option<u64>,
+    #[serde(default)]
+    limit: Option<u64>,
+    #[serde(default)]
+    ids: Option<Vec<String>>,
+}
+
+/// The most rows one windowed `home-inbox` reply carries.
+pub(super) const HOME_INBOX_WINDOW_MAX: u64 = 500;
+/// The most conversations one `home-inbox` `ids` read names.
+pub(super) const HOME_INBOX_IDS_MAX: usize = 64;
+
+impl HomeInboxParams {
+    /// The window asked for, if any; a malformed one is refused.
+    fn window(&self) -> anyhow::Result<Option<cmux_conversation::HomeWindow>> {
+        if let Some(ids) = &self.ids {
+            anyhow::ensure!(
+                self.offset.is_none() && self.limit.is_none(),
+                "bad request: ids takes no offset or limit"
+            );
+            anyhow::ensure!(
+                !ids.is_empty() && ids.len() <= HOME_INBOX_IDS_MAX,
+                "bad request: ids must be 1-{HOME_INBOX_IDS_MAX} conversation ids"
+            );
+            return Ok(Some(cmux_conversation::HomeWindow::Ids(ids.clone())));
+        }
+        match (self.offset, self.limit) {
+            (None, None) => Ok(None),
+            (_, None) => anyhow::bail!("bad request: offset needs a limit"),
+            (offset, Some(limit)) => {
+                anyhow::ensure!(
+                    (1..=HOME_INBOX_WINDOW_MAX).contains(&limit),
+                    "bad request: limit must be 1-{HOME_INBOX_WINDOW_MAX}"
+                );
+                Ok(Some(cmux_conversation::HomeWindow::Range {
+                    offset: usize::try_from(offset.unwrap_or(0)).unwrap_or(usize::MAX),
+                    limit: usize::try_from(limit).unwrap_or(usize::MAX),
+                }))
+            }
+        }
+    }
 }
 
 impl HomeInboxParams {
@@ -349,6 +401,18 @@ pub(super) fn home_inbox(mux: &Mux, client: u64, params: HomeInboxParams) -> any
         params.since.is_none() || owners.iter().all(|owner| owner == "local"),
         "bad request: since needs owners [\"local\"]"
     );
+    let window = params.window()?;
+    anyhow::ensure!(
+        window.is_none() || owners.iter().all(|owner| owner == "local"),
+        "bad request: offset, limit and ids need owners [\"local\"]"
+    );
+    anyhow::ensure!(
+        window.is_none() || params.since.is_none(),
+        "bad request: since takes no offset, limit or ids"
+    );
+    if let Some(window) = window {
+        return home_inbox_window(mux, client, &window);
+    }
     let (cloud_rows, cloud) = if owners.iter().any(|owner| owner == "cloud") {
         cloud_home_rows(mux, client)
     } else {
@@ -369,19 +433,7 @@ pub(super) fn home_inbox(mux: &Mux, client: u64, params: HomeInboxParams) -> any
     })?;
     let input = cmux_conversation::HomeInboxInput {
         me: &principal,
-        states: states
-            .into_iter()
-            .map(|(id, state)| {
-                (
-                    id,
-                    cmux_conversation::HomeListState {
-                        pinned: state.pinned,
-                        pin_position: state.pin_position,
-                        marked_unread: state.marked_unread,
-                    },
-                )
-            })
-            .collect(),
+        states: home_list_states(states),
         chief_names: super::chief_registry_resource::chief_names(mux),
         typing: mux.conversation_typing_all(),
         running,
@@ -441,6 +493,81 @@ fn home_inbox_delta(
         "revision": revision,
         "full": false,
     }))
+}
+
+/// The caller's pins and marks as the Home projection reads them.
+fn home_list_states(
+    states: std::collections::HashMap<String, crate::conversation_store::inbox::InboxState>,
+) -> std::collections::HashMap<String, cmux_conversation::HomeListState> {
+    states
+        .into_iter()
+        .map(|(id, state)| {
+            (
+                id,
+                cmux_conversation::HomeListState {
+                    pinned: state.pinned,
+                    pin_position: state.pin_position,
+                    marked_unread: state.marked_unread,
+                },
+            )
+        })
+        .collect()
+}
+
+/// A window of the caller's local Home rows (`home-inbox-window-v1`): only
+/// the window's rows are built (`ConversationStore::home_window`), from an
+/// order kept until the store changes.
+fn home_inbox_window(
+    mux: &Mux,
+    client: u64,
+    window: &cmux_conversation::HomeWindow,
+) -> anyhow::Result<Value> {
+    let principal = mux.conversation_principal(client);
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX));
+    let chief_names = super::chief_registry_resource::chief_names(mux);
+    let deleted_chiefs = super::chief_registry_resource::deleted_chiefs(mux);
+    let typing = mux.conversation_typing_all();
+    let read = mux.with_conversations(|store| {
+        let states = store.inbox_states(&principal)?;
+        let running = store.running_run_authors(now_ms)?;
+        let input = cmux_conversation::HomeInboxInput {
+            me: &principal,
+            states: home_list_states(states),
+            chief_names,
+            typing,
+            running,
+            deleted_chiefs,
+            preview_words: preview_words(),
+        };
+        store.home_window(&input, window)
+    })?;
+    let total = read.order.total();
+    let ids = matches!(window, cmux_conversation::HomeWindow::Ids(_));
+    let rows: Vec<Value> = read
+        .rows
+        .into_iter()
+        .map(|(index, row)| {
+            let mut value = serde_json::to_value(row)?;
+            if ids && let Value::Object(fields) = &mut value {
+                fields.insert("index".into(), Value::from(index));
+            }
+            Ok(value)
+        })
+        .collect::<anyhow::Result<_>>()?;
+    let mut reply = json!({
+        "me": principal, "rows": rows, "cloud": "not_asked", "total": total, "window": true,
+    });
+    match window {
+        cmux_conversation::HomeWindow::Range { offset, .. } => {
+            reply["offset"] = Value::from(*offset);
+        }
+        cmux_conversation::HomeWindow::Ids(_) => {
+            reply["order"] = Value::from(read.order.digest());
+        }
+    }
+    Ok(reply)
 }
 
 /// The person's Cloud inbox as Home rows, through the daemon's lease, and

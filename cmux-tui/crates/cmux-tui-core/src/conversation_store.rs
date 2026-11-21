@@ -23,6 +23,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+#[path = "conversation_home_window.rs"]
+pub(crate) mod home_window;
 #[path = "conversation_import.rs"]
 mod import;
 #[path = "conversation_inbox.rs"]
@@ -128,6 +130,8 @@ pub(crate) struct ConversationStore {
     connection: Connection,
     /// Attachment bytes (`attachments/` beside the store) and uploads in flight.
     attachments: attachments::Attachments,
+    /// The Home list order last read for a window (`home_window`).
+    home_order_cache: home_window::HomeOrderCache,
 }
 
 impl std::fmt::Debug for ConversationStore {
@@ -252,7 +256,7 @@ impl ConversationStore {
             params![SCHEMA_VERSION.to_string()],
         )?;
         transaction.commit()?;
-        Ok(Self { connection, attachments })
+        Ok(Self { connection, attachments, home_order_cache: Default::default() })
     }
 
     /// Mints the credential of `participant` (an agent, or a person other than
