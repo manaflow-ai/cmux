@@ -101,7 +101,13 @@ test("message dates and exact times reuse one date formatter per wording and wri
   const { exactTime, messageAge, replyTime } = await import("../src/agent-session/acpmux/conversation/relativeTime");
   const OLD = Date.UTC(2026, 9, 18, 5, 41);
   const LAST_YEAR = Date.UTC(2025, 9, 18, 5, 41);
-  const exact: Intl.DateTimeFormatOptions = { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" };
+  const exact: Intl.DateTimeFormatOptions = {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  };
   for (const locale of ["en-US", "de-DE"]) {
     // Warm each wording for this language.
     exactTime(OLD, locale);
@@ -121,7 +127,12 @@ test("message dates and exact times reuse one date formatter per wording and wri
     const words: string[] = [];
     try {
       for (let row = 0; row < 40; row += 1) {
-        words.push(exactTime(OLD, locale), messageAge(OLD, NOW, locale), messageAge(LAST_YEAR, NOW, locale), replyTime(OLD, NOW, locale));
+        words.push(
+          exactTime(OLD, locale),
+          messageAge(OLD, NOW, locale),
+          messageAge(LAST_YEAR, NOW, locale),
+          replyTime(OLD, NOW, locale),
+        );
       }
     } finally {
       Object.defineProperty(Intl, "DateTimeFormat", descriptor);

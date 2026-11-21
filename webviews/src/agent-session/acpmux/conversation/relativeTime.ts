@@ -66,7 +66,12 @@ export function exactTime(at: number, locale?: string): string {
 /// DateTimeFormat with the same options is what those calls construct. A language tag Intl does not
 /// take falls back to the system's, uncached, as before.
 const dateFormatters = new Map<string, { locale: string; format: Intl.DateTimeFormat }>();
-function dateWords(at: number, locale: string | undefined, wording: string, fields: Intl.DateTimeFormatOptions): string {
+function dateWords(
+  at: number,
+  locale: string | undefined,
+  wording: string,
+  fields: Intl.DateTimeFormatOptions,
+): string {
   // Intl's format throws on a time that is no date, where toLocaleString writes "Invalid Date".
   if (!Number.isFinite(at)) return new Date(at).toLocaleString(undefined, fields);
   const kept = locale === undefined ? undefined : dateFormatters.get(wording);

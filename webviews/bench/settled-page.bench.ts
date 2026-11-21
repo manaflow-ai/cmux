@@ -718,7 +718,11 @@ try {
         const handle = await done;
         let text = "";
         for (;;) {
-          const chunk = (await tracer.send("IO.read", { handle })) as { data: string; eof: boolean; base64Encoded?: boolean };
+          const chunk = (await tracer.send("IO.read", { handle })) as {
+            data: string;
+            eof: boolean;
+            base64Encoded?: boolean;
+          };
           text += chunk.base64Encoded ? Buffer.from(chunk.data, "base64").toString() : chunk.data;
           if (chunk.eof) break;
         }
