@@ -131,8 +131,12 @@ pub(super) enum Request {
     Dev(DevOptions),
     Shot(shot::ShotOptions),
     Add(share::AddOptions),
-    Share { dir: Option<PathBuf> },
-    Search { query: Option<String> },
+    Share {
+        dir: Option<PathBuf>,
+    },
+    Search {
+        query: Option<String>,
+    },
     List,
     Remove {
         app: String,
