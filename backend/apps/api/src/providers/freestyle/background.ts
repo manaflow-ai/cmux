@@ -7,7 +7,8 @@
  * BACKGROUND_AFTER, a request still running after 60 s answers 202 with a request id instead; the provider
  * finishes it on its own, and GET /v5/background-requests/{id} answers 202 until the stored answer is ready, then
  * that answer. cmux-vm (workers/cmux-vm/src/upstream/live-background.ts), the cmux CLI (cmux-cloud-api
- * background.rs) and Freestyle's own SDK do the same.
+ * background.rs) and Freestyle's own SDK (freestyle 0.2.21 client.ts) do the same; an identity token polls its own
+ * exec's answer (the poll route rechecks its VM and Linux-user grant).
  *
  * The provider stores a background request's answer, so a call that carries a key (the stdin of a keyed start or
  * a boot) never sends the header: its caller keeps the guest timeout short, and a 202 still fails it.
@@ -77,7 +78,8 @@ export const settleBackground = async (
       failures = 0
       continue
     }
-    if (poll && poll.status !== 429 && poll.status < 500) return { res: poll, polled: true }
+    // A stored answer carries the request id, whatever its status; a 429 or 5xx without it is the poll's own failure.
+    if (poll && (poll.headers.has(ID_HEADER) || (poll.status !== 429 && poll.status < 500))) return { res: poll, polled: true }
     await poll?.body?.cancel().catch(() => undefined)
     if (++failures >= POLL_FAILURES) break
   }
