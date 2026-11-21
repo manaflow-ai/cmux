@@ -64,8 +64,9 @@ def secret_route_failure(route):
         return "runs-on does not gate LINUX_RUNNER on the ephemeral mirror"
     if set(json.loads(match[1])) != LINUX_EPHEMERAL:
         return f"mirror is {sorted(json.loads(match[1]))}, not {sorted(LINUX_EPHEMERAL)}"
-    if not route.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_8 }}"):
-        return "runs-on does not fall back to linux_8"
+    # linux_4 is the ephemeral_only pool a write-token job reads (tests/test_ci_ephemeral_pool_readers.py).
+    if not route.endswith(("|| fromJSON(vars.RUNNER_POOLS).linux_8 }}", "|| fromJSON(vars.RUNNER_POOLS).linux_4 }}")):
+        return "runs-on does not fall back to linux_8 or linux_4"
     return None
 
 

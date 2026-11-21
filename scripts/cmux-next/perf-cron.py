@@ -101,6 +101,12 @@ TIP_EVERY_HOURS = 6
 # as not run ('no_tree'). 2026-11-17 07:13Z: none of the 10 commits since the last tip had a tree, so no tip started,
 # and the web-ui rows of new Linux benches (cmux#44534) waited on a prerequisite only the Mac parts have.
 TREE_WAIT_HOURS = 2
+# Judging whether the bisect can measure a commit (its parts, its split-spring.sh version, its cmux-tui tree) costs
+# about 30 git reads, some fetching a blob, and a tree lookup. A plan tick judges at most this many commits across
+# every range, and a range keeps its place (looked) so the next tick goes on from there: on 2026-11-19 sixteen culprit
+# ranges of 300 to 1,900 commits had no measurable commit near their middle, the bisect judged every one of them each
+# tick, and the plan job hit its 75 min timeout every tick, so no part ran for two days.
+BISECT_JUDGED_PER_TICK = 40
 # The plan's checkout is shallow (fetch-depth 300): a culprit range older than that is deepened this many commits at
 # a time, at most DEEPEN_ROUNDS times, before its commits are listed.
 DEEPEN_STEP = 500
@@ -212,6 +218,14 @@ PARTS = [
     # run_seconds: step 343b7e82 ran 2768 s with a cold build of 2522 s and its three rounds (2026-11-19), plus margin.
     {"name": "wake", "args": [*MEASURE, "--suite=wake"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "wake", "run_seconds": 3300},
+    # One chat at 1 MB, 100 MB, 1 GB and 4 GB (scripts/cmux-next/chat-size-ratio.py, goal infinite-chats in cmuxterm-hq's
+    # NOW): each size seeded by the app's own acpmux store, opened in the app --runs times; open to first content, fling
+    # frame p95, composer key to paint p95, renderer + GPU footprint and the daemon's footprint for the chat, each over
+    # the 1 MB chat's (chat_size.<size>.<axis>_ratio) and the worst of them (chat_size.ratio_max; missing when any size
+    # crashed, stalled or read nothing). The bench configuration, as memory-agents: one build serves both. Seeding the
+    # 4 GB chat and 12 launches are not timed on a fleet Mac yet, so it takes workspace-scaling's 60-minute cap.
+    {"name": "chat-size", "args": [*MEASURE, "--vdisplay-hold=3600", "--config=bench", "--suite=chat-size"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "chat-size", "run_seconds": 3600},
     # The diff-viewer budgets that left ci-web.yml (scripts/benchmark-diff-viewer.sh), on Linux.
     {"name": "diff-viewer", "where": "linux", "kind": "diff", "needs": "diff-viewer"},
     # The shared web UI perf harness (webviews/bench/web-ui-suite.ts): the web UI benches' PERF_ROW lines, on Linux.
@@ -265,6 +279,7 @@ ROW_PARTS = [
     (r"^memory\.app_agents\.", "memory-agents"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.dock\.", "launch-dock"),
     (r"^launch\.relaunch\.", "relaunch"), (r"^launch\.wake_proxy\.", "wake"), (r"^launch\.", "launch"),
     (r"^terminal\.throughput\.", "throughput"),
+    (r"^chat_size\.", "chat-size"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"),
     (r"^webui\.state_growth\.", "web-ui-growth"),
     # chat-open-god's paired rows (chat-open.bench.ts PAIRED=1), the small chat's too: the part that ran them keeps them.
@@ -1325,8 +1340,16 @@ def tip_pin_host(state, t):
 
 
 def tip_due(state, t):
-    """A tip measurement may start: none finished (or was dropped) in the last TIP_EVERY_HOURS. Only consulted while
-    a bisect step is also possible."""
+    """A tip measurement may start: none finished (or was dropped) in the last TIP_EVERY_HOURS, or no complete tip
+    measurement finished within STALE_HOURS (stale_hours). Only consulted while a bisect step is also possible.
+
+    Stale first: only a tip measurement stores rows (a bisect step only narrows its range), and cmuxterm-hq's NOW
+    Benches reads those rows within 48 h. On 2026-11-21 the rows were 136.8 h old when a tip measurement that waited
+    for the fleet was abandoned; that abandon counted as a tip tried, so the next tick started a bisect step instead
+    (run 44846739082), and the rows could not refresh before the bisect finished. A bisect against a reference that
+    old also judges less than a fresh tip would."""
+    if stale_hours(state, t) > STALE_HOURS:
+        return True
     times = [(state.get("last_tried") or {}).get("at")]
     times += [h.get("at") for h in state.get("history") or [] if isinstance(h, dict) and h.get("kind") == "tip"]
     times = [parse_iso(x) for x in times if isinstance(x, str)]
@@ -1437,15 +1460,27 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
 def bisect_midpoint(commits, measurable, skip=()):
     """commits: first-parent commits strictly between good and bad, oldest first. The measurable one nearest
     the middle that is not in skip (commits a bisect step could not judge: `git bisect skip`), or None."""
-    commits = [c for c in commits if c not in set(skip)]
-    if not commits:
-        return None
+    return bisect_next(commits, measurable, skip)[0]
+
+
+def bisect_next(commits, measurable, skip=(), start=0, budget=None):
+    """bisect_midpoint from a place in its order, judging at most budget commits (None: no bound). The order is
+    every commit's, nearest the middle first, skip included, so a place stays valid when a step adds to skip; a
+    commit in skip costs nothing. start: how far earlier ticks got (the commits before it were not measurable).
+    Returns (the commit or None, the place after the last commit judged)."""
     mid = len(commits) // 2
     order = sorted(range(len(commits)), key=lambda i: (abs(i - mid), i))
-    for i in order:
-        if measurable(commits[i]):
-            return commits[i]
-    return None
+    skip, judged, place = set(skip), 0, start
+    for place in range(start, len(order)):
+        c = commits[order[place]]
+        if c in skip:
+            continue
+        if budget is not None and judged >= budget:
+            return None, place
+        judged += 1
+        if measurable(c):
+            return c, place
+    return None, len(order)
 
 
 def bisect_measurable(rows, mac_measurable, supported_parts):
@@ -1970,7 +2005,7 @@ def supported_parts_at(sha):
             bench = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/bench-startup.py"],
                                    capture_output=True, text=True).stdout
             ok = "--suite=launch" in text and '"--activation"' in bench
-        elif need in ("perf-gate", "launch", "memory-agents", "relaunch", "wake"):
+        elif need in ("perf-gate", "launch", "memory-agents", "relaunch", "wake", "chat-size"):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
             ok = f"--suite={need}" in text
@@ -3115,9 +3150,14 @@ def plan(o):
             print(f"perf-cron: no commit since the last tip has a published cmux-tui tree; the tip is {newest[:12]}, "
                   f"its Mac parts wait for its tree (at most {TREE_WAIT_HOURS} h)")
     bisect = None
+    budget = BISECT_JUDGED_PER_TICK
     if not state.get("current") and not (candidate and tip_due(state, t)):
         for group in bisect_groups(state):
             rng = group["range"]
+            if budget <= 0:
+                print(f"perf-cron: the bisect judged {BISECT_JUDGED_PER_TICK} commits this tick; the range "
+                      f"{rng['good'][:12]}...{rng['bad'][:12]} and the rest wait for the next tick")
+                break
             if any(host_avoided(state, h, t) or host_gone(state, h, t) for h in {mac_host(n) for n in group["rows"]} - {None}):
                 # A gone host (the controller has no such worker) would answer every step with host_gone: its rows
                 # close at the next tip measurement elsewhere instead.
@@ -3132,9 +3172,16 @@ def plan(o):
                 if name_culprit(state, group, named, git("log", "-1", "--format=%s", rng["bad"]).strip(), t):
                     print(f"perf-cron: PERF_CULPRIT={json.dumps(state['culprits'][-1], sort_keys=True)}")
                 continue
-            ok = bisect_measurable(group["rows"], lambda c: fleet_runs(c, tip_version) and tree_published(c),
+            ok = bisect_measurable(group["rows"], lambda c: fleet_runs(c, tip_version) and tree_ready(c),
                                    supported_parts_at)
-            sha = bisect_midpoint(between, ok, rng.get("skip") or [])
+            judged = []
+            looked = rng.get("looked") if isinstance(rng.get("looked"), dict) else {}
+            start = looked.get("place", 0) if (looked.get("good"), looked.get("bad")) == (rng["good"], rng["bad"]) else 0
+            sha, place = bisect_next(between, lambda c: judged.append(c) or ok(c), rng.get("skip") or [],
+                                     start if isinstance(start, int) else 0, budget)
+            budget -= len(judged)
+            # Where this range's walk stopped, for the next tick; a narrowed range (new good or bad) starts over.
+            rng["looked"] = {"good": rng["good"], "bad": rng["bad"], "place": place}
             if sha:
                 bisect = {"sha": sha, "range": rng, "rows": group["rows"]}
                 break

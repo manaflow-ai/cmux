@@ -49,6 +49,10 @@ nonisolated extension Strings {
     static var toolbarShowInToolbar: String {
         String(localized: "browser.toolbar.showInToolbar", defaultValue: "Show in Toolbar", bundle: .module)
     }
+    // The More menu's zoom row (GlassMenuStepperItem).
+    static var toolbarMenuZoom: String {
+        String(localized: "browser.toolbar.menu.zoom", defaultValue: "Zoom", bundle: .module)
+    }
     static var toolbarPinZoom: String {
         String(localized: "browser.toolbar.pin.zoom", defaultValue: "Zoom Level", bundle: .module)
     }
