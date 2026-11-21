@@ -113,6 +113,16 @@ pub enum LaneState {
     Ready,
 }
 
+/// How long a link may go without receiving anything after a keepalive
+/// ping before it closes. Longer than a 30 s blackout (an elevator, a
+/// tunnel, a cell dead zone) with room for the ping's phase: the network
+/// comes back on the same link and channels, no redial. The app does not
+/// wait for this to learn of a dead path: its own probes (every 2.5 s
+/// while it watches) fail in seconds and it dials a new link beside this
+/// one (make before break); this only bounds how long a link nobody
+/// answers holds its resources on either end. It was 20 s.
+pub const KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(45);
+
 #[derive(Debug, Clone)]
 pub struct LinkConfig {
     /// Interval between keepalive pings; `None` disables them.
@@ -130,7 +140,7 @@ impl Default for LinkConfig {
     fn default() -> Self {
         Self {
             keepalive: Some(Duration::from_secs(15)),
-            keepalive_timeout: Duration::from_secs(20),
+            keepalive_timeout: KEEPALIVE_TIMEOUT,
             aligned: false,
         }
     }
@@ -866,7 +876,8 @@ impl Link {
     ///
     /// Any frame proves only the peer-to-us direction: a link whose uplink
     /// alone broke still reads alive here until the peer's own keepalive
-    /// closes it (15 s ping, 20 s timeout), the bound the link already had.
+    /// closes it (15 s ping, [`KEEPALIVE_TIMEOUT`]), the bound the link
+    /// already had.
     pub async fn probe(&self, timeout: Duration) -> Result<Option<Duration>, LinkError> {
         /// How often arrivals are checked while the pong is outstanding.
         const TRAFFIC_CHECK: Duration = Duration::from_millis(50);
@@ -1882,8 +1893,8 @@ mod tests {
         }
     }
 
-    /// Aligned, a peer that stops answering still closes the link 20 s
-    /// after the first unanswered ping.
+    /// Aligned, a peer that stops answering still closes the link
+    /// [`KEEPALIVE_TIMEOUT`] after the first unanswered ping.
     #[tokio::test(start_paused = true)]
     async fn an_aligned_keepalive_still_closes_a_silent_link() {
         let (a, b) = tokio::io::duplex(1024 * 1024);
@@ -1891,11 +1902,12 @@ mod tests {
         // A peer that reads nothing and sends nothing.
         let _peer = b;
         let opened = Instant::now();
-        let reason = tokio::time::timeout(Duration::from_secs(60), phone.closed()).await.expect("closes");
+        let reason = tokio::time::timeout(Duration::from_secs(120), phone.closed()).await.expect("closes");
         assert_eq!(reason, "keepalive timed out");
         let after = opened.elapsed();
-        assert!(after <= Duration::from_secs(30) + Duration::from_millis(1), "closed after {after:?}");
-        assert!(after >= Duration::from_secs(20), "closed after {after:?}");
+        let first_ping = crate::keepalive::BEAT;
+        assert!(after <= first_ping + KEEPALIVE_TIMEOUT + Duration::from_millis(1), "closed after {after:?}");
+        assert!(after >= KEEPALIVE_TIMEOUT, "closed after {after:?}");
     }
 
     /// The app's probes (its 15 s heartbeat, a foreground, a presence change)

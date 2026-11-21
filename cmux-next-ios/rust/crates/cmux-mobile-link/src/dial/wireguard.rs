@@ -73,8 +73,8 @@ pub(crate) const KEEPALIVE_SECONDS: u16 = 10;
 /// A confirmed route silent this long is no longer trusted: every datagram
 /// goes on every route again until the peer confirms one. Longer than the
 /// WireGuard keepalive (10 s), shorter than the link keepalive timeout
-/// (20 s), so a route that dies in both directions recovers on TURN before
-/// the link gives up.
+/// (`link::KEEPALIVE_TIMEOUT`, 45 s), so a route that dies in both
+/// directions recovers on TURN before the link gives up.
 const DIRECT_STALE: Duration = Duration::from_secs(14);
 const STUN_WAIT: Duration = Duration::from_millis(1500);
 /// Once one STUN server answered, how much longer the others get. Cloudflare
@@ -562,7 +562,8 @@ const ROAM_SPRAY_GAP: Duration = Duration::from_millis(100);
 /// the dead route would otherwise cost TCP inside the tunnel its 1 s
 /// minimum retransmission timeout, or after a long outage (airplane mode)
 /// its backed-off one. WireGuard's replay window drops the copies that did
-/// arrive. As long as the link's own keepalive timeout.
+/// arrive. The link's old keepalive timeout; what a replay sends is
+/// bounded by [`REPLAY_MAX`] and [`REPLAY_BYTES`] whatever the age.
 const REPLAY_AGE: Duration = Duration::from_secs(20);
 /// At most this many datagrams are kept for that (about 100 ms of a
 /// 15 Mbit/s stream; a whole outage of retransmissions and keepalives).

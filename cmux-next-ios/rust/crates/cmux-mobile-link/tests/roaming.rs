@@ -687,9 +687,68 @@ async fn wireguard_link_survives_a_30s_blackout_then_network_changed() {
     check_blackout("30s+network_changed", &blackout(Duration::from_secs(30), true).await);
 }
 
-/// 60 s dark: past the link's keepalive timeout, so the link closes on
-/// both ends and the app redials (its own probes noticed long before).
+/// 60 s dark: past the link's keepalive timeout (`KEEPALIVE_TIMEOUT`), so
+/// the link closes on both ends and the app redials (its own probes noticed
+/// long before). The bound is the timeout, not sooner.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn wireguard_link_after_a_60s_blackout() {
-    check_blackout("60s", &blackout(Duration::from_secs(60), false).await);
+async fn wireguard_link_closes_after_a_60s_blackout() {
+    let run = blackout(Duration::from_secs(60), false).await;
+    eprintln!("BLACKOUT 60s: {run:?}");
+    assert!(cmux_mobile_link::KEEPALIVE_TIMEOUT < Duration::from_secs(60));
+    assert_eq!(run.phone_closed.as_deref(), Some("keepalive timed out"), "{run:?}");
+}
+
+static PHONE_DATAGRAMS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static MAC_DATAGRAMS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+fn count_phone(_: &std::net::SocketAddr) -> bool {
+    PHONE_DATAGRAMS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    false
+}
+
+fn count_mac(_: &std::net::SocketAddr) -> bool {
+    MAC_DATAGRAMS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    false
+}
+
+/// The cost of staying ready for a blackout: plain UDP datagrams each side
+/// sends in one idle minute on a direct link (keepalives and probes; no
+/// app traffic). A longer keepalive timeout sends nothing more.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn blackout_cost_of_an_idle_minute() {
+    use std::sync::atomic::Ordering;
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
+    tokio::spawn(async move {
+        while let Some(session) = mac.next_session().await {
+            let events = SessionEvents {
+                backend: mac.events(),
+                session_id: session.first.session_id.clone(),
+                session: session.events,
+            };
+            let mac = mac.clone();
+            tokio::spawn(async move {
+                let options = DialOptions { drop_udp_to: Some(count_mac), ..options() };
+                let connected =
+                    dial::answer(&mac, session.first, events, &options, LinkConfig::default()).await.unwrap();
+                while connected.link.accept().await.is_some() {}
+            });
+        }
+    });
+    let phone_id = uuid::Uuid::new_v4().to_string();
+    let phone = SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.unwrap();
+    let phone_options = DialOptions { drop_udp_to: Some(count_phone), ..options() };
+    let connected =
+        dial::connect(&phone, &mac_id, TransportKind::WireGuard, &phone_options, LinkConfig::default())
+            .await
+            .expect("dial");
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    let (phone_start, mac_start) =
+        (PHONE_DATAGRAMS.load(Ordering::Relaxed), MAC_DATAGRAMS.load(Ordering::Relaxed));
+    tokio::time::sleep(Duration::from_secs(60)).await;
+    let phone_minute = PHONE_DATAGRAMS.load(Ordering::Relaxed) - phone_start;
+    let mac_minute = MAC_DATAGRAMS.load(Ordering::Relaxed) - mac_start;
+    eprintln!("BLACKOUT idle minute: phone_datagrams={phone_minute} mac_datagrams={mac_minute}");
+    assert!(!connected.link.is_closed());
 }
