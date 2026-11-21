@@ -134,10 +134,13 @@ import CmuxNextTestSupport
     @Test func aTooltipWithNoRoomBelowGoesAboveAndStaysOnScreen() {
         let screen = NSRect(x: 0, y: 0, width: 1000, height: 800)
         let size = NSSize(width: 120, height: 20)
+        let gap = TooltipPresenter.gap, edge = TooltipPresenter.edge
+        // Above the control and kept the edge's room from the screen's right side.
         let low = TooltipPresenter.origin(for: size, below: NSRect(x: 980, y: 10, width: 20, height: 20), on: screen)
-        #expect(Self.near(low, NSPoint(x: 874, y: 36)), "\(low)")
+        #expect(Self.near(low, NSPoint(x: 1000 - edge - size.width, y: 30 + gap)), "\(low)")
+        // Below the control, centred on it.
         let high = TooltipPresenter.origin(for: size, below: NSRect(x: 100, y: 500, width: 40, height: 20), on: screen)
-        #expect(Self.near(high, NSPoint(x: 60, y: 474)), "\(high)")
+        #expect(Self.near(high, NSPoint(x: 120 - size.width / 2, y: 500 - gap - size.height)), "\(high)")
     }
 
     /// The shared presenter with no hover delay (the delay and warm group are TooltipHoverIntentTests').

@@ -2063,6 +2063,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/connections/chatgpt.import",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/connections/claude_token.add",
       "params": true,
       "result": true
@@ -2147,6 +2153,14 @@
       "kind": "request",
       "name": "_acpmux/place",
       "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/move_targets",
+      "params": {
+        "$ref": "#/types/MoveTargetsParams"
+      },
       "result": true
     },
     {
@@ -4472,6 +4486,17 @@
         "localOnly": true,
         "probe": true,
         "refresh": true
+      },
+      "type": "object"
+    },
+    "MoveTargetsParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "source": true,
+        "sourceKind": true
       },
       "type": "object"
     },
