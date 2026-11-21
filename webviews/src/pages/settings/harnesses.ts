@@ -1,6 +1,7 @@
 // What Settings > Agents reads from the harnesses' health (cx-ny85): shared by the Harnesses card
 // and the section list's badge, so the list does not load the card.
 import type { HarnessRow, HarnessesState, ProviderAccount } from "./ops";
+import { intl } from "../../ui/intl";
 
 /** Rows the page can update with one click (outdated, no sudo needed, a channel the owner runs). */
 export function updatable(state: HarnessesState | null | undefined): HarnessRow[] {
@@ -90,7 +91,7 @@ export function newestCheck(state: HarnessesState | null | undefined): number | 
 export function agoText(then: number, now: number, locale: string): string | null {
   const minutes = Math.floor((now - then) / 60_000);
   if (minutes < 1) return null;
-  const format = new Intl.RelativeTimeFormat(locale, { numeric: "always", style: "short" });
+  const format = intl.RelativeTimeFormat(locale, { numeric: "always", style: "short" });
   if (minutes < 60) return format.format(-minutes, "minute");
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return format.format(-hours, "hour");

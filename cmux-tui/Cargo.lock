@@ -36,6 +36,7 @@ dependencies = [
  "cmux-config",
  "cmux-device-kind",
  "cmux-embed",
+ "cmux-fault",
  "cmux-file-lock",
  "cmux-git",
  "cmux-host",
@@ -1283,6 +1284,7 @@ name = "cmux-agent-customize"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cmux-config",
  "cmux-process",
  "cmux-tui-hooks",
  "cmux-tui-platform",
@@ -1763,6 +1765,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-deadline"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-device-kind"
 version = "0.1.0"
 dependencies = [
@@ -1808,6 +1818,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-fault"
+version = "0.1.0"
+dependencies = [
+ "cmux-scope",
+ "libc",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-feed-core"
 version = "0.1.0"
 dependencies = [
@@ -1850,6 +1869,14 @@ dependencies = [
  "serde",
  "serde_json",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "cmux-follow-cam"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2273,6 +2300,8 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-build-identity",
+ "cmux-deadline",
+ "cmux-fault",
  "cmux-json",
  "cmux-link",
  "cmux-netwatch",
