@@ -139,10 +139,17 @@ describe("the Set Up cmux page", () => {
     expect(radio('input[data-text-size="default"]').checked).toBe(true);
     await act(async () => radio('input[data-text-size="larger"]').click());
     await act(async () => radio('input[data-density-choice="comfortable"]').click());
-    await act(async () => radio('input[data-text-size="default"]').click());
     expect(card.calls.filter(([op]) => op === SETUP_OPS.run)).toEqual([
       [SETUP_OPS.run, { action: { kind: "setTextSize", points: 16 } }],
       [SETUP_OPS.run, { action: { kind: "setDensity", id: "comfortable" } }],
+    ]);
+    // A size already set (16 pt): Default removes it.
+    const larger = await mounted({ ...fresh, look: { ...look, textSize: 16 } });
+    const checked = larger.root.querySelector('input[data-text-size="larger"]') as unknown as HTMLInputElement;
+    expect(checked.checked).toBe(true);
+    const reset = larger.root.querySelector('input[data-text-size="default"]') as unknown as HTMLInputElement;
+    await act(async () => reset.click());
+    expect(larger.calls.filter(([op]) => op === SETUP_OPS.run)).toEqual([
       [SETUP_OPS.run, { action: { kind: "setTextSize", points: null } }],
     ]);
   });
