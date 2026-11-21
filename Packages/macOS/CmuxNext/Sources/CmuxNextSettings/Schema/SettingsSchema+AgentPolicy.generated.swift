@@ -89,13 +89,13 @@ extension SettingsSchema {
         "appearance.experimentalControls", "app.uiScale", "appearance.glassTransparency", "appearance.hue",
         "appearance.saturation", "appearance.density", "appearance.customDensity", "appearance.customDensities",
         "appearance.metrics.chromeFontSize", "appearance.fontSmoothing", "appearance.interfaceScale",
-        "appearance.borders", "appearance.sidebarSurface", "appearance.chromeStyle", "appearance.titleAreaTone",
-        "appearance.titleAreaContrast", "appearance.focusIndicator", "focus.inactiveTabStyle", "ui.animationSpeed",
-        "ui.animations.newTab", "ui.animations.newWorkspace", "ui.animations.enabled", "ui.animations.sidebar",
-        "ui.animations.tabs", "ui.animations.panes", "ui.animations.overlays", "ui.animations.hoverCards",
-        "ui.animations.home", "ui.animations.cursor", "ui.animations.indicators", "ui.animations.feedback",
-        "ui.animations.web", "ui.paneAnimations", "ui.calm", "appearance.colorTransition.enabled",
-        "appearance.colorTransition.duration", "appearance.colorTransition.curve",
+        "appearance.borders", "appearance.previousGlass", "appearance.sidebarSurface", "appearance.chromeStyle",
+        "appearance.titleAreaTone", "appearance.titleAreaContrast", "appearance.focusIndicator",
+        "focus.inactiveTabStyle", "ui.animationSpeed", "ui.animations.newTab", "ui.animations.newWorkspace",
+        "ui.animations.enabled", "ui.animations.sidebar", "ui.animations.tabs", "ui.animations.panes",
+        "ui.animations.overlays", "ui.animations.hoverCards", "ui.animations.home", "ui.animations.cursor",
+        "ui.animations.indicators", "ui.animations.feedback", "ui.animations.web", "ui.paneAnimations", "ui.calm",
+        "appearance.colorTransition.enabled", "appearance.colorTransition.duration", "appearance.colorTransition.curve",
         "appearance.colorTransition.springResponse", "appearance.colorTransition.springDamping",
         "appearance.colorTransition.bezierX1", "appearance.colorTransition.bezierY1",
         "appearance.colorTransition.bezierX2", "appearance.colorTransition.bezierY2",
@@ -141,7 +141,7 @@ extension SettingsSchema {
         "notifications.mutedWorkspaces",
         "labs.previewFeatures",
         // Experiments are taste prototypes of how a surface looks (looks only), each off by default.
-        "experiments.glassToolbarGroups",
+        "experiments.glassToolbarGroups", "experiments.composerV2",
         // Which Home entries the sidebar shows (looks only; `cmux home enable-channels` runs as an agent writer).
         "home.channelsEnabled",
         // The floating Chief pet and its character: a display the person can hide again; its reply box types only what the person writes.
@@ -152,6 +152,8 @@ extension SettingsSchema {
         "agentPane.needsYou.enabled",
         // Start New Chats In (This Mac or Cloud): the person asks an agent to set it (Leo, 2026-10-31); a new chat's composer can still change it for that chat.
         "agentPane.newChatsIn",
+        // The composer's look and where an empty chat's composer sits: layout choices a profile or the person's agent may set, like the chat's other looks.
+        "agentPane.composerLook", "agentPane.emptyChatComposerPosition",
         // The default `cmux chat` target (`cmux config set on cloud`): where the CLI starts a chat when neither --on nor CMUX_ON names one; the person may ask an agent to set it.
         "chat.on",
         "updates.notify", "updates.showWhatsNew",
