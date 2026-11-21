@@ -96,6 +96,16 @@ pub enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+    /// Block until a pull request's checks finish (or it merges), sharing one GitHub poller with
+    /// every other waiter on this machine. Exit 0 green or merged, 1 failing or closed, 3
+    /// timeout, 4 head moved off --sha (`cli/pr_wait.rs`).
+    #[command(name = "pr-wait")]
+    PrWait(crate::cli::pr_wait::PrWaitArgs),
+    /// A pull request's own failing checks (those also red on its base left out) or its
+    /// unresolved review comments, as a message for an agent: printed, or with --session put in
+    /// that chat's composer unsent. Shares pr-wait's poller state (`cli/pr_feedback.rs`).
+    #[command(name = "pr-feedback")]
+    PrFeedback(crate::cli::pr_feedback::PrFeedbackArgs),
     /// Send a local brief to another harness on a machine (or the least-loaded
     /// allowed machine with `--machine auto`) and record its identity.
     Dispatch(DispatchArgs),

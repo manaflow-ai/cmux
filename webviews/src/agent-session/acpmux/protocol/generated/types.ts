@@ -1013,6 +1013,14 @@ export type PersonHold = {
   reason: string;
 } & Record<string, unknown>;
 
+export interface PrFeedbackParams {
+  _meta?: RequestMeta;
+  kind?: unknown;
+  pr?: unknown;
+  repo?: unknown;
+  sessionId?: unknown;
+}
+
 /**
  * `_acpmux/presence`, to every connection attached to the chat on each change, and
  * `presence` in the `_acpmux/attach` reply. Never in the log, `_acpmux/events` or an export.

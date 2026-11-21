@@ -222,6 +222,10 @@ nonisolated enum AcpmuxPaneMethods {
         // small-model call that rewrites a chat in the pane's scope's own prompt into a `coach`
         // record. It sends the chat nothing and runs no turn, so no gesture.
         "_acpmux/prompt_coach",
+        // A Changes row's Fix failing checks and Send review comments (direct.ts prFeedback; acpmux
+        // server/pr_feedback.rs): reads a chat in the pane's scope's pull request with gh and
+        // answers a draft the page puts in the composer. It sends nothing, so no gesture.
+        "_acpmux/pr_feedback",
     ]
 
     /// Notifications (no `id`).
@@ -327,7 +331,7 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/plan/build", "_acpmux/plan/compare", "_acpmux/plan/keep",
         "_acpmux/race/start", "_acpmux/race/get", "_acpmux/race/list", "_acpmux/race/cancel", "_acpmux/race/stats",
         "_acpmux/run_elsewhere/plan", "_acpmux/run_elsewhere/start", "_acpmux/bg/output", "_acpmux/bg/stop",
-        "_acpmux/cold_archive", "_acpmux/prompt_coach",
+        "_acpmux/cold_archive", "_acpmux/prompt_coach", "_acpmux/pr_feedback",
     ]
 
     /// Params beside `sessionId` that name a session, which must be in the pane's scope too: New
