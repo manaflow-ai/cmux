@@ -452,6 +452,8 @@ async fn a_claude_chat_whose_turns_all_failed_hibernates_and_wakes_with_its_tran
     let clock = ManualClock::new();
     hub.set_clock(clock.clone());
     hub.set_idle_child(Some(IDLE));
+    // No automatic retry of the 503 (as for a chat whose retries were used up long ago).
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![]);
     let id = new_session(&mut c, "failed").await;
     let failed = c.request(method::SESSION_PROMPT, prompt(&id, "remember the walrus", None)).await;
     assert!(failed.is_err(), "the 503 did not fail the turn: {failed:?}");
