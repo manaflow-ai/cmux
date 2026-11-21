@@ -4494,7 +4494,7 @@
         "keywords": ["home", "mux", "messages", "conversations", "orchestrator"],
         "rankBias": 0,
         "sectionIndex": 0,
-        "title": "Go to Home",
+        "title": "Go to Chief",
         "typingSectionIndex": 16
       },
       "id": "action:home.show"
@@ -11960,7 +11960,7 @@
         "rankBias": 0,
         "sectionIndex": 7,
         "subtitle": "Home is already in the sidebar",
-        "title": "Add Home to Sidebar",
+        "title": "Add Chief to Sidebar",
         "typingSectionIndex": 16
       },
       "id": "action:sidebar.home.add"
@@ -11978,7 +11978,7 @@
         "keywords": ["home", "sidebar", "section", "unpin", "hide"],
         "rankBias": 0,
         "sectionIndex": 7,
-        "title": "Remove Home from Sidebar",
+        "title": "Remove Chief from Sidebar",
         "typingSectionIndex": 16
       },
       "id": "action:sidebar.home.remove"
