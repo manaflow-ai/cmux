@@ -557,7 +557,10 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
 
     /// Shows `sections`: the moved items alone (`moved`, a patched model's, or a few found by
     /// `moves`), or a new snapshot; the row being read stays in place when nothing animates.
-    private func applyOrder(_ sections: [ListSectionIDs], plan: ListApplyPlan, moved: Set<String>?, animated: Bool) {
+    /// `resting`: the held order applied as the scroll ends (UIKit's end callbacks still read as
+    /// scrolling then), not a reorder under a moving list.
+    private func applyOrder(_ sections: [ListSectionIDs], plan: ListApplyPlan, moved: Set<String>?, animated: Bool,
+                            resting: Bool = false) {
         guard let dataSource else { return }
         let anchor = animated ? nil : readingAnchor()
         if plan.orderChanged || dataSource.snapshot().numberOfSections == 0 {
@@ -601,7 +604,7 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
                 dataSource.apply(snapshot, animatingDifferences: animated)
             }
             applyCount += 1
-            if isScrolling(now: CACurrentMediaTime()), !plan.membershipChanged { movedWhileScrollingCount += 1 }
+            if !resting, isScrolling(now: CACurrentMediaTime()), !plan.membershipChanged { movedWhileScrollingCount += 1 }
             if let anchor { restore(anchor) }
         }
         shownSections = sections
@@ -639,7 +642,7 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
         guard plan.orderChanged else { return }
         let animated = isAtRestAtTop() && !UIAccessibility.isReduceMotionEnabled
         restedApplyCount += 1
-        applyOrder(target, plan: plan, moved: nil, animated: animated)
+        applyOrder(target, plan: plan, moved: nil, animated: animated, resting: true)
     }
 
     /// At the top of the list (nothing scrolled under the bars) and on screen.
