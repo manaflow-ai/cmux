@@ -13,6 +13,8 @@ terminal beside a Chromium page and checks:
              the terminal (surface.read_text) and the page sees none of its keys
   shortcuts  (C9) with the page focused (a click in its input): the key router claims Cmd-T, Cmd-W, Cmd-D, Cmd-Shift-P
              (dry run), and real Cmd-T opens a tab, Cmd-W closes it, Cmd-Shift-P opens the palette
+  two_pages  a second page in the terminal's pane: both pages show at once (in tree: both pages' views in the window),
+             and a page click plus keys in each reach that page alone; two-pages*.png are the window's snapshots
   prompts    (C16) alert, confirm, prompt, an <input type=file> click and a download each show something (a dialog, a
              panel, a window, a popup or a download record) instead of being cancelled in silence
 
@@ -28,7 +30,7 @@ parser.add_argument("--out", default=tempfile.mkdtemp(prefix="in-tree-live-"))
 parser.add_argument("--json")
 parser.add_argument("--in-tree", dest="in_tree", choices=["on", "off"], default="on")
 parser.add_argument("--idle", type=float, default=8.0)
-parser.add_argument("--checks", default="mode,census,focus,shortcuts,prompts")
+parser.add_argument("--checks", default="mode,census,focus,shortcuts,prompts,two_pages")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 CHECKS = set(opts.checks.split(","))
@@ -117,6 +119,14 @@ def row(verdict, name, detail):
         verdict = "FAIL"
     ROWS.append({"verdict": verdict, "name": name, "detail": detail})
     print(f"{verdict} | {name} | {json.dumps(detail, default=str)[:600]}", flush=True)
+
+
+def record(name, seconds=12):
+    """Video proof: the window, as the window server composites it, once per display frame for `seconds` (at most 12),
+    as JPEG frames in OUT/video-NAME (debug.window_record); the suite turns each folder into an mp4."""
+    folder = os.path.join(opts.out, f"video-{name}")
+    os.makedirs(folder, exist_ok=True)
+    RAW.setdefault("recordings", {})[name] = rpc("debug.window_record", {"dir": folder, "seconds": seconds})
 
 
 def action(name, args=None, target=None):
@@ -258,6 +268,7 @@ try:
             row(no_violations and flat_ok, "census.flat", {"violations": [w["violations"] for w in pw2], "flat": flat})
 
     if "focus" in CHECKS:
+        record("focus")
         # The new pane (the terminal) has the keyboard after the split; the page starts stealing.
         RAW["steal_start"] = page_eval("window.startSteal()", page_tab)
         time.sleep(0.5)  # test harness: the page's timer runs a few times before the first key
@@ -280,6 +291,7 @@ try:
         rpc("debug.key", {"key": "u", "modifiers": ["control"]})
 
     if "shortcuts" in CHECKS:
+        record("shortcuts")
         # Focus the page: its tab, then a click in its field (debug.mouse into the page's pane is not needed: tab.focus
         # with focus makes the page the first responder, and field.focus() puts the caret in the field).
         RAW["page_focus"] = action("tab.focus", target=f"tab:{page_tab}")
@@ -319,6 +331,7 @@ try:
         time.sleep(0.3)  # test harness: the palette closes
 
     if "prompts" in CHECKS:
+        record("prompts")
         def snapshot():
             return {"dialog": rpc("debug.dialog"), "popups": rpc("debug.popups"),
                     # kind, title and visibility: the open panel is made ahead (MadeAheadOpenPanel) and sits hidden
@@ -333,7 +346,18 @@ try:
                              ("download", "document.getElementById('dl').click(); true")):
             action("tab.focus", target=f"tab:{page_tab}")
             base = snapshot()
-            fired = page_eval(script, page_tab)
+            if name == "file":
+                # A chooser needs a user gesture: a script's click() is dropped by Chromium, so click the input with a
+                # page click (debug.mouse target page) at its center, in the focused pane's page.
+                rect = page_eval("JSON.stringify((r => [r.x + r.width / 2, r.y + r.height / 2])("
+                                 "document.getElementById('file').getBoundingClientRect()))", page_tab)
+                try:
+                    x, y = json.loads(rect["value"] if isinstance(rect, dict) else rect)
+                    fired = {"rect": [x, y], "click": rpc("debug.mouse", {"target": "page", "x": x, "y": y})}
+                except Exception as error:
+                    fired = {"error": repr(error), "rect": rect}
+            else:
+                fired = page_eval(script, page_tab)
             time.sleep(1.5)  # test harness: the prompt shows
             shown = snapshot()
             changed = json.dumps(shown, sort_keys=True, default=str) != json.dumps(base, sort_keys=True, default=str)
@@ -348,6 +372,51 @@ try:
             rpc("debug.key", {"key": "escape"})
             time.sleep(0.5)  # test harness: the prompt closes
         RAW["prompt_results"] = page_eval("JSON.stringify(window.__results)", page_tab)
+    if "two_pages" in CHECKS:
+        record("two_pages")
+        # Two Chromium pages side by side in one workspace: the terminal's pane (left) gets a second page, so both panes
+        # show a page at once. Each must be in tree (its view in the cmux window, drawing), and a click and keys in each
+        # must reach that page alone.
+        page_eval("document.body.style.background = '#642'; document.title = 'page A'; true", page_tab)
+        action("focusPane.left")
+        time.sleep(0.4)  # test harness: focus lands
+        RAW["two_open"] = action("openBrowser.chromium", {"url": URL + "?b"})
+        second = wait(lambda: (lambda r: r if r.get("value") is True and r.get("tab") not in (None, page_tab) else None)(
+            page_eval("location.search === '?b' && document.readyState === 'complete'")), 60, 0.5)
+        second_tab = second.get("tab") if second else None
+        RAW["second_tab"] = second_tab
+        if not second_tab:
+            row(False, "two_pages.open", {"open": RAW["two_open"]})
+        else:
+            page_eval("document.body.style.background = '#264'; document.title = 'page B'; true", second_tab)
+            time.sleep(1.0)  # test harness: both pages draw
+            shot = rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, "two-pages.png")})
+            both = census("two_pages")
+            browsers = [b for w in both["per_window"] for b in w["browsers"] if b.get("engine") is not None]
+            panes = {b.get("pane") for b in browsers}
+            if opts.in_tree == "on":
+                ok = len(panes) >= 2 and all(b.get("presentation") == "in_tree" and b.get("rwhv_in_window") for b in browsers)
+            else:
+                ok = len(panes) >= 2
+            row(ok, "two_pages.shown", {"panes": sorted(map(str, panes)), "browsers": browsers, "snapshot": shot})
+            typed = {}
+            for label, tab, text in (("A", page_tab, "left"), ("B", second_tab, "right")):
+                page_eval("window.__keys = []; true", tab)
+                action("tab.focus", target=f"tab:{tab}")
+                rect = page_eval("JSON.stringify((r => [r.x + r.width / 2, r.y + r.height / 2])("
+                                 "document.getElementById('field').getBoundingClientRect()))", tab)
+                try:
+                    x, y = json.loads(rect.get("value"))
+                    click = rpc("debug.mouse", {"target": "page", "x": x, "y": y})
+                except Exception as error:
+                    click = {"error": repr(error)}
+                time.sleep(0.3)  # test harness: the click focuses the field
+                for ch in text:
+                    rpc("debug.key", {"key": ch})
+                time.sleep(0.4)  # test harness: the keys reach the page
+                typed[label] = {"click": click, "value": page_eval("document.getElementById('field').value", tab).get("value")}
+            row(typed["A"]["value"] == "left" and typed["B"]["value"] == "right", "two_pages.input", typed)
+            rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, "two-pages-typed.png")})
     RAW["snapshot"] = rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, "window.png")})
 except SystemExit:
     pass

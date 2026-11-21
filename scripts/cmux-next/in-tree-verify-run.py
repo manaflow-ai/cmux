@@ -92,6 +92,19 @@ try:
         with open(REPORT, "w") as f:
             json.dump(results, f, indent=1, default=str)
 finally:
-    pass
+    # Proof to bring home: every screenshot, and each window recording (debug.window_record) thinned to 30 frames a
+    # second, in OUT/evidence.tar.gz (the step's --artifact when it asks for it). Frames become an mp4 at home.
+    import tarfile
+    with tarfile.open(os.path.join(OUT, "evidence.tar.gz"), "w:gz") as tar:
+        for root, _, files in os.walk(OUT):
+            frames = sorted(f for f in files if f.startswith("frame-") and f.endswith(".jpg"))
+            step = 4 if len(frames) > 600 else 2 if len(frames) > 300 else 1
+            keep = set(frames[::step])
+            for f in files:
+                if f.endswith((".png", ".mp4", ".mov", "frames.json", ".json")) or f in keep:
+                    path = os.path.join(root, f)
+                    if path.endswith("evidence.tar.gz") or os.path.getsize(path) > 40 << 20:
+                        continue
+                    tar.add(path, arcname=os.path.relpath(path, OUT))
 print("IN-TREE-VERIFY " + json.dumps({k: v.get("exit") for k, v in results["parts"].items()}), flush=True)
 sys.exit(0)
