@@ -12,6 +12,7 @@ mod choice;
 mod cloud;
 mod filter;
 pub mod github;
+mod index;
 mod intent;
 mod item;
 mod ledger;
@@ -36,7 +37,7 @@ pub use owner::{IntegrationOwner, MAX_INTEGRATION_ITEMS, OwnerEvent, Posted};
 pub use prompt::{ApproveType, ChoiceOption, ChoiceQuestion, Prompt};
 pub use reports::{MailPage, REPORTS_LIMIT, Report, Reports};
 pub use row::{Place, Row, agent_name};
-pub use view::{Layout, MAX_VIEW_ENTRIES, ViewAccount, ViewContext, ViewRequest};
+pub use view::{Layout, MAX_VIEW_ENTRIES, ViewAccount, ViewContext, ViewRequest, items_visited};
 
 #[cfg(test)]
 mod tests;
