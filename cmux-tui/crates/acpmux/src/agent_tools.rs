@@ -1724,7 +1724,7 @@ pub(crate) fn hook_command(words: &[String], patterns: &[String]) -> String {
 }
 
 /// `words` as single-quoted shell words.
-fn quoted(words: &[String]) -> String {
+pub(crate) fn quoted(words: &[String]) -> String {
     let quoted: Vec<String> =
         words.iter().map(|w| format!("'{}'", w.replace('\'', "'\\''"))).collect();
     quoted.join(" ")
