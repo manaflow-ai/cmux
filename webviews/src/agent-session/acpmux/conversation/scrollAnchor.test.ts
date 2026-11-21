@@ -192,3 +192,28 @@ test("the anchor is the folding row however far the view is into its body", () =
   ];
   expect(anchor(5150, two)).toBe(5150);
 });
+
+test("a row that left its neighbours is not the anchor: the rows in view stay put", () => {
+  // A far rail jump's page sits below the rows of turns not read yet; once the gap is read, the
+  // row drawn just above the page (in view at the top) moves to the chat's end.
+  const gap = Array.from({ length: 40 }, (_, at) => row(`gap-${at}`, `between ${at}`));
+  const oldRows = [
+    row("head", "top"),
+    row("moved", "drawn above the page"),
+    row("target", "the prompt"),
+    row("after", "next"),
+  ];
+  const newRows = [
+    row("head", "top"),
+    row("target", "the prompt"),
+    row("after", "next"),
+    ...gap,
+    row("moved", "drawn above the page"),
+  ];
+  const oldLayout = layoutConversation(oldRows, 420);
+  const newLayout = layoutConversation(newRows, 420);
+  // The view's top is inside "moved", 4 px above "target".
+  const oldTop = oldLayout.tops[2]! - 4;
+  const next = preserveScrollAnchorTop({ oldLayout, newLayout, oldRows, newRows, liveTop: oldTop, anchorTop: oldTop });
+  expect(next).toBe(newLayout.tops[1]! - 4);
+});
