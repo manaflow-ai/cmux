@@ -45,13 +45,19 @@ is looked for in publish-nightly first, then in any job of the run that dispatch
     nightly_speed.py issue --state STATE.json [--hq-repo manaflow-ai/cmuxterm-hq]
 
 `record` reads the history kept in the hq issue (HQ_GH_TOKEN, issues read; none leaves it empty and says why), then
-one list of nightly.yml's newest runs on nightly-next (GH_TOKEN, actions read; push and sign runs in one page), and
-for each completed sign run not yet recorded (the newest --newest) the two jobs lists of its attempt and of its push
-run's attempt: nothing more when nothing is new. A sign run that did not publish (failed, or cancelled when a newer
-one replaced it) costs no read past the list: it is one line with its conclusion and the minutes it was open in the
-sign group (created -> completed), the waste account. Such a run is read again when it is re-run (a higher attempt).
-A run that started before the oldest record is not read; "started" is its newest attempt's (run_started_at), since a
-rerun keeps the run's created_at.
+one list of nightly.yml's newest runs on nightly-next (GH_TOKEN, actions read; the list has no event or title filter,
+so push, sign, "Retry nightly-next" and manual dispatch runs share one page). Every completed run in it, whatever its
+event, title or conclusion, not yet known at its attempt (the newest --newest), costs the jobs list of that attempt
+(a sign run's, then its push run's): a publisher job that later jobs failed still published. A run counts as
+published only by its write-gated steps: FEED_STEP succeeded and READBACK_STEP, which runs only when the feed was
+written, succeeded; a skipped read-back is "no fresh write" (a refused, superseded or already-live write, or a
+tail-only dispatch), and a run with no receipt is one unpublished line with its conclusion and the minutes it was
+open, the waste account. A failed sign run with no receipt costs that one read. The list shows a run's newest
+attempt only, so up to EARLIER_ATTEMPTS earlier attempts no pass saw are read too, and one that published adds its
+feed; a run with more earlier attempts than that stays unclassified. A run that started before the oldest record is not read; "started" is its newest attempt's (run_started_at),
+since a rerun keeps the run's created_at. The runs it has classified are kept as one span (classified_span), which
+is what proves the PR window covered. Each new or unidentified feed entry (NOTES_PER_PASS a pass) is checked against
+the publisher's signed release notes (signed_head: two HTTPS reads, no GitHub quota), which name the published head.
 
 `check` judges the newest record. Over budget: merge_to_feed over BUDGET_MIN. A stage is slow when it is over
 SLOW_RATIO (1.5) x its median over the TRAILING (20) records before it AND at least SLOW_FLOOR_MIN (1 min) over
@@ -80,7 +86,7 @@ text, so valid JSON of another shape is an empty history and a record or entry o
 exception. It re-reads the issue right before writing and merges its history, so a failed read in `record` never
 drops history. In budget, the same issue says so. Nothing here gates a nightly: nightly-speed.yml is its own workflow and nothing needs it.
 
-Tests: tests/test_nightly_speed.py (no network; gh and git are fakes or a temporary repository).
+Tests: tests/test_nightly_speed.py (no network; gh, git and the notes feed are fakes or a temporary repository).
 """
 from __future__ import annotations
 
@@ -185,11 +191,19 @@ BEFORE_FEEDS = "before the oldest observed feed"
 # never kept it, is unconfirmed: attribution uses it, but only confirmed entries prove the window covered.
 # The receipt proves the job wrote and read back the feed at feed_at, not what it published: nightly.yml's step
 # "source" picks its own build, a recovered or a republished one (build and build_sha) before the upload, and the jobs
-# API shows no step output. So `sha` is the run's head commit (sha_source "run_head") and confirmed_identity is
-# false; an entry proves coverage only with confirmed_identity true, which a reader of the published build_sha (a
-# step output, an appcast field or the publisher's receipt) would set with sha_source "build_sha".
+# API shows no step output. So a record's `sha` is its run's head commit (sha_source "run_head", confirmed_identity
+# false). The publisher's signed release notes name the published build's head: NOTES_FEED<build>.json, its "head"
+# being the step's build_sha, signed with the content key (.json.sig, Ed25519). An entry whose notes verify takes
+# that head (sha_source "signed_notes", confirmed_identity true); only such an entry proves coverage. A recovered
+# build carries another run's build number, so a run's own number has no notes and stays unconfirmed.
 FEED_KEYS = ("sha", "feed_at", "build", "sign_run", "confirmed", "sha_source", "confirmed_identity")
-SHA_SOURCES = ("run_head", "build_sha")
+SHA_SOURCES = ("run_head", "signed_notes")
+NOTES_FEED = "https://files-next.cmux.com/nightly-next/notes/"
+CONTENT_PUBLIC_KEY = "AnrDI4vqN4lFGX2IpzeWPZsa/Hk7yQMkVIKppFwAst4="
+NOTES_TIMEOUT_S = 20
+# Notes read per pass (two plain HTTPS reads each, no GitHub quota): newest unidentified entries first, so a seeded
+# list is identified over a few passes.
+NOTES_PER_PASS = 16
 
 
 class SourceError(Exception):
@@ -348,9 +362,9 @@ def _ancestors_since(git_dir: str, head: str, since: float, run: Callable = subp
 def feed_entry(r: Dict[str, Any]) -> Dict[str, Any]:
     """A record's (or entry's) compact feed entry; one without a receipt is unconfirmed, and one whose sha is not
     read from the published build is the run head's, identity unconfirmed."""
-    identity = r.get("sha_source") == "build_sha" and r.get("confirmed_identity") is True
+    identity = r.get("sha_source") == "signed_notes" and r.get("confirmed_identity") is True
     return {**{k: r.get(k) for k in FEED_KEYS}, "confirmed": r.get("confirmed") is True,
-            "sha_source": "build_sha" if identity else "run_head", "confirmed_identity": identity}
+            "sha_source": "signed_notes" if identity else "run_head", "confirmed_identity": identity}
 
 
 def feed_list(old: List[Dict[str, Any]], records: List[Dict[str, Any]], now: Optional[float] = None,
@@ -365,11 +379,59 @@ def feed_list(old: List[Dict[str, Any]], records: List[Dict[str, Any]], now: Opt
         if sound_feed(e):
             seen = by_build.get(e["build"])
             new = feed_entry(e)
-            by_build[e["build"]] = (seen if seen and seen["confirmed_identity"] and not new["confirmed_identity"]
-                                    else {**new, "confirmed": new["confirmed"] or bool(seen and seen["confirmed"])})
+            keep = seen if seen and seen["confirmed_identity"] and not new["confirmed_identity"] else new
+            by_build[e["build"]] = {**keep, "confirmed": new["confirmed"] or bool(seen and seen["confirmed"])}
     feeds = sorted(by_build.values(), key=lambda e: ts(e["feed_at"]) or 0)
     before = [i for i, e in enumerate(feeds) if (ts(e["feed_at"]) or 0) < since]
     return feeds[before[-1]:] if before else feeds
+
+
+def signed_head(build: str, fetch: Optional[Callable[[str], bytes]] = None,
+                key: str = CONTENT_PUBLIC_KEY) -> Optional[str]:
+    """The head commit the publisher's signed release notes name for ``build``, or None: no notes, a bad signature,
+    notes of another build or no sha. ``fetch`` reads a URL (tests pass one); the signature is checked by openssl."""
+    import tempfile
+    import urllib.request
+
+    def get(url: str) -> bytes:
+        req = urllib.request.Request(url, headers={"User-Agent": "cmux-nightly-speed/1"})
+        with urllib.request.urlopen(req, timeout=NOTES_TIMEOUT_S) as resp:
+            return resp.read(1 << 20)
+
+    if not re.fullmatch(r"[0-9]{1,24}", build or ""):
+        return None
+    try:
+        body, sig = ((fetch or get)(f"{NOTES_FEED}{build}{ext}") for ext in (".json", ".json.sig"))
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = [os.path.join(tmp, n) for n in ("notes.json", "sig.bin", "pub.der", "pub.pem")]
+            for path, data in zip(paths[:3], (body, base64.b64decode(sig.strip()),
+                                              bytes.fromhex("302a300506032b6570032100") + base64.b64decode(key))):
+                with open(path, "wb") as f:
+                    f.write(data)
+            subprocess.run(["openssl", "pkey", "-pubin", "-inform", "DER", "-in", paths[2], "-out", paths[3]],
+                           check=True, capture_output=True, timeout=NOTES_TIMEOUT_S)
+            if subprocess.run(["openssl", "pkeyutl", "-verify", "-pubin", "-inkey", paths[3], "-rawin", "-in",
+                               paths[0], "-sigfile", paths[1]], capture_output=True,
+                              timeout=NOTES_TIMEOUT_S).returncode != 0:
+                return None
+        notes = json.loads(body)
+    except Exception:  # unreachable, unsigned or malformed notes: the identity stays unconfirmed
+        return None
+    head = notes.get("head") if isinstance(notes, dict) and notes.get("build") == build else None
+    return head if isinstance(head, str) and SHA_RE.fullmatch(head) and len(head) == 40 else None
+
+
+def identify(feeds: List[Dict[str, Any]], notes: Callable[[str], Optional[str]],
+             limit: int = NOTES_PER_PASS) -> List[Dict[str, Any]]:
+    """The feed list with up to ``limit`` unidentified entries, newest first, checked against their signed notes:
+    one whose notes verify takes the notes' head as its sha and is identity-confirmed."""
+    out = list(feeds)
+    todo = [i for i, e in enumerate(out) if not e.get("confirmed_identity")][::-1][:limit]
+    for i in todo:
+        head = notes(out[i]["build"])
+        if head:
+            out[i] = {**out[i], "sha": head, "sha_source": "signed_notes", "confirmed_identity": True}
+    return out
 
 
 def pr_attribution(records: List[Dict[str, Any]], git_dir: str, base_ref: str = BASE_REF,
@@ -384,8 +446,7 @@ def pr_attribution(records: List[Dict[str, Any]], git_dir: str, base_ref: str = 
     a matched feed contribute to the p50/p90 summary. ``feeds`` is the history's feed list (feed_list); the records
     are used when it is not given. A predecessor feed alone proves nothing: a run omitted between two held feeds would
     charge its merges to the later one. The window is covered (``partial`` false) only when every run in it is
-    classified (``classified``, classified_span, from at or before its start, and no attributed feed after the span's
-    end), a feed from before it is held, and every feed used is confirmed (its read-back succeeded) with its identity
+    classified (``classified``, classified_span, from at or before its start to at or after its end), a feed from before it is held, and every feed used is confirmed (its read-back succeeded) with its identity
     confirmed (its sha read from the published build, not the run head). ``unconfirmed`` counts the feeds used that
     have no receipt, ``unidentified`` those whose sha is the run head's. The full rows are the detail
     (`check --json`, pr_stream for `--pr-json`); the issue and its history carry pr_summary.
@@ -442,16 +503,19 @@ def pr_attribution(records: List[Dict[str, Any]], git_dir: str, base_ref: str = 
             "oldest_feed": iso(feeds[0][0]) if feeds else None, "feeds": len(feeds),
             "unconfirmed": sum(1 for _, e in feeds if not e.get("confirmed")),
             "unidentified": sum(1 for _, e in feeds if not e.get("confirmed_identity")),
-            "classified": classified if sound_span(classified) else None,
-            "partial": not covered(rows, feeds, since, classified), "reasons": reasons, "rows": rows}
+            "classified": {"from": classified["from"], "to": classified["to"]} if sound_span(classified) else None,
+            "partial": not covered(rows, feeds, since, end, classified), "reasons": reasons, "rows": rows}
 
 
-def covered(rows: List[Dict[str, Any]], feeds: List[Tuple[float, Dict[str, Any]]], since: float,
+def covered(rows: List[Dict[str, Any]], feeds: List[Tuple[float, Dict[str, Any]]], since: float, until: float,
             classified: Optional[Dict[str, str]]) -> bool:
-    """pr_attribution's coverage proof (see there)."""
+    """pr_attribution's coverage proof (see there): the classified span holds the whole window, its start and its end
+    (a span that ends before the report's end leaves the runs after it unread, so a merge after it may sit in one)."""
     if not sound_span(classified) or not feeds or feeds[0][0] >= since or (ts(classified["from"]) or 0) > since:
         return False
     end = ts(classified["to"]) or 0
+    if end < until:
+        return False
     return all(e.get("confirmed") and e.get("confirmed_identity") for _, e in feeds) and all(
         (ts(r["feed_at"]) or 0) <= end for r in rows if r["status"] == "attributed")
 
@@ -742,6 +806,9 @@ def parse_history(body: str) -> Dict[str, Any]:
     span = doc.get("classified") if isinstance(doc, dict) else None
     if sound_span(span):
         out["classified"] = {"from": span["from"], "to": span["to"]}
+        complete = span.get("complete")
+        if isinstance(complete, list):
+            out["classified"]["complete"] = [c for c in complete if sound_attempt(c)]
     attribution = doc.get("pr_attribution") if isinstance(doc, dict) else None
     if isinstance(attribution, dict):
         out["pr_attribution"] = pr_summary(attribution, 0)
@@ -792,28 +859,51 @@ def attempts_known(hist: Dict[str, Any]) -> set:
             | {(u["sign_run"], u.get("attempt") or 1) for u in hist["unpublished"]})
 
 
+def sound_attempt(c: Any) -> bool:
+    """A stored [run id, attempt] pair."""
+    return (isinstance(c, list) and len(c) == 2 and all(type(x) is int and x > 0 for x in c))
+
+
+def attempts_complete(prev: Optional[Dict[str, Any]]) -> set:
+    """(run id, attempt) of every run whose earlier attempts were all examined (the span's ``complete``)."""
+    v = prev.get("complete") if isinstance(prev, dict) else None
+    return {(c[0], c[1]) for c in v if sound_attempt(c)} if isinstance(v, list) else set()
+
+
 def superseded_line(u: Dict[str, Any], records: List[Dict[str, Any]]) -> bool:
     """An unpublished line of a run a record holds at that attempt or a later one."""
     return any(r["sign_run"] == u["sign_run"] and (r.get("sign_attempt") or 1) >= (u.get("attempt") or 1)
                for r in records)
 
 
-def classified_span(prev: Optional[Dict[str, str]], runs: List[Dict[str, Any]], signed: set, state: Dict[str, Any],
-                    oldest: str, now: str) -> Dict[str, str]:
+def classified_span(prev: Optional[Dict[str, Any]], runs: List[Dict[str, Any]], signed: set, state: Dict[str, Any],
+                    oldest: str, now: str, complete: Optional[set] = None) -> Dict[str, Any]:
     """The span {from, to} in which every nightly run (nightly_run: any run but one a sign run names) is classified,
     recorded or unpublished with its reason. The run list covers back to its oldest run (everything, when it is not a
     full page); it extends the stored span when it reaches back to that span's end, and otherwise starts a new one (at
     the newest of its start and the oldest record's, before which nothing is read). The span ends at the start of the
-    oldest run left unclassified (in progress, past --newest, or unreadable), or now."""
+    oldest run left unclassified (in progress, past --newest, or unreadable), or now. A run past its first attempt is
+    classified only when each earlier attempt is known or was read (``complete``, this pass's, and the stored span's):
+    the list shows the newest attempt only, and an earlier one may have published. ``complete`` is kept with the span,
+    for the listed runs only (the list is all a later pass sees)."""
     seen = attempts_known(state)
+    done = attempts_complete(prev) | (complete or set())
+
+    def classified(r: Dict[str, Any]) -> bool:
+        key = (r.get("id"), r.get("run_attempt") or 1)
+        return key in seen and (key[1] == 1 or key in done)
     listed = "" if len(runs) < LIST_PAGE else min((started(r) for r in runs), default="")
     if sound_span(prev) and prev["to"] >= listed:
         start, floor = prev["from"], prev["to"]
     else:
         start = floor = max(listed, oldest)
-    pending = [started(r) for r in runs if nightly_run(r, signed) and started(r) >= floor
-               and (r.get("id"), r.get("run_attempt") or 1) not in seen]
-    return {"from": start, "to": min(pending, default=now)}
+    pending = [started(r) for r in runs if nightly_run(r, signed) and started(r) >= floor and not classified(r)]
+    listed_keys = {(r.get("id"), r.get("run_attempt") or 1) for r in runs}
+    out: Dict[str, Any] = {"from": start, "to": min(pending, default=now)}
+    kept = sorted([k[0], k[1]] for k in done & listed_keys if k[1] > 1)
+    if kept:
+        out["complete"] = kept
+    return out
 
 
 def sound_span(v: Any) -> bool:
@@ -822,7 +912,10 @@ def sound_span(v: Any) -> bool:
 
 
 def record(repo: str, hq_repo: str, newest: int, git_dir: str, base_ref: str, token: Optional[str],
-           hq_token: Optional[str], run: Callable = subprocess.run) -> Dict[str, Any]:
+           hq_token: Optional[str], run: Callable = subprocess.run,
+           notes: Optional[Callable[[str], Optional[str]]] = None) -> Dict[str, Any]:
+    """``notes`` names a build's published head from its signed release notes (signed_head; the CLI passes it):
+    feed entries it confirms prove their identity. Without it no entry is identity-confirmed."""
     history_why = None
     try:
         issue = find_issue(hq_repo, hq_token, run)
@@ -857,7 +950,7 @@ def record(repo: str, hq_repo: str, newest: int, git_dir: str, base_ref: str, to
              and not known(r) and started(r) >= oldest]
     signs.sort(key=started, reverse=True)
     landed = landing_times(git_dir, base_ref, run) if signs else {}
-    new_recs, new_unp, whys, extra_feeds = [], [], [], []
+    new_recs, new_unp, whys, extra_feeds, complete = [], [], [], [], set()
 
     def jobs_of(run_id: Any, attempt: Any) -> List[Dict[str, Any]]:
         return gh_api(f"repos/{repo}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100",
@@ -885,11 +978,17 @@ def record(repo: str, hq_repo: str, newest: int, git_dir: str, base_ref: str, to
         else:
             new_unp.append(unpublished_line(sign))
         # The list shows a run's newest attempt only: an earlier one no pass saw may have published. Its feed (not a
-        # record: a run keeps one) joins the feed list; at most EARLIER_ATTEMPTS more reads per run.
+        # record: a run keeps one) joins the feed list; at most EARLIER_ATTEMPTS more reads per run. A run whose every
+        # earlier attempt is known or read is complete; one with more is left unclassified (classified_span).
         attempt = sign.get("run_attempt") or 1
-        for k in range(attempt - 1, max(0, attempt - 1 - EARLIER_ATTEMPTS), -1):
+        reads, whole = 0, True
+        for k in range(attempt - 1, 0, -1):
             if (sign.get("id"), k) in seen:
+                continue
+            if reads >= EARLIER_ATTEMPTS:
+                whole = False
                 break
+            reads += 1
             try:
                 earlier = {**sign, "run_attempt": k}
                 e_sign_jobs = jobs_of(sign["id"], k) if m else []
@@ -897,10 +996,13 @@ def record(repo: str, hq_repo: str, newest: int, git_dir: str, base_ref: str, to
                 e_push_jobs = push_jobs if m else jobs_of(sign["id"], k)
             except (SourceError, AttributeError) as e:
                 whys.append(f"run {sign.get('id')} attempt {k}: {e}")
+                whole = False
                 break
             e_rec, _ = build_record(earlier, e_push, e_sign_jobs, e_push_jobs, landed.get(push.get("head_sha") or ""))
             if e_rec and e_rec["confirmed"]:
                 extra_feeds.append(feed_entry(e_rec))
+        if whole and attempt > 1:
+            complete.add((sign.get("id"), attempt))
     state["records"] = merge(state["records"], new_recs, "feed_at", HISTORY_KEEP)
     # A rerun that published is no longer an unpublished run (a later attempt's line stays: it is how it is known).
     state["unpublished"] = [u for u in merge(state["unpublished"], new_unp, "created_at", UNPUBLISHED_KEEP)
@@ -908,8 +1010,10 @@ def record(repo: str, hq_repo: str, newest: int, git_dir: str, base_ref: str, to
     state["new"] = [r["build"] for r in sorted(new_recs, key=lambda r: r["feed_at"])]
     state["new_unpublished"] = [u["sign_run"] for u in new_unp]
     now = time.time()
-    state["classified"] = classified_span(hist.get("classified"), runs, signed, state, oldest, iso(now))
+    state["classified"] = classified_span(hist.get("classified"), runs, signed, state, oldest, iso(now), complete)
     state["feeds"] = feed_list((hist.get("feeds") or []) + extra_feeds, state["records"], now)
+    if notes:
+        state["feeds"] = identify(state["feeds"], notes)
     state["pr_attribution"] = pr_attribution(state["records"], git_dir, base_ref, run=run, now=now,
                                              feeds=state["feeds"], classified=state["classified"])
     state["why"] = "; ".join(whys) or None
@@ -1305,7 +1409,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     args = ap.parse_args(argv)
     if args.cmd == "record":
         state = record(args.repo, args.hq_repo, args.newest, args.git_dir, args.base_ref,
-                       os.environ.get("GH_TOKEN") or None, os.environ.get("HQ_GH_TOKEN") or None)
+                       os.environ.get("GH_TOKEN") or None, os.environ.get("HQ_GH_TOKEN") or None, notes=signed_head)
         with open(args.out, "w", encoding="utf-8") as f:
             json.dump(state, f, separators=(",", ":"))
         print(f"nightly-speed: {len(state['new'])} new published, {len(state['new_unpublished'])} new unpublished, "

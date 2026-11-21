@@ -362,7 +362,7 @@ class PrAttribution(unittest.TestCase):
         just before the window first, and a git fake whose head holds every merge committed before its feed."""
         end = ns.ts("2026-11-20T00:00:00Z")
         feeds = [{"sha": "%040x" % (0xf00 + i), "build": f"b{i}", "sign_run": 1 + i,
-                  "confirmed": True,
+                  "confirmed": True, "sha_source": "signed_notes", "confirmed_identity": True,
                   "feed_at": ns.iso(end - 7 * 86400 + i * (7 * 86400 / n) - (3600 if i == 0 else -60))}
                  for i in range(n)]
         merges = [("%040x" % (0xa00 + i), int(ns.ts(f["feed_at"]) - 600)) for i, f in enumerate(feeds) if i]
@@ -1017,6 +1017,87 @@ class PublicationReceipt(unittest.TestCase):
         # A stored confirmed entry is not downgraded by its unconfirmed record.
         self.assertTrue(ns.feed_list(feeds[-1:], seeded[-1:], end)[0]["confirmed"])
 
+    def test_a_run_head_sha_keeps_the_partial_label(self):
+        # The ledger's job and time pairs are proven, its sha is the run head: nightly.yml may publish a recovered
+        # or republished build, so an entry with no published build_sha never proves the window.
+        doc = load("feeds-ledger-excerpt.json")
+        ledger = [dict(zip(doc["fields"], r)) for r in doc["records"]]
+        kept = ns.feed_list([{**e, "confirmed": True} for e in ledger], [], ns.ts("2026-11-21T13:00:00Z"), 7)
+        self.assertEqual([(e["build"], e["confirmed"], e["sha_source"], e["confirmed_identity"]) for e in kept],
+                         [(e["build"], True, "run_head", False) for e in ledger])
+        end, feeds, git = PrAttribution.busy_week()
+        span = {"from": ns.iso(end - 8 * 86400), "to": ns.iso(end)}
+        head = [{k: v for k, v in f.items() if k not in ("sha_source", "confirmed_identity")} for f in feeds]
+        claimed = [{**f, "confirmed_identity": True} for f in head]  # identity claimed with no build_sha source
+        for fs in (head, claimed, feeds[:30] + head[30:31] + feeds[31:]):
+            data = ns.pr_attribution([], ".", run=git, now=end, feeds=fs, classified=span)
+            self.assertTrue(data["partial"])
+            self.assertEqual(data["attributed"], len(feeds) - 1, "attribution uses them")
+        data = ns.pr_attribution([], ".", run=git, now=end, feeds=head, classified=span)
+        self.assertEqual((data["unconfirmed"], data["unidentified"]), (0, len(feeds)))
+        verdict = {"build": "b59", "sha": feeds[-1]["sha"], "merge_to_feed": 20.0, "verdict": "in budget",
+                   "budget_min": 30.0, "window": 1, "over": False, "p50": 20.0, "p95": 20.0,
+                   "feed_at": feeds[-1]["feed_at"], "slow": {}, "diff": None, "bisect": []}
+        text = ns.render_verdict({**verdict, "pr_attribution": data})
+        self.assertIn(f"{len(feeds)} of {len(feeds)} feeds name the run's head commit, not the published build_sha "
+                      "(identity unconfirmed).", text)
+        # A record names its run head, so its entry is never identity-confirmed and never upgrades a stored one.
+        self.assertFalse(ns.feed_entry({**feeds[-1], "sha_source": None})["confirmed_identity"])
+        self.assertTrue(ns.feed_list(feeds[-1:], head[-1:], end)[0]["confirmed_identity"])
+
+    def test_signed_notes_confirm_a_feeds_identity(self):
+        # The publisher's notes of build 4490426815301 as the public feed serves them, verified with its content key.
+        with open(os.path.join(FIX, "notes-4490426815301.json"), "rb") as f:
+            body = f.read()
+        with open(os.path.join(FIX, "notes-4490426815301.json.sig"), "rb") as f:
+            sig = f.read()
+        urls = []
+
+        def fetch(url, files={".json": body, ".json.sig": sig}):
+            urls.append(url)
+            for ext, data in sorted(files.items(), key=lambda kv: -len(kv[0])):
+                if url.endswith(ext):
+                    return data
+            raise OSError("404")
+
+        head = "a9aa7a318206e006b1758ea8f9f47effc4e9d825"
+        self.assertEqual(ns.signed_head("4490426815301", fetch), head)
+        self.assertEqual(urls, [ns.NOTES_FEED + "4490426815301.json", ns.NOTES_FEED + "4490426815301.json.sig"])
+        self.assertIsNone(ns.signed_head("4490426815302", fetch), "notes of another build")
+        tampered = body.replace(head.encode(), b"0" * 40)
+        self.assertIsNone(ns.signed_head("4490426815301", lambda u: tampered if u.endswith(".json") else sig))
+        self.assertIsNone(ns.signed_head("4490426815301", lambda u: (_ for _ in ()).throw(OSError("down"))))
+        self.assertIsNone(ns.signed_head("../x", fetch), "a build reaches a URL only as digits")
+        # Through record(): the retry run's feed is identity-confirmed by its notes; with no notes reader it is not.
+        doc = load("run-44904268153-1.json")
+        api = {"workflows/nightly.yml/runs": {"workflow_runs": [doc["run"]]},
+               "runs/44904268153/attempts/1/jobs": {"jobs": doc["jobs"]}}
+        st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=FakeGh(api=api),
+                       notes=lambda b: ns.signed_head(b, fetch))
+        self.assertEqual([(e["sha"], e["sha_source"], e["confirmed"], e["confirmed_identity"]) for e in st["feeds"]],
+                         [(head, "signed_notes", True, True)])
+        st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=FakeGh(api=api))
+        self.assertEqual([(e["sha_source"], e["confirmed_identity"]) for e in st["feeds"]], [("run_head", False)])
+
+    def test_signed_notes_replace_a_run_head_and_are_bounded(self):
+        end, feeds, git = PrAttribution.busy_week()
+        head = [{k: v for k, v in f.items() if k not in ("sha_source", "confirmed_identity")} for f in feeds]
+        asked = []
+        other = "f" * 40
+
+        def notes(build):
+            asked.append(build)
+            return other if build == head[-1]["build"] else None
+
+        out = ns.identify(ns.feed_list(head, [], end), notes)
+        self.assertEqual(asked, [f["build"] for f in head[::-1][:ns.NOTES_PER_PASS]], "newest first, bounded")
+        self.assertEqual((out[-1]["sha"], out[-1]["sha_source"], out[-1]["confirmed_identity"]),
+                         (other, "signed_notes", True), "the notes' head is the published build's, not the run's")
+        self.assertEqual(sum(e["confirmed_identity"] for e in out), 1)
+        asked.clear()
+        ns.identify(ns.feed_list(feeds, [], end), notes)
+        self.assertEqual(asked, [], "identified entries are not read again")
+
     def test_coverage_needs_every_run_classified(self):
         end, feeds, git = PrAttribution.busy_week()
         since = end - 7 * 86400
@@ -1049,6 +1130,49 @@ class PublicationReceipt(unittest.TestCase):
         waiting = runs + [run(3, "2026-11-20T02:30:00Z", "in_progress")]
         self.assertEqual(ns.classified_span(prev, waiting, set(), state, "", now)["to"], "2026-11-20T02:30:00Z",
                          "the span ends where a run is not classified yet")
+
+    def test_a_span_that_ends_before_the_report_is_partial(self):
+        # A confirmed predecessor, a last feed at 10:00, runs classified to 10:00, a merge at 11:00 with no feed yet,
+        # and a report until 12:00: the runs after 10:00 are unread, so a feed holding that merge may exist.
+        end, feeds, git = PrAttribution.busy_week()
+        last = ns.ts(feeds[-1]["feed_at"])
+        span = {"from": ns.iso(end - 8 * 86400), "to": feeds[-1]["feed_at"]}
+        rows = [{"status": "unattributed", "feed_at": None}]
+        pairs = [(ns.ts(f["feed_at"]), {**f, "confirmed": True, "confirmed_identity": True}) for f in feeds]
+        self.assertFalse(ns.covered(rows, pairs, end - 7 * 86400, last + 7200, span))
+        self.assertTrue(ns.covered(rows, pairs, end - 7 * 86400, last, span), "a span to the report's end covers it")
+        data = ns.pr_attribution([], ".", run=git, now=last + 7200,
+                                 feeds=[{**f, "confirmed": True, "confirmed_identity": True} for f in feeds],
+                                 classified=span)
+        self.assertTrue(data["partial"])
+
+    def test_a_rerun_with_unread_earlier_attempts_stays_unclassified(self):
+        def run(i, start, attempt):
+            return {"id": i, "event": "push", "status": "completed", "conclusion": "success", "run_attempt": attempt,
+                    "display_title": "x", "created_at": start, "run_started_at": start}
+        now = "2026-11-20T03:00:00Z"
+        runs = [run(1, "2026-11-20T01:00:00Z", 1), run(2, "2026-11-20T02:00:00Z", 4)]
+        state = {"records": [{"sign_run": 1}, {"sign_run": 2, "sign_attempt": 4}], "unpublished": []}
+        self.assertEqual(ns.classified_span(None, runs, set(), state, "", now)["to"], "2026-11-20T02:00:00Z",
+                         "only attempt 4 is known: attempts 1 to 3 may have published")
+        span = ns.classified_span(None, runs, set(), state, "", now, {(2, 4)})
+        self.assertEqual((span["to"], span["complete"]), (now, [[2, 4]]), "every earlier attempt read")
+        self.assertEqual(ns.classified_span(span, runs, set(), state, "", now)["to"], now, "kept with the span")
+        body = ns.history_comment([], [], classified=span)
+        self.assertEqual(ns.parse_history(body)["classified"]["complete"], [[2, 4]])
+        # record() reads EARLIER_ATTEMPTS earlier attempts; a run at attempt 4 has three, so it is not complete.
+        r4 = {**one_job_run(), "run_attempt": 4}
+        api = {"workflows/nightly.yml/runs": {"workflow_runs": [r4]}}
+        for k in (4, 3, 2, 1):
+            api[f"runs/43300000001/attempts/{k}/jobs"] = {"jobs": one_job_jobs(feed=False)}
+        st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=FakeGh(api=api))
+        self.assertEqual(st["classified"]["to"], ns.started(r4))
+        self.assertNotIn("complete", st["classified"])
+        r3 = {**r4, "run_attempt": 3}
+        api["workflows/nightly.yml/runs"] = {"workflow_runs": [r3]}
+        st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=FakeGh(api=api))
+        self.assertEqual(st["classified"]["complete"], [[43300000001, 3]])
+        self.assertGreaterEqual(st["classified"]["to"], ns.started(r3))
 
 
 if __name__ == "__main__":
