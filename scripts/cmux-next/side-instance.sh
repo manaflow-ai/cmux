@@ -41,15 +41,18 @@
 #
 # NAME is lower case letters, digits and dashes (try-pr.sh uses pr-N). The copy is
 # $CMUX_SIDE_ROOT/NAME (default ~/Library/Application Support/cmux-side/NAME) and holds:
-#   <label>.app     the copy: bundle id <original>.side-NAME-<hash of the root> (a nightly stays a
-#                   nightly, so its web overlay works), named LABEL (default "cmux NAME"), updates
+#   <label>.app     the copy, a DEV build whatever it was copied from (#48637): bundle id
+#                   com.cmuxterm.app.debug.side-NAME-<hash of the root and the original's id>, CMUX_TAG
+#                   side-NAME-<same hash> (so its cloud data is a dev space of its own, never NIGHTLY's),
+#                   the DEV icon (Assets.xcassets/AppIcon-Debug) and named LABEL with DEV put in
+#                   ("cmux X" becomes "cmux DEV X"; default "cmux DEV NAME"). Before, a copy of a nightly
+#                   kept the nightly's id prefix, so it ran, looked and reported as NIGHTLY. Updates
 #                   off (no feed, no key), no document types or login items, one URL scheme of its
 #                   own for sign-in callbacks (cmux links stay with the original), re-sealed ad hoc
 #                   with its unrestricted entitlements (no Keychain group)
 #   config/         its cmux-next.json and web-dev.json (CMUX_NEXT_CONFIG_FILE in its LSEnvironment), and
 #                   its debug-tunables.json (CMUX_NEXT_DEBUG_TUNABLES_FILE) with Live web reload on, so it
-#                   loads its web overlay. A copy of cmux NEXT DEV cannot: the app reads web-dev.json
-#                   only under DEV's own bundle id (WebDevOverride.isAvailable); a nightly's copy can.
+#                   loads its web overlay (every build reads web-dev.json: WebDevOverride.isEnabled).
 #   web-overlay/    its web overlay (CMUX_WEB_OVERLAY_DIR), web-slot/ its dev server state
 #   live-code/      with --live-code, the folder its live code watcher reads (CMUX_LIVE_CODE_DIR)
 # A side instance starts signed out with fresh settings; its own sign-in survives a remake through
@@ -120,7 +123,8 @@ clear_state() {
     "$HOME/.cmux/chief/$bundle" "$HOME/.cmux/chief/$bundle@"* "$HOME/Library/Preferences/$bundle.plist" \
     "$HOME/Library/Caches/$bundle" "$HOME/Library/HTTPStorages/$bundle" "$HOME/Library/WebKit/$bundle" \
     "$HOME/Library/Saved Application State/$bundle.savedState" "$HOME/Library/Application Support/$bundle" \
-    "$HOME/Library/Application Support/cmux-next/$bundle" "$HOME/Library/Application Support/cmux/$bundle"; do
+    "$HOME/Library/Application Support/cmux-next/$bundle" "$HOME/Library/Application Support/cmux/$bundle" \
+    "$HOME/Library/Caches/cmux-next/builds/$key"; do
     if [[ -e "$path" ]]; then rm -rf "$path"; fi
   done
 }
@@ -167,7 +171,7 @@ restore_sign_in() {
 case "$cmd" in
   make)
     # SIDE_INSTANCE_DEFAULT_APP: a stand-in for tests (tests/test_side_instance_stale_default.py).
-    from="${SIDE_INSTANCE_DEFAULT_APP:-/Applications/cmux NEXT.app}" label="cmux $name" live="" neutral="" swap="" own_customize=""
+    from="${SIDE_INSTANCE_DEFAULT_APP:-/Applications/cmux NEXT.app}" label="cmux DEV $name" live="" neutral="" swap="" own_customize=""
     chosen=""
     while [[ $# -gt 0 ]]; do
       case "$1" in
@@ -190,6 +194,14 @@ case "$cmd" in
       die "$from was built over 7 days ago, and a copy runs that old code; install a current build there, or name the app with --from (/Applications/cmux NIGHTLY.app, or an older one on purpose)"
     fi
     [[ "$label" =~ ^[A-Za-z0-9\ \#._-]+$ ]] || die "the label takes letters, digits, spaces and # . _ -"
+    # The copy is a DEV build, and its name says so: "cmux PR #35" (try-pr.sh) is "cmux DEV PR #35", "cmux
+    # try-x" (cmux app try .) "cmux DEV try-x", any other label "cmux DEV <label>".
+    case "$label" in
+      "cmux DEV "*) ;;
+      "cmux DEV" | cmux) label="cmux DEV $name" ;;
+      "cmux "*) label="cmux DEV ${label#cmux }" ;;
+      *) label="cmux DEV $label" ;;
+    esac
     old_bundle="" old_key=""
     if [[ -f "$marker" ]]; then
       # Its daemon and helpers outlive the app and use the state a new identity clears.
@@ -207,13 +219,38 @@ case "$cmd" in
     cp -cR "$from" "$app" 2>/dev/null || { rm -rf "$app"; cp -R "$from" "$app"; }
     plist="$app/Contents/Info.plist"
     original="$("$buddy" -c "Print :CFBundleIdentifier" "$plist")"
-    # The root's hash keeps two roots' NAMEs (a measurement's and yours) apart: their data roots
-    # follow the bundle id.
-    bundle="$original.side-$name-$(printf %s "$root" | shasum | cut -c1-6)"
-    scheme="cmux-side-$name-$(printf %s "$root" | shasum | cut -c1-6)"
+    # A DEV identity (#48637), whatever the original is: under com.cmuxterm.app.nightly the app reads
+    # itself as NIGHTLY (BuildIdentity.kind, CrashReportingPolicy), shares NIGHTLY's cloud data space
+    # (CMUXBuildSpaceState) and shows NIGHTLY's icon. As every DEV build, it defaults to the development
+    # Cloud (cmux-cloud-environment default_environment), on purpose: production ignores the build-space
+    # header, so a copy signed in there would read and change NIGHTLY's real data. The hash keeps two roots' NAMEs (a measurement's and
+    # yours) apart, and a copy remade from another app gets another identity, whose state make clears.
+    hash="$(printf '%s\n%s' "$root" "$original" | shasum | cut -c1-6)"
+    side_tag="side-$name-$hash"
+    bundle="com.cmuxterm.app.debug.$side_tag"
+    scheme="cmux-side-$name-$hash"
     plist_set "$plist" CFBundleIdentifier "$bundle"
     plist_set "$plist" CFBundleName "$label"
     plist_set "$plist" CFBundleDisplayName "$label"
+    # DEV's icon from the checkout that brings this script, made into an icns (CFBundleIconName goes, or
+    # macOS takes the original's icon from its Assets.car by that name). Without iconutil or the icon set
+    # the copy keeps the original's icon and says so.
+    # SIDE_INSTANCE_DEV_ICONSET, SIDE_INSTANCE_ICONUTIL: stand-ins for tests.
+    icons="${SIDE_INSTANCE_DEV_ICONSET:-$(dirname "${BASH_SOURCE[0]}")/../../Assets.xcassets/AppIcon-Debug.appiconset}"
+    iconset="$dir/AppIcon-Debug.iconset"
+    rm -rf "$iconset"; mkdir -p "$iconset" "$app/Contents/Resources"
+    icon_ok=1
+    for size in 16 32 128 256 512; do
+      cp "$icons/$size.png" "$iconset/icon_${size}x${size}.png" 2>/dev/null \
+        && cp "$icons/$size@2x.png" "$iconset/icon_${size}x${size}@2x.png" 2>/dev/null || icon_ok=""
+    done
+    if [[ -n "$icon_ok" ]] && "${SIDE_INSTANCE_ICONUTIL:-iconutil}" -c icns -o "$app/Contents/Resources/AppIcon-Debug.icns" "$iconset" 2>/dev/null; then
+      plist_set "$plist" CFBundleIconFile AppIcon-Debug
+      "$buddy" -c "Delete :CFBundleIconName" "$plist" 2>/dev/null || true
+    else
+      echo "side-instance: $name keeps its original's icon (no DEV icon set at $icons, or iconutil failed)" >&2
+    fi
+    rm -rf "$iconset"
     # No updates: the updater stays off without a feed key, so the copy never turns back into the
     # original by updating over itself.
     for key in SUFeedURL SUPublicEDKey CFBundleURLTypes CFBundleDocumentTypes; do
@@ -229,6 +266,9 @@ case "$cmd" in
     "$buddy" -c "Print :LSEnvironment" "$plist" >/dev/null 2>&1 || "$buddy" -c "Add :LSEnvironment dict" "$plist"
     plist_set "$plist" LSEnvironment:CMUX_NEXT_CONFIG_FILE "$dir/config/cmux-next.json"
     plist_set "$plist" LSEnvironment:CMUX_AUTH_CALLBACK_SCHEME "$scheme"
+    # Its own tag in place of the original's (cmux NEXT ships cmux-next): a DEV build's tag names its cloud
+    # data space (X-Cmux-Build-Space dev:<tag>) and every root it keeps, so two copies never share either.
+    plist_set "$plist" LSEnvironment:CMUX_TAG "$side_tag"
     # A control socket at a path this script names (LaunchIdentity reads CMUX_NEXT_SOCKET_PATH), so a driver
     # (hot-verify.py, `cmux --app-socket`) finds the copy without reading its process's open files.
     # A Unix socket path is at most 104 bytes on macOS (LC_ALL=C: ${#} counts bytes). Past that, the user's own

@@ -111,6 +111,11 @@ WEB_BASE = os.environ.get("CMUX_WEB_BUNDLES_BASE") or "https://files.cmux.com/cm
 EXIT_LOOKED, EXIT_FAILED, EXIT_USAGE, EXIT_NEEDS_BUILD = 0, 1, 2, 3
 DEFAULT_SIDE = "hot-verify"
 SIDE_LABEL = "cmux hot-verify"
+# The copy is a DEV build (side-instance.sh, #48637), and a DEV build's acpmux daemon ends its hosted chats once
+# its executable is replaced (acpmux app_orphan.rs ends_agents). The rust layer goes into a copy that already
+# runs, so its acpmux daemons restart onto the new build right away (hosted sessions kept and resumed) instead of
+# lingering on the replaced one and ending their chats when it exits.
+RESTART_ACPMUX = ("--restart-acpmux",)
 STATE_FILE = "hot-verify.json"
 # hot-apply.py _plan's `left` keys this engine reads, and the build reasons it names for the others.
 LEFT_WEB = "web (not published for a branch)"
