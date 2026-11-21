@@ -18,6 +18,43 @@
 	<array>
 		<dict>
 			<key>pfm_default</key>
+			<string>system</string>
+			<key>pfm_description</key>
+			<string>The language of cmux's menus, pages and messages.</string>
+			<key>pfm_name</key>
+			<string>app.language</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>system</string>
+				<string>en</string>
+				<string>ar</string>
+				<string>bs</string>
+				<string>da</string>
+				<string>de</string>
+				<string>es</string>
+				<string>fr</string>
+				<string>it</string>
+				<string>nb</string>
+				<string>pl</string>
+				<string>pt-BR</string>
+				<string>tr</string>
+				<string>vi</string>
+				<string>ru</string>
+				<string>uk</string>
+				<string>th</string>
+				<string>km</string>
+				<string>ja</string>
+				<string>ko</string>
+				<string>zh-Hans</string>
+				<string>zh-Hant</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Language</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
 			<string>Lists finished shell commands in History. Command lines can contain secrets.</string>
