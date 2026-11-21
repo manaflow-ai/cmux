@@ -81,6 +81,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/gh_budget_wait.sh
             scripts/ci/nightly_next_cancelled_tip.sh
+            scripts/ci/nightly_next_train_dispatch.py
           sparse-checkout-cone-mode: false
 
       # A tick refused "API rate limit exceeded for installation" lost its promotion
@@ -106,8 +107,20 @@ jobs:
           MODE: drive
         run: |
           set -euo pipefail
-          gh workflow run nightly-next-train.yml -R "$GITHUB_REPOSITORY" --ref feat-cmux-next -f mode="$MODE" \
-            || echo "::warning::could not start the nightly-next train ($MODE); is nightly-next-train.yml on feat-cmux-next and main?"
+          # The helper invokes gh workflow run nightly-next-train.yml twice at most and
+          # writes the receipt even when the second dispatch fails.
+          python3 .tick-tooling/scripts/ci/nightly_next_train_dispatch.py \
+            --repo "$GITHUB_REPOSITORY" --workflow nightly-next-train.yml \
+            --ref feat-cmux-next --mode "$MODE" --receipt nightly-next-train-dispatch.json
+
+      - name: Keep the nightly-next train dispatch receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nightly-next-train-dispatch-${{ github.run_id }}
+          path: nightly-next-train-dispatch.json
+          if-no-files-found: ignore
+          retention-days: 7
 
       # A tip on nightly-next whose newest run ended cancelled (a rescue that lost its
       # re-run, run 40340830337) is never requested again below ("already on

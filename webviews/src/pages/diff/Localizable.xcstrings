@@ -12968,127 +12968,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لم يتم العثور على فروق للملفات في مدخلات الرقعة."
+            "value": "لا توجد تغييرات"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nema razlika datoteka u unesenoj zakrpi."
+            "value": "Nema promjena"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingen filforskelle fundet i patch-input."
+            "value": "Ingen ændringer"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Keine Datei-Diffs in Patch-Eingabe gefunden."
+            "value": "Keine Änderungen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No file diffs found in patch input."
+            "value": "No changes"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se encontraron diferencias de archivo en la entrada del parche."
+            "value": "No hay cambios"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aucun diff de fichier trouvé dans le patch fourni."
+            "value": "Aucune modification"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nessuna differenza di file trovata nella patch."
+            "value": "Nessuna modifica"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "パッチにファイルの差分がありません。"
+            "value": "変更はありません"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "រកមិនឃើញភាពខុសគ្នាឯកសារក្នុងបំណះទេ។"
+            "value": "គ្មានការផ្លាស់ប្តូរ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "패치 입력에서 파일 변경 사항을 찾을 수 없습니다."
+            "value": "변경 사항 없음"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingen filforskjeller funnet i patch-inndata."
+            "value": "Ingen endringer"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nie znaleziono różnic plików w łatce."
+            "value": "Brak zmian"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nenhuma diferença de arquivo encontrada no patch."
+            "value": "Nenhuma alteração"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "В патче не найдены различия файлов."
+            "value": "Нет изменений"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ไม่พบความแตกต่างของไฟล์ในแพตช์"
+            "value": "ไม่มีการเปลี่ยนแปลง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Yama girdisinde dosya farkı bulunamadı."
+            "value": "Değişiklik yok"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "У патчі не знайдено відмінностей файлів."
+            "value": "Немає змін"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在补丁输入中未找到文件差异。"
+            "value": "没有更改"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在修補檔輸入中找不到檔案差異。"
+            "value": "沒有變更"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không tìm thấy diff tệp nào trong đầu vào patch."
+            "value": "Không có thay đổi"
           }
         }
       }

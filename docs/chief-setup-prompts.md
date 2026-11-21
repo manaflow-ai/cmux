@@ -54,6 +54,22 @@ Make me a cmux Cloud machine. I know it costs money every hour it runs. Run `cmu
 
 What only you can do: signing in to cmux, and allowing the new machine on the card cmux shows.
 
+## Start a chat on cmux Cloud and send it a follow-up
+
+```text
+Start me a chat on cmux Cloud and show me it works: run `cmux whoami`; if I am signed out, run `cmux login` and wait while I finish it in the browser. Then run `cmux chat --on vm --harness HARNESS --prompt 'Say hello in one sentence.' --wait --json` (HARNESS is claude or codex) and show me its reply, then `cmux chat send SESSION_ID 'Say it once more, shorter.' --wait` with the answer's session_id. If a start is refused for a Cloud plan, a model connection or GitHub, tell me the one card or Settings page that fixes it and run it again once I have. Tell me how long each step took, and that `cmux vm pause NAME` or `cmux vm rm NAME --yes` stops the machine.
+```
+
+What only you can do: signing in to cmux in the browser, picking a Cloud plan, and connecting a model (Claude setup token, ChatGPT or an API key) when the team shares none.
+
+## Work in cmux Cloud: start an agent there, move a chat over and bring it back
+
+```text
+Get me working in cmux Cloud from this folder: run `cmux cloud diagnostics`; if it says I am signed out, run `cmux login` and tell me to finish it in the browser. Run `cmux cloud list-machines`; if I have none, run `cmux setup cloud-machine` and tell me which card to click (it costs money every hour it runs). Then run `cmux cloud start-session --target machine:<id> --agent AGENT --from-folder .` with that machine's id from the list (or the one you just made), and give me the chat it opens. To move a chat I already have, run `cmux cloud move` in it; to bring it back to this Mac, `cmux cloud bring-back`. If a step fails, show me its error and the command to retry; never guess.
+```
+
+What only you can do: signing in to cmux in the browser, and saying yes to a machine that costs money.
+
 ## Serve this machine to the person's other machines over Tailscale
 
 ```text
@@ -78,13 +94,13 @@ Give me one line to paste on my other machine MACHINE so it can use this one: ru
 
 What only you can do: pasting the line on the other machine.
 
-## Give Claude Code and Codex the cmux MCP server outside cmux (chats cmux starts have it)
+## Give agents you start in cmux the cmux MCP server (its terminals, agent chats and the Chief)
 
 ```text
-Give Claude Code and Codex outside cmux the cmux MCP server: run `cmux setup mcp`. If it names a setting, give me that one line to turn on; do not edit the file. Tell me the undo.
+Tell me whether agents I start in cmux get cmux's MCP tools: run `cmux setup mcp`. If it names a setting, give me that one line to turn on; do not edit the file. If I want cmux's tools in agents started outside cmux, show me its manual lines to run myself; do not run them.
 ```
 
-What only you can do: turning on "mcp": {"enabled": true} in the cmux settings file.
+What only you can do: turning on cmux Tools for agents in Settings > Agents (agents.cmuxMcp), and running the report's manual lines yourself to use cmux's tools in agents started elsewhere.
 
 ## Let agents use the Mac (cmux Computer Use)
 
