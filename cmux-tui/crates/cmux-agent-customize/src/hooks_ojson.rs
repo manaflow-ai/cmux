@@ -101,23 +101,6 @@ impl OJson {
         text.push('\n');
         text
     }
-
-    /// The same value as a (key-sorted) `serde_json::Value`, for hashing and
-    /// for typed reads.
-    pub fn to_value(&self) -> serde_json::Value {
-        match self {
-            Self::Null => serde_json::Value::Null,
-            Self::Bool(value) => serde_json::Value::Bool(*value),
-            Self::Number(number) => serde_json::Value::Number(number.clone()),
-            Self::String(text) => serde_json::Value::String(text.clone()),
-            Self::Array(items) => {
-                serde_json::Value::Array(items.iter().map(Self::to_value).collect())
-            }
-            Self::Object(map) => serde_json::Value::Object(
-                map.iter().map(|(key, value)| (key.clone(), value.to_value())).collect(),
-            ),
-        }
-    }
 }
 
 impl From<&str> for OJson {
