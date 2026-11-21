@@ -373,6 +373,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/inbox_relay",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/offer_session",
       "params": true,
       "result": true
