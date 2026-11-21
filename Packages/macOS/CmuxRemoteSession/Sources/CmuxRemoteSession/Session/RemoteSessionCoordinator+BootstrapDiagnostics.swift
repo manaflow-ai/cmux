@@ -33,7 +33,7 @@ extension RemoteSessionCoordinator {
             )
             throw NSError(domain: "cmux.remote.daemon", code: 34, userInfo: [
                 NSLocalizedDescriptionKey: String(
-                    localized: "remoteDaemon.bootstrap.removeCorruptFailedWithDetail",
+                    localized: "remoteDaemon.bootstrap.removeCorruptFailed",
                     defaultValue: "failed to remove corrupt remote daemon install"
                 ),
             ])
