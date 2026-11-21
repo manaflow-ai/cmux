@@ -41,7 +41,8 @@ struct ChiefReplacesHomeTests {
         let infos = SidebarBridge.itemInfo(for: SidebarLayoutDocument.defaults, registered: { _ in true }, homeUnread: 1,
                                            chiefFavicon: picture)
         let row = try #require(infos[Self.homeItem.id], "the default layout has no top row for the Chief")
-        #expect(row.title == SidebarBuiltIn.chief.title, "the top row is named \(row.title), not Chief")
+        #expect(row.title == SidebarBuiltIn.home.title && row.title != SidebarBuiltIn.chief.title,
+                "the top row is named \(row.title), not Chief (Chief Activity is the other item, cmux#48416)")
         #expect(row.favicon == picture, "the top row does not show the Chief's picture")
         #expect(row.activity == .waiting, "the top row does not show that the Chief needs the person (\(row.activity))")
         #expect(row.badge == 2, "the top row does not count the subagents that need the person (\(String(describing: row.badge)))")
