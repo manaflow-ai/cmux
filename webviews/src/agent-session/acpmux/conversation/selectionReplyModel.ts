@@ -168,6 +168,29 @@ export function transcriptScroller(doc: Document, node: Node | null): Element | 
   return undefined;
 }
 
+/// The whole transcript a selection is in: its outer scroller, never a card that scrolls inside one
+/// row (an opened agent message), whose rows are not the transcript's.
+export function transcriptRoot(doc: Document, node: Node | null): Element | undefined {
+  return elementOf(node)?.closest(".acpmux-scroll") ?? transcriptScroller(doc, node);
+}
+
+/// The same spot for the same text: placing the chip again would move nothing.
+export function sameReplyTarget(a: SelectionReplyTarget, b: SelectionReplyTarget): boolean {
+  return (
+    a.text === b.text &&
+    a.left === b.left &&
+    a.top === b.top &&
+    a.bottom === b.bottom &&
+    a.end?.right === b.end?.right &&
+    a.end?.top === b.end?.top &&
+    a.end?.bottom === b.end?.bottom &&
+    a.start?.top === b.start?.top &&
+    a.start?.bottom === b.start?.bottom &&
+    a.column?.left === b.column?.left &&
+    a.column?.right === b.column?.right
+  );
+}
+
 /// The part of the viewport where the transcript shows: its scroller's box, above a composer dock
 /// floating over it. The chip never leaves it. Read once per placed chip.
 export function transcriptClip(doc: Document, node: Node | null): { top: number; bottom: number } {
