@@ -42,12 +42,12 @@ fn probe(
         }));
     }
     let mut outcome = status();
-    if let Outcome::Output(out) = &mut outcome {
-        if !out.is_error {
-            let readiness = report(&out.body);
-            if let Some(body) = out.body.as_object_mut() {
-                body.insert("readiness".into(), readiness);
-            }
+    if let Outcome::Output(out) = &mut outcome
+        && !out.is_error
+    {
+        let readiness = report(&out.body);
+        if let Some(body) = out.body.as_object_mut() {
+            body.insert("readiness".into(), readiness);
         }
     }
     Ok(outcome)
