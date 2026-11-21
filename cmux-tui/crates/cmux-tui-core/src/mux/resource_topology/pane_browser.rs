@@ -4,8 +4,8 @@
 //! daemon-internal field [`PANE_BROWSER_URL_FIELD`] on the `pane.split`
 //! intent. Staging then reserves a browser identity in place of a terminal,
 //! the effect spawns a browser surface in the new pane, and restart recovery
-//! looks for browser evidence. Public v2 `pane.split` never carries the field:
-//! its catalog entry refuses extra fields and its result is a terminal path.
+//! looks for browser evidence. Public v2 `pane.split` converts
+//! `browser: true` and its optional `url` to the same internal field.
 
 use super::*;
 use crate::Actor;

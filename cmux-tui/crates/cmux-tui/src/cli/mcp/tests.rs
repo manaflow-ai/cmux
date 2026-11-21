@@ -1501,6 +1501,30 @@ fn agents_action_tools_send_the_cli_requests_and_move_focus_only_by_purpose() {
 }
 
 #[test]
+fn browser_pane_split_mcp_sends_one_browser_split() {
+    let mut server = Server::new(Fake::default(), None);
+    let pane = "pane_00000000000000000000000000000001";
+    let result = call(
+        &mut server,
+        "agents_terminal_split",
+        json!({
+            "pane":pane,"direction":"right","fit":true,"browser":true,"url":"https://example.com/",
+        }),
+    );
+    assert_eq!(result["isError"], false, "{result}");
+    let sent = sent_of(&server, "resource");
+    let splits: Vec<_> =
+        sent.iter().filter(|s| s["request"]["operation"] == "pane.split").collect();
+    assert_eq!(splits.len(), 1);
+    let params = &splits[0]["request"]["params"];
+    assert_eq!(params["pane"], pane);
+    assert_eq!(params["fit"], true);
+    assert_eq!(params["browser"], true);
+    assert_eq!(params["url"], "https://example.com/");
+    assert!(sent.iter().all(|s| s["request"]["operation"] != "tab.create_browser"));
+}
+
+#[test]
 fn agents_action_tools_refuse_invalid_arguments_before_reaching_an_owner() {
     for (name, arguments) in [
         ("agents_workspace_select", json!({})),

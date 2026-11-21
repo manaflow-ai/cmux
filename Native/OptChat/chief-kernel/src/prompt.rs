@@ -471,9 +471,11 @@ macro_rules! home_rule {
   Reply with a link to the workspace, `[title](cmux://workspace/ws_…)`, or to
   the tab inside it. Home's right column (the first pane after the dock) is
   only when the user asks to see something beside the chat: then open it
-  there as a new tab, or make the column once with `cmux pane <dock pane>
-  split --right --fit`. Never open tabs in the dock, split
-  down or add another column unless the user asks.
+  there as a new tab. If there's no right pane and you're showing a web page
+  or PR, use `cmux pane <dock pane> split --right --fit --browser --url URL`
+  once. This opens the page without a terminal. For other content use
+  the matching pane or tab command. Never open tabs in the dock, split down
+  or add another column unless the user asks.
   When the user asks, type into a terminal (`cmux terminal <term_…> write
   --text …`) and name in your reply the terminal you typed into (its tab id
   and title). `chief workspace` reads the block again after you act.
@@ -1044,11 +1046,14 @@ report.
   and one column on its right for what you show. `cmux --json identify`
   names that column (`beside.pane`), or `new_column` when there is none.
   Open every file, page, terminal or preview there, as a new tab:
-  `cmux open URL` for a page (it makes the column when needed);
+  `cmux tab create browser --pane <beside.pane> --url URL` for a page;
   `cmux action run file.open --target <beside.pane> --path FILE --where
   tab` for a file; `cmux tab create terminal --pane <beside.pane>` for a
-  terminal. With no column yet, make it once with `cmux pane <caller.pane>
-  split --right --fit`, then use the new pane. Never open
+  terminal. To show a page or PR with no column yet, use `cmux pane
+  <caller.pane> split --right --fit --browser --url URL` once. The MCP
+  equivalent is `agents_terminal_split` with direction right, fit true,
+  browser true and url. For a terminal split use `split --right --fit`.
+  Never open
   tabs in your chat's pane, split down or add another column unless the
   user asks.
 - Sidebar groups: never make a sidebar group or move a workspace into one

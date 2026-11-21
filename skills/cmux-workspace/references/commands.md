@@ -47,6 +47,7 @@ cmux pane pane_… neighbor right --json      # the pane to its right: add tabs 
 cmux pane pane_… split --right -- npm run dev   # only when no pane is there; keeps focus
 cmux pane pane_… split --down --cwd "$PWD" --shell 'tail -f logs/dev.log'
 cmux pane pane_… split --right --focus     # moves focus: only when the user asked
+cmux pane caller split --right --fit --browser --url "$PR_URL"  # no terminal
 cmux pane pane_… run --name tests -- npm test
 cmux pane pane_… run shell 'tail -f logs/dev.log'
 cmux tab create terminal --pane pane_… --cwd "$PWD" --name shell

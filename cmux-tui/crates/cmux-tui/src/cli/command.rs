@@ -917,6 +917,27 @@ fn parse_pane_strings(
             // The new pane runs this instead of a shell, so no empty shell
             // tab is left beside the command's (agent evals, mode 3).
             insert_creation_command(&mut params, argv, flags)?;
+            let browser = flags.values.contains_key("browser");
+            if browser && flags.take("browser").is_some() {
+                return Err(UsageError::new("--browser does not take a value"));
+            }
+            let url = flags.take("url");
+            if browser {
+                if ["cwd", "shell", "argv"].iter().any(|field| params.contains_key(*field)) {
+                    return Err(UsageError::new(
+                        "--browser cannot be combined with --cwd, --shell or argv after --",
+                    ));
+                }
+                params.insert("browser".into(), Value::Bool(true));
+                if let Some(url) = url {
+                    if url.trim().is_empty() {
+                        return Err(UsageError::new("--url cannot be empty"));
+                    }
+                    params.insert("url".into(), Value::String(url));
+                }
+            } else if url.is_some() {
+                return Err(UsageError::new("--url requires --browser"));
+            }
             // A script's split keeps the user's focus unless it asks.
             if flags.boolean("focus") {
                 params.insert("focus".into(), Value::Bool(true));

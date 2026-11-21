@@ -356,7 +356,8 @@ cmux pane list
 cmux pane create [--cwd <path>] [--shell <script> | -- <argv...>]
 cmux pane <selector> show|focus|close
 cmux pane <selector> rename --name <value>
-cmux pane <selector> split [--right|--down] [--ratio <value>] [--viewport-width <fraction>] [--cwd <path>]
+cmux pane <selector> split [--right|--down] [--ratio <value>] [--fit | --viewport-width <fraction>] [--focus]
+  [--browser [--url URL] | --cwd <path> [--shell <script> | -- <argv...>]]
 cmux pane <selector> focus direction <left|right|up|down>
 cmux pane <selector> neighbor <left|right|up|down>
 cmux pane <selector> swap --other-workspace <sel> --other-screen <sel> --other-pane <sel>
@@ -371,7 +372,13 @@ cmux pane <selector> move --new-screen|--new-tab [--name <value>] [--focus]
 cmux pane <selector> tab ...
 ```
 
-`split` defaults to `--right`. `move` moves every tab of the pane, in order,
+`split` defaults to `--right` and preserves focus unless you pass `--focus`.
+`cmux pane caller split --right --fit --browser --url "$PR_URL"` opens a
+browser-only split beside the caller. Omitting `--url` opens `about:blank`.
+In MCP use `pane_split` or `agents_terminal_split` with `browser: true`
+and an optional `url`.
+
+`move` moves every tab of the pane, in order,
 and the emptied pane closes: to the end of another pane (or a new pane split
 off it with `--split`), after a tab, or into a new screen in a workspace
 (`--new-screen` and its alias `--new-tab`: the pane's own workspace). The

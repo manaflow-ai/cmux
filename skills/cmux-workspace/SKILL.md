@@ -62,15 +62,17 @@ cmux pane list --json                             # or inspect every pane
   cmux pane pane_<helper> run --name dev -- npm run dev
   cmux tab create browser --pane pane_<helper> --url http://localhost:3000
   ```
-- No pane to the right: split the caller's pane once, with the command it should run.
+- No pane to the right: split the caller's pane once with the content it should show.
+  For a PR or web page, open a browser directly. For a terminal command, pass the argv.
   ```bash
-  cmux pane pane_<caller> split --right -- npm run dev
+  cmux pane caller split --right --fit --browser --url "$PR_URL"
+  cmux pane caller split --right -- npm run dev
   ```
 - Several stale helper panes from this same automation, and the user asked to tidy: keep one and close the rest with `cmux pane pane_… close`. Never close a pane you cannot confidently identify as stale helper output.
 
 Repeated "open it" requests add tabs to the existing helper pane, not more splits.
 
-An agent in a chat tab of the cmux app: the same rule holds. Find the column right of the chat with `cmux pane <chat pane> neighbor right` and add tabs to it; `cmux open URL` opens a page there and makes the column when needed. With no column yet, make it once with `cmux pane <chat pane> split --right --fit` (a chat dock takes no plain split). `cmux app identify` and `cmux --json identify` answer only when the app is reachable (`cmux app ping`); never depend on them for layout.
+An agent in a chat tab of the cmux app: the same rule holds. Find the column right of the chat with `cmux pane <chat pane> neighbor right` and add tabs to it; `cmux open URL` opens a page there and makes the column when needed. With no column yet, use `cmux pane <chat pane> split --right --fit --browser --url URL` for a PR or page. A chat dock needs `--fit` to place the new pane outside the dock. In MCP, use `agents_terminal_split` with `direction: "right", fit: true, browser: true, url`. `cmux app identify` and `cmux --json identify` answer only when the app is reachable (`cmux app ping`); never depend on them for layout.
 
 ## Larger layouts beside a chat
 

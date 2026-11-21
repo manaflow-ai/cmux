@@ -615,6 +615,24 @@ pub(super) fn validate_operation_constraints(
     if matches!(operation, ResourceOperation::TabRename | ResourceOperation::WorkspaceRename) {
         crate::resource_name::NameUpdate::parse(fields).map_err(resource_operation_error)?;
     }
+    if operation == ResourceOperation::PaneSplit {
+        let browser = fields.get("browser").and_then(Value::as_bool) == Some(true);
+        if browser {
+            if let Some(field) =
+                ["cwd", "argv", "shell"].into_iter().find(|f| fields.contains_key(*f))
+            {
+                return Err(invalid_value(
+                    &format!("pane.split.{field}"),
+                    "this field applies only to terminal splits",
+                ));
+            }
+            if fields.get("url").and_then(Value::as_str).is_some_and(|url| url.trim().is_empty()) {
+                return Err(invalid_value("pane.split.url", "browser URL must not be empty"));
+            }
+        } else if fields.contains_key("url") {
+            return Err(invalid_value("pane.split.url", "url requires browser: true"));
+        }
+    }
     if operation == ResourceOperation::WorkspaceCreate
         && fields.get("initial_content").and_then(Value::as_str) == Some("empty")
         && let Some(field) = ["cwd", "argv", "shell"].into_iter().find(|f| fields.contains_key(*f))
