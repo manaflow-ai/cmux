@@ -149,12 +149,16 @@ try_get_app() {
   zip="$STATE/ios/CmuxMobileApp-Dev-device-unsigned.app.zip"
   [[ -f "$zip" ]] || zip="$STATE/ios/CmuxMobileApp-Demo-device-unsigned.app.zip"
   [[ -f "$zip" ]] || { TRY_FAIL="step $step's artifact has no device app ($mode mode)"; return 1; }
-  safe_unzip "$zip" "$STATE/device" >/dev/null 2>&1 || { TRY_FAIL="step $step's device app is not a safe zip"; return 1; }
+  # Unzip beside the cache and move it in only once the bundle id checks, so a run that dies midway never
+  # leaves a partial or wrong app that the next run's cache check (a directory test) would install.
+  rm -rf "$STATE/device.part"
+  safe_unzip "$zip" "$STATE/device.part" >/dev/null 2>&1 || { rm -rf "$STATE/device.part"; TRY_FAIL="step $step's device app is not a safe zip"; return 1; }
   local bid
-  bid="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$STATE/device/CmuxMobileApp.app/Info.plist" 2>/dev/null ||
+  bid="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$STATE/device.part/CmuxMobileApp.app/Info.plist" 2>/dev/null ||
     /usr/bin/python3 -I -c 'import plistlib,sys; print(plistlib.load(open(sys.argv[1],"rb"))["CFBundleIdentifier"])' \
-      "$STATE/device/CmuxMobileApp.app/Info.plist" 2>/dev/null || true)"
-  [[ "$bid" == "$TRY_BUNDLE_ID" ]] || { rm -rf "$STATE/device"; TRY_FAIL="step $step built $bid, not $TRY_BUNDLE_ID"; return 1; }
+      "$STATE/device.part/CmuxMobileApp.app/Info.plist" 2>/dev/null || true)"
+  [[ "$bid" == "$TRY_BUNDLE_ID" ]] || { rm -rf "$STATE/device.part"; TRY_FAIL="step $step built $bid, not $TRY_BUNDLE_ID"; return 1; }
+  rm -rf "$STATE/device" && mv "$STATE/device.part" "$STATE/device"
   printf 'fleet step %s, %s mode\n' "$step" "$mode" >"$STATE/how"
   [[ -z "$TRY_NOTE" ]] || printf '%s\n' "$TRY_NOTE" >"$STATE/note"
   TRY_HOW="fleet step $step ($mode mode)"
