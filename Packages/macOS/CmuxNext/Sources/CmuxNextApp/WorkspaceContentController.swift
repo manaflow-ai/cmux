@@ -250,18 +250,16 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private func observeAttention() {
         let notifications = services.notifications, workspace = workspace
         let shownTab: @MainActor @Sendable (PaneModel) -> String? = { [weak self] pane in self?.panes[LayoutPaneID(pane.id)]?.stripModel.selectedID?.rawValue }
-        let marks = notifications.attentionMarks(for: workspace, shownTab: shownTab)
-        if layoutModel.attention != marks { layoutModel.attention = marks }
+        layoutModel.readsAttentionOnEntry = { [weak self] pane, click in self.map { notifications.readOnEntry(pane, click: click, in: $0) } ?? false }
+        layoutModel.setAttention(notifications.attentionMarks(for: workspace, shownTab: shownTab), readByEntry: [])
         attentionObservation?.cancel()
         attentionObservation = Task { [weak self] in
             for await marks in ObservationStream({ notifications.attentionMarks(for: workspace, shownTab: shownTab) }) {
                 guard let self else { return }
-                guard self.layoutModel.attention != marks else { continue }
-                // A ring read by going into its pane blinks out (classic's dismiss flash); one
-                // cleared any other way fades. Set first, so the change that removes it sees it.
+                guard self.layoutModel.attentionMarks != marks else { continue }
+                // A ring read by going into its pane blinks out (classic's dismiss flash); one cleared any other way fades.
                 let removed = Set(self.layoutModel.attention.keys).subtracting(marks.keys)
-                self.layoutModel.attentionReadByEntry = notifications.takeEntryReads(removed: removed, in: workspace)
-                self.layoutModel.attention = marks
+                self.layoutModel.setAttention(marks, readByEntry: notifications.takeEntryReads(removed: removed, in: workspace))
             }
         }
     }

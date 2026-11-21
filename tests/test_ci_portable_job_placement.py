@@ -702,9 +702,9 @@ class Wiring(unittest.TestCase):
                 with self.subTest(job=f"{workflow}#{name}"):
                     job = workflow_jobs[name]
                     self.assertIn(name, listed)
-                    # tooling-tests also needs hot-route: a hot-only pull request skips the mini leg
-                    # (tests/test_cmux_next_route.py HotAwareWorkflows).
-                    self.assertEqual([need for need in job["needs"] if need != "hot-route"], ["portable-placement"])
+                    # tooling-tests reads portable-placement's hot_only too: a hot-only pull request skips the mini
+                    # leg (tests/test_cmux_next_route.py HotAwareWorkflows).
+                    self.assertEqual(job["needs"], ["portable-placement"])
                     self.assertTrue(str(job["if"]).startswith("${{ !cancelled()"))
                     for runs_on in routes(job, name):
                         linux = runs_on.index(f"contains(needs.portable-placement.outputs.linux_jobs, ' {name} ')")
@@ -1058,7 +1058,10 @@ class Wiring(unittest.TestCase):
     def test_placement_runs_the_trusted_base_copy(self):
         for workflow in (*self.PLACED, "cmux-next-fast-gates.yml"):
             with self.subTest(workflow=workflow):
-                checkout = jobs(workflow)["portable-placement"]["steps"][0]
+                # The first checkout (a pool job may first remove a reused workspace left sparse:
+                # tests/test_ci_reused_sparse_checkout.py).
+                checkout = next(step for step in jobs(workflow)["portable-placement"]["steps"]
+                                if str(step.get("uses", "")).startswith("actions/checkout@"))
                 self.assertEqual(checkout["with"]["ref"], "${{ github.event.pull_request.base.sha || github.sha }}")
 
 

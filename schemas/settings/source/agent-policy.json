@@ -62,6 +62,7 @@
         "sidebar.textSize",
         "sidebar.detailedStatusIcons",
         "sidebar.showTimestamps",
+        "sidebar.settleFinished",
         "sidebar.showColors",
         "sidebar.showLocalMachine",
         "workspaceColors.indicatorStyle"
@@ -481,13 +482,6 @@
       ]
     },
     {
-      "agent": "userOnly",
-      "why": "On, opening the floating Chief gives it a look at the person's screen; only the person turns it on.",
-      "keys": [
-        "home.chiefPanel.seesScreen"
-      ]
-    },
-    {
       "agent": "settable",
       "why": "Needs you in the agent chat header (an App Store item): a display the person can hide again.",
       "keys": [
@@ -757,6 +751,10 @@
         "agentPane.display.promptCoach",
         "agentPane.display.statusVerbs.mode",
         "agentPane.display.statusVerbs.custom",
+        "agentPane.display.thinking.shimmer",
+        "agentPane.display.thinking.shimmerPeriod",
+        "agentPane.display.thinking.shimmerBand",
+        "agentPane.display.thinking.jumpButton",
         "agentPane.display.harnessPlacement",
         "agentPane.display.rail.side",
         "agentPane.display.commandLabels"
@@ -1264,6 +1262,13 @@
     },
     {
       "agent": "userOnly",
+      "why": "On, Settings edits the MCP servers in Claude Code's and Codex's own config files: only the person turns that on.",
+      "keys": [
+        "labs.agentCustomization"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "Whether cmux's own pages open developer tools, which read and change their live content: the person's call.",
       "keys": [
         "developerTools.appPages"
@@ -1322,6 +1327,14 @@
       "keys": [
         "updates.idleInstallMaxWaitSeconds",
         "updates.idleInstallQuietSeconds"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "On, cmux restarts into a downloaded update by itself once idle: the person's call.",
+      "keys": [
+        "updates.installWhenIdle",
+        "updates.installWhenIdleMinutes"
       ]
     },
     {
