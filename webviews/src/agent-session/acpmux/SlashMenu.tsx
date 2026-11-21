@@ -15,9 +15,11 @@ import {
 } from "./slashViewport";
 
 /**
- * The composer's `/` list, the one New Tab's box and the agent chat's composer both open: the
- * command (its typed letters bold) and its arguments, what it does, and where it comes from (cmux,
- * a skill, a prompt, an extension). Its layer (backdropLayer.tsx ComposerListLayer) stands it beside
+ * The composer's `/` list, the one New Tab's box and the agent chat's composer both open: one line
+ * per command: its name (its typed letters bold) and, dim at its end, where it comes from (cmux, a
+ * skill, a prompt, an extension). The highlighted row also shows its arguments and what it does;
+ * every other row says what it does to a screen reader only.
+ * At most 8 rows show before it scrolls (styles.css, slashViewport.ts). Its layer (backdropLayer.tsx ComposerListLayer) stands it beside
  * the box on the side with room, in the box's corners; in the host's native panel past the window's
  * edge, where a pane is too short for a few rows, a row reads "/name <args> — what it does".
  */
@@ -53,7 +55,7 @@ export function SlashMenu({
   // Above the composer, or past the window's edge when the pane has no room there (cx-6k6cg).
   // The escape follows the glass shell; the rows' viewport (list) is what scrolls and fades.
   const escape = useEscapingList("top", 6, undefined, box, true);
-  // The menu may be squeezed below its CSS 296px cap in a short pane.
+  // The menu may be squeezed below its CSS cap (8 rows) in a short pane.
   useLayoutEffect(() => {
     const node = list.current;
     if (!node || !virtual) return;
@@ -87,6 +89,19 @@ export function SlashMenu({
     }
   }, [virtual, view.scrollTop]);
 
+  const describe = (match: SlashMatch) =>
+    isFastCommand(match.command)
+      ? t(
+          fast === "on"
+            ? "composer.slashFastOff"
+            : fast === "off"
+              ? "composer.slashFastOn"
+              : "composer.slashFastToggle",
+        )
+      : match.command.descriptionKey
+        ? t(match.command.descriptionKey)
+        : match.command.description;
+
   // A native select or datalist cannot hold the matched-name bolding and descriptions.
   return (
     <Listbox
@@ -106,9 +121,10 @@ export function SlashMenu({
       rowClassName="acpmux-slash-row"
       empty={<div className="acpmux-slash-empty">{empty}</div>}
       window={virtual ? view : undefined}
-      itemAttributes={(_, index) => ({
+      itemAttributes={(match, index) => ({
         "aria-posinset": String(index + 1),
         "aria-setsize": String(matches.length),
+        "aria-description": index === active ? undefined : describe(match) || undefined,
       })}
       onScroll={
         virtual
@@ -121,9 +137,10 @@ export function SlashMenu({
             }
           : undefined
       }
-      renderItem={(match) => {
+      renderItem={(match, index) => {
         // The harness's /fast reads as ChatGPT's Fast row: bolt, name, current mode.
         const fastRow = isFastCommand(match.command);
+        const highlighted = index === active;
         const fastName = t("picker.tierFast");
         return (
           <>
@@ -146,7 +163,7 @@ export function SlashMenu({
                 </>
               )}
             </span>
-            {!fastRow && match.command.hint && (
+            {highlighted && !fastRow && match.command.hint && (
               <>
                 {" "}
                 <span className="acpmux-slash-hint">{match.command.hint}</span>
@@ -163,19 +180,11 @@ export function SlashMenu({
                       : "cmux"}
               </span>
             )}
-            <span className="acpmux-slash-description" data-popup-detail>
-              {fastRow
-                ? t(
-                    fast === "on"
-                      ? "composer.slashFastOff"
-                      : fast === "off"
-                        ? "composer.slashFastOn"
-                        : "composer.slashFastToggle",
-                  )
-                : match.command.descriptionKey
-                  ? t(match.command.descriptionKey)
-                  : match.command.description}
-            </span>
+            {highlighted && (
+              <span className="acpmux-slash-description" data-popup-detail>
+                {describe(match)}
+              </span>
+            )}
           </>
         );
       }}
