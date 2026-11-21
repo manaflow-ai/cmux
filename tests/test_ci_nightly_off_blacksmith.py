@@ -38,6 +38,12 @@ LIGHT_NIGHTLY_JOBS = ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostt
                       "prepare-nightly-variant",
                       "find-nightly-next-recovery")
 
+# The continuation's Linux control jobs must start on the nightly-owned JIT
+# runner. Reading RUNNER_POOLS here put preflight and republish-deltas behind
+# the vendor queue even after the other continuation controls moved off it.
+AUTO_RESUME_LINUX_CONTROL_JOBS = ("preflight", "poll", "poll-outer", "poll-stapled", "publish", "republish-deltas")
+NIGHTLY_JIT_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-nightly-jit-x64' }}"
+
 # A runs-on term that can put a nightly job on our own fleet: the owned nightly slot or side lane, or a picker's or
 # placement's owned output (pick-nightly-build-runner, pick-nightly-sign-runner, build-nightly-app's light placement).
 FLEET_ROUTE = re.compile(r"vars\.CI_NIGHTLY_ONLY_RUNNER|vars\.CI_NIGHTLY_NEXT_BUILD_RUNNER|vars\.CI_SIDE_LANE_RUNNER|vars\.CI_LIGHT_LANE_RUNNER"
@@ -149,6 +155,14 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         names = {path.name for path in nightly_workflows()}
         for required in ("nightly.yml", "auto-resume-nightly-notarization.yml"):
             self.assertIn(required, names)
+
+    def test_auto_resume_linux_controls_use_the_nightly_jit_runner(self) -> None:
+        import yaml
+
+        jobs = yaml.safe_load((WORKFLOWS / "auto-resume-nightly-notarization.yml").read_text())["jobs"]
+        for name in AUTO_RESUME_LINUX_CONTROL_JOBS:
+            with self.subTest(job=name):
+                self.assertEqual(runs_on_text(jobs[name], name), NIGHTLY_JIT_RUNS_ON)
 
     def test_nightly_jobs_use_pools_not_single_hosts(self) -> None:
         failures = [
