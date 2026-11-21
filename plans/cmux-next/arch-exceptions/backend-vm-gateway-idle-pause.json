@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-21",
+  "row": "app_lines",
+  "allow": 4,
+  "why": "Backend VM gateway first slice (plans/cloud/backend-vm-gateway.md, design commit a1ad60995b): the Labs setting is read at the existing AppServices-to-CloudService boundary, while the idle policy and five-minute value live in CmuxNextCloud's CloudMachineRequest. This is the smallest reversible default-off adapter; the app-side glue is removed when Cloud creation settings move to the domain target.",
+  "author": "plans/cloud/backend-vm-gateway implementation lane",
+  "owner": "plans/cloud/backend-vm-gateway implementation lane: move the settings read into the Cloud domain target when the gateway slice graduates",
+  "receipt": "Review (designs-to-experiments coordinator): SHIP at fa7769146203983f16519a600fb3fa0604009eed",
+  "expiry": "2026-12-21"
+}
