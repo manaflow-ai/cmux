@@ -281,10 +281,7 @@ def card_text(pr: int, title: str) -> str:
 
 
 def normalize_filter() -> str:
-    width, height = publish.VIDEO_SIZE
-    return (f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
-            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=white,setsar=1,"
-            f"fps={publish.VIDEO_FPS},format=yuv420p")
+    return f"{publish.fit_filter(*publish.VIDEO_SIZE)},fps={publish.VIDEO_FPS},format=yuv420p"
 
 
 ENCODE = ["-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(publish.VIDEO_FPS),
@@ -306,7 +303,7 @@ def make_card(pr: int, title: str, work: Path) -> Path:
     (work / f"card-{pr}.txt").write_text(card_text(pr, title), encoding="utf-8")
     out = work / f"card-{pr}.mp4"
     source = ["-f", "lavfi", "-i", f"color=c=0x111111:s={width}x{height}:r={publish.VIDEO_FPS}:d={CARD_SECONDS}"]
-    text = (f"drawtext=textfile=card-{pr}.txt:expansion=none:fontcolor=white:fontsize=40:"
+    text = (f"drawtext=textfile=card-{pr}.txt:expansion=none:fontcolor=white:fontsize={height // 20}:"
             "x=(w-text_w)/2:y=(h-text_h)/2")
     try:
         ffmpeg([*source, "-vf", f"{text},format=yuv420p", *ENCODE, out.name], work)

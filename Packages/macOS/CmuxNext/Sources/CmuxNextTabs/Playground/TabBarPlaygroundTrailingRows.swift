@@ -19,7 +19,7 @@ final class TabBarPlaygroundTrailingRows: NSView, TabBarPlaygroundRow {
         self.spec = spec
         self.strip = strip
         strip.dragsWindowFromEmptySpace = false
-        let plus = TitlebarBandButton(symbol: "plus")
+        let plus = TitlebarBandButton(symbol: "plus") // plus-button-allow: a Debug prototype of an older candidate
         let chevron = TitlebarBandButton(symbol: "chevron.down")
         chevron.symbolPointSize = { Metrics.smallIconSize - Metrics.space1 }
         tabBarButtons = [plus, chevron] + (spec.tabBarMore.map { [Self.iconButton($0, size: spec.tabBarMoreSize)] } ?? [])

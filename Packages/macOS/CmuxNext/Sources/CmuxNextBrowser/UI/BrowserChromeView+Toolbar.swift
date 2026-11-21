@@ -14,6 +14,10 @@ extension BrowserChromeView {
     func setToolbarHidden(_ hidden: Bool) {
         guard hidden != isToolbarHidden else { return }
         isToolbarHidden = hidden
+        // The pane's tab row divider follows the row (`ToolbarEdgeHosting.showsToolbarRow`): its pane lays out again.
+        var pane = superview
+        while let view = pane, !(view is PaneContentChrome) { pane = view.superview }
+        pane?.needsLayout = true
         let height = hidden ? 0 : currentToolbarHeight
         if !hidden { toolbar.isHidden = false; separator.isHidden = false }
         accessoryBar.isHidden = hidden

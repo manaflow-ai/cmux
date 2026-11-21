@@ -53,6 +53,13 @@
 .acpmux-machine-link[data-link="offline"] .acpmux-machine-link-dot {
   background: var(--agent-danger, currentColor);
 }
+/* A link down, dialing or slow for less than LINK_DOWN_SAID_MS (afterDelay.ts) is not said: the dot
+   keeps its connected look, with no spinner and no words, so a drop that heals on its own shows
+   nothing (Leo, 2026-11-14). */
+.acpmux-machine-link[data-quiet] .acpmux-machine-link-dot {
+  opacity: 1;
+  background: var(--agent-success, var(--acpmux-add, currentColor));
+}
 .acpmux-machine-link-spinner {
   position: absolute;
   top: 50%;

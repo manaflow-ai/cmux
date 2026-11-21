@@ -18,6 +18,7 @@ import { agentPaneEntry, type AgentPaneVariant } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import type { MarkdownFieldHandle } from "../MarkdownField";
 import { arms, showArm, type Arm } from "./arm";
+import { COMPOSER_MD_FIELD } from "../composerSelectors";
 
 const WORKSPACE_ID = "ws_cca525bafd4d2b969dad8fdb549b0c61";
 const WORKSPACE = `cmux-nightly://workspace/${WORKSPACE_ID}`;
@@ -123,7 +124,7 @@ async function twoChipsCaretAfterFirst(ctx: PlayContext) {
     { id: TAB_ID, kind: "tab", title: "zsh", workspace: "cmux next" },
   ]);
   await ctx.waitFor(() => doc.querySelectorAll(CHIP).length === 2);
-  const field = doc.querySelector(".acpmux-composer-box .acpmux-md-field") as
+  const field = doc.querySelector(COMPOSER_MD_FIELD) as
     | (HTMLElement & { acpmuxMarkdownField?: MarkdownFieldHandle })
     | null;
   field?.acpmuxMarkdownField?.focus();

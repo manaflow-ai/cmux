@@ -137,7 +137,8 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                 Section {
                     AppearanceTiles(selection: $settings.appearance)
                         .listRowInsets(EdgeInsets(top: 14, leading: 16, bottom: 14, trailing: 16))
-                    // ask-87d30da8e5: the chrome takes the theme and wallpaper of the Mac.
+                    // ask-87d30da8e5: the accent (until one is picked) and the terminals take the Mac's theme;
+                    // the app's own backgrounds stay the stock ones.
                     Toggle(isOn: $macTheme.matchesMac) {
                         SettingsLabel("Match Mac theme", symbol: "macbook.and.iphone")
                     }
@@ -210,6 +211,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                     .accessibilityIdentifier("settings.logout")
                     .confirmationDialog("Sign out of cmux?", isPresented: $confirmsSignOut, titleVisibility: .visible) {
                         Button("Sign out", role: .destructive) { Task { await auth.signOut() } }
+                        Button("Cancel", role: .cancel) {}
                     }
                 } footer: {
                     VersionFooter().id("bottom")
@@ -528,7 +530,7 @@ struct AppearanceTiles: View {
                     }
                     .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressFill)
                 .accessibilityAddTraits(selected ? .isSelected : [])
             }
         }
@@ -589,6 +591,12 @@ private struct DeveloperSection: View {
     @AppStorage(DeveloperOptions.launchDemoKey) private var launchDemo = ""
     @AppStorage(DeveloperOptions.slowApprovalKey) private var slowApproval = false
     @State private var launchedWithMock = DeveloperOptions.mockData
+    /// The Cloud service this launch uses and where it came from (the tag's `CMUX_NEXT_CLOUD_BACKEND`,
+    /// kept from an earlier launch, a rig's variable, or the build's own).
+    @State private var cloudBackend = CloudBackendOverride.cloudService(
+        environment: ProcessInfo.processInfo.environment,
+        infoValue: Bundle.main.object(forInfoDictionaryKey: "CmuxMobileCloudAPIBase") as? String,
+        defaults: .standard, debug: true)
 
     var body: some View {
         let mock = DeveloperOptions.mockSwitch(stored: mockData)
@@ -620,6 +628,15 @@ private struct DeveloperSection: View {
                     .foregroundStyle(theme.colors.label3)
                     .lineLimit(1)
             }
+            HStack {
+                SettingsLabel("Cloud backend", symbol: "cloud")
+                Spacer()
+                Text(verbatim: cloudBackend?.label ?? "None")
+                    .foregroundStyle(theme.colors.label3)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .accessibilityIdentifier("settings.developer.cloudBackend")
             if mockData != launchedWithMock || !launchDemo.isEmpty {
                 Button(role: .destructive) {
                     exit(0)

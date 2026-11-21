@@ -37,6 +37,14 @@ subtle = "2"
 # pump tests read frames and send input exactly as the app does.
 cmux-rd-ffi = { path = "../cmux-rd-ffi" }
 
+# The supervisor waits on its pipes and its host's exit with poll (a pidfd on
+# Linux, a kqueue on macOS; src/supervise.rs).
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+# The supervisor's host process: an owned child (its drop ends the host) that
+# gets the listener on fd 3 and no other descriptor.
+cmux-process = { path = "../cmux-process" }
+
 # The smoke mode writes PNG frames (MIT/Apache, D-RT-RD2).
 [target.'cfg(target_os = "macos")'.dependencies]
 png = "0.17"
