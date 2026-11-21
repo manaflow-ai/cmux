@@ -77,7 +77,7 @@ final class CloudFrontedChats {
 
     /// The fronts kept by the last run.
     func restore() {
-        guard let data = defaults()?.data(forKey: Self.defaultsKey), let entries = try? JSONDecoder().decode([Entry].self, from: data) else { return }
+        guard let data = defaults()?.data(forKey: Self.defaultsKey), let entries = try? JSONDecoder().decode([Entry].self, from: data) else { return } // main-actor-ok: one decode at launch, one entry per Mac tab showing a Cloud chat (a handful).
         for entry in entries { fronts[AgentTabKey(machine: entry.machine, key: entry.key)] = entry.front }
     }
 
