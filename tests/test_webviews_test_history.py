@@ -826,6 +826,64 @@ class Fetch(unittest.TestCase):
         self.assertIn("steps.history-restore.outcome == 'success'", record[:record.index("run: |")])
 
 
+class BaseCheckAdmission(unittest.TestCase):
+    """Evaluate the real job gate, including Actions' implicit success() check."""
+
+    def admitted(self, early="success", head="success", scope="success", *,
+                 event="pull_request", web="true", react="true", cancelled=False):
+        import yaml
+        sys.path.insert(0, str(ROOT / "tests"))
+        from test_seed_derived_data import evaluate as expression_value
+
+        job = yaml.safe_load(WORKFLOW.read_text())["jobs"]["react-apps-base-check"]
+        needs = {
+            "web-subarea-scope": {"result": scope, "outputs": {"react_apps": react}},
+            "react-apps-check-shard": {"result": head},
+            "react-apps-base-early": {"result": early},
+        }
+        # A job timeout cancels that dependency, not the entire workflow. A user's
+        # cancellation is represented separately by cancelled().
+        status = {
+            "always": True,
+            "cancelled": cancelled,
+            "success": not cancelled and all(needs[n]["result"] == "success" for n in job["needs"]),
+            "failure": any(needs[n]["result"] == "failure" for n in job["needs"]),
+        }
+        expression = job["if"]
+        status_call = r"\b(always|cancelled|success|failure)\(\)"
+        if not re.search(status_call, expression) and not status["success"]:
+            return False
+        expression = re.sub(status_call, lambda m: str(status[m[1]]).lower(), expression)
+        return bool(expression_value(expression, {
+            "github": {"event_name": event}, "inputs": {"web": web}, "needs": needs,
+        }))
+
+    def test_optional_early_work_never_suppresses_the_base_verdict(self):
+        # #46751, run 44824265831 attempt 3: all 12 head shards passed, but both
+        # early jobs timed out and the base verdict was skipped by implicit success().
+        for early in ("success", "failure", "cancelled", "skipped"):
+            with self.subTest(early=early):
+                self.assertTrue(self.admitted(early=early))
+
+    def test_missing_required_work_never_starts_a_replay(self):
+        for result in ("failure", "cancelled", "skipped"):
+            with self.subTest(result=result):
+                self.assertFalse(self.admitted(head=result))
+                self.assertFalse(self.admitted(scope=result))
+
+    def test_a_cancelled_workflow_never_starts_a_replay(self):
+        for early in ("success", "failure", "cancelled", "skipped"):
+            with self.subTest(early=early):
+                self.assertFalse(self.admitted(early=early, cancelled=True))
+
+    def test_unrouted_work_never_starts_a_replay(self):
+        for early in ("success", "failure", "cancelled", "skipped"):
+            with self.subTest(early=early):
+                self.assertFalse(self.admitted(early=early, event="push"))
+                self.assertFalse(self.admitted(early=early, web="false"))
+                self.assertFalse(self.admitted(early=early, react="false"))
+
+
 class Workflow(unittest.TestCase):
     def job(self, name):
         text = WORKFLOW.read_text(encoding="utf-8")
@@ -1026,7 +1084,8 @@ class Workflow(unittest.TestCase):
         self.assertIn("react-apps-base-early", check["needs"])
         self.assertIn("react-apps-check-shard", check["needs"])
         self.assertIs(early["continue-on-error"], True)
-        self.assertEqual(early["if"], check["if"])
+        # BaseCheckAdmission covers scheduling: unlike the early optimization,
+        # the verdict must survive a cancelled or skipped early dependency.
         sys.path.insert(0, str(ROOT / "tests"))
         import workflow_jobs  # noqa: PLC0415
         self.assertEqual(workflow_jobs.runs_on(early), workflow_jobs.runs_on(check))
