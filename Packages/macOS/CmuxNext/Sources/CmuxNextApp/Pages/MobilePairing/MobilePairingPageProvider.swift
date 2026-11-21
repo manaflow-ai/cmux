@@ -28,6 +28,7 @@ final class MobilePairingPageProvider: PageProvider {
     static let statusOp = "cmux.mobilePairing.status"
     static let setAllowedOp = "cmux.mobilePairing.setAllowed"
     static let answerPairOp = "cmux.mobilePairing.answerPair"
+    static let revokePhoneOp = "cmux.mobilePairing.revokePhone"
     static let changesStream = "cmux.mobilePairing.changes"
     /// The switch the page reads and writes: the one the iPhone host follows.
     static let switchPath = MobileSettings.allowIPhoneConnectionsPath
@@ -43,6 +44,8 @@ final class MobilePairingPageProvider: PageProvider {
         var macName: @Sendable () async -> String
         /// Writes one setting as the person's own change.
         var write: @MainActor @Sendable (_ path: [String], _ value: JSONValue) async throws -> Void
+        /// Whether Settings > Experimental > Labs exposes local revocation.
+        var revocationEnabled: @MainActor @Sendable () -> Bool = { false }
         /// This Mac's pairing link (``IPhoneHostService/pairInvite(macName:now:)``), nil until the
         /// host is online for the account with iPhone connections on.
         var invite: @MainActor @Sendable (_ macName: String) -> MobileHostPairInvite? = { _ in nil }
@@ -74,6 +77,7 @@ final class MobilePairingPageProvider: PageProvider {
                 }
                 try await settings.setSetting(at: path, to: value, by: .user)
             },
+            revocationEnabled: { [weak services] in services?.settings?.snapshot.mobileDeviceRevoke ?? false },
             invite: { [weak services] macName in services?.iphone.pairInvite(macName: macName) })
     }
 
@@ -82,23 +86,12 @@ final class MobilePairingPageProvider: PageProvider {
         case Self.statusOp:
             return await status()
         case Self.setAllowedOp:
-            guard context.userGesture || context.isConfirmedUser else {
-                throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
-            }
-            guard let on = params["on"]?.boolValue else { throw PageError.invalidParams("on is required") }
-            try await dependencies.write(Self.switchPath, .bool(on))
-            return .object([:])
+            return try await dependencies.host.setAllowedFromPage(params: params, context: context, write: dependencies.write)
         case Self.answerPairOp:
-            // Which phone reaches this Mac: the person's own click or key only, never a script.
-            guard context.userGesture else {
-                throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
-            }
-            guard let id = params["id"]?.stringValue, !id.isEmpty else { throw PageError.invalidParams("id is required") }
-            guard case .bool(let allow)? = params["allow"] else { throw PageError.invalidParams("allow is required") }
-            guard dependencies.host.answerPairRequest(id: id, allow: allow) else {
-                throw PageError.invalidParams("no request from that phone is waiting")
-            }
-            return .object([:])
+            return try dependencies.host.answerPairFromPage(params: params, context: context)
+        case Self.revokePhoneOp:
+            return try dependencies.host.revokePhoneFromPage(op: op, params: params, context: context,
+                enabled: dependencies.revocationEnabled(), signedIn: dependencies.signedIn())
         default:
             throw PageError.unknownOp(op)
         }
@@ -126,7 +119,8 @@ final class MobilePairingPageProvider: PageProvider {
     private static func fingerprint(_ dependencies: Dependencies) -> String {
         let account = dependencies.account()
         return [String(dependencies.signedIn()), account.id, account.name ?? "", String(dependencies.allowed()),
-                String(describing: dependencies.host.pageJSON)].joined(separator: "|")
+                String(describing: dependencies.host.pageJSON), String(dependencies.revocationEnabled()),
+                dependencies.revocationEnabled() ? String(describing: dependencies.host.locallyApprovedPhoneRows) : ""].joined(separator: "|")
     }
 
     private func status() async -> JSONValue {
@@ -160,6 +154,9 @@ final class MobilePairingPageProvider: PageProvider {
                 "blocked": card["blocked"] ?? .null,
             ],
         ]
+        if signedIn, dependencies.revocationEnabled() {
+            reply["localPhones"] = .array(host.locallyApprovedPhoneRows)
+        }
         if signedIn, let account = dependencies.account().name { reply["account"] = .string(account) }
         if case .failed(let reason) = state { reply["failure"] = .string(reason) }
         if state == .ready, let invite = dependencies.invite(macName), let qr = Self.qr(invite) { reply["qr"] = qr }

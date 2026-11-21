@@ -31,7 +31,9 @@ export function mountMobilePairingPage(
 
 function defaultClient(): PageClient | null {
   const mock = new URLSearchParams(location.search).get("mock");
-  return createPageClient(mock !== null ? () => new MockMobilePairingProvider() : undefined);
+  return createPageClient(
+    mock !== null ? () => new MockMobilePairingProvider(undefined, mock === "revoke") : undefined,
+  );
 }
 
 const root = document.getElementById("root");

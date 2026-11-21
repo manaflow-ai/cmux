@@ -1,4 +1,6 @@
 public import CmuxNextMobile
+public import CmuxNextPages
+import CmuxNextDaemonService
 public import CmuxNextSettings
 import CmuxNextDesign
 import Foundation
@@ -6,6 +8,44 @@ import Foundation
 /// The Mobile page's iPhone card (`iphone` in `cmux.settings.host.lists`), every text localized
 /// here. The switch above it is the schema row `mobile.allowIPhoneConnections`.
 extension IPhoneHostService {
+    public func setAllowedFromPage(params: JSONValue, context: PageCallContext,
+                                   write: @MainActor @Sendable ([String], JSONValue) async throws -> Void) async throws -> JSONValue {
+        guard context.userGesture || context.isConfirmedUser else {
+            throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
+        }
+        guard let on = params["on"]?.boolValue else { throw PageError.invalidParams("on is required") }
+        try await write(MobileSettings.allowIPhoneConnectionsPath, .bool(on))
+        return .object([:])
+    }
+
+    /// Pairing decisions stay with the host that owns the approvals and connections.
+    public func answerPairFromPage(params: JSONValue, context: PageCallContext) throws -> JSONValue {
+        guard context.userGesture else {
+            throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
+        }
+        guard let id = params["id"]?.stringValue, !id.isEmpty else { throw PageError.invalidParams("id is required") }
+        guard case .bool(let allow)? = params["allow"] else { throw PageError.invalidParams("allow is required") }
+        guard answerPairRequest(id: id, allow: allow) else {
+            throw PageError.invalidParams("no request from that phone is waiting")
+        }
+        return .object([:])
+    }
+
+    public func revokePhoneFromPage(op: String, params: JSONValue, context: PageCallContext,
+                                    enabled: Bool, signedIn: Bool) throws -> JSONValue {
+        guard context.page == "cmux.mobile-pairing", context.userGesture else {
+            throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
+        }
+        guard enabled, signedIn else { throw PageError.unknownOp(op) }
+        guard let id = params["id"]?.stringValue,
+              locallyApprovedPhoneRows.contains(where: { $0["id"]?.stringValue == id }) else {
+            throw PageError.invalidParams("no local approval for that phone")
+        }
+        // This Mac's approval only. removePhone(id:) also deletes the account registration.
+        revokePhone(id: id)
+        return .object([:])
+    }
+
     /// The card as the page reads it, every text localized.
     public var pageJSON: JSONValue {
         [
@@ -72,6 +112,19 @@ extension IPhoneHostService {
         guard allowed else { return [] }
         return knownPhones.map { phone in
             (paired?.pairing(of: phone)?.id ?? phone.id, phone.name, state.phones.contains { phone.owns($0.phoneDeviceID) })
+        }
+    }
+
+    /// Local approvals, including offline phones. Account-directory registration is separate.
+    /// Reading `paired` also makes the page observe changes published by the store.
+    public var locallyApprovedPhoneRows: [JSONValue] {
+        _ = paired
+        return (pairedStore.current?.devices ?? []).filter { $0.transport == .hostd && $0.kind == "phone" }.map { phone in
+            let link = state.phones.first { $0.phoneDeviceID.lowercased() == phone.id.lowercased() }
+            let subtitle = [link.map(Self.subtitle) ?? IPhoneHostStrings.notConnected,
+                            IPhoneHostStrings.pairKey(phone.fingerprint)].joined(separator: " · ")
+            return ["id": .string(phone.id), "title": .string(phone.name), "subtitle": .string(subtitle),
+                    "connected": .bool(link != nil)]
         }
     }
 
