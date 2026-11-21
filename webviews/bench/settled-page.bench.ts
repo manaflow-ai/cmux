@@ -41,11 +41,12 @@
 //
 //   bun bench/settled-page.bench.ts [rounds=3] [turns=120]
 //   ONLY=chat_switch,restart  ARMS=idle  TRACE=1 (each scenario's worst round frame by frame)
+//   PROFILE=1 (an unminified build and a CPU profile of each chat switch: its top functions)
 /// <reference types="bun" />
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { Browser, BrowserContext, Page } from "playwright";
+import type { Browser, BrowserContext, CDPSession, Page } from "playwright";
 import { chromium } from "./browsers";
 import { papercutEvents } from "../test/support/papercutChat";
 import { classifyFrames, MOVE_TOLERANCE_PX, type FrameRecord } from "../src/agent-session/acpmux/firstLoadFrames";
@@ -64,6 +65,55 @@ type Arm = (typeof ARMS)[number];
 const only = process.env.ONLY?.split(",") as Scenario[] | undefined;
 const arms = (process.env.ARMS?.split(",") as Arm[] | undefined) ?? [...ARMS];
 const TRACE = process.env.TRACE === "1";
+// PROFILE=1: an unminified build and a CPU profile of each chat switch, its top functions by self and total time.
+const PROFILE = process.env.PROFILE === "1";
+
+type CpuProfile = {
+  nodes: {
+    id: number;
+    parent?: number;
+    children?: number[];
+    callFrame: { functionName: string; url: string; lineNumber: number };
+  }[];
+  samples: number[];
+  timeDeltas: number[];
+};
+/// PROFILE's report: the switch's first 150 ms of samples, the top functions by self time and by total time.
+function printProfile(label: string, profile: CpuProfile) {
+  const byId = new Map(profile.nodes.map((node) => [node.id, node]));
+  const parent = new Map<number, number>();
+  for (const node of profile.nodes) for (const child of node.children ?? []) parent.set(child, node.id);
+  const name = (id: number) => {
+    const frame = byId.get(id)!.callFrame;
+    return `${frame.functionName || "(anon)"} ${frame.url.split("/").pop()}:${frame.lineNumber + 1}`;
+  };
+  const self = new Map<string, number>();
+  const total = new Map<string, number>();
+  let t = 0;
+  for (let i = 0; i < profile.samples.length; i += 1) {
+    t += profile.timeDeltas[i]! / 1000;
+    if (t > 150) break;
+    const dt = (profile.timeDeltas[i + 1] ?? 100) / 1000;
+    const leaf = profile.samples[i]!;
+    self.set(name(leaf), (self.get(name(leaf)) ?? 0) + dt);
+    const seen = new Set<string>();
+    for (let id: number | undefined = leaf; id !== undefined; id = parent.get(id)) {
+      const key = name(id);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      total.set(key, (total.get(key) ?? 0) + dt);
+    }
+  }
+  const top = (map: Map<string, number>, count: number) =>
+    [...map]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, count)
+      .map(([key, ms]) => `      ${ms.toFixed(1)}ms ${key}`);
+  console.log(`  ${label} profile, self:`);
+  for (const line of top(self, 20)) console.log(line);
+  console.log(`  ${label} profile, total:`);
+  for (const line of top(total, 45)) console.log(line);
+}
 /// Frames are read for this long after the transition, then the read stops once nothing changed for QUIET_MS.
 const MIN_WATCH_MS = 1_500;
 const QUIET_MS = 800;
@@ -540,7 +590,7 @@ try {
   const { build } = await import("vite");
   await build({
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-    build: { outDir: out, emptyOutDir: true },
+    build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false } : {}) },
     logLevel: "error",
   });
   const statics = Bun.serve({
@@ -584,6 +634,7 @@ try {
   const one = async (scenario: Scenario, arm: Arm): Promise<Round> => {
     const target = arm === "stream" ? S : B;
     let context: BrowserContext | undefined;
+    let profiler: CDPSession | undefined;
     try {
       let page: Page;
       if (scenario === "chat_switch") {
@@ -592,6 +643,12 @@ try {
         await page.goto(urlFor(A));
         await waitPainted(page, markOf(A));
         await settleIdle(page);
+        if (PROFILE) {
+          profiler = await context.newCDPSession(page);
+          await profiler.send("Profiler.enable");
+          await profiler.send("Profiler.setSamplingInterval", { interval: 100 });
+          await profiler.send("Profiler.start");
+        }
         await start(page);
         if (arm === "stream") startStream();
         await page.evaluate(
@@ -625,6 +682,7 @@ try {
       } else throw new Error(`${scenario} runs in first-load-after-restart.bench.ts`);
       const read = await framesOf(page, markOf(target));
       stopStream();
+      if (profiler) printProfile(`${scenario}.${arm}`, (await profiler.send("Profiler.stop")).profile);
       const judged = judge(read, arm, target);
       if (TRACE) {
         // The timeline to the settled frame: socket traffic, long tasks, and the first frame showing the target.
