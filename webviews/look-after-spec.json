@@ -1,0 +1,88 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["dark", "none"]
+  ],
+  "shots": [
+    {
+      "name": "threads-empty",
+      "entry": "agent-pane.new-tab-looks",
+      "variant": "threads-empty",
+      "width": 900,
+      "height": 640,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "threads-few",
+      "entry": "agent-pane.new-tab-looks",
+      "variant": "threads-few",
+      "width": 900,
+      "height": 640,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "threads-six",
+      "entry": "agent-pane.new-tab-looks",
+      "variant": "threads-six",
+      "width": 900,
+      "height": 640,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "threads-10k",
+      "entry": "agent-pane.new-tab-looks",
+      "variant": "threads-10k",
+      "width": 900,
+      "height": 640,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "threads-recently-closed",
+      "entry": "agent-pane.new-tab-looks",
+      "variant": "threads-recently-closed",
+      "width": 900,
+      "height": 640,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "console-empty",
+      "entry": "agent-pane.new-tab-looks",
+      "variant": "console-empty",
+      "width": 900,
+      "height": 640,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "console-few",
+      "entry": "agent-pane.new-tab-looks",
+      "variant": "console-few",
+      "width": 900,
+      "height": 640,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "console-six",
+      "entry": "agent-pane.new-tab-looks",
+      "variant": "console-six",
+      "width": 900,
+      "height": 640,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "console-10k",
+      "entry": "agent-pane.new-tab-looks",
+      "variant": "console-10k",
+      "width": 900,
+      "height": 640,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "console-recently-closed",
+      "entry": "agent-pane.new-tab-looks",
+      "variant": "console-recently-closed",
+      "width": 900,
+      "height": 640,
+      "deviceScaleFactor": 2
+    }
+  ]
+}

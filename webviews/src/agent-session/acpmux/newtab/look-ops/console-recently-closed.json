@@ -1,0 +1,596 @@
+[
+  { "id": "n1", "op": "create", "props": { "spacing": 20 }, "type": "VStack" },
+  { "id": "n2", "op": "create", "props": { "spacing": 6 }, "type": "VStack" },
+  { "id": "n3", "op": "create", "props": { "paddingHorizontal": 14, "spacing": 4 }, "type": "HStack" },
+  { "id": "n4", "op": "create", "props": { "color": "tertiary", "size": 11, "symbol": "folder" }, "type": "Icon" },
+  {
+    "id": "n5",
+    "op": "create",
+    "props": { "color": "secondary", "font": "caption", "monospaced": true, "text": "atlas-web" },
+    "type": "Text"
+  },
+  { "children": ["n4", "n5"], "id": "n3", "op": "children" },
+  {
+    "id": "n6",
+    "op": "create",
+    "props": {
+      "background": "hover",
+      "borderColor": "separator",
+      "borderWidth": 0.5,
+      "cornerRadius": 8,
+      "frame": { "minHeight": 44 },
+      "paddingHorizontal": 18,
+      "spacing": 8
+    },
+    "type": "HStack"
+  },
+  {
+    "id": "n7",
+    "op": "create",
+    "props": { "color": "secondary", "monospaced": true, "text": ">", "weight": "medium" },
+    "type": "Text"
+  },
+  {
+    "id": "n8",
+    "op": "create",
+    "props": {
+      "autofocus": true,
+      "font": 14,
+      "monospaced": true,
+      "onCancel": true,
+      "onEdit": true,
+      "onSubmit": true,
+      "placeholder": "Ask, open an address, or !run a command",
+      "text": ""
+    },
+    "type": "TextField"
+  },
+  { "id": "n9", "op": "create", "props": {}, "type": "Spacer" },
+  { "id": "n10", "op": "create", "props": { "disabled": true, "help": "Send", "onTap": true }, "type": "Button" },
+  { "id": "n11", "op": "create", "props": { "color": "tertiary", "size": 12, "symbol": "arrow.up" }, "type": "Icon" },
+  { "children": ["n11"], "id": "n10", "op": "children" },
+  { "children": ["n7", "n8", "n9", "n10"], "id": "n6", "op": "children" },
+  { "children": ["n3", "n6"], "id": "n2", "op": "children" },
+  { "id": "n12", "op": "create", "props": {}, "type": "Group" },
+  { "children": [], "id": "n12", "op": "children" },
+  { "id": "n13", "op": "create", "props": { "spacing": 4 }, "type": "VStack" },
+  { "id": "n14", "op": "create", "props": { "paddingHorizontal": 4, "spacing": 4 }, "type": "HStack" },
+  {
+    "id": "n15",
+    "op": "create",
+    "props": {
+      "background": "selected",
+      "color": "primary",
+      "cornerRadius": 6,
+      "cursor": "pointer",
+      "font": "caption",
+      "frame": { "height": 24 },
+      "hoverBackground": "hover",
+      "monospaced": true,
+      "onTap": true,
+      "paddingHorizontal": 8,
+      "text": "Chats",
+      "weight": "medium"
+    },
+    "type": "Text"
+  },
+  {
+    "id": "n16",
+    "op": "create",
+    "props": {
+      "background": null,
+      "color": "tertiary",
+      "cornerRadius": 6,
+      "cursor": "pointer",
+      "font": "caption",
+      "frame": { "height": 24 },
+      "hoverBackground": "hover",
+      "monospaced": true,
+      "onTap": true,
+      "paddingHorizontal": 8,
+      "text": "Projects",
+      "weight": "medium"
+    },
+    "type": "Text"
+  },
+  {
+    "id": "n17",
+    "op": "create",
+    "props": {
+      "menu": [{ "title": "All" }, { "title": "Working" }, { "title": "Needs input" }, { "title": "Done" }],
+      "title": "Filter"
+    },
+    "type": "Menu"
+  },
+  { "id": "n18", "op": "create", "props": {}, "type": "Spacer" },
+  {
+    "id": "n19",
+    "op": "create",
+    "props": {
+      "cornerRadius": 6,
+      "frame": { "height": 24, "width": 180 },
+      "hoverBackground": "hover",
+      "paddingHorizontal": 8,
+      "spacing": 4
+    },
+    "type": "HStack"
+  },
+  {
+    "id": "n20",
+    "op": "create",
+    "props": { "color": "tertiary", "size": 11, "symbol": "magnifyingglass" },
+    "type": "Icon"
+  },
+  {
+    "id": "n21",
+    "op": "create",
+    "props": {
+      "autofocus": false,
+      "font": 12,
+      "monospaced": true,
+      "onCancel": true,
+      "onEdit": true,
+      "placeholder": "Search",
+      "text": ""
+    },
+    "type": "TextField"
+  },
+  { "children": ["n20", "n21"], "id": "n19", "op": "children" },
+  { "children": ["n15", "n16", "n17", "n18", "n19"], "id": "n14", "op": "children" },
+  { "id": "n22", "op": "create", "props": {}, "type": "Group" },
+  { "id": "n23", "op": "create", "props": {}, "type": "ProgressView" },
+  { "children": ["n23"], "id": "n22", "op": "children" },
+  { "children": ["n14", "n22"], "id": "n13", "op": "children" },
+  { "children": ["n2", "n12", "n13"], "id": "n1", "op": "children" },
+  { "id": "n1", "op": "root" },
+  { "id": "n23", "op": "remove" },
+  { "id": "n24", "op": "create", "props": { "spacing": 0 }, "type": "VStack" },
+  { "id": "n25", "op": "create", "props": { "spacing": 0 }, "type": "LazyVStack" },
+  { "id": "n26", "op": "create", "props": {}, "type": "ForEach" },
+  {
+    "id": "n27",
+    "op": "create",
+    "props": {
+      "cornerRadius": 6,
+      "cursor": "pointer",
+      "frame": { "height": 30 },
+      "help": "Add retries to the fetch helper\n/Users/you/src/atlas-web\nclaude",
+      "hoverBackground": "hover",
+      "menu": [{ "title": "Open Chat" }],
+      "onTap": true,
+      "paddingHorizontal": 10,
+      "spacing": 8
+    },
+    "type": "HStack"
+  },
+  {
+    "id": "n28",
+    "op": "create",
+    "props": { "color": "secondary", "size": 12, "symbol": "circle.dashed" },
+    "type": "Icon"
+  },
+  {
+    "id": "n29",
+    "op": "create",
+    "props": {
+      "font": 13,
+      "layoutPriority": 1,
+      "lineLimit": 1,
+      "monospaced": true,
+      "text": "Add retries to the fetch helper",
+      "weight": "regular"
+    },
+    "type": "Text"
+  },
+  {
+    "id": "n30",
+    "op": "create",
+    "props": { "color": "tertiary", "font": "caption", "lineLimit": 1, "monospaced": true, "text": "atlas-web" },
+    "type": "Text"
+  },
+  { "id": "n31", "op": "create", "props": {}, "type": "Spacer" },
+  { "id": "n32", "op": "create", "props": {}, "type": "Group" },
+  {
+    "id": "n33",
+    "op": "create",
+    "props": {
+      "color": "secondary",
+      "fixedSize": "horizontal",
+      "font": "caption",
+      "monospaced": true,
+      "text": "Working"
+    },
+    "type": "Text"
+  },
+  { "children": ["n33"], "id": "n32", "op": "children" },
+  { "children": ["n28", "n29", "n30", "n31", "n32"], "id": "n27", "op": "children" },
+  {
+    "id": "n34",
+    "op": "create",
+    "props": {
+      "cornerRadius": 6,
+      "cursor": "pointer",
+      "frame": { "height": 30 },
+      "help": "Localize the changes view\n/Users/you/src/atlas-web\nclaude",
+      "hoverBackground": "hover",
+      "menu": [{ "title": "Open Chat" }],
+      "onTap": true,
+      "paddingHorizontal": 10,
+      "spacing": 8
+    },
+    "type": "HStack"
+  },
+  {
+    "id": "n35",
+    "op": "create",
+    "props": { "color": "warning", "size": 12, "symbol": "questionmark.bubble" },
+    "type": "Icon"
+  },
+  {
+    "id": "n36",
+    "op": "create",
+    "props": {
+      "font": 13,
+      "layoutPriority": 1,
+      "lineLimit": 1,
+      "monospaced": true,
+      "text": "Localize the changes view",
+      "weight": "regular"
+    },
+    "type": "Text"
+  },
+  {
+    "id": "n37",
+    "op": "create",
+    "props": { "color": "tertiary", "font": "caption", "lineLimit": 1, "monospaced": true, "text": "atlas-web" },
+    "type": "Text"
+  },
+  { "id": "n38", "op": "create", "props": {}, "type": "Spacer" },
+  { "id": "n39", "op": "create", "props": {}, "type": "Group" },
+  {
+    "id": "n40",
+    "op": "create",
+    "props": {
+      "color": "warning",
+      "fixedSize": "horizontal",
+      "font": "caption",
+      "monospaced": true,
+      "text": "Needs input"
+    },
+    "type": "Text"
+  },
+  { "children": ["n40"], "id": "n39", "op": "children" },
+  { "children": ["n35", "n36", "n37", "n38", "n39"], "id": "n34", "op": "children" },
+  {
+    "id": "n41",
+    "op": "create",
+    "props": {
+      "cornerRadius": 6,
+      "cursor": "pointer",
+      "frame": { "height": 30 },
+      "help": "cmux-next chief\n/Users/you/src/cmux\nclaude",
+      "hoverBackground": "hover",
+      "menu": [{ "title": "Open Chat" }],
+      "onTap": true,
+      "paddingHorizontal": 10,
+      "spacing": 8
+    },
+    "type": "HStack"
+  },
+  {
+    "id": "n42",
+    "op": "create",
+    "props": { "color": "tertiary", "size": 12, "symbol": "bubble.left" },
+    "type": "Icon"
+  },
+  {
+    "id": "n43",
+    "op": "create",
+    "props": {
+      "font": 13,
+      "layoutPriority": 1,
+      "lineLimit": 1,
+      "monospaced": true,
+      "text": "cmux-next chief",
+      "weight": "regular"
+    },
+    "type": "Text"
+  },
+  {
+    "id": "n44",
+    "op": "create",
+    "props": { "color": "tertiary", "font": "caption", "lineLimit": 1, "monospaced": true, "text": "cmux" },
+    "type": "Text"
+  },
+  { "id": "n45", "op": "create", "props": {}, "type": "Spacer" },
+  { "id": "n46", "op": "create", "props": {}, "type": "Group" },
+  {
+    "id": "n47",
+    "op": "create",
+    "props": { "color": "tertiary", "font": "caption", "frame": { "width": 40 }, "monospaced": true, "text": "1m" },
+    "type": "Text"
+  },
+  { "children": ["n47"], "id": "n46", "op": "children" },
+  { "children": ["n42", "n43", "n44", "n45", "n46"], "id": "n41", "op": "children" },
+  {
+    "id": "n48",
+    "op": "create",
+    "props": {
+      "cornerRadius": 6,
+      "cursor": "pointer",
+      "frame": { "height": 30 },
+      "help": "Browser use and cmux computer use for cmux-next\n/Users/you/src/cmux-web\ncodex",
+      "hoverBackground": "hover",
+      "menu": [{ "title": "Open Chat" }],
+      "onTap": true,
+      "paddingHorizontal": 10,
+      "spacing": 8
+    },
+    "type": "HStack"
+  },
+  {
+    "id": "n49",
+    "op": "create",
+    "props": { "color": "tertiary", "size": 12, "symbol": "bubble.left" },
+    "type": "Icon"
+  },
+  {
+    "id": "n50",
+    "op": "create",
+    "props": {
+      "font": 13,
+      "layoutPriority": 1,
+      "lineLimit": 1,
+      "monospaced": true,
+      "text": "Browser use and cmux computer use for cmux-next",
+      "weight": "regular"
+    },
+    "type": "Text"
+  },
+  {
+    "id": "n51",
+    "op": "create",
+    "props": { "color": "tertiary", "font": "caption", "lineLimit": 1, "monospaced": true, "text": "cmux-web" },
+    "type": "Text"
+  },
+  { "id": "n52", "op": "create", "props": {}, "type": "Spacer" },
+  { "id": "n53", "op": "create", "props": {}, "type": "Group" },
+  {
+    "id": "n54",
+    "op": "create",
+    "props": { "color": "tertiary", "font": "caption", "frame": { "width": 40 }, "monospaced": true, "text": "1m" },
+    "type": "Text"
+  },
+  { "children": ["n54"], "id": "n53", "op": "children" },
+  { "children": ["n49", "n50", "n51", "n52", "n53"], "id": "n48", "op": "children" },
+  {
+    "id": "n55",
+    "op": "create",
+    "props": {
+      "cornerRadius": 6,
+      "cursor": "pointer",
+      "frame": { "height": 30 },
+      "help": "/loop keep improving things until we are at the theoretical limit for iteration speed\n/Users/you/.acpmux/tags/dev/unattended\nclaude",
+      "hoverBackground": "hover",
+      "menu": [{ "title": "Open Chat" }],
+      "onTap": true,
+      "paddingHorizontal": 10,
+      "spacing": 8
+    },
+    "type": "HStack"
+  },
+  {
+    "id": "n56",
+    "op": "create",
+    "props": { "color": "tertiary", "size": 12, "symbol": "bubble.left" },
+    "type": "Icon"
+  },
+  {
+    "id": "n57",
+    "op": "create",
+    "props": {
+      "font": 13,
+      "layoutPriority": 1,
+      "lineLimit": 1,
+      "monospaced": true,
+      "text": "/loop keep improving things until we are at the theoretical limit for iteration speed",
+      "weight": "regular"
+    },
+    "type": "Text"
+  },
+  {
+    "id": "n58",
+    "op": "create",
+    "props": { "color": "tertiary", "font": "caption", "lineLimit": 1, "monospaced": true, "text": "unattended" },
+    "type": "Text"
+  },
+  { "id": "n59", "op": "create", "props": {}, "type": "Spacer" },
+  { "id": "n60", "op": "create", "props": {}, "type": "Group" },
+  {
+    "id": "n61",
+    "op": "create",
+    "props": { "color": "tertiary", "font": "caption", "frame": { "width": 40 }, "monospaced": true, "text": "1m" },
+    "type": "Text"
+  },
+  { "children": ["n61"], "id": "n60", "op": "children" },
+  { "children": ["n56", "n57", "n58", "n59", "n60"], "id": "n55", "op": "children" },
+  {
+    "id": "n62",
+    "op": "create",
+    "props": {
+      "cornerRadius": 6,
+      "cursor": "pointer",
+      "frame": { "height": 30 },
+      "help": "Fix the flaky sidebar drag test\n/Users/you/src/atlas-web\ncodex",
+      "hoverBackground": "hover",
+      "menu": [{ "title": "Open Chat" }],
+      "onTap": true,
+      "paddingHorizontal": 10,
+      "spacing": 8
+    },
+    "type": "HStack"
+  },
+  { "id": "n63", "op": "create", "props": { "color": "success", "size": 12, "symbol": "bubble.left" }, "type": "Icon" },
+  {
+    "id": "n64",
+    "op": "create",
+    "props": {
+      "font": 13,
+      "layoutPriority": 1,
+      "lineLimit": 1,
+      "monospaced": true,
+      "text": "Fix the flaky sidebar drag test",
+      "weight": "medium"
+    },
+    "type": "Text"
+  },
+  {
+    "id": "n65",
+    "op": "create",
+    "props": { "color": "tertiary", "font": "caption", "lineLimit": 1, "monospaced": true, "text": "atlas-web" },
+    "type": "Text"
+  },
+  { "id": "n66", "op": "create", "props": {}, "type": "Spacer" },
+  { "id": "n67", "op": "create", "props": {}, "type": "Group" },
+  {
+    "id": "n68",
+    "op": "create",
+    "props": { "color": "success", "fixedSize": "horizontal", "font": "caption", "monospaced": true, "text": "Done" },
+    "type": "Text"
+  },
+  { "children": ["n68"], "id": "n67", "op": "children" },
+  { "children": ["n63", "n64", "n65", "n66", "n67"], "id": "n62", "op": "children" },
+  { "children": ["n27", "n34", "n41", "n48", "n55", "n62"], "id": "n26", "op": "children" },
+  { "children": ["n26"], "id": "n25", "op": "children" },
+  { "id": "n69", "op": "create", "props": {}, "type": "Group" },
+  { "children": [], "id": "n69", "op": "children" },
+  { "children": ["n25", "n69"], "id": "n24", "op": "children" },
+  { "children": ["n24"], "id": "n22", "op": "children" },
+  { "id": "n70", "op": "create", "props": { "spacing": 0 }, "type": "VStack" },
+  {
+    "id": "n71",
+    "op": "create",
+    "props": {
+      "color": "secondary",
+      "font": "caption",
+      "frame": { "height": 30 },
+      "monospaced": true,
+      "paddingHorizontal": 10,
+      "text": "Recently closed",
+      "weight": "medium"
+    },
+    "type": "Text"
+  },
+  { "id": "n72", "op": "create", "props": {}, "type": "ForEach" },
+  {
+    "id": "n73",
+    "op": "create",
+    "props": {
+      "cornerRadius": 6,
+      "cursor": "pointer",
+      "frame": { "height": 28 },
+      "help": "Reopen",
+      "hoverBackground": "hover",
+      "menu": [{ "title": "Reopen" }],
+      "onTap": true,
+      "paddingHorizontal": 10,
+      "spacing": 8
+    },
+    "type": "HStack"
+  },
+  {
+    "id": "n74",
+    "op": "create",
+    "props": { "color": "tertiary", "size": 12, "symbol": "rectangle.on.rectangle" },
+    "type": "Icon"
+  },
+  {
+    "id": "n75",
+    "op": "create",
+    "props": { "font": 13, "lineLimit": 1, "monospaced": true, "text": "PR #17516" },
+    "type": "Text"
+  },
+  { "id": "n76", "op": "create", "props": {}, "type": "Spacer" },
+  {
+    "id": "n77",
+    "op": "create",
+    "props": { "color": "tertiary", "font": "caption", "frame": { "width": 40 }, "monospaced": true, "text": "1m" },
+    "type": "Text"
+  },
+  { "children": ["n74", "n75", "n76", "n77"], "id": "n73", "op": "children" },
+  {
+    "id": "n78",
+    "op": "create",
+    "props": {
+      "cornerRadius": 6,
+      "cursor": "pointer",
+      "frame": { "height": 28 },
+      "help": "Reopen",
+      "hoverBackground": "hover",
+      "menu": [{ "title": "Reopen" }],
+      "onTap": true,
+      "paddingHorizontal": 10,
+      "spacing": 8
+    },
+    "type": "HStack"
+  },
+  {
+    "id": "n79",
+    "op": "create",
+    "props": { "color": "tertiary", "size": 12, "symbol": "rectangle.on.rectangle" },
+    "type": "Icon"
+  },
+  {
+    "id": "n80",
+    "op": "create",
+    "props": { "font": 13, "lineLimit": 1, "monospaced": true, "text": "zsh" },
+    "type": "Text"
+  },
+  { "id": "n81", "op": "create", "props": {}, "type": "Spacer" },
+  {
+    "id": "n82",
+    "op": "create",
+    "props": { "color": "tertiary", "font": "caption", "frame": { "width": 40 }, "monospaced": true, "text": "4m" },
+    "type": "Text"
+  },
+  { "children": ["n79", "n80", "n81", "n82"], "id": "n78", "op": "children" },
+  {
+    "id": "n83",
+    "op": "create",
+    "props": {
+      "cornerRadius": 6,
+      "cursor": "pointer",
+      "frame": { "height": 28 },
+      "help": "Reopen",
+      "hoverBackground": "hover",
+      "menu": [{ "title": "Reopen" }],
+      "onTap": true,
+      "paddingHorizontal": 10,
+      "spacing": 8
+    },
+    "type": "HStack"
+  },
+  {
+    "id": "n84",
+    "op": "create",
+    "props": { "color": "tertiary", "size": 12, "symbol": "square.stack" },
+    "type": "Icon"
+  },
+  {
+    "id": "n85",
+    "op": "create",
+    "props": { "font": 13, "lineLimit": 1, "monospaced": true, "text": "Fix the flaky upload test" },
+    "type": "Text"
+  },
+  { "id": "n86", "op": "create", "props": {}, "type": "Spacer" },
+  {
+    "id": "n87",
+    "op": "create",
+    "props": { "color": "tertiary", "font": "caption", "frame": { "width": 40 }, "monospaced": true, "text": "15m" },
+    "type": "Text"
+  },
+  { "children": ["n84", "n85", "n86", "n87"], "id": "n83", "op": "children" },
+  { "children": ["n73", "n78", "n83"], "id": "n72", "op": "children" },
+  { "children": ["n71", "n72"], "id": "n70", "op": "children" },
+  { "children": ["n70"], "id": "n12", "op": "children" }
+]

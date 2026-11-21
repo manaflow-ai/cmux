@@ -1,0 +1,90 @@
+{
+  "envs": [
+    ["light", "none"],
+    ["dark", "none"]
+  ],
+  "shots": [
+    {
+      "name": "threads-empty",
+      "entry": "agent-pane.new-tab",
+      "variant": "look-threads-empty",
+      "width": 900,
+      "height": 640,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "threads-few",
+      "entry": "agent-pane.new-tab",
+      "variant": "look-threads-few",
+      "width": 900,
+      "height": 640,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "threads-six",
+      "entry": "agent-pane.new-tab",
+      "variant": "template-threads",
+      "width": 900,
+      "height": 640,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "threads-10k",
+      "entry": "agent-pane.new-tab",
+      "variant": "look-threads-10k",
+      "width": 900,
+      "height": 640,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "threads-recently-closed",
+      "entry": "agent-pane.new-tab",
+      "variant": "look-threads-few",
+      "width": 900,
+      "height": 640,
+      "deviceScaleFactor": 2,
+      "setup": "(async()=>{const now=Date.now();for(let i=0;i<100&&!(window.cmuxAcpmuxBridge&&window.cmuxAcpmuxBridge.applyRecentlyClosed);i++)await new Promise(r=>setTimeout(r,50));window.cmuxAcpmuxBridge.applyRecentlyClosed([{id:'closed:1',kind:'browser',title:'PR #17516',detail:'https://github.com/manaflow-ai/cmux/pull/17516',closedAt:now-60000,available:true},{id:'closed:2',kind:'terminal',title:'zsh',detail:'~/src/cmux',closedAt:now-240000,available:true},{id:'closed:3',kind:'agent',title:'Fix the flaky upload test',detail:'~/src/atlas-web',closedAt:now-900000,available:false}]);await new Promise(r=>setTimeout(r,300));})()"
+    },
+    {
+      "name": "console-empty",
+      "entry": "agent-pane.new-tab",
+      "variant": "look-console-empty",
+      "width": 900,
+      "height": 640,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "console-few",
+      "entry": "agent-pane.new-tab",
+      "variant": "look-console-few",
+      "width": 900,
+      "height": 640,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "console-six",
+      "entry": "agent-pane.new-tab",
+      "variant": "template-console",
+      "width": 900,
+      "height": 640,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "console-10k",
+      "entry": "agent-pane.new-tab",
+      "variant": "look-console-10k",
+      "width": 900,
+      "height": 640,
+      "deviceScaleFactor": 2
+    },
+    {
+      "name": "console-recently-closed",
+      "entry": "agent-pane.new-tab",
+      "variant": "look-console-few",
+      "width": 900,
+      "height": 640,
+      "deviceScaleFactor": 2,
+      "setup": "(async()=>{const now=Date.now();for(let i=0;i<100&&!(window.cmuxAcpmuxBridge&&window.cmuxAcpmuxBridge.applyRecentlyClosed);i++)await new Promise(r=>setTimeout(r,50));window.cmuxAcpmuxBridge.applyRecentlyClosed([{id:'closed:1',kind:'browser',title:'PR #17516',detail:'https://github.com/manaflow-ai/cmux/pull/17516',closedAt:now-60000,available:true},{id:'closed:2',kind:'terminal',title:'zsh',detail:'~/src/cmux',closedAt:now-240000,available:true},{id:'closed:3',kind:'agent',title:'Fix the flaky upload test',detail:'~/src/atlas-web',closedAt:now-900000,available:false}]);await new Promise(r=>setTimeout(r,300));})()"
+    }
+  ]
+}
