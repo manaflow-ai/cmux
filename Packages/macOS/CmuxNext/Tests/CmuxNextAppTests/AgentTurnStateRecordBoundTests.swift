@@ -52,6 +52,25 @@ struct AgentTurnStateRecordBoundTests {
         #expect(turns.title(for: Self.ref("later")) == "Later")
     }
 
+    /// A reader of a session with no record hears that session's first write only: another session getting its record
+    /// (a subagent starting, another machine's chat) does not wake it. Every record-less chat row of the sidebar heard
+    /// every new record before (Leo's NIGHTLY 2026-11-21: 18 % of the main thread mapping rows again).
+    @Test func aReaderOfAnUnknownIdSleepsThroughOtherIdsFirstWrites() {
+        let turns = Self.store()
+        let changed = Woke()
+        withObservationTracking {
+            _ = turns.title(for: Self.ref("gone"))
+            _ = turns.state(for: Self.ref("gone"))
+            _ = turns.lastMessage(for: Self.ref("gone"))
+        } onChange: { changed.value = true }
+        for index in 0..<50 {
+            turns.apply(session: "other-\(index)", state: .working, lastMessage: nil, muted: false, title: nil, detail: nil)
+        }
+        #expect(!changed.value, "a reader of a record-less session woke on other sessions' first writes")
+        turns.apply(session: "gone", state: .working, lastMessage: nil, muted: false, title: "Back", detail: nil)
+        #expect(changed.value, "the reader was not told its own session appeared")
+    }
+
     @Test func aDeletedSessionLosesItsRecord() throws {
         let turns = Self.store()
         let feed = AgentTurnStateFeed(socketPath: "/nonexistent/record-bound.sock", turns: turns, lanes: AgentLaneStore())
