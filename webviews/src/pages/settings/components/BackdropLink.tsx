@@ -8,8 +8,6 @@ import { useStore } from "../context";
 import { linkRefusal } from "../backdropRefusal";
 import { t } from "../strings";
 
-export { linkRefusal };
-
 export function BackdropLink({ onClose }: { onClose: () => void }) {
   const store = useStore();
   const [link, setLink] = useState("");
