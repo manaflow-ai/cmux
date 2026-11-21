@@ -25,6 +25,13 @@ enum HibernationHandlers {
             case _?: context.refuse(RefusalStrings.hibernateVisibleTab)
             }
         })
+        // Only a page that is loaded and not shown hibernates: elsewhere the row leaves the menus and palette.
+        registry.gate(["hibernateTab"], unlessFinds: { invocation in
+            guard let key = context.tab(invocation)?.id.rawValue else { return }
+            let cache = context.services.cache
+            if cache.browsers[key] != nil, cache.lifecycle.phase(key) == .mountedHidden { return }
+            throw ActionFailure(message: RefusalStrings.hibernateVisibleTab)
+        })
         registry.bind("neverHibernateSite", invoke: { invocation in
             guard let (_, id) = context.tab(invocation), let hibernation = context.services.cache.hibernation else { return }
             guard let host = hibernation.host(of: id.rawValue) else { return context.refuse(RefusalStrings.neverHibernateNoSite) }

@@ -227,7 +227,7 @@
     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/TabSearch.xcstrings": {
       "needs_review": 21
     },
-    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/VSCodeInline.xcstrings": {
+    "Packages/macOS/CmuxNext/Sources/CmuxNextVSCodeServer/Resources/VSCodeInline.xcstrings": {
       "needs_review": 70
     },
     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Windows.xcstrings": {

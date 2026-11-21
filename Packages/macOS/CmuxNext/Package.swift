@@ -1381,6 +1381,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCompat",
                 "CmuxNextWakeups",
             ],
+            resources: [
+                .process("Resources"),
+            ],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(

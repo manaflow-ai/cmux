@@ -69,6 +69,10 @@ enum ExtensionHandlers {
                 ?? BrowserExtensionCommand(extensionID: id, name: name, keyCode: 0, modifiers: 0)
             guard !name.isEmpty, store.run(command, in: tab) else { throw ActionFailure(message: ExtensionStrings.commandFailed) }
         })
+        // With no Chromium tab, or one whose build cannot manage extensions, these rows leave the menus and palette.
+        registry.gate(["browser.extensions.menu", "browser.extension.run", "browser.extension.move"], unlessFinds: { _ = try chromiumEntry(context, $0) })
+        registry.gate(["browser.extensions.loadUnpacked", "browser.extension.options", "browser.extension.command"],
+                      unlessFinds: { _ = try managedTab(context, $0) })
     }
 
     private static func bindToggle(_ registry: ActionRegistry, _ context: AppActionContext, _ id: ActionID,
@@ -78,6 +82,7 @@ enum ExtensionHandlers {
             let extensionID = try known(invocation, store)
             guard body(store, extensionID) else { throw ActionFailure(message: ExtensionStrings.refused) }
         })
+        registry.gate([id], unlessFinds: { _ = try managedTab(context, $0) })
     }
 
     // MARK: Lookup
@@ -92,12 +97,16 @@ enum ExtensionHandlers {
     }
 
     static func managedStore(_ context: AppActionContext, _ invocation: ActionInvocation) throws -> (CEFTab, BrowserExtensionStore) {
-        let entry = try chromiumEntry(context, invocation)
-        guard let tab = entry.tab as? CEFTab else { throw ActionFailure(message: ExtensionStrings.needsChromiumTab) }
-        let store = tab.extensionStore
-        guard store.supportsManagement else { throw ActionFailure(message: ExtensionStrings.needsFork) }
-        store.refresh()
-        return (tab, store)
+        let tab = try managedTab(context, invocation)
+        tab.extensionStore.refresh()
+        return (tab, tab.extensionStore)
+    }
+
+    /// The Chromium tab whose build can manage extensions; a lookup that changes nothing.
+    static func managedTab(_ context: AppActionContext, _ invocation: ActionInvocation) throws -> CEFTab {
+        guard let tab = try chromiumEntry(context, invocation).tab as? CEFTab else { throw ActionFailure(message: ExtensionStrings.needsChromiumTab) }
+        guard tab.extensionStore.supportsManagement else { throw ActionFailure(message: ExtensionStrings.needsFork) }
+        return tab
     }
 
     /// The `extension` argument as an installed extension id (an id or a
