@@ -365,10 +365,9 @@ jobs:
           REPUBLISH_ATTEMPT: ${{ inputs.nightly_next_republish_attempt }}
         with:
           script: |
-            // GitHub API rate limits (the installation's shared hourly budget, or a secondary limit) must not
-            // fail the nightly: run 41153241702's decide died on "API rate limit exceeded for installation".
-            // Every request this script makes waits for the limit's reset (Retry-After, else x-ratelimit-reset,
-            // capped at 10 minutes a wait, 20 minutes in all) and tries again; any other error is unchanged.
+            // Run 44849687076 spent 20 minutes retrying before the advertised hourly reset.
+            // Bound the NEXT decision's total primary-quota wait to one window, including clock skew.
+            const primaryQuotaDeadline = Date.now() + 60 * 60 * 1000 + 2000;
             if (github.hook && typeof github.hook.wrap === 'function') github.hook.wrap('request', async (request, options) => {
               const deadline = Date.now() + 20 * 60 * 1000;
               for (let attempt = 1; ; attempt += 1) {
@@ -380,13 +379,22 @@ jobs:
                   const message = String((error && error.message) || '');
                   const limited = (status === 403 || status === 429) &&
                     (headers['x-ratelimit-remaining'] === '0' || headers['retry-after'] !== undefined || /rate limit/i.test(message));
-                  if (!limited || Date.now() >= deadline) throw error;
+                  if (!limited) throw error;
                   const retryAfter = Number(headers['retry-after']);
                   const reset = Number(headers['x-ratelimit-reset']);
-                  let waitMs = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000
-                    : Number.isFinite(reset) && reset > 0 ? reset * 1000 - Date.now() + 2000
-                    : Math.min(60000 * attempt, 300000);
-                  waitMs = Math.max(5000, Math.min(waitMs, 600000, deadline - Date.now()));
+                  const now = Date.now();
+                  const resetMs = reset * 1000 - now;
+                  const retryMs = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 0;
+                  let waitMs;
+                  if (context.ref === 'refs/heads/nightly-next' && headers['x-ratelimit-remaining'] === '0' &&
+                      Number.isFinite(resetMs) && resetMs > 0) {
+                    waitMs = Math.max(resetMs + 2000, retryMs);
+                    if (now + waitMs > primaryQuotaDeadline) throw error;
+                  } else {
+                    if (now >= deadline) throw error;
+                    const backoff = retryMs || (reset > 0 ? resetMs + 2000 : Math.min(60000 * attempt, 300000));
+                    waitMs = Math.max(5000, Math.min(backoff, 600000, deadline - now));
+                  }
                   core.warning(`GitHub API rate limited (${status}) on ${options.method} ${options.url}; retrying in ${Math.round(waitMs / 1000)} s (attempt ${attempt})`);
                   await new Promise((resolve) => setTimeout(resolve, waitMs));
                 }

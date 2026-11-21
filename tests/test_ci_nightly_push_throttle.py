@@ -47,6 +47,7 @@ NEUTRAL_CHANGE = comparison(["web/app/page.tsx", "tests/test_ci_change_areas.py"
 HARNESS = r"""
 const scenario = JSON.parse(process.env.SCENARIO);
 Date.now = () => scenario.nowMs;
+const waits = [];
 const outputs = {};
 const notices = [];
 const warnings = [];
@@ -94,6 +95,26 @@ const github = { rest: {
     },
   },
 } };
+if (scenario.resetInSeconds) {
+  global.setTimeout = (resolve, ms) => {
+    waits.push(ms);
+    scenario.nowMs += ms;
+    resolve();
+  };
+  const reset = scenario.nowMs / 1000 + scenario.resetInSeconds;
+  github.hook = { wrap: (_event, wrapper) => {
+    const getRef = github.rest.git.getRef;
+    github.rest.git.getRef = () => wrapper(async () => {
+      if (Date.now() < reset * 1000) {
+        throw Object.assign(new Error('API rate limit exceeded'), {
+          status: 403,
+          response: { headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(reset) } },
+        });
+      }
+      return getRef();
+    }, { method: 'GET', url: 'git/ref' });
+  } };
+}
 // Classify with the real script in the real checkout, so the workflow and this
 // contract cannot disagree about what reaches the app.
 const exec = { getExecOutput: async (command, args, options) => {
@@ -112,7 +133,7 @@ const exec = { getExecOutput: async (command, args, options) => {
 const run = new Function('github', 'context', 'core', 'process', 'exec',
   `return (async () => {\n${scenario.script}\n})();`);
 run(github, context, core, process, exec).then(() => {
-  console.log(JSON.stringify({ outputs, notices, warnings, tables }));
+  console.log(JSON.stringify({ outputs, notices, warnings, tables, waits }));
 }).catch((e) => { console.error(e); process.exit(1); });
 """
 
@@ -145,6 +166,7 @@ def run_decide(
     tag_age_hours: float = 0.5,
     interval: str = "2",
     get_commit_fails: bool = False,
+    reset_in_seconds: int = 0,
     schedule: str = "47 8 * * *",
     extra_env=None,
     comparison=None,
@@ -170,6 +192,7 @@ def run_decide(
                 "tagSha": tag_sha,
                 "tagAgeHours": tag_age_hours,
                 "getCommitFails": get_commit_fails,
+                "resetInSeconds": reset_in_seconds,
                 "schedule": schedule,
                 "compare": APP_CHANGE if comparison is None else comparison,
                 "classifier": classifier,
@@ -214,6 +237,25 @@ def ci_scripts():
     finally:
         sys.path[:] = original_path
     return detect, nightly
+
+
+def test_next_decide_waits_once_for_the_hourly_reset_before_reading_the_tag() -> None:
+    # 01:22:07 -> 01:51:28 in run 44849687076. The tag already points at this
+    # head after the wait, so the ordinary duplicate-build guard must still win.
+    result = run_decide(event="workflow_dispatch", ref="refs/heads/nightly-next",
+                        tag_sha=HEAD_SHA, reset_in_seconds=1761, extra_env=NEXT_ENV)
+    assert result["waits"] == [1763000]
+    assert not should_build(result)
+
+
+def test_next_decide_refuses_an_hourly_reset_outside_its_budget() -> None:
+    try:
+        run_decide(event="workflow_dispatch", ref="refs/heads/nightly-next",
+                   reset_in_seconds=3601, extra_env=NEXT_ENV)
+    except subprocess.CalledProcessError as error:
+        assert "API rate limit exceeded" in error.stderr
+    else:
+        raise AssertionError("an unbounded reset must fail the tag read")
 
 
 def test_decision_summary_distinguishes_push_throttle_from_manual_build() -> None:
