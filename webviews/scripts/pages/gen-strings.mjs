@@ -153,6 +153,10 @@ export const PAGES = {
         keys: () => ["action.reloadConfiguration"],
       },
       {
+        file: `${sources}/CmuxNextActions/RemoteActions.xcstrings`,
+        keys: () => ["action.remote.newGroup"],
+      },
+      {
         // Agents > Chiefs (u2586) draws the channels Home's Chief editor (ChiefPage.tsx).
         file: "webviews/src/pages/home-channels/Localizable.xcstrings",
         keys: (all) =>
