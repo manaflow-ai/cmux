@@ -1,7 +1,7 @@
 name: iOS App Review readiness
 
 # Finds every iOS App Store release blocker we can see before App Review does,
-# on every push to main, instead of one blocker per rejection. The run's
+# when dispatched, instead of one blocker per rejection. The run's
 # conclusion is the readiness answer.
 #
 # The App Store app is the cmux NEXT iPhone app (cmux-next-ios, com.cmux.app,
@@ -16,12 +16,13 @@ name: iOS App Review readiness
 # `asc validate --strict` needs that key, so it stays in the production
 # submission (ios-app-store.yml), which calls the gate with it.
 #
-# No paths filter and no cancel-in-progress: every main push leaves its own run
-# and verdict behind.
+# Dispatch only (2026-11-21, CI time map): on every main push it held a runner up
+# to 6 hours following the gate's verdict, 37 jobs and ~10,800 runner-minutes a
+# day, all red or cancelled. The gate itself still runs on feat-cmux-next by
+# path, and the production submission (ios-app-store.yml) still calls it with
+# its key. Putting `push: branches: [main]` back is the revert.
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 concurrency:
