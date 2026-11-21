@@ -522,6 +522,10 @@ impl Steps for AppVerbs {
                 "--account",
                 task.account.as_str(),
             ];
+            let mut words = words.to_vec();
+            if let Some(connection) = &task.connection {
+                words.extend(["--connection", connection.as_str()]);
+            }
             let ran = self.cmux(&words, Some(&task.prompt), left + START_MARGIN, Some(cancel));
             let result = answer(&ran);
             let started = reached_start(&result);

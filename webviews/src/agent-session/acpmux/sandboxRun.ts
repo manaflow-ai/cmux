@@ -55,6 +55,7 @@ export async function runSandbox(
   task: string,
   agent: string | undefined,
   key: string,
+  connection: string | undefined,
 ): Promise<SandboxRun> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -62,7 +63,10 @@ export async function runSandbox(
     const lost = new Promise<never>((_, reject) => {
       timer = setTimeout(() => reject({ code: "timeout" }), SANDBOX_PAGE_BOUND_MS);
     });
-    const value = (await Promise.race([call("sandbox.run", { task, key, ...(agent ? { agent } : {}) }), lost])) as {
+    const value = (await Promise.race([
+      call("sandbox.run", { task, key, ...(agent ? { agent } : {}), ...(connection ? { connection } : {}) }),
+      lost,
+    ])) as {
       receipt?: unknown;
     } | null;
     const receipt = pageReceipt(value?.receipt);
@@ -238,7 +242,7 @@ export class SandboxTab {
   }
 
   /// Sends `text` as the tab's one Sandboxed send: false when one is out or used, or nothing to send.
-  send(text: string, agent: string | undefined): boolean {
+  send(text: string, agent: string | undefined, connection?: string): boolean {
     if (this.spent() || !text.trim()) return false;
     // Reads already out describe the tab before this send: their answers are dropped.
     this.reads += 1;
@@ -246,7 +250,7 @@ export class SandboxTab {
     this.mine = { task: text, key };
     this.refusal = undefined;
     this.emit();
-    void runSandbox(this.call, text, agent, key).then((answer) => {
+    void runSandbox(this.call, text, agent, key, connection).then((answer) => {
       // A read already ended this attempt (or the tab moved on): its late answer changes nothing.
       if (this.mine?.key !== key) return;
       // Reads out while it ran describe the tab before its answer: dropped. This answer is the host's

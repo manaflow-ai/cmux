@@ -235,13 +235,14 @@ public struct CloudAPIClient: Sendable {
     /// It goes under ``runningAs(_:)``'s account, the one the person sent under (none: `notSignedIn`, nothing sent);
     /// the daemon refuses the create (`run_account_changed`) when the app is on another one by then, so a switch
     /// never sends the task elsewhere. An `incognito` Run's reply and error are never written to the daemon's store.
-    public func createSandboxRun(task: String, agent: String? = nil, image: String? = nil, timeoutMs: Int? = nil,
+    public func createSandboxRun(task: String, agent: String? = nil, connection: String? = nil, image: String? = nil, timeoutMs: Int? = nil,
                                  idempotencyKey: String = UUID().uuidString, incognito: Bool = false) async throws -> Data {
         guard let runAccount else { throw CloudAPIError.notSignedIn }
         var args: [String: any Sendable] = ["task": task, "idempotencyKey": idempotencyKey,
                                             "expectedAccount": ["user_id": runAccount.user, "team_id": runAccount.team ?? ""] as [String: any Sendable]]
         if incognito { args["incognito"] = true }
         if let agent, !agent.isEmpty { args["agent"] = agent }
+        if let connection, !connection.isEmpty { args["connection"] = connection }
         if let image, !image.isEmpty { args["image"] = image }
         if let timeoutMs { args["timeoutMs"] = timeoutMs }
         return try await daemon("runs.create", args, timeout: .seconds(20))
@@ -264,13 +265,13 @@ public struct CloudAPIClient: Sendable {
     /// account the daemon refuses it (`run_account_changed`) rather than start one under the new account, as it
     /// refuses any create once the app is off ``runningAs(_:)``'s account. Answers the final
     /// snapshot (`{run, attempts, artifacts, receipt}`) as JSON. `follow` (``SandboxRunFollower``) waits in place of the poll here.
-    public func runSandbox(task: String, agent: String? = nil, timeoutMs: Int = 600_000, idempotencyKey: String = UUID().uuidString,
+    public func runSandbox(task: String, agent: String? = nil, connection: String? = nil, timeoutMs: Int = 600_000, idempotencyKey: String = UUID().uuidString,
                            incognito: Bool = false,
                            teardown: Duration = .seconds(180), callsMargin: Duration = .seconds(60),
                            now: @escaping @Sendable () -> ContinuousClock.Instant = { .now }, follow: (@Sendable (_ id: String) async throws -> Data)? = nil) async throws -> [String: Any] {
         let bound = Duration.milliseconds(timeoutMs) + teardown + callsMargin
         let data = try await SandboxDeadline.race(bound) {
-            try await self.sandboxSnapshot(task: task, agent: agent, timeoutMs: timeoutMs, key: idempotencyKey, incognito: incognito,
+            try await self.sandboxSnapshot(task: task, agent: agent, connection: connection, timeoutMs: timeoutMs, key: idempotencyKey, incognito: incognito,
                                            deadline: now() + .milliseconds(timeoutMs) + teardown, now: now, follow: follow)
         }
         guard let snapshot = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -279,7 +280,7 @@ public struct CloudAPIClient: Sendable {
         return snapshot
     }
 
-    private func sandboxSnapshot(task: String, agent: String?, timeoutMs: Int, key: String, incognito: Bool, deadline: ContinuousClock.Instant,
+    private func sandboxSnapshot(task: String, agent: String?, connection: String?, timeoutMs: Int, key: String, incognito: Bool, deadline: ContinuousClock.Instant,
                                  now: @Sendable () -> ContinuousClock.Instant, follow: (@Sendable (String) async throws -> Data)?) async throws -> Data {
         // The create and its retry go with one account's credentials, read once.
         let credentials: (access: String, refresh: String)
@@ -288,7 +289,7 @@ public struct CloudAPIClient: Sendable {
         pinned.tokens = { credentials }
         // An incognito create goes to classic Cloud with the session read here, once, as the daemon's credentials are.
         if incognito, let classicRuns, let classic = try? await classicRuns() { pinned.classicRuns = { classic } }
-        let create = { try await pinned.createSandboxRun(task: task, agent: agent, timeoutMs: timeoutMs, idempotencyKey: key,
+        let create = { try await pinned.createSandboxRun(task: task, agent: agent, connection: connection, timeoutMs: timeoutMs, idempotencyKey: key,
                                                                    incognito: incognito) }
         let createdData: Data
         do {
