@@ -14,9 +14,10 @@ public import Foundation
 /// coalesce (a save a newer one replaced before it ran is skipped), and reads queue behind the
 /// saves made before them, so a read sees the newest tail handed over.
 ///
-/// Bounded by bytes, not by a count of chats: the newest files whose sizes add up to at most
-/// ``totalBytes`` (20 MiB, the old worst case of twenty full files), and at most ``files`` of them,
-/// each at most ``AgentPaneTailCache/bytes``; the least recently written go first. Twenty files
+/// Bounded by bytes, not by a count of chats: files of at most ``AgentPaneTailCache/bytes`` each,
+/// at most ``files`` of them, adding up to at most ``totalBytes`` (20 MiB, the old worst case of
+/// twenty full files). A trim walks them newest first and keeps each that still fits: one that
+/// would go over is removed, and an older, smaller one that fits after it stays. Twenty files
 /// kept the twenty chats written last, and a big chat that streams writes every few seconds, so a
 /// quiet small chat fell out and opened cold after a restart while the big one drew at once (Leo,
 /// 2026-11-13: "why cant small ones be faster too?"). By bytes, a small chat costs what it holds.
@@ -142,8 +143,10 @@ public nonisolated final class AgentPaneTailDisk: Sendable {
         return tail
     }
 
-    /// Keeps the newest files, by modification date, while there are at most ``limitFiles`` of them
-    /// and their sizes add up to at most ``limitTotal``; the newest is always kept. On the queue only.
+    /// Walks the files newest first, by modification date, and keeps each while fewer than
+    /// ``limitFiles`` are kept and it still fits in ``limitTotal``; one that does not fit is removed
+    /// and the walk goes on, so an older, smaller file can stay. The newest is always kept. On the
+    /// queue only.
     private func trim() {
         let keys: Set<URLResourceKey> = [.contentModificationDateKey, .fileSizeKey]
         guard let files = try? FileManager.checked.contentsOfDirectory(at: directory, includingPropertiesForKeys: Array(keys))
