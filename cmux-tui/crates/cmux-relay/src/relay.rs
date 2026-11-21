@@ -1491,12 +1491,12 @@ fn admit_slot_allocation(
 /// Records that `slot`'s registration lapsed at `now` ([`RelayState::lapsed`]), holding at most
 /// `max_slots` such records: the oldest goes first.
 fn remember_lapse(state: &mut RelayState, slot: String, now: Instant, max_slots: usize) {
-    if !state.lapsed.contains_key(&slot) && state.lapsed.len() >= max_slots.max(1) {
-        if let Some(oldest) =
+    if !state.lapsed.contains_key(&slot)
+        && state.lapsed.len() >= max_slots.max(1)
+        && let Some(oldest) =
             state.lapsed.iter().min_by_key(|(_, at)| **at).map(|(slot, _)| slot.clone())
-        {
-            state.lapsed.remove(&oldest);
-        }
+    {
+        state.lapsed.remove(&oldest);
     }
     state.lapsed.insert(slot, now);
 }
