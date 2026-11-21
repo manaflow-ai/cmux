@@ -49,7 +49,8 @@ class RouteTest(unittest.TestCase):
         self.assertEqual(self.run_route(FAST_GATES, changed("Packages/macOS/CmuxNext/Sources/A.swift")),
                          {"fast-gates": True})
         self.assertEqual(self.run_route(FAST_GATES, changed("Resources/Localizable.xcstrings")), {"fast-gates": True})
-        self.assertEqual(self.run_route(GUARDS, changed("tests/test_base_red_excuse.py")), {"ci-guard-group": True, "own-change-checks": False})
+        self.assertEqual(self.run_route(GUARDS, changed("tests/test_base_red_excuse.py")), {"ci-guard-group": True, "own-change-checks": False,
+                                                                                     "generated-merge-audit": False})
 
     def test_the_workflow_itself_is_an_input(self):
         self.assertEqual(self.run_route(DOCTOR, changed(DOCTOR)), {"react-doctor": True})
@@ -73,6 +74,27 @@ class RouteTest(unittest.TestCase):
         self.assertTrue(decide(changed("b/x.txt", status="A")))
         self.assertTrue(decide(changed("b/generated/x.json")))
         self.assertTrue(decide(changed("a/x.txt")))
+
+    def test_tree_changes_run_on_a_changed_path_set_only(self):
+        """A check of the tracked paths (the generated merge audit) runs when a path is added, deleted, renamed or
+        copied, and not when a file's content changes."""
+        data = {"workflows": {"w.yml": {"j": {"inputs": ["a/"], "tree_changes": True}}}}
+        decide = lambda pairs: route.route("w.yml", pairs, event="pull_request", labels=[], root=ROOT, data=data)["j"][0]
+        self.assertFalse(decide(changed("b/x.txt")))
+        for status in ("A", "D", "R100", "C75", "T"):
+            self.assertTrue(decide(changed("b/x.txt", status=status)), status)
+        self.assertTrue(decide(changed("a/x.txt")))
+
+    def test_the_generated_merge_audit_skips_a_content_edit(self):
+        """A Swift edit (a generator's input, which the generated files guard reads) starts own-change-checks but not
+        the generated merge audit; a new file, a .gitattributes or an SDK manifest edit starts the audit."""
+        edit = self.run_route(GUARDS, changed("Packages/macOS/CmuxNext/Sources/CmuxNextActions/Action.swift"))
+        self.assertTrue(edit["own-change-checks"])
+        self.assertFalse(edit["generated-merge-audit"])
+        for pairs in (changed("Packages/macOS/CmuxNext/Sources/A.swift", status="A"), changed(".gitattributes"),
+                      changed("web/sdk/.gitattributes"), changed("x/sdk/.cmux-sdk-manifest.json"),
+                      changed("scripts/ci/generated-files.json")):
+            self.assertTrue(self.run_route(GUARDS, pairs)["generated-merge-audit"], pairs)
 
     def test_globs(self):
         self.assertTrue(route.covered("Resources/Localizable.xcstrings", "**/*.xcstrings"))
