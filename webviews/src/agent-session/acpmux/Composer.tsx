@@ -32,6 +32,7 @@ import {
   type DroppedKind,
   type LinkItem,
 } from "./attachments";
+import { useReleasedPicks } from "./designSelection";
 import type { SendGesture } from "./heldPrompt";
 import { canResumeFromComposer } from "./composer/resumeControl";
 import { useTranscriptReadOnly } from "./conversation/readOnly";
@@ -130,7 +131,7 @@ import { useComposerChrome } from "./composerChromeModel";
 import { useQueueing } from "./queueing";
 import { useMenuPressGuard } from "./menuPressGuard";
 import { setScrollToBottomOnSend, useComposerSettings } from "./composerSettings";
-import { useComposerLook } from "./composerLook";
+import { useComposerLookWithV2 } from "./composerV2";
 import { useEscapeStop } from "./escapeStop";
 import { usePromptHistory, usePromptRecalled } from "./composer/promptHistory";
 import {
@@ -163,6 +164,11 @@ import { compactingUsage } from "./usageStats";
 import { experimentArm } from "../../experiments/experiment";
 import { promptSuggestionLook } from "./promptSuggestionLook.experiment";
 import { cloudStartComposerLook } from "./cloudStartComposer.experiment";
+import { composerShellLook } from "./composer/shellLook.experiment";
+import { composerFooterControls } from "./composer/footerControls.experiment";
+import { composerEmptyHeight } from "./composer/emptyHeight.experiment";
+// The composer look climbs' arms (composer/*.experiment.ts): gallery-only; the default arms add nothing.
+import "./composerClimbs.css";
 import { emojiShortcodeLook } from "./emojiShortcodeLook.experiment";
 import { EmojiMenu } from "./EmojiMenu";
 import { keepSendOrigins, noteSendOrigins } from "./conversation/sendMorph";
@@ -759,7 +765,7 @@ function ComposerFrame({
   // Claude's look draws Claude desktop's draft-sensitive ↵ slot before the mic; Codex's draws
   // Codex's ↑ after the mic, always there, so the mic never steps (composerLook.ts; Leo
   // 2026-11-04: "our codex style composer should look like codex's/chatgpt's").
-  const look = useComposerLook();
+  const look = useComposerLookWithV2();
   const quietActions = plainFooter && look !== "codex";
   const usage = compactingUsage(
     snapshot.summary?.usage,
@@ -854,6 +860,8 @@ function ComposerFrame({
     },
   });
   const attachmentsRef = useRef(attachments);
+  // Browser picks that leave (their × or a send) leave the page too: its pins match the chips.
+  useReleasedPicks(attachments);
   const pendingRef = useRef(pending);
   // The latest of each, written as the render commits (every reader is a handler, an effect or the
   // handle): a write during render keeps the composer out of the React Compiler, and each key then
@@ -1533,7 +1541,12 @@ function ComposerFrame({
       writeDraft();
       pushUnsentDraft();
     }
-    if (dismissed !== undefined) setDismissed(undefined);
+    // Esc closes a list for the text it was pressed on; an edit ends that, even one that comes back to
+    // the same text (Backspace and the letter again, or the prompt cleared and typed again), so the @
+    // and emoji lists come back as the / list does. A setter given the value it holds renders nothing.
+    setDismissed(undefined);
+    setMentionDismissed(undefined);
+    setEmojiDismissed(undefined);
     if (typed) showDraft();
     else {
       // The `value` prop may still be an older draft the field moved on from: one equal to it would
@@ -2177,6 +2190,11 @@ function ComposerFrame({
   // Cloud chat (cloudStartComposer.experiment.ts). Each look stays inside the field and Send, so
   // nothing moves when the start ends.
   const startLook = experimentArm(cloudStartComposerLook);
+  // The look climbs (composerClimbs.css): an attribute only off the shipped arm, so it ships as before.
+  const climbArm = (arm: string) => (arm === "shipped" ? undefined : arm);
+  const shellLook = climbArm(experimentArm(composerShellLook));
+  const controlsLook = climbArm(experimentArm(composerFooterControls));
+  const emptyHeight = climbArm(experimentArm(composerEmptyHeight));
   const startingPlaceholder =
     !cloudStarting || startLook === "dimmed"
       ? undefined
@@ -2864,6 +2882,9 @@ function ComposerFrame({
       data-composer-look={look === "codex" ? "codex" : undefined}
       // The box inside draws the compact grid in both looks (ComposerBox.tsx, composerLocation.css).
       data-composer-grid=""
+      data-shell-look={shellLook}
+      data-footer-controls={controlsLook}
+      data-empty-height={emptyHeight}
       onSubmit={(event) => {
         if (!shell) return submit(event);
         event.preventDefault();
