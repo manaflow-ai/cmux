@@ -165,6 +165,18 @@ extension TerminalController: ControlSystemContext {
             let panel = workspace.controlSurfaceTarget(for: surface.surfaceID)?.panel ??
                 dockStores.lazy.compactMap { $0.panels[surface.surfaceID] }.first
             let browserPanel = panel as? BrowserPanel
+            let ttyName: String?
+            if workspace.isRemoteWorkspace || workspace.isRemoteTmuxMirror ||
+                workspace.isRemoteTerminalSurface(surface.surfaceID) {
+                ttyName = workspace.surfaceTTYNames[surface.surfaceID]
+            } else {
+                // Persisted names are display metadata. A local ownership claim
+                // must still belong to the terminal session that reported it.
+                ttyName = PortScanner.shared.freshReportedTTYName(
+                    workspaceId: workspace.id,
+                    panelId: surface.surfaceID
+                )
+            }
             let node = ControlSystemTreeSurfaceNode(
                 surfaceID: surface.surfaceID,
                 index: surfaceIndex,
@@ -175,7 +187,7 @@ extension TerminalController: ControlSystemContext {
                 selectedInPane: surface.selectedInPane,
                 paneID: surface.paneID,
                 indexInPane: surface.indexInPane,
-                tty: workspace.surfaceTTYNames[surface.surfaceID],
+                tty: ttyName,
                 isBrowser: browserPanel != nil,
                 url: browserPanel?.currentURL?.absoluteString,
                 renderHealthRawValue: (panel as? TerminalPanel)?.surface.renderHealth.rawValue,
