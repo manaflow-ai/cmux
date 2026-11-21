@@ -89,6 +89,48 @@ import Testing
         #expect(downloads == 1, "Update after a cancel did not download the found update")
     }
 
+    @Test(arguments: [
+        UpdateIndicatorPhase.downloading(.starting),
+        UpdateIndicatorPhase.downloading(.downloading(received: 250, expected: 250)),
+    ])
+    func quitCancelsEveryActiveNetworkDownload(phase: UpdateIndicatorPhase) {
+        let updater = UpdateLoadingIndicatorTests.updater()
+        var cancels = 0
+        updater.cancelDownloadNow = {
+            cancels += 1
+            updater.debugIndicatorPhase = .hidden
+            return true
+        }
+        updater.send(.attemptRequested)
+        updater.debugIndicatorPhase = phase
+        updater.syncFlowPhase()
+
+        #expect(updater.prepareForQuit() == .proceed)
+        #expect(cancels == 1, "quit left the active network download running")
+    }
+
+    @Test func quitLeavesVerificationAndInstallStatesAlone() {
+        let updater = UpdateLoadingIndicatorTests.updater()
+        var cancels = 0
+        updater.cancelDownloadNow = {
+            cancels += 1
+            return true
+        }
+
+        for phase in [
+            UpdateIndicatorPhase.downloading(.preparing(0.5)),
+            .installing,
+            .ready(version: "1.0.1"),
+            .hidden,
+        ] {
+            updater.debugIndicatorPhase = phase
+            updater.syncFlowPhase()
+            _ = updater.prepareForQuit()
+        }
+
+        #expect(cancels == 0, "quit attempted to cancel verification, install, staged, or idle state")
+    }
+
     @Test func anUpdateClickWhoseCheckEndsEmptyDoesNotDownloadALaterUpdate() {
         let updater = UpdateLoadingIndicatorTests.updater()
         updater.cancelDownloadNow = {
