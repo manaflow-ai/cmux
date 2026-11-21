@@ -249,6 +249,12 @@ export function runMockModels(state: ModelsState, run: ModelsRun): ModelsState {
       if (!run.key.trim()) throw new Error("a key is required");
       const info = (state.providers ?? mockProviders).find((entry) => entry.id === run.provider);
       if (!info || info.unavailable) throw new Error("no key is taken for this provider");
+      // acpmux checks the key with its provider before it keeps it; a key with "rejected" in it stands for a refused one.
+      if (run.key.includes("rejected")) {
+        throw Object.assign(new Error("the provider refused the key"), {
+          code: "cmux.models.connections.key_rejected",
+        });
+      }
       if (info.fields.includes("base-url") && !run.baseUrl?.startsWith("https://"))
         throw new Error("an https base URL is required");
       if (info.fields.includes("region") && !run.region?.trim()) throw new Error("a region is required");

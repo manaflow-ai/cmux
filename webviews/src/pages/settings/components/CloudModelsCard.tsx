@@ -137,6 +137,7 @@ export function CloudModelsCard({ focus }: { focus: string | null }) {
         <AddConnectionSheet
           models={models}
           busy={busy}
+          error={error}
           run={sheetRun}
           start={sheet.start}
           onClose={() => setSheet(null)}

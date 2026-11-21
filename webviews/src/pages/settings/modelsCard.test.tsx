@@ -149,6 +149,21 @@ test("every provider of acpmux's catalog is a way in, and each asks for what its
   expect(document.body.innerHTML).not.toContain("sk-gw-0123456789");
 });
 
+test("a key the provider refuses says so, and the form asks for it again", async () => {
+  const rendered = await render(mockModels.empty);
+  await click(action(card(rendered), "add")!);
+  await click(sheet()!.querySelector('[data-models-choice="openrouter"]')!);
+  const form = sheet()!.querySelector<HTMLFormElement>('[data-models-key-form="openrouter"]')!;
+  await changeValue(form.querySelector<HTMLInputElement>('input[type="password"]')!, "sk-or-rejected-0123");
+  await click(action(form, "addKey")!);
+  // Said in the sheet, over the form the person is in.
+  expect(sheet()!.querySelector("[data-models-sheet-error]")?.textContent).toBe(
+    "The provider refused this key. Check it and paste it again.",
+  );
+  expect(form.querySelector<HTMLInputElement>('input[type="password"]')!.value).toBe("");
+  expect(connectionIds(rendered)).toEqual([]);
+});
+
 test("Amazon Bedrock takes its AWS Region with the key", async () => {
   const rendered = await render(mockModels.empty);
   await click(action(card(rendered), "add")!);

@@ -17,6 +17,8 @@
 //! in [`SCRUBBED`] is removed from the profile env AND from the environment the
 //! harness inherits (agent.rs reads [`UNSET_KEY`]), then the route sets its own.
 //! So switching from route A to route B never leaks A's key into B's process.
+mod catalog_env;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -1084,6 +1086,9 @@ pub fn env_for_on(
         set: BTreeMap::new(),
         unset: SCRUBBED.iter().map(|k| (*k).to_owned()).collect(),
     };
+    if catalog_env::fill(route, family, &mut out) {
+        return Ok(out);
+    }
     let anthropic = is_anthropic_family(family);
     let (mut base, mut secret_value): (Option<String>, Option<String>) = (
         if anthropic {
