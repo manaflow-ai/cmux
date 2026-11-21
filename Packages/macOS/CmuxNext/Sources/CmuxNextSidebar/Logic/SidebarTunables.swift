@@ -174,7 +174,7 @@ public nonisolated enum SidebarTunables {
         help: "Gives every workspace row a sample agent chat (needs you, working, done, failed or idle), to see the row states without real sessions.",
         default: false, code: "SidebarTunables.laneFixture")
 
-    /// How a remote machine's group shows its free RAM, cores busy and free disk (`RemoteMachinesSidebar`).
+    /// How a remote machine's group shows its free RAM, cores busy and free disk.
     public static let remoteMachineResources = Tunable<RemoteMachineResourcesStyle>.choice(
         "sidebar.remoteMachines.resources", .sidebar, "Remote machines' room",
         help: "How a machine's group shows its free RAM, cores busy and free disk, from the reading acpmux takes every minute.",

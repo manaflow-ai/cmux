@@ -151,7 +151,6 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .transportSend: "transportSend"
         case .transportClose: "transportClose"
         case .transportGesture: "transportGesture"
-        case .transportGestureRelease: "transportGestureRelease"
         case .reply: "reply"
         case .saveFile: "saveFile"
         case .composerSetting: "composerSetting"

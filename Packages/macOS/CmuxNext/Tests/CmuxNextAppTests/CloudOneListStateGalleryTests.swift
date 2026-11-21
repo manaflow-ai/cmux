@@ -7,7 +7,7 @@ import Testing
 import CmuxNextTestSupport
 
 /// Before/after capture for Cloud machine state in the one-list sidebar. The existing machine
-/// section stays unbound to RemoteMachinesSidebar; only each workspace's machine line gains the
+/// section is unchanged; only each workspace's machine line gains the
 /// live Paused, Connecting or Reconnecting state.
 @MainActor @Suite(.closesItsWindows, .serialized)
 struct CloudOneListStateGalleryTests {
