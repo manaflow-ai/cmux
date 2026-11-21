@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Puts node VERSION on the job's PATH when actions/setup-node did not.
-# Needs bash, curl, tar and shasum (macOS, and Linux runner images with perl).
+# Needs bash, curl, tar and sha256sum or shasum.
 #
 # setup-node can end "succeeded" with node never added: it logs "Attempting to download
 # VERSION...", awaits the node-versions manifest, and when that request is dropped without an
@@ -35,7 +35,10 @@ if [ ! -f "$tool.complete" ] || [ "$(version_of "$tool")" != "v$want" ]; then
   name="node-v$want-$os-$arch"
   base="${ENSURE_NODE_DIST:-https://nodejs.org/dist}/v$want"
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  # Unpacked beside the tool cache entry so the install is one rename: jobs on one host share the cache.
+  mkdir -p "$(dirname "$tool")"
+  stage="$(mktemp -d "$tool.XXXXXX")"
+  trap 'rm -rf "$tmp" "$stage"' EXIT
   get() {
     curl -fsSL --retry 3 --retry-all-errors --connect-timeout 20 --max-time 600 \
       --speed-limit 1024 --speed-time 60 -o "$2" "$1"
@@ -43,21 +46,29 @@ if [ ! -f "$tool.complete" ] || [ "$(version_of "$tool")" != "v$want" ]; then
   get "$base/$name.tar.gz" "$tmp/$name.tar.gz"
   get "$base/SHASUMS256.txt" "$tmp/SHASUMS256.txt"
   expected="$(awk -v f="$name.tar.gz" '$2 == f { print $1 }' "$tmp/SHASUMS256.txt")"
-  actual="$(shasum -a 256 "$tmp/$name.tar.gz" | awk '{ print $1 }')"
+  if command -v sha256sum >/dev/null 2>&1; then actual="$(sha256sum "$tmp/$name.tar.gz" | awk '{ print $1 }')"
+  else actual="$(shasum -a 256 "$tmp/$name.tar.gz" | awk '{ print $1 }')"; fi
   if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
     echo "::error::ensure-setup-node: $name.tar.gz does not match SHASUMS256.txt (${expected:-no entry} vs $actual)"
     exit 1
   fi
-  tar -xzf "$tmp/$name.tar.gz" -C "$tmp"
-  got="$(version_of "$tmp/$name")"
+  tar -xzf "$tmp/$name.tar.gz" -C "$stage"
+  got="$(version_of "$stage/$name")"
   if [ "$got" != "v$want" ]; then
     echo "::error::ensure-setup-node: the downloaded node reports '${got:-nothing}', not v$want"
     exit 1
   fi
-  rm -rf "$tool" "$tool.complete"
-  mkdir -p "$(dirname "$tool")"
-  mv "$tmp/$name" "$tool"
-  touch "$tool.complete"
+  if [ -f "$tool.complete" ] && [ "$(version_of "$tool")" = "v$want" ]; then
+    echo "another job installed node v$want into $tool meanwhile; using it"
+  else
+    rm -f "$tool.complete"
+    # A stale entry goes aside (one rename) so the new one can take its name; the trap deletes it.
+    if [ -e "$tool" ]; then mv "$tool" "$stage/stale" 2>/dev/null || true; fi
+    mv "$stage/$name" "$tool"
+    # mv moves into a directory that another job renamed into place first: theirs is complete, keep it.
+    if [ -e "$tool/$name" ]; then rm -rf "${tool:?}/${name:?}"; fi
+    touch "$tool.complete"
+  fi
 fi
 
 if [ "$(version_of "$tool")" != "v$want" ]; then

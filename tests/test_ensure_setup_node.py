@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import platform
+import shutil
 import subprocess
 import tarfile
 import tempfile
@@ -50,11 +51,15 @@ class EnsureSetupNode(unittest.TestCase):
             digest = "0" * 64
         (self.dist / "SHASUMS256.txt").write_text(f"{'f' * 64}  other.tar.gz\n{digest}  {name}.tar.gz\n")
 
-    def run_script(self) -> subprocess.CompletedProcess[str]:
-        env = {"PATH": f"{self.bin}:/usr/bin:/bin:/usr/sbin:/sbin", "HOME": str(self.tmp),
+    def run_script(self, path: str = "") -> subprocess.CompletedProcess[str]:
+        env = {"PATH": path or f"{self.bin}:/usr/bin:/bin:/usr/sbin:/sbin", "HOME": str(self.tmp),
                "RUNNER_TOOL_CACHE": str(self.cache), "GITHUB_PATH": str(self.github_path),
                "ENSURE_NODE_DIST": (self.tmp / "dist").as_uri()}
-        return subprocess.run(["bash", str(SCRIPT), VERSION], env=env, text=True, capture_output=True, timeout=60)
+        return subprocess.run([shutil.which("bash") or "bash", str(SCRIPT), VERSION], env=env, text=True,
+                              capture_output=True, timeout=60)
+
+    def leftovers(self) -> list[str]:
+        return sorted(p.name for p in self.tool.parent.iterdir() if p.name not in (ARCH, f"{ARCH}.complete"))
 
     def test_node_already_on_path_is_left_alone(self) -> None:
         fake_node(self.bin / "node", VERSION)
@@ -82,6 +87,46 @@ class EnsureSetupNode(unittest.TestCase):
                                         capture_output=True).stdout.strip(), f"v{VERSION}")
         self.assertEqual(self.github_path.read_text(), f"{self.tool}/bin\n")
 
+    def test_an_entry_another_job_installs_meanwhile_is_kept(self) -> None:
+        # Jobs on one host share the tool cache: this tar finishes as another job's install lands.
+        theirs = self.tool / "theirs"
+        (self.bin / "tar").write_text(
+            f'#!/bin/sh\n{shutil.which("tar")} "$@" || exit\n'
+            f'mkdir -p "{self.tool}/bin" && printf \'#!/bin/sh\\necho v{VERSION}\\n\' > "{self.tool}/bin/node"\n'
+            f'chmod +x "{self.tool}/bin/node" && touch "{theirs}" "{self.tool}.complete"\n')
+        (self.bin / "tar").chmod(0o755)
+        self.publish()
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("another job installed", result.stdout)
+        self.assertTrue(theirs.exists())
+        self.assertEqual(sorted(p.name for p in self.tool.iterdir()), ["bin", "theirs"])
+        self.assertEqual(self.leftovers(), [])
+        self.assertEqual(self.github_path.read_text(), f"{self.tool}/bin\n")
+
+    def test_the_checksum_is_checked_with_only_sha256sum_or_only_shasum(self) -> None:
+        tools = ["uname", "curl", "awk", "tar", "gzip", "mktemp", "rm", "mkdir", "mv", "touch", "dirname"]
+        for hasher in ("sha256sum", "shasum"):
+            with self.subTest(hasher=hasher):
+                if not shutil.which(hasher):
+                    self.skipTest(f"no {hasher} on this host")
+                only = self.tmp / f"only-{hasher}"
+                only.mkdir()
+                for tool in tools + [hasher]:
+                    (only / tool).symlink_to(shutil.which(tool) or self.fail(f"no {tool}"))
+                for corrupt in (True, False):
+                    subprocess.run(["rm", "-rf", str(self.cache)], check=True)
+                    self.github_path.write_text("")
+                    self.publish(corrupt=corrupt)
+                    result = self.run_script(str(only))
+                    if corrupt:
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertIn("does not match SHASUMS256.txt", result.stdout)
+                        self.assertFalse(Path(f"{self.tool}.complete").exists())
+                    else:
+                        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                        self.assertEqual(self.github_path.read_text(), f"{self.tool}/bin\n")
+
     def test_a_partial_entry_without_its_marker_is_replaced(self) -> None:
         (self.tool / "bin").mkdir(parents=True)
         (self.tool / "stale").write_text("left by a killed setup-node")
@@ -90,6 +135,7 @@ class EnsureSetupNode(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertFalse((self.tool / "stale").exists())
         self.assertTrue((self.tool / "bin" / "node").exists())
+        self.assertEqual(self.leftovers(), [])
 
     def test_a_complete_entry_that_cannot_run_is_replaced(self) -> None:
         self.tool.joinpath("bin").mkdir(parents=True)
