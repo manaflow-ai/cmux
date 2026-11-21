@@ -95,7 +95,6 @@ enum AppActions {
         HintHandlers.bind(into: registry, context: context)
         MusicHandlers.bind(into: registry, context: context)
         VoiceRoomHandlers.bind(into: registry, context: context)
-        ChiefScreenShareActions(share: context.services.chiefScreenShare, registry: registry).bind()
         NowPlayingCardHandlers.bind(into: registry, context: context)
         PictureInPictureHandlers.bind(into: registry, context: context)
         StatsPageTab.bind(into: registry, context: context)
