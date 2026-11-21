@@ -5,10 +5,13 @@ use super::*;
 use crate::paste_pacing::SETTLE;
 use std::time::Instant;
 
+/// One flush: the bytes and when they were flushed.
+type Flush = (Vec<u8>, Instant);
+
 /// The PTY's writer: one entry per flush (each write the child can read), with when it was flushed.
 #[derive(Clone, Default)]
 struct FlushLog {
-    flushed: Arc<Mutex<Vec<(Vec<u8>, Instant)>>>,
+    flushed: Arc<Mutex<Vec<Flush>>>,
     pending: Arc<Mutex<Vec<u8>>>,
 }
 

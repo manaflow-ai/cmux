@@ -2,6 +2,9 @@ use super::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+/// One write the child can read, with when it went out after the start.
+type TimedWrite = (Vec<u8>, Duration);
+
 /// A clock that moves only when slept, and records every write with the time it was made.
 struct FakeClock {
     now: Instant,
@@ -38,7 +41,7 @@ fn return_in_the_same_write_as_a_multi_kb_paste_is_its_own_write_after_the_paste
     let start = Instant::now();
     let mut clock = FakeClock { now: start };
     let child = Rc::new(RefCell::new(Child { queued: 0 }));
-    let writes: Rc<RefCell<Vec<(Vec<u8>, Duration)>>> = Rc::default();
+    let writes: Rc<RefCell<Vec<TimedWrite>>> = Rc::default();
     let mut pacer = PastePacer::default();
     // The child reads 1 KB every 5 ms poll: whatever was written stays queued until then.
     let reader = Rc::clone(&child);
