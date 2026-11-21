@@ -47,7 +47,6 @@
   border-radius: 50%;
   background: transparent;
   appearance: none;
-  cursor: pointer;
   /* A state change fades its colors over the scale's largest step. */
   transition:
     background-color var(--cmux-motion-large) var(--cmux-ease-out),
@@ -56,7 +55,6 @@
 }
 span.acpmux-dot-grid__dot {
   display: inline-block;
-  cursor: default;
 }
 .acpmux-dot-grid__dot[data-state="running"] {
   border-color: var(--dot-running);
