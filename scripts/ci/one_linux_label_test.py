@@ -75,6 +75,16 @@ class OneLinuxLabelTest(unittest.TestCase):
         self.assertEqual(out, text)
         self.assertEqual(len(report.exceptions), 1)
 
+    def test_ephemeral_only_route_listing_a_hosted_label_first_stays(self) -> None:
+        # language-boundaries.yml: the allowed list starts with a GitHub-hosted label, then the vendor sizes.
+        trusted = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                   "contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && "
+                   "vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}")
+        text = job(trusted)
+        out, report = rewrite(text)
+        self.assertEqual(out, text)
+        self.assertEqual(len(report.exceptions), 1)
+
     def test_signing_detector_reads_the_job(self) -> None:
         text = ("jobs:\n  a:\n    runs-on: x\n    steps:\n      - run: echo\n        env:\n"
                 "          K: ${{ secrets.APPLE_CERTIFICATE_P12 }}\n  b:\n    runs-on: x\n")
