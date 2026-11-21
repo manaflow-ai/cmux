@@ -30,13 +30,14 @@ pub const SCOPES_JSON: &str = include_str!("../../cmux-app-host/generated/scopes
 
 /// The typed `cmux` global apps code against (`cmux ext new` writes it into
 /// a new extension; `cmux ext dev` refreshes it from the daemon).
-pub const APP_TYPES: &str = include_str!("../../cmux-app-host/generated/cmux-app.d.ts");
+pub static APP_TYPES: cmux_embed::PackedStr =
+    cmux_embed::packed_str!(include_str!("../../cmux-app-host/generated/cmux-app.d.ts"));
 
 /// The SHA-256 of [`APP_TYPES`], hex: `cmux ext dev` compares it to learn
 /// whether the running cmux's typed global differs from the one it wrote.
 pub fn types_digest() -> &'static str {
     static DIGEST: OnceLock<String> = OnceLock::new();
-    DIGEST.get_or_init(|| hex::encode(Sha256::digest(APP_TYPES.as_bytes())))
+    DIGEST.get_or_init(|| hex::encode(Sha256::digest(APP_TYPES.get().as_bytes())))
 }
 
 /// How an op runs (`class` in scopes.json).
@@ -125,13 +126,16 @@ impl OpScope {
         match self {
             Self::Ungated => false,
             Self::NetHost | Self::IntegrationProvider => true,
-            Self::Named(scope) => {
-                scope.starts_with("net:")
-                    || scope.starts_with("integration:")
-                    || scope.ends_with(":external")
-            }
+            Self::Named(scope) => scope_reaches_out(scope),
         }
     }
+}
+
+/// Whether holding `scope` lets an app reach the network or another service
+/// (`net:`, `integration:`, `…:external`): what the sandbox takes away. One
+/// rule for the op check ([`OpScope::external`]) and the install mirror.
+pub fn scope_reaches_out(scope: &str) -> bool {
+    scope.starts_with("net:") || scope.starts_with("integration:") || scope.ends_with(":external")
 }
 
 /// A stronger scope an op needs for some of its params.
@@ -177,9 +181,23 @@ pub const PANEL_OPS: &[&str] = &["fs.pick"];
 /// marks a chat read or pins it only in answer to a tap, never on its own.
 pub const PERSON_MARK_OPS: &[&str] = &["chat.mark_read", "chat.pin"];
 
+/// Page ops that draw over or act in the browser page the person sees (link
+/// hints, following one; provider family `page`, the Mac app's PageAppOps):
+/// an app shows or follows hints only in answer to a key or a tap.
+pub const PAGE_VIEW_OPS: &[&str] = &["page.hints", "page.follow"];
+
+/// Ops that show a system permission prompt (provider family `system_calendar`, the
+/// Mac app's CalendarAppOps): an app asks the person only in answer to a key
+/// or a tap, never on its own. `system_calendar.events` never prompts.
+pub const SYSTEM_PROMPT_OPS: &[&str] = &["system_calendar.request_access"];
+
 /// Whether an app call of `op` needs a live user gesture.
 pub fn needs_gesture(op: &str) -> bool {
-    VIEW_STATE_OPS.contains(&op) || PANEL_OPS.contains(&op) || PERSON_MARK_OPS.contains(&op)
+    VIEW_STATE_OPS.contains(&op)
+        || PANEL_OPS.contains(&op)
+        || PERSON_MARK_OPS.contains(&op)
+        || PAGE_VIEW_OPS.contains(&op)
+        || SYSTEM_PROMPT_OPS.contains(&op)
 }
 
 /// The escalation of `op`, if it has one.
@@ -348,7 +366,7 @@ impl Capabilities {
             "ops": ops,
             "never": self.never.iter().collect::<Vec<_>>(),
             "classes": classes,
-            "types": APP_TYPES,
+            "types": APP_TYPES.get(),
             "typesDigest": types_digest(),
         }))
     }
@@ -507,7 +525,7 @@ mod tests {
         let table = Capabilities::get();
         let manifest = table.manifest_json(None).expect("manifest");
         assert_eq!(manifest["apiVersion"], table.api_version.as_str());
-        assert_eq!(manifest["types"], APP_TYPES);
+        assert_eq!(manifest["types"], APP_TYPES.get());
         assert_eq!(manifest["ops"].as_array().map(Vec::len), Some(table.ops().count()),);
         assert_eq!(manifest["typesDigest"], types_digest());
         assert_eq!(types_digest().len(), 64);

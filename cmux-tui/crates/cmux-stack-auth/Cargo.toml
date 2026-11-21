@@ -1,0 +1,26 @@
+[package]
+name = "cmux-stack-auth"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The Stack Auth REST calls the app's CmuxAuthRuntime makes (token refresh, sign-in exchanges, user and teams, session revoke) and the cmux account calls beside them, with their rate-limit and timeout rules. No Keychain, no UI."
+
+[dependencies]
+base64.workspace = true
+getrandom.workspace = true
+httpdate = "1"
+reqwest.workspace = true
+rustls.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+sha2.workspace = true
+tokio = { workspace = true, features = ["time", "sync"] }
+uuid.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "test-util"] }
+
+[lints]
+workspace = true

@@ -37,6 +37,7 @@ ACPMUX = "webviews/src/agent-session/acpmux"
 # (file, event): why this file listens. Each is a review decision; the exit plan is in
 # shared-projections.md section 6.
 ALLOWED_LISTENERS = {
+    (f"{ACPMUX}/session-list/receiver.ts", "visibilitychange"): "one document-level signal paces the shared session-list driver; it posts shown state without rereading a view",
     (f"{ACPMUX}/direct.ts", "visibilitychange"): "tells acpmux the chat is shown or hidden "
     "(`_acpmux/view`) so a turn ending while hidden stays unread; a state write, not a read",
     (f"{ACPMUX}/App.tsx", "visibilitychange"): "harness health re-reads only after a Log In ran "

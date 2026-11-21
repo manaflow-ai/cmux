@@ -35,7 +35,7 @@ pub const EVENTS: &[EventKind] = &[
         label: "When an agent goes idle",
         summary: "an agent in a terminal or an agent chat finishes its turn and waits",
         source: "pushed by the cmux daemon for terminal agents; agent chats are read from the \
-                 cmux app once a second, so a run starts within a few seconds",
+                 cmux daemon's chat list once a second, so a run starts within a few seconds",
         debounce_seconds: 5,
         cooldown_seconds: 60,
         max_runs_per_day: Some(48),
@@ -45,8 +45,8 @@ pub const EVENTS: &[EventKind] = &[
         name: "agent-needs-input",
         label: "When an agent needs input",
         summary: "an agent asks a question or waits on a permission prompt",
-        source: "pushed by the cmux daemon for terminal agents; agent chats and permission \
-                 prompts are read from the cmux app once a second",
+        source: "pushed by the cmux daemon for terminal agents; agent chats are read from the \
+                 cmux daemon's chat list and permission prompts from the cmux app once a second",
         debounce_seconds: 5,
         cooldown_seconds: 60,
         max_runs_per_day: Some(48),

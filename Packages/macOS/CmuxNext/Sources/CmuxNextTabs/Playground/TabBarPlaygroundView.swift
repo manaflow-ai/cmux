@@ -12,7 +12,7 @@ public final class TabBarPlaygroundView: NSView {
     private let sections = NSSegmentedControl()
     private let appearanceControl = NSSegmentedControl()
     private let counts = NSSegmentedControl()
-    private let scroll = NSScrollView()
+    private let scroll = OverlayScrollView()
     private let stack = NSStackView()
     private static let tabCounts = [10, 26, 50]
     private var section = TabBarPlaygroundSection.crowdedTabs

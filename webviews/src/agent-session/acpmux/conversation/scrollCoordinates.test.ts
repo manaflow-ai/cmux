@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import {
   clearScrollOrigin,
-  hostScrollOrigin,
+  holdRoomFraction,
   layoutScrollTop,
   physicalScrollTop,
   retainScrollOrigin,
@@ -99,42 +99,28 @@ test("large clamp residuals reset and coordinates do not leak between scrollers"
   expect(first.css.has(SCROLL_ORIGIN_PROPERTY)).toBe(false);
 });
 
-test("the origin is written on its host, never on the scroller, and an unchanged origin writes nothing", () => {
+test("the room's fraction shares the margin with the origin and moves no coordinate", () => {
   const { node, css } = quantizedNode();
-  const hostCss = new Map<string, string>();
-  let hostWrites = 0;
-  const host = {
-    style: {
-      setProperty: (name: string, value: string | null) => {
-        hostWrites += 1;
-        hostCss.set(name, value ?? "");
-      },
-      removeProperty: (name: string) => {
-        hostWrites += 1;
-        const old = hostCss.get(name) ?? "";
-        hostCss.delete(name);
-        return old;
-      },
-    },
+  let writes = 0;
+  const set = node.style.setProperty;
+  node.style.setProperty = (name, value) => {
+    writes += 1;
+    set(name, value);
   };
-  writeAnchorScrollTop(node, 100.25);
-  expect(css.get(SCROLL_ORIGIN_PROPERTY)).toBe("-0.25px");
-  // Hosting moves the origin already kept onto the host.
-  hostScrollOrigin(node, host);
-  expect(css.has(SCROLL_ORIGIN_PROPERTY)).toBe(false);
-  expect(hostCss.get(SCROLL_ORIGIN_PROPERTY)).toBe("-0.25px");
-  hostWrites = 0;
-  // The same residual again (each page landing's anchor write) leaves the style as it was.
-  retainScrollOrigin(node, 100.25);
-  expect(hostWrites).toBe(0);
-  writeAnchorScrollTop(node, 200.75);
-  expect(hostCss.get(SCROLL_ORIGIN_PROPERTY)).toBe("0.25px");
-  expect(css.has(SCROLL_ORIGIN_PROPERTY)).toBe(false);
-  clearScrollOrigin(node);
-  expect(hostCss.has(SCROLL_ORIGIN_PROPERTY)).toBe(false);
-  hostWrites = 0;
-  // Nothing kept: a clear writes nothing.
-  clearScrollOrigin(node);
-  expect(hostWrites).toBe(0);
+  holdRoomFraction(node, 0.5);
+  expect(css.get(SCROLL_ORIGIN_PROPERTY)).toBe("0.5px");
   expect(scrollOrigin(node)).toBe(0);
+  expect(layoutScrollTop(node)).toBe(100);
+  writeAnchorScrollTop(node, 100.25);
+  expect(scrollOrigin(node)).toBe(-0.25);
+  expect(css.get(SCROLL_ORIGIN_PROPERTY)).toBe("0.25px");
+  expect(layoutScrollTop(node)).toBe(100.25);
+  writes = 0;
+  // The same fraction again (a frame whose room did not move) writes nothing.
+  holdRoomFraction(node, 0.5);
+  expect(writes).toBe(0);
+  clearScrollOrigin(node);
+  expect(css.get(SCROLL_ORIGIN_PROPERTY)).toBe("0.5px");
+  holdRoomFraction(node, 0);
+  expect(css.has(SCROLL_ORIGIN_PROPERTY)).toBe(false);
 });

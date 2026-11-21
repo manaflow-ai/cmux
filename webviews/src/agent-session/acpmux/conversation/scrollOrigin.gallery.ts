@@ -16,12 +16,16 @@ const snapshot = chat(
   ]).flat(),
 );
 
-/// The sub-pixel scroll origin is kept on the thread, its one reader, never on the scroller: there,
-/// an inherited custom property, each page landing restyled every element of every mounted row.
+/// The room held above the loaded rows and the sub-pixel scroll origin move the thread, never each
+/// row nor the scroller: there, each page landing restyled every element of every mounted row.
 const originOnThread: Play = async (ctx) => {
   const scroller = ctx.document.querySelector<HTMLElement>(".acpmux-scroll");
-  if (scroller?.style.getPropertyValue("--acpmux-scroll-origin"))
+  if (scroller?.style.getPropertyValue("margin-top") || scroller?.style.getPropertyValue("--acpmux-scroll-origin"))
     throw new Error("the scroll origin is written on the scroller, which restyles every row under it");
+  const room = Number(ctx.document.querySelector<HTMLElement>(".acpmux-spacer")?.dataset.olderRoom ?? 0);
+  const first = ctx.document.querySelector<HTMLElement>(".acpmux-thread > .acpmux-row");
+  if (room > 0 && first && parseFloat(first.style.top) >= room)
+    throw new Error("the rows are placed under the older-history room one by one, not by the thread");
 };
 
 /// The reader wheels up `viewports` screens, a step a frame, as a trackpad does, then rests.
@@ -52,10 +56,7 @@ export default agentPaneEntry({
   title: "Transcript scroll origin on the thread",
   area: "Agent pane",
   height: 700,
-  covers: [
-    "agent-session/acpmux/conversation/scrollCoordinates.ts",
-    "agent-session/acpmux/conversation/conversation.css",
-  ],
+  covers: ["agent-session/acpmux/conversation/scrollCoordinates.ts", "agent-session/acpmux/VirtualTranscript.tsx"],
   variants: {
     latest: {
       note: "At the latest row: the rows draw as before; no scroll origin on the scroller.",

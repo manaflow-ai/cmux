@@ -56,6 +56,14 @@ import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
+/// The thread's margin holds the scroll origin and the fraction of a pixel of the older-history room
+/// its `top` leaves out (VirtualTranscript `threadRoomFraction`): the origin is the margin less that.
+function roomFraction(scroller: HTMLElement): number {
+  const room = Number(scroller.querySelector<HTMLElement>(".acpmux-spacer")?.dataset.olderRoom ?? 0) || 0;
+  return room - Math.floor(room);
+}
+
+
 await requireBrowserLane("chat-open-breakpoint-harness.test.ts", async () => {
   setDefaultTimeout(300_000);
   try {
@@ -359,8 +367,10 @@ await requireBrowserLane("chat-open-breakpoint-harness.test.ts", async () => {
     let previousSignature = "";
     let lastChange = { frame: 0, at: 0, clock: 0 };
     const screensAbove = (scroller: HTMLElement) => {
-      const thread = scroller.querySelector<HTMLElement>(".acpmux-thread");
-      const origin = Number.parseFloat(thread?.style.getPropertyValue("--acpmux-scroll-origin") ?? "") || 0;
+      const origin =
+        (Number.parseFloat(
+          scroller.querySelector<HTMLElement>(".acpmux-thread")?.style.getPropertyValue("margin-top") ?? "",
+        ) || 0) - roomFraction(scroller);
       return scroller.clientHeight > 0 ? (scroller.scrollTop - origin) / scroller.clientHeight : null;
     };
     type Placed = { row: HTMLElement; rect: DOMRect };

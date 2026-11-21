@@ -7,6 +7,12 @@ export type AppTier = "first-party" | "verified" | "unverified";
 
 export type AppSource = "default" | "user" | "bundled" | "local";
 
+/**
+ * Where a listing belongs (the owner's `Shelf`, cmux-tui-core apps/store.rs): `store` is Discover,
+ * `example` the SDK examples (developers only), `local` a `cmux ext dev` app (Installed only).
+ */
+export type AppShelf = "store" | "example" | "local";
+
 /** The risk class of a scope (cmux-app-host schema/v2/scope-classes.json). */
 export type ScopeRisk = "standard" | "sensitive" | "restricted";
 
@@ -37,12 +43,16 @@ export interface CatalogApp {
   hidden?: boolean;
   /** The owner's word: hidable, never removable (first-party apps; FIRST-PARTY-APPS). */
   hide_only?: boolean;
+  /** Absent from an owner older than shelves: the page treats it as `store`. */
+  shelf?: AppShelf;
 }
 
 export interface CatalogListResult {
   apps: CatalogApp[];
   revision: number;
   next_cursor?: string;
+  /** The owner offers the Examples shelf (developer mode, or a `cmux ext dev` app). */
+  examples?: boolean;
 }
 
 export interface ScopeRequest {

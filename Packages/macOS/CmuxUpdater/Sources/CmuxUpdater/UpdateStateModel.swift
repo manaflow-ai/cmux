@@ -178,18 +178,6 @@ public final class UpdateStateModel {
         detectedUpdateItem = nil
         detectedUpdateVersion = version
     }
-
-    /// Overrides the state with a synthetic error so the matching error popover can be previewed
-    /// from the debug menu. DEBUG-only.
-    public func debugShowUpdateError(_ scenario: DebugUpdateErrorScenario) {
-        setOverrideState(.error(.init(
-            error: scenario.error,
-            retry: { [weak self] in self?.setOverrideState(nil) },
-            dismiss: { [weak self] in self?.setOverrideState(nil) },
-            technicalDetails: "debug scenario: \(scenario.rawValue)",
-            feedURLString: "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml"
-        )))
-    }
     #endif
 
     /// Dismisses a detected available update, replying `.dismiss` to Sparkle for whichever of

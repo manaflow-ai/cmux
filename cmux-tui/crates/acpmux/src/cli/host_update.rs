@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 #[path = "host_self_update.rs"]
 mod host_self_update;
-pub(crate) use host_self_update::self_update;
+pub(crate) use host_self_update::{Channel, channel_url, self_update};
 
 /// Restart the launchd daemon of a macOS host ([`launchd_reload`]: bootout,
 /// then bootstrap, never `kickstart -k`; nothing stopped when launchd refuses
@@ -249,7 +249,9 @@ pub(crate) fn restart_window_check() -> String {
   acpmux_age=$((acpmux_now - acpmux_rs)); [ "$acpmux_age" -lt "$acpmux_ws" ] || return 1
   case "$("$HOME/.local/bin/acpmux" --json daemon status 2>/dev/null)" in *'"pid": null'*|*'"pid":null'*) return 1;; *'"pid":'*) ;; *) return 1;; esac
   acpmux_nx=$((acpmux_rs + acpmux_ws))
-  acpmux_nt=$(case "$(uname -s 2>/dev/null)" in Linux*) date -u -d "@$acpmux_nx" +%H:%MZ;; *) date -u -r "$acpmux_nx" +%H:%MZ;; esac 2>/dev/null) || acpmux_nt='?'
+  # The case stays out of a $( ): the macOS sh (bash 3.2) refuses the whole script otherwise.
+  case "$(uname -s 2>/dev/null)" in Linux*) acpmux_nt=$(date -u -d "@$acpmux_nx" +%H:%MZ 2>/dev/null);; *) acpmux_nt=$(date -u -r "$acpmux_nx" +%H:%MZ 2>/dev/null);; esac
+  [ -n "$acpmux_nt" ] || acpmux_nt='?'
   acpmux_why="restart window: last update restart $((acpmux_age / 60)) min ago; next after $acpmux_nt (--now restarts it now)"
 }}
 acpmux_window_refuses() {{

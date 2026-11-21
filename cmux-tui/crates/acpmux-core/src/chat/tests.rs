@@ -669,15 +669,13 @@ fn a_damaged_checkpoint_head_uses_injected_random_edition_once() {
     assert_eq!(log::CheckpointHead::read(home.path()).unwrap().unwrap().edition, 77);
 }
 
-fn percentile(values: &mut [u128]) -> u128 {
-    values.sort_unstable();
-    values[(values.len() * 95 / 100).min(values.len() - 1)]
-}
-
 #[test]
 #[ignore = "Linux gate-profile ratio fixture: 40 and 2M settled rows"]
 fn actor_line_and_checkpoint_open_gate() {
-    let mut measures = Vec::new();
+    use acpmux_book::gate_rounds;
+
+    let mut homes = Vec::new();
+    let mut fixtures = Vec::new();
     for count in [40u64, 2_000_000] {
         let home = tempfile::tempdir().unwrap();
         let config = ChatConfig::new("gate", home.path(), Harness::V1);
@@ -692,51 +690,65 @@ fn actor_line_and_checkpoint_open_gate() {
         }
         assert_eq!(state.log.max_row(), count);
         checkpoint(&mut state).unwrap();
-        let mut rounds = Vec::new();
-        let mut all = Vec::new();
-        for round in 0..5u64 {
+        homes.push(home);
+        fixtures.push((count, config, state));
+    }
+
+    // Alternate small and god rounds so each side sees the same host conditions.
+    let mut line_rounds = [Vec::new(), Vec::new()];
+    for round in 0..5u64 {
+        for side in 0..2 {
+            let (count, _, state) = &mut fixtures[side];
             let mut samples = Vec::new();
             for sample in 1..=100u64 {
-                let seq = count + round * 100 + sample;
+                let seq = *count + round * 100 + sample;
                 let line = format!(
                     "{{\"seq\":{seq},\"at\":1000,\"dir\":\"mux\",\"kind\":\"stopped\",\"msg\":{{}}}}"
                 );
                 let start = Instant::now();
-                apply_ops(&mut state, line.as_bytes(), 0, 0, 0, false).unwrap();
+                apply_ops(state, line.as_bytes(), 0, 0, 0, false).unwrap();
                 samples.push(start.elapsed().as_nanos());
             }
-            all.extend(samples.iter().copied());
-            rounds.push(percentile(&mut samples));
+            line_rounds[side].push(samples);
         }
-        let line_best = *rounds.iter().min().unwrap();
-        let line_all = percentile(&mut all);
+    }
+    for (count, _, state) in &fixtures {
+        assert_eq!(state.log.max_row(), *count + 500);
+    }
+
+    let mut configs = Vec::new();
+    for (count, config, mut state) in fixtures {
         checkpoint(&mut state).unwrap();
-        drop(state);
-        let mut rounds = Vec::new();
-        let mut all = Vec::new();
-        for _ in 0..5 {
+        configs.push((count, config));
+    }
+
+    // Checkpoint opens alternate sides as well; the open path must not read a row suffix.
+    let mut open_rounds = [Vec::new(), Vec::new()];
+    for _round in 0..5 {
+        for side in 0..2 {
             let mut samples = Vec::new();
             for _ in 0..50 {
                 let start = Instant::now();
-                let opened = open_state(config.clone()).unwrap();
+                let opened = open_state(configs[side].1.clone()).unwrap();
                 samples.push(start.elapsed().as_nanos());
                 assert_eq!(opened.log.stats().bytes_read, 0);
                 drop(opened);
             }
-            all.extend(samples.iter().copied());
-            rounds.push(percentile(&mut samples));
+            open_rounds[side].push(samples);
         }
-        measures.push((line_best, line_all, *rounds.iter().min().unwrap(), percentile(&mut all)));
     }
-    let (small, god) = (measures[0], measures[1]);
-    let measurements = [
-        ("v2.pr03a3.actor_line", small.0, god.0, god.1),
-        ("v2.pr03a3.checkpoint_open", small.2, god.2, god.3),
-    ];
-    for (name, small, god, all) in measurements {
-        assert!((god as f64) <= small as f64 * 1.2, "{name} best p95");
-        assert!((all as f64) <= small as f64 * 2.0, "{name} aggregate p95");
-    }
+    let measurements =
+        [("v2.pr03a3.actor_line", &line_rounds), ("v2.pr03a3.checkpoint_open", &open_rounds)].map(
+            |(name, rounds)| {
+                gate_rounds::report(name, &[("small", &rounds[0]), ("god", &rounds[1])]);
+                (
+                    name,
+                    gate_rounds::best_p95(&rounds[0]),
+                    gate_rounds::best_p95(&rounds[1]),
+                    gate_rounds::all_p95(&rounds[1]),
+                )
+            },
+        );
     let mut gate_output = std::env::var_os("V2_GATE_OUT")
         .map(|path| fs::OpenOptions::new().create(true).append(true).open(path).unwrap());
     for (name, small, god, all) in measurements {
@@ -747,6 +759,10 @@ fn actor_line_and_checkpoint_open_gate() {
         if let Some(output) = gate_output.as_mut() {
             writeln!(output, "{line}").unwrap();
         }
+    }
+    for (name, small, god, all) in measurements {
+        assert!((god as f64) <= small as f64 * 1.2, "{name} best p95");
+        assert!((all as f64) <= small as f64 * 2.0, "{name} aggregate p95");
     }
 }
 
@@ -1111,6 +1127,7 @@ fn a_page_is_counted_in_the_mailbox_with_every_member_it_carries() {
                     last_activity: n,
                     chat_id: format!("chat-{n:060}"),
                     origin: "o".repeat(64),
+                    past: false,
                 })
             })
             .collect(),

@@ -133,7 +133,7 @@ public final class HistoryCookieBackupsPageProvider: PageProvider {
     }
 
     static var question: CmuxDialogSpec {
-        CmuxDialogSpec(title: HistoryCookieBackupStrings.confirmTitle, lines: [HistoryCookieBackupStrings.confirmMessage],
+        CmuxDialogSpec(usesTransientMaterial: true, title: HistoryCookieBackupStrings.confirmTitle, lines: [HistoryCookieBackupStrings.confirmMessage],
                        buttons: [.cancel(), CmuxDialogButton(id: "confirm", title: HistoryCookieBackupStrings.confirmDelete, role: .destructive)],
                        identifier: "cmux.history.cookieBackups.confirm")
     }

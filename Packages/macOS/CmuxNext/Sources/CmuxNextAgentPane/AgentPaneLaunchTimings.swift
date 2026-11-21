@@ -15,6 +15,7 @@ public nonisolated final class AgentPaneLaunchTimings: Sendable {
     private struct State {
         var sink: (@Sendable (String, Date) -> Void)?
         var early: [(String, Date)] = []
+        var listeners: [@Sendable (String) -> Void] = []
     }
 
     private let state = Mutex(State())
@@ -29,13 +30,20 @@ public nonisolated final class AgentPaneLaunchTimings: Sendable {
         for (name, date) in early { receiver(name, date) }
     }
 
+    /// Tells `listener` each mark's name after the receiver took it (on the marking thread; keep it cheap): the
+    /// launch's `LaunchTimesRecorder` rewrites its row when the prior chat's marks are in (CMUX-119).
+    public func listen(_ listener: @escaping @Sendable (String) -> Void) {
+        state.withLock { $0.listeners.append(listener) }
+    }
+
     func mark(_ name: String) {
         signposter.emitEvent("agent_pane", "\(name, privacy: .public)")
         let now = Date()
-        let receiver = state.withLock { state -> (@Sendable (String, Date) -> Void)? in
+        let (receiver, listeners) = state.withLock { state -> ((@Sendable (String, Date) -> Void)?, [@Sendable (String) -> Void]) in
             if state.sink == nil, state.early.count < 64 { state.early.append((name, now)) }
-            return state.sink
+            return (state.sink, state.listeners)
         }
         receiver?(name, now)
+        for listener in listeners { listener(name) }
     }
 }

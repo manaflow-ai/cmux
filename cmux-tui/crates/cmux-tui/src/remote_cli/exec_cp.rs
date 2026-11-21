@@ -635,7 +635,9 @@ fn check_step(step: &str, (status, stderr): (i32, String)) -> anyhow::Result<()>
 
 pub(super) fn run_cp(args: &[String]) -> anyhow::Result<()> {
     let parsed = parse_cp_args(args)?;
-    let flags = parse_connect_flags(&parsed.connect)?;
+    let mut flags = parse_connect_flags(&parsed.connect)?;
+    // A refusal that ends the connect is a JSON line too.
+    flags.json |= parsed.json;
     let connected = start_connected(flags)?;
     let runtime = tokio_runtime()?;
     let result = runtime.block_on(async {
