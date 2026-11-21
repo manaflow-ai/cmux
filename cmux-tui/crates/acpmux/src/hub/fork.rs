@@ -736,6 +736,7 @@ impl Hub {
             usage_limits: parent_meta.usage_limits.clone(),
             available_commands: parent_meta.available_commands.clone(),
             goal: None,
+            task_list: None,
             permission_rules: None,
             tags: Default::default(),
             unread: false,
