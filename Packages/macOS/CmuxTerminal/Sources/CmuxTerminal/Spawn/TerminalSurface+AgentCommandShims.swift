@@ -110,9 +110,8 @@ extension TerminalSurface {
         }
         guard !availableDefinitions.isEmpty else { return nil }
 
-        let shimParentDirectory = rootDirectory
-            .appendingPathComponent("cmux-cli-shims", isDirectory: true)
-            .standardizedFileURL
+        let shimParentDirectory = TerminalSurfaceAgentCommandShimCleanup
+            .shimParentDirectory(rootDirectory: rootDirectory)
         let shimDirectory = shimParentDirectory
             .appendingPathComponent(surfaceId.uuidString, isDirectory: true)
             .standardizedFileURL
@@ -171,6 +170,24 @@ extension TerminalSurface {
             shims.append(shim)
         }
         guard !shims.isEmpty else { return nil }
+        // Held until the directory is in place, so a sweep or a close in
+        // another cmux cannot move it away halfway. The wait is short and
+        // bounded: an install must never be held up by a stuck holder, so
+        // past it the install goes ahead without the lock.
+        let publishLock = TerminalSurfaceAgentCommandShimCleanup.DirectoryLock(
+            shimParentDirectory: shimParentDirectory,
+            waitingUpTo: .milliseconds(200)
+        )
+        defer { withExtendedLifetime(publishLock) {} }
+        // Names this process as an owner of the pane's directory, so a sweep
+        // in any cmux leaves it alone while this one runs. Another cmux that
+        // restored the same surface keeps its claim.
+        TerminalSurfaceAgentCommandShimCleanup.carryOverOwnerRecords(
+            from: shimDirectory,
+            to: stagingDirectory,
+            fileManager: fileManager
+        )
+        TerminalSurfaceAgentCommandShimCleanup.writeOwnerRecord(inDirectory: stagingDirectory)
         do {
             if fileManager.fileExists(atPath: shimDirectory.path) {
                 guard privateDirectoryCheck.makePrivate(atPath: shimDirectory.path) else { return nil }

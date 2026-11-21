@@ -115,6 +115,26 @@ extension TerminalSurface {
         }
     }
 
+    /// Removes this surface's command shims once its pane has closed for good.
+    ///
+    /// Call it after the last teardown of a pane that will not come back
+    /// under this object: a respawn keeps the surface id and its shims. A pane
+    /// reopened later under the same id installs them again when its surface
+    /// is created.
+    @MainActor
+    public func removeAgentCommandShimsForPermanentClose() {
+        guard !ioMode.usesManualIO else { return }
+        // An install still running would put the directory back after this
+        // removal. Leave that rare leftover to the launch sweep.
+        guard agentCommandShimInstallTask == nil else { return }
+        agentCommandShims = nil
+        agentCommandShimInstallCompleted = false
+        runtimeFilesystem.removeAgentCommandShims(
+            id,
+            runtimeFilesystem.agentCommandShimRootDirectory
+        )
+    }
+
     @MainActor
     func resumeSurfaceCreationAfterAgentCommandShimsReady(
         view: (any TerminalSurfaceNativeViewing)?,

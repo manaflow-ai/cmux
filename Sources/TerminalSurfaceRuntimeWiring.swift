@@ -238,6 +238,19 @@ final class TerminalAgentHibernationRecorder: AgentHibernationRecording {
 // MARK: Filesystem
 
 extension TerminalSurfaceRuntimeFilesystem {
+    /// The durable root that per-surface command shims are installed under.
+    ///
+    /// Per-surface command shims are part of the lifetime of their pane. Keep
+    /// them beside cmux's durable state so macOS's periodic `$TMPDIR` cleanup
+    /// cannot remove a live pane's Claude entry from `PATH`. Nothing else
+    /// removes them, so cmux does: when the pane closes, and for leftovers
+    /// with ``AgentCommandShimDirectorySweep``.
+    static func liveAgentCommandShimRootDirectory(
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> URL {
+        homeDirectory.appendingPathComponent(".cmuxterm", isDirectory: true)
+    }
+
     static func live(
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> TerminalSurfaceRuntimeFilesystem {
@@ -245,11 +258,9 @@ extension TerminalSurfaceRuntimeFilesystem {
             wrapperDirectoryURL: homeDirectory
                 .appendingPathComponent(".local/bin", isDirectory: true)
         )
-        // Per-surface command shims are part of the lifetime of their pane.
-        // Keep them beside cmux's durable state so macOS's periodic `$TMPDIR`
-        // cleanup cannot remove a live pane's Claude entry from `PATH`.
-        let agentCommandShimRootDirectory = homeDirectory
-            .appendingPathComponent(".cmuxterm", isDirectory: true)
+        let agentCommandShimRootDirectory = liveAgentCommandShimRootDirectory(
+            homeDirectory: homeDirectory
+        )
         return TerminalSurfaceRuntimeFilesystem(
             agentCommandShimRootDirectory: agentCommandShimRootDirectory,
             installAgentCommandShims: {
@@ -263,7 +274,16 @@ extension TerminalSurfaceRuntimeFilesystem {
                     fileManager: fileManager
                 )
             },
-            isExecutableFile: { FileManager.default.isExecutableFile(atPath: $0) }
+            isExecutableFile: { FileManager.default.isExecutableFile(atPath: $0) },
+            // Runs where the pane closes rather than in a detached task: a
+            // pane reopened under the same id installs its shims again, and a
+            // late removal would delete those.
+            removeAgentCommandShims: {
+                TerminalSurfaceAgentCommandShimCleanup.removeShimDirectory(
+                    surfaceId: $0,
+                    rootDirectory: $1
+                )
+            }
         )
     }
 }

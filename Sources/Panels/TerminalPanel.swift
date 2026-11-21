@@ -728,6 +728,7 @@ final class TerminalPanel: Panel, ObservableObject {
         )
 #endif
         surface.teardownSurface()
+        surface.removeAgentCommandShimsForPermanentClose()
     }
 
     func requestViewReattach() {
