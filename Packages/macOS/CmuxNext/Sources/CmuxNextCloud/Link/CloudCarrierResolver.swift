@@ -139,14 +139,14 @@ public actor CloudCarrierServe {
         let dial = lastWaiter
         let (answers, sink) = AsyncStream.makeStream(of: Bool.self, bufferingPolicy: .bufferingNewest(1))
         dials[dial] = sink
-        let answer = await Self.race(limit) { () async -> Bool in
-            for await answer in answers { return answer }
+        let dialed = await Self.race(limit) { () async -> Bool in
+            for await dialed in answers { return dialed }
             return false
         }
         dials[dial] = nil
-        // Dropped while it dialed (a connect, a park, a stop, the supervisor's exit): nothing of this dial is held.
-        guard ahead === connection else { return answer ?? false }
-        if answer == false {
+        // Dropped while it dialed (a connect, a park, a stop, a refusal, the supervisor's exit): nothing of it is held.
+        guard ahead === connection else { return dialed ?? false }
+        if dialed == false {
             // Refused: the serve closed its end, and there is no session to keep.
             dropAhead()
         } else {
@@ -157,7 +157,7 @@ public actor CloudCarrierServe {
                 if !Task.isCancelled { await self?.keepEnded(connection) }
             }
         }
-        return answer ?? false
+        return dialed ?? false
     }
 
     /// The keep of `connection` ended: dropped, so the serve closes the session once it sat idle.
@@ -248,8 +248,9 @@ public actor CloudCarrierServe {
         } else if let state = object["state"] as? [String: Any] {
             refusal = stopped ? Self.closed : (state["refusal"] as? [String: Any]).flatMap(CloudLinkError.init(wire:))
             answer = (state["answer"] as? String).flatMap(CloudCallerOwnership.init(rawValue:))
-            // A refusal, or a connected answer, is the dial's outcome; a state with neither says nothing yet.
-            if refusal != nil { answerDials(false) } else if answer != nil { answerDials(true) }
+            // A refusal, or a connected answer, is the dial's outcome; a state with neither says nothing yet. A refused
+            // dial left no session: the connection held for one goes, also when the refusal came after the dial's wait.
+            if refusal != nil { dropAhead(); answerDials(false) } else if answer != nil { answerDials(true) }
         } else if let word = object["publish"] as? String, let caller = CloudCallerOwnership(rawValue: word) {
             answer = caller
             answerDials(true)
