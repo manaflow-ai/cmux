@@ -460,7 +460,9 @@ def test_npm_bootstrap_preserves_the_first_stable_version() -> None:
         block = workflow_job(bootstrap, job)
         assert (
             "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
-            "vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}" in block
+            "github.event_name == 'pull_request' && "
+            "github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') "
+            "|| 'cmux-linux' }}" in block
         )
     assert f"{PROVENANCE_RUNS_ON} # github-hosted-required: npm provenance publishing" in publish
     assert "id-token: write" in bootstrap
@@ -490,7 +492,7 @@ def test_pypi_bootstrap_reserves_the_project_before_release_tags() -> None:
     assert workflow_triggers(bootstrap) == {
         "repository_dispatch": {"types": ["sdk-bootstrap-pypi"]}
     }
-    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}" in bootstrap
+    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}" in bootstrap
     assert "id-token: write" in bootstrap
     assert "name: pypi-bootstrap" in bootstrap
     assert "PYPI_BOOTSTRAP_TOKEN" not in bootstrap
@@ -553,7 +555,7 @@ def test_crates_bootstrap_preserves_the_first_stable_version() -> None:
     assert workflow_triggers(bootstrap) == {
         "repository_dispatch": {"types": ["sdk-bootstrap-crates"]}
     }
-    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}" in bootstrap
+    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}" in bootstrap
     assert 'RUST_TOOLCHAIN: "1.95.0"' in bootstrap
     assert 'BOOTSTRAP_VERSION: "0.0.0-bootstrap.0"' in bootstrap
     assert "CARGO_BOOTSTRAP_TOKEN" in bootstrap
@@ -676,7 +678,7 @@ def test_bootstrap_tokens_are_isolated_from_package_code() -> None:
         assert f"needs.decisions.outputs.{output} == 'true'" in crates_publish
 
     assert "!cancelled()" in crates_publishes["publish-sidebar"]
-    assert "always()" in crates_verify
+    assert "!cancelled()" in crates_verify
     assert "needs.publish-sdk.result" not in crates_verify
     assert "needs.publish-sidebar.result" not in crates_verify
     assert "fail-fast: false" in crates_verify
@@ -952,12 +954,9 @@ def test_release_app_token_is_scoped_to_the_atomic_push() -> None:
 
     assert "SDK_RELEASE_APP_PRIVATE_KEY" not in revalidate_tags
     assert "actions/create-github-app-token@" not in revalidate_tags
-    # The one Linux label (scripts/ci/one_linux_label.py, Leo 2026-11-20); before it, vars.LINUX_RUNNER's fleet label.
-    assert (
-        "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && "
-        "github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') "
-        "|| 'cmux-linux' }}"
-    ) in cut_tags
+    # #48337: cut-tags holds the release app's signing key, so it skips LINUX_RUNNER
+    # (the reused fleet) and goes straight to the ephemeral-only linux_4 pool.
+    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}" in cut_tags
     assert "actions/checkout@" not in cut_tags
     assert "actions/download-artifact@" not in cut_tags
     assert "actions/setup-node@" not in cut_tags
@@ -2042,14 +2041,14 @@ def test_relay_attestations_survive_a_skipped_windows_build() -> None:
 
     # A skipped optional build-windows poisons the implicit success() on
     # transitive dependents. verify-linux-packages and attest-npm-packages
-    # must carry always() plus explicit needs.result gates so a Unix-only
+    # must carry !cancelled() (#48396; unlike success() it still runs past a skipped need) plus explicit needs.result gates so a Unix-only
     # release tag still attests binaries for its own commit; without this,
     # the publish job's --source-digest verification can only ever match a
     # stale attestation from an older byte-identical build (rc.3 regression,
     # run 32935658524).
     for job_anchor in ("  verify-linux-packages:", "  attest-npm-packages:"):
         section = text.split(job_anchor, 1)[1].split("runs-on:", 1)[0]
-        assert "always() &&" in section
+        assert "!cancelled() &&" in section
         assert "needs.package.result == 'success'" in section
 
 
@@ -2502,7 +2501,7 @@ def test_feat_tip_adopts_missing_commit_manifest_and_cdn_gate_is_final():
     assert "rebuilding this tip" not in preflight
     detector = workflow_job(artifacts, "verify-cdn-publication")
     assert "needs: [tree-preflight, publish, publish-tree, adopt-commit-manifest]" in detector
-    assert "always()" in detector
+    assert "!cancelled()" in detector
     assert "verify_cmux_tui_publication.py" in detector
     script = (ROOT / "scripts/ci/verify_cmux_tui_publication.py").read_text()
     assert "https://files.cmux.com/cmux-tui/{sha}/manifest.json" in script

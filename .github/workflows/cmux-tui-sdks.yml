@@ -581,18 +581,28 @@ jobs:
           go-version: "1.22.12"
           cache-dependency-path: cmux-tui/bindings/go/go.mod
 
-      - name: Select JDK 17
+      # The reused fleet image (LINUX_RUNNER) has no hosted toolcache JDK, so
+      # JAVA_HOME_17_X64 is unset there; setup-java provisions Temurin 17 on any runner.
+      - name: Set up JDK 17
         if: matrix.language == 'java'
-        run: |
-          test -x "$JAVA_HOME_17_X64/bin/java"
-          echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
-          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
-          "$JAVA_HOME_17_X64/bin/java" -version
-          "$JAVA_HOME_17_X64/bin/javac" -version
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "17"
 
+      # The reused fleet image (LINUX_RUNNER) may ship no clang or cmake; install what is missing.
       - name: Select Clang C++20
         if: matrix.language == 'cpp'
-        run: clang++ --version
+        run: |
+          missing=()
+          command -v clang++ >/dev/null 2>&1 || missing+=(clang)
+          command -v cmake >/dev/null 2>&1 || missing+=(cmake)
+          if [ "${#missing[@]}" -gt 0 ]; then
+            sudo apt-get update
+            sudo apt-get install -y "${missing[@]}"
+          fi
+          clang++ --version
+          cmake --version
 
       - name: Set up Zig
         if: matrix.language == 'zig'
@@ -779,18 +789,28 @@ jobs:
             cmux-tui/bindings/go/go.mod
             cmux-tui/bindings/examples/go-terminal-bot/go.mod
 
-      - name: Select JDK 17
+      # The reused fleet image (LINUX_RUNNER) has no hosted toolcache JDK, so
+      # JAVA_HOME_17_X64 is unset there; setup-java provisions Temurin 17 on any runner.
+      - name: Set up JDK 17
         if: matrix.language == 'java'
-        run: |
-          test -x "$JAVA_HOME_17_X64/bin/java"
-          echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
-          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
-          "$JAVA_HOME_17_X64/bin/java" -version
-          "$JAVA_HOME_17_X64/bin/javac" -version
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "17"
 
+      # The reused fleet image (LINUX_RUNNER) may ship no clang or cmake; install what is missing.
       - name: Select Clang C++20
         if: matrix.language == 'cpp'
-        run: clang++ --version
+        run: |
+          missing=()
+          command -v clang++ >/dev/null 2>&1 || missing+=(clang)
+          command -v cmake >/dev/null 2>&1 || missing+=(cmake)
+          if [ "${#missing[@]}" -gt 0 ]; then
+            sudo apt-get update
+            sudo apt-get install -y "${missing[@]}"
+          fi
+          clang++ --version
+          cmake --version
 
       - name: Set up Zig
         if: matrix.language == 'zig'
@@ -903,8 +923,18 @@ jobs:
         with:
           persist-credentials: false
 
+      # The reused fleet image (LINUX_RUNNER) may lack rustup or keep it off PATH;
+      # provision it as setup-cmux-tui-rust does.
       - name: Install Rust 1.88 MSRV toolchain
-        run: rustup toolchain install 1.88.0 --profile minimal --component clippy --component rustfmt
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.cargo/bin:$PATH"
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+              | sh -s -- -y --profile minimal --default-toolchain none --no-modify-path
+          fi
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          rustup toolchain install 1.88.0 --profile minimal --component clippy --component rustfmt
 
       # Before rust-cache: its cleanup must never reach a home a sibling runner builds from.
       - name: Give this runner instance its own CARGO_HOME
@@ -985,7 +1015,7 @@ jobs:
         if: ${{ steps.tree.outputs.hit != 'true' }}
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+          sudo apt-get install -y clang libclang-dev pkg-config cmake
 
       - name: Set up Python
         if: ${{ steps.tree.outputs.hit != 'true' }}
@@ -1012,14 +1042,14 @@ jobs:
           go-version: "1.22.12"
           cache-dependency-path: cmux-tui/bindings/go/go.mod
 
-      - name: Select JDK 17
+      # The reused fleet image (LINUX_RUNNER) has no hosted toolcache JDK, so
+      # JAVA_HOME_17_X64 is unset there; setup-java provisions Temurin 17 on any runner.
+      - name: Set up JDK 17
         if: ${{ steps.tree.outputs.hit != 'true' }}
-        run: |
-          test -x "$JAVA_HOME_17_X64/bin/java"
-          echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
-          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
-          "$JAVA_HOME_17_X64/bin/java" -version
-          "$JAVA_HOME_17_X64/bin/javac" -version
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "17"
 
       - name: Resolve Ghostty Zig version
         if: ${{ steps.tree.outputs.hit != 'true' }}
@@ -1056,7 +1086,7 @@ jobs:
         id: headless-key
         run: |
           set -euo pipefail
-          echo "key=cmux-tui-headless-v2-${RUNNER_OS}-${RUNNER_ARCH}-$(git rev-parse HEAD:cmux-tui)-$(git rev-parse HEAD:ghostty)-$(git rev-parse HEAD:ghostty-next)" >> "$GITHUB_OUTPUT"
+          echo "key=cmux-tui-headless-v3-${RUNNER_OS}-${RUNNER_ARCH}-$(git rev-parse HEAD:cmux-tui)-$(git rev-parse HEAD:ghostty)-$(git rev-parse HEAD:ghostty-next)" >> "$GITHUB_OUTPUT"
 
       - name: Restore the headless cmux-tui build
         if: ${{ steps.tree.outputs.hit != 'true' }}
@@ -1084,6 +1114,9 @@ jobs:
         working-directory: cmux-tui
         env:
           GHOSTTY_ZIG_REQUIRED: ${{ steps.ghostty-zig-version.outputs.version }}
+          # libghostty-vt for any x86-64 CPU: this binary is cached and restored on other pool hosts,
+          # and a build-host-native one dies with SIGILL there (v3 key drops the native v2 builds).
+          CMUX_GHOSTTY_VT_ZIG_CPU: baseline
         run: |
           test "$(zig version)" = "$GHOSTTY_ZIG_REQUIRED"
           cargo build -p cmux-tui --bin cmux-tui --locked

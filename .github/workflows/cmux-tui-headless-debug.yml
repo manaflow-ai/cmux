@@ -62,7 +62,7 @@ jobs:
         id: headless-key
         run: |
           set -euo pipefail
-          echo "key=cmux-tui-headless-v2-${RUNNER_OS}-${RUNNER_ARCH}-$(git rev-parse HEAD:cmux-tui)-$(git rev-parse HEAD:ghostty)-$(git rev-parse HEAD:ghostty-next)" >> "$GITHUB_OUTPUT"
+          echo "key=cmux-tui-headless-v3-${RUNNER_OS}-${RUNNER_ARCH}-$(git rev-parse HEAD:cmux-tui)-$(git rev-parse HEAD:ghostty)-$(git rev-parse HEAD:ghostty-next)" >> "$GITHUB_OUTPUT"
 
       - name: Check for a saved build
         id: headless-cache
@@ -125,6 +125,9 @@ jobs:
           CARGO_NET_RETRY: "10"
           CARGO_HTTP_TIMEOUT: "120"
           GHOSTTY_ZIG_REQUIRED: ${{ steps.ghostty-zig-version.outputs.version }}
+          # libghostty-vt for any x86-64 CPU: this binary is cached and restored on other pool hosts,
+          # and a build-host-native one dies with SIGILL there (v3 key drops the native v2 builds).
+          CMUX_GHOSTTY_VT_ZIG_CPU: baseline
         run: |
           test "$(zig version)" = "$GHOSTTY_ZIG_REQUIRED"
           cargo build -p cmux-tui --bin cmux-tui --locked
