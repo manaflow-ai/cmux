@@ -614,6 +614,13 @@ class OrganizationFallback(unittest.TestCase):
         self.assertTrue(any("visible_to_repository=cmux" in path for _, path in calls))
 
 
+def placement_step(job: dict) -> dict:
+    """The job's portable_job_placement.py step (steps after it may save its pool snapshot to the Actions cache)."""
+    found = [step for step in job["steps"] if "portable_job_placement.py" in str(step.get("run", ""))]
+    assert len(found) <= 1, [step.get("name") for step in job["steps"]]
+    return found[0] if found else job["steps"][-1]
+
+
 class Wiring(unittest.TestCase):
     def test_next_portable_bootstrap_needs_no_private_app_credentials(self):
         bootstrap = jobs("cmux-next.yml")["portable-placement"]
@@ -621,7 +628,7 @@ class Wiring(unittest.TestCase):
         self.assertNotIn("environment", bootstrap)
         self.assertFalse(any("actions/create-github-app-token@" in step.get("uses", "")
                              for step in bootstrap["steps"]))
-        config = bootstrap["steps"][-1]["env"]
+        config = placement_step(bootstrap)["env"]
         self.assertNotIn("ROUTE_TOKEN", config)
         self.assertNotIn("ROUTE_TOKEN_FALLBACK", config)
         # Not a hosted exception any more: it runs on Blacksmith on every attempt (cmux#45735).
@@ -630,7 +637,7 @@ class Wiring(unittest.TestCase):
 
     def test_next_secretless_bootstrap_uses_only_fresh_registered_capacity(self):
         bootstrap = jobs("cmux-next.yml")["portable-placement"]
-        config = env(JOBS=bootstrap["steps"][-1]["env"]["JOBS"],
+        config = env(JOBS=placement_step(bootstrap)["env"]["JOBS"],
                      GITHUB_REPOSITORY="manaflow-ai/cmux", REQUIRE_LIVE_CAPACITY="1",
                      SNAPSHOT_TOKEN="ordinary-token")
         state = {
@@ -722,7 +729,7 @@ class Wiring(unittest.TestCase):
         for workflow, expected_pools in self.PLACED.items():
             workflow_jobs = jobs(workflow)
             place = workflow_jobs["portable-placement"]
-            listed = place["steps"][-1]["env"]["JOBS"].split()
+            listed = placement_step(place)["env"]["JOBS"].split()
             for name, pool in expected_pools.items():
                 with self.subTest(job=f"{workflow}#{name}"):
                     job = workflow_jobs[name]
@@ -955,7 +962,7 @@ class Wiring(unittest.TestCase):
         path_route = next_jobs["path_route"]
         next_placement = next_jobs["portable-placement"]
         self.assertIn("CI_PORTABLE_LIGHT_JOBS_OFF != '1'", next_placement["if"])
-        self.assertEqual(next_placement["steps"][-1]["env"]["JOBS"], "checks path_route")
+        self.assertEqual(placement_step(next_placement)["env"]["JOBS"], "checks path_route")
         self.assertEqual(path_route["needs"], ["portable-placement"])
         self.assertIn("always()", path_route["if"])
         self.assertIn("!cancelled()", path_route["if"])
@@ -970,7 +977,7 @@ class Wiring(unittest.TestCase):
     def test_other_portable_callers_do_not_opt_into_bot_attempt_three(self):
         for workflow in ("cmux-next.yml",):
             with self.subTest(workflow=workflow):
-                step = jobs(workflow)["portable-placement"]["steps"][-1]
+                step = placement_step(jobs(workflow)["portable-placement"])
                 self.assertNotIn("PORTABLE_ATTEMPT3_RESCUE", step.get("env", {}))
 
     def test_merge_group_keeps_web_rollup_without_placement(self):
