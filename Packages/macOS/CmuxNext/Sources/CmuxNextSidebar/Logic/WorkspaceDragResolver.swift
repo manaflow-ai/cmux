@@ -32,7 +32,8 @@ package enum WorkspaceDragOutcome: Hashable {
 }
 
 /// Pure outcome resolution for workspace drags (tested without windows).
-package enum WorkspaceDragResolver {
+package struct WorkspaceDragResolver {
+    package init() {}
     /// - Parameters:
     ///   - windowID: the frontmost window under the pointer, nil outside all.
     ///   - sidebarHit: that window's sidebar target, if the pointer is on it.
