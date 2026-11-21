@@ -63,3 +63,35 @@ extension WindowRules {
         return call("window_history_tab", Request(history: history, tab: tab), as: TabHistoryReply.self)
     }
 }
+
+/// The app's strict tab history: the settled tab is recorded and a step shows its target, asking
+/// cmux-window-rules for both. A tab `show` cannot show any more leaves the history and the step
+/// looks again.
+@MainActor public final class TabHistoryTracker {
+    public private(set) var history = TabHistory()
+    /// The tab the active window settled on last.
+    public private(set) var current: TabHistory.Visit?
+    private let rules = WindowRules()
+
+    public init() {}
+
+    public func record(tab: String, workspace: String, machine: String) {
+        let visit = TabHistory.Visit(tab: tab, workspace: workspace, machine: machine)
+        current = visit
+        if let reply = rules.tabHistory(history, record: visit) { history = reply.history }
+    }
+
+    /// Shows the tab `step` reaches within `scope`; false when there is nowhere to go.
+    public func step(_ step: TabHistory.Step, scope: TabHistory.Scope, show: (String) -> Bool) -> Bool {
+        guard let current else { return false }
+        for _ in 0..<8 {
+            guard let reply = rules.tabHistory(history, step: step, scope: scope, current: current) else { return false }
+            history = reply.history
+            guard let target = reply.target else { return false }
+            if show(target.tab) { return true }
+            guard let forgot = rules.tabHistory(history, forget: target.tab) else { return false }
+            history = forgot.history
+        }
+        return false
+    }
+}

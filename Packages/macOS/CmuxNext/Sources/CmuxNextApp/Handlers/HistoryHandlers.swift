@@ -24,12 +24,11 @@ enum HistoryHandlers {
                 guard services.locationTrail.navigate(direction) else { throw ActionFailure.noTarget(nowhere()) }
             })
         }
-        // Strict tab history (`history::actions` tab walks; no default shortcut).
+        // Strict tab history (`history::actions` tab walks; no default shortcut). Nowhere to go is refused quietly.
         for walk in table?.tabWalks ?? [] {
-            registry.bind(ActionID(rawValue: walk.action), run: { _ in
-                guard services.locationTrail.stepTab(walk.step, scope: walk.scope) else {
-                    throw ActionFailure.noTarget(HistoryAppStrings.nothingBack)
-                }
+            registry.bindEffect(ActionID(rawValue: walk.action), requires: nil, effect: { _ in
+                let shown = ActionRunScope.viewChangeAllowed() && services.locationTrail.tabs.step(walk.step, scope: walk.scope) { services.revealTab($0) }
+                return shown ? .done : .refused(HistoryAppStrings.nothingBack, quiet: true)
             })
         }
         // A row of the Back / Forward button list (history.md 4.2a): the trail index it shows.

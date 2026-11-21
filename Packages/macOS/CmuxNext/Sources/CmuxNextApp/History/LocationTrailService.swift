@@ -40,10 +40,8 @@ final class LocationTrailService {
     /// More listeners (each window's titlebar Back / Forward buttons): token to handler.
     private var observers: [Int: () -> Void] = [:]
     private var nextObserver = 0
-    /// Strict tab history (Go Back One Tab, Go to Recent Tab; `+TabHistory`): every settled tab, apart from the trail.
-    var tabHistory = TabHistory()
-    /// The tab the active window settled on last.
-    var currentTab: TabHistory.Visit?
+    /// Strict tab history (Go Back One Tab, Go to Recent Tab): every settled tab, apart from the trail.
+    let tabs = TabHistoryTracker()
 
     /// Adds a listener for every trail change (also scope changes: re-read `canNavigate`); returns
     /// the token for ``removeObserver(_:)``.
@@ -131,7 +129,7 @@ final class LocationTrailService {
             pageHistoryDidChange()
             return
         }
-        recordTab(location)
+        if location.page == nil { tabs.record(tab: location.key.tab, workspace: location.workspace, machine: location.key.machine) }
         let recorded: Bool
         let time = now(), scope = stepScope
         if let jump = jumpNotedAt, time.timeIntervalSince(jump) < Self.jumpWindow, location.key != trail.current?.location.key {
@@ -170,7 +168,7 @@ final class LocationTrailService {
         let location = HistoryLocation.page(route.rawValue, window: controller.state.id, title: title,
                                             isIncognito: services.windows.isIncognito(window: controller.state.id))
         let time = now()
-        if let origin, Self.needsOrigin(origin, before: location, current: trail.current?.location) {
+        if let origin, HistoryLocation.needsOrigin(origin, before: location, current: trail.current?.location) {
             // A jump: neither entry is coalesced away as a quick pass. The origin is a millisecond
             // older, so the daemon's rows (newest first by time) keep the order.
             let before = time.addingTimeInterval(-0.001)
