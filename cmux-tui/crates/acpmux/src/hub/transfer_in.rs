@@ -559,7 +559,9 @@ impl Hub {
         params: &Value,
     ) -> Result<Value, RpcError> {
         let text = |k: &str| params.get(k).and_then(Value::as_str).filter(|s| !s.is_empty());
+        let mut pct0 = super::transfer_out::transfer_precopy::Pct::new("finish");
         let _receives = RECEIVES.lock().await;
+        pct0.at("lock");
         let dir = receive_dir(text("receiveId").unwrap_or(""))?;
         let (manifest, files) = receive_manifest(&dir)?;
         let incoming_epoch = manifest_epoch(&manifest)?;
@@ -594,6 +596,7 @@ impl Hub {
                 "bundle identity does not match transfer manifest",
             ));
         }
+        let mut pct = super::transfer_out::transfer_precopy::Pct::new("finish");
         let old = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
         let old = old.filter(|s| self.moved_away(s));
         if let Some(existing) = old.as_ref() {
@@ -606,6 +609,7 @@ impl Hub {
                 reject_stale_epoch(existing.ownership_epoch(), incoming_floor)?;
             }
         }
+        pct.at("old_epoch");
         let replacing_durable = old.as_ref().is_some_and(|existing| {
             let existing_meta = existing.meta();
             existing_meta.harness == bundle_meta.harness
@@ -628,6 +632,7 @@ impl Hub {
         } else {
             None
         };
+        pct.at("fence");
         let mut replace_native = false;
         if let Some(g) = &guard {
             let replaceable = old.as_ref().and_then(|o| o.meta().agent_session_id);
@@ -671,6 +676,7 @@ impl Hub {
             }
             self.retire_transfer_instance(old).await?;
         }
+        pct.at("retire");
         let source_store = if replacing_durable {
             crate::store::folder_to_replace(self.store.as_ref(), id)
                 .map_err(|e| transfer_error("store", format!("chat {id}: {e}")))?
@@ -698,6 +704,7 @@ impl Hub {
         } else {
             None
         };
+        pct.at("backup");
         let transfer_id = manifest["transferId"].clone();
         let name = text("name").map(str::to_owned);
         let guarded = guard
@@ -709,6 +716,7 @@ impl Hub {
         {
             Ok(session) => {
                 session.restore_ownership_epoch(incoming_floor);
+                pct.at("import_into");
                 let (_, appended) = self.append_at(
                     &session,
                     "mux",
@@ -742,6 +750,7 @@ impl Hub {
                 if guard.is_none() {
                     self.note_received(&session, &transfer_id, bundle_meta.last_seq);
                 }
+                pct.at("receipt");
                 if let Some((_, backup)) = source_store_backup.as_ref() {
                     let state = backup.with_extension("replacement-state.json");
                     let commit = serde_json::to_value(json!({"id": id, "agentId": bundle_meta.agent_session_id, "transferId": manifest["transferId"], "phase": "committed"}))
@@ -756,12 +765,14 @@ impl Hub {
                         return Err(error);
                     }
                 }
+                pct.at("commit_state");
                 if let Err(error) = self.finalize_harness_state(&session.meta()) {
                     if let Err(mark_error) = self.mark_harness_state_committed(&session.meta()) {
                         tracing::warn!(session = %session.id, "durable commit marker deferred: {mark_error:#}");
                     }
                     tracing::warn!(session = %session.id, "durable transfer finalization deferred: {error:#}");
                 }
+                pct.at("finalize");
                 if let Some((_, backup)) = source_store_backup.as_ref() {
                     let _ = std::fs::remove_dir_all(backup);
                     let _ = std::fs::remove_file(backup.with_extension("replacement-state.json"));
@@ -781,8 +792,10 @@ impl Hub {
             self.append(&session, "mux", "transfer_guarded", g.to_value());
         }
         // Its queue (back since the import) runs here now; the source withdraws it on commit.
+        pct.at("rm_backup");
         self.resume_queues();
         let _ = crate::home_fs::remove_dir_all(&dir);
+        pct.at("resume+rm");
         Ok(self.session_summary(&session))
     }
 
