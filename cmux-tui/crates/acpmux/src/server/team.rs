@@ -166,31 +166,21 @@ async fn inbox(
 
 /// One page of the team's messages (`acpmux inbox`), tried again on a hub failure that passes
 /// (`mesh_retry`: no connection, a 5xx, or a 404 `mesh.not_found` while the hub briefly does not
-/// list this daemon). What is left says how it failed ([`inbox_failure`]).
+/// list this daemon). What is left says whether the hub answered at all.
 async fn team_page(
     mesh: &Arc<dyn MeshHub>,
     unread_only: bool,
     before: Option<u64>,
 ) -> Result<crate::mesh::TeamPage, RpcError> {
-    crate::mesh_retry::retry(true, || mesh.team_messages(unread_only, None, before))
-        .await
-        .map_err(inbox_failure)
-}
-
-/// An inbox read that failed, in words for how: a hub that is down (5xx, 408, 429) is
-/// unavailable, no connection did not answer, a 4xx is the hub's refusal, and a refusal with no
-/// status is this daemon's own (no token command), made before it asked the hub.
-fn inbox_failure(e: crate::mesh::HubError) -> RpcError {
-    let what = match (e.refused, e.status) {
-        (false, Some(_)) => "the mesh hub is unavailable",
-        (false, None) => "the mesh hub did not answer",
-        (true, Some(_)) => "the mesh hub refused the inbox read",
-        (true, None) => "this daemon could not ask the mesh hub for the inbox",
-    };
-    RpcError::internal(format!("{what}: {e}")).with_data(json!({
-        "reason": e.code.as_deref().unwrap_or("mesh.unavailable"),
-        "retryable": !e.refused,
-    }))
+    crate::mesh_retry::retry(true, || mesh.team_messages(unread_only, None, before)).await.map_err(
+        |e| {
+            let what = if e.status.is_some() { "refused the inbox read" } else { "did not answer" };
+            RpcError::internal(format!("the mesh hub {what}: {e}")).with_data(json!({
+                "reason": e.code.as_deref().unwrap_or("mesh.unavailable"),
+                "retryable": !e.refused,
+            }))
+        },
+    )
 }
 
 /// Local session identity, not a mutable address tag, scopes agent access. The hub

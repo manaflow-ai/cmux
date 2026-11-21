@@ -7,15 +7,13 @@
 //!
 //! Bounded: at most [`ATTEMPTS`] tries, [`BACKOFF`] apart (or the hub's `retryAfterSeconds`, up
 //! to [`MAX_RETRY_AFTER`]), so a command waits at most a few seconds more than before before it
-//! says what failed. A caller with a deadline of its own (a read's `READ_WAIT`) passes it to
-//! [`retry_within`], so no try runs past it. A refusal that does not pass (401, 403, 400, an unknown recipient) is never
+//! says what failed. A refusal that does not pass (401, 403, 400, an unknown recipient) is never
 //! tried again. The relay's own loops (inbox, heartbeat) keep their own backoff and do not come
 //! through here.
 
 use crate::mesh::HubError;
 use std::future::Future;
 use std::time::Duration;
-use tokio::time::Instant;
 
 /// The most tries of one call.
 pub const ATTEMPTS: usize = 3;
@@ -44,48 +42,16 @@ pub fn transient(e: &HubError, not_found_passes: bool) -> bool {
 
 /// `call` until it succeeds, fails in a way that does not pass, or has been tried [`ATTEMPTS`]
 /// times; the last failure is returned as it came.
-pub async fn retry<T, F, Fut>(not_found_passes: bool, call: F) -> Result<T, HubError>
-where
-    F: FnMut() -> Fut,
-    Fut: Future<Output = Result<T, HubError>>,
-{
-    tries(not_found_passes, None, call).await
-}
-
-/// [`retry`] within `deadline`: a try still waiting at the deadline ends there, as a hub that
-/// did not answer, and no try starts at or after it (a read's whole wait, `READ_WAIT`, bounds
-/// every try of it). Whether the deadline passed is the caller's to check.
-pub async fn retry_within<T, F, Fut>(
-    not_found_passes: bool,
-    deadline: Instant,
-    call: F,
-) -> Result<T, HubError>
-where
-    F: FnMut() -> Fut,
-    Fut: Future<Output = Result<T, HubError>>,
-{
-    tries(not_found_passes, Some(deadline), call).await
-}
-
-async fn tries<T, F, Fut>(
-    not_found_passes: bool,
-    deadline: Option<Instant>,
-    mut call: F,
-) -> Result<T, HubError>
+pub async fn retry<T, F, Fut>(not_found_passes: bool, mut call: F) -> Result<T, HubError>
 where
     F: FnMut() -> Fut,
     Fut: Future<Output = Result<T, HubError>>,
 {
     let mut attempt = 0;
     loop {
-        let answered = match deadline {
-            Some(deadline) => tokio::time::timeout_at(deadline, call()).await,
-            None => Ok(call().await),
-        };
-        let e = match answered {
-            Ok(Ok(value)) => return Ok(value),
-            Ok(Err(e)) => e,
-            Err(_) => return Err(HubError::unavailable("the mesh hub did not answer in time")),
+        let e = match call().await {
+            Ok(value) => return Ok(value),
+            Err(e) => e,
         };
         let Some(wait) = BACKOFF.get(attempt).copied() else { return Err(e) };
         if !transient(&e, not_found_passes) {
@@ -96,9 +62,6 @@ where
             Some(after) => after.max(wait),
             None => wait,
         };
-        if deadline.is_some_and(|deadline| Instant::now() + wait >= deadline) {
-            return Err(e);
-        }
         tracing::debug!(attempt, error = %e, "mesh hub call failed; trying again");
         tokio::time::sleep(wait).await;
         attempt += 1;
