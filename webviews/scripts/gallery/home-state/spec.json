@@ -1,0 +1,27 @@
+{
+  "envs": [
+    ["dark", "none"],
+    ["light", "none"]
+  ],
+  "shots": [
+    {
+      "entry": "agent-pane.home-state",
+      "variant": "leo",
+      "widthName": "wide",
+      "width": 900,
+      "height": 640,
+      "deviceScaleFactor": 2,
+      "name": "home-state-leo"
+    },
+    {
+      "entry": "agent-pane.home-state",
+      "variant": "leo",
+      "widthName": "wide",
+      "width": 900,
+      "height": 640,
+      "deviceScaleFactor": 2,
+      "name": "home-state-leo-guides",
+      "setup": "// Draws the left edge of each part of Leo's Home over the page and lists them (home-state/spec.json),\n// and keeps the numbers on <html data-home-edges> for a check to read.\n(() => {\n  const textLeft = (el) => {\n    if (!el) return undefined;\n    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);\n    for (let node = walker.nextNode(); node; node = walker.nextNode()) {\n      if (!node.textContent.trim()) continue;\n      const range = document.createRange();\n      range.selectNodeContents(node);\n      const rect = range.getClientRects()[0];\n      if (rect) return rect.left;\n    }\n    return el.getBoundingClientRect().left;\n  };\n  const box = (sel) => document.querySelector(sel)?.getBoundingClientRect();\n  const parts = [\n    [\"card\", box(\".acpmux-home-inbox\")?.left, \"#ff4d4d\"],\n    [\"card label\", textLeft(document.querySelector(\".acpmux-home-inbox .acpmux-home-label\")), \"#ffa64d\"],\n    [\"card title\", textLeft(document.querySelector(\".acpmux-home-inbox-ask\")), \"#ffe14d\"],\n    [\"service line\", textLeft(document.querySelector(\".acpmux-host-line-message\")), \"#4dff88\"],\n    [\"picker\", box(\".acpmux-location-picker svg\")?.left ?? box(\".acpmux-location-picker\")?.left, \"#4dd2ff\"],\n    [\"composer\", box(\".acpmux-composer-strip\")?.left, \"#b84dff\"],\n  ];\n  const layer = document.createElement(\"div\");\n  layer.style.cssText = \"position:fixed;inset:0;pointer-events:none;z-index:99999;font:11px/1.3 ui-monospace,monospace\";\n  const list = document.createElement(\"div\");\n  list.style.cssText =\n    \"position:absolute;right:8px;top:8px;padding:6px 8px;background:rgba(0,0,0,.78);color:#fff;border-radius:6px\";\n  for (const [name, x, color] of parts) {\n    if (x === undefined) continue;\n    const line = document.createElement(\"div\");\n    line.style.cssText = `position:absolute;top:0;bottom:0;left:${x}px;width:1px;background:${color};opacity:.8`;\n    layer.append(line);\n    const row = document.createElement(\"div\");\n    row.innerHTML = `<span style=\"color:${color}\">&#9632;</span> ${name}: ${x.toFixed(1)}`;\n    list.append(row);\n  }\n  layer.append(list);\n  document.body.append(layer);\n  document.documentElement.dataset.homeEdges = JSON.stringify(Object.fromEntries(parts.map(([n, x]) => [n, x])));\n})();\n"
+    }
+  ]
+}
