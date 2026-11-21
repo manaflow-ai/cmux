@@ -305,6 +305,26 @@ class PullRequestShardsTest(unittest.TestCase):
         self.touched("webviews/package.json")
         self.assertEqual(ps.pick(self.root, "HEAD^1", "HEAD", 3)[0], [1, 2, 3])
 
+    def test_files_of_lists_the_named_shards_files_webviews_relative(self) -> None:
+        """react-apps-base-early replays base reds only among these (RFD 0023 item 3): the picked shards' own split."""
+        import webviews_pr_shards as ps  # noqa: PLC0415
+        self.touched("webviews/src/leaf.ts")
+        split = {1: {"webviews/test/a.test.ts"}, 2: {"webviews/test/leaf.test.ts"}, 3: {"webviews/test/other.test.ts"}}
+        seen: list[int] = []
+        real = ps.shard_files
+        ps.shard_files = lambda repo, shard, count, selected: (seen.append(shard), split[shard])[1]
+        try:
+            self.assertEqual(ps.files_of(self.root, "HEAD^1", "HEAD", 3, [1, 2]), ["test/a.test.ts", "test/leaf.test.ts"])
+        finally:
+            ps.shard_files = real
+        self.assertEqual(seen, [1, 2])
+
+    def test_files_of_refuses_shards_outside_the_count(self) -> None:
+        run = subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_pr_shards.py"), "--base", "HEAD^1",
+                              "--count", "3", "--files-of", "4"], capture_output=True, text=True)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertEqual(run.stdout, "")
+
 
 if __name__ == "__main__":
     unittest.main()
