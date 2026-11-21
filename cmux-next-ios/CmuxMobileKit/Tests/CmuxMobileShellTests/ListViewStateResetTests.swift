@@ -5,7 +5,7 @@ import Testing
 
 /// `-cmux-mobile-no-restore` opens the lists on All Macs with no grouping, so one UI suite's
 /// chosen Mac never scopes the next suite's list on the shared simulator.
-@Suite struct ListViewStateResetTests {
+@MainActor @Suite struct ListViewStateResetTests {
     /// WorkspaceListGrouping.defaultsKey (CmuxMobileWorkspaces is not this target's dependency).
     private let groupBy = "cmuxMobile.workspaces.groupBy"
 

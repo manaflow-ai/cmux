@@ -11,7 +11,7 @@ extension ShellLaunchOptions {
     /// "filtered-offline-mac" scene leaves MacBook Pro chosen) otherwise scoped every later
     /// suite's list to that Mac, so `workspace.row.ws-cmux` and the offline fold never showed.
     /// Call once at launch, before any view reads either value.
-    public static func clearListViewStateIfNotRestoring(
+    @MainActor public static func clearListViewStateIfNotRestoring(
         arguments: [String] = ProcessInfo.processInfo.arguments,
         defaults: UserDefaults = .standard
     ) {
