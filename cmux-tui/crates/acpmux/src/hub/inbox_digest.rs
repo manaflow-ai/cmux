@@ -23,10 +23,11 @@
 //!   first and names every original, so this holds whichever of the records after it a stop
 //!   cut off.
 //! - When the chat's turn runs, below its turn cap (`turn_cap.rs`), with none of the person's
-//!   prompts waiting behind it, and its agent steers, the digest goes into that turn as ONE steer (its queue entry is marked as a steer, as Send now
-//!   marks one, `queue.rs` `steer_queued`; past the cap by then, it waits as below); otherwise
-//!   it waits at the head of the agent messages in the queue, still behind the person's prompts
-//!   (held ones too), and runs as its own turn: no later agent message joins it.
+//!   prompts waiting behind it, and its agent steers, the digest goes into that turn as ONE
+//!   steer (its queue entry is marked as a steer, as Send now marks one, `queue.rs`
+//!   `steer_queued`; past the cap by then, it waits as below); otherwise it waits at the head
+//!   of the agent messages in the queue, still behind the person's prompts (held ones too), and
+//!   runs as its own turn: no later agent message joins it.
 //! - `dryRun` returns the digest it would make and changes nothing.
 //!
 //! What stays queued: a message with anything but text (an image, an uploaded file, hidden
