@@ -107,12 +107,11 @@ public class ThemedBezelButton: ClickableButton {
                 return (ink, ink)
             }
             let rest = CmuxDialogButtonLook(role: .normal, tokens: tokens, isEnabled: isEnabled, card: ground)
-            let pressed = CmuxDialogButtonLook(role: .normal, tokens: tokens, state: .pressed, isEnabled: isEnabled, card: ground)
+            // AppKit keeps the title's ink while the button is held, so the press is the look's small hover step:
+            // fit to the deeper pressed fill as well, the title flipped to black on Grass's green (4.30:1 at rest).
+            let pressed = CmuxDialogButtonLook(role: .normal, tokens: tokens, state: .hover, isEnabled: isEnabled, card: ground)
             cell?.fills = (rest.fill.nsColor, pressed.fill.nsColor)
-            // The title stays put while the fill deepens under a press: fit it to both.
-            let minimum = isEnabled ? CmuxDialogButtonLook.minimumContrast : CmuxDialogButtonLook.disabledMinimumContrast
-            let title = CmuxDialogButtonLook.readable(rest.title, over: rest.surfaces + pressed.surfaces, minimum: minimum)
-            return (title.nsColor, rest.keyHint.nsColor)
+            return (rest.title.nsColor, rest.keyHint.nsColor)
         }
         needsDisplay = true
         guard !plainTitle.isEmpty || keyHint != nil else { return super.title = plainTitle }
