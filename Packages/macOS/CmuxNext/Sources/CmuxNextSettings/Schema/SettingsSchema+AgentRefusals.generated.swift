@@ -96,8 +96,6 @@ extension SettingsSchema {
         "labs.machineJoin": .network,
         // On, a live code build loads Swift patches into the running app: only the person turns that on.
         "labs.liveCode": .userOnly,
-        // On, Settings edits the MCP servers in Claude Code's and Codex's own config files: only the person turns that on.
-        "labs.agentCustomization": .userOnly,
         // Whether cmux's own pages open developer tools, which read and change their live content: the person's call.
         "developerTools.appPages": .userOnly,
         // Whether the person's Command Palette lists the debug commands: the person's call.
@@ -137,6 +135,8 @@ extension SettingsSchema {
         "notifications.showPreviews": .userOnly,
         // Battery and sleep are the person's call: an agent must not keep the Mac up for itself.
         "sessions.keepAwake": .userOnly, "sessions.keepAwakeForCommands": .userOnly,
+        // Whether a locked Mac stays up on battery for agents is the person's call too.
+        "sessions.keepAwakeWhenLocked": .userOnly,
         // Whether agents start again by themselves after a restart is the person's call.
         "sessions.resumeAgents": .userOnly,
         // An agent must not let itself, or another agent, skip the person's approvals.

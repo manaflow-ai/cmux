@@ -2261,7 +2261,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         if rec.dir == "mux" && is_permission_ask(&rec.kind) {
             conn.send(&Message::notification(
                 method::MUX_PERMISSION_PENDING,
-                routed(permission_pending(&ev.session_id, rec, "attach")),
+                routed(permission_pending(&ev.session_id, rec, "attach", ev.remote.is_none())),
             ));
         }
         if let Some(following) = &sub.rows
@@ -2341,7 +2341,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         if is_permission_ask(&rec.kind) && !attached {
             conn.send(&Message::notification(
                 method::MUX_PERMISSION_PENDING,
-                permission_pending(&ev.session_id, rec, "watch"),
+                permission_pending(&ev.session_id, rec, "watch", ev.remote.is_none()),
             ));
         }
     }
