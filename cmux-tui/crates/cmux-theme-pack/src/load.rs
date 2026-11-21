@@ -102,15 +102,36 @@ impl PackDiagnostic {
     }
 
     /// One line: `look: appearance.accent = "pink": expected one of ...`.
+    /// Every part may be the pack's own text (an unknown key, its value), and
+    /// the line goes to a terminal, so control characters come out escaped
+    /// (`\u{1b}`), never raw: a pack cannot drive the reader's terminal.
     pub fn display(&self) -> String {
         let value = self.value.as_ref().map(|value| format!(" = {value}")).unwrap_or_default();
-        match (&self.key, self.section.is_empty()) {
+        let line = match (&self.key, self.section.is_empty()) {
             (Some(key), false) => format!("{}: {key}{value}: {}", self.section, self.message),
             (Some(key), true) => format!("{key}{value}: {}", self.message),
             (None, false) => format!("{}: {}", self.section, self.message),
             (None, true) => self.message.clone(),
+        };
+        terminal_safe(&line)
+    }
+}
+
+/// `text` with each control character (C0, DEL, C1) written as its Rust
+/// escape; everything else unchanged.
+fn terminal_safe(text: &str) -> String {
+    if !text.chars().any(char::is_control) {
+        return text.to_string();
+    }
+    let mut out = String::with_capacity(text.len() + 8);
+    for c in text.chars() {
+        if c.is_control() {
+            out.extend(c.escape_default());
+        } else {
+            out.push(c);
         }
     }
+    out
 }
 
 /// A pack, read and checked: what it applies and what it lost.
