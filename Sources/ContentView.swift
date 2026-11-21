@@ -11613,11 +11613,14 @@ struct VerticalTabsSidebar: View, Equatable {
         unreadSnapshot: SidebarUnreadSnapshot
     ) -> [String: SwiftValue] {
         let selectedId = tabManager.selectedTabId
+        // Once per build, not per workspace: this runs every sidebar tick.
+        let agentIndex = Workspace.customSidebarAgentBindingIndex()
         let workspaces = tabManager.tabs.enumerated().map { index, workspace in
             workspace.customSidebarWorkspaceSnapshot(
                 index: index,
                 selectedId: selectedId,
-                unreadCount: unreadSnapshot.unreadCount(forWorkspaceId: workspace.id)
+                unreadCount: unreadSnapshot.unreadCount(forWorkspaceId: workspace.id),
+                agentIndex: agentIndex
             )
         }
         let selectedWorkspace = tabManager.tabs.first { $0.id == selectedId }

@@ -107,11 +107,14 @@ struct CustomSidebarPanelView: View {
 
     private func buildCustomSidebarDataContext(now: Date) -> [String: SwiftValue] {
         let selectedId = tabManager.selectedTabId
+        // Once per build, not per workspace: this runs every pane tick.
+        let agentIndex = Workspace.customSidebarAgentBindingIndex()
         let workspaces = tabManager.tabs.enumerated().map { index, workspace in
             workspace.customSidebarWorkspaceSnapshot(
                 index: index,
                 selectedId: selectedId,
-                unreadCount: sidebarUnread.unreadCount(forWorkspaceId: workspace.id)
+                unreadCount: sidebarUnread.unreadCount(forWorkspaceId: workspace.id),
+                agentIndex: agentIndex
             )
         }
         let selectedWorkspace = tabManager.tabs.first { $0.id == selectedId }
