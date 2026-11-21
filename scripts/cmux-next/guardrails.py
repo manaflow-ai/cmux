@@ -111,7 +111,7 @@ SHIPPED_BUILD_SPECS = (".github/workflows", "scripts/build-sign-upload.sh", "Pac
 # The shell scripts plist-missing-file reads (and the workflows, above).
 SHELL_SPECS = (":(glob)scripts/**/*.sh",)
 APP = SOURCES + "CmuxNextApp/"
-UPSTREAM = "origin/feat-cmux-next"
+UPSTREAM = "refs/remotes/origin/feat-cmux-next"  # full name, never a local branch `origin/...` (push_range.UPSTREAM)
 OWNERS = "plans/cmux-next/OWNERS.md"
 BENCHES = "scripts/cmux-next/perf-hot-benches.json"
 SKIP_ENV = "CMUX_GUARDRAILS_SKIP_REASON"
@@ -2195,6 +2195,17 @@ RULES = (
          "// index-allow: <why the index is valid here>",
          line_rule(r"\.(clickedRow|clickedColumn|selectedColumn)\b|\bitem\(atRow:|\bselectedRow\(inColumn:",
                    "index-allow:")),
+    Rule("path-name-by-stat", "A file URL made only to read a path's name "
+         "(`URL(fileURLWithPath: path).lastPathComponent` or `.pathExtension`)",
+         "that initializer runs lstat on the path to learn whether it is a folder before it answers from the "
+         "string. For another machine's folder (`/home/...` in a session row, a remote tab's cwd) macOS sends the "
+         "lstat through its automounter: 7 ms blocked plus 4 ms of automountd and opendirectoryd CPU per call, "
+         "once per session row on the feed's queue (cmux#47592)",
+         "read the name from the string: `(path as NSString).lastPathComponent` / `.pathExtension`; when a URL is "
+         "needed anyway, say what the path is (`URL(fileURLWithPath:isDirectory:)`, `URL(filePath:directoryHint:)`)",
+         "// path-stat-allow: <why this path is always on this Mac's own disk and the call is off every hot path>",
+         line_rule(r"\bURL\(fileURLWithPath:[^()]*\)\.(lastPathComponent|pathExtension)\b",
+                   "path-stat-allow:")),
     Rule("phone-width", "An iPhone layout that assumes a phone's width: a grid with a fixed column count "
          "(`GridItem(...), count: N`, two or more literal `GridItem(.flexible())`) or a literal iPhone screen width "
          "(375, 390, 393, 402, 414, 428, 430, 440) as a width",
