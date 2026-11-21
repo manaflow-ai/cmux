@@ -35,6 +35,16 @@ describe("cmux NEXT subscription plans", () => {
     expect(nextPlanIdForSubscription(subscription({ id: "price_nplus", lookup_key: "other" }), null, env)).toBeNull();
   });
 
+  test("a Price id two NEXT variables share names no plan: a miscopied Plus id never relabels a Pro subscriber", () => {
+    const env = { STRIPE_PRICE_NEXT_PLUS_MONTHLY: "price_np", STRIPE_PRICE_NEXT_PRO_MONTHLY: "price_np", STRIPE_PRICE_NEXT_MAX_MONTHLY: "price_nm" };
+    // The shared id decides nothing; the lookup key, then the metadata, still name the plan.
+    expect(nextPlanIdForSubscription(subscription({ id: "price_np", lookup_key: "cmux-next-pro-monthly" }), null, env)).toBe("next_pro");
+    expect(nextPlanIdForSubscription(subscription({ id: "price_np" }, "next_pro"), null, env)).toBe("next_pro");
+    expect(nextPlanIdForSubscription(subscription({ id: "price_np" }), null, env)).toBeNull();
+    // An id only one variable holds is as authoritative as before.
+    expect(nextPlanIdForSubscription(subscription({ id: "price_nm" }, "next_plus"), null, env)).toBe("next_max");
+  });
+
   test("NEXT Plus is the lowest plan: $20 with 30,000 machine minutes, 1,500 per dollar like the others", () => {
     expect(NEXT_PLAN_IDS).toEqual(["next_plus", "next_pro", "next_max"]);
     expect(NEXT_PLAN_OFFERS.map((offer) => offer.id)).toEqual([...NEXT_PLAN_IDS]);

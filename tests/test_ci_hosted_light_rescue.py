@@ -1468,6 +1468,50 @@ class Backlog(unittest.TestCase):
         self.assertEqual(cancelled, [2099, 2098, 2097])
         self.assertLessEqual(counts["requests"], rescue.BACKLOG_READS)
 
+    def test_a_pending_run_whose_job_waits_on_hosted_ubuntu_is_cancelled_and_re_run(self):
+        # 2026-11-19: cmux#47559's required React Doctor run 44604684959 sat `pending` (held behind its concurrency
+        # group) with its one job queued on ubuntu-24.04 for 8 h. The pass listed queued and in_progress runs only.
+        fake = BacklogFake([backlog_run(44604684959, status="pending", pr=47559,
+                                        workflow="cmux-next-react-doctor.yml")],
+                           {44604684959: [job("React Doctor (changed React projects)", waited=8 * 3600)]},
+                           pulls={47559: OPEN_AT_HEAD})
+        first, second = two_passes(fake)
+        self.assertEqual(backlog_mutations(fake), [("cancel", 44604684959), ("rerun", 44604684959)])
+        self.assertEqual((first["cancelled"], second["recovered"]), (1, 1))
+
+    def test_a_run_waiting_on_an_environment_is_never_listed(self):
+        fake = BacklogFake([backlog_run(61, status="waiting", pr=1)], {61: [job("x", waited=7200)]},
+                           pulls={1: OPEN_AT_HEAD})
+        backlog(fake)
+        self.assertEqual(backlog_mutations(fake), [])
+        self.assertNotIn(("jobs", 61), fake.calls)
+
+    def test_a_stalled_run_behind_many_old_runs_on_blacksmith_is_reached_within_a_few_passes(self):
+        # 2026-11-20: 489 candidates a pass, the same 116 oldest read every time (all queued on Blacksmith, none
+        # stalled), so the hosted-bound runs created after them were never read.
+        old = [backlog_run(5000 + i, age_min=600 + i, pr=1) for i in range(400)]
+        stuck = backlog_run(9000, age_min=300, pr=2)
+        fake = BacklogFake(old + [stuck],
+                           {**{r["id"]: [job("x", labels=("blacksmith-4vcpu-ubuntu-2404",), waited=36000)]
+                               for r in old}, 9000: [job("x", waited=300 * 60)]},
+                           pulls={1: OPEN_AT_HEAD, 2: OPEN_AT_HEAD})
+        passes = 0
+        for passes in range(1, 9):
+            _, counts = backlog(fake, now=NOW + dt.timedelta(minutes=10 * (passes - 1)))
+            self.assertLessEqual(counts["requests"], rescue.BACKLOG_READS)
+            if ("cancel", 9000) in backlog_mutations(fake):
+                break
+        self.assertIn(("cancel", 9000), backlog_mutations(fake))
+        self.assertLessEqual(passes, 8)
+
+    def test_the_rotation_keeps_the_oldest_waiting_runs_first(self):
+        waiting = [{"id": i} for i in range(rescue.BACKLOG_OLDEST_FIRST + 100)]
+        for minutes in (0, 10, 20, 30):
+            rotated = rescue.backlog_rotate(waiting, NOW + dt.timedelta(minutes=minutes))
+            self.assertEqual(rotated[:rescue.BACKLOG_OLDEST_FIRST], waiting[:rescue.BACKLOG_OLDEST_FIRST])
+            self.assertEqual(sorted(r["id"] for r in rotated), list(range(len(waiting))))
+        self.assertEqual(rescue.backlog_rotate(waiting[:5], NOW), waiting[:5])
+
     def test_main_reads_tokens_and_the_action_bound_from_the_environment(self):
         fake = BacklogFake([backlog_run(50, pr=1), backlog_run(51, age_min=210, pr=1)],
                            {50: [job("x", waited=7200)], 51: [job("x", waited=7200)]}, pulls={1: OPEN_AT_HEAD})
