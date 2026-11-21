@@ -18,7 +18,13 @@ impl Catalog {
                 && msg["method"] == "model/list"
             {
                 self.request = msg.get("id").cloned();
-                msg["params"]["limit"] = json!(100);
+                if let Some(params) = msg
+                    .as_object_mut()
+                    .map(|fields| fields.entry("params").or_insert_with(|| json!({})))
+                    .and_then(Value::as_object_mut)
+                {
+                    params.insert("limit".into(), json!(100));
+                }
             }
         }
     }
@@ -61,8 +67,9 @@ impl Catalog {
             self.rows.extend(rows.iter().cloned().map(|mut row| {
                 if row.get("id").is_none()
                     && let Some(model) = row.get("model").cloned()
+                    && let Some(fields) = row.as_object_mut()
                 {
-                    row["id"] = model;
+                    fields.insert("id".into(), model);
                 }
                 row
             }));

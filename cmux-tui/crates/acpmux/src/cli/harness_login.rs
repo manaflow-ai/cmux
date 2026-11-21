@@ -281,7 +281,7 @@ fn codex_config_args(args: &[String]) -> Vec<String> {
     let before = codex_globals(args);
     let mut globals = before.to_vec();
     if args.get(before.len()).is_some_and(|arg| arg == "app-server") {
-        let mut tail = args[before.len() + 1..].iter();
+        let mut tail = args.iter().skip(before.len().saturating_add(1));
         while let Some(arg) = tail.next() {
             let (name, attached) =
                 arg.split_once('=').map_or((arg.as_str(), false), |(name, _)| (name, true));

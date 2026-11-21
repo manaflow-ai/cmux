@@ -34,7 +34,8 @@ fn live_cli(name: &str, profile: &HarnessProfile) -> Option<Cli> {
 }
 
 fn target(cfg: &Config, name: &str, cli: Cli) -> anyhow::Result<Target> {
-    let profile = &cfg.harnesses[name];
+    let profile =
+        cfg.harnesses.get(name).ok_or_else(|| anyhow::anyhow!("no harness named {name}"))?;
     let (argv, env) = match cli {
         Cli::Claude => (profile.argv.clone(), profile.env.clone()),
         Cli::Codex if crate::codex_app_server::is_profile_launch(&profile.argv) => {

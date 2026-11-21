@@ -40,7 +40,7 @@ async fn read(version: &str) -> Option<BTreeMap<String, String>> {
 }
 
 pub(super) async fn fill(rows: &mut [HarnessHealth], previous: &[HarnessHealth]) {
-    let mut answers = HashMap::new();
+    let mut answers: HashMap<(String, String), Option<BTreeMap<String, String>>> = HashMap::new();
     for row in rows {
         let official = matches!(
             (row.channel, row.package.as_deref()),
@@ -61,15 +61,17 @@ pub(super) async fn fill(rows: &mut [HarnessHealth], previous: &[HarnessHealth])
             continue;
         }
         let key = (old.clone(), new.clone());
-        if !answers.contains_key(&key) {
-            let (from, to) = tokio::join!(read(old), read(new));
-            let added = from.zip(to).map(|(from, mut to)| {
-                to.retain(|id, _| !from.contains_key(id));
-                to
-            });
-            answers.insert(key.clone(), added);
+        if let Some(added) = answers.get(&key) {
+            row.new_codex_models = added.clone();
+            continue;
         }
-        row.new_codex_models = answers[&key].clone();
+        let (from, to) = tokio::join!(read(old), read(new));
+        let added = from.zip(to).map(|(from, mut to)| {
+            to.retain(|id, _| !from.contains_key(id));
+            to
+        });
+        row.new_codex_models = added.clone();
+        answers.insert(key, added);
     }
 }
 
