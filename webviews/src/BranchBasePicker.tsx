@@ -1,7 +1,7 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { memo, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { LastKnown } from "./lastKnown";
 import { createPortal } from "react-dom";
-import { useScrollEdges } from "./ui/scrollEdges";
+import { VirtualList } from "./ui/VirtualList";
 import "./ui/popupSurface.css";
 import { onInterfaceScaleChange } from "./ui/interfaceScale";
 import { computePopoverStyle, type PopoverStyle } from "./branchBasePopover";
@@ -143,7 +143,6 @@ export function BranchBasePicker({
   transport?: DiffTransport | null;
 }) {
   const [open, setOpen] = useState(false);
-  const listEdges = useScrollEdges();
   const [query, setQuery] = useState("");
   const [groups, setGroups] = useState<BranchPickerGroup[] | null>(() => lastKnownRefs(picker));
   /** This mount listed the refs once already: a last-known list is read again on the first open only. */
@@ -177,7 +176,11 @@ export function BranchBasePicker({
   const clampedHighlight = flat.length === 0 ? 0 : Math.min(highlight, flat.length - 1);
   /** What is highlighted now, read when a quiet refresh swaps the rows under it. */
   const shownRows = useRef({ flat, highlight: clampedHighlight, query });
-  shownRows.current = { flat, highlight: clampedHighlight, query };
+  // Kept after each commit, not during render: a ref written in render keeps the React Compiler off
+  // this component, and then every row gets new props on every render (a hover redrew them all).
+  useLayoutEffect(() => {
+    shownRows.current = { flat, highlight: clampedHighlight, query };
+  });
 
   const openPopover = () => {
     setOpen(true);
@@ -322,7 +325,10 @@ export function BranchBasePicker({
       if (!button) {
         return;
       }
-      setPopoverStyle(computePopoverStyle(button.getBoundingClientRect()));
+      // Scrolling the list inside the popover reaches this capture listener too: the same place
+      // keeps the same style object, so the popover and its rows do not render again for it.
+      const next = computePopoverStyle(button.getBoundingClientRect());
+      setPopoverStyle((previous) => (previous && samePopoverStyle(previous, next) ? previous : next));
     };
     reposition();
     window.addEventListener("resize", reposition);
@@ -427,41 +433,65 @@ export function BranchBasePicker({
                 </output>
               ) : null}
               {/* Searchable command-palette listbox; a native select/datalist cannot
-              render grouped rows with secondaries, pills, and matched bolding. */}
-              <div
-                ref={listEdges}
-                id={listboxId}
-                className="base-picker-list ui-scroll-edge-fade"
-                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-                role="listbox"
-                aria-label={label("branchPickerOpen")}
-              >
-                {loadState === "error" ? (
-                  <div className="base-picker-status base-picker-status-error">{label("branchPickerLoadFailed")}</div>
-                ) : null}
-                {loadState === "loading" ? (
-                  <div className="base-picker-status">{label("branchPickerLoading")}</div>
-                ) : loadState === "error" && flat.length === 0 ? null : flat.length === 0 ? (
-                  <div className="base-picker-status">{label("branchPickerNoMatches")}</div>
-                ) : (
-                  flat.map((entry, index) => (
-                    <BranchPickerRowView
-                      // Stable identity key: groupId + ref. A ref is unique within a
-                      // group, and the groupId prefix disambiguates the same ref
-                      // appearing in two groups (e.g. Suggested vs Worktrees), so the
-                      // key survives filter rebuilds (no array-index key).
-                      key={`${entry.groupId}:${entry.row.ref}`}
-                      domId={rowDomId(listboxId, index)}
-                      current={entry.row.current === true || entry.row.ref === picker.currentRef}
-                      entry={entry}
-                      label={label}
-                      selected={index === clampedHighlight}
-                      onHover={() => setHighlight(index)}
-                      onSelect={() => selectRef(entry.row.ref)}
-                    />
-                  ))
-                )}
-              </div>
+              render grouped rows with secondaries, pills, and matched bolding. Only the
+              rows near the viewport are in the DOM, plus the highlighted one. */}
+              {loadState !== "loading" && flat.length > 0 ? (
+                <>
+                  {loadState === "error" ? (
+                    <div className="base-picker-status base-picker-status-error">{label("branchPickerLoadFailed")}</div>
+                  ) : null}
+                  <VirtualList
+                    id={listboxId}
+                    className="base-picker-list"
+                    label={label("branchPickerOpen")}
+                    fade
+                    measureRows
+                    count={flat.length}
+                    estimateSize={estimateRowSize}
+                    activeIndex={clampedHighlight}
+                    renderRow={(index, style, measure) => {
+                      const entry = flat[index]!;
+                      return (
+                        <BranchPickerListRow
+                          // Stable identity key: groupId + ref. A ref is unique within a
+                          // group, and the groupId prefix disambiguates the same ref
+                          // appearing in two groups (e.g. Suggested vs Worktrees), so the
+                          // key survives filter rebuilds (no array-index key).
+                          key={`${entry.groupId}:${entry.row.ref}`}
+                          index={index}
+                          count={flat.length}
+                          listboxId={listboxId}
+                          current={entry.row.current === true || entry.row.ref === picker.currentRef}
+                          entry={entry}
+                          label={label}
+                          selected={index === clampedHighlight}
+                          onHover={setHighlight}
+                          onSelect={selectRef}
+                          style={style}
+                          measure={measure}
+                        />
+                      );
+                    }}
+                  />
+                </>
+              ) : (
+                <div
+                  id={listboxId}
+                  className="base-picker-list"
+                  // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                  role="listbox"
+                  aria-label={label("branchPickerOpen")}
+                >
+                  {loadState === "error" ? (
+                    <div className="base-picker-status base-picker-status-error">{label("branchPickerLoadFailed")}</div>
+                  ) : null}
+                  {loadState === "loading" ? (
+                    <div className="base-picker-status">{label("branchPickerLoading")}</div>
+                  ) : loadState === "error" ? null : (
+                    <div className="base-picker-status">{label("branchPickerNoMatches")}</div>
+                  )}
+                </div>
+              )}
             </div>,
             document.body,
           )
@@ -504,6 +534,60 @@ function BranchBaseButtonLabel({ picker }: { picker: BranchPickerPayload }) {
   );
 }
 
+/** A row's height before it is measured: one 28 px option, plus a header or a "more" footer. */
+function estimateRowSize(): number {
+  return 28;
+}
+
+function samePopoverStyle(a: PopoverStyle, b: PopoverStyle): boolean {
+  return a.top === b.top && a.bottom === b.bottom && a.left === b.left && a.maxHeight === b.maxHeight;
+}
+
+/** One windowed row: it takes the row's index and handlers that take the index or ref, so a row
+    renders again only when its own entry, highlight or place changes. */
+const BranchPickerListRow = memo(function BranchPickerListRow({
+  count,
+  current,
+  entry,
+  index,
+  label,
+  listboxId,
+  measure,
+  onHover,
+  onSelect,
+  selected,
+  style,
+}: {
+  count: number;
+  current: boolean;
+  entry: FlatRow;
+  index: number;
+  label: DiffViewerLabelResolver;
+  listboxId: string;
+  measure?: (element: Element | null) => void;
+  onHover: (index: number) => void;
+  onSelect: (ref: string) => void;
+  selected: boolean;
+  style: CSSProperties;
+}) {
+  return (
+    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the group header, option and footer of one entry.
+    <div ref={measure} data-index={index} style={style} role="presentation">
+      <BranchPickerRowView
+        current={current}
+        domId={rowDomId(listboxId, index)}
+        entry={entry}
+        label={label}
+        posInSet={index + 1}
+        setSize={count}
+        onHover={() => onHover(index)}
+        onSelect={() => onSelect(entry.row.ref)}
+        selected={selected}
+      />
+    </div>
+  );
+});
+
 export function BranchPickerRowView({
   current,
   domId,
@@ -511,7 +595,9 @@ export function BranchPickerRowView({
   label,
   onHover,
   onSelect,
+  posInSet,
   selected,
+  setSize,
 }: {
   /** The active base: marked with a check, as the reference picker does. */
   current: boolean;
@@ -520,7 +606,10 @@ export function BranchPickerRowView({
   label: DiffViewerLabelResolver;
   onHover: () => void;
   onSelect: () => void;
+  /** The option's place among all entries, when the list draws only some of them. */
+  posInSet?: number;
   selected: boolean;
+  setSize?: number;
 }) {
   const { row } = entry;
   // Prefer the backend's localized `secondary` (e.g. the localized reason label
@@ -548,6 +637,8 @@ export function BranchPickerRowView({
         role="option"
         tabIndex={-1}
         aria-selected={selected}
+        aria-posinset={posInSet}
+        aria-setsize={setSize}
         aria-current={current || undefined}
         className={selected ? "base-picker-row base-picker-row-selected" : "base-picker-row"}
         onMouseMove={onHover}
