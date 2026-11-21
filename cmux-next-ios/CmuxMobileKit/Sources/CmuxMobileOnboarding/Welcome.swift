@@ -117,7 +117,9 @@ public struct WelcomeView: View {
         let controls = !introStarted ? 0 : reduceMotion ? fade : 0.35 + 0.65 * E.out(E.seg(t, 0, 0.22))
         let large = dynamicTypeSize.isAccessibilitySize
         // A picker switch or replay plays the new hero's entrance from that moment.
-        let heroT = reduceMotion ? .infinity : heroShownAt.map { date.timeIntervalSince($0) } ?? t
+        // Never before it: a paused timeline still reports its last frame's
+        // date, so the first frame after a switch can read up to seconds early.
+        let heroT = reduceMotion ? .infinity : heroShownAt.map { max(0, date.timeIntervalSince($0)) } ?? t
         return ZStack {
             theme.colors.bg.color.ignoresSafeArea()
             ViewThatFits(in: .vertical) {

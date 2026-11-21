@@ -660,7 +660,7 @@ struct WelcomeHeroDecode: View {
         let offsets = [3, 9, 14, 18], strides = [7, 11, 13, 17]
         var picked: [Int] = []
         for i in 0..<4 {
-            var index = (offsets[i] + tick * strides[i]) % count
+            var index = (offsets[i] + max(0, tick) * strides[i]) % count
             while picked.contains(index) { index = (index + 1) % count }
             picked.append(index)
         }
@@ -668,7 +668,8 @@ struct WelcomeHeroDecode: View {
     }
 
     var body: some View {
-        let tick = t.isFinite ? Int(t * 24) : 0
+        // A tick is never negative: the noise index is taken modulo the set.
+        let tick = t.isFinite ? max(0, Int(t * 24)) : 0
         let scramble = Self.scramble(tick: tick)
         let chevronOn = t >= 0.04 && !(0.1..<0.16).contains(t)
         HeroStack(t: t, taglineAt: 0.95, spacing: 16, name: WelcomeHeroVariant.decode.name) {
