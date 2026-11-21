@@ -106,6 +106,18 @@ import Testing
         #expect(previews == cases.map(\.1))
     }
 
+    /// Past the levels it reads one by one, a heading or fence at the bottom still loses its marks.
+    @Test func aHeadingOrFenceUnderDeepNestingLosesItsMarks() {
+        #expect(AgentIncomingCard.firstLine("> > > > ## Status") == "Status")
+        #expect(AgentIncomingCard.firstLine("> > > > > > ## Six deep") == "Six deep")
+        #expect(AgentIncomingCard.firstLine("> > > > ```swift\n> > > > let x = 1\n> > > > ```") == "let x = 1")
+        #expect(AgentIncomingCard.firstLine("- - - - ## Status") == "Status")
+        #expect(AgentIncomingCard.firstLine(">>>> ## four tight") == "four tight")
+        #expect(AgentIncomingCard.firstLine("> - > - ## Mixed four") == "Mixed four")
+        #expect(AgentIncomingCard.firstLine(String(repeating: "> ", count: 3000) + "## Deep heading") == "Deep heading")
+        #expect(AgentIncomingCard.firstLine(String(repeating: ">", count: 50) + " **bold** text") == "bold text")
+    }
+
     @Test func plainTextIsUnchanged() {
         #expect(AgentIncomingCard.firstLine("Reviewed #45282, two nits\nmore") == "Reviewed #45282, two nits")
     }
