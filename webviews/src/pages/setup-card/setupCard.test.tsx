@@ -127,4 +127,28 @@ describe("the Set Up cmux page", () => {
       [SETUP_OPS.run, { action: { kind: "installAgent", id: "codex" } }],
     ]);
   });
+  test("Text Size and Density: the person's pick is one host call, sized over the density's own text", async () => {
+    const look = { textSize: null, density: "cozy", body: 14 };
+    const card = await mounted({ ...fresh, look });
+    expect(card.root.textContent).toContain("Text size and density");
+    const radio = (selector: string) => {
+      const found = card.root.querySelector(selector);
+      if (!found) throw new Error(`no ${selector}`);
+      return found as unknown as HTMLInputElement;
+    };
+    expect(radio('input[data-text-size="default"]').checked).toBe(true);
+    await act(async () => radio('input[data-text-size="larger"]').click());
+    await act(async () => radio('input[data-density-choice="comfortable"]').click());
+    await act(async () => radio('input[data-text-size="default"]').click());
+    expect(card.calls.filter(([op]) => op === SETUP_OPS.run)).toEqual([
+      [SETUP_OPS.run, { action: { kind: "setTextSize", points: 16 } }],
+      [SETUP_OPS.run, { action: { kind: "setDensity", id: "comfortable" } }],
+      [SETUP_OPS.run, { action: { kind: "setTextSize", points: null } }],
+    ]);
+  });
+
+  test("no look from the host (an older app): no Text Size row", async () => {
+    const card = await mounted(fresh);
+    expect(card.root.querySelector('[data-step="look"]')).toBeNull();
+  });
 });
