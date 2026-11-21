@@ -117,7 +117,7 @@ impl Mux {
         if placement.is_some()
             && let Some(surface) = placement.and_then(|placement| self.surface(placement.surface))
         {
-            let _ = surface.persist_host_workspace(&terminal.workspace_key);
+            surface.mirror_host_workspace(&terminal.workspace_key, "terminal move");
         }
         if topology_changed {
             self.publish_resource_event();

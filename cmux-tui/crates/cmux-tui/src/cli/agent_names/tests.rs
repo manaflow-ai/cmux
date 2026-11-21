@@ -1,44 +1,12 @@
 use serde_json::{Value, json};
 
-use super::{
-    Found, Place, Scope, Target, args_with_words, replace, resolve, rewrite_words, targets,
-    valid_agent_name,
-};
+use super::{Scope, Target, args_with_words, replace, rewrite_words, targets, valid_agent_name};
 
 const ALPHA: &str = "term_a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1";
 const BETA: &str = "term_b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2";
-const OLD: &str = "term_0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d";
-const SHELL: &str = "term_5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e";
 
 fn strings(words: &[&str]) -> Vec<String> {
     words.iter().map(|word| (*word).to_owned()).collect()
-}
-
-/// alpha runs claude (live, hook record); beta is a live shell tab; an
-/// exited `alpha` tab is kept beside the live one; two shells share `dup`.
-fn snapshot() -> Value {
-    json!({
-        "panes": [{"id": "pane_1", "name": "left"}, {"id": "pane_2", "name": null}],
-        "tabs": [
-            {"id": "tab_alpha", "name": "alpha", "content_id": ALPHA, "pane_id": "pane_1"},
-            {"id": "tab_old", "name": "alpha", "content_id": OLD, "pane_id": "pane_2"},
-            {"id": "tab_beta", "name": "beta", "content_id": BETA, "pane_id": "pane_2"},
-            {"id": "tab_dup1", "name": "dup", "content_id": SHELL, "pane_id": "pane_1"},
-            {"id": "tab_dup2", "name": "dup", "content_id": BETA, "pane_id": "pane_2"},
-            {"id": "tab_gone", "name": "gone", "content_id": OLD, "pane_id": "pane_2"},
-            {"id": "tab_left", "name": "left", "content_id": SHELL, "pane_id": "pane_2"},
-        ],
-        "terminals": [
-            {"id": ALPHA, "lifecycle": "running", "tab_id": "tab_alpha"},
-            {"id": OLD, "lifecycle": "exited", "tab_id": "tab_old"},
-            {"id": BETA, "lifecycle": "running", "tab_id": "tab_beta"},
-            {"id": SHELL, "lifecycle": "running", "tab_id": "tab_dup1"},
-        ],
-        "agents": [
-            {"terminal_id": ALPHA, "state": "idle", "updated_at_ms": "10"},
-            {"terminal_id": OLD, "state": "done", "updated_at_ms": "5"},
-        ],
-    })
 }
 
 #[test]
@@ -70,31 +38,6 @@ fn w3h_agent_names_follow_the_grammar_and_avoid_command_words_and_ids() {
     ] {
         assert!(valid_agent_name(bad).is_err(), "{bad}");
     }
-}
-
-#[test]
-fn w3h_a_name_selects_a_live_tab_first_then_an_exited_tab() {
-    let snapshot = snapshot();
-    // The live tab wins over the exited tab of the same name.
-    assert_eq!(
-        resolve(&snapshot, "alpha"),
-        Found::One(Place {
-            terminal: ALPHA.into(),
-            tab: "tab_alpha".into(),
-            pane: "pane_1".into(),
-            live: true,
-        })
-    );
-    assert_eq!(resolve(&snapshot, "name:alpha"), resolve(&snapshot, "alpha"));
-    // A unique tab name without an agent works too.
-    assert!(matches!(resolve(&snapshot, "beta"), Found::One(place) if place.terminal == BETA));
-    // An exited tab is found when nothing live has the name (resume).
-    assert!(matches!(resolve(&snapshot, "gone"), Found::One(place) if !place.live));
-    assert_eq!(
-        resolve(&snapshot, "dup"),
-        Found::Ambiguous(vec!["tab_dup1".into(), "tab_dup2".into()])
-    );
-    assert_eq!(resolve(&snapshot, "nobody"), Found::Missing);
 }
 
 fn positional(scope: Scope, word: &str, index: usize) -> Target {
@@ -227,25 +170,6 @@ fn w5p_the_daemon_resolves_every_selector_word_the_cli_rewrites() {
     assert!(!asked.contains(&ALPHA.to_owned()), "{asked:?}");
 }
 
-/// W3-H review: a terminal title wins over a tab name in `terminal … send`
-/// (send.rs), as titles did before names existed. (The daemon's resolver has
-/// the same order; see cmux-tui-core `resource_selector/name_scope.rs`.)
-#[test]
-fn w3h_a_terminal_title_wins_over_a_tab_name() {
-    use super::super::terminal_talk::send::find_terminal;
-    let mut snapshot = snapshot();
-    snapshot["terminals"][2]["title"] = json!("alpha");
-    let found = find_terminal(&snapshot, "alpha").ok().map(|t| t["id"].clone());
-    assert_eq!(found, Some(json!(BETA)));
-    // Two terminals with the title stay ambiguous, as before.
-    snapshot["terminals"][3]["title"] = json!("alpha");
-    let error = find_terminal(&snapshot, "alpha").expect_err("ambiguous title");
-    assert!(format!("{error:?}").contains("selector.ambiguous"), "{error:?}");
-    // With no title, the name still selects its terminal.
-    let found = find_terminal(&self::snapshot(), "alpha").ok().map(|t| t["id"].clone());
-    assert_eq!(found, Some(json!(ALPHA)));
-}
-
 /// W3-H review: a subcommand word of the parser (`group` in `tab group
 /// list`) is never a selector, and no agent can take it as a name.
 #[test]
@@ -290,56 +214,4 @@ fn w3h_rewritten_words_never_change_a_global_option_value() {
         args_with_words(&args, &words, &rewritten),
         Some(strings(&["--session", "alpha", "terminal", ALPHA, "send", "--text", "alpha"]))
     );
-}
-
-/// Review (lead's reviewer, #38436): a live shell tab and a live agent tab with
-/// one name are two candidates. The CLI does not prefer the agent tab: the
-/// daemon's tab-name scope does not, so `tab alpha close` and `terminal alpha
-/// send` could pick different objects. Live tabs still win over exited ones.
-#[test]
-fn w3h_two_live_tabs_with_one_name_are_ambiguous_even_when_one_runs_an_agent() {
-    let mut named = snapshot();
-    if let Some(tabs) = named["tabs"].as_array_mut() {
-        tabs.push(json!({"id": "tab_alpha_shell", "name": "alpha", "content_id": SHELL,
-                         "pane_id": "pane_2"}));
-    }
-    let both = vec!["tab_alpha".to_owned(), "tab_alpha_shell".to_owned()];
-    assert_eq!(resolve(&named, "alpha"), Found::Ambiguous(both));
-
-    let pane = super::super::agent_start::placement::target_pane(&named, Some("alpha"), None)
-        .expect_err("two live tabs are named alpha");
-    assert_eq!(pane.error["code"], "selector.ambiguous", "{}", pane.error);
-
-    let terminal = super::super::terminal_talk::send::find_terminal(&named, "alpha")
-        .expect_err("two live tabs are named alpha");
-    assert_eq!(terminal.failure.error["code"], "selector.ambiguous", "{}", terminal.failure.error);
-
-    // One live tab and one exited tab: the live one, as before.
-    assert!(matches!(resolve(&snapshot(), "alpha"), Found::One(place) if place.terminal == ALPHA));
-}
-
-/// W5-Q follow-up (#39580 review): a tab name selects a live terminal first,
-/// and live is an allow-list of lifecycle words (`running`, `launching`,
-/// `adopting`). A terminal with another word (`tombstoned`, a newer
-/// daemon's word) or with no `lifecycle` field is not live, so it does not
-/// make a live name ambiguous.
-#[test]
-fn w5q_a_name_prefers_a_terminal_whose_lifecycle_says_it_runs() {
-    for other in [json!("tombstoned"), json!("suspended"), json!(""), Value::Null] {
-        let mut named = snapshot();
-        named["terminals"][0]["lifecycle"] = json!("launching");
-        match &other {
-            Value::Null => {
-                if let Some(terminal) = named["terminals"][1].as_object_mut() {
-                    terminal.remove("lifecycle");
-                }
-            }
-            word => named["terminals"][1]["lifecycle"] = word.clone(),
-        }
-        let found = resolve(&named, "alpha");
-        assert!(
-            matches!(&found, Found::One(place) if place.terminal == ALPHA && place.live),
-            "lifecycle {other}: {found:?}"
-        );
-    }
 }

@@ -496,3 +496,33 @@ fn no_current_selector_names_the_flags_and_the_list_instead_of_matching_current(
     // Any other selector keeps the plain message.
     assert_eq!(ResourceError::not_found("screen", "x").message, "no screen matches \"x\"");
 }
+
+/// W5-P review: an id prefix with uppercase hex digits says ids are
+/// lowercase (as a full uppercase id does), not that the id is too short.
+#[test]
+fn w5p_an_uppercase_id_prefix_says_ids_are_lowercase() {
+    for value in ["pane_3F0A", "tab_ABCDEF", "term_8A3"] {
+        let error = Selector::parse(value).unwrap_err();
+        assert_eq!(error.code, "validation.invalid", "{value}");
+        assert!(error.message.contains("lowercase"), "{}", error.message);
+        let lower = value.to_ascii_lowercase();
+        assert!(error.message.contains(&lower), "{}", error.message);
+    }
+}
+
+/// An uppercase id that is also too short or too long says both rules at
+/// once: the lowercase form and the length (review of #39999), so the agent
+/// fixes it in one step.
+#[test]
+fn w5p_an_uppercase_id_of_the_wrong_length_says_both_rules() {
+    let short = Selector::parse("term_8A3").unwrap_err();
+    assert_eq!(short.code, "validation.invalid");
+    for part in ["lowercase", "term_8a3", "at least 4 hex digits", "has 3"] {
+        assert!(short.message.contains(part), "{part}: {}", short.message);
+    }
+    let long = format!("pane_{}", "A".repeat(33));
+    let error = Selector::parse(&long).unwrap_err();
+    for part in ["lowercase", "32 hex digits", "has 33"] {
+        assert!(error.message.contains(part), "{part}: {}", error.message);
+    }
+}

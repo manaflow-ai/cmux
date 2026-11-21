@@ -404,7 +404,7 @@ pub(super) fn insert_viewport_width(
 pub(super) fn validate_selector(scope: &str, prefix: &str, value: &str) -> Result<(), UsageError> {
     let selector = Selector::parse(value).map_err(|error| UsageError::new(error.message))?;
     if matches!(selector, Selector::Id(_)) && !is_expanded_id_form(scope, prefix, value) {
-        // A prefix of another kind's ids (`ws_1` for a tab) names no object
+        // A prefix of another kind's ids (`ws_1a2b` for a tab) names no object
         // of this scope.
         if let Some((given, _)) = id_prefix_parts(value) {
             return Err(UsageError::new(format!(
@@ -418,7 +418,7 @@ pub(super) fn validate_selector(scope: &str, prefix: &str, value: &str) -> Resul
 }
 
 /// Whether `value` is a prefixed id form the daemon expands for `scope`
-/// (W5-P): a unique prefix of `prefix`'s ids (`pane_3f`), and for a
+/// (W5-P): a unique prefix of `prefix`'s ids (`pane_3f0a`), and for a
 /// terminal also a tab or pane id, full or prefix (the terminal that tab or
 /// pane shows). A bare or host id parses as a name and the daemon takes it
 /// as an id when no object has that name.
