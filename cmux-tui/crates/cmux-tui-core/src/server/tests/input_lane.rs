@@ -498,8 +498,7 @@ fn a_send_with_an_applied_key_writes_nothing_again() {
         handle_command(&mux, client, keyed(typing.id, "ls\r", Some(first.clone())), &writer)
             .unwrap();
     let again =
-        handle_command(&mux, client, keyed(typing.id, "ls\r", Some(first.clone())), &writer)
-            .unwrap();
+        handle_command(&mux, client, keyed(typing.id, "ls\r", Some(first)), &writer).unwrap();
     assert_eq!(reply, again, "a repeat gets the same success reply");
     assert_eq!(written(&input), b"ls\r".to_vec(), "the same key twice writes once");
 
