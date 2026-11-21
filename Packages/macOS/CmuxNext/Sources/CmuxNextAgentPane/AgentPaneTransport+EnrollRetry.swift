@@ -75,6 +75,21 @@ extension AgentPaneTransport {
 /// started, and kept it up for good when the daemon could never take the key (https://github.com/manaflow-ai/cmux/issues/48636). The pane
 /// hears of it (``onPersonProofFailed``) only once the recovery gave up.
 extension AgentPaneTransport {
+    /// A connection that runs no proof: any recovery stops, its budget resets, and the pane's
+    /// line goes.
+    func personProofNotNeeded() {
+        personRecovery?.cancel()
+        personRecovery = nil
+        personRecoveries = 0
+        onPersonProofFailed?(false)
+    }
+
+    /// The pane closed: a recovery still waiting must not look up or reconnect for it.
+    public func endPersonRecovery() {
+        personRecovery?.cancel()
+        personRecovery = nil
+    }
+
     func personProofSettled(_ proven: Bool, connection: Int) {
         guard connection == current else { return }
         personRecovery?.cancel()

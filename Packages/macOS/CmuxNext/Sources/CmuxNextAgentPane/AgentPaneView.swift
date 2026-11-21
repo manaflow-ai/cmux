@@ -567,6 +567,7 @@ public final class AgentPaneView: NSView {
         model.transport.onOtherInstall = nil
         model.transport.onPersonProofFailed = nil
         model.transport.recoverPersonProof = nil
+        model.transport.endPersonRecovery()
         model.transport.onRemoteApprovalsOff = nil
         model.transport.onPeerApprovalsOff = nil
         model.onTabRowToolMenuRequested = nil

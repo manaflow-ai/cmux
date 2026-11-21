@@ -276,14 +276,13 @@ extension AgentPaneTransport {
     /// Another install's daemon never takes this app's key: no proof goes there (the person line's
     /// rule too), and nothing is recovered, so the pane does not reconnect to it in a loop.
     private func provePerson(socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds) async {
-        guard let socketPath else { return }
-        guard !daemonIsForeign else {
-            personRecovery?.cancel()
-            personRecovery = nil
-            onPersonProofFailed?(false)
+        // No proof runs (no socket path, another install's daemon, a remote wire, an older daemon
+        // without a challenge): nothing is refused that a proof would allow, so no line stays up.
+        guard let socketPath, !daemonIsForeign else { return personProofNotNeeded() }
+        guard let challenge = await socket.personChallenge() else {
+            if self.socket === socket { personProofNotNeeded() }
             return
         }
-        guard let challenge = await socket.personChallenge() else { return }
         guard self.socket === socket else { return }
         let connection = current
         guard let proof = AcpmuxPersonKey.proof(socketPath: socketPath, transport: .app, nonce: challenge.nonce,
