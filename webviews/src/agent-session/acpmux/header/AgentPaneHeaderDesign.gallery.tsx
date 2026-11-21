@@ -7,6 +7,8 @@ import { componentEntry } from "../../../gallery/format";
 import type { Play, PlayContext } from "../../../gallery/play";
 import { Icon } from "../icons/Icon";
 
+type MenuRow = readonly [icon: string, label: string, submenu?: boolean];
+
 type Density = "compact" | "comfortable";
 type Theme = "dark" | "light";
 type Visibility = "hidden" | "visible";
@@ -45,14 +47,18 @@ const DEVELOPER_MENU = [
 ] as const;
 
 function MenuSurface({ kind }: { kind: "title" | "pane" | "developer" }) {
-  const rows = kind === "title" ? TITLE_MENU : kind === "pane" ? PANE_MENU : DEVELOPER_MENU;
+  const rows: readonly MenuRow[] = kind === "title" ? TITLE_MENU : kind === "pane" ? PANE_MENU : DEVELOPER_MENU;
   return (
     <div className={`agent-pane-design-menu agent-pane-design-menu--${kind}`} role="menu" aria-label={`${kind} menu`}>
       {rows.map(([icon, label, submenu], index) => (
         <div className="agent-pane-design-menu-row" role="menuitem" key={label}>
           <Icon name={icon} size={14} />
           <span>{label}</span>
-          {submenu && <span className="agent-pane-design-menu-chevron" aria-hidden="true">›</span>}
+          {submenu && (
+            <span className="agent-pane-design-menu-chevron" aria-hidden="true">
+              ›
+            </span>
+          )}
           {kind === "pane" && label === "Developer" && <MenuSurface kind="developer" />}
           {index === 1 && kind === "title" && <span className="agent-pane-design-shortcut">⌘R</span>}
         </div>
@@ -70,7 +76,9 @@ function BrowserPane() {
           <span>todo-app</span>
           <span className="agent-pane-design-tab-close">×</span>
         </div>
-        <button className="agent-pane-design-browser-add" aria-label="New browser tab">+</button>
+        <button className="agent-pane-design-browser-add" aria-label="New browser tab">
+          +
+        </button>
       </div>
       <div className="agent-pane-design-browser-address">localhost:3000</div>
       <div className="agent-pane-design-browser-page">
@@ -153,14 +161,14 @@ function AgentPaneHeaderDesign({
   tabs,
   visibility,
   agentTabs,
-  menus,
+  menus = false,
 }: {
   density: Density;
   theme: Theme;
   tabs: 1 | 3;
   visibility: Visibility;
   agentTabs: AgentTabs;
-  menus: boolean;
+  menus?: boolean;
 }) {
   return (
     <div
@@ -198,7 +206,8 @@ const verify: Play = async (ctx: PlayContext) => {
   if (tabs === 1 && agentTabs.length !== 0) throw new Error("flat one-tab treatment must not render a tab strip");
   if (tabs === 3 && agentTabs.length !== 3) throw new Error("three-tab treatment must render all agent tabs");
   const add = root.querySelector<HTMLElement>(".agent-pane-design-add")!;
-  if (!add || add.getBoundingClientRect().height === 0) throw new Error("the reserved add-tab control must occupy space");
+  if (!add || add.getBoundingClientRect().height === 0)
+    throw new Error("the reserved add-tab control must occupy space");
   const browser = root.querySelector(".agent-pane-design-browser-tabs");
   if (!browser) throw new Error("the agent header must be shown beside browser tabs");
 };
@@ -222,10 +231,17 @@ export default componentEntry<{
     "agent-session/acpmux/header/ChatHeaderTools.tsx#ChatHeaderTools",
     "agent-session/acpmux/header/tabRow.ts#tabRow",
   ],
-  styles: () => Promise.all([import("../styles.css"), import("./header.css"), import("./AgentPaneHeaderDesign.gallery.css")]),
+  styles: () =>
+    Promise.all([import("../styles.css"), import("./header.css"), import("./AgentPaneHeaderDesign.gallery.css")]),
   checks: {
-    anchorMovePx: { value: 0, reason: "Revealing quiet controls overlays their reserved slots without moving the title or browser tabs." },
-    layoutShiftMax: { value: 0.01, reason: "Switching from one to three agent tabs keeps the add control on the same title-row pitch." },
+    anchorMovePx: {
+      value: 0,
+      reason: "Revealing quiet controls overlays their reserved slots without moving the title or browser tabs.",
+    },
+    layoutShiftMax: {
+      value: 0.01,
+      reason: "Switching from one to three agent tabs keeps the add control on the same title-row pitch.",
+    },
   },
   load: async () => AgentPaneHeaderDesign,
   variants: {
