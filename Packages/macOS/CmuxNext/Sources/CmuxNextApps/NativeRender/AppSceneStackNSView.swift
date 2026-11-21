@@ -8,7 +8,7 @@ import CmuxNextDesign
 /// never a `fixedSize` text), and each child sits at the row's `alignment` (`top`, `bottom`; centered by default)
 /// on the row's height. A section is a short list (budget 4096 nodes), so every child is laid out:
 /// `LazyVStack` draws as a `VStack`.
-final class AppSceneStackNSView: AppSceneNodeNSView {
+class AppSceneStackNSView: AppSceneNodeNSView {
     private var isHorizontal: Bool { node.type == .hStack }
     private var spacing: CGFloat { node.number("spacing").map { CGFloat($0) } ?? (isHorizontal ? Metrics.space2 : 0) }
 
