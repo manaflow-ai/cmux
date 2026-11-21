@@ -75,6 +75,9 @@ export type StepTrace = {
   turn: number;
   turnEnded: boolean;
   rowCount: number;
+  /** Rows the turn view shaped anew this step: its rows less those it took over from the last view
+   * (`reusedRows`). It stays near a turn's size however long the chat is. */
+  shaped: number;
   folds: FoldEvent[];
   /** Rows above the newest changed row whose drawn object was rebuilt with no change of their own. */
   rerendered: string[];
@@ -163,8 +166,12 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
   const cache = new Map();
   // The browser lane: each row's drawn height at the last measured step, to see a row collapse.
   const drawnHeights = new Map<string, number>();
+  // The open folds, one object for the whole run as App.tsx keeps its `folds` state: a fresh set each
+  // step reads as a fold change, and the turn view then shapes every turn again (no reuse).
+  const folds = new Set<string>();
 
   let current: { rows: readonly AcpmuxRow[]; layout: ConversationLayout } | undefined;
+  let shaped = 0;
   /** Folds step `index`'s record (or reader action) and shapes and places the rows: the rows to draw. */
   const advance = (index: number): readonly AcpmuxRow[] | undefined => {
     const step = scenario.steps[index]!;
@@ -193,7 +200,7 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
     }
     const view = turnViewFrom(
       snap.rows,
-      new Set<string>(),
+      folds,
       {
         now: step.at,
         working: working || snap.isWorking,
@@ -204,6 +211,7 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
       },
       last,
     );
+    shaped = view === last ? 0 : view.rows.length - view.reusedRows;
     last = view;
     const rows = view.rows;
     const layout = layoutConversation(rows, width, cache, LINE, undefined, previous);
@@ -398,6 +406,7 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
       turn,
       turnEnded,
       rowCount: rows.length,
+      shaped,
       folds,
       rerendered,
       violations: stepViolations,
