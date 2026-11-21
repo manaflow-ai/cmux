@@ -345,6 +345,10 @@ jobs:
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
           # Save even when the tip's tests are red: a red tip saved nothing, so every pull request built cold.
           cache-on-failure: true
+          # Key on the toolchain file and lockfiles only, not the runner's CARGO_*/RUST* env: those hold
+          # HOME paths that differ per runner (/home/runner vs /home/runner2), so a pull request missed the
+          # base save unless it drew the same runner layout. Cargo's fingerprints check every reused crate.
+          add-rust-environment-hash-key: false
 
       # `protocol::` selects exactly the protocol module's tests (src/protocol/tests.rs);
       # a filter that matches none (a moved module) fails rather than passing empty.
@@ -479,6 +483,10 @@ jobs:
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
           # Save even when the tip's tests are red: a red tip saved nothing, so every pull request built cold.
           cache-on-failure: true
+          # Key on the toolchain file and lockfiles only, not the runner's CARGO_*/RUST* env: those hold
+          # HOME paths that differ per runner (/home/runner vs /home/runner2), so a pull request missed the
+          # base save unless it drew the same runner layout. Cargo's fingerprints check every reused crate.
+          add-rust-environment-hash-key: false
 
       - name: v2 bench home emits all gate rows
         if: ${{ steps.tree.outputs.hit != 'true' }}
@@ -660,6 +668,10 @@ jobs:
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
           # Save even when the tip's tests are red: a red tip saved nothing, so every pull request built cold.
           cache-on-failure: true
+          # Key on the toolchain file and lockfiles only, not the runner's CARGO_*/RUST* env: those hold
+          # HOME paths that differ per runner (/home/runner vs /home/runner2), so a pull request missed the
+          # base save unless it drew the same runner layout. Cargo's fingerprints check every reused crate.
+          add-rust-environment-hash-key: false
 
       - name: cargo test -p acpmux --features sim --test sim
         if: ${{ steps.tree.outputs.hit != 'true' }}
@@ -752,6 +764,10 @@ jobs:
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
           # Save even when the tip's tests are red: a red tip saved nothing, so every pull request built cold.
           cache-on-failure: true
+          # Key on the toolchain file and lockfiles only, not the runner's CARGO_*/RUST* env: those hold
+          # HOME paths that differ per runner (/home/runner vs /home/runner2), so a pull request missed the
+          # base save unless it drew the same runner layout. Cargo's fingerprints check every reused crate.
+          add-rust-environment-hash-key: false
 
       - name: cargo test -p cmux-remote --test carrier_sim
         if: ${{ steps.tree.outputs.hit != 'true' }}
@@ -981,6 +997,10 @@ jobs:
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
           # Save even when the tip's tests are red: a red tip saved nothing, so every pull request built cold.
           cache-on-failure: true
+          # Key on the toolchain file and lockfiles only, not the runner's CARGO_*/RUST* env: those hold
+          # HOME paths that differ per runner (/home/runner vs /home/runner2), so a pull request missed the
+          # base save unless it drew the same runner layout. Cargo's fingerprints check every reused crate.
+          add-rust-environment-hash-key: false
 
       # A red the PR autofix repairs (machine-applicable lints in this change's own files) passes as autofixed
       # once the autofix push is on (vars.CMUX_PR_AUTOFIX_PUSH, cmux-next-pr-autofix-push.yml on main): the fix
