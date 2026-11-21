@@ -69,7 +69,7 @@ mod hosted_stager;
 pub(crate) mod input_port;
 #[cfg(any(unix, windows))]
 use hosted_stager::{HostedFrameStager, HostedTransition};
-pub(crate) use input_port::{InputReply, input_may_be_written};
+pub(crate) use input_port::{InputReply, input_may_be_written, input_not_written};
 #[cfg(test)]
 use options::child_term_for;
 use options::configure_agent_browser_session;
@@ -827,6 +827,7 @@ impl Surface {
                 selection: Mutex::new(None),
             },
             terminal: Arc::new(PtyTerminalRuntime {
+                input_ids: Default::default(),
                 event_surface_id: id,
                 pid: terminal_runtime::terminal_seat(&mux, snapshot.pid, &terminal_public_id),
                 terminal_public_id: terminal_public_id.map(Arc::new),

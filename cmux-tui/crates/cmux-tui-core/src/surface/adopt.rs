@@ -219,6 +219,7 @@ impl Surface {
                 selection: Mutex::new(None),
             },
             terminal: Arc::new(PtyTerminalRuntime {
+                input_ids: Default::default(),
                 event_surface_id: id,
                 terminal_public_id: Some(Arc::new(terminal_public_id)),
                 journal_generation,

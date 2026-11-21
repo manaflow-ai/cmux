@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "2fc186d7961113412cfc6906e8855fc2532403bc1bc55e2b1448d569f9fe5226";
+pub const ir_sha256 = "9d2516d60e5d026f16017351311d9513c06dc9195bb90069b32b83beb6cbad1d";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -9267,6 +9267,7 @@ pub const SendRequest = struct {
     expect_agent: wire.Field(SendExpectAgent) = .absent,
     expect_foreground: wire.Field([]const u8) = .absent,
     flow: wire.Field(u64) = .absent,
+    input_id: wire.Field([]const u8) = .absent,
     paste: ?bool = null,
     submit: ?bool = null,
     surface: wire.Field(Id) = .absent,
@@ -9280,9 +9281,11 @@ pub const SendRequest = struct {
 };
 
 pub const SendResult = struct {
+    duplicate: ?bool = null,
     queued: ?bool = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "duplicate",
         "queued",
     };
 };
@@ -9298,6 +9301,7 @@ pub fn send(client: anytype, request: SendRequest) !wire.Decoded(SendResult) {
             .fields = &.{
                 .{ .name = "expect_agent", .since = null, .capability = "send-expect-agent-v1" },
                 .{ .name = "expect_foreground", .since = null, .capability = "send-expect-foreground-v1" },
+                .{ .name = "input_id", .since = null, .capability = "send-input-id-v1" },
                 .{ .name = "paste", .since = 7, .capability = null },
                 .{ .name = "submit", .since = null, .capability = "send-expect-agent-v1" },
                 .{ .name = "terminal_id", .since = null, .capability = "terminal-input-while-creating-v1" },

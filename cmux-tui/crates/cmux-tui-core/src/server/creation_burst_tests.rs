@@ -258,7 +258,8 @@ fn a_create_that_panics_gives_queued_input_back_at_once() {
     mux.set_creation_before_effect_hook_for_test(Box::new(move || {
         // Input for the terminal arrives while it is being created, then the
         // create panics.
-        let queued = hook_mux.write_terminal_input(terminal_id, client, b"ls\n", false, notice);
+        let queued =
+            hook_mux.write_terminal_input(terminal_id, client, b"ls\n", false, None, notice);
         assert!(matches!(queued, Ok(crate::mux::creating_input::TerminalInputTarget::Queued)));
         // crash-allow: unit test only; the panic stands in for a defect inside a create.
         panic!("a create panics");

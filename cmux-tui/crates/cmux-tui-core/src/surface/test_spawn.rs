@@ -158,6 +158,7 @@ impl Surface {
                 selection: Mutex::new(None),
             },
             terminal: Arc::new(PtyTerminalRuntime {
+                input_ids: Default::default(),
                 event_surface_id: id,
                 pid: terminal_runtime::terminal_seat(&mux, Some(id as u32), &terminal_public_id),
                 terminal_public_id: terminal_public_id.map(Arc::new),

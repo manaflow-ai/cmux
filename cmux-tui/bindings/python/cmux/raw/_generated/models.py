@@ -4924,6 +4924,7 @@ class SendRequest:
     expect_agent: Union[SendExpectAgent, None, MissingType] = field(default=MISSING)
     expect_foreground: Union[str, None, MissingType] = field(default=MISSING)
     flow: Union[int, None, MissingType] = field(default=MISSING)
+    input_id: Union[str, None, MissingType] = field(default=MISSING)
     submit: Union[bool, MissingType] = field(default=MISSING)
     terminal_id: Union[str, None, MissingType] = field(default=MISSING)
 
@@ -4931,6 +4932,7 @@ class SendRequest:
 @dataclass(frozen=True)
 class SendResult:
     __cmux_schema_path__: ClassVar[str] = 'commands/send/result'
+    duplicate: Union[bool, MissingType] = field(default=MISSING)
     queued: Union[bool, MissingType] = field(default=MISSING)
 
 

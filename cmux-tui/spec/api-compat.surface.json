@@ -12004,6 +12004,10 @@
         "ty": "uint64",
         "nullable": true
       },
+      "/input_id": {
+        "ty": "string",
+        "nullable": true
+      },
       "/paste": {
         "ty": "boolean"
       },
@@ -20601,6 +20605,9 @@
     "response:select-tab": {},
     "response:select-workspace": {},
     "response:send": {
+      "/data/duplicate": {
+        "ty": "boolean"
+      },
       "/data/queued": {
         "ty": "boolean"
       }
