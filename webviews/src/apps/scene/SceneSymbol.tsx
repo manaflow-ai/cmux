@@ -17,7 +17,6 @@ const SYMBOLS: Record<string, string> = {
   checkmark: "action.confirm",
   "checkmark.circle": "action.confirm",
   "checkmark.circle.fill": "action.confirm",
-  circle: "checkbox.off",
   checklist: "view.list",
   xmark: "action.close",
   "xmark.circle": "status.failure",

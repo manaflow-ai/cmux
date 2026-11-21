@@ -21,7 +21,7 @@ const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
 
 afterEach(async () => {
-  act(() => root?.unmount());
+  await act(() => root?.unmount());
   root = undefined;
   await settleReact();
   for (const [key, value] of saved) {
@@ -829,19 +829,23 @@ test("a date Text ticks itself on the shared clock with no scene batch, and stop
   expect(text("time").textContent).toMatch(/\d:\d\d/);
   expect(sceneClockRunning()).toBe(true);
   const subscribed = store.getGeneration();
-  await act(() => new Promise((resolve) => setTimeout(resolve, 1_100)));
+  // Wait for the tick itself, not a fixed delay: yield to the timers until the text turns over.
+  const deadline = Date.now() + 3_000;
+  while (text("timer").textContent === before && Date.now() < deadline) {
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+  }
   expect(text("timer").textContent).not.toBe(before);
   // The renderer ticked it: no app call, no new scene.
   expect(calls).toEqual([]);
   expect(store.getGeneration()).toBe(subscribed);
   // A hidden page stops the clock; showing it again catches up at once.
   Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
-  act(() => document.dispatchEvent(new Event("visibilitychange")));
+  await act(() => document.dispatchEvent(new Event("visibilitychange")));
   expect(sceneClockRunning()).toBe(false);
   Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
-  act(() => document.dispatchEvent(new Event("visibilitychange")));
+  await act(() => document.dispatchEvent(new Event("visibilitychange")));
   expect(sceneClockRunning()).toBe(true);
-  act(() => root?.unmount());
+  await act(() => root?.unmount());
   root = undefined;
   expect(sceneClockRunning()).toBe(false);
 });
