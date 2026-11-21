@@ -273,7 +273,22 @@ public final class CmuxMobileAuthModel {
         }
         guard let user = coordinator?.currentUser else { return nil }
         let name = user.displayName?.isEmpty == false ? user.displayName! : (user.primaryEmail ?? "cmux user")
-        return User(id: user.id, name: name, email: user.primaryEmail, reviewDemo: user.demonstrationContentEnabled)
+        return User(id: user.id, name: name, email: user.primaryEmail,
+                    reviewDemo: Self.isReviewDemoAccount(email: user.primaryEmail, serverFlag: user.demonstrationContentEnabled))
+    }
+
+    /// The App Review demo account (App Store Connect's demo account field). Its inbox is a public
+    /// Mailinator one, so anyone can already sign in to it; matching its address gives it the demo
+    /// with no server step. Stack's read-only `cmuxReviewDemoContent` metadata turns it on for
+    /// another account the same way.
+    nonisolated static let reviewDemoAccountEmail = "cmux-rev-0e6ba145@mailinator.com"
+
+    /// Whether an account gets the App Review demo: the review account's exact address, or the
+    /// server-written flag. Case and surrounding spaces in the address do not matter.
+    nonisolated static func isReviewDemoAccount(email: String?, serverFlag: Bool) -> Bool {
+        if serverFlag { return true }
+        guard let email else { return false }
+        return email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == reviewDemoAccountEmail
     }
 
     /// Signed in to the App Review demo account (``User/reviewDemo``): its teams, Mac
