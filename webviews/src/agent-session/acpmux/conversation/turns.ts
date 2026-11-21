@@ -1420,14 +1420,21 @@ const isWork = (row: AcpmuxRow) =>
 /// Explicit phases select the final answer and footer; older, unphased turns fall back to their
 /// last takeaway or nonempty reply after the final tool call. Earlier substantive replies stay
 /// visible independently, even when the provider labels them commentary.
+/// A turn the agent ran on its own can start before the prompt's turn's result is written (acpmux
+/// clears the turn, then waits before it writes `turn_result`), so its rows sit among the prompt's
+/// turn's. Its reply is never that turn's answer, nor its calls work after the answer: the turn's
+/// own reply drew as a folded note under the background turn's words (transcript-oddities.md T3).
 function answerAt(rows: readonly AcpmuxRow[]): number {
+  const own = rows.some((row) => row.inBackground === undefined && isReply(row));
+  const others = (row: AcpmuxRow) => own && row.inBackground !== undefined;
   if (rows.some((row) => row.kind === "assistant" && row.assistantPhase !== undefined)) {
-    for (let at = rows.length - 1; at >= 0; at -= 1) if (isFinalAnswer(rows[at]!)) return at;
+    for (let at = rows.length - 1; at >= 0; at -= 1) if (!others(rows[at]!) && isFinalAnswer(rows[at]!)) return at;
     return -1;
   }
   let stepped = false;
   for (let at = rows.length - 1; at >= 0; at -= 1) {
     const row = rows[at]!;
+    if (others(row)) continue;
     if (isReply(row) && (isTakeaway(row) || !stepped)) return at;
     if (isWork(row)) stepped = true;
   }
