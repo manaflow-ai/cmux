@@ -256,6 +256,7 @@ import {
 } from "./conversation/promptCoach";
 import { promptCoachDismissed, rememberPromptCoachDismissed } from "./conversation/promptCoachDismissed";
 import { promptCoachEnabled } from "./chatDisplay";
+import { showsChatSnapshot } from "./chatSnapshot/live";
 import {
   PRESET_APPROVAL,
   PresetApprovalFold,
@@ -3621,7 +3622,7 @@ export class AcpmuxDirectClient {
   /// the chat, the selection it was drawn for and the newest seq drawn. The open's attach takes it
   /// as the tail it lays its page over, as it does a tail it read itself; anything that clears the
   /// rows (`resetSessionState`) clears it.
-  private earlyTail?: { sessionId: string; generation: number; through: number };
+  private earlyTail?: { sessionId: string; generation: number; through: number; held: boolean };
   /// The selection an open in flight may still draw a tail for while it connects; cleared once
   /// the open reaches its own draw, which then decides.
   private earlyTailWindow?: number;
@@ -4646,7 +4647,7 @@ export class AcpmuxDirectClient {
       this.earlyTail = undefined;
       this.earlyTailWindow = undefined;
       // Its rows are on screen already: the pane draws the chat as it comes, as after any kept tail.
-      if (drawnEarly) this.releaseSnapshots(hold);
+      if (drawnEarly && !drawnEarly.held) this.releaseSnapshots(hold);
       // A chat on the store whose daemon now names no hold (a reconnect) is read by v1 from nothing.
       if (sessionId && this.chatRows.holds(sessionId) && !this.chatRows.asks(this.capabilities)) {
         this.chatRows.close();
@@ -5427,14 +5428,20 @@ export class AcpmuxDirectClient {
     // The queue is not drawn, but a teammate's queued prompt keeps the author its row had when the
     // tail was kept, for when acpmux's list or attach draws the queue (as `drawKeptTail` seeds it).
     this.keepQueueAuthors(held.queue);
-    this.earlyTail = { sessionId, generation, through };
+    // A chat kept while running, over the last launch's copy: the copy drew it working (its live line at the bottom),
+    // and these rows cannot yet. Handing over now would drop the live line until the attach says the turn still runs,
+    // and bring it back a frame or two later (the settled-page bench's restart.stream). The copy stays until the open
+    // has read the chat, as the open's hold keeps it for any chat with no early tail; with no copy on screen the rows
+    // draw now, as before (hq#7289).
+    const keepCopy = held.summary?.status === "running" && showsChatSnapshot();
+    this.earlyTail = { sessionId, generation, through, held: keepCopy };
     this.drewKeptTail = true;
     // Drawn now, the socket still connecting or open: the open's hold ends with these rows, as its
     // own draw point would end it, rather than keeping the chat off screen until acpmux answers
     // `initialize` and the list (hq#7289: about 900 ms for the chat in front at relaunch). A chat
     // the list then lacks falls back or rebinds from them, as one drawn while connecting does.
     this.emit("selected");
-    if (this.openHold !== undefined) this.releaseSnapshots(this.openHold);
+    if (this.openHold !== undefined && !keepCopy) this.releaseSnapshots(this.openHold);
   }
 
   /// The open failed before its attach read the chat: rows drawn while it connected are not this
