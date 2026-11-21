@@ -254,6 +254,7 @@ mod cmd_tabs;
 mod cmd_terminal_io;
 mod cmd_terminals;
 mod creating_input;
+mod send_once;
 use cmd_terminals::placed_terminal_result;
 mod cmd_workspaces;
 mod column_move;
