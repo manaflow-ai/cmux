@@ -53,6 +53,13 @@ public final class AgentPaneExternalAttach {
     /// Whether files wait for a new chat (``attach(_:claimed:target:openChat:show:)``).
     var waitsForChat: Bool { opening != nil }
 
+    /// The session of the chat that last took files, while no new chat is still opening for more:
+    /// nil for a chat not started yet (`chat.capture.toChat`'s `session`).
+    public var lastSession: String? {
+        guard opening == nil else { return nil }
+        return last?.model.sessionId
+    }
+
     private func deliver(_ urls: [URL], claimed: String?, to view: AgentPaneView, show: @MainActor (AgentPaneView) -> Void) {
         last = view
         show(view)
