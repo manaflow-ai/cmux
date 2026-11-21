@@ -570,6 +570,9 @@ pub struct Translator {
     pub prompt_suggestions: AtomicBool,
     /// Whether this process asked Claude Code for prompt suggestions at `initialize`.
     suggestions_offered: AtomicBool,
+    /// Whether Claude Code's suggestions are paused now, as acpmux last told it
+    /// (`set_prompt_suggestions_paused`): the chat's pick, or a turn no person started.
+    suggestions_paused: AtomicBool,
     /// This chat's `RECAP_OPTION`: `default`, `on` or `off`.
     recap: Mutex<&'static str>,
     in_turn: AtomicBool,
@@ -794,6 +797,7 @@ impl Translator {
             fast: Mutex::new(false),
             prompt_suggestions: AtomicBool::new(true),
             suggestions_offered: AtomicBool::new(false),
+            suggestions_paused: AtomicBool::new(false),
             recap: Mutex::new("default"),
             in_turn: AtomicBool::new(false),
             turn_output: AtomicBool::new(false),
