@@ -27,6 +27,7 @@ Usage:
   cmux agent-config mcp add NAME --agent claude|codex [--scope ...] --url URL [--transport http|sse]
                             [--header KEY=VALUE]...
   cmux agent-config mcp remove|enable|disable NAME --agent claude|codex [--scope ...] [--project DIR]
+  cmux agent-config hooks list|enable|disable|add|remove ...   (cmux agent-config hooks --help)
 
 Scopes: user (every folder: ~/.claude.json, ~/.codex/config.toml), local (Claude only: this folder,
 private to you), project (this folder's .mcp.json or .codex/config.toml), plugin (Codex only: from an
@@ -63,6 +64,9 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     }
     let (json_flag, rest) = take_json_flag(&command_args[1..]);
     let json_out = json_flag || global.output == OutputMode::Json;
+    if rest.first().is_some_and(|part| part == "hooks") {
+        return Some(run_hooks(&rest[1..], json_out));
+    }
     if rest.is_empty()
         || rest.iter().any(|a| a == "--help" || a == "-h") && !rest.contains(&"--".to_owned())
     {
@@ -81,6 +85,36 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             1
         }
     })
+}
+
+/// `agent-config hooks ...`: every Claude Code and Codex hook, listed by event, turned off and on
+/// (cmux-agent-customize `hooks`, which answers its own --help).
+fn run_hooks(words: &[String], json_out: bool) -> i32 {
+    use cmux_agent_customize::hooks_cli;
+    if words.is_empty() || words.iter().any(|w| w == "--help" || w == "-h") {
+        println!("{}", hooks_cli::HELP);
+        return if words.is_empty() { 2 } else { 0 };
+    }
+    match hooks_cli::run(words) {
+        Ok(value) => {
+            if json_out {
+                println!("{value}");
+            } else if let Some(hooks) = value.get("hooks").and_then(Value::as_array) {
+                print!("{}", hooks_cli::render_list(hooks, &value));
+            } else {
+                println!("{}", serde_json::to_string_pretty(&value).unwrap_or_default());
+            }
+            0
+        }
+        Err(error) => {
+            if json_out {
+                println!("{}", json!({ "ok": false, "why": format!("{error:#}") }));
+            } else {
+                eprintln!("cmux agent-config hooks: {error:#}");
+            }
+            1
+        }
+    }
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -108,8 +142,8 @@ fn parse(rest: &[String]) -> Result<Parsed, String> {
     let mut words = rest.iter();
     match words.next().map(String::as_str) {
         Some("mcp") => {}
-        Some(other) => return Err(format!("unknown part {other:?}: only `mcp` for now")),
-        None => return Err("name a part: mcp".into()),
+        Some(other) => return Err(format!("unknown part {other:?}: mcp or hooks")),
+        None => return Err("name a part: mcp or hooks".into()),
     }
     let mut parsed = Parsed {
         verb: words.next().cloned().ok_or("name a verb: list, add, remove, enable or disable")?,

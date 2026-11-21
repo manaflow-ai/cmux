@@ -4,6 +4,7 @@ touches. A feat-cmux-next push runs every shard (ci-web.yml calls this only on a
 
     webviews_pr_shards.py --base REF [--head REF] --count N [--repo DIR]
     webviews_pr_shards.py --all --count N        # every shard: a push, the full-ci label, a failed pick
+    webviews_pr_shards.py --base REF [--head REF] --count N --files-of 1,3   # those shards' test files
 
 Prints the shard matrix as JSON (`[{"shard": 1, "shard_count": N}, ...]`) on stdout, and why on stderr.
 
@@ -24,6 +25,11 @@ Every feat-cmux-next push still runs all N shards over every file: a red a skipp
 the base's next push (cmux-next-web.yml) and its base-red tracking.
 
 Any error picks every shard: the pick may only ever run more.
+
+--files-of prints the test files (webviews-relative, one a line) that the named shards run for this change, from the
+same split. react-apps-base-early replays the base's red files only among them (RFD 0023 item 3, cmuxterm-hq
+docs/rfd/0023-ci-cd-design.md): a head red can only be in a file a head shard ran, so a base verdict on any other file
+is never read. Any error exits non-zero and prints nothing; the job then keeps its whole affected list.
 """
 from __future__ import annotations
 
@@ -91,6 +97,15 @@ def pick(repo: Path, base: str, head: str, count: int) -> tuple[list[int], str]:
     return run, f"{len(direct)} touched tests"
 
 
+def files_of(repo: Path, base: str, head: str, count: int, shards: list[int]) -> list[str]:
+    """The test files SHARDS run for BASE..HEAD (webviews-relative), as each splits them."""
+    selected, _ = wa.Selector(repo).select(wa.changed(repo, base, head))
+    out: set[str] = set()
+    for shard in shards:
+        out |= shard_files(repo, shard, count, selected)
+    return sorted(f.removeprefix(wa.WEB) for f in out)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--base")
@@ -98,7 +113,18 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--count", type=int, required=True)
     ap.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[2])
     ap.add_argument("--all", action="store_true", help="every shard (a push, full-ci): print the whole matrix")
+    ap.add_argument("--files-of", help="comma-separated shards: print the test files they run, one a line")
     args = ap.parse_args(argv)
+    if args.files_of:
+        if not args.base:
+            ap.error("--base is required with --files-of")
+        shards = [int(x) for x in args.files_of.split(",") if x.strip()]
+        if not shards or any(not 1 <= x <= args.count for x in shards):
+            ap.error(f"--files-of names shards outside 1..{args.count}")
+        files = files_of(args.repo, args.base, args.head, args.count, shards)
+        print(f"webviews pr shards: {len(files)} test files in shards {args.files_of}", file=sys.stderr)
+        sys.stdout.write("".join(f + "\n" for f in files))
+        return 0
     if args.all:
         print(matrix(list(range(1, args.count + 1)), args.count))
         return 0
