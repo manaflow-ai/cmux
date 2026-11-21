@@ -1,3 +1,4 @@
+@testable import CmuxNextApp
 import CmuxNextRemote
 import Foundation
 import Testing
@@ -110,5 +111,71 @@ struct CloudApprovalsPrepareTests {
         #expect(value == 7)
         #expect(await prep.ended)
         #expect(await !prep.cancelled)
+    }
+
+    private actor Log {
+        var events: [String] = []
+        func add(_ event: String) { events.append(event) }
+    }
+
+    /// `cloud start-session` on a machine it made (prod, app 01fc64af: a 19 s keyed start after an 18 s connect): the keyed restart
+    /// begins with the connect, not after it, runs once, and the start goes on only once it ended.
+    @MainActor @Test(.timeLimit(.minutes(1))) func aMadeMachinesApprovalsBeginWithTheConnect() async throws {
+        let log = Log(), (began, beginning) = AsyncStream<Void>.makeStream()
+        let folder = try await CloudStartSession.approvalsBesideConnect(made: true, early: {
+            await log.add("early"); beginning.yield(); await Task.yield(); await log.add("keyed"); return true
+        }, approvals: { await log.add("again"); return true }) {
+            for await _ in began { break } // the connect ends only once the keyed restart began: never before it
+            await log.add("connected")
+        } folder: { await log.add("folder"); return "/root" }
+        let events = await log.events
+        #expect(folder == "/root")
+        #expect(events.first == "early")
+        #expect(events.contains("keyed"), "awaited before the start went on: \(events)")
+        #expect(!events.contains("again"), "a machine keyed beside the connect is not restarted again: \(events)")
+    }
+
+    /// A first try that keyed nothing (the new VM not up yet) is tried again once the connect ended, and awaited.
+    @MainActor @Test func aMadeMachineThatKeyedNothingIsTriedAgainAfterTheConnect() async throws {
+        let log = Log()
+        _ = try await CloudStartSession.approvalsBesideConnect(made: true, early: { await log.add("early"); return false }, approvals: { await log.add("again"); return true }) {
+            await Task.yield()
+            await log.add("connected")
+        } folder: { 0 }
+        let events = await log.events
+        let connected = try #require(events.firstIndex(of: "connected")), again = try #require(events.firstIndex(of: "again"), "awaited before the start went on: \(events)")
+        #expect(connected < again)
+        #expect(events.filter { $0 == "again" }.count == 1)
+    }
+
+    private struct ConnectFailed: Error {}
+
+    /// A connect that throws (an account change, a machine that never linked) cancels the made machine's keyed restart and awaits
+    /// it before the start ends, so the start gate is never released under it; nothing is tried again.
+    @MainActor @Test func aConnectThatThrowsCancelsAndAwaitsTheMadeMachinesApprovals() async {
+        let prep = Prep(), log = Log()
+        await #expect(throws: ConnectFailed.self) {
+            try await CloudStartSession.approvalsBesideConnect(made: true, early: {
+                try? await Task.sleep(for: .seconds(30)) // a machine not running yet; the cancel ends the wait at once
+                await prep.end(cancelled: Task.isCancelled)
+                return false
+            }, approvals: { await log.add("again"); return true }) {
+                await Task.yield()
+                throw ConnectFailed()
+            } folder: { 0 }
+        }
+        #expect(await prep.ended, "the prep ended before the start did")
+        #expect(await prep.cancelled)
+        #expect(await log.events.isEmpty, "nothing restarts after a failed connect")
+    }
+
+    /// A taken machine may be paused and runs someone's agent: its status-read restart begins only after the connect, as before.
+    @MainActor @Test func aTakenMachinesApprovalsBeginAfterTheConnect() async throws {
+        let log = Log()
+        _ = try await CloudStartSession.approvalsBesideConnect(made: false, early: { await log.add("early"); return true }, approvals: { await log.add("approvals"); return true }) {
+            await Task.yield()
+            await log.add("connected")
+        } folder: { 0 }
+        #expect(await log.events == ["connected", "approvals"])
     }
 }
