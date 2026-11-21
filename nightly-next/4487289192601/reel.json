@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "build": "4487289192601",
+  "notes": "notes/4487289192601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 48484,
+      "title": "ci: a pull request runs cmux-next fast tier (cargo) only when its change reaches it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48482,
+      "title": "ci: the cmux-next PR quiet period is a macos-placement step, not its own runner job",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42457,
+      "title": "debug(mac-screen): attest production pane for benchmarks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48486,
+      "title": "cmux NEXT: Spaces off by default; no new spaces, windows keep their view (#48355)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48462,
+      "title": "ci(nightly): rerun newest cancelled tip despite older run",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48421,
+      "title": "Show VM disk health in cmux NEXT cloud views",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48343,
+      "title": "base autofix: cargo clippy --fix repairs machine-applicable base clippy reds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48367,
+      "title": "nightly: bundle the newest published cmux-tui tree when the build's own is not published yet",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48524,
+      "title": "acpmux: a resumed Codex chat runs on the provider codex is configured for now (cmux#48354)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48336,
+      "title": "fix(updater): cancel active download on quit",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47037,
+      "title": "iOS: New Task as a floating button, shorter New Workspace menu",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48065,
+      "title": "cmux-next: pin CCmuxAppFFI to cmux-app-ffi-9da1567514a762a3db3b11005c0a6a32b72e9b87",
+      "author": "manaflow-cmux-ffi-release[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48443,
+      "title": "ci: fix cmux-next release-notary guard reds",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
