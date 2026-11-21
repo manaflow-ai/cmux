@@ -245,7 +245,7 @@ import Testing
         let setup = FirstRunSetup(defaults: defaults)
         func environment(_ tools: Source?) -> SetupCardEnvironment {
             SetupCardEnvironment(account: { (false, nil) }, signInAccount: {}, cliState: { "missing" }, installCLI: { _ in },
-                                 openAgents: {}, screenReader: { false }, historySources: { false }, importHistory: { false },
+                                 openAgents: {}, screenReader: { false },
                                  agentTools: tools)
         }
         let click = { (at: TimeInterval) in PageCallContext(page: PageDescriptor.setupCard.id, userGesture: true, gestureEvent: at) }

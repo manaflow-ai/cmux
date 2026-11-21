@@ -280,3 +280,52 @@ test("a turn's session/prompt, which stays open while the agent works, never cou
     client.close();
   }
 });
+
+// A loaded daemon answers its probe late while it still streams a chat's events. The pane read the
+// late probe as a dead daemon, ended the socket and paid a full re-attach (up to 99 s on a loaded
+// Mac), again and again: the GUI coordinators "dying" (ask-0e0d5a479b). Starved is slow, never dead.
+test("a daemon that streams events while its probe answer is late keeps its socket", async () => {
+  const { client, socket, request, lost, mockHost } = await connected(["_acpmux/events", "_acpmux/peers"]);
+  try {
+    jest.useFakeTimers();
+    const read = request("_acpmux/events", { sessionId: mockHost.sessionId, afterSeq: 0, limit: 1 }, 1_000);
+    read.catch(() => undefined);
+    for (let second = 0; second < 60; second++) {
+      // The daemon's own frames: a chat's events, every 3 s.
+      if (second % 3 === 0)
+        socket.onmessage?.({
+          data: JSON.stringify({
+            jsonrpc: "2.0",
+            method: "session/update",
+            params: {
+              sessionId: mockHost.sessionId,
+              update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "." } },
+            },
+          }),
+        });
+      jest.advanceTimersByTime(1_000);
+      await settle();
+    }
+    expect(socket.sent.some((raw) => raw.includes('"_acpmux/peers"'))).toBe(true);
+    expect(lost()).toBe(0);
+    expect(socket.readyState).toBe(1);
+  } finally {
+    client.close();
+  }
+});
+
+test("a daemon that sends nothing while its probe is out is still given up within 25 s", async () => {
+  const { client, request, lost, mockHost } = await connected(["_acpmux/events", "_acpmux/peers"]);
+  try {
+    jest.useFakeTimers();
+    const read = request("_acpmux/events", { sessionId: mockHost.sessionId, afterSeq: 0, limit: 1 }, 1_000);
+    read.catch(() => undefined);
+    for (let second = 0; second < 25 && lost() === 0; second++) {
+      jest.advanceTimersByTime(1_000);
+      await settle();
+    }
+    expect(lost()).toBe(1);
+  } finally {
+    client.close();
+  }
+});
