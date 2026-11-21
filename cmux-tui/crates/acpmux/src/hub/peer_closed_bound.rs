@@ -74,6 +74,37 @@ pub(super) fn summaries_past_bound(rows: &[Value]) -> HashSet<usize> {
 }
 
 impl Hub {
+    /// Applies a peer's notice (`peers.rs` `apply_peer_notice_rows`). When a follow's patch or a
+    /// changed row takes one of the peer's closed rows out from under the bound (a purge, or a
+    /// closed chat that runs again), a closed row this daemon left out may now be among the
+    /// newest [`CLOSED_KEPT`]. A later follow rebuilds the list from the rows held here and
+    /// cannot bring it back, so the peer's list position is dropped and its next link reads the
+    /// whole list, which the bound picks from again.
+    pub(super) fn apply_peer_notice(
+        &self,
+        peer: &str,
+        generation: u64,
+        notice: crate::peer::PeerNotice,
+    ) {
+        use crate::peer::PeerNotice;
+        let watched =
+            matches!(notice, PeerNotice::SessionsPatch { .. } | PeerNotice::SessionChanged { .. });
+        let before = watched.then(|| self.held_closed_peer_rows(peer));
+        self.apply_peer_notice_rows(peer, generation, notice);
+        let Some(before) = before else { return };
+        if before >= CLOSED_KEPT
+            && self.held_closed_peer_rows(peer) < CLOSED_KEPT
+            && let Some(current) = self.peer(peer).filter(|p| p.generation == generation)
+        {
+            current.forget_list_cursor();
+        }
+    }
+
+    /// How many of peer `peer`'s rows held here are closed.
+    fn held_closed_peer_rows(&self, peer: &str) -> usize {
+        self.remote_sessions.read().of_peer(peer).filter(|(_, row)| row.summary.closed()).count()
+    }
+
     /// Drops peer `peer`'s closed rows past the bound, while `generation` is the instance
     /// registered under that name, and tells watchers they went. Called when one of its rows
     /// closes: that is the only change that can add a closed row, so the bound holds between
@@ -223,5 +254,62 @@ mod tests {
             }
         }
         assert_eq!(purged, ["c0"], "watchers hear the row went");
+    }
+
+    /// A purge or a reopen that takes a kept closed row out leaves a closed row this daemon left
+    /// out among the peer's newest. A follow rebuilds from the rows held here and cannot bring it
+    /// back, so the peer's list position goes and its next link reads the whole list. Under the
+    /// bound nothing was left out, and the position stays.
+    #[test]
+    fn a_kept_closed_row_that_leaves_makes_the_next_link_read_the_whole_list() {
+        use crate::peer::PeerNotice;
+        let cursor = Some(("epoch".to_owned(), 7));
+        let closed = |n: usize| json!({"sessionId": format!("c{n}"), "status": "closed", "updatedAt": 10 + n});
+        let changed = |session: Value, kind: &str| PeerNotice::SessionChanged {
+            session,
+            kind: kind.to_owned(),
+            seq: 2,
+        };
+        // One closed row more than the bound: `c0` is left out.
+        let (hub, peer) = hub_with_peer("vm");
+        let rows: Vec<Value> = (0..=CLOSED_KEPT).map(closed).collect();
+        hub.apply_peer_notice("vm", peer.generation, PeerNotice::sessions_from_values(rows));
+        assert!(!listed_ids(&hub).contains(&"c0".to_owned()));
+        peer.set_list_cursor_for_test(cursor.clone());
+        // A row that changes and stays closed keeps the position.
+        hub.apply_peer_notice("vm", peer.generation, changed(closed(CLOSED_KEPT), "status"));
+        assert_eq!(peer.list_cursor_for_test(), cursor);
+        // A kept closed row is purged: `c0` is among the newest again.
+        hub.apply_peer_notice("vm", peer.generation, changed(json!({"sessionId": "c1"}), "purged"));
+        assert_eq!(listed_ids(&hub).len(), CLOSED_KEPT - 1);
+        assert_eq!(peer.list_cursor_for_test(), None, "the next link reads the whole list");
+
+        // The same with a kept closed row that runs again.
+        let (hub, peer) = hub_with_peer("vm");
+        let rows: Vec<Value> = (0..=CLOSED_KEPT).map(closed).collect();
+        hub.apply_peer_notice("vm", peer.generation, PeerNotice::sessions_from_values(rows));
+        peer.set_list_cursor_for_test(cursor.clone());
+        let reopened = json!({"sessionId": "c2", "status": "running", "updatedAt": 5_000});
+        hub.apply_peer_notice("vm", peer.generation, changed(reopened, "status"));
+        assert_eq!(peer.list_cursor_for_test(), None);
+
+        // Under the bound, nothing was left out: a purge keeps the position.
+        let (hub, peer) = hub_with_peer("vm");
+        let rows: Vec<Value> = (0..CLOSED_KEPT - 1).map(closed).collect();
+        hub.apply_peer_notice("vm", peer.generation, PeerNotice::sessions_from_values(rows));
+        peer.set_list_cursor_for_test(cursor.clone());
+        hub.apply_peer_notice("vm", peer.generation, changed(json!({"sessionId": "c0"}), "purged"));
+        assert_eq!(peer.list_cursor_for_test(), cursor);
+
+        // A whole list that comes after, with the left-out row, keeps the newest again.
+        let (hub, peer) = hub_with_peer("vm");
+        let rows: Vec<Value> = (0..=CLOSED_KEPT).map(closed).collect();
+        hub.apply_peer_notice("vm", peer.generation, PeerNotice::sessions_from_values(rows));
+        hub.apply_peer_notice("vm", peer.generation, changed(json!({"sessionId": "c1"}), "purged"));
+        let rows: Vec<Value> = (0..=CLOSED_KEPT).filter(|n| *n != 1).map(closed).collect();
+        hub.apply_peer_notice("vm", peer.generation, PeerNotice::sessions_from_values(rows));
+        let ids = listed_ids(&hub);
+        assert_eq!(ids.len(), CLOSED_KEPT);
+        assert!(ids.contains(&"c0".to_owned()), "{ids:?}");
     }
 }

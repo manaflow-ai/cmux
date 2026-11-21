@@ -833,7 +833,9 @@ impl Hub {
         list
     }
 
-    pub(super) fn apply_peer_notice(
+    /// [`Self::apply_peer_notice`]'s work, without the closed-row bound's check
+    /// (`peer_closed_bound.rs`).
+    pub(super) fn apply_peer_notice_rows(
         &self,
         peer: &str,
         generation: u64,
