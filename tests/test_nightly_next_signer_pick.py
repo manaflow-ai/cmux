@@ -26,7 +26,7 @@ spec.loader.exec_module(pick_mod)
 
 SIGNER = "glaeda-trusted-next-signing"
 LABEL_ONLY = json.dumps([SIGNER], separators=(",", ":"))
-NOW = dt.datetime.now(dt.timezone.utc)
+NOW = dt.datetime(2026, 11, 21, tzinfo=dt.timezone.utc)
 _ids = iter(range(1, 10_000))
 
 
@@ -169,7 +169,7 @@ class EvaluateTests(unittest.TestCase):
                 loop_run(3, status="completed"), loop_run(4, event="workflow_dispatch", title="Nightly"),
                 loop_run(500)]
         api = Api(runs, {1: [one("in_progress", "cmux15-glaeda")]})
-        host, pin, why = pick_mod.evaluate(env(), api)
+        host, pin, why = pick_mod.evaluate(env(), api, now=NOW)
         self.assertEqual(host, "ultra1", why)
         self.assertEqual(len(api.paths), 3, api.paths)
         self.assertFalse(any("/runs/500/" in p or "/runs/3/" in p or "/runs/4/" in p for p in api.paths), api.paths)
@@ -187,7 +187,7 @@ class EvaluateTests(unittest.TestCase):
         }
         for name, (environment, api) in cases.items():
             with self.subTest(name):
-                host, pin, why = pick_mod.evaluate(environment, api)
+                host, pin, why = pick_mod.evaluate(environment, api, now=NOW)
                 self.assertEqual((host, pin), ("cmux15", LABEL_ONLY), why)
 
     def test_main_writes_host_and_pin(self):
