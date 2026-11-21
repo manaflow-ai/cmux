@@ -35,6 +35,10 @@ runs:
       shell: bash
       env:
         RCC_JOB: ${{ inputs.job }}
+        # Only base pushes write: their entries are readable from every pull request, and the Actions cache
+        # rate-limits writes (161 of 270 refused on one cold PR job, 2026-11-21). A PR's own writes would be
+        # visible to that PR alone.
+        RCC_RW_MODE: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/main') && 'READ_WRITE' || 'READ_ONLY' }}
       run: python3 "$GITHUB_WORKSPACE/scripts/ci/rust_compile_cache.py" start --job "$RCC_JOB"
     - name: Report the shared compile cache
       if: ${{ always() && inputs.mode == 'report' }}

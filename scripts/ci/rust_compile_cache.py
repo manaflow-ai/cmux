@@ -7,8 +7,9 @@
 Every cargo step after `start` runs rustc through sccache 0.19.0. The store is this repository's GitHub Actions
 cache (SCCACHE_GHA_ENABLED), which every runner the jobs use can reach with the job's own token. A compile's key
 hashes its inputs (sources, arguments, CARGO_* environment, rustc), never the commit, so a later head, another
-PR or the base push that compiled the same crate from the same inputs serves it. Pull requests write too: an
-Actions cache entry a PR writes is visible only to that PR's later runs, never to the base or another PR.
+PR or the base push that compiled the same crate from the same inputs serves it. Only base pushes write
+(RCC_RW_MODE, set by the action): an entry a pull request wrote would be visible to that PR alone, and the
+Actions cache rate-limits writes.
 
 A store that cannot be reached is loud, not a miss (hq docs/handbook/cache-store-down-reads-as-misses.md):
 `start` prints an ::error and the job compiles without sccache; `report` prints an ::error when lookups failed
@@ -164,9 +165,11 @@ def summarize(stats: dict) -> dict:
             "writes": total(s.get("cache_writes")), "write_errors": total(s.get("cache_write_errors")),
             "read_errors": total(s.get("cache_read_errors")), "mode": stats.get("effective_cache_mode"),
             "hit_rate": round(hits / looked, 3) if looked else None,
-            # Down: nothing read and nothing written. The Actions cache answers a miss as a NotFound read error,
-            # so errors alone (a cold store) are not down.
-            "store_down": looked > 0 and hits == 0 and total(s.get("cache_writes")) == 0}
+            # Down: nothing read and, in a writing job, nothing written. The Actions cache answers a miss as a
+            # NotFound read error, so errors alone (a cold store) are not down; a read-only job that hit nothing
+            # met a cold store, which `report` names as such.
+            "store_down": looked > 0 and hits == 0 and total(s.get("cache_writes")) == 0
+            and stats.get("effective_cache_mode") != "ReadOnly"}
 
 
 def report(job: str) -> int:
