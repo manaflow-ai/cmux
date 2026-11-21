@@ -495,7 +495,8 @@ class ClippyChangedTests(unittest.TestCase):
         base_out = out.with_name(out.name + ".base")
         self.assertIn('"build-finished"', base_out.read_text())
         strict = self.judged(out)
-        self.assertEqual(self.ratchet_calls(), [strict, [*strict, "--base-clippy-json", str(base_out)]])
+        self.assertEqual(self.ratchet_calls(), [strict, [*strict, "--base-clippy-json", str(base_out),
+                                                         "--changed-crates", "a"]])
 
     def test_compare_base_returns_to_head_when_the_base_lint_cannot_start(self) -> None:
         self.change("cmux-tui/crates/a/src/lib.rs")
@@ -548,10 +549,12 @@ class RatchetAgainstBaseTests(unittest.TestCase):
         (here / "rust-panic-baseline.json").write_text(json.dumps({"crates": {"acpmux": {
             "unwrap_used": 0, "indexing_slicing": 693, "arithmetic_side_effects": 10}}, "lints": lints}))
 
-    def judge(self, head: str, base: str | None = None,
-              cargo_log: Path | None = None) -> subprocess.CompletedProcess[str]:
+    def judge(self, head: str, base: str | None = None, cargo_log: Path | None = None,
+              changed: str | None = None) -> subprocess.CompletedProcess[str]:
         (self.tmp / "head.jsonl").write_text(head)
         args = ["--repo", str(self.tmp), "--clippy-json", str(self.tmp / "head.jsonl")]
+        if changed is not None:
+            args += ["--changed-crates", changed]
         if cargo_log is not None:
             args += ["--cargo-log", str(cargo_log)]
         if base is not None:
@@ -580,6 +583,39 @@ class RatchetAgainstBaseTests(unittest.TestCase):
         result = self.judge(clippy_jsonl(700), clippy_jsonl(700, finished=False))
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("base clippy run did not finish", result.stderr)
+
+    def test_a_base_run_that_did_not_finish_leaves_crates_the_change_does_not_touch_unjudged(self) -> None:
+        # cmux-ci job 2bd3cc13c2652540f6c55b00 (cmux#48669): the base's cmux-tui-core did not compile, and a PR
+        # touching cmux-customize, cmux-tui and cmux-tui-core went red on acpmux, which it never touched.
+        error = {"reason": "compiler-message", "message": {
+            "level": "error", "code": {"code": "E0425"}, "message": "cannot find value `x` in this scope",
+            "spans": [{"is_primary": True, "file_name": "crates/cmux-tui-core/src/apps/catalog.rs",
+                       "line_start": 12, "column_start": 5}]}}
+        summary = {"reason": "compiler-message", "message": {"level": "error", "message": "aborting due to 1 previous error",
+                                                             "spans": []}}
+        base = json.dumps(error) + "\n" + json.dumps(summary) + "\n" + clippy_jsonl(0, finished=False)
+        result = self.judge(clippy_jsonl(700), base, changed="cmux-tui,cmux-tui-core")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("::warning title=rust panic ratchet::the base clippy run did not finish successfully "
+                      "(crates/cmux-tui-core/src/apps/catalog.rs:12: error[E0425]: cannot find value `x` in this "
+                      "scope); only the crates this change touches (cmux-tui, cmux-tui-core) "
+                      "are judged", result.stderr)
+        self.assertNotIn("aborting due to", result.stderr)
+        self.assertIn("(not judged)::", result.stderr)
+        self.assertIn("acpmux: clippy::indexing_slicing 700 > baseline 693", result.stderr)
+        self.assertNotIn("RED", result.stderr)
+
+    def test_a_base_run_that_did_not_finish_still_judges_the_crates_the_change_touches(self) -> None:
+        result = self.judge(clippy_jsonl(700), clippy_jsonl(0, finished=False), changed="acpmux")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("rust-panic-ratchet: RED", result.stderr)
+        self.assertIn("acpmux: clippy::indexing_slicing 700 > baseline 693", result.stderr)
+        self.assertNotIn("(not judged)", result.stderr)
+
+    def test_changed_crates_do_not_matter_when_the_base_run_finished(self) -> None:
+        result = self.judge(clippy_jsonl(702), clippy_jsonl(700), changed="cmux-tui")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("702 > baseline 693", result.stderr)
 
     def test_a_red_names_the_file_the_change_grew_before_the_bases_hits(self) -> None:
         # #37778's shape: one new hit in a file that sorts after 693 old ones; the list named only
