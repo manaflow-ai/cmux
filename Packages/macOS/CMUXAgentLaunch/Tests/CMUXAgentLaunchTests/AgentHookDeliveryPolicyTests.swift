@@ -21,7 +21,8 @@ struct AgentHookDeliveryPolicyTests {
         #expect(policy.supportsQueuedDelivery(agent: "claude", subcommand: "pre-tool-use"))
         #expect(policy.supportsQueuedDelivery(agent: "codex", subcommand: "pre-tool-use"))
         #expect(policy.supportsQueuedDelivery(agent: "codex", subcommand: "post-tool-use"))
-        #expect(!policy.supportsQueuedDelivery(agent: "claude", subcommand: "post-tool-use"))
+        #expect(policy.supportsQueuedDelivery(agent: "claude", subcommand: "post-tool-use"))
+        #expect(!policy.supportsQueuedDelivery(agent: "future-agent", subcommand: "post-tool-use"))
         #expect(!policy.supportsQueuedDelivery(
             agent: String(repeating: "a", count: 129),
             subcommand: "session-start"
