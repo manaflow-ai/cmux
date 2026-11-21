@@ -6,6 +6,8 @@ extension SettingsSchema {
     public static let agentRefusedKeys: [String: AgentRefusal] = [
         // The live-tree preview changes how the person's shared editing workflow is presented; only the person turns it on.
         "labs.liveTree": .userOnly,
+        // On, opening the floating Chief gives it a look at the person's screen; only the person turns it on.
+        "home.chiefPanel.seesScreen": .userOnly,
         // What leaves the machine: a device proof to the Cloud service (cx-ds09i).
         "freeModel.enabled": .privacy,
         // The Cloud toggle copies the person's folder off this Mac to a paid machine: theirs to set.
@@ -96,6 +98,8 @@ extension SettingsSchema {
         "labs.machineJoin": .network,
         // On, a live code build loads Swift patches into the running app: only the person turns that on.
         "labs.liveCode": .userOnly,
+        // Whether the Hosts section is visible in the sidebar: the person decides when this preview surface appears.
+        "labs.hostsSidebar": .userOnly,
         // On, Settings shows and edits Claude Code's and Codex's own settings, MCP servers, skills, commands and hooks in their own config files: only the person turns that on.
         "labs.agentCustomization": .userOnly,
         // Whether cmux's own pages open developer tools, which read and change their live content: the person's call.
