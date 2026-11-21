@@ -292,7 +292,7 @@ and `main.js`, a classic script that uses the scene globals (`VStack`, `Row`,
 reloads the view, and the app installs itself the first time. No restart, no
 install click.
 
-- A new view of its own (a sidebar section or a Session Info section): run `cmux ext new NAME --kind sidebar|session-info --json` in a folder, edit its `src/main.ts`, then `cmux ext dev --once --json` until ok.
+- A new view of its own (a sidebar section or a Session Info section): run `cmux ext new NAME --kind sidebar|session-info --json` in a folder, read its `DESIGN.md` (the look each kind should keep: rows with symbols, tones not colors, every state drawn, and a lead line where its DESIGN.md asks for one; a Session Info section has none, since its header leads), edit its `src/main.ts` keeping that shape, then `cmux ext dev --once --json` until ok.
   To share it from GitHub: `cmux ext new NAME --repo OWNER/REPO`, then `cmux ext publish --json` says what is left (push, `cmux ext pack` and a release, the registry PR) ([extensions.md](references/extensions.md)).
 - `implements["cmux.section/1"]` is its one sidebar section; `options.defaultRegion`
   `top`, `middle` or `bottom` (the band under the workspace list). cmux places it
@@ -336,7 +336,10 @@ follow changes or open a pane of their own, start from a folder in
 `pane`, `threads`: the agent chats as a thread list, from `agent_chat.list`;
 `clock-weather`, `my-prs` and `design-links`: a time and weather widget, your PRs
 in the order you keep, Figma and other links opened in a cmux tab; `media-player`: a
-radio player with the song on now; `start-page`: a start page of your own as a pane). For "what could I
+radio player with the song on now; `start-page`: a start page of your own as a pane;
+`newtab-cards`, `newtab-calm`, `newtab-threads` and `newtab-console`: whole New Tab pages,
+the Cards, Default, Threads and Console layouts cmux no longer ships, picked with
+`cmux settings set tabs.newTabApp local/customize`). For "what could I
 make?", start from [references/ideas.md](references/ideas.md). A button runs a `cmux-next.json` action with
 `cmux.actions.run("cmuxConfig.<name>")` from a click, once the person turns on
 `actions:run`. What an extension can call, what is missing, and how to install

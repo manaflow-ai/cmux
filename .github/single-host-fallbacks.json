@@ -280,11 +280,11 @@
       "after_minutes": 25
     },
     "CI_NIGHTLY_MINI_SIGNER": {
-      "fallback": "an operator switch, never a label: cmux nightly.yml compares it with exactly macos-26 (cmux#40221; Leo, 2026-11-10: \"It's fine to sign on GitHub hosted tonight\", while the only owned signer had no power). Equal, the three signing jobs take a fresh GitHub-hosted macos-26 VM; unset or any other value, they keep their chain (the signing picker, then glaeda-trusted-next-signing). It is itself the fallback for the trusted signer going dark. after_minutes is the 25-minute nightly freshness budget an operator works to, as for CI_NIGHTLY_SIGN_RUNNER",
+      "fallback": "a retired operator switch, never a label: until 2026-11-21 cmux nightly.yml compared it with exactly macos-26 (cmux#40221) to sign on a GitHub-hosted macos-26 VM; GitHub-hosted runners start nothing in manaflow-ai (Leo, 2026-11-21: \"the ci must flow\"), so nightly.yml no longer reads it and the three signing jobs keep their chain (the signing picker, then glaeda-trusted-next-signing). after_minutes is the 25-minute nightly freshness budget an operator works to, as for CI_NIGHTLY_SIGN_RUNNER",
       "after_minutes": 25
     },
     "CI_NIGHTLY_MINI_PUBLISHER": {
-      "fallback": "an operator switch, never a label: cmux nightly.yml compares it with exactly ubuntu-24.04 (cmux#40221, the same night as vars.CI_NIGHTLY_MINI_SIGNER). Equal, the three publishing jobs take a GitHub-hosted ubuntu-24.04 runner; unset or any other value, they keep their chain (the signing picker's pool, then glaeda-trusted-next-signing). after_minutes is the 25-minute nightly freshness budget an operator works to",
+      "fallback": "an operator switch, never a label: cmux nightly.yml compares it with exactly ubuntu-24.04 (cmux#40221, the same night as vars.CI_NIGHTLY_MINI_SIGNER). Equal, the three publishing jobs take a one-job cmux-gcp-nightly-jit-x64 VM (GitHub-hosted until 2026-11-21, which starts nothing in manaflow-ai); unset or any other value, they keep their chain (the signing picker's pool, then glaeda-trusted-next-signing). after_minutes is the 25-minute nightly freshness budget an operator works to",
       "after_minutes": 25
     },
     "CI_NIGHTLY_MINI_BUILDER": {
@@ -302,6 +302,10 @@
     "CI_NIGHTLY_SIGN_RUNNER": {
       "fallback": "none automatic while it is set, by design: it is the switch and the rollback (cmux 24111ed7f5e, Lawrence, 2026-11-04: \"reserve cmux15\"). cmux nightly.yml reads it only on a push to nightly-next, as the first route of the eight jobs glaeda gives the exclusive class (promote-nightly-next, build-sign-notarize-nightly, recover-nightly-next-notarization, sign-nightly-identity-legacy, generate-nightly-deltas, publish-nightly, publish-nightly-next-github, publish-nightly-next-github-names). Set to glaeda-trusted-next-signing since 2026-11-04, which only cmux15's pool runners carry (build-fleet/mini-fleet.json, runner.trustedNextSigning, glaeda#1837). Clearing the variable puts every one of those jobs back on its earlier route in the same runs-on: the run's owned sign pick (sign_owned), then vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, the nightly slot on every std PR-runner mini. A dispatch never reads it. after_minutes is the 25-minute nightly freshness budget an operator works to, as for CI_NIGHTLY_NEXT_BUILD_RUNNER",
       "after_minutes": 25
+    },
+    "CI_DEPLOY_SKIP_FLEET": {
+      "fallback": "an off switch, not a host: unset sends every Cloud VM image roll job to cmux-gcp-deploy-jit-x64, one-job JIT VMs gha-runners makes on demand (cap 4, one kept warm; never one host); `1` restores the roll's earlier labels (cmux-gcp-lane-build-x64 on plan attempt 1, RUNNER_POOLS linux_4 or linux_8, vars.LINUX_RUNNER for the bake)",
+      "after_minutes": 10
     }
   },
   "nightly_workflow_marker": "nightly",
