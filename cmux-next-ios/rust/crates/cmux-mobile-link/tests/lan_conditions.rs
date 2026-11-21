@@ -221,12 +221,13 @@ async fn dial_relayed(mac: &Mac, radio: &Radio) -> Option<Up> {
 }
 
 async fn dial_lan(mac: &Mac, radio: &Radio) -> Option<Up> {
+    let timeline = Timeline::default();
     let attempt = lan::connect(
         &mac.phone_lan,
         &mac.lan_entry,
         vec![radio.udp.addr()],
         LinkConfig::default(),
-        &Timeline::default(),
+        &timeline,
     );
     let (connected, _) = timeout(WAIT, attempt).await.ok()?.ok()?;
     Some(Up { connected, _signaling: None })
@@ -329,12 +330,13 @@ async fn fallback(profile: &LinkProfile, path: &str, run: u64, seed: u64) {
     let again = match path {
         "lan" => {
             let lan_on_lte = async {
+                let timeline = Timeline::default();
                 let attempt = lan::connect(
                     &mac.phone_lan,
                     &mac.lan_entry,
                     vec![wifi.udp.addr()],
                     LinkConfig::default(),
-                    &Timeline::default(),
+                    &timeline,
                 );
                 let (connected, _) = timeout(WAIT, attempt).await.ok()?.ok()?;
                 Some(Up { connected, _signaling: None })
