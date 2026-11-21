@@ -506,7 +506,7 @@ surface, one line each in `acpmux --help`: `race` and `compare` (one task on
 several models), `continue` (move a chat to another harness), `briefs` and `task`
 (tracked work), `watch` (wake me when others finish), `inbox` and `deliver`
 (durable messages, reports), `forum`, `bridge`, `desktop` and `register`
-(desktop apps), `group` (sidebar groups), `harness`, `capabilities`,
+(desktop apps), `group` (sidebar groups), `board` (local sessions by branch, a Labs preview), `harness`, `capabilities`,
 `machine-auth`, `hand`, `share-host`, `router`, `web`, `attach`, `resume-here`,
 `stdio`, `cli-agent`, `uniichat-agent`, and `skill` (this guide).
 

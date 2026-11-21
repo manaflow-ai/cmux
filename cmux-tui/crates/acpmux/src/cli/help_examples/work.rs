@@ -1,5 +1,5 @@
 //! Help examples for the work groups: `task`, `process`, `worktree`, `briefs`, `bead`, `inbox`,
-//! `forum`, `watch`, `chats`, `hand`, `router` (see `help_examples/mod.rs`).
+//! `forum`, `watch`, `board`, `chats`, `hand`, `router` (see `help_examples/mod.rs`).
 
 use super::Example;
 
@@ -402,6 +402,13 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     (
         "watch rm",
         &[("Remove a watch; wakes it already owes still arrive", "acpmux watch rm 019a3f9c")],
+    ),
+    (
+        "board",
+        &[
+            ("Show this machine's sessions grouped by branch", "acpmux board"),
+            ("Print the same board as JSON", "acpmux --json board"),
+        ],
     ),
     (
         "chats",
