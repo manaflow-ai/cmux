@@ -1,3 +1,4 @@
+import CmuxNextAgentLanes
 import CmuxNextDesign
 import CmuxNextSidebar
 
@@ -14,10 +15,11 @@ enum SidebarNavigation {
     /// `creationRow` is the row of the Cloud creation the window shows
     /// (cx-lu8f): selected in place of the workspace under it. `home` is the
     /// docked Home's workspace (`HomeService.dockedHomeID(in:)`, its own per window): the Home item
-    /// stands for it (cx-ebm.59.5), and the Channels entry while `channels`
-    /// (its dock shows Channels, cx-frn2y).
+    /// stands for it (cx-ebm.59.5), the Channels entry while `channels`
+    /// (its dock shows Channels, cx-frn2y), and the Chief item in the top band while `chief` (Home shows the
+    /// Chief's conversation, ``ChiefSidebar/homeShowsChief``: the Chief's row is selected as a thread's is).
     static func selectedItem(page: TopPageRoute?, workspace: String?, creationRow: String? = nil, layout: SidebarLayoutDocument,
-                             room: String? = nil, refs: WorkspaceLayoutRefs? = nil, home: String? = nil, channels: Bool = false) -> SidebarItem? {
+                             room: String? = nil, refs: WorkspaceLayoutRefs? = nil, home: String? = nil, channels: Bool = false, chief: Bool = false) -> SidebarItem? {
         let topItem = { (route: TopPageRoute) in
             layout.sections.filter { $0.region == .top }.flatMap(\.items).first { TopPageRoute.route(for: $0.ref) == route }
         }
@@ -25,6 +27,7 @@ enum SidebarNavigation {
         if let creationRow { return .workspace(WorkspaceID(creationRow)) }
         guard let workspace else { return nil }
         if workspace == home, channels { return .topItem(SidebarTransientItem.channelsID) }
+        if workspace == home, chief, let item = layout.topItem(for: .builtIn(.chief), room: room) { return .topItem(item.id) }
         if workspace == home, let item = topItem(.home) { return .topItem(item.id) }
         if let ref = refs?.ref(forWorkspace: workspace), let item = layout.topItem(for: ref, room: room) { return .topItem(item.id) }
         return .workspace(WorkspaceID(workspace))
@@ -52,7 +55,7 @@ enum SidebarNavigation {
         selectedItem(page: window.state.page, workspace: window.state.workspaceID,
                      creationRow: window.state.cloudCreation.flatMap { services.cloud.creations.creation($0)?.rowID }, layout: window.sidebar.model.layout,
                      room: window.state.profileID.rawValue, refs: WorkspaceLayoutRefs(machines: services.machines),
-                     home: services.home.dockedHomeID(in: window.state), channels: services.home.dockShowsChannels)
+                     home: services.home.dockedHomeID(in: window.state), channels: services.home.dockShowsChannels, chief: ChiefSidebar.shared.homeShowsChief)
     }
 
     /// Selects `item` as a click does: a top item runs (its page opens), a

@@ -295,7 +295,7 @@ import Testing
     /// catalog), off in the default layout and on once the layout holds it; the Chief stays with
     /// its own sidebar. Channels writes its existing key.
     @Test func theSidebarOffersEveryListedItemAndChannelsWritesItsKey() async throws {
-        let items = SidebarSectionHandlers.storeItems(chief: nil, document: { .defaults }, registry: ActionRegistry(catalog: []))
+        let items = SettingsAppFeatures.SidebarItems.builtIns(over: nil, document: { .defaults }, registry: ActionRegistry(catalog: []))
         let listed = Set(AppFeature.catalog.compactMap(\.sidebarItem))
         #expect(items.names == listed.subtracting(["chief"]))
         for name in ["search_chats", "new_terminal", "new_browser", "new_agent_chat", "customize"] {
@@ -303,7 +303,7 @@ import Testing
             let builtIn = try #require(SidebarBuiltIn(rawValue: name))
             let op = try #require(SidebarLayoutDocument.defaults.addToTopOp(.builtIn(builtIn)))
             let document = try SidebarLayoutReducer.reduce(.defaults, op).get()
-            let placed = SidebarSectionHandlers.storeItems(chief: nil, document: { document }, registry: ActionRegistry(catalog: []))
+            let placed = SettingsAppFeatures.SidebarItems.builtIns(over: nil, document: { document }, registry: ActionRegistry(catalog: []))
             #expect(placed.isShown(name), "\(name) is on once the sidebar shows it")
         }
 

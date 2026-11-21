@@ -11,8 +11,9 @@ public import Observation
 /// The sidebar's Chief item (the `chief` built-in) and its subagent rows
 /// (`SidebarTransientItem.chiefSubagents`): Leo 2026-10-20, talk to the Chief from the left side
 /// next to the workspaces, see whether it works or needs you, and see its subagents under it.
-/// Optional: not in the default layout; Add to Sidebar adds it. A click on the item runs Open
-/// Chief (`home.openChief`: the Chief's conversation in the Home workspace's chat pane); a click
+/// The app adds it under Home once per Mac (``ChiefSidebarOffer``; David Beyer, 2026-11-20: the Chief is a thread in
+/// the sidebar); Remove from Sidebar keeps it out. A click on the item runs Open Chief (`home.openChief`: the Chief's
+/// conversation in the Home workspace's chat pane, or with Chief in Side Panel on, the side panel); a click
 /// on a subagent row shows the tab of its chat, else opens it in a new workspace and shows it.
 /// The App only hands it what it reaches through its services (`Host`).
 @Observable @MainActor
@@ -51,12 +52,17 @@ public final class ChiefSidebar {
         /// Whether Chief home `host` of this Mac, not the app's own (a named Chief's), keeps
         /// `session` in its acpmux (#28877); nil: no other home's link opens.
         public var keeps: (@MainActor (_ session: String, _ host: String) async -> Bool)?
+        /// Chief in Side Panel (`home.chiefDock.sidePanel`): shows the active window's docked Chief and gives it the
+        /// keys, the workspace staying on the stage; false when it does not apply (off, or the window shows Home), so
+        /// Open Chief opens the Chief's conversation in Home. Nil: always Home.
+        public var openSidePanel: (@MainActor () -> Bool)?
 
         public init(conversation: @escaping () -> String?, chiefHost: @escaping () -> String?,
                     tab: @escaping (String, String) -> String?, reveal: @escaping (String) -> Bool,
                     openWorkspace: @escaping (String, String) throws -> ActionWork,
                     openRight: ((String, String, String) -> Bool)? = nil,
-                    keeps: (@MainActor (String, String) async -> Bool)? = nil) {
+                    keeps: (@MainActor (String, String) async -> Bool)? = nil,
+                    openSidePanel: (@MainActor () -> Bool)? = nil) {
             self.conversation = conversation
             self.chiefHost = chiefHost
             self.tab = tab
@@ -64,6 +70,7 @@ public final class ChiefSidebar {
             self.openWorkspace = openWorkspace
             self.openRight = openRight
             self.keeps = keeps
+            self.openSidePanel = openSidePanel
         }
     }
 
@@ -75,6 +82,9 @@ public final class ChiefSidebar {
     /// Written only when it changes (`watch`), so a Chief lane step does not rebuild the sidebar's
     /// item info.
     public internal(set) var status = Status()
+    /// Whether a Home view shows the Chief's conversation now (``homeShowed(_:)``): the sidebar selects the Chief
+    /// item for it, as a thread's row is selected while its chat shows, and Home's item for any other conversation.
+    public private(set) var homeShowsChief = false
     /// Whether the sidebar shows the Chief item (`SidebarModel.followTopItems` reads the layout):
     /// the subagent fold applies only then, and the App Store's Chief in Sidebar card is on.
     public internal(set) var isPlaced = false
@@ -101,6 +111,12 @@ public final class ChiefSidebar {
     /// Every subagent row, idle ones too, in number order (the Chief pane's Subagents menu).
     public func allSubagents() -> [SidebarTransientItem] {
         SidebarTransientItem.chiefSubagents(lanes: lanes.lanes.values, showsIdle: true)
+    }
+
+    /// A Home view showed `conversation` (nil: none): ``homeShowsChief`` follows, written only when it changes.
+    public func homeShowed(_ conversation: String?) {
+        let chief = conversation != nil && conversation == host?.conversation()
+        if homeShowsChief != chief { homeShowsChief = chief }
     }
 
     /// The Chief item's look with its status.
@@ -175,8 +191,10 @@ public final class ChiefSidebar {
         }
     }
 
-    /// The Chief's conversation, as Home's own list opens it; Home itself before it is listed.
+    /// The Chief's conversation, as Home's own list opens it; Home itself before it is listed. With Chief in Side
+    /// Panel on, the side panel beside the shown workspace instead (``Host/openSidePanel``).
     private func openChief(_ registry: ActionRegistry, origin: ActionOrigin) {
+        if host?.openSidePanel?() == true { return }
         guard let chief = host?.conversation() else {
             _ = registry.perform("home.show", invocation: .init(origin: origin))
             return

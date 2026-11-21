@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentLanes
 @testable import CmuxNextApp
 @testable import CmuxNextApps
 import CmuxNextDesign
@@ -157,7 +158,7 @@ import Testing
         registry.bind("sidebar.item.add", invoke: { runs.append("add \($0["item"]?.stringValue ?? "")") })
         registry.bind("sidebar.item.removeEverywhere", invoke: { runs.append("remove \($0.target?.id ?? "")") })
         let chief = SettingsAppFeatures.SidebarItems(names: ["chief"], isShown: { _ in true }, set: { _, _ in runs.append("chief"); return true })
-        let store = SidebarSectionHandlers.storeItems(chief: chief, document: { .defaults }, registry: registry)
+        let store = SettingsAppFeatures.SidebarItems.builtIns(over: chief, document: { .defaults }, registry: registry)
         #expect(store.names == builtIns.union(["chief"]))
         #expect(store.isShown("home"), "the default sidebar's Home (an app item) reads as off")
         #expect(!store.isShown("bookmarks"))

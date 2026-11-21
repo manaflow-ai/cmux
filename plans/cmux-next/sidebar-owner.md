@@ -2391,6 +2391,19 @@ Sidebar-Look: no visual change. Tests: `SidebarSwitchPressKeepsPageKeyTests`, `S
 - Test: `WorkspaceHoverCardEvenInsetTests.aFillAtTheTopOrBottomIsAsFarFromThatEdgeAsFromTheSides`, every density, red
   commit first.
 
+## The Chief is a thread row under Home, and can stay in a side panel (2026-11-20)
+
+- David Beyer, 2026-11-20 call (via Chief): "threads should all be threads": the Chief is a distinct thread in the
+  sidebar, not only Home's first conversation, with an option to open it in a dedicated side panel.
+- The Chief's built-in row (`itm_chief`, its sparkles glyph or worn picture, status and badge as before) comes in right
+  under Home once per Mac (`ChiefSidebarOffer`, through `sidebar.item.add`); a later Remove from Sidebar stays. Add to
+  Sidebar also places it under Home (`SidebarLayoutPlanner.add`), at the top when Home is gone. It is the selected row
+  while Home shows the Chief's conversation (`ChiefSidebar.homeShowsChief`, `SidebarNavigation.selectedItem`).
+- Chief in Side Panel (`home.chiefDock.sidePanel`, off by default): every window keeps the Chief docked at the Dock
+  Edge beside the workspace, never over Home (`ChiefSidePanel`); a new window gets it, Cmd-I still hides it, and the
+  Chief row shows it again. Off again, the dock floats and hides.
+- Tests: `ChiefSidebarThreadTests`, `ChiefSidePanelTests`, `ChiefDockSidePanelSettingTests`, red commit first.
+
 ## Reviewed behavior-only commits
 
 The following Priority pointer behavior commits were reviewed as Sidebar-Look: no visual change:

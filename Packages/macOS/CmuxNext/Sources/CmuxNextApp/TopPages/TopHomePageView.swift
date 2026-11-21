@@ -1,6 +1,7 @@
 import AppKit
 import CmuxHomeCore
 import CmuxNextActions
+import CmuxNextAgentLanes
 import CmuxNextChiefMemory
 import CmuxNextCompat
 import CmuxNextDaemon
@@ -29,7 +30,7 @@ final class TopHomePageView: NSView {
     private(set) var rows: [InboxRow] = []
     var lines: [HomeConversationLine] { rows.homeLines }
     private(set) var host: HomeHostView?
-    private(set) var shown: ConversationID?
+    private(set) var shown: ConversationID? { didSet { if shown != oldValue { ChiefSidebar.shared.homeShowed(shown?.rawValue) } } } // the Chief row's selection
     /// The New Message page (Messages' New Message: a page, not a sheet).
     /// Kept while hidden when the person typed something, with its row in the list.
     private(set) var newMessage: HomeNewMessageView?
@@ -384,8 +385,7 @@ final class TopHomePageView: NSView {
         host?.removeFromSuperview(); DebugTimings.markLaunch("home.page_host_made")
         let view = HomeHostView(services: services, conversation: id.rawValue)
         view.isHidden = isComposingNewMessage
-        view.frame = transcriptColumn.bounds
-        view.autoresizingMask = [.width, .height]
+        view.frame = transcriptColumn.bounds; view.autoresizingMask = [.width, .height]
         transcriptColumn.addSubview(view)
         host = view
         services.home.homeDidOpen(asked: true)

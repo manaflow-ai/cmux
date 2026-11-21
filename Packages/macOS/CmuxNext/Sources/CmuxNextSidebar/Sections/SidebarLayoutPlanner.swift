@@ -4,7 +4,7 @@ import Foundation
 /// layout op against the current document. Pure; the caller sends the op.
 public nonisolated enum SidebarLayoutPlanner {
     /// Adds `ref` to the first items section of `region` that shows in
-    /// every room: first in the top region, last elsewhere. With no such
+    /// every room: first in the top region (the Chief right under Home), last elsewhere. With no such
     /// section, adds one (no title, `look`) holding the item. Nil when the
     /// layout already holds `ref` anywhere.
     public static func add(_ ref: LayoutItemRef, to region: SidebarRegion = .top, in document: SidebarLayoutDocument,
@@ -12,11 +12,22 @@ public nonisolated enum SidebarLayoutPlanner {
                            newSection: LayoutSectionID = .mint()) -> SidebarLayoutOp? {
         guard document.firstItem(with: ref) == nil else { return nil }
         let item = LayoutItem(id: newItem, ref: ref, showsLabel: showsLabel)
+        // The Chief goes right under Home: a thread below the Messages it lives in (David Beyer, 2026-11-20).
+        if region == .top, ref == .builtIn(.chief), let op = besideHome(item, in: document) { return op }
         let index = region == .top ? 0 : Int.max
         if let section = document.sections.first(where: { $0.region == region && $0.room == nil && $0.content == .items }) {
             return .itemAdd(item, section: section.id, index: index)
         }
         return .sectionAdd(LayoutSection(id: newSection, region: region, look: look, items: [item]), index: index)
+    }
+
+    /// `item` right after Home (the first-party app, or the older built-in), in Home's section; nil with no Home.
+    private static func besideHome(_ item: LayoutItem, in document: SidebarLayoutDocument) -> SidebarLayoutOp? {
+        for anchor in [SidebarLayoutDocument.homeRef, .builtIn(.home)] {
+            guard let home = document.firstItem(with: anchor), let (s, i) = document.locate(home.id) else { continue }
+            return .itemAdd(item, section: document.sections[s].id, index: i + 1)
+        }
+        return nil
     }
 
     /// Removes every item with `ref` ("Remove Home from Sidebar"); nil
