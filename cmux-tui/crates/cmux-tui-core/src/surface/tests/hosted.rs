@@ -1321,7 +1321,7 @@ fn send_input_id_survives_the_creating_terminal_flush() {
     assert_eq!(send(8, b"a", "phone:1"), TerminalInputTarget::Duplicate);
     assert_eq!(send(8, b"b", "phone:2"), TerminalInputTarget::Queued);
 
-    mux.insert_surface_runtime_for_test(surface.clone());
+    mux.insert_surface_runtime_for_test(surface);
     mux.finish_creating_input(&terminal_id, generation, None);
     assert_eq!(send(9, b"a", "phone:1"), TerminalInputTarget::Duplicate);
     assert_eq!(send(9, b"c", "phone:3"), TerminalInputTarget::Written);
