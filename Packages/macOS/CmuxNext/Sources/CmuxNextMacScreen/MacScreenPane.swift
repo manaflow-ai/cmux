@@ -18,6 +18,8 @@ public final class MacScreenPaneModel {
 
     public let session: MacScreenSession?
     public internal(set) var name: String
+    /// The run a screen link named (`name=`), shown beside the device's name.
+    public internal(set) var runName: String?
     /// The device's platform, when the hub lists it: a Linux desktop's cards say how to reach a Linux machine.
     public internal(set) var platform: DevicePlatform?
     public var gate: Gate
