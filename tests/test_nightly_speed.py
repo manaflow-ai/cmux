@@ -42,6 +42,8 @@ RUNS = load("runs.json")["workflow_runs"]
 BY_ID = {r["id"]: r for r in RUNS}
 SIGN_JOBS = load("jobs-43189297315-1.json")["jobs"]
 PUSH_JOBS = load("jobs-43185474901-1.json")["jobs"]
+# The fixture's failed and cancelled sign runs: read once each (a failed run may still have published), no feed step.
+FAILED_SIGN_JOBS = {"runs/43198322667/attempts/1/jobs": {"jobs": []}, "runs/43194746628/attempts/1/jobs": {"jobs": []}}
 
 
 def fixture_record():
@@ -121,14 +123,14 @@ class Record(unittest.TestCase):
         self.assertEqual(why, "no feed upload")
 
     def test_record_reads_one_list_and_two_jobs_per_new_build(self):
-        gh = FakeGh(api={"workflows/nightly.yml/runs": {"workflow_runs": RUNS},
+        gh = FakeGh(api={"workflows/nightly.yml/runs": {"workflow_runs": RUNS}, **FAILED_SIGN_JOBS,
                          "runs/43189297315/attempts/1/jobs": {"jobs": SIGN_JOBS},
                          "runs/43185474901/attempts/1/jobs": {"jobs": PUSH_JOBS}})
         st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
         self.assertEqual(st["new"], ["4318547490101"])
         self.assertEqual(sorted(st["new_unpublished"]), [43194746628, 43198322667], "the in-progress sign run waits")
         apis = [c[0][2] for c in gh.calls if c[0][:2] == ["gh", "api"]]
-        self.assertEqual(len(apis), 3)
+        self.assertEqual(len(apis), 5, "one list, two job lists for the build, one for each failed sign run")
         cancelled = next(u for u in st["unpublished"] if u["sign_run"] == 43194746628)
         self.assertEqual((cancelled["conclusion"], cancelled["held_min"]), ("cancelled", 24.13))
         # No landing time from git (the fake has none): recorded, merge_to_feed unknown.
@@ -360,6 +362,7 @@ class PrAttribution(unittest.TestCase):
         just before the window first, and a git fake whose head holds every merge committed before its feed."""
         end = ns.ts("2026-11-20T00:00:00Z")
         feeds = [{"sha": "%040x" % (0xf00 + i), "build": f"b{i}", "sign_run": 1 + i,
+                  "confirmed": True, "sha_source": "signed_notes", "confirmed_identity": True,
                   "feed_at": ns.iso(end - 7 * 86400 + i * (7 * 86400 / n) - (3600 if i == 0 else -60))}
                  for i in range(n)]
         merges = [("%040x" % (0xa00 + i), int(ns.ts(f["feed_at"]) - 600)) for i, f in enumerate(feeds) if i]
@@ -385,7 +388,11 @@ class PrAttribution(unittest.TestCase):
         self.assertTrue(only_records["partial"])
         kept = ns.feed_list(feeds, records, end)
         self.assertEqual(len(kept), len(feeds), "every feed of the 7 days and the one before them")
-        data = ns.pr_attribution(records, ".", run=git, now=end, feeds=kept)
+        # A predecessor alone proves nothing: no run classification, the label stays.
+        unproven = ns.pr_attribution(records, ".", run=git, now=end, feeds=kept)
+        self.assertTrue(unproven["partial"])
+        span = {"from": ns.iso(end - 8 * 86400), "to": ns.iso(end)}
+        data = ns.pr_attribution(records, ".", run=git, now=end, feeds=kept, classified=span)
         row = {r["pr"]: r for r in data["rows"]}[old_merge]
         self.assertEqual((row["build"], row["feed_sha"], row["merge_to_nightly"]), ("b6", feeds[6]["sha"], 10.0))
         self.assertEqual((data["attributed"], data["count"], data["partial"]), (len(feeds) - 1, len(feeds) - 1, False))
@@ -397,7 +404,7 @@ class PrAttribution(unittest.TestCase):
         self.assertNotIn("partial", full)
         self.assertIn(f"Observed window: {data['since']} to {data['until']}; 0 merges before it", full)
         # Without the predecessor the window is not proven: the label stays.
-        short = ns.pr_attribution(records, ".", run=git, now=end, feeds=kept[1:])
+        short = ns.pr_attribution(records, ".", run=git, now=end, feeds=kept[1:], classified=span)
         self.assertTrue(short["partial"])
         self.assertIn("(partial: observed window)", ns.render_verdict({**verdict, "pr_attribution": short}))
 
@@ -423,7 +430,8 @@ class PrAttribution(unittest.TestCase):
 
     def test_the_pr_json_holds_no_host_runner_or_diff(self):
         end, feeds, git = self.busy_week()
-        data = ns.pr_attribution(feeds[-3:], ".", run=git, now=end, feeds=feeds)
+        span = {"from": ns.iso(end - 8 * 86400), "to": ns.iso(end)}
+        data = ns.pr_attribution(feeds[-3:], ".", run=git, now=end, feeds=feeds, classified=span)
         rec = fixture_record()
         self.assertTrue(rec.get("hosts") and rec.get("jobs"), "the fixture carries hosts and jobs")
         with tempfile.TemporaryDirectory() as tmp:
@@ -484,14 +492,15 @@ class OneJob(unittest.TestCase):
     """Build, sign and publish in one job of the push run: no sign run names it, and it uploads the feed itself."""
 
     def test_a_one_job_nightly_is_recorded_from_its_push_run(self):
-        gh = FakeGh(api={"workflows/nightly.yml/runs": {"workflow_runs": [one_job_run()] + RUNS},
+        gh = FakeGh(api={"workflows/nightly.yml/runs": {"workflow_runs": [one_job_run()] + RUNS}, **FAILED_SIGN_JOBS,
                          "runs/43300000001/attempts/1/jobs": {"jobs": one_job_jobs()},
                          "runs/43189297315/attempts/1/jobs": {"jobs": SIGN_JOBS},
                          "runs/43185474901/attempts/1/jobs": {"jobs": PUSH_JOBS}})
         st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
         self.assertEqual(st["new"], ["4318547490101", "4330000000101"], "the two-run build and the one-job build")
         apis = [c[0][2] for c in gh.calls if c[0][:2] == ["gh", "api"]]
-        self.assertEqual(len(apis), 4, "one list, two job lists for the two-run build, one for the one-job build")
+        self.assertEqual(len(apis), 6, "one list, two job lists for the two-run build, one for the one-job build, "
+                                       "one for each failed sign run")
         self.assertEqual(sum("runs/43185474901/" in a for a in apis), 1,
                          "a push run its sign run names is not read as a one-job nightly as well")
         r = st["records"][-1]
@@ -534,7 +543,7 @@ class OneJob(unittest.TestCase):
         self.assertEqual(st["new_unpublished"], [43185474901])
         body = ns.issue_body(st["records"], st["unpublished"], ".", run=gh)
         gh2 = FakeGh(issues=[{"number": 9, "title": ns.ISSUE_TITLE, "body": body}],
-                     api={"workflows/nightly.yml/runs": {"workflow_runs": RUNS},
+                     api={"workflows/nightly.yml/runs": {"workflow_runs": RUNS}, **FAILED_SIGN_JOBS,
                           "runs/43189297315/attempts/1/jobs": {"jobs": SIGN_JOBS},
                           "runs/43185474901/attempts/1/jobs": {"jobs": PUSH_JOBS}})
         st2 = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh2)
@@ -543,7 +552,8 @@ class OneJob(unittest.TestCase):
 
     def test_a_rerun_of_an_unpublished_sign_run_that_publishes_is_recorded(self):
         failed = [{**r, "conclusion": "failure"} if r["id"] == 43189297315 else r for r in RUNS]
-        gh = FakeGh(api={"workflows/nightly.yml/runs": {"workflow_runs": failed}})
+        gh = FakeGh(api={"workflows/nightly.yml/runs": {"workflow_runs": failed}, **FAILED_SIGN_JOBS,
+                         "runs/43189297315/attempts/1/jobs": {"jobs": SIGN_JOBS}})
         st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
         line = next(u for u in st["unpublished"] if u["sign_run"] == 43189297315)
         self.assertEqual((line["conclusion"], line["attempt"]), ("failure", 1))
@@ -567,7 +577,8 @@ class OneJob(unittest.TestCase):
         def api(runs, **more):
             return {"workflows/nightly.yml/runs": {"workflow_runs": [one_job_run()] + runs}, **more}
         failed = [{**r, "conclusion": "failure"} if r["id"] == 43189297315 else r for r in RUNS]
-        gh = FakeGh(api=api(failed, **{"runs/43300000001/attempts/1/jobs": {"jobs": one_job_jobs()}}))
+        gh = FakeGh(api=api(failed, **{"runs/43300000001/attempts/1/jobs": {"jobs": one_job_jobs()}}, **FAILED_SIGN_JOBS,
+                            **{"runs/43189297315/attempts/1/jobs": {"jobs": SIGN_JOBS}}))
         st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
         self.assertEqual(st["new"], ["4330000000101"])
         self.assertIn(43189297315, [u["sign_run"] for u in st["unpublished"]])
@@ -618,13 +629,18 @@ class OneJob(unittest.TestCase):
             ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
             self.assertEqual(len([c for c in gh.calls if c[0][:2] == ["gh", "api"]]), reads, f"attempt {attempt}")
 
-    def test_only_a_push_run_that_succeeded_is_read(self):
+    def test_a_completed_run_is_read_whatever_its_conclusion_or_event(self):
+        # A job after the publisher can fail a run that published (run 44087850352), and a dispatch publishes too
+        # (run 44904268153): failed, cancelled and dispatched runs are read once each; one in progress is not.
         runs = [one_job_run(1, "failure"), one_job_run(2, "cancelled"), one_job_run(3, None, "in_progress"),
                 {**one_job_run(4), "event": "workflow_dispatch"}]
-        gh = FakeGh(api={"workflows/nightly.yml/runs": {"workflow_runs": runs}})
+        gh = FakeGh(api={"workflows/nightly.yml/runs": {"workflow_runs": runs},
+                         **{f"runs/{i}/attempts/1/jobs": {"jobs": one_job_jobs(feed=False)} for i in (1, 2, 4)}})
         st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
-        self.assertEqual((st["new"], st["new_unpublished"], st["why"]), ([], [], None))
-        self.assertEqual(len([c for c in gh.calls if c[0][:2] == ["gh", "api"]]), 1)
+        self.assertEqual((st["new"], sorted(st["new_unpublished"]), st["why"]), ([], [1, 2, 4], None))
+        self.assertEqual(sorted(u["conclusion"] for u in st["unpublished"]),
+                         ["cancelled", "failure", "success, no feed upload"])
+        self.assertEqual(len([c for c in gh.calls if c[0][:2] == ["gh", "api"]]), 4)
 
     def test_a_step_is_shown_in_the_diff_only_when_it_moved(self):
         then = synthetic(1, 20.0, {"j_one_job": 18.0, "step:Sign the app": 0.5, "step:Make the DMG": 2.0})
@@ -822,7 +838,7 @@ class Issue(unittest.TestCase):
         self.assertEqual(ns.parse_history(f"<!-- nightly-speed-history-z: {deep} -->"), empty, "nested past the parser")
         # record goes on with an empty history instead of raising.
         gh = FakeGh(issues=[{"number": 9, "title": ns.ISSUE_TITLE, "body": self.packed({"records": 1})}],
-                    api={"workflows/nightly.yml/runs": {"workflow_runs": RUNS},
+                    api={"workflows/nightly.yml/runs": {"workflow_runs": RUNS}, **FAILED_SIGN_JOBS,
                          "runs/43189297315/attempts/1/jobs": {"jobs": SIGN_JOBS},
                          "runs/43185474901/attempts/1/jobs": {"jobs": PUSH_JOBS}})
         st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
@@ -874,6 +890,246 @@ class Issue(unittest.TestCase):
     def test_unreadable_issue_list_is_an_error(self):
         with self.assertRaises(ns.SourceError):
             ns.write_issue({"records": []}, "o/hq", "t", ".", run=FakeGh(fail_list=True))
+
+
+class PublicationReceipt(unittest.TestCase):
+    """A record is a publication only when the write-gated read-back after the upload passed: write_feed exits zero
+    without writing on a refused (superseded) write and on an already-live replay."""
+
+    @staticmethod
+    def jobs(readback):
+        jobs = copy.deepcopy(one_job_jobs())
+        if readback:
+            jobs[1]["steps"].append({"name": ns.READBACK_STEP, "conclusion": readback, "started_at": "2026-11-13T01:20:40Z",
+                                     "completed_at": "2026-11-13T01:20:42Z" if readback != "skipped" else None})
+        return jobs
+
+    def test_an_upload_whose_read_back_was_skipped_wrote_nothing_and_is_unpublished(self):
+        rec, why = ns.build_record(one_job_run(), one_job_run(), [], self.jobs("skipped"), None)
+        self.assertEqual((rec, why), (None, ns.NO_FRESH_WRITE))
+        gh = FakeGh(api={"workflows/nightly.yml/runs": {"workflow_runs": [one_job_run()]},
+                         "runs/43300000001/attempts/1/jobs": {"jobs": self.jobs("skipped")}})
+        st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
+        self.assertEqual((st["new"], st["new_unpublished"]), ([], [43300000001]))
+        self.assertEqual(st["unpublished"][0]["conclusion"], "success, no fresh write")
+        self.assertEqual(st["feeds"], [], "no feed entry either")
+        rec, why = ns.build_record(one_job_run(), one_job_run(), [], self.jobs("failure"), None)
+        self.assertEqual((rec, why), (None, "read-back failed"))
+
+    def test_an_upload_and_its_read_back_publish_at_the_upload_time(self):
+        rec, why = ns.build_record(one_job_run(), one_job_run(), [], self.jobs("success"), None)
+        self.assertIsNone(why)
+        self.assertEqual((rec["feed_at"], rec["confirmed"]), ("2026-11-13T01:20:40Z", True), "the upload's completed_at")
+        self.assertTrue(ns.sound_record(rec))
+        self.assertEqual(ns.feed_list([], [rec], ns.ts("2026-11-14T00:00:00Z"))[0]["confirmed"], True)
+        # A pipeline without the read-back step keeps its record, unconfirmed.
+        rec, _ = ns.build_record(one_job_run(), one_job_run(), [], self.jobs(None), None)
+        self.assertIs(rec["confirmed"], False)
+
+    def test_a_failed_run_that_published_is_recorded(self):
+        # cmux run 44087850352: nightly-next-one uploaded the feed at 13:20:56Z and read it back at 13:20:58Z; a later
+        # job (attest-nightly-remote-daemon) failed the run. It was missing from the history.
+        doc = load("run-44087850352-1.json")
+        run, jobs = doc["run"], doc["jobs"]
+        self.assertEqual((run["conclusion"], next(j for j in jobs if j["name"] == "nightly-next-one")["conclusion"]),
+                         ("failure", "success"))
+        gh = FakeGh(api={"workflows/nightly.yml/runs": {"workflow_runs": [run]},
+                         "runs/44087850352/attempts/1/jobs": {"jobs": jobs}})
+        st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
+        self.assertEqual((st["new"], st["new_unpublished"]), (["4408785035201"], []))
+        r = st["records"][0]
+        self.assertEqual((r["feed_at"], r["confirmed"], r["sha"]),
+                         ("2026-11-17T13:20:56Z", True, "99b627ab8ac5011f3e2732936f63178bf614baea"))
+        self.assertEqual(st["feeds"][0]["feed_at"], "2026-11-17T13:20:56Z")
+        # Its read-back skipped (nothing written): a failed run is unpublished, with its own conclusion.
+        unread = copy.deepcopy(jobs)
+        for j in unread:
+            for step in j["steps"]:
+                if step["name"] == ns.READBACK_STEP:
+                    step["conclusion"] = "skipped"
+        gh = FakeGh(api={"workflows/nightly.yml/runs": {"workflow_runs": [run]},
+                         "runs/44087850352/attempts/1/jobs": {"jobs": unread}})
+        st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
+        self.assertEqual((st["new"], st["new_unpublished"]), ([], [44087850352]))
+        self.assertEqual(st["unpublished"][0]["conclusion"], "failure")
+
+    def test_a_retry_dispatch_that_wrote_the_feed_is_recorded(self):
+        # cmux run 44904268153, "Retry nightly-next (1 of 2)": a workflow_dispatch, neither a push nor a sign run.
+        doc = load("run-44904268153-1.json")
+        run, jobs = doc["run"], doc["jobs"]
+        self.assertEqual((run["event"], run["display_title"]), ("workflow_dispatch", "Retry nightly-next (1 of 2)"))
+        gh = FakeGh(api={"workflows/nightly.yml/runs": {"workflow_runs": [run]},
+                         "runs/44904268153/attempts/1/jobs": {"jobs": jobs}})
+        st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
+        self.assertEqual((st["new"], st["why"]), (["4490426815301"], None))
+        r = st["records"][0]
+        self.assertEqual((r["feed_at"], r["confirmed"], r["sha"]),
+                         ("2026-11-21T12:59:48Z", True, "a9aa7a318206e006b1758ea8f9f47effc4e9d825"))
+        self.assertEqual(len([c for c in gh.calls if c[0][:2] == ["gh", "api"]]), 2, "one list, one job list")
+        # A tail-only dispatch (the publisher skipped, no write) is no publication.
+        tail = [j for j in jobs if j["name"] != "nightly-next-one"]
+        gh = FakeGh(api={"workflows/nightly.yml/runs": {"workflow_runs": [run]},
+                         "runs/44904268153/attempts/1/jobs": {"jobs": tail}})
+        st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
+        self.assertEqual((st["new"], st["new_unpublished"], st["feeds"]), ([], [44904268153], []))
+
+    def test_an_earlier_attempt_that_published_joins_the_feed_list(self):
+        rerun = {**one_job_run(), "run_attempt": 3, "conclusion": "failure"}
+        gh = FakeGh(api={"workflows/nightly.yml/runs": {"workflow_runs": [rerun]},
+                         "runs/43300000001/attempts/3/jobs": {"jobs": one_job_jobs(feed=False)},
+                         "runs/43300000001/attempts/2/jobs": {"jobs": one_job_jobs(feed=False)},
+                         "runs/43300000001/attempts/1/jobs": {"jobs": self.jobs("success")}})
+        st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
+        self.assertEqual((st["new"], st["new_unpublished"]), ([], [43300000001]))
+        self.assertEqual([(e["build"], e["confirmed"]) for e in st["feeds"]], [("4330000000101", True)])
+        self.assertEqual(len([c for c in gh.calls if c[0][:2] == ["gh", "api"]]), 4, "the list and three attempts")
+        # A rerun of a recorded run is read at its new attempt; the older record's attempt is not read again.
+        rec, _ = ns.build_record(one_job_run(), one_job_run(), [], self.jobs("success"), None)
+        body = ns.issue_body([rec], [], ".", run=gh)
+        gh2 = FakeGh(issues=[{"number": 9, "title": ns.ISSUE_TITLE, "body": body}],
+                     api={"workflows/nightly.yml/runs": {"workflow_runs": [{**one_job_run(), "run_attempt": 2}]},
+                          "runs/43300000001/attempts/2/jobs": {"jobs": one_job_jobs(feed=False)}})
+        st2 = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh2)
+        self.assertEqual((st2["new"], st2["new_unpublished"], [r["build"] for r in st2["records"]]),
+                         ([], [43300000001], ["4330000000101"]))
+        self.assertEqual(len([c for c in gh2.calls if c[0][:2] == ["gh", "api"]]), 2)
+        self.assertEqual([(u["sign_run"], u["attempt"]) for u in st2["unpublished"]], [(43300000001, 2)],
+                         "the later attempt's line stays beside the record: it is how that attempt is known")
+
+    def test_seeded_unconfirmed_feeds_keep_the_partial_label(self):
+        end, feeds, git = PrAttribution.busy_week()
+        span = {"from": ns.iso(end - 8 * 86400), "to": ns.iso(end)}
+        seeded = [{k: v for k, v in f.items() if k != "confirmed"} for f in feeds]  # records from before receipts
+        data = ns.pr_attribution([], ".", run=git, now=end, feeds=seeded, classified=span)
+        self.assertEqual((data["attributed"], data["unconfirmed"], data["feeds"]), (len(feeds) - 1, len(feeds), len(feeds)),
+                         "attribution uses them")
+        self.assertTrue(data["partial"])
+        verdict = {"build": "b59", "sha": feeds[-1]["sha"], "merge_to_feed": 20.0, "verdict": "in budget",
+                   "budget_min": 30.0, "window": 1, "over": False, "p50": 20.0, "p95": 20.0,
+                   "feed_at": feeds[-1]["feed_at"], "slow": {}, "diff": None, "bisect": []}
+        text = ns.render_verdict({**verdict, "pr_attribution": data})
+        self.assertIn("(partial: observed window)", text)
+        self.assertIn(f"{len(feeds)} of {len(feeds)} feeds are unconfirmed (no read-back receipt).", text)
+        # One unconfirmed feed among confirmed ones is enough to keep it.
+        mixed = feeds[:30] + seeded[30:31] + feeds[31:]
+        self.assertTrue(ns.pr_attribution([], ".", run=git, now=end, feeds=mixed, classified=span)["partial"])
+        self.assertFalse(ns.pr_attribution([], ".", run=git, now=end, feeds=feeds, classified=span)["partial"])
+        # A stored confirmed entry is not downgraded by its unconfirmed record.
+        self.assertTrue(ns.feed_list(feeds[-1:], seeded[-1:], end)[0]["confirmed"])
+
+    def test_a_run_head_sha_keeps_the_partial_label(self):
+        # The ledger's job and time pairs are proven, its sha is the run head: nightly.yml may publish a recovered
+        # or republished build, so an entry with no published build_sha never proves the window.
+        doc = load("feeds-ledger-excerpt.json")
+        ledger = [dict(zip(doc["fields"], r)) for r in doc["records"]]
+        kept = ns.feed_list([{**e, "confirmed": True} for e in ledger], [], ns.ts("2026-11-21T13:00:00Z"), 7)
+        self.assertEqual([(e["build"], e["confirmed"], e["sha_source"], e["confirmed_identity"]) for e in kept],
+                         [(e["build"], True, "run_head", False) for e in ledger])
+        end, feeds, git = PrAttribution.busy_week()
+        span = {"from": ns.iso(end - 8 * 86400), "to": ns.iso(end)}
+        head = [{k: v for k, v in f.items() if k not in ("sha_source", "confirmed_identity")} for f in feeds]
+        claimed = [{**f, "confirmed_identity": True} for f in head]  # identity claimed with no build_sha source
+        for fs in (head, claimed, feeds[:30] + head[30:31] + feeds[31:]):
+            data = ns.pr_attribution([], ".", run=git, now=end, feeds=fs, classified=span)
+            self.assertTrue(data["partial"])
+            self.assertEqual(data["attributed"], len(feeds) - 1, "attribution uses them")
+        data = ns.pr_attribution([], ".", run=git, now=end, feeds=head, classified=span)
+        self.assertEqual((data["unconfirmed"], data["unidentified"]), (0, len(feeds)))
+        verdict = {"build": "b59", "sha": feeds[-1]["sha"], "merge_to_feed": 20.0, "verdict": "in budget",
+                   "budget_min": 30.0, "window": 1, "over": False, "p50": 20.0, "p95": 20.0,
+                   "feed_at": feeds[-1]["feed_at"], "slow": {}, "diff": None, "bisect": []}
+        text = ns.render_verdict({**verdict, "pr_attribution": data})
+        self.assertIn(f"{len(feeds)} of {len(feeds)} feeds name the run's head commit, not the published build_sha "
+                      "(identity unconfirmed).", text)
+        # A record names its run head, so its entry is never identity-confirmed and never upgrades a stored one.
+        self.assertFalse(ns.feed_entry({**feeds[-1], "sha_source": None})["confirmed_identity"])
+        self.assertTrue(ns.feed_list(feeds[-1:], head[-1:], end)[0]["confirmed_identity"])
+
+    def test_signed_notes_confirm_a_feeds_identity(self):
+        # The publisher's notes of build 4490426815301 as the public feed serves them, verified with its content key.
+        with open(os.path.join(FIX, "notes-4490426815301.json"), "rb") as f:
+            body = f.read()
+        with open(os.path.join(FIX, "notes-4490426815301.json.sig"), "rb") as f:
+            sig = f.read()
+        urls = []
+
+        def fetch(url, files={".json": body, ".json.sig": sig}):
+            urls.append(url)
+            for ext, data in sorted(files.items(), key=lambda kv: -len(kv[0])):
+                if url.endswith(ext):
+                    return data
+            raise OSError("404")
+
+        head = "a9aa7a318206e006b1758ea8f9f47effc4e9d825"
+        self.assertEqual(ns.signed_head("4490426815301", fetch), head)
+        self.assertEqual(urls, [ns.NOTES_FEED + "4490426815301.json", ns.NOTES_FEED + "4490426815301.json.sig"])
+        self.assertIsNone(ns.signed_head("4490426815302", fetch), "notes of another build")
+        tampered = body.replace(head.encode(), b"0" * 40)
+        self.assertIsNone(ns.signed_head("4490426815301", lambda u: tampered if u.endswith(".json") else sig))
+        self.assertIsNone(ns.signed_head("4490426815301", lambda u: (_ for _ in ()).throw(OSError("down"))))
+        self.assertIsNone(ns.signed_head("../x", fetch), "a build reaches a URL only as digits")
+        # Through record(): the retry run's feed is identity-confirmed by its notes; with no notes reader it is not.
+        doc = load("run-44904268153-1.json")
+        api = {"workflows/nightly.yml/runs": {"workflow_runs": [doc["run"]]},
+               "runs/44904268153/attempts/1/jobs": {"jobs": doc["jobs"]}}
+        st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=FakeGh(api=api),
+                       notes=lambda b: ns.signed_head(b, fetch))
+        self.assertEqual([(e["sha"], e["sha_source"], e["confirmed"], e["confirmed_identity"]) for e in st["feeds"]],
+                         [(head, "signed_notes", True, True)])
+        st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=FakeGh(api=api))
+        self.assertEqual([(e["sha_source"], e["confirmed_identity"]) for e in st["feeds"]], [("run_head", False)])
+
+    def test_signed_notes_replace_a_run_head_and_are_bounded(self):
+        end, feeds, git = PrAttribution.busy_week()
+        head = [{k: v for k, v in f.items() if k not in ("sha_source", "confirmed_identity")} for f in feeds]
+        asked = []
+        other = "f" * 40
+
+        def notes(build):
+            asked.append(build)
+            return other if build == head[-1]["build"] else None
+
+        out = ns.identify(ns.feed_list(head, [], end), notes)
+        self.assertEqual(asked, [f["build"] for f in head[::-1][:ns.NOTES_PER_PASS]], "newest first, bounded")
+        self.assertEqual((out[-1]["sha"], out[-1]["sha_source"], out[-1]["confirmed_identity"]),
+                         (other, "signed_notes", True), "the notes' head is the published build's, not the run's")
+        self.assertEqual(sum(e["confirmed_identity"] for e in out), 1)
+        asked.clear()
+        ns.identify(ns.feed_list(feeds, [], end), notes)
+        self.assertEqual(asked, [], "identified entries are not read again")
+
+    def test_coverage_needs_every_run_classified(self):
+        end, feeds, git = PrAttribution.busy_week()
+        since = end - 7 * 86400
+        # Classified only from inside the window, or only up to before the newest attributed feed: partial.
+        for span in ({"from": ns.iso(since + 3600), "to": ns.iso(end)},
+                     {"from": ns.iso(end - 8 * 86400), "to": feeds[-2]["feed_at"]}):
+            data = ns.pr_attribution([], ".", run=git, now=end, feeds=feeds, classified=span)
+            self.assertTrue(data["partial"], span)
+            verdict = {"build": "b59", "sha": feeds[-1]["sha"], "merge_to_feed": 20.0, "verdict": "in budget",
+                       "budget_min": 30.0, "window": 1, "over": False, "p50": 20.0, "p95": 20.0,
+                       "feed_at": feeds[-1]["feed_at"], "slow": {}, "diff": None, "bisect": []}
+            self.assertIn(f"runs are classified from {span['from']} to {span['to']}",
+                          ns.render_verdict({**verdict, "pr_attribution": data}))
+
+    def test_the_classified_span_grows_only_over_a_contiguous_run_list(self):
+        def run(i, start, status="completed"):
+            return {"id": i, "event": "push", "status": status, "conclusion": "success", "run_attempt": 1,
+                    "display_title": "x", "created_at": start, "run_started_at": start}
+        state = {"records": [{"sign_run": 1}], "unpublished": [{"sign_run": 2, "attempt": 1}]}
+        runs = [run(1, "2026-11-20T01:00:00Z"), run(2, "2026-11-20T02:00:00Z")]
+        now = "2026-11-20T03:00:00Z"
+        self.assertEqual(ns.classified_span(None, runs, set(), state, "", now), {"from": "", "to": now},
+                         "a list shorter than a page holds every run")
+        prev = {"from": "2026-11-10T00:00:00Z", "to": "2026-11-19T00:00:00Z"}
+        self.assertEqual(ns.classified_span(prev, runs, set(), state, "", now)["from"], prev["from"])
+        full = runs + [run(100 + i, "2026-11-19T12:00:00Z") for i in range(ns.LIST_PAGE)]
+        state["unpublished"] += [{"sign_run": 100 + i, "attempt": 1} for i in range(ns.LIST_PAGE)]
+        self.assertEqual(ns.classified_span(prev, full, set(), state, "", now)["from"], "2026-11-19T12:00:00Z",
+                         "a full page that does not reach back to the stored span starts a new one")
+        waiting = runs + [run(3, "2026-11-20T02:30:00Z", "in_progress")]
+        self.assertEqual(ns.classified_span(prev, waiting, set(), state, "", now)["to"], "2026-11-20T02:30:00Z",
+                         "the span ends where a run is not classified yet")
 
 
 if __name__ == "__main__":

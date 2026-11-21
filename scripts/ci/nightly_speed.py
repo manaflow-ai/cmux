@@ -45,13 +45,19 @@ is looked for in publish-nightly first, then in any job of the run that dispatch
     nightly_speed.py issue --state STATE.json [--hq-repo manaflow-ai/cmuxterm-hq]
 
 `record` reads the history kept in the hq issue (HQ_GH_TOKEN, issues read; none leaves it empty and says why), then
-one list of nightly.yml's newest runs on nightly-next (GH_TOKEN, actions read; push and sign runs in one page), and
-for each completed sign run not yet recorded (the newest --newest) the two jobs lists of its attempt and of its push
-run's attempt: nothing more when nothing is new. A sign run that did not publish (failed, or cancelled when a newer
-one replaced it) costs no read past the list: it is one line with its conclusion and the minutes it was open in the
-sign group (created -> completed), the waste account. Such a run is read again when it is re-run (a higher attempt).
-A run that started before the oldest record is not read; "started" is its newest attempt's (run_started_at), since a
-rerun keeps the run's created_at.
+one list of nightly.yml's newest runs on nightly-next (GH_TOKEN, actions read; the list has no event or title filter,
+so push, sign, "Retry nightly-next" and manual dispatch runs share one page). Every completed run in it, whatever its
+event, title or conclusion, not yet known at its attempt (the newest --newest), costs the jobs list of that attempt
+(a sign run's, then its push run's): a publisher job that later jobs failed still published. A run counts as
+published only by its write-gated steps: FEED_STEP succeeded and READBACK_STEP, which runs only when the feed was
+written, succeeded; a skipped read-back is "no fresh write" (a refused, superseded or already-live write, or a
+tail-only dispatch), and a run with no receipt is one unpublished line with its conclusion and the minutes it was
+open, the waste account. A failed sign run with no receipt costs that one read. The list shows a run's newest
+attempt only, so up to EARLIER_ATTEMPTS earlier attempts no pass saw are read too, and one that published adds its
+feed. A run that started before the oldest record is not read; "started" is its newest attempt's (run_started_at),
+since a rerun keeps the run's created_at. The runs it has classified are kept as one span (classified_span), which
+is what proves the PR window covered. Each new or unidentified feed entry (NOTES_PER_PASS a pass) is checked against
+the publisher's signed release notes (signed_head: two HTTPS reads, no GitHub quota), which name the published head.
 
 `check` judges the newest record. Over budget: merge_to_feed over BUDGET_MIN. A stage is slow when it is over
 SLOW_RATIO (1.5) x its median over the TRAILING (20) records before it AND at least SLOW_FLOOR_MIN (1 min) over
@@ -80,7 +86,7 @@ text, so valid JSON of another shape is an empty history and a record or entry o
 exception. It re-reads the issue right before writing and merges its history, so a failed read in `record` never
 drops history. In budget, the same issue says so. Nothing here gates a nightly: nightly-speed.yml is its own workflow and nothing needs it.
 
-Tests: tests/test_nightly_speed.py (no network; gh and git are fakes or a temporary repository).
+Tests: tests/test_nightly_speed.py (no network; gh, git and the notes feed are fakes or a temporary repository).
 """
 from __future__ import annotations
 
@@ -133,6 +139,12 @@ VISIBLE_RESERVE = 16000
 TABLE_ROWS = 20
 COMMITS_SHOWN = 15
 FEED_STEP = "Upload nightly-next appcasts to R2"
+# The write-gated step after it, in the same job of both pipeline shapes (nightly.yml publish-nightly and
+# nightly-next-one, one YAML anchor): it runs only when the upload's feed_written output is true. write_feed exits zero
+# without writing on a refused (superseded) write and on an already-live replay, so the upload's success alone proves
+# no write: the read-back's success is the publication receipt.
+READBACK_STEP = "Read the live nightly-next feed back"
+NO_FRESH_WRITE = "no fresh write"
 BUILD_STEP = "Build nightly app (Release)"
 NOTARIZE_STEP = "Notarize app ticket through final DMG"
 HOOK_STEP = "Set up runner"
@@ -175,7 +187,23 @@ BEFORE_FEEDS = "before the oldest observed feed"
 # The history's feed list (one entry per published nightly: head sha, feed_at, build, sign run) is kept apart from
 # HISTORY_KEEP: every feed of the newest PR_WINDOW_DAYS plus the one just before them, so a busy week (more than 40
 # nightlies) still finds each merge's first feed, and the window is proven covered once that predecessor is held.
-FEED_KEYS = ("sha", "feed_at", "build", "sign_run")
+# `confirmed` is true only for a record whose read-back step succeeded; an entry seeded from an older record, which
+# never kept it, is unconfirmed: attribution uses it, but only confirmed entries prove the window covered.
+# The receipt proves the job wrote and read back the feed at feed_at, not what it published: nightly.yml's step
+# "source" picks its own build, a recovered or a republished one (build and build_sha) before the upload, and the jobs
+# API shows no step output. So a record's `sha` is its run's head commit (sha_source "run_head", confirmed_identity
+# false). The publisher's signed release notes name the published build's head: NOTES_FEED<build>.json, its "head"
+# being the step's build_sha, signed with the content key (.json.sig, Ed25519). An entry whose notes verify takes
+# that head (sha_source "signed_notes", confirmed_identity true); only such an entry proves coverage. A recovered
+# build carries another run's build number, so a run's own number has no notes and stays unconfirmed.
+FEED_KEYS = ("sha", "feed_at", "build", "sign_run", "confirmed", "sha_source", "confirmed_identity")
+SHA_SOURCES = ("run_head", "signed_notes")
+NOTES_FEED = "https://files-next.cmux.com/nightly-next/notes/"
+CONTENT_PUBLIC_KEY = "AnrDI4vqN4lFGX2IpzeWPZsa/Hk7yQMkVIKppFwAst4="
+NOTES_TIMEOUT_S = 20
+# Notes read per pass (two plain HTTPS reads each, no GitHub quota): newest unidentified entries first, so a seeded
+# list is identified over a few passes.
+NOTES_PER_PASS = 16
 
 
 class SourceError(Exception):
@@ -332,8 +360,11 @@ def _ancestors_since(git_dir: str, head: str, since: float, run: Callable = subp
 
 
 def feed_entry(r: Dict[str, Any]) -> Dict[str, Any]:
-    """A record's (or entry's) compact feed entry."""
-    return {k: r.get(k) for k in FEED_KEYS}
+    """A record's (or entry's) compact feed entry; one without a receipt is unconfirmed, and one whose sha is not
+    read from the published build is the run head's, identity unconfirmed."""
+    identity = r.get("sha_source") == "signed_notes" and r.get("confirmed_identity") is True
+    return {**{k: r.get(k) for k in FEED_KEYS}, "confirmed": r.get("confirmed") is True,
+            "sha_source": "signed_notes" if identity else "run_head", "confirmed_identity": identity}
 
 
 def feed_list(old: List[Dict[str, Any]], records: List[Dict[str, Any]], now: Optional[float] = None,
@@ -346,23 +377,79 @@ def feed_list(old: List[Dict[str, Any]], records: List[Dict[str, Any]], now: Opt
     by_build: Dict[str, Dict[str, Any]] = {}
     for e in list(old) + [feed_entry(r) for r in records]:
         if sound_feed(e):
-            by_build[e["build"]] = feed_entry(e)
+            seen = by_build.get(e["build"])
+            new = feed_entry(e)
+            keep = seen if seen and seen["confirmed_identity"] and not new["confirmed_identity"] else new
+            by_build[e["build"]] = {**keep, "confirmed": new["confirmed"] or bool(seen and seen["confirmed"])}
     feeds = sorted(by_build.values(), key=lambda e: ts(e["feed_at"]) or 0)
     before = [i for i, e in enumerate(feeds) if (ts(e["feed_at"]) or 0) < since]
     return feeds[before[-1]:] if before else feeds
 
 
+def signed_head(build: str, fetch: Optional[Callable[[str], bytes]] = None,
+                key: str = CONTENT_PUBLIC_KEY) -> Optional[str]:
+    """The head commit the publisher's signed release notes name for ``build``, or None: no notes, a bad signature,
+    notes of another build or no sha. ``fetch`` reads a URL (tests pass one); the signature is checked by openssl."""
+    import tempfile
+    import urllib.request
+
+    def get(url: str) -> bytes:
+        req = urllib.request.Request(url, headers={"User-Agent": "cmux-nightly-speed/1"})
+        with urllib.request.urlopen(req, timeout=NOTES_TIMEOUT_S) as resp:
+            return resp.read(1 << 20)
+
+    if not re.fullmatch(r"[0-9]{1,24}", build or ""):
+        return None
+    try:
+        body, sig = ((fetch or get)(f"{NOTES_FEED}{build}{ext}") for ext in (".json", ".json.sig"))
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = [os.path.join(tmp, n) for n in ("notes.json", "sig.bin", "pub.der", "pub.pem")]
+            for path, data in zip(paths[:3], (body, base64.b64decode(sig.strip()),
+                                              bytes.fromhex("302a300506032b6570032100") + base64.b64decode(key))):
+                with open(path, "wb") as f:
+                    f.write(data)
+            subprocess.run(["openssl", "pkey", "-pubin", "-inform", "DER", "-in", paths[2], "-out", paths[3]],
+                           check=True, capture_output=True, timeout=NOTES_TIMEOUT_S)
+            if subprocess.run(["openssl", "pkeyutl", "-verify", "-pubin", "-inkey", paths[3], "-rawin", "-in",
+                               paths[0], "-sigfile", paths[1]], capture_output=True,
+                              timeout=NOTES_TIMEOUT_S).returncode != 0:
+                return None
+        notes = json.loads(body)
+    except Exception:  # unreachable, unsigned or malformed notes: the identity stays unconfirmed
+        return None
+    head = notes.get("head") if isinstance(notes, dict) and notes.get("build") == build else None
+    return head if isinstance(head, str) and SHA_RE.fullmatch(head) and len(head) == 40 else None
+
+
+def identify(feeds: List[Dict[str, Any]], notes: Callable[[str], Optional[str]],
+             limit: int = NOTES_PER_PASS) -> List[Dict[str, Any]]:
+    """The feed list with up to ``limit`` unidentified entries, newest first, checked against their signed notes:
+    one whose notes verify takes the notes' head as its sha and is identity-confirmed."""
+    out = list(feeds)
+    todo = [i for i, e in enumerate(out) if not e.get("confirmed_identity")][::-1][:limit]
+    for i in todo:
+        head = notes(out[i]["build"])
+        if head:
+            out[i] = {**out[i], "sha": head, "sha_source": "signed_notes", "confirmed_identity": True}
+    return out
+
+
 def pr_attribution(records: List[Dict[str, Any]], git_dir: str, base_ref: str = BASE_REF,
                    run: Callable = subprocess.run, now: Optional[float] = None,
-                   window_days: int = PR_WINDOW_DAYS, feeds: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+                   window_days: int = PR_WINDOW_DAYS, feeds: Optional[List[Dict[str, Any]]] = None,
+                   classified: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
     """Associate recent first-parent PR merges with the first nightly feed containing them.
 
     Every merge gets a row, including merges without a PR number and merges for which no published nightly head can
     be proven. A merge older than the oldest observed feed is unattributed (BEFORE_FEEDS): the feed that first held
     it may be one no record covers, so charging it to the oldest observed feed would inflate its time. Only rows with
     a matched feed contribute to the p50/p90 summary. ``feeds`` is the history's feed list (feed_list); the records
-    are used when it is not given. The window is covered (``partial`` false) only when a feed from before it is held:
-    then no merge in the window can have reached an earlier, unobserved nightly. The full rows are the detail
+    are used when it is not given. A predecessor feed alone proves nothing: a run omitted between two held feeds would
+    charge its merges to the later one. The window is covered (``partial`` false) only when every run in it is
+    classified (``classified``, classified_span, from at or before its start, and no attributed feed after the span's
+    end), a feed from before it is held, and every feed used is confirmed (its read-back succeeded) with its identity
+    confirmed (its sha read from the published build, not the run head). ``unconfirmed`` counts the feeds used that
+    have no receipt, ``unidentified`` those whose sha is the run head's. The full rows are the detail
     (`check --json`, pr_stream for `--pr-json`); the issue and its history carry pr_summary.
     """
     end = time.time() if now is None else now
@@ -415,7 +502,20 @@ def pr_attribution(records: List[Dict[str, Any]], git_dir: str, base_ref: str = 
     return {"window": window_days, "window_days": window_days, "since": iso(since), "until": iso(end), "count": len(rows),
             "attributed": len(durations), "p50": quantile(durations, 0.5), "p90": quantile(durations, 0.9),
             "oldest_feed": iso(feeds[0][0]) if feeds else None, "feeds": len(feeds),
-            "partial": not feeds or feeds[0][0] >= since, "reasons": reasons, "rows": rows}
+            "unconfirmed": sum(1 for _, e in feeds if not e.get("confirmed")),
+            "unidentified": sum(1 for _, e in feeds if not e.get("confirmed_identity")),
+            "classified": classified if sound_span(classified) else None,
+            "partial": not covered(rows, feeds, since, classified), "reasons": reasons, "rows": rows}
+
+
+def covered(rows: List[Dict[str, Any]], feeds: List[Tuple[float, Dict[str, Any]]], since: float,
+            classified: Optional[Dict[str, str]]) -> bool:
+    """pr_attribution's coverage proof (see there)."""
+    if not sound_span(classified) or not feeds or feeds[0][0] >= since or (ts(classified["from"]) or 0) > since:
+        return False
+    end = ts(classified["to"]) or 0
+    return all(e.get("confirmed") and e.get("confirmed_identity") for _, e in feeds) and all(
+        (ts(r["feed_at"]) or 0) <= end for r in rows if r["status"] == "attributed")
 
 
 def pr_stream(data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -423,7 +523,8 @@ def pr_stream(data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     window, its coverage and per merge only its PR, sha, merge time, first feed head and time, minutes and reason. No
     host, runner, job, diff or subject."""
     data = data or {}
-    keys = ("window", "since", "until", "oldest_feed", "partial", "count", "attributed", "p50", "p90", "reasons")
+    keys = ("window", "since", "until", "oldest_feed", "partial", "feeds", "unconfirmed", "unidentified", "classified", "count",
+            "attributed", "p50", "p90", "reasons")
     out: Dict[str, Any] = {"schema": 1, **{k: data.get(k) for k in keys}}
     out["observed_window"] = {"from": data.get("oldest_feed"), "to": data.get("until")}
     out["rows"] = [{"pr": r.get("pr"), "sha": r.get("sha"), "merged_at": r.get("merged_at"),
@@ -439,7 +540,7 @@ def pr_summary(data: Optional[Dict[str, Any]], shown: int = PR_SUMMARY_ROWS) -> 
     it is expected at the window's old end). ``shown=0`` is the history's copy, no rows at all."""
     data = data or {}
     keys = ("window", "window_days", "since", "until", "count", "attributed", "p50", "p90", "oldest_feed",
-            "partial", "feeds")
+            "partial", "feeds", "unconfirmed", "unidentified", "classified")
     out: Dict[str, Any] = {k: data.get(k) for k in keys if k in data}
     out.setdefault("window", PR_WINDOW_DAYS)
     out.setdefault("count", 0)
@@ -516,6 +617,14 @@ def host_sums(lines: List[List[Any]]) -> Dict[str, List[Any]]:
     return out
 
 
+def write_receipt(jobs: List[Dict[str, Any]]) -> bool:
+    """A job of the run uploaded the feed and its write-gated read-back passed: the feed was written, whatever the
+    run's own conclusion (a job after the publisher may fail it, as attest-nightly-remote-daemon failed run
+    44087850352 after it published build 4408785035201)."""
+    return any((find_step(j, FEED_STEP) or {}).get("conclusion") == "success"
+               and (find_step(j, READBACK_STEP) or {}).get("conclusion") == "success" for j in jobs)
+
+
 def build_record(sign: Dict[str, Any], push: Dict[str, Any], sign_jobs: List[Dict[str, Any]],
                  push_jobs: List[Dict[str, Any]], landed: Optional[float]) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     """The timing record of one published nightly, or (None, why) when its sign run has no feed upload. A one-job
@@ -531,6 +640,13 @@ def build_record(sign: Dict[str, Any], push: Dict[str, Any], sign_jobs: List[Dic
     if not (m or one_job) or not feed_step or feed_step.get("conclusion") != "success" \
             or not ts(feed_step.get("completed_at")):
         return None, "no feed upload"
+    # Published only when the write-gated read-back ran and passed. Skipped: the upload wrote nothing (a superseded
+    # build refused, or a replay of the live one). A pipeline with no read-back step keeps its record, unconfirmed.
+    readback = find_step(pub, READBACK_STEP)
+    if readback and readback.get("conclusion") == "skipped":
+        return None, NO_FRESH_WRITE
+    if readback and readback.get("conclusion") != "success":
+        return None, "read-back failed"
     push_run, push_attempt = (int(m.group(1)), int(m.group(2))) if m else (push.get("id"), push.get("run_attempt") or 1)
     feed = ts(feed_step["completed_at"])
     p_created = ts(push.get("created_at"))
@@ -586,7 +702,7 @@ def build_record(sign: Dict[str, Any], push: Dict[str, Any], sign_jobs: List[Dic
         "push_run": push_run, "push_attempt": push_attempt,
         "sign_run": sign.get("id"), "sign_attempt": sign.get("run_attempt") or 1,
         "sign_created": sign.get("created_at"), "sign_started": started(sign), "pushed_at": push.get("created_at"),
-        "landed_at": iso(landed), "feed_at": iso(feed),
+        "landed_at": iso(landed), "feed_at": iso(feed), "confirmed": bool(readback),
         "merge_to_feed": minutes(landed, feed), "push_to_feed": minutes(p_created, feed),
         "stages": {k: v for k, v in stages.items() if v is not None},
         "runners": {k: host_of((j or {}).get("runner_name")) for k, j in
@@ -645,6 +761,7 @@ def sound_record(r: Any) -> bool:
             and text(r.get("build")) and opt("sha", lambda v: text(v) and bool(SHA_RE.match(v)))
             and all(opt(k, text) for k in ("sign_created", "sign_started", "landed_at", "pushed_at"))
             and all(opt(k, is_num) for k in ("merge_to_feed", "push_to_feed"))
+            and opt("confirmed", lambda v: type(v) is bool)
             and opt("stages", lambda v: isinstance(v, dict) and all(is_num(x) for x in v.values()))
             and opt("runners", lambda v: isinstance(v, dict) and all(x is None or text(x) for x in v.values()))
             and opt("hosts", lambda v: isinstance(v, dict) and all(
@@ -659,7 +776,9 @@ def sound_feed(e: Any) -> bool:
     return (isinstance(e, dict) and isinstance(e.get("sha"), str) and bool(SHA_RE.match(e["sha"]))
             and isinstance(e.get("feed_at"), str) and ts(e["feed_at"]) is not None
             and isinstance(e.get("build"), str) and bool(e["build"])
-            and (e.get("sign_run") is None or (type(e["sign_run"]) is int and e["sign_run"] > 0)))
+            and (e.get("sign_run") is None or (type(e["sign_run"]) is int and e["sign_run"] > 0))
+            and e.get("confirmed") in (None, True, False) and e.get("sha_source") in (None,) + SHA_SOURCES
+            and e.get("confirmed_identity") in (None, True, False))
 
 
 def sound_unpublished(u: Any) -> bool:
@@ -682,6 +801,9 @@ def parse_history(body: str) -> Dict[str, Any]:
     feeds = rows("feeds", sound_feed)
     if feeds:
         out["feeds"] = feeds
+    span = doc.get("classified") if isinstance(doc, dict) else None
+    if sound_span(span):
+        out["classified"] = {"from": span["from"], "to": span["to"]}
     attribution = doc.get("pr_attribution") if isinstance(doc, dict) else None
     if isinstance(attribution, dict):
         out["pr_attribution"] = pr_summary(attribution, 0)
@@ -717,21 +839,67 @@ def find_issue(repo: str, token: Optional[str], run: Callable = subprocess.run) 
 
 # record
 
+# The earlier attempts of a newly listed run read for a publication, past its newest one (the list's).
+EARLIER_ATTEMPTS = 2
+
+
+def nightly_run(r: Dict[str, Any], signed: set) -> bool:
+    """A run of the list that may publish: any but one a sign run names (that sign run publishes it)."""
+    return bool(SIGN_RE.match(r.get("display_title") or "")) or r.get("id") not in signed
+
+
+def attempts_known(hist: Dict[str, Any]) -> set:
+    """(run id, attempt) of every record and unpublished line held."""
+    return ({(r["sign_run"], r.get("sign_attempt") or 1) for r in hist["records"]}
+            | {(u["sign_run"], u.get("attempt") or 1) for u in hist["unpublished"]})
+
+
+def superseded_line(u: Dict[str, Any], records: List[Dict[str, Any]]) -> bool:
+    """An unpublished line of a run a record holds at that attempt or a later one."""
+    return any(r["sign_run"] == u["sign_run"] and (r.get("sign_attempt") or 1) >= (u.get("attempt") or 1)
+               for r in records)
+
+
+def classified_span(prev: Optional[Dict[str, str]], runs: List[Dict[str, Any]], signed: set, state: Dict[str, Any],
+                    oldest: str, now: str) -> Dict[str, str]:
+    """The span {from, to} in which every nightly run (nightly_run: any run but one a sign run names) is classified,
+    recorded or unpublished with its reason. The run list covers back to its oldest run (everything, when it is not a
+    full page); it extends the stored span when it reaches back to that span's end, and otherwise starts a new one (at
+    the newest of its start and the oldest record's, before which nothing is read). The span ends at the start of the
+    oldest run left unclassified (in progress, past --newest, or unreadable), or now."""
+    seen = attempts_known(state)
+    listed = "" if len(runs) < LIST_PAGE else min((started(r) for r in runs), default="")
+    if sound_span(prev) and prev["to"] >= listed:
+        start, floor = prev["from"], prev["to"]
+    else:
+        start = floor = max(listed, oldest)
+    pending = [started(r) for r in runs if nightly_run(r, signed) and started(r) >= floor
+               and (r.get("id"), r.get("run_attempt") or 1) not in seen]
+    return {"from": start, "to": min(pending, default=now)}
+
+
+def sound_span(v: Any) -> bool:
+    return (isinstance(v, dict) and isinstance(v.get("from"), str) and isinstance(v.get("to"), str)
+            and (v["from"] == "" or ts(v["from"]) is not None) and ts(v["to"]) is not None and v["from"] <= v["to"])
+
+
 def record(repo: str, hq_repo: str, newest: int, git_dir: str, base_ref: str, token: Optional[str],
-           hq_token: Optional[str], run: Callable = subprocess.run) -> Dict[str, Any]:
+           hq_token: Optional[str], run: Callable = subprocess.run,
+           notes: Optional[Callable[[str], Optional[str]]] = None) -> Dict[str, Any]:
+    """``notes`` names a build's published head from its signed release notes (signed_head; the CLI passes it):
+    feed entries it confirms prove their identity. Without it no entry is identity-confirmed."""
     history_why = None
     try:
         issue = find_issue(hq_repo, hq_token, run)
         hist = parse_history(issue["body"]) if issue else {"records": [], "unpublished": []}
     except SourceError as e:
         history_why, hist = str(e), {"records": [], "unpublished": []}
-    # GitHub keeps a run's id when it is re-run, so an unpublished run is known only at the attempt it was seen at (a
-    # line from before attempts were kept saw attempt 1); a recorded one is known at any attempt.
-    recorded = {r["sign_run"] for r in hist["records"]}
-    seen = {(u["sign_run"], u.get("attempt") or 1) for u in hist["unpublished"]}
+    # GitHub keeps a run's id when it is re-run, so a run is known only at the attempt it was seen at (a line or record
+    # from before attempts were kept saw attempt 1): a rerun of a published run may publish again.
+    seen = attempts_known(hist)
 
     def known(r: Dict[str, Any]) -> bool:
-        return r.get("id") in recorded or (r.get("id"), r.get("run_attempt") or 1) in seen
+        return (r.get("id"), r.get("run_attempt") or 1) in seen
 
     # Nothing that started before the oldest record is read: it fell off the history. A rerun keeps its run's
     # created_at, so the time is the newest attempt's start, or a rerun of an old run would never be read.
@@ -745,49 +913,72 @@ def record(repo: str, hq_repo: str, newest: int, git_dir: str, base_ref: str, to
         state["why"] = f"no run list: {e}"
         return state
     by_id = {r.get("id"): r for r in runs}
-    signs = [r for r in runs if SIGN_RE.match(r.get("display_title") or "") and r.get("status") == "completed"
-             and not known(r) and started(r) >= oldest]
-    # A one-job nightly: a push run that succeeded and that no sign run names. With the two-run pipeline a push run
-    # that succeeded has dispatched its sign run before it ends (48 of 48 on 2026-11-11 and 12; the superseded ones
-    # are cancelled), so none is read here for nothing. One listed before its sign run is forgotten once that run is.
+    # Every completed run of the list may have published, whatever its event (push, a sign run's workflow_dispatch, a
+    # "Retry nightly-next" or manual dispatch), title or conclusion: each is judged by its write-gated steps alone
+    # (write_receipt). Only a run a sign run names is left out: its sign run publishes it, and a two-run push run
+    # that succeeded has dispatched its sign run before it ends; one listed before that is forgotten once it is.
     signed = {int(SIGN_RE.match(r["display_title"]).group(1)) for r in runs if SIGN_RE.match(r.get("display_title") or "")}
-    signs += [r for r in runs if r.get("event") == "push" and not SIGN_RE.match(r.get("display_title") or "")
-              and r.get("status") == "completed" and r.get("conclusion") == "success" and r.get("id") not in signed
-              and not known(r) and started(r) >= oldest]
+    signs = [r for r in runs if nightly_run(r, signed) and r.get("status") == "completed"
+             and not known(r) and started(r) >= oldest]
     signs.sort(key=started, reverse=True)
     landed = landing_times(git_dir, base_ref, run) if signs else {}
-    new_recs, new_unp, whys = [], [], []
+    new_recs, new_unp, whys, extra_feeds = [], [], [], []
+
+    def jobs_of(run_id: Any, attempt: Any) -> List[Dict[str, Any]]:
+        return gh_api(f"repos/{repo}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100",
+                      token, run).get("jobs") or []
+
     for sign in signs[:newest]:
-        if sign.get("conclusion") != "success":
-            new_unp.append(unpublished_line(sign))
-            continue
+        ok = sign.get("conclusion") == "success"
         m = SIGN_RE.match(sign.get("display_title") or "")
         push_id, push_attempt = m.groups() if m else (sign["id"], sign.get("run_attempt") or 1)
         try:
+            sign_jobs = jobs_of(sign["id"], sign.get("run_attempt") or 1) if m else []
+            if m and not ok and not write_receipt(sign_jobs):  # a failed sign run that wrote no feed: one read
+                new_unp.append(unpublished_line(sign))
+                continue
             push = by_id.get(int(push_id)) or gh_api(f"repos/{repo}/actions/runs/{push_id}", token, run)
-            sign_jobs = gh_api(f"repos/{repo}/actions/runs/{sign['id']}/attempts/{sign.get('run_attempt') or 1}/jobs?per_page=100",
-                               token, run).get("jobs") or [] if m else []
-            push_jobs = gh_api(f"repos/{repo}/actions/runs/{push_id}/attempts/{push_attempt}/jobs?per_page=100",
-                               token, run).get("jobs") or []
+            push_jobs = jobs_of(push_id, push_attempt)
         except (SourceError, AttributeError) as e:
             whys.append(f"sign run {sign.get('id')}: {e}")
             continue
         rec, why = build_record(sign, push, sign_jobs, push_jobs, landed.get(push.get("head_sha") or ""))
-        if rec:
+        if rec and (ok or rec["confirmed"]):
             new_recs.append(rec)
-        else:
+        elif ok:
             new_unp.append(unpublished_line(sign, f"success, {why}"))
+        else:
+            new_unp.append(unpublished_line(sign))
+        # The list shows a run's newest attempt only: an earlier one no pass saw may have published. Its feed (not a
+        # record: a run keeps one) joins the feed list; at most EARLIER_ATTEMPTS more reads per run.
+        attempt = sign.get("run_attempt") or 1
+        for k in range(attempt - 1, max(0, attempt - 1 - EARLIER_ATTEMPTS), -1):
+            if (sign.get("id"), k) in seen:
+                break
+            try:
+                earlier = {**sign, "run_attempt": k}
+                e_sign_jobs = jobs_of(sign["id"], k) if m else []
+                e_push = push if m else earlier
+                e_push_jobs = push_jobs if m else jobs_of(sign["id"], k)
+            except (SourceError, AttributeError) as e:
+                whys.append(f"run {sign.get('id')} attempt {k}: {e}")
+                break
+            e_rec, _ = build_record(earlier, e_push, e_sign_jobs, e_push_jobs, landed.get(push.get("head_sha") or ""))
+            if e_rec and e_rec["confirmed"]:
+                extra_feeds.append(feed_entry(e_rec))
     state["records"] = merge(state["records"], new_recs, "feed_at", HISTORY_KEEP)
-    # A rerun that published is no longer an unpublished run.
-    published = {r["sign_run"] for r in state["records"]}
+    # A rerun that published is no longer an unpublished run (a later attempt's line stays: it is how it is known).
     state["unpublished"] = [u for u in merge(state["unpublished"], new_unp, "created_at", UNPUBLISHED_KEEP)
-                            if u["sign_run"] not in signed and u["sign_run"] not in published]
+                            if u["sign_run"] not in signed and not superseded_line(u, state["records"])]
     state["new"] = [r["build"] for r in sorted(new_recs, key=lambda r: r["feed_at"])]
     state["new_unpublished"] = [u["sign_run"] for u in new_unp]
     now = time.time()
-    state["feeds"] = feed_list(hist.get("feeds") or [], state["records"], now)
+    state["classified"] = classified_span(hist.get("classified"), runs, signed, state, oldest, iso(now))
+    state["feeds"] = feed_list((hist.get("feeds") or []) + extra_feeds, state["records"], now)
+    if notes:
+        state["feeds"] = identify(state["feeds"], notes)
     state["pr_attribution"] = pr_attribution(state["records"], git_dir, base_ref, run=run, now=now,
-                                             feeds=state["feeds"])
+                                             feeds=state["feeds"], classified=state["classified"])
     state["why"] = "; ".join(whys) or None
     return state
 
@@ -977,7 +1168,7 @@ def render_verdict(c: Dict[str, Any], repo: str = REPO) -> str:
         reasons = "; ".join(f"{why}: {n}" for why, n in sorted(prs["reasons"].items(), key=lambda kv: -kv[1]))
         window = prs.get("window") or PR_WINDOW_DAYS
         oldest, since = prs.get("oldest_feed"), prs.get("since")
-        partial = prs.get("partial")
+        partial, span = prs.get("partial"), prs.get("classified")
         if partial is None:
             partial = not oldest or not since or (ts(oldest) or 0) >= (ts(since) or 0)
         out += ["", f"## PR merge to NIGHTLY ({'partial: ' if partial else ''}"
@@ -985,8 +1176,14 @@ def render_verdict(c: Dict[str, Any], repo: str = REPO) -> str:
         if oldest:
             out.append(f"Observed window: {oldest if partial else since} to {prs.get('until') or 'now'}; "
                        f"{prs['reasons'].get(BEFORE_FEEDS, 0)} merges before it unattributed (no feed observed)."
-                       + (f" Coverage is partial: {window} days were asked for, from {since}, and no feed before "
-                          f"{oldest} is recorded." if partial else ""))
+                       + (f" Coverage is partial: {window} days were asked for, from {since}; "
+                          + (f"runs are classified from {span['from'] or 'the first run'} to {span['to']}"
+                             if isinstance(span, dict) else "no run classification is recorded")
+                          + f"; the oldest feed is {oldest}." if partial else "")
+                       + (f" {prs['unconfirmed']} of {prs.get('feeds')} feeds are unconfirmed (no read-back receipt)."
+                          if prs.get("unconfirmed") else "")
+                       + (f" {prs['unidentified']} of {prs.get('feeds')} feeds name the run's head commit, not the "
+                          "published build_sha (identity unconfirmed)." if prs.get("unidentified") else ""))
         else:
             out.append("Observed window: none, no published nightly is recorded; coverage is partial.")
         out += [f"Attributed {prs.get('attributed', 0)} of {prs.get('count', 0)} first-parent merges. "
@@ -1066,26 +1263,30 @@ def render_table(rows: List[Dict[str, Any]]) -> str:
 
 
 def history_doc(records: List[Dict[str, Any]], unpublished: List[Dict[str, Any]], jobs_keep: int = JOBS_KEEP,
-                pr_data: Optional[Dict[str, Any]] = None, feeds: Optional[List[Dict[str, Any]]] = None) -> str:
+                pr_data: Optional[Dict[str, Any]] = None, feeds: Optional[List[Dict[str, Any]]] = None,
+                classified: Optional[Dict[str, str]] = None) -> str:
     keep_jobs = {r["sign_run"] for r in records[-jobs_keep:]} if jobs_keep else set()
     recs = [r if r["sign_run"] in keep_jobs else {k: v for k, v in r.items() if k != "jobs"} for r in records]
     doc = {"schema": SCHEMA, "budget_min": BUDGET_MIN, "top_stages": TOP_STAGES, "records": recs,
            "unpublished": unpublished, "feeds": [feed_entry(e) for e in feeds or []],
            "pr_attribution": pr_summary(pr_data, 0)}
+    if sound_span(classified):
+        doc["classified"] = classified
     return json.dumps(doc, separators=(",", ":"))
 
 
 def history_comment(records: List[Dict[str, Any]], unpublished: List[Dict[str, Any]],
                     jobs_keep: int = JOBS_KEEP, pr_data: Optional[Dict[str, Any]] = None,
-                    feeds: Optional[List[Dict[str, Any]]] = None) -> str:
+                    feeds: Optional[List[Dict[str, Any]]] = None, classified: Optional[Dict[str, str]] = None) -> str:
     """The hidden comment as written: base64 holds no "-->", so a job name cannot end it early."""
-    z = base64.b64encode(zlib.compress(history_doc(records, unpublished, jobs_keep, pr_data, feeds).encode("utf-8"), 9)).decode("ascii")
+    doc = history_doc(records, unpublished, jobs_keep, pr_data, feeds, classified)
+    z = base64.b64encode(zlib.compress(doc.encode("utf-8"), 9)).decode("ascii")
     return f"<!-- nightly-speed-history-z: {z} -->"
 
 
 def issue_body(records: List[Dict[str, Any]], unpublished: List[Dict[str, Any]], git_dir: str,
                run: Callable = subprocess.run, pr_data: Optional[Dict[str, Any]] = None,
-               feeds: Optional[List[Dict[str, Any]]] = None) -> str:
+               feeds: Optional[List[Dict[str, Any]]] = None, classified: Optional[Dict[str, str]] = None) -> str:
     """The issue body, the oldest records dropped until it fits BODY_LIMIT, down to TRAILING + BISECT_AFTER; past that
     floor every record's per-job detail goes, then the oldest records again, and only with no record left the oldest
     unpublished lines (a line is 150 bytes; it is never dropped to make room for a record), and only after all of that
@@ -1093,7 +1294,7 @@ def issue_body(records: List[Dict[str, Any]], unpublished: List[Dict[str, Any]],
     feeds = list(feeds) if feeds is not None else feed_list([], records)
     floor = TRAILING + BISECT_AFTER
     if pr_data is None:
-        pr_data = pr_attribution(records, git_dir, run=run, feeds=feeds)
+        pr_data = pr_attribution(records, git_dir, run=run, feeds=feeds, classified=classified)
     while len(records) > floor and len(history_comment(records, unpublished, feeds=feeds)) > BODY_LIMIT - VISIBLE_RESERVE:
         records = records[1:]
     jobs_keep = JOBS_KEEP
@@ -1109,7 +1310,7 @@ def issue_body(records: List[Dict[str, Any]], unpublished: List[Dict[str, Any]],
             lines += [f"| {(u.get('created_at') or '')[5:16].replace('T', ' ')} | {u['sign_run']} | {u.get('push_run')} | "
                       f"{u.get('conclusion')} | {num(u.get('held_min'))} |" for u in unp]
             lines.append("")
-        body = "\n".join(lines) + f"\n{history_comment(records, unpublished, jobs_keep, pr_data, feeds)}\n"
+        body = "\n".join(lines) + f"\n{history_comment(records, unpublished, jobs_keep, pr_data, feeds, classified)}\n"
         if len(body) <= BODY_LIMIT or not (records or unpublished or feeds):
             return body
         if len(records) <= floor and jobs_keep:
@@ -1129,11 +1330,11 @@ def write_issue(state: Dict[str, Any], hq_repo: str, token: Optional[str], git_d
         return f"#{issue['number']} (nothing new, not written)"
     old = parse_history(issue["body"]) if issue else {"records": [], "unpublished": []}
     records = merge(old["records"], state.get("records") or [], "feed_at", HISTORY_KEEP)
-    published = {r["sign_run"] for r in records}
     unpublished = [u for u in merge(old["unpublished"], state.get("unpublished") or [], "created_at", UNPUBLISHED_KEEP)
-                   if u["sign_run"] not in published]
+                   if not superseded_line(u, records)]
     feeds = feed_list((old.get("feeds") or []) + (state.get("feeds") or []), records)
-    body = issue_body(records, unpublished, git_dir, run, state.get("pr_attribution"), feeds)
+    span = state.get("classified") if sound_span(state.get("classified")) else old.get("classified")
+    body = issue_body(records, unpublished, git_dir, run, state.get("pr_attribution"), feeds, span)
     env = {**os.environ, "GH_TOKEN": token or ""}
     if issue:
         cmd = ["gh", "issue", "edit", str(issue["number"]), "--repo", hq_repo, "--body-file", "-"]
@@ -1171,7 +1372,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     args = ap.parse_args(argv)
     if args.cmd == "record":
         state = record(args.repo, args.hq_repo, args.newest, args.git_dir, args.base_ref,
-                       os.environ.get("GH_TOKEN") or None, os.environ.get("HQ_GH_TOKEN") or None)
+                       os.environ.get("GH_TOKEN") or None, os.environ.get("HQ_GH_TOKEN") or None, notes=signed_head)
         with open(args.out, "w", encoding="utf-8") as f:
             json.dump(state, f, separators=(",", ":"))
         print(f"nightly-speed: {len(state['new'])} new published, {len(state['new_unpublished'])} new unpublished, "
