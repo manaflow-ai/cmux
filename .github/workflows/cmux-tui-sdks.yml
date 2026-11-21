@@ -38,6 +38,8 @@ on:
       - ".github/workflows/tui-publish-pypi.yml"
       - "tests/test_tui_installers.py"
       - "tests/test_tui_publish_workflow_security.py"
+      - ".github/workflows/base-coalesce.yml"  # tests/test_tui_publish_workflow_security.py reads it
+      - "scripts/ci/cmux_tui_tree_key.py"  # tests/test_tui_publish_workflow_security.py reads it
       - "tests/workflow_jobs.py"
       - "scripts/ci/gh_expressions.py"
       - "scripts/ci/adopt_cmux_tui_commit.py"
@@ -207,6 +209,8 @@ on:
       - ".github/workflows/tui-publish-pypi.yml"
       - "tests/test_tui_installers.py"
       - "tests/test_tui_publish_workflow_security.py"
+      - ".github/workflows/base-coalesce.yml"  # tests/test_tui_publish_workflow_security.py reads it
+      - "scripts/ci/cmux_tui_tree_key.py"  # tests/test_tui_publish_workflow_security.py reads it
       - "tests/workflow_jobs.py"
       - "scripts/ci/gh_expressions.py"
       - "scripts/ci/adopt_cmux_tui_commit.py"

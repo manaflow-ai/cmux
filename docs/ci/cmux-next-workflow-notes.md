@@ -3870,3 +3870,317 @@ past 1100 s (cmux#44271). `vars.CI_FAST_TIER_OWNED_SEED` = `0` switches it off: 
 the shared roots as before. The root's parent must exist, belong to the mini's user and hold the marker
 `.cmux-seed-root` (fleet setup); without
 them the tier falls back. The marker keeps a runner that works at that path (the nightly-next builder) out.
+
+## note-414
+
+Above `- scripts/ci/**` in `.github/workflows/cmux-next.yml`.
+
+What the checks tier's tests import, run or read outside the paths above (tests/test_ci_workflow_paths_cover_inputs.py).
+Pull-request only, like the lines above. The router's CI_ONLY lists the ones no build reads (checks tier alone);
+the GhosttyKit download, the reload and release-strip scripts and .gitattributes still start the Mac tiers.
+
+## note-417
+
+Above `- .github/workflows/nightly.yml` in `.github/workflows/cmux-next.yml`.
+
+A nightly repair must earn this exact commit's Release compile before
+promotion can carry it to nightly-next. Otherwise a workflow-only fix
+(such as #21144) waits for an unrelated app change to become eligible.
+
+## note-418
+
+Above `blacksmith_12_jobs: ${{ steps.place.outputs.blacksmith_12_jobs }}` in `.github/workflows/cmux-next.yml`.
+
+The jobs no idle mini took that Blacksmith has a free slot for now, 12
+vCPU first and then 6, and the Blacksmith label the bot's overflow
+attempt takes (scripts/ci/next_macos_cascade.py).
+
+## note-413
+
+Above `- name: Restore the shared pool snapshot` in `.github/workflows/cmux-next.yml`.
+
+The janitor's pool snapshot as a feat-cmux-next push job last read it (this ref's newest entry, else the
+base or default branch's): the placement step reuses a copy read under 5 minutes ago instead of two
+GITHUB_TOKEN artifact calls, from the hour the promote gates share (scripts/ci/pr_runner_pool.py
+kept_snapshot_path). The key below is never saved, so the newest `cmux-pool-snapshot-` entry restores.
+The Actions cache is not the REST API.
+
+## note-412
+
+Above `- name: Restore the shared pool snapshot` in `.github/workflows/cmux-next.yml`.
+
+The janitor's pool snapshot as a feat-cmux-next push job last read it (this ref's newest entry, else the
+base or default branch's): the placement step reuses a copy read under 5 minutes ago instead of two
+GITHUB_TOKEN artifact calls, from the hour the promote gates share (scripts/ci/pr_runner_pool.py
+kept_snapshot_path). The key below is never saved, so the newest `cmux-pool-snapshot-` entry restores.
+The Actions cache is not the REST API.
+
+## note-415
+
+Above `- name: Perf source guard (no window capture or CATransaction.flush)` in `.github/workflows/cmux-next.yml`.
+
+The perf gate's source guard without an app (I5: a theme change captures no window and
+forces no commit): a source scan of seconds, so it stays here while the perf gate itself runs
+only in the perf cron (cmux-next-perf-budgets.yml); two hits once landed by direct push
+(36c5b4217488, 715f623c97e1).
+
+## note-411
+
+Above `- name: Restore the shared pool snapshot` in `.github/workflows/cmux-next.yml`.
+
+The janitor's pool snapshot as a feat-cmux-next push job last read it (this ref's newest entry, else the
+base or default branch's): the placement step reuses a copy read under 5 minutes ago instead of two
+GITHUB_TOKEN artifact calls, from the hour the promote gates share (scripts/ci/pr_runner_pool.py
+kept_snapshot_path). The key below is never saved, so the newest `cmux-pool-snapshot-` entry restores.
+The Actions cache is not the REST API.
+
+## note-410
+
+Above `- name: Restore the shared pool snapshot` in `.github/workflows/cmux-next.yml`.
+
+The janitor's pool snapshot as a feat-cmux-next push job last read it (this ref's newest entry, else the
+base or default branch's): the placement step reuses a copy read under 5 minutes ago instead of two
+GITHUB_TOKEN artifact calls, from the hour the promote gates share (scripts/ci/pr_runner_pool.py
+kept_snapshot_path). The key below is never saved, so the newest `cmux-pool-snapshot-` entry restores.
+The Actions cache is not the REST API.
+
+## note-420
+
+Above `concurrency:` in `.github/workflows/cmux-next.yml`.
+
+A push's Mac job waits for the same job of the running push run and is
+never cancelled once it runs; a newer push replaces only the waiting one
+(see the workflow concurrency comment).
+
+## note-419
+
+Above `concurrency:` in `.github/workflows/cmux-next.yml`.
+
+A push's Mac job waits for the same job of the running push run and is
+never cancelled once it runs; a newer push replaces only the waiting one
+(see the workflow concurrency comment).
+
+## note-416
+
+Above `timeout-minutes: 70` in `.github/workflows/cmux-next.yml`.
+
+Runs from runner pickup, so it also counts the runner hook's wait for capacity units. Finished runs took 20-39 min
+(2026-11-17, 12 h), and a units wait of 19 min cancelled cmux#44505's mid-compile at 40. 60, plus the PR
+autofix pack step's 10.
+
+## note-451
+
+Above `- Packages/Shared/**` in `.github/workflows/cmux-next.yml`.
+
+Local packages CmuxNext depends on and files its tests read
+(ci-target-graph.json `packages` and `reads`).
+
+## note-441
+
+Above `- webviews/src/**` in `.github/workflows/cmux-next.yml`.
+
+The web bundles' sources (build output since cx-vn5; the package tests
+read the built pages; cmux_next_route.py BUNDLE_INPUTS).
+
+## note-435
+
+Above `- web/data/model-catalog/**` in `.github/workflows/cmux-next.yml`.
+
+Files outside webviews/ that webviews sources import (web-bundle-key.py --inputs;
+tests/test_web_bundle_key_inputs.sh keeps this list complete).
+
+## note-437
+
+Above `- scripts/ci/base_red_checks.py` in `.github/workflows/cmux-next.yml`.
+
+The push-only base-red classifier in the checks job (push only, never a
+pull request; the parity guard lists it in PUSH_ONLY_PATTERNS).
+
+## note-449
+
+Above `- scripts/cmux-next/state-roots-baseline.tsv` in `.github/workflows/cmux-next.yml`.
+
+Pull-request inputs that pushes must watch too (the parity guard,
+tests/test_ci_workflow_path_filter_parity.py).
+
+## note-442
+
+Above `- scripts/ghosttykit-checksums.txt` in `.github/workflows/cmux-next.yml`.
+
+The rest of NATIVE_SCRIPT_INPUTS: files the app build or its packaging reads, which the pull request
+paths above already name.
+
+## note-440
+
+Above `- Packages/macOS/**` in `.github/workflows/cmux-next.yml`.
+
+Base pushes still run the full side workflow for every package input;
+only pull requests use the focused package routing below.
+
+## note-450
+
+Above `- Packages/Shared/**` in `.github/workflows/cmux-next.yml`.
+
+Local packages CmuxNext depends on and files its tests read
+(ci-target-graph.json `packages` and `reads`).
+
+## note-422
+
+Above `- .github/workflows/cmux-tui-build-package.yml` in `.github/workflows/cmux-next.yml`.
+
+The rest of the tree key's build recipe (scripts/cmux-next/cmux-tui-tree-inputs.txt): a base push that
+changes only one runs the daemon tests (scripts/ci/affected-jobs.json daemon-test; affected_jobs.py check).
+
+## note-439
+
+Above `- webviews/src/**` in `.github/workflows/cmux-next.yml`.
+
+The web bundles' sources (build output since cx-vn5; the package tests
+read the built pages; cmux_next_route.py BUNDLE_INPUTS).
+
+## note-434
+
+Above `- web/data/model-catalog/**` in `.github/workflows/cmux-next.yml`.
+
+Files outside webviews/ that webviews sources import (web-bundle-key.py --inputs;
+tests/test_web_bundle_key_inputs.sh keeps this list complete).
+
+## note-438
+
+Above `CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}` in `.github/workflows/cmux-next.yml`.
+
+HQ's public cache edge serves read-only restores from every runner; writes
+use the controller-owned R2 credentials in the seed steps below.
+
+## note-433
+
+Above `fresh_stalled: ${{ steps.place.outputs.fresh_stalled }}` in `.github/workflows/cmux-next.yml`.
+
+The Blacksmith labels a feed's compile counts as full (next_macos_cascade.fresh_stalled()): a feat-cmux-next
+push's Release compile never falls back to one of them.
+
+## note-432
+
+Above `FIRST_JOBS: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.r` in `.github/workflows/cmux-next.yml`.
+
+A feat-cmux-next push's Release compile gates the nightly-next request, so the cascade
+places it ahead of the run's other jobs (next_macos_cascade.FIRST_JOBS).
+
+## note-427
+
+Above `- name: Check whether this job read the pool snapshot` in `.github/workflows/cmux-next.yml`.
+
+Only a feat-cmux-next push job that read the API saves a new entry, keyed by when it read (pr_runner_pool
+writes the marker then); pull requests and lane branches restore the base branch's newest one.
+
+## note-426
+
+Above `- name: Check whether this job read the pool snapshot` in `.github/workflows/cmux-next.yml`.
+
+Only a feat-cmux-next push job that read the API saves a new entry, keyed by when it read (pr_runner_pool
+writes the marker then); pull requests and lane branches restore the base branch's newest one.
+
+## note-425
+
+Above `- name: Buttons change only their fill when pressed` in `.github/workflows/cmux-next.yml`.
+
+A held button changes its background and nothing else (Lawrence 2026-11-15): no bold, size, scale,
+offset, dimming or icon change on :active, a held frame or a SwiftUI press (design/pressed-state.md).
+
+## note-421
+
+Above `- name: Type scale` in `.github/workflows/cmux-next.yml`.
+
+The one type scale (schemas/type-scale/type-scale.json): its CSS and Swift copies, and no new raw
+font sizes or off-scale weights in the app's Swift (fails the checks; the webviews ratchet runs in react-apps-check).
+
+## note-430
+
+Above `- name: Upload the reported tree wait marker` in `.github/workflows/cmux-next.yml`.
+
+The record of this run's red, keyed by its tree: the key's next publication re-dispatches every tier
+it reported (cmux_next_tree_notify.py), whatever became of the marker that started this run.
+
+## note-424
+
+Above `- name: Check whether this job read the pool snapshot` in `.github/workflows/cmux-next.yml`.
+
+Only a feat-cmux-next push job that read the API saves a new entry, keyed by when it read (pr_runner_pool
+writes the marker then); pull requests and lane branches restore the base branch's newest one.
+
+## note-428
+
+Above `SIDE_LABEL: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name` in `.github/workflows/cmux-next.yml`.
+
+The owned side label itself: CMUX_NEXT_SIDE_ROUTE names Blacksmith on a person's re-run. A fork's
+pull request never gets it (it never reaches this job either: its fleet client does not run).
+
+## note-423
+
+Above `- name: Check whether this job read the pool snapshot` in `.github/workflows/cmux-next.yml`.
+
+Only a feat-cmux-next push job that read the API saves a new entry, keyed by when it read (pr_runner_pool
+writes the marker then); pull requests and lane branches restore the base branch's newest one.
+
+## note-431
+
+Above `- name: Upload the fixit-compile patch` in `.github/workflows/cmux-next.yml`.
+
+A build whose every error had a machine-applicable fix, and compiled with them: the patch, for the
+cmuxterm-hq fixit-compile reconciler to push onto a lane/* branch as a fixup commit.
+
+## note-448
+
+Above `submodules: false` in `.github/workflows/cmux-next.yml`.
+
+The package graph reads no submodule; GhosttyNextKit comes from
+SwiftPM (Packages/Shared/CmuxGhosttyKit).
+
+## note-447
+
+Above `submodules: false` in `.github/workflows/cmux-next.yml`.
+
+The package graph reads no submodule; GhosttyNextKit comes from
+SwiftPM (Packages/Shared/CmuxGhosttyKit).
+
+## note-446
+
+Above `submodules: false` in `.github/workflows/cmux-next.yml`.
+
+The package graph reads no submodule; GhosttyNextKit comes from
+SwiftPM (Packages/Shared/CmuxGhosttyKit).
+
+## note-445
+
+Above `submodules: false` in `.github/workflows/cmux-next.yml`.
+
+The package graph reads no submodule; GhosttyNextKit comes from
+SwiftPM (Packages/Shared/CmuxGhosttyKit).
+
+## note-444
+
+Above `submodules: false` in `.github/workflows/cmux-next.yml`.
+
+The package graph reads no submodule; GhosttyNextKit comes from
+SwiftPM (Packages/Shared/CmuxGhosttyKit).
+
+## note-443
+
+Above `submodules: false` in `.github/workflows/cmux-next.yml`.
+
+The package graph reads no submodule; GhosttyNextKit comes from
+SwiftPM (Packages/Shared/CmuxGhosttyKit).
+
+## note-436
+
+Above `concurrency:` in `.github/workflows/cmux-next.yml`.
+
+A started push compile has a per-run group and is never cancelled by a
+newer push. Superseded pushes are skipped by the job condition above.
+
+## note-429
+
+Above `runs_on: ${{ steps.place.outputs.runs_on }}` in `.github/workflows/cmux-next.yml`.
+
+JSON for cmux-scheme-compile's runs-on (a pinned runner is [its pool label, glaeda-runner-<name>]),
+and that list's first label for the job's CMUX_NEXT_RUNNER copy; both empty keep the job's route.
