@@ -176,3 +176,17 @@
   border-radius: 6px;
   font: inherit;
 }
+
+/* The element a message points at (a Point at Element pick it carries). */
+.acpmux-inspector-pointed {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 14%, transparent);
+  color: var(--agent-text);
+  font: 11px var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
