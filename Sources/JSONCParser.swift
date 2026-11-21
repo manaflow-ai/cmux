@@ -427,6 +427,61 @@ enum JSONCObjectEditor {
         return index
     }
 
+    /// Removes matching elements from a top-level array property while preserving
+    /// the surrounding JSONC text, including comments attached to retained entries.
+    static func removeArrayElements(
+        key: String,
+        in source: String,
+        shouldRemove: (Any) -> Bool
+    ) -> String? {
+        guard let root = rootObject(in: source),
+              let property = root.property(named: key) else { return nil }
+        let open = skipWhitespaceAndComments(in: source, from: property.valueStart)
+        guard open < source.endIndex, source[open] == "[",
+              let close = matchingContainerEnd(in: source, at: open) else { return nil }
+
+        var ranges: [Range<String.Index>] = []
+        var cursor = source.index(after: open)
+        var previousComma: String.Index?
+        while true {
+            cursor = skipWhitespaceAndComments(in: source, from: cursor)
+            guard cursor < close else { break }
+            let valueStart = cursor
+            guard let valueEnd = skipValue(in: source, from: cursor) else { return nil }
+            let raw = String(source[valueStart..<valueEnd])
+            let value = (try? JSONCParser.preprocess(data: Data(raw.utf8))).flatMap {
+                try? JSONSerialization.jsonObject(with: $0, options: [.fragmentsAllowed])
+            }
+            let afterValue = skipWhitespaceAndComments(in: source, from: valueEnd)
+            let comma = afterValue < close && source[afterValue] == "," ? afterValue : nil
+            if let value, shouldRemove(value) {
+                if let comma {
+                    ranges.append(valueStart..<source.index(after: comma))
+                } else if let previousComma {
+                    ranges.append(previousComma..<source.index(after: previousComma))
+                    ranges.append(valueStart..<valueEnd)
+                } else {
+                    ranges.append(valueStart..<valueEnd)
+                }
+            }
+            guard let comma else { break }
+            previousComma = comma
+            cursor = source.index(after: comma)
+        }
+        guard !ranges.isEmpty else { return source }
+
+        let merged = ranges.sorted { $0.lowerBound < $1.lowerBound }.reduce(into: [Range<String.Index>]()) { merged, range in
+            if let last = merged.last, range.lowerBound <= last.upperBound {
+                merged[merged.count - 1] = last.lowerBound..<max(last.upperBound, range.upperBound)
+            } else {
+                merged.append(range)
+            }
+        }
+        var updated = source
+        for range in merged.reversed() { updated.removeSubrange(range) }
+        return updated
+    }
+
     private static func parseJSONString(in source: String, at start: String.Index) -> (start: String.Index, end: String.Index, value: String)? {
         guard start < source.endIndex, source[start] == "\"" else { return nil }
         var index = source.index(after: start)

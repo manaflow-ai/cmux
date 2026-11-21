@@ -37234,13 +37234,16 @@ export default {
         return normalized
     }
 
-    private static func openCodePluginListRemovingSessionPlugin(_ plugins: [Any]) -> [Any] {
+    private static func openCodePluginListRemovingSessionPlugin(
+        _ plugins: [Any],
+        removeBroadPluginsEntry: Bool = true
+    ) -> [Any] {
         plugins.filter { entry in
             guard let value = (entry as? String) ?? ((entry as? [Any])?.first as? String) else {
                 return true
             }
             return value != Self.openCodeSessionPluginConfigSpec
-                && value != "./plugins"
+                && (!removeBroadPluginsEntry || value != "./plugins")
                 && value != "./plugins/\(Self.openCodeTUIPluginDirectoryName)"
                 && value != "cmux-session"
                 && value != "./plugins/\(Self.openCodeSessionPluginFilename)"
@@ -37249,34 +37252,65 @@ export default {
         }
     }
 
-    private func updateOpenCodePluginRegistration(configDir: URL, shouldInstall: Bool) throws -> Bool {
-        let configURL = configDir.appendingPathComponent("opencode.json", isDirectory: false); let existingData = try? Data(contentsOf: configURL)
-        var config: [String: Any]
-        if let data = existingData {
-            guard let decoded = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw CLIError(message: "Failed to parse \(configURL.path). Fix the JSON syntax and retry.") }
-            config = decoded
-        } else {
-            config = [:]
+    private static func openCodePluginListJSON(_ plugins: [Any]) -> String? {
+        guard JSONSerialization.isValidJSONObject(plugins),
+              let data = try? JSONSerialization.data(
+                withJSONObject: plugins,
+                options: [.prettyPrinted, .withoutEscapingSlashes]
+              ),
+              let text = String(data: data, encoding: .utf8) else {
+            return nil
         }
-        // OpenCode V2's schema uses the singular `plugin` array. Accept the
-        // legacy plural spelling while migrating it to the V2 contract so an
-        // installed bridge is loadable by the current CLI.
-        let configuredPlugins = (config["plugin"] as? [Any] ?? []) + (config["plugins"] as? [Any] ?? [])
-        var plugins = Self.openCodePluginListRemovingSessionPlugin(configuredPlugins)
-        if shouldInstall, !Self.openCodePluginListContains(plugins, spec: Self.openCodeSessionPluginConfigSpec) {
-            plugins.append(Self.openCodeSessionPluginConfigSpec)
+        return text
+    }
+
+    /// Removes cmux-owned entries from existing OpenCode config files without
+    /// creating or rewriting them wholesale. OpenCode loads both files and
+    /// treats them as JSONC, so cleanup must preserve comments and unknown keys.
+    private func removeOpenCodePluginRegistration(configDir: URL) {
+        let fileManager = FileManager.default
+        for name in ["opencode.jsonc", "opencode.json"] {
+            let configURL = configDir.appendingPathComponent(name, isDirectory: false)
+            guard fileManager.fileExists(atPath: configURL.path),
+                  let data = try? Data(contentsOf: configURL),
+                  let source = try? JSONCParser.source(data: data),
+                  let sanitized = try? JSONCParser.preprocess(data: data),
+                  let object = try? JSONSerialization.jsonObject(with: sanitized),
+                  let config = object as? [String: Any] else {
+                continue
+            }
+
+            var updated = source.text
+            var changed = false
+            for key in ["plugin", "plugins"] {
+                guard let plugins = config[key] as? [Any] else { continue }
+                let filtered = Self.openCodePluginListRemovingSessionPlugin(plugins, removeBroadPluginsEntry: false)
+                guard filtered.count != plugins.count else { continue }
+                changed = true
+                if filtered.isEmpty {
+                    updated = JSONCObjectEditor.removeRootProperty(key: key, in: updated) ?? updated
+                } else if let cleaned = JSONCObjectEditor.removeArrayElements(
+                    key: key,
+                    in: updated,
+                    shouldRemove: { value in
+                        Self.openCodePluginListRemovingSessionPlugin([value], removeBroadPluginsEntry: false).isEmpty
+                    }
+                ) {
+                    updated = cleaned
+                } else if let valueJSON = Self.openCodePluginListJSON(filtered) {
+                    updated = JSONCObjectEditor.setRootProperty(key: key, valueJSON: valueJSON, in: updated) ?? updated
+                }
+            }
+
+            guard changed, updated != source.text,
+                  let output = updated.data(using: source.encoding),
+                  let sanitizedOutput = try? JSONCParser.preprocess(data: output),
+                  let reparsed = try? JSONSerialization.jsonObject(with: sanitizedOutput),
+                  reparsed is [String: Any] else {
+                continue
+            }
+            try? output.write(to: configURL, options: .atomic)
         }
-        if shouldInstall || !plugins.isEmpty {
-            config["plugin"] = plugins
-        } else {
-            config.removeValue(forKey: "plugin")
-        }
-        config.removeValue(forKey: "plugins")
-        let output = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
-        if existingData == output { return false }
-        try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
-        try output.write(to: configURL, options: .atomic)
-        return true
     }
 
     private func installOpenCodePluginHooks(_ def: AgentHookDef) throws {
@@ -37287,7 +37321,8 @@ export default {
         try validateOpenCodeTUIPluginDirectory(in: configDir)
         if existing == Self.openCodeSessionPluginSource {
             try writeOpenCodeTUIPlugin(in: configDir)
-            print(try updateOpenCodePluginRegistration(configDir: configDir, shouldInstall: true) ? "OpenCode hooks installed at \(pluginURL.path)" : "OpenCode hooks already up to date at \(pluginURL.path)")
+            removeOpenCodePluginRegistration(configDir: configDir)
+            print("OpenCode hooks already up to date at \(pluginURL.path)")
             return
         }
         if !existing.isEmpty, !existing.contains(Self.openCodeSessionPluginMarker) { throw CLIError(message: "\(pluginURL.path) exists and is not a cmux plugin; leaving it alone") }
@@ -37302,7 +37337,7 @@ export default {
         }
         try writeOpenCodeSessionPlugin(in: configDir)
         try writeOpenCodeTUIPlugin(in: configDir)
-        _ = try updateOpenCodePluginRegistration(configDir: configDir, shouldInstall: true)
+        removeOpenCodePluginRegistration(configDir: configDir)
         print("OpenCode hooks installed at \(pluginURL.path)")
     }
 
@@ -37350,10 +37385,7 @@ export default {
         }
         let configDir = URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
         try removeOpenCodeTUIPlugin(in: configDir)
-        _ = try updateOpenCodePluginRegistration(
-            configDir: configDir,
-            shouldInstall: false
-        )
+        removeOpenCodePluginRegistration(configDir: configDir)
         if removedLegacyPlugin {
             print("Removed OpenCode cmux plugin from \(pluginURL.path)")
         } else {
@@ -44333,6 +44365,7 @@ export default {
         try validateOpenCodeTUIPluginDirectory(in: pluginConfigDir)
         if existing == source {
             try writeOpenCodeTUIPlugin(in: pluginConfigDir)
+            removeOpenCodePluginRegistration(configDir: pluginConfigDir)
             print("OpenCode plugin already up to date at \(path)")
             return
         }
@@ -44351,6 +44384,7 @@ export default {
         }
         try source.write(toFile: path, atomically: true, encoding: .utf8)
         try writeOpenCodeTUIPlugin(in: pluginConfigDir)
+        removeOpenCodePluginRegistration(configDir: pluginConfigDir)
         print("OpenCode plugin installed at \(path)")
     }
 
@@ -44370,6 +44404,7 @@ export default {
             ? URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true).appendingPathComponent(".opencode", isDirectory: true)
             : URL(fileURLWithPath: openCodeConfigDirPath(), isDirectory: true)
         try removeOpenCodeTUIPlugin(in: configDir)
+        removeOpenCodePluginRegistration(configDir: configDir)
     }
 
     // MARK: - Feed (workstream) hook bridge
