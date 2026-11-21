@@ -60,6 +60,19 @@ pub const OFF_ENV: &str = "ACPMUX_MCP_GATEWAY";
 const REAP_EVERY: Duration = Duration::from_secs(30);
 /// A started server's replayed `initialize`.
 const START_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// How long a starting daemon waits for the kept port while the daemon it takes over from still
+/// holds it. A take-over start binds the daemon socket first, which is what makes the outgoing
+/// daemon stop (`daemon.rs`, `daemon/socket_rebind.rs`), and binds this port before that stop
+/// finishes, so the kept port is taken on every handover: 5 of 5 daemon starts on Leo's big-red on
+/// 2026-11-21 fell back to a fresh port (07:13, 08:17, 11:16, 12:21, 20:22) and every live chat
+/// lost the four servers its config still names. The wait cannot hold up the handover: the
+/// outgoing daemon's stop waits on nothing this daemon does after the socket
+/// (`daemon/exe_swap.rs` waits for its own `supervision::handing_over`).
+const KEPT_PORT_WAIT: Duration = Duration::from_secs(10);
+
+/// How often the kept port is tried again inside [`KEPT_PORT_WAIT`].
+const KEPT_PORT_RETRY: Duration = Duration::from_millis(100);
 /// After its stdin closes, a server has this long to end its own children and exit.
 const STOP_GRACE: Duration = Duration::from_secs(3);
 const MAX_HEAD: usize = 64 * 1024;
@@ -195,7 +208,42 @@ pub async fn start(home: &Path) {
 /// Binds a gateway (the kept port when it is free), keeps its port and key, and serves it,
 /// stopping a chat's server after `idle` with no request, looked for every `reap_every`.
 pub async fn bind(home: &Path, idle: Duration, reap_every: Duration) -> Result<Arc<Gateway>> {
-    bind_at(home, crate::config::socket_path(), idle, reap_every).await
+    bind_at(home, crate::config::socket_path(), idle, reap_every, KEPT_PORT_WAIT).await
+}
+
+/// The kept port, waiting up to `wait` for the daemon this one takes over from to let it go, or a
+/// free one when it is still taken then. Every chat's config names the kept port, so taking it
+/// keeps the chats' tools; a fresh port leaves each adopted harness without them until it starts
+/// again, which is why this waits before giving up.
+async fn bind_kept(port: u16, wait: Duration) -> Result<TcpListener> {
+    let deadline = Instant::now() + wait;
+    let mut taken: Option<String> = None;
+    loop {
+        match TcpListener::bind(("127.0.0.1", port)).await {
+            Ok(listener) => {
+                if let Some(why) = taken {
+                    tracing::info!(
+                        "mcp gateway: port {port} was taken ({why}); took it after waiting"
+                    );
+                }
+                return Ok(listener);
+            }
+            Err(e) => {
+                if taken.is_none() {
+                    taken = Some(e.to_string());
+                }
+                if Instant::now() >= deadline {
+                    // A harness this daemon adopts loses its tools until it starts again.
+                    tracing::warn!(
+                        "mcp gateway: port {port} is still taken after {}s ({e}); taking a free one",
+                        wait.as_secs()
+                    );
+                    return Ok(TcpListener::bind(("127.0.0.1", 0)).await?);
+                }
+                tokio::time::sleep(KEPT_PORT_RETRY).await;
+            }
+        }
+    }
 }
 
 /// [`bind`], its tool servers' calls going to the daemon at `socket`.
@@ -204,6 +252,7 @@ pub async fn bind_at(
     socket: PathBuf,
     idle: Duration,
     reap_every: Duration,
+    kept_wait: Duration,
 ) -> Result<Arc<Gateway>> {
     let path = home.join("run").join("mcp-gateway.json");
     let kept: Option<Listener> =
@@ -217,14 +266,7 @@ pub async fn bind_at(
         }
     };
     let listener = match kept.as_ref().map(|k| k.port).filter(|p| *p != 0) {
-        Some(port) => match TcpListener::bind(("127.0.0.1", port)).await {
-            Ok(l) => l,
-            Err(e) => {
-                // A harness the next daemon adopts loses its tools until it starts again.
-                tracing::warn!("mcp gateway: port {port} is taken ({e}); taking a free one");
-                TcpListener::bind(("127.0.0.1", 0)).await?
-            }
-        },
+        Some(port) => bind_kept(port, kept_wait).await?,
         None => TcpListener::bind(("127.0.0.1", 0)).await?,
     };
     let port = listener.local_addr()?.port();
