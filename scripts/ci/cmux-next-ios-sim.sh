@@ -165,6 +165,17 @@
 #           simulator verdict), the screens and the recording. A simulator
 #           check that fails keeps the step green with the verdict in
 #           handoff.json, so the device app still comes back.
+#   try     (through the fleet controller until it lists try: shots try=dev, the same step)
+#           the cmux Dev iPhone app for `cmux-next-ios/scripts/try.sh`: only the
+#           unsigned device app, no simulator, no sign-in. The Demo configuration
+#           (optimized, DEBUG developer surface) with bundle dev.cmux.mobile.dev,
+#           home-screen name "cmux Dev" and this commit in Info.plist, and no dev
+#           tag: it sends no X-Cmux-Build-Space, so like the shared Demo build it
+#           pairs with the person's NIGHTLY Mac and shows their real data. Every try
+#           build has the same bundle id, so it installs over the last one and keeps
+#           its sign-in and pairing (cmuxterm-hq docs/design/ios-dev-channels.md).
+#           The artifact (evidence.zip) holds CmuxMobileApp-Dev-device-unsigned.app.zip,
+#           try.json (commit, bundle id, build seconds) and SUMMARY.md.
 #
 # Isolation: the step makes its own simulator device set under its checkout
 # (`simctl --set`), so it never lists, boots or deletes another simulator, and
@@ -188,9 +199,14 @@ if [[ "$mode" == shots && $# -eq 2 && "${2:-}" == handoff=* ]]; then
   set -- handoff "tag=${2#handoff=}"
   mode=handoff
 fi
-case "$mode" in build|release-build|test|bench|all|pair-e2e|shots|clips|chief-live-perf|chief-live-perf-baseline|listperf|energy|handoff) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, release-build, test, bench, all, pair-e2e, shots, clips, chief-live-perf, chief-live-perf-baseline, listperf, energy or handoff, got '$mode'" >&2; exit 2 ;; esac
-if [[ "$mode" == release-build && $# -ne 1 ]]; then
-  echo "cmux-next-ios-sim.sh: release-build takes no further arguments" >&2; exit 2
+# try through the shots form too (shots try=dev), until the controller lists try.
+if [[ "$mode" == shots && $# -eq 2 && "${2:-}" == try=dev ]]; then
+  set -- try
+  mode=try
+fi
+case "$mode" in build|release-build|test|bench|all|pair-e2e|shots|clips|chief-live-perf|chief-live-perf-baseline|listperf|energy|handoff|try) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, release-build, test, bench, all, pair-e2e, shots, clips, chief-live-perf, chief-live-perf-baseline, listperf, energy, handoff or try, got '$mode'" >&2; exit 2 ;; esac
+if [[ ( "$mode" == release-build || "$mode" == try ) && $# -ne 1 ]]; then
+  echo "cmux-next-ios-sim.sh: $mode takes no further arguments" >&2; exit 2
 fi
 scenes=("${@:2}")
 # handoff's one argument: the task tag (already a slug: lowercase letters, digits, dashes).
@@ -200,6 +216,8 @@ if [[ "$mode" == handoff ]]; then
   handoff_tag="${2#tag=}"
   [[ "$handoff_tag" =~ ^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$ && "$handoff_tag" != default ]] ||
     { echo "cmux-next-ios-sim.sh: handoff tag= wants lowercase letters, digits and dashes (at most 64), got '$handoff_tag'" >&2; exit 2; }
+  # dev.cmux.mobile.dev is the cmux Dev app (try mode), which shows the person's real data.
+  [[ "$handoff_tag" != dev ]] || { echo "cmux-next-ios-sim.sh: tag dev is the cmux Dev app's (try mode); pick another tag" >&2; exit 2; }
 fi
 if [[ "$mode" == shots && ${#scenes[@]} -eq 0 ]]; then
   echo "cmux-next-ios-sim.sh: shots needs one or more scenes after it, name=WORD,WORD,..." >&2; exit 2
@@ -545,7 +563,7 @@ fi
 # The simulator runtime and iPhone, chosen before anything is built: the runtime the fleet declares
 # (CMUX_CI_IOS_SIM_RUNTIME, set by the build fleet's controller), else the newest (ios_sim_runtime.py).
 # A host without the declared runtime fails here, with the runtimes it has.
-if [[ "$mode" != release-build ]]; then
+if [[ "$mode" != release-build && "$mode" != try ]]; then
   sim_choice="$(xcrun simctl list -j runtimes devicetypes | python3 -I scripts/ci/ios_sim_runtime.py)" || exit 3
   read -r runtime device_type <<< "$sim_choice"
   # The step's iPhone is made before anything is built (booted after the build), so a creation that
@@ -644,6 +662,32 @@ if [[ "$mode" == handoff ]]; then
   # one. The tag is already a slug (checked above), so the space is `dev:<tag>` as the Mac's is.
   build_settings+=("CMUX_MOBILE_TAG=.$handoff_tag" "CMUX_MOBILE_DEV_TAG=.$handoff_tag" "CMUX_MOBILE_DISPLAY_NAME=cmux $handoff_tag"
     "CMUX_MOBILE_SOURCE_COMMIT=$(git rev-parse HEAD)")
+fi
+if [[ "$mode" == try ]]; then
+  # The cmux Dev app: device only. No CMUX_MOBILE_DEV_TAG (Demo's is empty), so no build space: the
+  # person's real data, paired with their NIGHTLY Mac. Unsigned; try.sh signs it on the Mac with the phone.
+  build_settings+=("CMUX_MOBILE_TAG=.dev" "CMUX_MOBILE_DISPLAY_NAME=cmux Dev" "CMUX_MOBILE_SOURCE_COMMIT=$(git rev-parse HEAD)")
+  set +e
+  xcodebuild -project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Demo \
+    -destination 'generic/platform=iOS' -derivedDataPath "$work/dd-device" \
+    CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= DEVELOPMENT_TEAM=7WLXT3NR37 \
+    ARCHS=arm64 ONLY_ACTIVE_ARCH=YES "${build_settings[@]}" build >"$work/build-device.log" 2>&1
+  status=$?
+  set -e
+  grep -E "error:|BUILD (SUCCEEDED|FAILED)" "$work/build-device.log" | sort -u | head -40 || true
+  cp "$work/build-device.log" "$out/build-device.log" 2>/dev/null || true
+  [[ $status -eq 0 ]] || { tail -40 "$work/build-device.log"; exit 1; }
+  device_app="$work/dd-device/Build/Products/Demo-iphoneos/CmuxMobileApp.app"
+  bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$device_app/Info.plist")"
+  [[ "$bundle_id" == dev.cmux.mobile.dev ]] || { echo "error: the cmux Dev app is $bundle_id, not dev.cmux.mobile.dev" >&2; exit 1; }
+  build_s=$((SECONDS - t0))
+  note "- try build: $build_s s (FFI + xcodegen + Demo device app, unsigned), bundle $bundle_id"
+  ditto -c -k --keepParent "$device_app" "$out/CmuxMobileApp-Dev-device-unsigned.app.zip"
+  printf '{"schema": "cmux.ios-try.v1", "sha": "%s", "bundle_id": "%s", "build_seconds": %s, "host": "%s"}\n' \
+    "$(git rev-parse HEAD)" "$bundle_id" "$build_s" "$(hostname -s)" >"$out/try.json"
+  (cd "$out" && rm -f evidence.zip && zip -qr evidence.zip . -x evidence.zip)
+  cat "$summary"
+  exit 0
 fi
 build_command=(xcodebuild -project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration "$configuration"
   -destination 'generic/platform=iOS Simulator' -derivedDataPath "$dd"
