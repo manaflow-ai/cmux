@@ -475,7 +475,7 @@ function undrawn(replies: readonly Expected[], drawn: readonly AcpmuxRow[]): Exp
   for (const row of drawn)
     if (row.kind === "assistant" && !row.foldedReply && typeof row.text === "string")
       shown.set(row.id, (shown.get(row.id) ?? "") + row.text);
-  const texts = new Set([...shown.values()].map((text) => text.trim()));
+  const texts = new Set(Array.from(shown.values(), (text) => text.trim()));
   return replies.filter((reply) => {
     const own = shown.get(`assistant-${reply.segment}`);
     if (own !== undefined) return own.trim() !== reply.text.trim();
