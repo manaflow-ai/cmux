@@ -72,6 +72,8 @@ import Testing
             "files_lane_jobs": after.files.jobs - lanes.files.jobs, "files_lane_cpu_ms_per_min": filesMS / minutes,
             "cpu_lane_cpu_ms_per_min": cpuMS / minutes,
             "process_cpu_ms_per_min": (Self.processCPU() - cpu) / minutes,
+            "unchanged": frames.keepWrites.unchanged, "restored": frames.keepWrites.restored,
+            "coalesced": frames.keepWrites.coalesced,
             "files_probe_jobs": ended.count, "files_probe_wait_p50_ms": ended.percentile(0.5),
             "files_probe_wait_p95_ms": ended.percentile(0.95), "files_probe_wait_max_ms": ended.max() ?? 0,
         ]
@@ -80,12 +82,12 @@ import Testing
         #expect(!ended.isEmpty, "the files probe never ran: the lane never drained")
     }
 
-    /// The keeper's lane costs and encodes so far. Before the delta writer every files-lane job encoded one frame.
+    /// The keeper's lane costs and encodes so far.
     static func lanes(_ frames: TerminalLaunchFrames) -> (files: LaneCost, cpu: LaneCost, encodes: Int) {
-        (frames.keepLaneCost, LaneCost(), encodes(frames))
+        (frames.keepLaneCost.files, frames.keepLaneCost.cpu, encodes(frames))
     }
 
-    static func encodes(_ frames: TerminalLaunchFrames) -> Int { frames.keepLaneCost.jobs }
+    static func encodes(_ frames: TerminalLaunchFrames) -> Int { frames.keepWrites.encodes }
 
     /// The process's user + system CPU time, in ms.
     static func processCPU() -> Double {
