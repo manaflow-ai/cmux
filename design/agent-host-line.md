@@ -25,7 +25,9 @@ Each state is one row, so one turning into another moves nothing.
   change (a chat too large to open, another build's acpmux holding the socket): the plain reason
   (hostLine.ts) with its one action (Retry, or Restart agent service) and Details.
 
-The row is at least 24 px (a button's height). None is red and none animates.
+The row is at least 24 px (a button's height). None is red and none animates. The words, the
+ticking time (ui/Typography.tsx `Clock`, tabular figures in a fixed-width box) and the quiet link sit
+on one text baseline (test/typography-baseline-browser.test.ts, Chromium and WebKit).
 
 ## References
 
