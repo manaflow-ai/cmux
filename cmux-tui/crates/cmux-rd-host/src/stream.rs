@@ -156,7 +156,7 @@ impl Timing {
         release_us: u64,
         encoded_us: u64,
         encoded_bytes: usize,
-        idr: bool,
+        idr_reason: Option<&'static str>,
     ) -> serde_json::Value {
         serde_json::json!({
             "input_us": self.input_us.take(),
@@ -166,7 +166,8 @@ impl Timing {
             "release_us": release_us,
             "encoded_us": encoded_us,
             "encoded_bytes": encoded_bytes,
-            "idr": idr,
+            "idr": idr_reason.is_some(),
+            "idr_reason": idr_reason,
         })
     }
 

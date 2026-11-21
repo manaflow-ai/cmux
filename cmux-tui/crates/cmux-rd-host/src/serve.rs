@@ -303,12 +303,13 @@ fn default_start_kbps(
 }
 
 /// Whether a session with the setup line's `scope` (`view` or `control`) starts view only
-/// with `capture`: a capture that applies no input (the Wayland portal) is view only, so the
-/// viewer is told view, not a control session whose input is dropped.
-fn view_only_for(scope: &str, capture: CaptureBackend) -> Res<bool> {
+/// when its capture does or does not apply input: one that applies none (the Wayland portal
+/// without a RemoteDesktop grant) is view only, so the viewer is told view, not a control
+/// session whose input is dropped.
+fn view_only_for(scope: &str, applies_input: bool) -> Res<bool> {
     match scope {
         "view" => Ok(true),
-        "control" => Ok(!capture.applies_input()),
+        "control" => Ok(!applies_input),
         other => Err(format!("scope {other}: use view or control").into()),
     }
 }
@@ -339,13 +340,13 @@ pub fn run(opts: &Opts) -> Res<()> {
         })
     }));
     let capture = CaptureBackend::from_env(setup.capture.as_deref().or(opts.get("capture")))?;
-    let view_only = view_only_for(&setup.scope, capture)?;
+    let view_only = view_only_for(&setup.scope, capture.applies_input())?;
     let display = session_display(opts, &setup);
     // The displays first, so the viewer can offer a display picker; then the session key.
     #[cfg(target_os = "linux")]
     say(linux_displays(capture, &display));
     #[cfg(target_os = "macos")]
-    match crate::mac::capture::displays() {
+    match crate::desktop::displays() {
         Ok((sizes, current)) => {
             say(AppLine { displays: Some(sizes), current: Some(current), ..AppLine::default() })
         }
