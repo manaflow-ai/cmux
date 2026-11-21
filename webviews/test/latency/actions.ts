@@ -222,10 +222,14 @@ const diffActions: LatencyAction[] = [
       await helpers(page);
       const values = (await page.evaluate("window.__lh.overflows()")) as string[];
       const target = values[0] === "wrap" ? "scroll" : "wrap";
+      // Word wrap is a row of the "..." menu (toolbar-model.ts overflowMenuItems); the menu opens
+      // before the measured click.
+      if (!(await page.$('[data-option="word-wrap"]'))) await page.click("#options-button");
+      await page.waitForSelector('[data-option="word-wrap"]');
       return `(() => { const t = window.__lh.overflows(); return t.length > 0 && t.every((x) => x === ${js(target)}); })()`;
     },
     async input(page) {
-      await page.click("#wrap-toggle");
+      await page.click('[data-option="word-wrap"]');
     },
     settle: quiet,
   },

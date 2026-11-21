@@ -122,15 +122,6 @@ export function DiffPill({
       case "find":
         dispatch(state.findOpen ? { type: "set-find-open", open: false } : { type: "request-find" });
         return;
-      case "refresh":
-        onReload();
-        return;
-      case "wrap":
-        onSetOption("wordWrap", !state.options.wordWrap);
-        return;
-      case "expand":
-        onSetOption("collapsed", !state.options.collapsed);
-        return;
       case "layout":
         onSetLayout(nextDiffViewerLayout(state.options.layout));
         return;
@@ -144,6 +135,15 @@ export function DiffPill({
   };
   const onMenuItem = (id: OverflowMenuItemId) => {
     switch (id) {
+      case "word-wrap":
+        onSetOption("wordWrap", !state.options.wordWrap);
+        return;
+      case "collapse-all":
+        onSetOption("collapsed", !state.options.collapsed);
+        return;
+      case "refresh":
+        onReload();
+        return;
       case "load-full-files":
         // Loads the files' sides; the gaps' chevrons then show more lines, a click at a time.
         onSetOption("loadFullFiles", !state.options.loadFullFiles);
@@ -189,7 +189,6 @@ export function DiffPill({
         <ViewOptionsMenuRows
           externalURL={externalURL}
           label={label}
-          onSetLayout={onSetLayout}
           onSetOption={onSetOption}
           onToggleHideViewed={() =>
             dispatch({ type: "set-file-filter", filter: { hideViewed: !state.fileFilter.hideViewed } })
@@ -205,14 +204,12 @@ export function DiffPill({
 function ViewOptionsMenuRows({
   externalURL,
   label,
-  onSetLayout,
   onSetOption,
   onToggleHideViewed,
   state,
 }: {
   externalURL: string | null;
   label: DiffViewerLabelResolver;
-  onSetLayout: (layout: DiffViewerLayout) => void;
   onSetOption: (key: keyof DiffViewerOptions, value: any) => void;
   onToggleHideViewed: () => void;
   state: AppState;
@@ -252,31 +249,6 @@ function ViewOptionsMenuRows({
         label={label("showLineNumbers")}
         onClick={() => onSetOption("lineNumbers", !state.options.lineNumbers)}
       />
-      <div className="menu-item menu-segment">
-        <Icon name="auto" />
-        <span className="menu-label">{label("layout")}</span>
-        <span className="menu-segment-controls">
-          {(
-            [
-              { value: "auto", icon: "auto", label: label("layoutAuto") },
-              { value: "split", icon: "split", label: label("layoutSplit") },
-              { value: "unified", icon: "unified", label: label("layoutUnified") },
-            ] as const
-          ).map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              className="segment-button"
-              title={option.label}
-              aria-label={option.label}
-              aria-pressed={state.options.layout === option.value}
-              onClick={() => onSetLayout(option.value)}
-            >
-              <Icon name={option.icon} />
-            </button>
-          ))}
-        </span>
-      </div>
       <div className="menu-item menu-segment">
         <Icon name="bars" />
         <span className="menu-label">{label("indicatorStyle")}</span>
