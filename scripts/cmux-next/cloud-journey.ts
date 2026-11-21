@@ -4165,11 +4165,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           if (!validLogin("claude", login)) throw new Error("CLAUDE_CODE_OAUTH_TOKEN is not a `claude setup-token` login");
           preclaimStateDir = mkdtempSync(path.join(tmpdir(), "cmux-preclaim-login-"));
           const scopeTeam = team ?? install.team ?? String(user?.personal_team ?? user?.team ?? "");
-          const scope = { platform: backend.api, team: scopeTeam, install: install.id, credential: createHash("sha256").update(login).digest("hex") };
+          // The platform the app sends a warm to: client-config's platform_origin, as the burst does. The API host
+          // forwards no /v1/machines/reservations and answers an empty 404, so every production run from 11-18 to 11-20
+          // skipped this step and measured a cold create.
+          const platform = clientPlatformOrigin((await api.raw("GET", "/v1/client-config", undefined, 30_000)).body);
+          const scope = { platform, team: scopeTeam, install: install.id, credential: createHash("sha256").update(login).digest("hex") };
           const account = `${String(user?.id ?? user?.user?.id ?? "")}/${team ?? String(user?.personal_team ?? user?.team ?? "")}`;
           prepared = await prepareSpareLogin({
             api, cmux: preclaimLoginCmux, stateDir: preclaimStateDir, installToken: install.token,
-            request: { platform: backend.api, account, scope, currentScope: scope }, wireTeam: scopeTeam || api.team,
+            request: { platform, account, scope, currentScope: scope }, wireTeam: scopeTeam || api.team,
             programs: loginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), "claude", Boolean(team)), login,
             ownerScope: team ? "owner or team" : "owner", index: 0, journey: J, readyBudgetMs: 120_000,
           });

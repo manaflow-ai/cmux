@@ -7,6 +7,15 @@ pub use crate::cli::command_host::{PeerCmd, TicketCmd};
 pub use crate::cli::command_new::NewArgs;
 pub use crate::cli::task::BriefsCmd;
 
+#[derive(Args, Debug, Clone, PartialEq, Eq)]
+pub struct AppOpenArgs {
+    /// The existing acpmux session to open in cmux.
+    pub session: String,
+    /// App-owned flags such as --target, --host, --focus or --group.
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+    pub options: Vec<String>,
+}
+
 #[derive(Parser)]
 #[command(name = "acpmux", version = crate::hub::version_line(), about = "tmux for coding-agent harnesses: Claude Code, Codex, OpenCode, pi, Gemini", long_about = None, after_help = "Agents: `acpmux guide` (also --guide, --skill) prints the full guide for driving acpmux from a script or another agent.")]
 pub struct Cli {
@@ -18,6 +27,40 @@ pub struct Cli {
     pub suppress_reads: bool,
     #[command(subcommand)]
     pub command: Option<Command>,
+}
+
+/// Clap derives the canonical-name lookup; these are the additional root spellings it accepts.
+pub(super) mod aliases {
+    macro_rules! root_aliases {
+        ($($command:ident => [$($alias:literal),+]),+ $(,)?) => {
+            $(pub(super) const $command: &[&str] = &[$($alias),+];)+
+
+            pub(in crate::cli) const GROUPS: &[&[&str]] = &[$($command),+];
+        };
+    }
+
+    root_aliases! {
+        RESOLVE => ["find"],
+        WHO_ELSE => ["whoelse", "overlap"],
+        LEDGER => ["cost", "spend"],
+        NEW => ["new-session", "run", "exec"],
+        WAIT => ["wait-for"],
+        SKILL => ["guide"],
+        PRESET => ["presets"],
+        LAST => ["reply"],
+        SEND => ["prompt", "send-keys"],
+        INBOX => ["team-inbox"],
+        LS => ["list", "list-sessions"],
+        ATTACH => ["a"],
+        MACHINE => ["host", "hosts", "peer"],
+        PROCESS => ["ps"],
+        WORKTREE => ["wt"],
+        SESSION => ["s"],
+        DAEMON => ["d"],
+        KILL => ["kill-session"],
+        RENAME => ["rename-session"],
+        SHUTDOWN => ["kill-server"],
+    }
 }
 
 #[derive(Subcommand)]
@@ -35,6 +78,24 @@ pub enum Command {
     /// Send a local brief to another harness on a machine (or the least-loaded
     /// allowed machine with `--machine auto`) and record its identity.
     Dispatch(DispatchArgs),
+    /// Start and inspect background tasks owned by this agent session.
+    #[command(subcommand)]
+    Bg(crate::cli::bg::BgCmd),
+    /// Read the current session's inbox notices and message threads.
+    Notices {
+        /// A session name or id when run by the person; defaults to this agent session.
+        session: Option<String>,
+        /// Read one thread, marking it read when --mark-read is given.
+        #[arg(long)]
+        thread: Option<String>,
+        #[arg(long, requires = "thread")]
+        mark_read: bool,
+    },
+    /// Open a session through the cmux app's existing workspace action.
+    Open(AppOpenArgs),
+    /// Open a session as a tab through the cmux app's existing tab action.
+    #[command(name = "open-tab")]
+    OpenTab(AppOpenArgs),
     /// Task briefs: list, steer and report work tracked by the daemon.
     #[command(subcommand)]
     Briefs(BriefsCmd),
@@ -44,7 +105,7 @@ pub enum Command {
     /// Find the session an agent link (a PR footer's cmux.com/deeplink/agent?... or
     /// cmux://agent/...), session id, harness session id or name names, here or on a peer, and
     /// print its host, ids, harness, model, folder, lane, pull requests, last turn and link.
-    #[command(alias = "find")]
+    #[command(aliases = aliases::RESOLVE)]
     Resolve {
         /// The link, an id, `HOST/NAME`, a name, a spoken handle, a bead id, or `@` for this session.
         query: String,
@@ -52,11 +113,11 @@ pub enum Command {
     /// Who else works on these files: the other live and recent sessions, here and on peers, that
     /// read or edited them, share this worktree or branch, or work on the same topic. With no
     /// files, what the session this shell runs in edited lately.
-    #[command(name = "who-else", alias = "whoelse", alias = "overlap")]
+    #[command(name = "who-else", aliases = aliases::WHO_ELSE)]
     WhoElse(crate::cli::who_else::WhoElseArgs),
     /// What turns on this machine cost, whatever harness ran them: totals, then one line per
     /// repository, pull request, day, person, workspace, vendor, model or account.
-    #[command(alias = "cost", alias = "spend")]
+    #[command(aliases = aliases::LEDGER)]
     Ledger(crate::cli::ledger::LedgerArgs),
     /// Link a session to the tracker beads it works on (`bd` ids), unlink them, list them.
     #[command(subcommand)]
@@ -65,12 +126,12 @@ pub enum Command {
     /// same with --quiet: it prints only the final reply. With --worktree,
     /// --prompt-file, --report-to and --group it starts an agent on a task
     /// in one step; running it again reuses everything and sends nothing.
-    #[command(alias = "new-session", alias = "run", alias = "exec")]
+    #[command(aliases = aliases::NEW)]
     New(Box<NewArgs>),
     /// Block until a session resolves: its turn ends or it needs a permission
     /// answer. Returns on the first one unless --all. Exit 0 when a turn
     /// ended, 2 when a permission is waiting, 3 on timeout.
-    #[command(alias = "wait-for")]
+    #[command(aliases = aliases::WAIT)]
     Wait {
         /// Session names or ids. Every running session on every host when omitted.
         sessions: Vec<String>,
@@ -139,6 +200,15 @@ pub enum Command {
         #[arg(long, short = 'n', default_value_t = 20)]
         limit: usize,
     },
+    /// Search prompts and replies in every session here and on this machine's peers.
+    Search {
+        /// Words to find together in one prompt or reply, in any case or order.
+        #[arg(required = true)]
+        query: Vec<String>,
+        /// At most this many matching messages, newest first.
+        #[arg(long, short = 'n', default_value_t = 20, value_parser = clap::value_parser!(u32).range(1..=200))]
+        limit: u32,
+    },
     /// Run one prompt on several harnesses, one after another, and compare.
     Compare {
         /// HARNESS[/MODEL] per run: -m claude -m codex/gpt-5.5 …
@@ -154,7 +224,7 @@ pub enum Command {
         timeout: Option<u64>,
     },
     /// Print the agent guide: how a script or another agent drives acpmux. Also `guide`, `--guide`, `--skill`.
-    #[command(alias = "guide")]
+    #[command(aliases = aliases::SKILL)]
     Skill,
     /// Execute one authenticated Cloud trigger operation from a JSON stdin envelope.
     #[command(name = "trigger-chat", hide = true)]
@@ -175,7 +245,7 @@ pub enum Command {
     MachineAuth,
     /// Show or set presets: `preset`, `preset deepseek harness=opencode model=opencode-go/deepseek-v4-pro effort=low`,
     /// `preset omx harness=codex 'env.CODEX_HOME=${cwd}/.codex'`. `key=` clears one key; `--clear` removes the preset.
-    #[command(alias = "presets")]
+    #[command(aliases = aliases::PRESET)]
     Preset {
         name: Option<String>,
         /// key=value pairs: harness, model, effort, policy, description, env.KEY, args (a JSON list)
@@ -195,7 +265,7 @@ pub enum Command {
         clear: bool,
     },
     /// Print the last reply of a session (plain text).
-    #[command(alias = "reply")]
+    #[command(aliases = aliases::LAST)]
     Last {
         session: String,
         /// How many replies, newest last.
@@ -208,8 +278,7 @@ pub enum Command {
     Pending,
     /// Send a prompt and stream the reply until the turn ends.
     #[command(
-        alias = "prompt",
-        alias = "send-keys",
+        aliases = aliases::SEND,
         after_help = "A name several live sessions share is refused with the exact command for each.\n\nFrom an agent session, message other sessions with the `send` tool of the `acpmux` MCP server instead of this command in a shell: one call batches several (`messages: [{to, text}, {to, file}]`) or a tag, with one result row each, and the chat draws it as message cards."
     )]
     Send {
@@ -308,6 +377,7 @@ pub enum Command {
         notice: Box<SendNotice>,
     },
     /// Team-scoped durable messages. Needs a team hub (`meshRelay`); on there by default.
+    #[command(aliases = aliases::INBOX)]
     Inbox(InboxArgs),
     /// Append a report to a human basket without waking any agent session.
     /// The target must be `reports:<person>`; the sender is the attached local
@@ -326,10 +396,10 @@ pub enum Command {
     },
     /// List sessions on every host: by default only live, named lanes, one short line each;
     /// `--json` with no filter is every session's full record.
-    #[command(alias = "list", alias = "list-sessions", after_help = crate::cli::ls_table::HELP)]
+    #[command(aliases = aliases::LS, after_help = crate::cli::ls_table::HELP)]
     Ls(crate::cli::run::LsArgs),
     /// Open the TUI on a session, or on the session list.
-    #[command(alias = "a")]
+    #[command(aliases = aliases::ATTACH)]
     Attach {
         session: Option<String>,
         /// Plain text stream instead of the TUI.
@@ -431,7 +501,7 @@ pub enum Command {
     },
     /// Machines that run sessions: add, ls, status, pick, setup, update, enroll, doctor, ticket and more.
     /// The old spellings `host`, `hosts` and `peer` still work.
-    #[command(subcommand, name = "machine", aliases = ["host", "hosts", "peer"])]
+    #[command(subcommand, name = "machine", aliases = aliases::MACHINE)]
     Host(PeerCmd),
     /// Bring your own harness: list, add, doctor and reload harness profile
     /// files (~/.config/cmux/harnesses/<id>.toml). Also `cmux harness …`.
@@ -455,19 +525,19 @@ pub enum Command {
     /// Background processes agents left running (dev servers, watchers):
     /// list, show (everything one printed, live with --follow), kill,
     /// background (Ctrl-B: move a chat's running work there).
-    #[command(subcommand, alias = "ps")]
+    #[command(subcommand, aliases = aliases::PROCESS)]
     Process(crate::cli::process::ProcessCmd),
     /// This machine's git worktrees, cleaned up after the agents that made
     /// them: list, clean (archive work only there, then remove), restore,
     /// archives.
-    #[command(subcommand, alias = "wt")]
+    #[command(subcommand, aliases = aliases::WORKTREE)]
     Worktree(crate::cli::worktree::WorktreeCmd),
     /// The cmux app's sidebar groups: ls, move a session's workspace into one,
     /// tidy (one group per name in a space; a dry run unless --apply).
     #[command(subcommand)]
     Group(crate::cli::group::GroupCmd),
     /// Everything else about one session: info, cancel, stop, rename, fork, set, allow, deny, answer, export, import, tail, queue.
-    #[command(subcommand, alias = "s")]
+    #[command(subcommand, aliases = aliases::SESSION)]
     Session(SessionCmd),
     /// This machine as a hand of a Cloud Chief: pair, run, status.
     #[command(subcommand)]
@@ -476,7 +546,7 @@ pub enum Command {
     #[command(subcommand)]
     ShareHost(crate::share_host::cli::ShareHostCmd),
     /// The daemon: run, status, start, restart, shutdown (also stop), config, harnesses, reload, models, schema.
-    #[command(subcommand, alias = "d")]
+    #[command(subcommand, aliases = aliases::DAEMON)]
     Daemon(DaemonCmd),
     /// Serve the local CodeRouter in a separate process.
     #[command(subcommand)]
@@ -561,7 +631,7 @@ pub enum Command {
     },
     #[command(hide = true)]
     Cancel { session: String },
-    #[command(hide = true, alias = "kill-session")]
+    #[command(hide = true, aliases = aliases::KILL)]
     Kill {
         session: String,
         #[arg(long)]
@@ -584,7 +654,7 @@ pub enum Command {
         #[arg(long)]
         dry_run: bool,
     },
-    #[command(hide = true, alias = "rename-session")]
+    #[command(hide = true, aliases = aliases::RENAME)]
     Rename {
         session: String,
         new_name: String,
@@ -709,7 +779,7 @@ pub enum Command {
     /// App sign-out: clear peer tails without starting an agent or daemon.
     #[command(hide = true, name = "__clear-peer-snapshots")]
     ClearPeerSnapshots,
-    #[command(hide = true, alias = "kill-server")]
+    #[command(hide = true, aliases = aliases::SHUTDOWN)]
     Shutdown {
         /// Accepted for callers of older builds; hosted agents keep running anyway.
         #[arg(long, hide = true, conflicts_with = "end_agents")]
@@ -1801,6 +1871,37 @@ mod help_contract_tests {
         shapes
     }
 
+    // The session guide also contains cmux app commands (such as `agent open-tab`).
+    // Only engine commands share this clap surface.
+    fn documented_engine_commands(text: &str) -> Vec<Vec<String>> {
+        let mut commands = tokens(text, "acpmux");
+        commands.extend(tokens(text, "cmux").into_iter().filter_map(|mut words| {
+            match words.get(1)?.as_str() {
+                "acp" => {}
+                "agent"
+                    if !matches!(
+                        words.get(2)?.as_str(),
+                        "list"
+                            | "message"
+                            | "inbox"
+                            | "start"
+                            | "resume"
+                            | "report"
+                            | "hook"
+                            | "plugin"
+                            | "open"
+                            | "open-tab"
+                            | "help"
+                            | "--help"
+                    ) => {}
+                _ => return None,
+            }
+            words.remove(0);
+            Some(words)
+        }));
+        commands
+    }
+
     fn documented_shape(
         words: &[String],
         shapes: &HashMap<Vec<String>, HashSet<String>>,
@@ -1868,7 +1969,7 @@ mod help_contract_tests {
         let shapes = command_shapes();
         let mut missing = Vec::new();
         for (source, text) in REMOTE_DOCS {
-            for words in tokens(text, "acpmux") {
+            for words in documented_engine_commands(text) {
                 let Some(path) = documented_shape(&words, &shapes) else {
                     missing.push(format!("{source}: {} (command)", words.join(" ")));
                     continue;
@@ -1916,7 +2017,7 @@ mod help_contract_tests {
                 .filter(|line| !line.trim_start().starts_with("- **Old spellings.**"))
                 .map(|line| format!("{line}\n"))
                 .collect();
-            for words in tokens(&text, "acpmux") {
+            for words in documented_engine_commands(&text) {
                 let command: Vec<&str> = words
                     .iter()
                     .skip(1)

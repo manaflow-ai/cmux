@@ -2047,6 +2047,28 @@ export type GitRoute = "native" | "daemon";
 /// fallback did before.
 const HIDDEN_DRAW_MS = 50;
 
+/// How often other chats' changes may draw a shown chat (`drawOtherChats`): each snapshot walks the
+/// whole session list in App.tsx, a cost that grows with history (12,000 chats on Leo's Mac).
+const OTHER_CHATS_DRAW_MS = 500;
+/// How long after the person's last wheel tick or scroll other chats' changes still wait.
+const SCROLL_QUIET_MS = 150;
+/// The longest a scroll holds them: a page that keeps scrolling itself never rests.
+const SCROLL_HOLD_MAX_MS = 2_000;
+
+/// When the person last scrolled anything in this page (a wheel tick or a scroll), on the monotonic
+/// clock, from one passive capture listener per window, added the first time a client asks.
+const scrolledAt = new WeakMap<Window, number>();
+function lastScrollAt(): number {
+  if (typeof window === "undefined") return Number.NEGATIVE_INFINITY;
+  const win = window;
+  const at = scrolledAt.get(win);
+  if (at !== undefined) return at;
+  scrolledAt.set(win, Number.NEGATIVE_INFINITY);
+  const note = () => scrolledAt.set(win, performance.now());
+  for (const type of ["wheel", "scroll"]) win.addEventListener(type, note, { capture: true, passive: true });
+  return Number.NEGATIVE_INFINITY;
+}
+
 /// What hidden pages left for their first frame once shown: a client's snapshot and deferred
 /// prompt index each wait once and cancel on close. All waits share one visibility listener.
 const waitingForShow = new Set<() => void>();
@@ -3140,6 +3162,11 @@ export class AcpmuxDirectClient {
   /// Turns of the shown chat this client saw end (`turnsEnded` in the snapshot).
   private turnsEnded = 0;
   private hiddenDraw?: ReturnType<typeof setTimeout>;
+  /// Other chats' changes waiting for their turn to draw (`drawOtherChats`), and when they last drew.
+  private otherChatsDraw?: ReturnType<typeof setTimeout>;
+  private otherChatsDrawnAt = Number.NEGATIVE_INFINITY;
+  /// When the first of the waiting changes came (`drawOtherChats`).
+  private otherChatsSince?: number;
   /// The frame this client waits for, if any: one at a time, cancelled on close (`emitInFrame`).
   private frameRequest?: { cancel?: () => void };
   private socket?: WebSocket;
@@ -8042,7 +8069,7 @@ export class AcpmuxDirectClient {
       createdAt: session.createdAt,
       peer: session.peer,
     });
-    if (added) this.recheckSenders([session]);
+    const rebuilt = added && this.recheckSenders([session]);
     // A chat read ahead ran on: read it again once the list settles (``readAhead`` throttles it).
     if (this.readAheadAt.has(session.sessionId)) this.scheduleReadAhead(READ_AHEAD_DELAY_MS);
     if (session.sessionId === this.selectedSessionId) {
@@ -8099,7 +8126,50 @@ export class AcpmuxDirectClient {
       this.listChangedWhileHidden = true;
       return;
     }
+    // A shown chat draws other chats' changes at most every OTHER_CHATS_DRAW_MS and never while the
+    // person scrolls (`drawOtherChats`). The chats it started or offers (whose counts and cards it
+    // draws, experiment or not: App.tsx `spawnedSessions`), the one it waits to reopen and a change
+    // that rebuilt its own rows (a sender listed) still draw in the next frame; a New Tab page, whose
+    // list is what it shows, too.
+    if (
+      !rebuilt &&
+      this.selectedSessionId !== undefined &&
+      session.sessionId !== this.selectedSessionId &&
+      session.sessionId !== this.missingSession &&
+      session.spawnedBy !== this.selectedSessionId &&
+      !this.offerChildIds().includes(session.sessionId)
+    )
+      return this.drawOtherChats();
     this.emitInFrame("session changed");
+  }
+
+  /// Other chats' changes in a shown chat: drawn in the next frame when none drew in the last
+  /// OTHER_CHATS_DRAW_MS and the person is not scrolling, else once both have passed. Each one drew the
+  /// whole pane every frame that any chat changed, and its snapshot walks the whole session list
+  /// (Lawrence, 2026-11-18: a short chat's scroll dropped frames in an app with much history). A
+  /// snapshot drawn meanwhile carries the list, and the wait ends (`emitNow`).
+  private drawOtherChats(): void {
+    if (this.otherChatsDraw !== undefined || this.closed) return;
+    // Hidden since: it draws them when it shows again, as any hidden pane does.
+    if (!pageShown()) {
+      this.listChangedWhileHidden = true;
+      return;
+    }
+    const now = performance.now();
+    this.otherChatsSince ??= now;
+    // A scroll that never rests (a page that scrolls itself) holds them at most SCROLL_HOLD_MAX_MS.
+    const scrollWait = Math.min(lastScrollAt() + SCROLL_QUIET_MS, this.otherChatsSince + SCROLL_HOLD_MAX_MS) - now;
+    const wait = Math.max(this.otherChatsDrawnAt + OTHER_CHATS_DRAW_MS - now, scrollWait);
+    // A timer may fire a fraction of a millisecond early: that counts as due, not as another wait.
+    if (wait < 1) {
+      this.otherChatsDrawnAt = now;
+      this.otherChatsSince = undefined;
+      return this.emitInFrame("session changed");
+    }
+    this.otherChatsDraw = setTimeout(() => {
+      this.otherChatsDraw = undefined;
+      this.drawOtherChats();
+    }, wait);
   }
 
   private applyPermission(message: any): void {
@@ -8591,9 +8661,10 @@ export class AcpmuxDirectClient {
   /// named before it was listed, the rows are read again, so that prompt draws as its message. The
   /// queue keeps its live order and text; a prompt waiting in it whose `queued` record still holds
   /// that text is read again too, unless the person edited it since (an edit makes it theirs).
-  private recheckSenders(added: readonly Session[]): void {
-    if (this.unknownSenders.size === 0 || !this.selectedSessionId || this.events.length === 0) return;
-    if (![...this.unknownSenders].some((name) => added.some((session) => namesChat(session, name)))) return;
+  /// True when it rebuilt the chat's own rows (a sender it did not know is listed now).
+  private recheckSenders(added: readonly Session[]): boolean {
+    if (this.unknownSenders.size === 0 || !this.selectedSessionId || this.events.length === 0) return false;
+    if (![...this.unknownSenders].some((name) => added.some((session) => namesChat(session, name)))) return false;
     this.rebuildKeepingLiveState();
     const queued = new Map<string, any>();
     for (const event of [...this.events].sort((a, b) => a.seq - b.seq)) {
@@ -8623,6 +8694,7 @@ export class AcpmuxDirectClient {
           )
         : entry;
     });
+    return true;
   }
 
   /// The selected chat's own agent session (its harness thread), from its summary or its listing:
@@ -11438,8 +11510,12 @@ export class AcpmuxDirectClient {
       return;
     }
     this.shownSessionId = this.selectedSessionId;
-    // This snapshot carries every event so far, so a snapshot waiting for the frame has nothing left.
+    // This snapshot carries every event so far, so a snapshot waiting for the frame has nothing left,
+    // nor do other chats' changes waiting for their turn (`drawOtherChats`).
     this.frameSnapshot = undefined;
+    clearTimeout(this.otherChatsDraw);
+    this.otherChatsDraw = undefined;
+    this.otherChatsSince = undefined;
     // A new session list (the watch's page, a reread): chats whose counts moved are read again.
     if (this.askedSessions !== this.sessions) {
       this.askedSessions = this.sessions;
@@ -16478,6 +16554,7 @@ export class AcpmuxDirectClient {
     this.promptIndex?.cancel?.();
 
     clearTimeout(this.hiddenDraw);
+    clearTimeout(this.otherChatsDraw);
     clearTimeout(this.stopStallTimer);
     this.stopStallTimer = undefined;
     this.stopStallOwed = undefined;
