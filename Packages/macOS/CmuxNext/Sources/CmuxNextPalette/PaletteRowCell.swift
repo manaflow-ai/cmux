@@ -40,9 +40,13 @@ final class PaletteKeycapsView: NSView {
                 let rect = NSRect(x: x, y: y, width: width, height: size)
                 Palette.hoverFill.setFill()
                 NSBezierPath(roundedRect: rect, xRadius: PaletteLayout.keycapCornerRadius, yRadius: PaletteLayout.keycapCornerRadius).fill()
+                // The glyph's ink centered in its cap, not its line box: ↩ and ⇥ sit low in their line,
+                // and centered by the box they drew below the middle of the cap and the text beside it
+                // (#48512). `ink` is measured from the baseline, y up; the view is flipped.
                 let text = cap as NSString
-                let textSize = text.size(withAttributes: attributes)
-                text.draw(at: NSPoint(x: rect.midX - textSize.width / 2, y: rect.midY - textSize.height / 2), withAttributes: attributes)
+                let ink = text.boundingRect(with: .zero, options: [.usesDeviceMetrics], attributes: attributes)
+                let baseline = NSPoint(x: rect.midX - ink.midX, y: rect.midY + ink.midY)
+                text.draw(with: NSRect(origin: baseline, size: .zero), options: [], attributes: attributes)
                 x += width + Metrics.space1
             }
         }
