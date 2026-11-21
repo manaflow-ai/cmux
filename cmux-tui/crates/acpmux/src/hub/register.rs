@@ -297,7 +297,7 @@ impl Hub {
         let session = match shown {
             Some(s) => {
                 if s.meta().name != name {
-                    self.rename(&s, name.clone()).await?;
+                    self.rename_as(&s, name.clone(), super::task_names::Naming::Address).await?;
                 }
                 s
             }
