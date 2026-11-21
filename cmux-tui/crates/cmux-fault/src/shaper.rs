@@ -146,9 +146,13 @@ impl ProfileFile {
         Self::parse(&text)
     }
 
+    /// The shipped profiles. A file that does not parse gives none (and says why on stderr);
+    /// the crate's tests look its profiles up by name, so they fail on it.
     pub fn builtin() -> Self {
-        #[allow(clippy::expect_used, reason = "the file ships in the crate and a test parses it")]
-        Self::parse(PROFILES_JSON).expect("link-profiles.json parses")
+        Self::parse(PROFILES_JSON).unwrap_or_else(|error| {
+            eprintln!("cmux-fault: {error}");
+            Self { version: 0, profiles: Vec::new() }
+        })
     }
 
     pub fn get(&self, name: &str) -> Option<&LinkProfile> {
