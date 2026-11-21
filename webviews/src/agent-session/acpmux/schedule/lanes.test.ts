@@ -123,11 +123,11 @@ describe("frame lane", () => {
       });
     }
     await engine.frame();
-    // 1.5 ms each: the third task ends the 4 ms slice at 4.5 ms.
-    expect(ran).toEqual([0, 1, 2]);
+    // 1.5 ms each: the second task ends the 2 ms slice at 3 ms.
+    expect(ran).toEqual([0, 1]);
     expect(engine.pendingTasks()).toBe(1);
     await engine.tasks(1);
-    // The continuation slice runs until the 6 ms frame budget is spent (one more 1.5 ms task).
+    // The continuation slice runs until the 6 ms frame budget is spent (two more 1.5 ms tasks).
     expect(ran).toEqual([0, 1, 2, 3]);
     expect(engine.now).toBeGreaterThanOrEqual(FRAME_BUDGET_MS);
     expect(engine.pendingFrames()).toBe(1);
@@ -149,7 +149,7 @@ describe("frame lane", () => {
     engine.fire("keydown");
     expect(lanes.inputPending()).toBe(true);
     await engine.frame();
-    expect(ran).toEqual([0, 1, 2]);
+    expect(ran).toEqual([0, 1]);
     expect(engine.pendingTasks()).toBe(0);
     expect(engine.pendingFrames()).toBe(1);
     lanes.dispose();
@@ -179,21 +179,24 @@ describe("frame lane", () => {
     lanes.frame("parse", async (slice) => {
       for (let i = 0; i < 6; i++) {
         steps.push(`p${i}`);
-        engine.advance(2);
+        engine.advance(SLICE_MS);
         if (slice.shouldYield()) await lanes.yield();
       }
     });
     lanes.frame("after", () => {
       steps.push("after");
     });
+    // Each step fills a slice; the frame's 6 ms are three slices.
     await engine.frame();
+    expect(steps).toEqual(["p0"]);
+    await engine.tasks(1);
     expect(steps).toEqual(["p0", "p1"]);
     await engine.tasks(1);
-    // The frame's 6 ms are spent after one more step.
     expect(steps).toEqual(["p0", "p1", "p2"]);
+    expect(engine.pendingTasks()).toBe(0);
     await engine.frame();
-    expect(steps).toEqual(["p0", "p1", "p2", "p3", "p4"]);
-    await engine.tasks(1);
+    expect(steps).toEqual(["p0", "p1", "p2", "p3"]);
+    await engine.tasks(2);
     expect(steps).toEqual(["p0", "p1", "p2", "p3", "p4", "p5"]);
     // The frame budget is spent; the next task waits for the next frame.
     await engine.frame();
