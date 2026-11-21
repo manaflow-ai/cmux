@@ -4,7 +4,7 @@
 use serde_json::{Value, json};
 
 use super::super::*;
-use super::{decide_from, error_code, record_question, request_digest};
+use super::{decide_from, decide_over, error_code, record_question, request_digest};
 use cmux_conversation::{Question, QuestionAnswer};
 
 fn question(permission: Option<&str>) -> Question {
@@ -150,4 +150,68 @@ fn request_digest_matches_the_golden_fixture_and_acpmux() {
         acpmux::hub::approvers::canonical_json(&case["value"], &mut acpmux);
         assert_eq!(acpmux, case["canonical"].as_str().unwrap(), "{name}");
     }
+}
+
+/// `_acpmux/info` of a Chief owner subagent `raw` of home `1234abcd`, holding one prompt.
+fn owned_info(raw: &str, permission: &str) -> Value {
+    json!({"sessionId": raw, "policy": "approve-all", "pending": [entry(permission)],
+           "tags": {"mux.parent": "optchat-chief:1234abcd", "optchat.subagent": "worker"}})
+}
+
+/// Routing is the Chief's: a socket whose acpmux holds the session but not as this Chief's owner
+/// subagent gives no decision, and the next candidate that does gives it.
+#[test]
+fn a_non_owner_socket_is_skipped_and_the_owner_socket_decides() {
+    use std::path::{Path, PathBuf};
+    let q = question(Some("perm_1"));
+    let sockets = [PathBuf::from("/other"), PathBuf::from("/owner")];
+    let mut asked = Vec::new();
+    let decided =
+        decide_over(&q, &answer(), "sess_mux", &sockets, Some("1234abcd"), |socket, session| {
+            asked.push((socket.to_owned(), session.to_owned()));
+            if socket == Path::new("/other") {
+                let mut info = owned_info("sess_mux", "perm_1");
+                info["tags"]["mux.parent"] = json!("optchat-chief:87654321");
+                return Ok(info);
+            }
+            Ok(owned_info("sess_mux", "perm_1"))
+        })
+        .unwrap();
+    assert_eq!(decided["permission"], "perm_1");
+    assert_eq!(asked.len(), 2);
+    assert!(asked.iter().all(|(_, session)| session == "sess_mux"));
+    // Only the non-owner: refused, never decided from it.
+    let only_other = [PathBuf::from("/other")];
+    let refused = decide_over(&q, &answer(), "sess_mux", &only_other, Some("1234abcd"), |_, _| {
+        let mut info = owned_info("sess_mux", "perm_1");
+        info["tags"]["optchat.subagent"] = json!("");
+        Ok(info)
+    });
+    assert_eq!(code(refused), "question.not_local");
+}
+
+/// A socket answering for another session id, or as a peer, is never the owner, with or without a
+/// resolved Chief route; with no route (the app socket) the session and peer checks still hold.
+#[test]
+fn a_socket_must_hold_the_exact_local_session() {
+    use std::path::PathBuf;
+    let q = question(Some("perm_1"));
+    let sockets = [PathBuf::from("/app")];
+    let wrong = decide_over(&q, &answer(), "sess_mux", &sockets, None, |_, _| {
+        Ok(owned_info("sess_other", "perm_1"))
+    });
+    assert_eq!(code(wrong), "question.not_local");
+    let peer = decide_over(&q, &answer(), "sess_mux", &sockets, None, |_, _| {
+        let mut info = owned_info("sess_mux", "perm_1");
+        info["peer"] = json!("other-mac");
+        Ok(info)
+    });
+    assert_eq!(code(peer), "question.not_local");
+    let unrouted = decide_over(&q, &answer(), "sess_mux", &sockets, None, |_, _| {
+        Ok(json!({"sessionId": "sess_mux", "pending": [entry("perm_1")]}))
+    });
+    assert_eq!(unrouted.unwrap()["permission"], "perm_1");
+    let gone =
+        decide_over(&q, &answer(), "sess_mux", &sockets, None, |_, _| Err("question.agent_gone"));
+    assert_eq!(code(gone), "question.agent_gone");
 }
