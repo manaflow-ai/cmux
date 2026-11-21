@@ -1270,21 +1270,51 @@ The hand-off can point a tag's Mac and phone builds at that tag's own backend st
 (`scripts/cmux-next/cloud-dev-stack.sh`) instead of the shared dev Workers. Both apps then send the signed-in account's bearer
 token to that origin, so the origin is allowlisted in each app, not only in the script:
 
-- **Allowed:** the shared development deployment (`dev`, its API origin, `preview-N`) and a tailnet
-  origin, `https://<host>.<tailnet>.ts.net[:port]` (HTTPS only; no path, user, query or IP). Anything
-  else is refused and changes nothing (iOS `CloudBackendOverride`, Rust `cmux-cloud-environment`,
-  `review_mac.py backend-check`). The check accepts any `*.ts.net` name, not only this team's tailnet,
-  and a Tailscale Funnel name is public, so the allowlist is not a network boundary: it limits which
-  kinds of origin a DEBUG build can be pointed at by someone who can already set its launch
-  environment or write its files. Shipped builds never take a tailnet origin from any source.
+- **Allowed:** the shared development deployment (`dev`, its API origin, `preview-N`), one machine
+  of the team's tailnet, `https://<machine>.tail137216.ts.net[:port]`, and one public slot's API host,
+  `https://api.s<N>.wdev.cmux.dev` (N is 1-3 digits; no port). All HTTPS only, with no path, user,
+  query or IP. Anything else is refused and changes nothing: iOS `CloudBackendOverride`, Rust
+  `cmux-cloud-environment` and `review_mac.py backend-check` hold the same three patterns.
+  - Another tailnet's `*.ts.net` name is refused. A Tailscale Funnel name is public, so before this
+    rule any Funnel host could be named.
+  - Under `cmux.dev`, only a slot's `api.` host is a backend. Its `mobile.` and `hub.` siblings are
+    reached only through that API's client-config.
+  - The allowlist limits what a DEBUG build can be pointed at by someone who can already set its launch
+    environment or write its files. Shipped builds never take a tailnet or public stack origin from any
+    source.
+- **Public origin (a phone off the tailnet):** the same stack also answers on `api.`, `mobile.` and
+  `hub.` hosts of its slot under `wdev.cmux.dev`. The Worker `cmux-wdev-gateway`
+  (`scripts/cmux-next/cloud-dev-stack/gateway`) serves those hosts.
+  - **What it admits.** The gateway refuses every request that does not carry a credential it verified
+    itself, before the stack's unmerged code runs. It accepts:
+    - a Stack Auth access token of the development project, signed by the project's key, unexpired, not
+      anonymous or restricted, with a verified email in a cmux team domain (`manaflow.ai`); or
+    - a token that stack signed (the API's install tokens, the hub's sessions and tickets), checked
+      against that stack's public keys. The stack issues these only to an account the gateway admitted.
+
+    The only open paths carry no data: `GET /v1/health`, and the API's `GET /v1/client-config` and
+    `/.well-known/jwks.json`.
+  - **The path to the VM.** The gateway reaches the VM through a Workers VPC service and the Cloudflare
+    Tunnel `cmux-wdev` (`cloudflared` on the VM, `cmux-wdev-tunnel.service`), which ends at the VM's
+    router on 127.0.0.1. The tunnel has no public hostname or ingress rule, so the gateway is the only
+    way in from the internet; a request to the tunnel by any other route gets 503. Within the Cloudflare
+    account, another Worker could bind the same VPC service; account access is already a higher trust
+    level than a tag stack's data.
+  - **Slot reuse.** The router serves a public host only for the stack that holds that slot. It refuses
+    a request whose `X-Cmux-Build-Space` names another tag: for example, a phone that kept a released
+    stack's origin after the slot went to another tag.
+  - **What's left.** Anyone with a cmux team account can reach any slot's stack, the same as any tailnet
+    member can reach any stack today. The tunnel token lives only on the VM
+    (`<base>/secrets/tunnel.token`, mode 0600).
 - **Phone:** read only in DEBUG builds (Debug, Demo): `ChiefCloudConfig.current` compiles the read
   out of Release, TestFlight and App Store builds, and Production removes the kept value at launch
   (`DeveloperOptions.storedKeys`). The first hand-off launch passes `CMUX_NEXT_CLOUD_BACKEND`; the app
   keeps it in its own defaults for later launches, and an empty value clears it.
 - **Mac:** read only by DEV bundles (`com.cmuxterm.app.debug[.<tag>]`), from the launch or the tag's
-  `backend.json`; NIGHTLY, RC and Release ignore the file and refuse a tailnet origin. A tailnet
-  backend's client-config may name only its own host for other services, and no other backend's
-  may name a tailnet host. Each override has its own sign-in storage, so no other backend's session
+  `backend.json`; NIGHTLY, RC and Release ignore the file and refuse a tailnet or public stack origin.
+  A tailnet backend's client-config may name only its own host for other services, and a public one
+  only its own slot's `mobile.` and `hub.` hosts. No other backend's client-config may name a tailnet
+  host or a slot's host. Each override has its own sign-in storage, so no other backend's session
   is sent there.
 - **Visible:** Settings > Developer > Cloud backend (phone), Settings > Accounts (Mac), the DEBUG
   readiness receipt's `cloud_backend` and the Mac's `auth.status`; the hand-off checks both apps

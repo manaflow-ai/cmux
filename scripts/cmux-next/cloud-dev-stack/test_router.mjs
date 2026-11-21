@@ -153,6 +153,30 @@ test("a WebSocket upgrade crosses the router both ways with the client's Host", 
   done(router, stack)
 })
 
+test("a public host refuses another tag's build space and serves the stack's public keys", async () => {
+  const stack = fakeStack()
+  const sport = await listen(stack)
+  const dir = base([{ tag: "pub", state: "running", port: sport, authorities: [] }])
+  writeFileSync(join(dir, "routes.json"), JSON.stringify({ "api.s1.wdev.cmux.dev": { tag: "pub", port: sport, public: true },
+                                                          "vm.tail.ts.net:4760": { tag: "pub", port: sport } }))
+  writeFileSync(join(dir, "stacks/pub/public-jwks.json"), '{"keys":[{"kty":"EC","x":"X"}]}')
+  const router = createRouter({ base: dir, wakeRun: async () => {} })
+  const rport = await listen(router)
+  const ask = (host, space, path = "/v1/health") => new Promise((resolve, reject) => {
+    const headers = { host, ...(space ? { "x-cmux-build-space": space } : {}) }
+    http.get({ host: "127.0.0.1", port: rport, path, headers }, (res) => { let b = ""; res.on("data", (d) => (b += d)); res.on("end", () => resolve({ status: res.statusCode, body: b })) }).on("error", reject)
+  })
+  assert.equal((await ask("api.s1.wdev.cmux.dev", "dev:pub")).status, 200)
+  assert.equal((await ask("api.s1.wdev.cmux.dev")).status, 200, "no build space: the stack decides")
+  const other = await ask("api.s1.wdev.cmux.dev", "dev:another-tag")
+  assert.equal(other.status, 421)
+  assert.match(other.body, /tag pub, not another-tag/)
+  assert.equal((await ask("vm.tail.ts.net:4760", "dev:another-tag")).status, 200, "tailnet use by another tag stays possible")
+  const jwks = await ask("api.s1.wdev.cmux.dev", undefined, "/__wdev/jwks")
+  assert.deepEqual(JSON.parse(jwks.body), { keys: [{ kty: "EC", x: "X" }] })
+  done(router, stack)
+})
+
 test("wake() shares one run per tag and starts a new one after it settles", async () => {
   let runs = 0
   const run = () => new Promise((r) => setTimeout(() => { runs++; r() }, 50))
