@@ -1335,6 +1335,24 @@ export type RetrySummary = {
   turnId: string;
 } & Record<string, unknown>;
 
+/**
+ * A chat's rolling summary (`hub/rolling_summary.rs`): one short line on where it stands and
+ * the next action, kept current after each turn a person started (or one that ended on a
+ * `wrap_up`). The sidebar and the chat header draw it.
+ */
+export type RollingSummary = {
+  /** When it was written, Unix ms. */
+  at: number;
+  /** The next action, for the person or the agent; absent when there is none. */
+  next?: (string | null);
+  /** Who wrote it: `wrap_up` (the agent's own recap and ask, no model call) or `model`. */
+  source: string;
+  /** Where the chat stands, one or two short sentences. */
+  text: string;
+  /** The chat's turn count it covers. */
+  turn: number;
+} & Record<string, unknown>;
+
 export interface RouteListParams {
   _meta?: RequestMeta;
   sessionId?: unknown;
@@ -1655,6 +1673,12 @@ export type SessionDetail = {
    * settled. Absent otherwise, and from a peer on an older acpmux.
    */
   retryDeciding?: boolean;
+  /**
+   * Where the chat stands and its next action (`hub/rolling_summary.rs`), for the sidebar
+   * and the chat header. Absent before the first turn that makes one, and from a peer on an
+   * older acpmux.
+   */
+  rollingSummary?: (RollingSummary | null);
   /**
    * The root of its lineage tree: the first ancestor no agent started; its own
    * id for a root. Absent from a peer on an older acpmux.
@@ -2016,6 +2040,12 @@ export type SessionSummary = {
    * settled. Absent otherwise, and from a peer on an older acpmux.
    */
   retryDeciding?: boolean;
+  /**
+   * Where the chat stands and its next action (`hub/rolling_summary.rs`), for the sidebar
+   * and the chat header. Absent before the first turn that makes one, and from a peer on an
+   * older acpmux.
+   */
+  rollingSummary?: (RollingSummary | null);
   /**
    * The root of its lineage tree: the first ancestor no agent started; its own
    * id for a root. Absent from a peer on an older acpmux.
