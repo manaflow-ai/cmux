@@ -200,6 +200,16 @@ def window_minutes(value: str | None) -> int:
 
 
 def cmd_tick(args: argparse.Namespace) -> int:
+    # A tick that cannot read GitHub (a spent rate limit, a 5xx) skips: the next tick, 30 min on, asks again, and a
+    # red scheduled run would only pile up while the quota is drained.
+    try:
+        return tick(args)
+    except RuntimeError as err:
+        print(f"::warning::tick skipped: {err}")
+        return 0
+
+
+def tick(args: argparse.Namespace) -> int:
     tip = gh_api(f"repos/{args.repo}/commits/{args.branch}")["sha"]
     runs = list_runs(args.repo, args.branch)
     action, reason = tick_decision(tip, runs, datetime.now(timezone.utc), window_minutes(args.window_minutes))
