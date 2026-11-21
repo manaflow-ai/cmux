@@ -29,11 +29,14 @@ import {
   noteUnreadMounted,
   noteUnreadSide,
   readUnread,
+  readUnreadOnFocus,
   sinceDone,
   subscribeUnread,
   unreadRead,
+  unreadReadInPlace,
   type UnreadBannerMode,
 } from "./unreadState";
+import { useReaderFocus } from "./readerFocus";
 import { sinceRead } from "./sinceRead.experiment";
 import "./unread.css";
 
@@ -120,15 +123,23 @@ export function SinceDivider({
   const unread = useUnreadView();
   const mode = useUnreadBannerMode();
   const isRead = read ?? unreadRead(since.key, unread);
+  // The reader focusing the app, its window, the pane, the chat or the composer reads the line
+  // (readerFocus.ts; Leo, 2026-11-21: "focus anything the composer just the window the pane it
+  // should fade away"). Not in the gallery, which sets its own read state.
+  useReaderFocus(() => readUnreadOnFocus(since.key), read === undefined && !isRead);
   const label = t("since.label");
   // Read, the line takes no space (sinceRead.experiment.ts): a row with nothing visible in it is a
-  // blank band between turns (Leo, 2026-11-17: "in the periods here"). Its recap stays.
-  const arm = isRead ? experimentArm(sinceRead) : undefined;
+  // blank band between turns (Leo, 2026-11-17: "in the periods here"). Its recap stays. Read by
+  // the reader's focus, it fades and keeps its row: the reader is at the chat, and nothing under
+  // them moves (Leo, 2026-11-21: "*without dramatic layout shift ideally..."). The next time the
+  // mark is drawn (another chat in between) it starts read and takes no space.
+  const inPlace = read === undefined && unreadReadInPlace(since.key, unread);
+  const arm = isRead && !inPlace ? experimentArm(sinceRead) : undefined;
   return (
     <div
       className="cv-since"
       data-look={look}
-      data-read={isRead ? "" : undefined}
+      data-read={isRead ? (inPlace ? "focus" : "") : undefined}
       data-gone={arm === "fade" ? undefined : arm}
       // Shrinking to nothing, the rows around it close their gaps with it (model.ts collapsingHeight).
       data-row-collapsing={arm === "shrink" && !since.recap ? "" : undefined}
