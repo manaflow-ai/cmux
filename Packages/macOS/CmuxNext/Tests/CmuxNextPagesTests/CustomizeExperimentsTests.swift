@@ -19,9 +19,11 @@ import Testing
 
     static let night: JSONValue = ["name": "night", "on": true, "source": "ask"]
 
-    /// Lets the read loop run until `done`, a bounded number of turns (a broken read fails, never hangs).
+    /// Lets the read loop run until `done`, up to a 10 s deadline (a broken read fails, never hangs; a busy
+    /// runner gets the whole deadline, not a fixed count of reschedules).
     func until(_ done: () -> Bool) async {
-        for _ in 0..<10_000 {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < deadline {
             if done() { return }
             await Task.yield()
         }
