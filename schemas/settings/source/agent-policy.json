@@ -50,6 +50,7 @@
       "keys": [
         "window.titlebarButtons",
         "tabs.plusButton",
+        "tabs.plusMenu",
         "tabs.barPosition",
         "tabs.barOrder",
         "tabs.toolbarButtons",

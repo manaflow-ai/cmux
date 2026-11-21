@@ -35,6 +35,19 @@ extension PlusButtonSetting {
     public nonisolated static let fallback: PlusButtonMode = .hover
 }
 
+extension CmuxConfigSnapshot {
+    /// `tabs.plusMenu`: Opt-in ordered creation menu for the native pane + primary click only. Rust resolves its rows; empty keeps direct creation. Chevron, context click, Option-click and keyboard actions keep their existing behavior.
+    public nonisolated static let plusMenuPath = ["tabs", "plusMenu"]
+    public nonisolated static let plusMenuDefault: [String] = []
+    public nonisolated static let plusMenuValues = ["terminal", "localWorkspace", "machineWorkspace", "host"]
+    /// `app.warnBeforeClosingTab`: Side by side with app.warnBeforeClosingAgentSession, as in classic (#17430).
+    public nonisolated static let warnBeforeClosingTabPath = ["app", "warnBeforeClosingTab"]
+    public nonisolated static let warnBeforeClosingTabDefault = true
+    /// `app.warnBeforeClosingAgentSession`: An agent at work in a terminal gets its own question and toggle.
+    public nonisolated static let warnBeforeClosingAgentSessionPath = ["app", "warnBeforeClosingAgentSession"]
+    public nonisolated static let warnBeforeClosingAgentSessionDefault = true
+}
+
 extension ChromePlacementSetting {
     /// `tabs.barPosition`: R109: where each pane's tab bar sits.
     public nonisolated static let tabBarPositionPath = ["tabs", "barPosition"]
@@ -112,13 +125,4 @@ extension SwapCmdTAndCmdNSetting {
     /// `tabs.swapCmdTAndCmdN`: Cmd-T opens a workspace and Cmd-N a tab.
     public nonisolated static let configPath = ["tabs", "swapCmdTAndCmdN"]
     public nonisolated static let fallback = false
-}
-
-extension CmuxConfigSnapshot {
-    /// `app.warnBeforeClosingTab`: Side by side with app.warnBeforeClosingAgentSession, as in classic (#17430).
-    public nonisolated static let warnBeforeClosingTabPath = ["app", "warnBeforeClosingTab"]
-    public nonisolated static let warnBeforeClosingTabDefault = true
-    /// `app.warnBeforeClosingAgentSession`: An agent at work in a terminal gets its own question and toggle.
-    public nonisolated static let warnBeforeClosingAgentSessionPath = ["app", "warnBeforeClosingAgentSession"]
-    public nonisolated static let warnBeforeClosingAgentSessionDefault = true
 }

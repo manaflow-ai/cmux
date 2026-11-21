@@ -282,6 +282,34 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<array/>
+			<key>pfm_description</key>
+			<string>Choose and order the actions shown when clicking +. Empty keeps direct creation.</string>
+			<key>pfm_name</key>
+			<string>tabs.plusMenu</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_range_list</key>
+					<array>
+						<string>terminal</string>
+						<string>localWorkspace</string>
+						<string>machineWorkspace</string>
+						<string>host</string>
+					</array>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>+ Button Menu</string>
+			<key>pfm_type</key>
+			<string>array</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>top</string>
 			<key>pfm_name</key>
 			<string>tabs.barPosition</string>
@@ -2764,6 +2792,24 @@
 				<string>dore-moses-tables</string>
 				<string>dore-empyrean</string>
 				<string>dore-raven</string>
+				<string>hokusai-red-fuji</string>
+				<string>hokusai-storm-below-fuji</string>
+				<string>hokusai-kajikazawa</string>
+				<string>hiroshige-sudden-shower</string>
+				<string>hiroshige-kanbara-snow</string>
+				<string>hiroshige-plum-garden</string>
+				<string>hiroshige-moon-pine</string>
+				<string>korin-irises</string>
+				<string>tohaku-pine-trees</string>
+				<string>jakuchu-mandarin-ducks</string>
+				<string>fan-kuan-travelers</string>
+				<string>guo-xi-early-spring</string>
+				<string>ma-yuan-clouds-green-sea</string>
+				<string>zhang-zeduan-qingming</string>
+				<string>wang-ximeng-thousand-li</string>
+				<string>jeong-seon-inwang</string>
+				<string>jeong-seon-geumgang</string>
+				<string>kim-hong-do-samgong</string>
 			</array>
 			<key>pfm_title</key>
 			<string>Backdrop Art</string>
@@ -2929,6 +2975,24 @@
 				<string>dore-moses-tables</string>
 				<string>dore-empyrean</string>
 				<string>dore-raven</string>
+				<string>hokusai-red-fuji</string>
+				<string>hokusai-storm-below-fuji</string>
+				<string>hokusai-kajikazawa</string>
+				<string>hiroshige-sudden-shower</string>
+				<string>hiroshige-kanbara-snow</string>
+				<string>hiroshige-plum-garden</string>
+				<string>hiroshige-moon-pine</string>
+				<string>korin-irises</string>
+				<string>tohaku-pine-trees</string>
+				<string>jakuchu-mandarin-ducks</string>
+				<string>fan-kuan-travelers</string>
+				<string>guo-xi-early-spring</string>
+				<string>ma-yuan-clouds-green-sea</string>
+				<string>zhang-zeduan-qingming</string>
+				<string>wang-ximeng-thousand-li</string>
+				<string>jeong-seon-inwang</string>
+				<string>jeong-seon-geumgang</string>
+				<string>kim-hong-do-samgong</string>
 				<string>desktop</string>
 			</array>
 			<key>pfm_title</key>
@@ -3107,6 +3171,24 @@
 				<string>dore-moses-tables</string>
 				<string>dore-empyrean</string>
 				<string>dore-raven</string>
+				<string>hokusai-red-fuji</string>
+				<string>hokusai-storm-below-fuji</string>
+				<string>hokusai-kajikazawa</string>
+				<string>hiroshige-sudden-shower</string>
+				<string>hiroshige-kanbara-snow</string>
+				<string>hiroshige-plum-garden</string>
+				<string>hiroshige-moon-pine</string>
+				<string>korin-irises</string>
+				<string>tohaku-pine-trees</string>
+				<string>jakuchu-mandarin-ducks</string>
+				<string>fan-kuan-travelers</string>
+				<string>guo-xi-early-spring</string>
+				<string>ma-yuan-clouds-green-sea</string>
+				<string>zhang-zeduan-qingming</string>
+				<string>wang-ximeng-thousand-li</string>
+				<string>jeong-seon-inwang</string>
+				<string>jeong-seon-geumgang</string>
+				<string>kim-hong-do-samgong</string>
 				<string>desktop</string>
 			</array>
 			<key>pfm_title</key>
@@ -3267,6 +3349,24 @@
 				<string>dore-moses-tables</string>
 				<string>dore-empyrean</string>
 				<string>dore-raven</string>
+				<string>hokusai-red-fuji</string>
+				<string>hokusai-storm-below-fuji</string>
+				<string>hokusai-kajikazawa</string>
+				<string>hiroshige-sudden-shower</string>
+				<string>hiroshige-kanbara-snow</string>
+				<string>hiroshige-plum-garden</string>
+				<string>hiroshige-moon-pine</string>
+				<string>korin-irises</string>
+				<string>tohaku-pine-trees</string>
+				<string>jakuchu-mandarin-ducks</string>
+				<string>fan-kuan-travelers</string>
+				<string>guo-xi-early-spring</string>
+				<string>ma-yuan-clouds-green-sea</string>
+				<string>zhang-zeduan-qingming</string>
+				<string>wang-ximeng-thousand-li</string>
+				<string>jeong-seon-inwang</string>
+				<string>jeong-seon-geumgang</string>
+				<string>kim-hong-do-samgong</string>
 				<string>desktop</string>
 			</array>
 			<key>pfm_title</key>
@@ -3379,6 +3479,18 @@
 			<string>appearance.agentGlow</string>
 			<key>pfm_title</key>
 			<string>React to Agents</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Draws menus, popovers, the composer and cards with the glass from before November 2026.</string>
+			<key>pfm_name</key>
+			<string>appearance.previousGlass</string>
+			<key>pfm_title</key>
+			<string>Previous Glass Look</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -6329,6 +6441,25 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>cmux</string>
+			<key>pfm_description</key>
+			<string>Rows, headers and status marks like another app's sidebar. Your own sidebar settings still win.</string>
+			<key>pfm_name</key>
+			<string>sidebar.look</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>cmux</string>
+				<string>claude</string>
+				<string>codex</string>
+				<string>studio</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Sidebar Look</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>standard</string>
 			<key>pfm_description</key>
 			<string>Rail shrinks the sidebar to a strip; point at it to open the full sidebar.</string>
@@ -6484,7 +6615,7 @@
 			<key>pfm_default</key>
 			<string>auto</string>
 			<key>pfm_description</key>
-			<string>How a group's background draws. Sections shows plain headings instead.</string>
+			<string>How a group draws. Folders shows plain folders; Sections shows plain headings.</string>
 			<key>pfm_name</key>
 			<string>sidebar.groupHeader.background</string>
 			<key>pfm_range_list</key>
@@ -9899,6 +10030,18 @@
 			<string>experiments.glassToolbarGroups</string>
 			<key>pfm_title</key>
 			<string>Glass Toolbar Groups</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A glass composer with mode chips, mention chips and a round send button. Still being shaped.</string>
+			<key>pfm_name</key>
+			<string>experiments.composerV2</string>
+			<key>pfm_title</key>
+			<string>Composer Refresh</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>

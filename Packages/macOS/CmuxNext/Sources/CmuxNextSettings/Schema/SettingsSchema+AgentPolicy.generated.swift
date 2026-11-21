@@ -31,9 +31,9 @@ extension SettingsSchema {
         "customize.fromTheApp",
         // Whether right-click menus end with Customize Menu… (looks only; the layouts stay the person's).
         "contextMenus.showCustomizeItem",
-        "window.titlebarButtons", "tabs.plusButton", "tabs.barPosition", "tabs.barOrder", "tabs.toolbarButtons",
-        "browser.toolbarPosition", "navigation.historyScope", "navigation.history.scope", "sidebar.minimalMode",
-        "sidebar.minimal", "sidebar.density", "sidebar.textSize", "sidebar.detailedStatusIcons",
+        "window.titlebarButtons", "tabs.plusButton", "tabs.plusMenu", "tabs.barPosition", "tabs.barOrder",
+        "tabs.toolbarButtons", "browser.toolbarPosition", "navigation.historyScope", "navigation.history.scope",
+        "sidebar.minimalMode", "sidebar.minimal", "sidebar.density", "sidebar.textSize", "sidebar.detailedStatusIcons",
         "sidebar.showTimestamps", "sidebar.settleFinished", "sidebar.showColors", "sidebar.showLocalMachine",
         "workspaceColors.indicatorStyle",
         // Sidebar control visibility (looks only)
@@ -89,13 +89,13 @@ extension SettingsSchema {
         "appearance.experimentalControls", "app.uiScale", "appearance.glassTransparency", "appearance.hue",
         "appearance.saturation", "appearance.density", "appearance.customDensity", "appearance.customDensities",
         "appearance.metrics.chromeFontSize", "appearance.fontSmoothing", "appearance.interfaceScale",
-        "appearance.borders", "appearance.sidebarSurface", "appearance.chromeStyle", "appearance.titleAreaTone",
-        "appearance.titleAreaContrast", "appearance.focusIndicator", "focus.inactiveTabStyle", "ui.animationSpeed",
-        "ui.animations.newTab", "ui.animations.newWorkspace", "ui.animations.enabled", "ui.animations.sidebar",
-        "ui.animations.tabs", "ui.animations.panes", "ui.animations.overlays", "ui.animations.hoverCards",
-        "ui.animations.home", "ui.animations.cursor", "ui.animations.indicators", "ui.animations.feedback",
-        "ui.animations.web", "ui.paneAnimations", "ui.calm", "appearance.colorTransition.enabled",
-        "appearance.colorTransition.duration", "appearance.colorTransition.curve",
+        "appearance.borders", "appearance.previousGlass", "appearance.sidebarSurface", "appearance.chromeStyle",
+        "appearance.titleAreaTone", "appearance.titleAreaContrast", "appearance.focusIndicator",
+        "focus.inactiveTabStyle", "ui.animationSpeed", "ui.animations.newTab", "ui.animations.newWorkspace",
+        "ui.animations.enabled", "ui.animations.sidebar", "ui.animations.tabs", "ui.animations.panes",
+        "ui.animations.overlays", "ui.animations.hoverCards", "ui.animations.home", "ui.animations.cursor",
+        "ui.animations.indicators", "ui.animations.feedback", "ui.animations.web", "ui.paneAnimations", "ui.calm",
+        "appearance.colorTransition.enabled", "appearance.colorTransition.duration", "appearance.colorTransition.curve",
         "appearance.colorTransition.springResponse", "appearance.colorTransition.springDamping",
         "appearance.colorTransition.bezierX1", "appearance.colorTransition.bezierY1",
         "appearance.colorTransition.bezierX2", "appearance.colorTransition.bezierY2",
@@ -141,7 +141,7 @@ extension SettingsSchema {
         "notifications.mutedWorkspaces",
         "labs.previewFeatures",
         // Experiments are taste prototypes of how a surface looks (looks only), each off by default.
-        "experiments.glassToolbarGroups",
+        "experiments.glassToolbarGroups", "experiments.composerV2",
         // Which Home entries the sidebar shows (looks only; `cmux home enable-channels` runs as an agent writer).
         "home.channelsEnabled",
         // The floating Chief pet and its character: a display the person can hide again; its reply box types only what the person writes.

@@ -1,0 +1,12 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/native-plus-menu",
+  "name": "Native Plus Menu",
+  "description": "An optional native pane + menu for terminal tabs, local workspaces and the existing machine connection picker.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "cmuxProfile": 1,
+  "settings": {
+    "tabs.plusMenu": ["terminal", "localWorkspace", "machineWorkspace", "host"]
+  }
+}
