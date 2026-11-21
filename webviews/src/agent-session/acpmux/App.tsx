@@ -275,7 +275,7 @@ import {
   useComputerUseState,
   type ComputerUsePlace,
 } from "./computerUse/computerUseState";
-import { toolMentionsIn, toolSlashCommands } from "./toolMentions";
+import { toolSlashCommands } from "./toolMentions";
 import { askOnSingleCard, cardTakesShortcuts, heldOnCard } from "./permissionKeys";
 import { agentName } from "./agents";
 import { isStartSuperseded, startFailureNotice } from "./startFailure";

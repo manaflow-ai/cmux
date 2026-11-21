@@ -59,7 +59,6 @@ import { FileSearch } from "./FileSearch";
 import { PromptFocusProvider } from "./promptFocus";
 import { ComposerBox, type ComposerBoxHandle } from "./ComposerBox";
 import { MentionMenu } from "./MentionMenu";
-import { Icon } from "./icons/Icon";
 import { markdownOffset, mentionQuery, mentionResults, useMentionSearch } from "./mentionMenuModel";
 import {
   loadRecentMentionPaths,
