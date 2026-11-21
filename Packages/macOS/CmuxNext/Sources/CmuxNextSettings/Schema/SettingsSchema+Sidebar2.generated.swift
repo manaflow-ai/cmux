@@ -238,6 +238,21 @@ extension SidebarSettingsSchema {
                 keywords: ["sidebar", "minimal", "compact", "dense", "rows", "simple", "clean"]
             ),
             SettingDescriptor(
+                SidebarLookPreset.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.look", "Sidebar Look"),
+                help: SettingsText.keyed("settings.sidebar.look.help", "Rows, headers and status marks like another app's sidebar. Your own sidebar settings still win."),
+                kind: .choice([
+                    SettingChoice("cmux", SettingsText.keyed("settings.choice.sidebarLookCmux", "cmux")),
+                    SettingChoice("claude", SettingsText.keyed("settings.choice.sidebarLookClaude", "Claude")),
+                    SettingChoice("codex", SettingsText.keyed("settings.choice.sidebarLookCodex", "Codex")),
+                    SettingChoice("studio", SettingsText.keyed("settings.choice.sidebarLookStudio", "Studio")),
+                ]),
+                default: .string(SidebarLookPreset.fallback),
+                keywords: ["sidebar", "look", "preset", "style", "claude", "codex", "studio", "like", "app"]
+            ),
+            SettingDescriptor(
                 SidebarSectionsSetting.stylePath,
                 section: .appearance,
                 group: group,
@@ -297,16 +312,6 @@ extension SidebarSettingsSchema {
                 kind: .toggle,
                 default: .bool(SidebarSectionsSetting.showTimestampsDefault),
                 keywords: ["sidebar", "timestamps", "time", "times", "age", "ago", "elapsed", "duration", "last activity", "clock", "rows"]
-            ),
-            SettingDescriptor(
-                SidebarSectionsSetting.settleFinishedPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.settleFinished", "Settle Finished Chats"),
-                help: SettingsText.keyed("settings.sidebar.settleFinished.help", "A chat whose answer you have read folds into Settled at the end of its list until its next turn."),
-                kind: .toggle,
-                default: .bool(SidebarSectionsSetting.settleFinishedDefault),
-                keywords: ["sidebar", "settle", "settled", "finished", "done", "read", "seen", "fold", "chats", "threads", "tidy"]
             ),
             SettingDescriptor(
                 SidebarSectionsSetting.showColorsPath,

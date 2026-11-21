@@ -95,9 +95,6 @@ extension SidebarSectionsSetting {
     /// `sidebar.showTimestamps`.
     public nonisolated static let showTimestampsPath = ["sidebar", "showTimestamps"]
     public nonisolated static let showTimestampsDefault = false
-    /// `sidebar.settleFinished`: Seen, finished agent chats fold behind a Settled (N) row at the end of their list (SidebarLayout+DoneFold); the rule is Rust's (cmux-layout-reducer settle). Off by default; the Studio look turns it on.
-    public nonisolated static let settleFinishedPath = ["sidebar", "settleFinished"]
-    public nonisolated static let settleFinishedDefault = false
     /// `sidebar.showColors`.
     public nonisolated static let showColorsPath = ["sidebar", "showColors"]
     public nonisolated static let showColorsDefault = true
@@ -125,6 +122,13 @@ extension SidebarSectionsSetting {
     /// `sidebar.cards.tips`.
     public nonisolated static let tipsPath = ["sidebar", "cards", "tips"]
     public nonisolated static let tipsDefault = true
+}
+
+extension SidebarLookPreset {
+    /// `sidebar.look`.
+    public nonisolated static let configPath = ["sidebar", "look"]
+    public nonisolated static let fallback = "cmux"
+    public nonisolated static let values = ["cmux", "claude", "codex", "studio"]
 }
 
 extension WorkspaceColorsSetting {
