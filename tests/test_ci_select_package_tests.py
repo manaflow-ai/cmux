@@ -207,12 +207,22 @@ def main() -> int:
     lane = (ROOT / LANE).read_text(encoding="utf-8")
     listed = lane.split("  PACKAGES=(\n", 1)[1].split("\n  )\n", 1)[0].split()
     assert len(listed) == len(set(listed)), "PACKAGES lists a package twice"
+    # A package listed ahead of the pull request that adds it (CmuxLiveCode, #45397) is skipped
+    # with --skip-absent until it lands; any other missing name is a typo and fails.
+    ahead = {"CmuxLiveCode"}
+    present = [name for name in listed if any((ROOT / "Packages").glob(f"*/{name}/Package.swift"))]
+    assert set(listed) - set(present) <= ahead, sorted(set(listed) - set(present) - ahead)
     result = subprocess.run(
-        [sys.executable, str(ROOT / "scripts/ci/select_package_tests.py"), "--root", str(ROOT), *listed],
+        [sys.executable, str(ROOT / "scripts/ci/select_package_tests.py"), "--root", str(ROOT), *present],
         capture_output=True, text=True, check=False,
     )
     assert result.returncode == 0, result.stderr
-    assert result.stdout.split() == listed, "without a diff the script must print every listed package in order"
+    assert result.stdout.split() == present, "without a diff the script must print every listed package in order"
+    skipped = subprocess.run(
+        [sys.executable, str(ROOT / "scripts/ci/select_package_tests.py"), "--root", str(ROOT), "--skip-absent", *listed],
+        capture_output=True, text=True, check=True,
+    )
+    assert skipped.stdout.split() == present, skipped
 
     select_step = lane.split("\nselect_packages() {\n", 1)[1].split("\n}\n", 1)[0]
     assert "git diff --no-renames --name-only HEAD^1 HEAD" in select_step, "a move out of a package must list the old path"
