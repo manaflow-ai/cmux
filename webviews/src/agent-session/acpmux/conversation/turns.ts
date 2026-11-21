@@ -1213,7 +1213,7 @@ function shapedTurn(
     );
     // Where its runs fold, a run of them that carries messages between agents folds under one line
     // (messageRuns.ts; Leo, 2026-11-01: "this should be collapsible").
-    const messaged = foldMessageRuns(shapedBody, expanded);
+    const messaged = foldMessageRuns(shapedBody, expanded, live);
     // A run of background-task notifications folds under one line (backgroundRuns.ts; Leo,
     // 2026-11-02: "why do you still do these").
     // A stretch the person came in after ends there, with the end-of-turn footer (`supersededFooters`).

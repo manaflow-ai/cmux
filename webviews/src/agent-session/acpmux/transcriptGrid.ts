@@ -148,6 +148,26 @@ export function rowMark(row: MarkedRow): number {
   return MARK_OTHER;
 }
 
+/// The gap over a turn's "Working for"/"Worked for" line right under a one-line row (transcriptGap):
+/// `block` (shipped), the 24 any row under a notice line or a footer stands; `run`, the 16 prose has
+/// by a run; `turn`, the 32 under a person's prompt; `flush`, the 0 it stood before (gallery
+/// `agent-pane.working-turn-gap`, `<html data-worked-head-gap>`). Read only for such a pair.
+export type WorkedHeadGapLook = "flush" | "run" | "block" | "turn";
+export function workedHeadGapLook(): WorkedHeadGapLook {
+  const set = typeof document === "undefined" ? undefined : document.documentElement?.dataset.workedHeadGap;
+  return set === "flush" || set === "run" || set === "turn" ? set : "block";
+}
+const workedHeadGap = (): number => {
+  const look = workedHeadGapLook();
+  return look === "flush"
+    ? 0
+    : look === "run"
+      ? TRANSCRIPT_RUN_GAP
+      : look === "turn"
+        ? TRANSCRIPT_TURN_GAP
+        : TRANSCRIPT_BLOCK_GAP;
+};
+
 /// One gap per adjacent pair, the most specific first: the waiting rule, then turn, then block.
 /// (The composer gap is the stack's, tailGap below.) Gaps never add.
 export function transcriptGap(previous: number, next: number): number {
@@ -158,6 +178,12 @@ export function transcriptGap(previous: number, next: number): number {
   if (next === MARK_PLAN_LINE) next = MARK_OTHER;
   if (previous === MARK_WORKED && next !== MARK_PROMPT) return 0;
   if (previous === MARK_WORKED) previous = MARK_STEP;
+  // A turn's "Working for" or "Worked for" line opens that turn's work. Right under a one-line row
+  // (the notice or another agent's line that opened the turn, or the turn before's last run when the
+  // prompt draws nothing) it stood flush as one more step, and the new turn read as the old one's
+  // tail (Leo, 2026-11-21: "it is noticeably bad when you start a new working for whatever and there
+  // is no space before"). The "Working for" and the "Worked for" that replaces it stand the same gap.
+  if (next === MARK_WORKED && (previous === MARK_STEP || previous === MARK_STATUS)) return workedHeadGap();
   if (next === MARK_WORKED) next = MARK_STEP;
   const near = (mark: number) =>
     mark === MARK_STEP || mark === MARK_STATUS || mark === MARK_MESSAGE || mark === MARK_CARD;
