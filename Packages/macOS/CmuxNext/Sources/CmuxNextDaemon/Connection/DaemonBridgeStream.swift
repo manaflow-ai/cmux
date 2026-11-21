@@ -7,6 +7,22 @@ import Dispatch
 /// desktop, `cmux.rd/1` over `link dial --service desktop`): reads in order, a send, and one
 /// close that ends the bridge child with the stream.
 public nonisolated final class DaemonBridgeStream: Sendable {
+    /// Bytes handed to and received from this bridge since the last snapshot.
+    ///
+    /// The counters are deliberately at this boundary: `LineTransport` is the
+    /// local daemon socket and would count the same Cloud payload a second time.
+    public struct ByteCounts: Sendable, Equatable {
+        public var sent: UInt64
+        public var received: UInt64
+
+        public init(sent: UInt64 = 0, received: UInt64 = 0) {
+            self.sent = sent
+            self.received = received
+        }
+
+        public static let zero = Self()
+    }
+
     private struct Inbox {
         var pending: [Data] = []
         var ended = false
@@ -15,6 +31,7 @@ public nonisolated final class DaemonBridgeStream: Sendable {
 
     private let channel: DispatchIO
     private let inbox = Mutex(Inbox())
+    private let byteCounts = Mutex(ByteCounts.zero)
     private let child: BridgeChild
 
     init(descriptor: Int32, child: BridgeChild) {
@@ -23,7 +40,11 @@ public nonisolated final class DaemonBridgeStream: Sendable {
         channel = DispatchIO(type: .stream, fileDescriptor: descriptor, queue: queue) { _ in Darwin.close(descriptor) }
         channel.setLimit(lowWater: 1)
         channel.read(offset: 0, length: Int.max, queue: queue) { [weak self] done, bytes, error in
-            if let bytes, !bytes.isEmpty { self?.deliver(Data(bytes)) }
+            if let bytes, !bytes.isEmpty {
+                let data = Data(bytes)
+                self?.byteCounts.withLock { counts in counts.received &+= UInt64(clamping: data.count) }
+                self?.deliver(data)
+            }
             if done || error != 0 { self?.deliver(nil) }
         }
     }
@@ -44,6 +65,7 @@ public nonisolated final class DaemonBridgeStream: Sendable {
     /// Writes `data` to the bridge; throws once the stream closed.
     public func send(_ data: Data) async throws {
         guard !data.isEmpty else { return }
+        byteCounts.withLock { counts in counts.sent &+= UInt64(clamping: data.count) }
         let channel = channel
         let bytes = data.withUnsafeBytes { DispatchData(bytes: $0) }
         try await withCheckedThrowingContinuation { (answer: CheckedContinuation<Void, any Error>) in
@@ -55,6 +77,18 @@ public nonisolated final class DaemonBridgeStream: Sendable {
             }
         }
     }
+
+    /// Atomically returns the bytes observed since the previous call and resets
+    /// both counters for the next action window.
+    public func snapshotAndResetBytes() -> ByteCounts {
+        byteCounts.withLock { counts in
+            defer { counts = .zero }
+            return counts
+        }
+    }
+
+    /// Short alias for callers recording one action at a time.
+    public func snapshotAndReset() -> ByteCounts { snapshotAndResetBytes() }
 
     /// Ends the stream and the bridge child; a waiting read answers nil. Idempotent.
     public func close() {

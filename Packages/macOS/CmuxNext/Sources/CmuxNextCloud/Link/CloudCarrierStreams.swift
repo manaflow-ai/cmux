@@ -72,6 +72,8 @@ public nonisolated final class CloudCarrierStreams: Sendable {
 /// One desktop stream of ``CloudCarrierDial/Connector/open()``: the bridge's reads and sends, and a close
 /// that ends its child and leaves ``CloudCarrierStreams``.
 public nonisolated final class CloudCarrierStream: Sendable {
+    public typealias ByteCounts = DaemonBridgeStream.ByteCounts
+
     private let stream: DaemonBridgeStream
     private let release: @Sendable () -> Void
 
@@ -84,6 +86,14 @@ public nonisolated final class CloudCarrierStream: Sendable {
 
     /// Writes `data`; throws once the stream closed.
     public func send(_ data: Data) async throws { try await stream.send(data) }
+
+    /// Atomically returns and resets this stream's carrier bytes. The count is
+    /// taken at `DaemonBridgeStream`, before the local daemon socket, so a
+    /// Cloud payload is counted once.
+    public func snapshotAndResetBytes() -> ByteCounts { stream.snapshotAndResetBytes() }
+
+    /// Short alias for callers recording one action at a time.
+    public func snapshotAndReset() -> ByteCounts { snapshotAndResetBytes() }
 
     /// Ends the stream and its child. Idempotent.
     public func close() {

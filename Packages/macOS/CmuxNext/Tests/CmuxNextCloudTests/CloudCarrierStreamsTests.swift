@@ -8,6 +8,22 @@ import Testing
 /// CloudService runs on sign-out, an account or team switch and Cloud turned off, closes every held stream
 /// and kills every dial child still dialing, and fences the connectors made before it.
 @Suite struct CloudCarrierStreamsTests {
+    /// The meter sits on the bridge's DispatchIO boundary: one incoming read
+    /// and one outgoing Data are counted, and a snapshot clears both atomically.
+    @Test func aStreamCountsCarrierBytesAndResetsTheWindow() async throws {
+        let cli = try Self.standIn("printf '{\"ok\":true,\"route\":\"carrier\"}\\n' >&2\nprintf 'remote-bytes'\nexec cat >/dev/null\n")
+        defer { try? FileManager.default.removeItem(at: cli.deletingLastPathComponent()) }
+        let connector = CloudCarrierDial.Connector(cli: cli,
+                                                   dial: try #require(CloudCarrierDial(machine: "vm_abc123", service: .desktop))) { [:] }
+        let stream = try await connector.open()
+        #expect(await stream.read() == Data("remote-bytes".utf8))
+        try await stream.send(Data("request".utf8))
+
+        #expect(stream.snapshotAndResetBytes() == .init(sent: 7, received: 12))
+        #expect(stream.snapshotAndReset() == .zero)
+        stream.close()
+    }
+
     /// A held stream ends as a remote close would (its read answers nil), its child is gone, and the same
     /// connector's next open is refused without spawning; a connector made after the end opens again.
     @Test func anEndClosesTheHeldStreamAndFencesItsConnector() async throws {
