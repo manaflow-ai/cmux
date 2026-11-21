@@ -13,6 +13,5 @@ public import XPC
 @inlinable
 public func blockingXPCSendWithReply(_ connection: xpc_connection_t, _ message: xpc_object_t,
                                      fileID: StaticString = #fileID, line: UInt = #line) -> xpc_object_t {
-    assertBlockingAllowed(.ipcReply, fileID: fileID, line: line)
-    return xpc_connection_send_message_with_reply_sync(connection, message)
+    return blockingCall(.ipcReply, fileID: fileID, line: line) { xpc_connection_send_message_with_reply_sync(connection, message) }
 }

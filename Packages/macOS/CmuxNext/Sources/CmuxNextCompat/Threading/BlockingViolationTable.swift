@@ -53,6 +53,10 @@ final class BlockingViolationTable: Sendable {
     nonisolated(unsafe) private let counts: UnsafeMutablePointer<UnsafeAtomic<Int>.Storage> // crash-allow: fixed allocation of atomics; every access is an atomic operation
     private let ring: BlockingPendingRing
     private let overflowCount = UnsafeAtomic<Int>.create(0)
+    /// The checked call open on the main thread (``BlockingOpenCall``): written by the main thread only,
+    /// read by the hang watcher. Only ``shared``'s are used.
+    let openFileID = Atomic<UInt>(0)
+    let openPacked = Atomic<UInt64>(0)
 
     private let drainQueue = DispatchQueue(label: "com.cmuxterm.app.next.blocking-drain", qos: .utility)
     nonisolated(unsafe) private let wake: any DispatchSourceUserDataAdd // crash-allow: dispatch sources are thread-safe; the main thread only adds data
