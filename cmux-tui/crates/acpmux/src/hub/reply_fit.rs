@@ -155,6 +155,16 @@ fn prefix(text: &str, max: usize) -> &str {
     text.get(..end).unwrap_or("")
 }
 
+/// A test's stand-in for an agent's `available_commands_update`: a chat's detail of any size,
+/// to fit through the mesh hub (`server/mesh_read.rs`).
+#[cfg(test)]
+impl super::Session {
+    pub(crate) fn set_available_commands_for_test(&self, commands: Value) {
+        let mut meta = self.meta.lock().unwrap_or_else(|e| e.into_inner());
+        meta.available_commands = Some(commands.into());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

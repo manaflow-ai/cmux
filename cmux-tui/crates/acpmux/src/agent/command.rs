@@ -129,10 +129,11 @@ pub(crate) fn harness_command(
     env.remove(REMOTE_ENV_CLEARED_KEY);
     // The Codex bridge runs the configured codex binary: `CODEX_PATH` of the
     // profile or its family (`defaults.codex.env`), as the ACP adapter does.
+    // Decided on the profile's own program: a `CODEX_PATH` binary may be named anything (a fork,
+    // a wrapper), and its launch still needs codex's overrides (`harness_limits::launch_args`).
+    let codex_launch = crate::codex_app_server::is_launch(&owned.0, &owned.1);
     let owned = match env.get("CODEX_PATH").filter(|p| !p.is_empty()) {
-        Some(path) if crate::codex_app_server::is_launch(&owned.0, &owned.1) => {
-            (path.clone(), owned.1)
-        }
+        Some(path) if codex_launch => (path.clone(), owned.1),
         _ => owned,
     };
     // A bound route's provider variables the inherited env must not keep
@@ -285,7 +286,7 @@ pub(crate) fn harness_command(
     // The durable store is bound by acpmux's profile spawn path; never
     // inherit a controller or shell value into another harness.
     cmd.env_remove("CMUX_HARNESS_SESSION_STORE_DIR");
-    cmd.args(crate::harness_limits::launch_args(program, args, session.map(|_| (cwd, &env))))
+    cmd.args(crate::harness_limits::launch_args(codex_launch, args, session.map(|_| (cwd, &env))))
         .envs(env.iter());
     // The subagent mark is the daemon's to give (a workflow runner a subagent started,
     // `hub/workflow_runs.rs`), never a profile's: an agent's MCP servers would send as it.
