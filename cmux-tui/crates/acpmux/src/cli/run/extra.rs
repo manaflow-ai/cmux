@@ -130,6 +130,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             let id = crate::cli::resolve::control_id(&client, &session).await?;
             let mut params = json!({"sessionId": id, "purge": purge});
+            // What the close records as its command (`hub/close_record.rs`).
+            if let Some(command) = crate::cli::entry::command_line() {
+                cmux_json::JsonSet::set(
+                    &mut params,
+                    "_meta",
+                    json!({"acpmux": {"command": command}}),
+                );
+            }
             if condition.if_idle {
                 cmux_json::JsonSet::set(&mut params, "ifIdle", json!(true));
             }

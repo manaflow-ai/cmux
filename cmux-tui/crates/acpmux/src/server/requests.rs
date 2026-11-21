@@ -2498,12 +2498,14 @@ async fn dispatch_request_with_identity(
         }
         method::SESSION_CLOSE => {
             let s = hub.resolve(session_key(&params)?)?;
-            heap(|| hub.kill(&s, false)).await?;
+            let cause = closer(hub, conn, m, &params, false);
+            heap(|| hub.kill_because(&s, false, cause)).await?;
             Ok(json!({}))
         }
         method::SESSION_DELETE => {
             let s = hub.resolve(session_key(&params)?)?;
-            heap(|| hub.kill(&s, true)).await?;
+            let cause = closer(hub, conn, m, &params, true);
+            heap(|| hub.kill_because(&s, true, cause)).await?;
             Ok(json!({}))
         }
         // ------------------------------------------------ acpmux extensions
@@ -3511,7 +3513,8 @@ async fn dispatch_request_with_identity(
             let purge = params.get("purge").and_then(Value::as_bool).unwrap_or(false);
             // `ifIdle`: refused unless idle, checked under the turn lock (`stop_if_idle.rs`).
             let condition = crate::hub::stop_if_idle::StopCondition::from_params(&params)?;
-            heap(|| hub.stop(&s, purge, condition)).await?;
+            let cause = closer(hub, conn, m, &params, purge);
+            heap(|| hub.stop_because(&s, purge, condition, cause)).await?;
             Ok(json!({"sessionId": s.id, "purged": purge}))
         }
         method::MUX_WATCH_TAKE_OVER => super::chats::watch_take_over(hub, &params).await,
@@ -4097,6 +4100,39 @@ mod cloud_preparation_tests {
         );
         drop(cancel_sender);
     }
+}
+
+/// Why a close request closes its chat, and who sent it (`hub/close_record.rs`): the method,
+/// the client's name, the socket peer's pid, the acpmux session the connection proved it runs
+/// in, and the command line the CLI declared (`_meta.acpmux.command`, a claim).
+fn closer(
+    hub: &Hub,
+    conn: &Conn,
+    method: &str,
+    params: &Value,
+    purge: bool,
+) -> crate::hub::close_record::CloseCause {
+    use crate::hub::close_record::{CloseCause, declared_command, reason};
+    let mut by = serde_json::Map::new();
+    by.insert("method".into(), json!(method));
+    let client = conn.name.lock_or_recover().clone();
+    if !client.is_empty() {
+        by.insert("client".into(), json!(client));
+    }
+    by.insert("origin".into(), json!(format!("{:?}", conn.origin)));
+    if let crate::sender_harness::SocketPeer::Pid(pid) = conn.socket_peer {
+        by.insert("pid".into(), json!(pid));
+    }
+    if let Some(id) = conn.caller() {
+        by.insert("session".into(), json!(id));
+        if let Ok(caller) = hub.resolve(id) {
+            by.insert("sessionName".into(), json!(caller.read_meta(|m| m.name.clone())));
+        }
+    }
+    if let Some(command) = declared_command(params) {
+        by.insert("command".into(), json!(command));
+    }
+    CloseCause::new(if purge { reason::DELETED } else { reason::STOPPED }).by(Value::Object(by))
 }
 
 /// What an `initialize` sets on its connection for the requests after it: the client's name,
