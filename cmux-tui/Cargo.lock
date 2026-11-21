@@ -1816,6 +1816,8 @@ version = "0.1.0"
 dependencies = [
  "cmux-scope",
  "libc",
+ "serde",
+ "serde_json",
  "tokio",
 ]
 
@@ -2627,6 +2629,7 @@ dependencies = [
  "cmux-customize",
  "cmux-customize-recipes",
  "cmux-device-kind",
+ "cmux-fault",
  "cmux-file-lock",
  "cmux-focus-core",
  "cmux-git",
