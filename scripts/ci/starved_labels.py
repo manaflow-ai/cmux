@@ -74,6 +74,10 @@ FLEET_LINUX = "cmux-fleet-linux-x64"
 # jobs name cmux-linux, so a pool that stops listening starves that label too.
 PERSISTENT_LINUX = "cmux-linux"
 FLEET_LINUX_LABELS = frozenset({FLEET_LINUX, PERSISTENT_LINUX})
+# Every persistent pool runner registers both FLEET_LINUX_LABELS (cmuxterm-hq runner_pool.py POOL_LABELS), so a job
+# running on either label proves a listener for the other (pool_served()). Without that, a pool busy with cmux-linux
+# jobs read cmux-fleet-linux-x64's queue as starved, and the reverse (router-review F1 on #47956).
+POOL_SHARED_LABELS = FLEET_LINUX_LABELS
 ISSUE_PREFIX = "Runner label starved: "
 ISSUE_LABEL = "ci-runner-starved"
 # A run stuck this long on a starved label gets its rescue started (rescue_plan()).
@@ -133,6 +137,12 @@ def stuck(job: Mapping[str, Any]) -> bool:
     return job.get("status") == "queued" and not job.get("runner_name")
 
 
+def pool_served(labels: frozenset[str]) -> frozenset[str]:
+    """The labels a runner that took a job on `labels` carries: a persistent pool runner carries every
+    POOL_SHARED_LABELS label, so a job on one of them is service for all of them."""
+    return labels | POOL_SHARED_LABELS if labels & POOL_SHARED_LABELS else labels
+
+
 def _covered(labels: frozenset[str], served: Iterable[frozenset[str]]) -> bool:
     """A runner that took a job asking for a superset of `labels` could take this one."""
     return any(labels <= runner_labels for runner_labels in served)
@@ -180,7 +190,7 @@ def _unserved_queues(runs: Sequence[Mapping[str, Any]], jobs_by_run: Mapping[int
         for job in jobs:
             key = fleet_key(job)
             if key and not stuck(job) and _served(job, now, after):
-                served.add(frozenset(key.split("+")))
+                served.add(pool_served(frozenset(key.split("+"))))
 
     def unserved_key(key: str) -> bool:
         return not _covered(frozenset(key.split("+")), served)
