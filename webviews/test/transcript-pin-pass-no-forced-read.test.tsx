@@ -7,7 +7,6 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { installJsdomScroller, scrollerEnd } from "./support/jsdomScroller";
 import { settleReact } from "./support/domTeardown";
 
@@ -106,6 +105,7 @@ style.removeProperty = function (this: CSSStyleDeclaration, name: string) {
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
+const { turnView } = await import("../src/agent-session/acpmux/conversation/turns");
 const { followTrace } = await import("../src/agent-session/acpmux/followTrace");
 const update = followTrace.update.bind(followTrace);
 followTrace.update = (...args: Parameters<typeof followTrace.update>) => {
