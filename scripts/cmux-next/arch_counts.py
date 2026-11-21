@@ -3936,7 +3936,14 @@ def _count_logic(git: "Git", store: "FactsCache", base: str, head: str, scopes: 
     A failure of the script leaves the row unknown at both ends (not judged, a note names why)."""
     if not any(p.endswith(".swift") or p in LOGIC_INPUTS for _, p in files):
         return
+    # A commit without the table never gains one: that answer is cached, so a range whose base has none and that
+    # does not add it spends no `cat-file` here (about 35 ms a push before the table lands).
+    no_table = f"no-logic-table:{base}"
+    if LOGIC_TABLE not in {p for _, p in files} and store is not None and store.get_text(no_table) == "1":
+        return
     tables = git.read([(base, LOGIC_TABLE), (head, LOGIC_TABLE)])
+    if tables[(base, LOGIC_TABLE)] is None and store is not None:
+        store.put_text(no_table, "1")
     if tables[(base, LOGIC_TABLE)] is None and tables[(head, LOGIC_TABLE)] is None:
         return  # the row starts with the table
     try:
