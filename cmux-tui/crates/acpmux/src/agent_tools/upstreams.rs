@@ -118,10 +118,9 @@ impl AgentTools {
         session_id: &str,
         cwd: &Path,
     ) -> Self {
-        let (Some(gateway), Some(at)) =
-            (gateway, self.servers.iter().position(|s| s.name == "cmux"))
-        else {
-            return self;
+        let Some(gateway) = gateway else { return self };
+        let Some(at) = self.servers.iter().position(|s| s.name == "cmux") else {
+            return self.own_servers_via(gateway, session_id, cwd);
         };
         let Some(mut cmux) = self.servers.get(at).cloned() else {
             return self;
@@ -159,6 +158,67 @@ impl AgentTools {
                 *slot = cmux;
             }
             self.http.insert("cmux".to_owned(), endpoint);
+        }
+        self
+    }
+
+    /// A chat with no `cmux` server: acpmux's own servers ([`crate::tools_mcp::SERVERS`]),
+    /// each an entry of its own, become HTTP entries under their own names at the gateway
+    /// ([`crate::mcp_gateway::Gateway::server_endpoint`]), so their tool names stay
+    /// (`mcp__cmux-forum__...`) and none of them is a process under the harness. Leo, 2026-11-21:
+    /// "if it has tons of processes tbats a prkduct bug". The gateway keeps the one launch they
+    /// would share (`acpmux tools-mcp`, [`shared_helper`]) with each one's spec in its
+    /// [`UPSTREAMS_ENV`], which is the env they run in there (`Gateway::tools_env`). Unchanged
+    /// when they do not share one launch, or the launch is not kept: each stays its own stdio
+    /// server, as before.
+    fn own_servers_via(
+        mut self,
+        gateway: &crate::mcp_gateway::Gateway,
+        session_id: &str,
+        cwd: &Path,
+    ) -> Self {
+        let Some(shared) = shared_helper(&self.servers) else { return self };
+        let owned: Vec<&McpServer> =
+            self.servers.iter().filter(|s| crate::tools_mcp::owns(&s.name, &s.args)).collect();
+        let specs: Vec<Value> = owned
+            .iter()
+            .map(|s| {
+                let env: Map<String, Value> =
+                    s.env.iter().map(|(k, v)| (k.clone(), json!(v))).collect();
+                json!({"name": s.name, "command": s.command, "args": s.args, "env": env})
+            })
+            .collect();
+        let names: Vec<String> = owned.iter().map(|s| s.name.clone()).collect();
+        let text = |v: &Value| v.as_str().map(str::to_owned);
+        let (Some(command), Some(args)) = (
+            shared.get("command").and_then(text),
+            shared
+                .get("args")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect::<Vec<_>>()),
+        ) else {
+            return self;
+        };
+        let mut env: Vec<(String, String)> = shared
+            .get("env")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flatten()
+            .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned())))
+            .collect();
+        env.push((UPSTREAMS_ENV.to_owned(), Value::Array(specs).to_string()));
+        let launch = crate::mcp_gateway::Launch {
+            command: PathBuf::from(command),
+            args,
+            env,
+            cwd: Some(cwd.to_owned()),
+        };
+        if gateway.register(session_id, launch).is_none() {
+            return self;
+        }
+        for name in names {
+            let endpoint = gateway.server_endpoint(session_id, &name);
+            self.http.insert(name, endpoint);
         }
         self
     }

@@ -26,9 +26,16 @@
 //! run's caller token for the session in the url; their calls go to the daemon's own socket over
 //! one connection per chat, as the chat's `tools-mcp` did.
 //!
+//! A chat with no `cmux` server (the person has not said yes to cmux's tools in agents) has
+//! acpmux's own servers as entries of their own, each its own stdio process under the harness:
+//! five per chat on Leo's Mac, 2026-11-21. Each of them is an HTTP entry under its own name
+//! instead, at `/mcp/<session>/tools/<server>` ([`Gateway::server_endpoint`]), so its tool names
+//! stay the same and no process of theirs runs under the harness
+//! (`agent_tools::AgentTools::via_gateway`).
+//!
 //! Only loopback, only a request whose `Host` names this listener and that carries no `Origin`
-//! (no page in a browser reaches it), only `/mcp/<session>` and `/mcp/<session>/tools` with that
-//! session's token.
+//! (no page in a browser reaches it), only `/mcp/<session>`, `/mcp/<session>/tools` and
+//! `/mcp/<session>/tools/<server>` with that session's token.
 
 use anyhow::{Context as _, Result, anyhow};
 use cmux_process::{Child, Command};
@@ -293,6 +300,13 @@ impl Gateway {
     pub fn tools_endpoint(&self, session: &str) -> Endpoint {
         let Endpoint { url, authorization } = self.endpoint(session);
         Endpoint { url: format!("{url}/tools"), authorization }
+    }
+
+    /// Where a harness reaches acpmux's own server `name` of the chat as its own entry (no `cmux`
+    /// server in front of it): the tool endpoint, the server named by the path.
+    pub fn server_endpoint(&self, session: &str, name: &str) -> Endpoint {
+        let Endpoint { url, authorization } = self.tools_endpoint(session);
+        Endpoint { url: format!("{url}/{name}"), authorization }
     }
 
     /// [`register`] on this gateway.
@@ -718,9 +732,24 @@ async fn connection(gateway: Arc<Gateway>, mut stream: TcpStream) {
     }
     let path = request.path.split_once('?').map_or(request.path.as_str(), |(p, _)| p);
     let rest = path.strip_prefix("/mcp/").unwrap_or_default();
-    let (session, tools) = match rest.strip_suffix("/tools") {
-        Some(session) => (session, true),
-        None => (rest, false),
+    // `/mcp/<session>/tools/<server>`: one of acpmux's own servers, named by the path, for a
+    // harness that has it as its own entry (no `cmux` server to name it in `_meta`).
+    let (session, tools, server) = match rest.split_once("/tools/") {
+        Some((session, name)) => (session, true, Some(name)),
+        None => match rest.strip_suffix("/tools") {
+            Some(session) => (session, true, None),
+            None => (rest, false, None),
+        },
+    };
+    let server = match server {
+        None => None,
+        Some(name) => match crate::tools_mcp::SERVERS.iter().find(|(n, _)| *n == name) {
+            Some((name, _)) => Some(*name),
+            None => {
+                let _ = respond(&mut stream, "404 Not Found", "text/plain", b"not found").await;
+                return;
+            }
+        },
     };
     if !valid_session(session) {
         let _ = respond(&mut stream, "404 Not Found", "text/plain", b"not found").await;
@@ -735,7 +764,7 @@ async fn connection(gateway: Arc<Gateway>, mut stream: TcpStream) {
         return;
     };
     match request.method.as_str() {
-        "POST" if tools => post_tools(&gateway, &chat, &request, &mut stream).await,
+        "POST" if tools => post_tools(&gateway, &chat, &request, server, &mut stream).await,
         "POST" => post(&chat, &request, &mut stream).await,
         "DELETE" if tools => {
             let _ = respond(&mut stream, "200 OK", "text/plain", b"").await;
@@ -779,9 +808,13 @@ async fn post_tools(
     gateway: &Gateway,
     chat: &Arc<Chat>,
     request: &Request,
+    server: Option<&'static str>,
     stream: &mut TcpStream,
 ) {
-    let Some(message) = message_of(request, stream).await else { return };
+    let Some(mut message) = message_of(request, stream).await else { return };
+    if let Some(name) = server {
+        for_server(&mut message, name);
+    }
     chat.touch();
     if message.get("id").is_none() {
         // `initialized` and the like: the servers here keep no state for them.
@@ -808,6 +841,25 @@ async fn post_tools(
         }
         None => respond(stream, "202 Accepted", "text/plain", b"").await,
     };
+}
+
+/// `message` for server `name` of a chat's tool servers: its params' `_meta` names it
+/// ([`crate::tools_mcp::SERVER_META`]) as the `cmux` server's request would, whatever the
+/// harness put there.
+fn for_server(message: &mut Value, name: &str) {
+    let Some(fields) = message.as_object_mut() else { return };
+    let params = fields.entry("params").or_insert_with(|| json!({}));
+    if !params.is_object() {
+        *params = json!({});
+    }
+    let Some(params) = params.as_object_mut() else { return };
+    let meta = params.entry("_meta").or_insert_with(|| json!({}));
+    if !meta.is_object() {
+        *meta = json!({});
+    }
+    if let Some(meta) = meta.as_object_mut() {
+        meta.insert(crate::tools_mcp::SERVER_META.to_owned(), json!(name));
+    }
 }
 
 async fn post(chat: &Arc<Chat>, request: &Request, stream: &mut TcpStream) {
