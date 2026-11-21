@@ -3886,3 +3886,24 @@ checks, both export packs, the regenerate) runs in the root (the mirror holds `.
 `git checkout HEAD^1` works there); the uploads read `$RUNNER_TEMP` and stay as they are. One job per mini
 holds the root, fast tier or generated files; the other takes a shared root or `link` as before.
 `vars.CI_FAST_TIER_OWNED_SEED` = `0` switches both off.
+
+## note-411
+
+Above `checks: Connection notices` in `.github/workflows/cmux-next.yml` (its link lives in `scripts/cmux-next/check-connection-notices.sh`: the workflow file is near GitHub's size limit).
+
+A connection state the person can do nothing about (reconnecting, retrying, restoring, handshaking, "Getting
+access", offline, disconnected) shows nothing until it has lasted the shared bound, unless it carries one action
+(Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up and load faster/percievably load
+faster / whatever it takes / desktop gui, ios, remote, cloud, etc"). check-connection-notices.py finds the units of
+the web pages, the Mac app and the iOS apps that draw one with no time gate and no action; the bound is
+schemas/notice-timing/notice-timing.json (10 s), copied as CONNECTION_QUIET_MS / useConnectionQuiet,
+NoticeTiming.connectionQuiet and QuietStatusGate.threshold. The offenders on the base when it landed are rows of
+connection-notices-allowlist.tsv, which only shrinks: `--base HEAD^1` (the base tip on a pull request, the previous
+tip on a push) refuses a row the base lacks (a unit fixed in place does not free its row for a namesake). Every run, with or
+without `--base`, judges every unlisted offender and fails a row whose unit no longer offends, whatever file the
+change touched: whether a unit offends depends on files it does not live in (a strings map, a string table). Its own tests run in the same background check.
+
+The cmux-next workflow does not run on a change that touches only the phone app, so `cmux-next-ios-kit.yml`'s
+kit-tests job runs the same check over the whole tree (no `--base`: every unlisted offender and every stale row
+fails; a new row is caught by the cmux-next run that any change to the list triggers). The legacy `ios/` app is not
+read: no workflow that runs the check covers it.

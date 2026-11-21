@@ -7,6 +7,7 @@ import CmuxNextDictation
 import CmuxNextErrorJournal
 public import CmuxNextPages
 public import CmuxNextSettings
+import CmuxNextWakeups
 import Observation
 import os
 public import WebKit
@@ -84,6 +85,8 @@ public final class AgentPaneView: NSView {
     /// "Not verified as you, reconnecting identity": this pane's connection did not prove the
     /// person, so its prompts would reach the agent as an unverified sender's.
     var personUnprovenNotice: AgentPaneNotice?
+    /// Holds the notice back until the state has lasted ``NoticeTiming/connectionQuiet`` (a connection blip says nothing).
+    let personUnprovenHold = QuietHold(owner: "AgentPaneView.personUnproven", delay: NoticeTiming.connectionQuiet)
     /// "Remote approvals are off" (cx-0q7o), and the restart the chat's machine offers.
     var remoteApprovalsNotice: AgentPaneNotice?
     var remoteApprovals: AgentPaneRemoteApprovals?
