@@ -70,20 +70,25 @@ pub(super) fn peer_permission_pending(
 }
 
 /// A record as `_acpmux/event` sends it.
+/// A prompt record whose images predate their kept size gets it here (`hub/image_size.rs`), so
+/// every view draws each image at its final shape from the first frame.
 pub fn event_value(session_id: &str, rec: &EventRecord) -> Value {
+    let mut msg = rec.msg.clone();
+    crate::hub::image_size::fill_record_sizes(&rec.kind, &mut msg);
     let event = crate::protocol::events::SessionEvent {
         session_id: session_id.to_owned(),
         seq: rec.seq,
         at: rec.at,
         dir: rec.dir.clone(),
         kind: rec.kind.clone(),
-        msg: rec.msg.clone(),
+        msg,
     };
     serde_json::to_value(event).unwrap_or(Value::Null)
 }
 
 /// [`event_value`] that takes the record, so its message moves instead of being copied.
-pub fn into_event_value(session_id: &str, rec: EventRecord) -> Value {
+pub fn into_event_value(session_id: &str, mut rec: EventRecord) -> Value {
+    crate::hub::image_size::fill_record_sizes(&rec.kind, &mut rec.msg);
     json!({
         "sessionId": session_id,
         "seq": rec.seq,
