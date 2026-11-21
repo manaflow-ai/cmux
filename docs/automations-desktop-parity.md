@@ -71,8 +71,8 @@ every 6 h) had to run on this Mac's runner and stopped while the Mac slept. Now
   that moves to the newest head of the branch before each run (fetch, then a detached checkout of
   it); the run writes the commit it used.
 - The body is the Cloud's journaled `steps` body: one step starts the command in the background
-  (a replay never starts it twice), then wait steps of up to 280 s each cover `--timeout` (up to
-  228 min). The exit code is the run's result (`exit 3` fails with the last log lines); a run that
+  (a replay never starts it twice), then wait steps of up to 90 s each cover `--timeout` (up to
+  73 min): one provider exec is cut at about 120 s, so no step may run longer. The exit code is the run's result (`exit 3` fails with the last log lines); a run that
   passes its time limit is stopped and fails as a timeout.
 - Concurrency 1, skip when one runs (no overlap); `--catch-up latest|all|none`; `--every` becomes a
   cron (minutes that divide 60, or hours that divide 24).

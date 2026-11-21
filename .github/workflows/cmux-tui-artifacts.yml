@@ -1134,14 +1134,20 @@ jobs:
             branch_owner_takeover=false
             owner_stuck=false
             if past_lease "$owner_json"; then owner_stuck=true; fi
-            # A nightly-next push takes over a stuck owner's key too: its build runs on the nightly label, and the
-            # nightly's await-tree-client gives up on an owner queued past the runner stall (2026-11-20: nightly
-            # 44818589315 failed at 21:58Z behind feat-cmux-next owner 5aa11fb2daf6, its preflight queued 140 min
-            # on cmux-gcp-lane-build-x64, while this push's own run deferred to it).
+            # A nightly-next run (push or dispatch) never waits for an owner that is not itself a nightly-next run:
+            # its build runs on the nightly label, the nightly waits only 45 min for its tree, and a write-once
+            # publish keeps whichever publication lands first, so a second build costs runner time, never
+            # correctness. 2026-11-20: nightly 44818589315 failed behind feat-cmux-next owner 5aa11fb2daf6 (preflight
+            # queued 140 min on cmux-gcp-lane-build-x64), and nightly 44834489124 behind lane-branch owner
+            # 44833374379, 9 minutes old when this run looked, whose build queued on the same label.
+            nightly_next_run=false
+            [[ "${REF:-}" == refs/heads/nightly-next && ( "${EVENT_NAME:-}" == push || "${EVENT_NAME:-}" == workflow_dispatch ) ]] && nightly_next_run=true
             if { [[ "${EVENT_NAME:-}" == push && "${REF:-}" == refs/heads/feat-cmux-next ]] &&
                 { [[ "$owner_stuck" == true ]] ||
                   python3 -c 'import json,sys; d=json.loads(sys.argv[1]); sys.exit(0 if d.get("status") in ("queued", "in_progress", "waiting", "pending", "requested") and not (d.get("event") == "push" and d.get("head_branch") == "feat-cmux-next") else 1)' "$owner_json" 2>/dev/null; }; } ||
-               [[ "${EVENT_NAME:-}" == push && "${REF:-}" == refs/heads/nightly-next && "$owner_stuck" == true ]]; then
+               { [[ "$nightly_next_run" == true ]] &&
+                 { [[ "$owner_stuck" == true ]] ||
+                   python3 -c 'import json,sys; d=json.loads(sys.argv[1]); sys.exit(0 if d.get("status") in ("queued", "in_progress", "waiting", "pending", "requested") and d.get("head_branch") != "nightly-next" else 1)' "$owner_json" 2>/dev/null; }; }; then
               if builders="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
                   -u "x-access-token:$GH_TOKEN" \
                   -H 'Accept: application/vnd.github+json' \
@@ -1157,6 +1163,9 @@ jobs:
                   builder_state="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("status") or "unknown")' "$builder_json" 2>/dev/null || echo unknown)"
                   if [[ "$builder_state" == completed ]]; then
                     continue
+                  elif [[ "$nightly_next_run" == true ]] &&
+                      ! python3 -c 'import json,sys; sys.exit(0 if json.loads(sys.argv[1]).get("head_branch") == "nightly-next" else 1)' "$builder_json" 2>/dev/null; then
+                    echo "builder run $builder of tree $KEY is not a nightly-next run; this nightly-next run does not defer to it."
                   elif past_lease "$builder_json"; then
                     echo "feat-cmux-next builder run $builder of tree $KEY is past its ${OWNER_LEASE_MINUTES:-25}-minute lease; not deferring to it."
                   else

@@ -70,6 +70,8 @@ const LS_FIELDS: &[&str] =
 pub(crate) mod artifacts;
 #[path = "acpmux_mcp_bg.rs"]
 pub(crate) mod bg;
+#[path = "acpmux_mcp_bg_list.rs"]
+mod bg_list;
 #[path = "acpmux_mcp_bridge.rs"]
 pub(crate) mod bridge;
 #[path = "acpmux_mcp_goal.rs"]
@@ -299,7 +301,7 @@ fn served_with(
     daemon: &Arc<crate::tools_mcp::Daemon>,
     artifacts: Option<Arc<artifacts::Artifacts>>,
 ) -> Result<crate::tools_mcp::Served> {
-    let allow = std::env::var(crate::agent_tools::MCP_TOOLS_ENV).ok();
+    let allow = crate::tool_env::var(crate::agent_tools::MCP_TOOLS_ENV);
     let tools = allowed(tools_with_artifacts(artifacts.is_some()), allow.as_deref());
     // Under an allowlist, a call outside it is refused like an unknown tool.
     let names: Option<Arc<Vec<String>>> = allow

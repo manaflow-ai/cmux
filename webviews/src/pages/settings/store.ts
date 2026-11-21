@@ -890,7 +890,7 @@ export class SettingsStore {
     return reply.ok ? reply.value : null;
   }
 
-  /** Personalization > Customization Library: one `cmux customize library` verb. Answers the
+  /** Appearance > Customization Library: one `cmux customize library` verb. Answers the
    * library after it (null when the host has no CLI or did not answer) and the CLI's refusal in its
    * own words (a toggle while a preview is open), else null. */
   async customizeLibrary(run: LibraryRun): Promise<{ library: LibraryListing | null; refusal: string | null }> {
