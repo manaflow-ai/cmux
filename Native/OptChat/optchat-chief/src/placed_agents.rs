@@ -183,6 +183,11 @@ impl PlacedPort {
                 permission_id,
                 request,
             }],
+            AgentEvent::BackgroundTurn { session_id, state }
+                if self.placed.contains(&session_id) =>
+            {
+                vec![AgentEvent::BackgroundTurn { session_id, state }]
+            }
             _ => Vec::new(),
         }
     }
@@ -225,6 +230,15 @@ impl AgentPort for PlacedPort {
     }
     fn remove_queued(&self, session: &str, prompt_id: &str) -> Result<bool, String> {
         self.port(session).remove_queued(session, prompt_id)
+    }
+    fn task_list_set(&self, session: &str, items: &Value) -> Result<Value, String> {
+        self.port(session).task_list_set(session, items)
+    }
+    fn withdraw_steer(&self, session: &str, prompt_id: &str) -> Result<bool, String> {
+        self.port(session).withdraw_steer(session, prompt_id)
+    }
+    fn background_work(&self, session: &str) -> Result<bool, String> {
+        self.port(session).background_work(session)
     }
     fn set_mode(&self, session: &str, mode: &str) -> Result<(), String> {
         self.port(session).set_mode(session, mode)
