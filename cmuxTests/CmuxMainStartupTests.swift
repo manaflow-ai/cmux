@@ -41,6 +41,9 @@ struct CmuxMainStartupTests {
                 #expect(defaults.bool(forKey: "NSApplicationCrashOnExceptions"))
                 observations.append("worker")
             },
+            configureJavaScriptCore: {
+                observations.append("javascriptcore")
+            },
             preloadSigningSecret: {},
             launchApp: {
                 #expect(defaults.didRegisterFatalPolicy)
@@ -49,7 +52,9 @@ struct CmuxMainStartupTests {
             }
         )
 
-        #expect(observations == ["worker", "app"])
+        // JavaScriptCore reads its options once, so the app sets them before
+        // anything it launches can create a JSContext (#47871).
+        #expect(observations == ["worker", "javascriptcore", "app"])
     }
 }
 

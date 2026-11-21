@@ -2,6 +2,7 @@ import CmuxSidebarInterpreterClient
 import CmuxSidebarRemoteRender
 import CmuxSimulator
 import CmuxSimulatorWorker
+import CmuxSwiftRenderUI
 import Darwin
 
 /// Routes a re-executed cmux process into its requested isolated worker mode.
@@ -28,6 +29,9 @@ struct CmuxWorkerEntrypoint {
             runSimulatorWorker()
         }
         if arguments.contains(RenderWorkerClient.workerModeArgument) {
+            // The render worker runs JS sidebars too when
+            // `customSidebars.renderer` is `remote`.
+            JavaScriptCoreProcessOptions().disableConcurrentJIT()
             runSidebarRenderWorker()
         }
         if arguments.contains(InterpreterClient.workerModeArgument) {
