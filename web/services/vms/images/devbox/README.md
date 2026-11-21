@@ -367,6 +367,13 @@ supervisor and waits for a driver install.
 Shells spawned by the daemon get the bash devshell (ble.sh ghost text,
 half-life prompt, seeded history) through the `/etc/bash.bashrc` chain.
 
+The supervisor sets the daemon's `oom_score_adj` to -800, so under memory
+pressure the kernel kills user workloads before the daemon (not -1000, and
+not the -900 the Freestyle guest agent and dbus use). The score is inherited
+across fork, so on every tick the supervisor resets any other process
+carrying -800 (terminal hosts, shells and what they started) to 0; a newly
+spawned process holds the protection for at most one tick.
+
 The bake also fully allocates a 1 GiB ext4 image at
 `/var/lib/cmux/cmux-tui-state.ext4` and mounts it at the daemon's
 `~/.local/state/cmux-tui` directory before the daemon starts. This gives the
