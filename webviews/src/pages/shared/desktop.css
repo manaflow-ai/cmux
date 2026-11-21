@@ -241,7 +241,10 @@ body {
 .ui-title-tooltip {
   box-sizing: border-box;
   max-width: min(var(--tooltip-max-width), calc(100vw - var(--tooltip-edge) - var(--tooltip-edge)));
-  padding: var(--tooltip-pad-block) var(--tooltip-pad-inline);
+  /* The rim sits inside the box, as the native glass's does: the padding is measured from the box's
+     edge, so a tooltip is as tall as the native one (TooltipMetrics: line height + 2 x padding). */
+  padding: calc(var(--tooltip-pad-block) - var(--tooltip-rim-width))
+    calc(var(--tooltip-pad-inline) - var(--tooltip-rim-width));
   border: var(--tooltip-rim-width) solid
     var(--cmux-separator, color-mix(in srgb, var(--cmux-text, CanvasText) 12%, transparent));
   border-radius: var(--tooltip-radius); /* concentric-allow: a tooltip holds text and a keycap, no buttons; the keycap nests in it */
