@@ -413,7 +413,7 @@ public final class DaemonTerminalSession: TerminalSession {
     /// "thjs chatters too often with connectivity").
     public func sendReply(_ bytes: Data) {
         guard !bytes.isEmpty, attached, !refusingInput else { return }
-        input.append((bytes, now(), false, false, false))
+        input.append((bytes, now(), false, false, nil))
         scheduleInputDrain()
     }
 
