@@ -178,6 +178,15 @@ PARTS = [
     {"name": "launch-dock", "args": [*MEASURE, "--suite=launch", "--profile", "empty", "--mode", "warm", "--runs", "5",
                                      "--timeout", "20", "--activation", "active", "--window-placement", "restore"],
      "artifact": "artifacts/split-spring/report.json", "kind": "launch", "needs": "launch-dock", "row_prefix": "launch.dock"},
+    # A cold launch as a Dock click opens it: no daemon (the app starts it), an empty home, and before every run the
+    # staged bundle deleted and copied again, so each launch is the first exec of new files (an update in place, the
+    # first launch after a build) and pays the system's check of a new copy before main. Rows launch.cold.<mark>,
+    # judged against LAUNCH_COLD_BUDGETS; the run also waits for Home on screen (reveal.home).
+    # One word per option (the controller's step takes at most 16 args).
+    {"name": "launch-cold", "args": [*MEASURE, "--suite=launch", "--profile=empty", "--mode=cold", "--runs=5", "--timeout=20",
+                                     "--activation=active", "--window-placement=restore", "--fresh-copy",
+                                     "--ready-mark=reveal.home"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "launch", "needs": "launch-cold"},
     # 400 workspaces, 6 scenarios: not timed against 900 s yet (perf-budgets' own per-bench cap is 900 s).
     {"name": "sidebar", "args": [*MEASURE, "--suite=budgets", "--only=sidebar"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "run_seconds": 1500},
@@ -277,6 +286,7 @@ ROW_PARTS = [
     (r"^(tab_switch|palette)\.", "switch"), (r"^perf_gate\.", "perf-gate"), (r"^(sidebar|workspace_switch)\.", "sidebar"),
     (r"^workspace_scaling\.", "workspace-scaling"),
     (r"^memory\.app_agents\.", "memory-agents"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.dock\.", "launch-dock"),
+    (r"^launch\.cold\.", "launch-cold"),
     (r"^launch\.relaunch\.", "relaunch"), (r"^launch\.wake_proxy\.", "wake"), (r"^launch\.", "launch"),
     (r"^terminal\.throughput\.", "throughput"),
     (r"^chat_size\.", "chat-size"),
@@ -316,7 +326,19 @@ LAUNCH_BUDGETS = {"did_finish_launching_end": 800, "first_window_frame_committed
 # 719. Its target is launch-shell-first.md's "Dock bounce over", 250 ms: the icon rises once and stops. The other
 # rows keep the direct exec's budgets.
 LAUNCH_DOCK_BUDGETS = {"did_finish_launching_start": 250, "did_finish_launching_end": 800,
-                       "first_window_frame_committed": 1000, "sidebar_rows_shown": 1000}
+                       "first_window_frame_committed": 1000, "sidebar_rows_shown": 1000,
+                       # Before main on a relaunch of the same copy: launch-shell-first.md measured 117 to 166 ms through
+                       # LaunchServices on a quiet Mac (cmux16, 2026-11-16), the bound its 250 ms first frame assumes.
+                       # Chromium's code-sign clone makes XProtect rescan the executable first (about 600 ms, cmux#44204).
+                       "main_start": 166}
+# A cold launch's budget (launch-cold), ms from process start. Home on screen (reveal.home) within 600 ms is
+# cmuxterm-hq goals/next-launch-instant.md ("launch to Home at most 600 ms"); the first frame within 300 ms is
+# docs/design/launch-shell-first.md's cold row ("300 to the frame, 600 to Home"). That doc measured the cold first open
+# of a new copy (launch-fresh-install.sh, nightly, n=5, 2026-11-18) at 1495 ms to main and 2800 ms to the first frame.
+# main_start on a cold copy is the system's policy check and dyld (launch-shell-first.md: 1495 ms, nightly, n=5); its
+# budget is the same 166 ms as a relaunch's, since stage 0's 300 ms frame has no room for more.
+LAUNCH_COLD_BUDGETS = {"main_start": 166, "first_window_frame_committed": 300, "reveal.home": 600}
+LAUNCH_BUDGETS_BY_PART = {"launch-dock": LAUNCH_DOCK_BUDGETS, "launch-cold": LAUNCH_COLD_BUDGETS}
 
 
 def now_utc():
@@ -613,7 +635,7 @@ def rows_of_part(part, report, budgets_mod, budgets):
             out[f"perf_gate.{scenario}.failed_checks"] = {"p50": failed, "p95": failed, "unit": "checks", "budget": 0, "floor": 0.5}
     elif part["kind"] == "launch":
         prefix = part.get("row_prefix", "launch")
-        launch_budgets = LAUNCH_DOCK_BUDGETS if prefix == "launch.dock" else LAUNCH_BUDGETS
+        launch_budgets = LAUNCH_BUDGETS_BY_PART.get(part["name"], LAUNCH_BUDGETS)
         for _tag, modes in report.items():
             for mode, runs in (modes or {}).items() if isinstance(modes, dict) else []:
                 runs = runs if isinstance(runs, list) else []
@@ -2005,6 +2027,12 @@ def supported_parts_at(sha):
             bench = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/bench-startup.py"],
                                    capture_output=True, text=True).stdout
             ok = "--suite=launch" in text and '"--activation"' in bench
+        elif need == "launch-cold":
+            text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
+                                  capture_output=True, text=True).stdout
+            bench = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/bench-startup.py"],
+                                   capture_output=True, text=True).stdout
+            ok = "--suite=launch" in text and '"--fresh-copy"' in bench and '"--ready-mark"' in bench
         elif need in ("perf-gate", "launch", "memory-agents", "relaunch", "wake", "chat-size"):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
