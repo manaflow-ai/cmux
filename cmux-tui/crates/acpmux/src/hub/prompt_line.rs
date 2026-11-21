@@ -9,15 +9,31 @@
 use serde_json::Value;
 
 /// The line `text` leaves on its chat's summary: "name: first line" for another agent's
-/// message, else `text` itself.
+/// message, the reply of a prompt that quotes what it answers, else `text` itself.
 pub(super) fn prompt_line(text: &str, client: &str, provenance: Option<&Value>) -> String {
     let Some((name, words)) = message(text, client, provenance) else {
-        return text.to_owned();
+        return quoted_reply(text).unwrap_or(text).to_owned();
     };
     match words.lines().map(str::trim).find(|l| !l.is_empty()) {
         Some(first) => format!("{name}: {first}"),
         None => name,
     }
+}
+
+/// The reply of a prompt that quotes what it answers: leading `>` lines, then the person's words
+/// (a Needs your input card's answer, webviews `nextStepAsk.ts` `answerPrompt`, or a Quote in
+/// Reply). The summary line is the answer, never the quote (Leo, 2026-11-19, on an answer that read
+/// "> Claude Code: [trust] ..."). None for a prompt with no quote or nothing after it.
+fn quoted_reply(text: &str) -> Option<&str> {
+    let mut end = 0;
+    for line in text.split_inclusive('\n') {
+        if !line.trim_start().starts_with('>') {
+            break;
+        }
+        end += line.len();
+    }
+    let reply = text.get(end..)?.trim();
+    (end > 0 && !reply.is_empty()).then_some(reply)
 }
 
 /// Whether a prompt with `provenance` is acpmux's own notice of other agents' messages rather
@@ -334,6 +350,15 @@ mod tests {
             prompt_words("2 messages from other agents…", "cmux", Some(&p)),
             "2 messages from other agents…"
         );
+    }
+
+    #[test]
+    fn an_answer_that_quotes_its_ask_reads_as_the_answer() {
+        let sent =
+            "> Claude Code: [trust] Let our pool's results count?\n\nYes, add the controller App";
+        assert_eq!(prompt_line(sent, "cmux", None), "Yes, add the controller App");
+        assert_eq!(prompt_line("> a\n> b\nOk", "cmux", None), "Ok");
+        assert_eq!(prompt_line("> only a quote", "cmux", None), "> only a quote");
     }
 
     #[test]

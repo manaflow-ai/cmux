@@ -10,7 +10,8 @@ import { activity, assistant, summary, tool, user } from "../src/gallery/fixture
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { NEXT_STEP, turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { NextStepCard } from "../src/agent-session/acpmux/conversation/NextStepCard";
-import { execWrapUp, isWrapUp, wrapUpAsk } from "../src/agent-session/acpmux/conversation/wrapUp";
+import { execWrapUp, isWrapUp, shownQuestion, wrapUpAsk } from "../src/agent-session/acpmux/conversation/wrapUp";
+import { answerPrompt, pickedAnswer } from "../src/agent-session/acpmux/conversation/nextStepAsk";
 
 const RECAP = "The grid reserves a 4:5 box while images load, so it no longer shifts. All 14 tests pass.";
 const call = (input: Record<string, unknown>, title = "mcp__acpmux__wrap_up", status = "completed") =>
@@ -52,6 +53,36 @@ describe("wrapUpAsk", () => {
     const alone = wrapUpAsk(call({ recap: RECAP }).tool!);
     expect(alone?.question).toBe("");
     expect(alone?.options).toEqual([]);
+  });
+
+  // Leo, 2026-11-19, on a pinned "[trust] Trust ~/fun/cmux for the new sub-session?": "odd looking".
+  test("a leading bracket word leaves the question and rides on the ask as its label", () => {
+    const ask = wrapUpAsk(
+      call({ recap: RECAP, ask: "[trust] Trust ~/fun/cmux for the new sub-session?", actions: ["Trust it"] }).tool!,
+    );
+    expect(ask?.tag).toBe("wrap_up");
+    expect(ask?.label).toBe("trust");
+    expect(shownQuestion(ask!)).toBe("Trust ~/fun/cmux for the new sub-session?");
+    // The ask keeps the question as asked: an answer sent before the tag drew as a chip quotes it
+    // whole, and still reads as this ask's answer (`answerOf`), under the same key (`askKey`).
+    expect(ask?.question).toBe("[trust] Trust ~/fun/cmux for the new sub-session?");
+    const saved = answerPrompt("[trust] Trust ~/fun/cmux for the new sub-session?", "Trust it", "Claude Code");
+    expect(pickedAnswer(ask!, saved)).toBe("Trust it");
+    // Any word counts, any case, a colon after it too; the question's first letter is capitalized.
+    const outward = wrapUpAsk(call({ ask: "[Outward]: post it to the PR?" }).tool!);
+    expect(outward?.label).toBe("outward");
+    expect(shownQuestion(outward!)).toBe("Post it to the PR?");
+    // Brackets later in the question, or a tag with nothing after it, stay as written.
+    const later = wrapUpAsk(call({ ask: "Merge [trust] now?" }).tool!);
+    expect(later?.label).toBeUndefined();
+    expect(shownQuestion(later!)).toBe("Merge [trust] now?");
+    expect(shownQuestion(wrapUpAsk(call({ ask: "[trust]" }).tool!)!)).toBe("[trust]");
+    // A reference in brackets is not a tag.
+    expect(wrapUpAsk(call({ ask: "[#43627] Merge it now?" }).tool!)?.label).toBeUndefined();
+    // Drawn as a chip before the question, not as raw text.
+    const html = renderToStaticMarkup(createElement(NextStepCard, { ask: ask!, onAnswer: () => Promise.resolve() }));
+    expect(html).toContain('<span class="acpmux-next-step__tag">Trust</span>');
+    expect(html).not.toContain("[trust]");
   });
 
   test("an empty or failed call, and other tools, are not a wrap-up", () => {

@@ -1,8 +1,10 @@
 import React, { memo, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Keycap } from "../Keycap";
 import { useT } from "../i18n";
+import { askTagText } from "../question/askTag";
 import { inlineText } from "../question/inlineText";
 import { answerPrompt, type NextStepAsk } from "./nextStepAsk";
+import { shownQuestion, WRAP_UP } from "./wrapUp";
 import { answerState, claimAnswer, setAnswerState, subscribeAnswers, type AnswerState } from "./waitingAskStore";
 import "./NextStepCard.css";
 
@@ -65,6 +67,12 @@ export const NextStepCard = memo(function NextStepCard({
     if (!pending || !registerKey) return;
     return registerKey(() => primary.current?.click());
   }, [pending, registerKey]);
+  // The ask's tag (a tagged ask's, or a wrap-up question's own leading word, wrapUp.ts) as a quiet
+  // chip before the question, the hat's chip (hatQuestions.css), never as raw "[trust]" text.
+  // Leo, 2026-11-19, on a pinned "[trust] Trust ~/fun/cmux ...?": "odd looking".
+  const tag = ask.label ?? (ask.tag === WRAP_UP ? undefined : ask.tag);
+  const chip = tag ? <span className="acpmux-next-step__tag">{askTagText(tag, t)}</span> : null;
+  const shown = shownQuestion(ask);
   const recap = ask.recap ? <p className="acpmux-next-step__recap">{inlineText(ask.recap)}</p> : null;
   // A wrap-up with nothing to decide (wrapUp.ts): the recap alone, in the same box.
   if (!ask.question) return recap ? <div className="acpmux-next-step acpmux-next-step--recap">{recap}</div> : null;
@@ -76,7 +84,10 @@ export const NextStepCard = memo(function NextStepCard({
         {recap}
         <span className="acpmux-hidden-label">{t("question.answered")}</span>
         <div className="acpmux-question-answered-item">
-          <span className="acpmux-question-answered-prompt">{inlineText(ask.question)}</span>
+          <span className="acpmux-question-answered-prompt">
+            {chip}
+            {inlineText(shown)}
+          </span>
           {answer !== undefined && (
             <span className="acpmux-question-answered-answer">{made ? t(made) : inlineText(answer)}</span>
           )}
@@ -96,9 +107,12 @@ export const NextStepCard = memo(function NextStepCard({
     );
   };
   return (
-    <fieldset className={`acpmux-next-step${className ? ` ${className}` : ""}`} aria-label={ask.question}>
+    <fieldset className={`acpmux-next-step${className ? ` ${className}` : ""}`} aria-label={shown}>
       {recap}
-      <p className="acpmux-next-step__question">{inlineText(ask.question)}</p>
+      <p className="acpmux-next-step__question">
+        {chip}
+        {inlineText(shown)}
+      </p>
       {ask.detail && <p className="acpmux-next-step__detail">{inlineText(ask.detail)}</p>}
       {onAnswer && (
         <div className="acpmux-next-step__answers">

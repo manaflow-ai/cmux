@@ -57,7 +57,8 @@ import { lacksImageBytes, ownQueue, queuedAttachments } from "./conversation/que
 import { setQueueing, useQueueing } from "./queueing";
 import { AuthorChip } from "./multiplayer/Faces";
 import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SlashCommand } from "./slashCommands";
-import { useSkillWords } from "./conversation/skillWords";
+import { type SkillWords, useSkillWords } from "./conversation/skillWords";
+import { answerPreview } from "./conversation/nextStepAsk";
 import { withSkillWords } from "./conversation/withSkillWords";
 import { type QueuedEntry, shownText } from "./composerQueueModel";
 import { acpmuxPerf } from "./perf";
@@ -184,6 +185,23 @@ function titleWhenTruncated(event: React.PointerEvent<HTMLElement>, prompt: stri
   const text = button.firstElementChild ?? button;
   if (text.scrollWidth > text.clientWidth || text.scrollHeight > text.clientHeight + 1) button.title = prompt;
   else button.removeAttribute("title");
+}
+
+/// A queued prompt's words in its row. A skill's `/name`, and the command it starts with, draw as in
+/// the prompt's bubble (SkillWord.tsx). An answer to an ask (a card clicked while the turn runs,
+/// nextStepAsk.ts `answerPrompt`) reads as the answer, the question it answers muted after it,
+/// never its raw `> ` quote (Leo, 2026-11-19: "odd looking").
+function QueuedPromptWords({ prompt, skills }: { prompt: string; skills: SkillWords }) {
+  const answered = answerPreview(prompt);
+  const words = (text: string) =>
+    withSkillWords(withoutSkillDollars(text, skills), skills.words, undefined, skills.leading);
+  if (!answered) return <>{words(prompt)}</>;
+  return (
+    <>
+      {words(answered.answer)}
+      <span className="acpmux-queued-quote">{answered.question}</span>
+    </>
+  );
 }
 
 /// Bridge failures whose request may already have reached acpmux (it answered late, the socket
@@ -1051,8 +1069,7 @@ export const ComposerQueue = React.memo(function ComposerQueue({
                 )}
               </>
             ) : (
-              // A skill's `/name`, and the command it starts with, draw as in the prompt's bubble (SkillWord.tsx).
-              withSkillWords(withoutSkillDollars(entry.prompt, skills), skills.words, undefined, skills.leading)
+              <QueuedPromptWords prompt={entry.prompt} skills={skills} />
             )}
           </span>
         </button>
