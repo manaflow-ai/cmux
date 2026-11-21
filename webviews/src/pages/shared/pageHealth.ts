@@ -7,6 +7,12 @@
 //   part, so the cost stays the same however many pages are open). `handled` counts the key and
 //   pointer presses the page's script received; the host counts the ones it sent, so a page that
 //   takes input but never runs its handlers reads as stuck. A host without the op stops the beats.
+// - Rest (CMUX-571, idle wakeups): after `REST_AFTER_BEATS` beats with no key, press, wheel, scroll
+//   or input, and no unsaved edits, the page sends one `{handled, rest: true}` and stops its timer,
+//   but only when the host's last beat answered `{rest: true}` (its health model then stops timing the
+//   page's silence; a host that answers anything else keeps the 2 s beat). The next activity beats at
+//   once and starts the timer again; input the host sends a resting page is still timed by the host,
+//   so a page that hangs while resting reads as stuck as soon as someone types or clicks in it.
 // - Kept state: the scroll position of the scroller that moved last (scrollers.ts), and the draft in
 //   a focused field that opted in (`[data-cmux-restore-draft]`: a textarea or plain contenteditable),
 //   go to sessionStorage, keyed by the page's URL, with each beat (the autosave a hung page's reload
@@ -25,12 +31,16 @@
 //   before page code ran; no other page gets the function.
 import { installScrollingMarks, lastScrolledElement, SHOWN_SCROLLER_ATTRIBUTE } from "../../scrollers";
 
-/** Page to host, `{handled}` → null: the page is alive; `handled` is its input count so far. */
+/** Page to host, `{handled, edits?, rest?}` → `{rest}`: the page is alive; `handled` is its input
+ * count so far; `rest` (sent) says it stops beating until something happens in it, and (answered)
+ * whether the host takes such rests. An older host answers null: the page never rests there. */
 export const PAGE_HEARTBEAT_OP = "cmux.page.heartbeat";
 /** Host to page, `{}` → `{saved}`: save scroll and draft now, the host reloads the page next. */
 export const PAGE_SAVE_STATE_OP = "cmux.page.save_state";
 /** The beat period while visible (the health contract's page policy). */
 export const HEARTBEAT_MS = 2000;
+/** Quiet beats before the page rests (10 s: cmux-health-core `PAGE_REST_AFTER_MS`). */
+export const REST_AFTER_BEATS = 5;
 /** The fault-injection push, and the flag the host sets at document start to allow it. */
 export const HEALTH_INJECT_NAME = "__cmuxHealthInject";
 export const HEALTH_INJECT_ALLOWED_NAME = "__cmuxHealthInjectAllowed";
@@ -86,9 +96,24 @@ export function installPageHealth(client: HealthClient, doc: Document = document
   );
 
   let handled = 0;
-  const count = () => void handled++;
+  // Beats since the last activity; the page rests at `REST_AFTER_BEATS` when the host takes rests.
+  let quiet = 0;
+  let resting = false;
+  let hostTakesRest = false;
+  // Set below, once the timer exists: wakes a resting page.
+  let wake = () => {};
+  const active = () => {
+    quiet = 0;
+    if (resting) wake();
+  };
+  const count = () => {
+    handled++;
+    active();
+  };
   view.addEventListener("keydown", count, { capture: true, passive: true });
   view.addEventListener("pointerdown", count, { capture: true, passive: true });
+  view.addEventListener("wheel", active, { capture: true, passive: true });
+  doc.addEventListener("scroll", active, { capture: true, passive: true });
 
   const key = () => KEPT_STATE_PREFIX + view.location.href;
   let lastSaved = "";
@@ -117,16 +142,39 @@ export function installPageHealth(client: HealthClient, doc: Document = document
   };
   let edits = false;
   const holdsEdits = () => doc.querySelector(`[${UNSAVED_EDITS_ATTRIBUTE}]`) !== null;
-  const beat = () => {
+  const beat = (rest = false) => {
     save();
     if (client.holding) return;
     edits = holdsEdits();
-    client.call(PAGE_HEARTBEAT_OP, edits ? { handled, edits } : { handled }).catch((error: unknown) => {
-      // An app without the op will never take one: stop for this document (stop condition).
-      if ((error as { code?: unknown } | null)?.code !== "cmux.protocol.unknown_op") return;
-      refused = true;
-      stop();
-    });
+    const params = edits ? { handled, edits } : rest ? { handled, rest } : { handled };
+    client.call<{ rest?: unknown } | null>(PAGE_HEARTBEAT_OP, params).then(
+      (reply) => {
+        hostTakesRest = reply?.rest === true;
+      },
+      (error: unknown) => {
+        // An app without the op will never take one: stop for this document (stop condition).
+        if ((error as { code?: unknown } | null)?.code !== "cmux.protocol.unknown_op") return;
+        refused = true;
+        stop();
+      },
+    );
+  };
+  const tick = () => {
+    quiet++;
+    if (quiet < REST_AFTER_BEATS || !hostTakesRest || client.holding || holdsEdits()) return beat();
+    // Nothing happened for a while: the last beat says so, then no timer runs until something does.
+    beat(true);
+    stop();
+    resting = true;
+  };
+  const start = () => {
+    quiet = 0;
+    resting = false;
+    beat();
+    timer = view.setInterval(tick, HEARTBEAT_MS);
+  };
+  wake = () => {
+    if (!refused && doc.visibilityState === "visible" && timer === undefined) start();
   };
   const follow = () => {
     // A hidden page saves its place even on an app that refused the beat.
@@ -136,11 +184,11 @@ export function installPageHealth(client: HealthClient, doc: Document = document
       return;
     }
     if (refused || timer !== undefined) return;
-    beat();
-    timer = view.setInterval(beat, HEARTBEAT_MS);
+    start();
   };
   // After the input's render (its mark is set or cleared by then), not at the next beat.
   const editChanged = () => {
+    active();
     if (!refused && doc.visibilityState === "visible" && holdsEdits() !== edits) beat();
   };
   view.addEventListener("input", () => view.setTimeout(editChanged, 0), { capture: true, passive: true });

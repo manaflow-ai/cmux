@@ -534,3 +534,48 @@ async fn a_folder_moved_into_a_root_with_a_session_in_it_is_seen() {
     let added = c.change(&format!("claude-code:{B}"), |p| p["kind"] == "upsert").await;
     assert_eq!(added["chat"]["title"], "a claude chat moved in");
 }
+
+/// A symbolic link to a folder outside the root, moved into a watched root, is not followed: the
+/// session in the folder it points at stays out of the index, as a scan of the root leaves it
+/// (the adapters list entries without following links). The watch took the link for a folder
+/// made (`Path::is_dir` follows links) and listed the outside folder through it. A real folder
+/// moved in after it is still seen, so the watch did run. Linux only, as above.
+#[cfg(target_os = "linux")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_symlinked_folder_moved_into_a_root_is_not_followed() {
+    let h = home("linkin");
+    let projects = h.0.join(".claude/projects");
+    std::fs::create_dir_all(&projects).unwrap();
+    let hub = hub();
+    hub.start_chats(sources(&h.0, &[])).await.unwrap();
+    let mut c = Client::new(&hub, Origin::Local);
+    let snapshot = c.ok("_acpmux/chats_watch", json!({})).await;
+    assert!(keys(&snapshot).is_empty(), "{snapshot}");
+
+    // A session outside every root, reached by a link moved into the root.
+    let outside = h.0.join("outside");
+    write_session(&outside, B, &[user(B, "/work/app", "a chat outside the root")]);
+    let link = h.0.join("staged-link");
+    std::os::unix::fs::symlink(outside.join("-work-app"), &link).unwrap();
+    std::fs::rename(&link, projects.join("-work-link")).unwrap();
+    // Then a real folder: once its chat is in, the link's event was handled before it.
+    let project = h.0.join("staged-project");
+    write_session(&project, A, &[user(A, "/work/app", "a real folder moved in")]);
+    std::fs::rename(project.join("-work-app"), projects.join("-work-app")).unwrap();
+    let outside_key = format!("claude-code:{B}");
+    let real_key = format!("claude-code:{A}");
+    loop {
+        let v = c.next().await;
+        if v["method"] != "_acpmux/chat_changed" {
+            continue;
+        }
+        assert_ne!(v["params"]["key"], outside_key, "a session behind a link was indexed: {v}");
+        if v["params"]["key"] == real_key && v["params"]["kind"] == "upsert" {
+            break;
+        }
+    }
+    let snapshot = c.ok("_acpmux/chats_watch", json!({})).await;
+    let listed = keys(&snapshot);
+    assert!(listed.contains(&real_key), "{snapshot}");
+    assert!(!listed.contains(&outside_key), "a session behind a link was indexed: {snapshot}");
+}

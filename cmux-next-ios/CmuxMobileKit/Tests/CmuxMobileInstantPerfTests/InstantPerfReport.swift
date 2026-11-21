@@ -9,8 +9,11 @@ import Testing
 // xcodebuild pass it as `TEST_RUNNER_CMUX_INSTANT_PERF_OUT` (the runner strips the prefix).
 //
 // The rules, each its own assertion:
-// - budget: small and god each at most 3x the target (generous, so shared CI noise never flakes;
-//   the target itself is the goal the numbers are read against);
+// - budget: small and god each at most 3x the target (the target itself is the goal the numbers
+//   are read against). The small case's budget is an absolute wall-clock number with no god to
+//   compare against, so on a shared runner it measures the runner: it fails only where the
+//   harness is quiet (`CMUX_INSTANT_PERF_STRICT=1`) and elsewhere is recorded in `failing` and
+//   printed as a warning (a GitHub macOS runner took 20 ms for a 4 ms target with no code change);
 // - ratio: god at most 1.2x small, compared as god / max(small, 1 ms). Under 1 ms nobody can
 //   see a difference, and a sub-millisecond small would make any ratio noise; the floor keeps
 //   "god must cost what small costs" meaningful without failing on microseconds.
@@ -56,6 +59,13 @@ enum InstantPerfReport {
     static let clearMargin: Double = 0.75
     static let budgetFactor = 3.0
 
+    /// The small case's absolute budget fails the run only on a quiet harness
+    /// (`CMUX_INSTANT_PERF_STRICT=1`); elsewhere a miss is a recorded warning. The ratio and the
+    /// god budget always assert.
+    static var strictSmallBudget: Bool {
+        ProcessInfo.processInfo.environment["CMUX_INSTANT_PERF_STRICT"] == "1"
+    }
+
     /// Measured runs after the warm-up (`CMUX_INSTANT_PERF_RUNS` overrides).
     static var defaultRuns: Int {
         Int(ProcessInfo.processInfo.environment["CMUX_INSTANT_PERF_RUNS"] ?? "") ?? 5
@@ -96,9 +106,16 @@ enum InstantPerfReport {
     }
 
     /// Reports the metric, then asserts its budget and ratio (known-red ones under `withKnownIssue`).
+    ///
+    /// `underLoad`: the runs were timed while the test kept the other cores busy on purpose. Their
+    /// ratio then moves with how that host shares its caches and allocator with the load, not with
+    /// the fixture's size (on the same code, base kit jobs of one day passed it and read 1.41x:
+    /// `home_list_first_screen_under_load` on the iOS simulator, god 12.7 vs small 9.0 ms). Like the small
+    /// budget, such a ratio fails the run only on a quiet harness (`CMUX_INSTANT_PERF_STRICT=1`);
+    /// elsewhere a miss is in the JSON line's `failing` and printed as a warning.
     static func record(_ metric: String, target: Double, small: [Double], god: [Double],
                        knownRed: Set<InstantPerfCheck> = [], why: String = "", note: String = "",
-                       sourceLocation: SourceLocation = #_sourceLocation) {
+                       underLoad: Bool = false, sourceLocation: SourceLocation = #_sourceLocation) {
         let smallMs = median(small)
         let godMs = median(god)
         let budget = target * budgetFactor
@@ -136,6 +153,11 @@ enum InstantPerfReport {
             case .smallBudget: "\(metric): small \(fmt(smallMs)) ms over the \(fmt(budget)) ms budget (3x the \(fmt(target)) ms target)"
             case .godBudget: "\(metric): god \(fmt(godMs)) ms over the \(fmt(budget)) ms budget (3x the \(fmt(target)) ms target)"
             case .ratio: "\(metric): god \(fmt(godMs)) ms is \(fmt(ratio))x small \(fmt(smallMs)) ms (floor \(fmt(ratioFloorMs)) ms); the rule is at most \(fmt(ratioLimit))x"
+            }
+            if check == .smallBudget || (check == .ratio && underLoad), !knownRed.contains(check), !strictSmallBudget {
+                // Shared runner: the number is in the JSON line's `failing`; it never fails the run.
+                if !ok { print("INSTANTPERF warning: \(comment.rawValue) (not enforced; CMUX_INSTANT_PERF_STRICT=1 enforces it)") }
+                continue
             }
             if knownRed.contains(check) {
                 withKnownIssue("\(metric) \(check.rawValue) is red on base (\(why)); tracked in plans/feat-ios-instant-list/DESIGN.md (cmuxterm-hq). Remove it from knownRed once fixed.",

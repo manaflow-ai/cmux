@@ -149,14 +149,48 @@ extension AppStore {
         ]
         // CMUX_MOBILE_MOCK_BARE_ROWS=1: two idle workspaces with no branch and no
         // folder, whose rows have nothing on line 2 (before/after captures).
+        // CMUX_MOBILE_MOCK_TERMINAL_AGENTS=1: first, two workspaces whose terminal runs Claude Code
+        // or Codex (Toggle Terminal and Chat's pairs; tab links tab_…10 and tab_…20).
+        let terminalAgents = ProcessInfo.processInfo.environment["CMUX_MOBILE_MOCK_TERMINAL_AGENTS"] == "1" ? [
+            Workspace(id: "ws-term-claude", macID: "mac-studio", title: "relay", directory: "~/Development/relay", branch: "main",
+                      tabs: [WorkspaceTab(id: "t-term-claude", kind: .terminal, title: "claude", subtitle: "~/Development/relay",
+                                          harness: "claude-code")],
+                      lastActivityAt: ago(2)),
+            Workspace(id: "ws-term-codex", macID: "mac-studio", title: "parser", directory: "~/Development/parser", branch: "main",
+                      tabs: [WorkspaceTab(id: "t-term-codex", kind: .terminal, title: "codex", subtitle: "~/Development/parser",
+                                          harness: "codex")],
+                      lastActivityAt: ago(4)),
+        ] : []
         let bare = ProcessInfo.processInfo.environment["CMUX_MOBILE_MOCK_BARE_ROWS"] == "1" ? [
             Workspace(id: "ws-bare-1", macID: "mac-studio", title: "scratch", directory: "",
                       tabs: [WorkspaceTab(id: "t-bare-1", kind: .terminal, title: "zsh")], lastActivityAt: ago(8)),
             Workspace(id: "ws-bare-2", macID: "mac-studio", title: "notes to self", directory: "",
                       tabs: [WorkspaceTab(id: "t-bare-2", kind: .terminal, title: "zsh")], lastActivityAt: ago(20)),
         ] : []
-        return AppStore(teams: teams, activeTeamID: "team-manaflow", workspaces: (workspaces + bare).enumerated().map { Self.mockLinkIDs($1, index: $0) }, feed: feed,
+        // CMUX_MOBILE_MOCK_PANES=1: first, a workspace of five terminals in two panes side by
+        // side (build, server, logs | tests, git), for the Panes page's drag (PaneDragMoveUITests).
+        let panes = ProcessInfo.processInfo.environment["CMUX_MOBILE_MOCK_PANES"] == "1" ? [Self.mockPanesWorkspace(now: now)] : []
+        return AppStore(teams: teams, activeTeamID: "team-manaflow", workspaces: (panes + terminalAgents + workspaces + bare).enumerated().map { Self.mockLinkIDs($1, index: $0) }, feed: feed,
                         tabMemory: tabMemory)
+    }
+
+    /// `ws-panes`: build, server and logs in the left pane, tests and git in the right one.
+    static func mockPanesWorkspace(now: Date) -> Workspace {
+        let folder = "~/Development/panes"
+        func terminal(_ id: String, _ title: String) -> WorkspaceTab {
+            WorkspaceTab(id: id, kind: .terminal, title: title, subtitle: folder)
+        }
+        var workspace = Workspace(
+            id: "ws-panes", macID: "mac-studio", title: "panes", directory: folder, branch: "main",
+            tabs: [terminal("t-pane-build", "build"), terminal("t-pane-server", "server"), terminal("t-pane-logs", "logs"),
+                   terminal("t-pane-tests", "tests"), terminal("t-pane-git", "git")],
+            lastActivityAt: now.addingTimeInterval(-30), activeTabID: "t-pane-build"
+        )
+        workspace.layout = WorkspaceLayout(screens: [WorkspaceLayout.Screen(id: 1, isActive: true, panes: [
+            WorkspaceLayout.Pane(id: 1, tabIDs: ["t-pane-build", "t-pane-server", "t-pane-logs"], activeTabID: "t-pane-build", isFocused: true),
+            WorkspaceLayout.Pane(id: 2, tabIDs: ["t-pane-tests", "t-pane-git"], activeTabID: "t-pane-tests"),
+        ], root: .split(id: 9, axis: .horizontal, ratio: 0.5, first: .pane(1), second: .pane(2)))])
+        return workspace
     }
 
     /// Mac-style public ids for the samples, so cmux links resolve in mock mode

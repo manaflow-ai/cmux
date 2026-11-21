@@ -6,7 +6,8 @@
   margin-right: 6px;
   padding: 0 4px;
   box-sizing: border-box;
-  border-radius: 4px;
+  /* Concentric with the button it sits in (Lawrence 2026-11-15): the button's corner less the chip's inset. */
+  border-radius: calc(var(--ds-radius-control, 8px) - var(--ds-space-1, 4px));
   background: color-mix(in srgb, currentColor 18%, transparent);
   font: 11px/16px ui-monospace, SFMono-Regular, Menlo, monospace;
   text-align: center;

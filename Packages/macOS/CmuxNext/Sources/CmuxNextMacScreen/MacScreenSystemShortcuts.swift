@@ -37,6 +37,8 @@ public final class MacScreenSystemShortcuts {
     /// Permission and app state checks; tests replace them.
     @ObservationIgnored public var checkAccessibility: () -> Bool = { AXIsProcessTrusted() }
     @ObservationIgnored public var isAppActive: () -> Bool = { NSApp.isActive }
+    /// Also run when the app becomes active (cmux Remote's report of the app's own grants).
+    @ObservationIgnored var onAppActive: () -> Void = {}
     /// The panes that may hold the keyboard.
     @ObservationIgnored var panes: () -> [MacScreenPane] = { [] }
     @ObservationIgnored private let tap = RemoteSystemShortcutTap()
@@ -60,7 +62,7 @@ public final class MacScreenSystemShortcuts {
             center.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
                 let active = notification.name == NSApplication.didBecomeActiveNotification
                 MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                    if active { self?.refreshAccessibility() }
+                    if active { self?.refreshAccessibility(); self?.onAppActive() }
                     self?.update()
                 }
             }
@@ -74,7 +76,8 @@ public final class MacScreenSystemShortcuts {
     /// Asks macOS for Accessibility; when it does not show its prompt, opens
     /// System Settings > Privacy & Security > Accessibility in the background.
     public func requestAccessibility() {
-        host.requestAccessibility()
+        // The tap runs in this app (not in the Screen Sharing helper), so the grant is the app's own.
+        host.requestAppAccessibility()
         refreshAccessibility()
     }
 

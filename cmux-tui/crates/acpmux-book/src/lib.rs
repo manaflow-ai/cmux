@@ -17,13 +17,22 @@
 //! typed JSON; it never holds a parsed tree of a row. The chat actor (`acpmux-core`) owns one
 //! [`log::Log`] per hydrated chat and is its only writer.
 
+pub mod blobs;
+pub mod checkpoint;
+pub mod folds;
 mod fsio;
+#[cfg(any(test, feature = "gate-rounds"))]
+pub mod gate_rounds;
 pub mod index;
 mod json;
 pub mod log;
 pub mod row;
 pub mod translate;
 
+#[cfg(test)]
+mod chat_read_gates;
+#[cfg(test)]
+mod chat_read_tests;
 #[cfg(test)]
 mod log_bench;
 #[cfg(test)]
@@ -34,3 +43,5 @@ mod recover_tests;
 mod row_tests;
 #[cfg(test)]
 mod testkit;
+#[cfg(test)]
+mod turns_read_tests;

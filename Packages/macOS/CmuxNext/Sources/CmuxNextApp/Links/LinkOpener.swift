@@ -85,19 +85,22 @@ final class LinkOpener {
     /// column order (``LinkOpenPlacement/paneRight(of:columns:takesTabs:recency:)``), not by drawn
     /// frames, which miss a strip column that is scrolled or not laid out yet.
     /// `kind`: what opens, a terminal or a browser, which goes to a right-column pane already holding
-    /// that kind (``RightColumnPlacement``); nil for anything else.
-    func target(from source: PaneController, mainPane: Bool = true, besideChat: Bool = false, kind: RightColumnPlacement.Kind? = nil) -> LinkOpenPlacement<LayoutPaneID>.Target {
+    /// that kind (``RightColumnPlacement``); nil for anything else. `opening`: a link or a new tool (``LinkOpenPlacement/Opening``).
+    func target(from source: PaneController, mainPane: Bool = true, besideChat: Bool = false, kind: RightColumnPlacement.Kind? = nil, opening: LinkOpenPlacement<LayoutPaneID>.Opening = .link) -> LinkOpenPlacement<LayoutPaneID>.Target {
         let content = source.workspace
         let width: (LayoutPaneID) -> CGFloat? = { content?.panes[$0].flatMap(Self.width(of:)) }
         let holds: (LayoutPaneID, RightColumnPlacement.Kind) -> Bool = { id, kind in content?.panes[id].map { Self.holds($0, kind) } ?? false }
+        // A terminal or browser joins the nearest pane on the right already holding its kind, whichever pane the person or a link focused last.
+        let holder = kind.flatMap { kind in content.flatMap { Self.nearestHolder(of: kind, beside: source.layoutPaneID, in: $0) } }
         if let services, let side = besideChat ? ChatColumnPlacement.resolve(from: source, services: services)
             : (mainPane ? MainPaneLayout.side(from: source, services: services) : nil) {
             switch side {
             case .tab(let pane):
+                if let holder, holder != source.layoutPaneID { return .pane(holder) }
                 // The strip column right of the docked chat is its right side: the same lower split (ux-owner 2026-10-30).
                 let column = content.map { Self.rightPanes(beside: source.layoutPaneID, in: $0) } ?? []
                 return LinkOpenPlacement<LayoutPaneID>.inColumn(right: pane, column: column, sourceWidth: Self.width(of: source), width: width,
-                                                                kind: kind, holds: holds)
+                                                                kind: kind, holds: holds, opening: opening)
             case .dockChat: return .dockChat(source.layoutPaneID)
             case .here, .besideDock: break
             }
@@ -120,11 +123,11 @@ final class LinkOpener {
             return PaneHandlers.neighbor(of: source.layoutPaneID, direction: .right, in: content).flatMap { takes($0) ? $0 : nil } ?? column.first
         }
         return LinkOpenPlacement(setting: besideChat ? .splitRight : placement()).target(source: source.layoutPaneID, takesTabs: takesTabs, right: right, column: column,
-            sourceWidth: Self.width(of: source), width: width, kind: kind, holds: holds, left: besideChat || source.selectedTab?.showsPage != true ? nil : source.workspace.flatMap { PaneHandlers.neighbor(of: source.layoutPaneID, direction: .left, in: $0) })
+            sourceWidth: Self.width(of: source), width: width, kind: kind, holds: holds, left: besideChat || source.selectedTab?.showsPage != true ? nil : source.workspace.flatMap { PaneHandlers.neighbor(of: source.layoutPaneID, direction: .left, in: $0) }, holder: holder, opening: opening)
     }
 
     /// Whether the chat header's Terminal from `source` is one Split Right (one `split`, its stand-in pane at the press; ``AgentChatTabActions/run(_:cwd:on:)``), not a tab made in the chat's pane and moved: nothing is on its right, no open beside it is on its way, its pane has room, and its daemon shows a split at the press (`split-client-keys`).
-    func terminalSplitsAtOnce(from source: PaneController) -> Bool { if case .splitRight = target(from: source, besideChat: true, kind: .terminal), !turns.isBusy(beside: source.layoutPaneID), source.daemon.supports(DaemonCapability.splitClientKeys.rawValue), case .split = source.services.toolSplit(from: source.pane, edge: .right, byPerson: true) { true } else { false } }
+    func terminalSplitsAtOnce(from source: PaneController) -> Bool { if case .splitRight = target(from: source, besideChat: true, kind: .terminal, opening: .tool), !turns.isBusy(beside: source.layoutPaneID), source.daemon.supports(DaemonCapability.splitClientKeys.rawValue), case .split = source.services.toolSplit(from: source.pane, edge: .right, byPerson: true) { true } else { false } }
 
     /// Opens through `make` where the rule puts it. `background`: the opened tab takes no focus.
     /// `mainPane` false: main pane layout does not apply (a chat, which belongs in the dock, not
@@ -134,12 +137,12 @@ final class LinkOpener {
     /// one has landed, from the column it made.
     @discardableResult
     func open(from source: PaneController?, background: Bool = false, mainPane: Bool = true, besideChat: Bool = false, kind: RightColumnPlacement.Kind? = nil,
-              focusing focus: FocusState.Target = .content, split: SplitMake? = nil, _ make: @escaping Make) -> Bool {
+              opening: LinkOpenPlacement<LayoutPaneID>.Opening = .link, focusing focus: FocusState.Target = .content, split: SplitMake? = nil, _ make: @escaping Make) -> Bool {
         guard let source = source ?? services?.windows.active?.focusedPane else { return false }
         var opened = true
         let now = turns.serially(beside: source.layoutPaneID) { [weak self, weak source] done in
             guard let self, let source else { return done() }
-            opened = self.place(from: source, background: background, mainPane: mainPane, besideChat: besideChat, kind: kind, focusing: focus,
+            opened = self.place(from: source, background: background, mainPane: mainPane, besideChat: besideChat, kind: kind, opening: opening, focusing: focus,
                                 split: split, make, done: done)
         }
         return now ? opened : true
@@ -147,9 +150,9 @@ final class LinkOpener {
 
     /// ``open(from:background:mainPane:_:)`` in its turn: `done` runs once the open has landed or
     /// failed, so the next open beside `source` reads the column it left.
-    private func place(from source: PaneController, background: Bool, mainPane: Bool, besideChat: Bool, kind: RightColumnPlacement.Kind?, focusing focus: FocusState.Target,
+    private func place(from source: PaneController, background: Bool, mainPane: Bool, besideChat: Bool, kind: RightColumnPlacement.Kind?, opening: LinkOpenPlacement<LayoutPaneID>.Opening, focusing focus: FocusState.Target,
                        split: SplitMake?, _ make: Make, done: @escaping @MainActor () -> Void) -> Bool {
-        switch target(from: source, mainPane: mainPane, besideChat: besideChat, kind: kind) {
+        switch target(from: source, mainPane: mainPane, besideChat: besideChat, kind: kind, opening: opening) {
         case .pane(let id):
             defer { done() }
             return make(id == source.layoutPaneID ? source : source.workspace?.panes[id] ?? source, nil)
@@ -518,6 +521,11 @@ final class LinkOpener {
 /// that start at its right edge and overlap its height, top to bottom. Only panes that take new
 /// tabs count. Every open on the right of a pane takes its turn in ``LinkOpener/turns``.
 extension LinkOpener {
+    static func holds(_ pane: PaneController, _ kind: RightColumnPlacement.Kind) -> Bool { holds(tabs: pane.pane.tabs, kind) }
+    static func holds(tabs: [TabModel], _ kind: RightColumnPlacement.Kind) -> Bool { tabs.contains { kind.isHeld(by: $0, document: $0.page == InternalPageID.diff.rawValue) || (kind == .browser && $0.page == InternalPageID.github.rawValue) } }
+    static func nearestHolder(of kind: RightColumnPlacement.Kind, beside source: LayoutPaneID, in content: WorkspaceContentController) -> LayoutPaneID? { guard let screen = content.layoutModel.screen(containing: source) else { return nil }; let columns = screen.layout.visualColumns.map(\.root.panes); let ordered = columns.isEmpty ? [screen.layout.panes] : columns; return LinkOpenPlacement<LayoutPaneID>.nearestHolder(of: kind, source: source, columns: ordered, frames: content.layoutView.navigationFrames(ofScreenContaining: source), holds: { id, kind in content.panes[id].map { $0.stripModel.showsNewTabButton && holds($0, kind) } ?? false }) }
+    static func rightPanes(beside source: LayoutPaneID, in content: WorkspaceContentController) -> [LayoutPaneID] { RightColumnPlacement.column(beside: source, frames: content.layoutView.navigationFrames(ofScreenContaining: source)).filter { content.panes[$0]?.stripModel.showsNewTabButton == true } }
+
     /// The right column beside `source`, measured: its panes (layout pane ids) and their widths.
     static func rightColumn(beside source: PaneController) -> RightColumnPlacement.Column {
         guard let content = source.workspace else { return .init(sourceWidth: width(of: source)) }
@@ -530,11 +538,6 @@ extension LinkOpener {
         return .init(sourceWidth: width(of: source), panes: panes.map(\.rawValue), widths: widths, kinds: kinds)
     }
 
-    /// Whether `pane` holds a tab of `kind` (``RightColumnPlacement/Kind/isHeld(by:document:)``).
-    static func holds(_ pane: PaneController, _ kind: RightColumnPlacement.Kind) -> Bool {
-        pane.pane.tabs.contains { kind.isHeld(by: $0, document: $0.page == InternalPageID.diff.rawValue) }
-    }
-
     /// `pane`'s width once its layout lands (``LayoutRootView/restingContentWidth(of:)``), what every open on the
     /// right reads (links, and agent opens through ``rightColumn(beside:)``). Not its view's bounds: right after a
     /// split the source still shows its old width and the new pane a sliver, so a link opened at once in a narrow
@@ -543,14 +546,5 @@ extension LinkOpener {
     /// fleet runs of #28044 at 8e520360 and caf8e69e, SideOpenStripTests' windowless pane opened links in place).
     static func width(of pane: PaneController) -> CGFloat? {
         pane.workspace?.layoutView.restingContentWidth(of: pane.layoutPaneID)
-    }
-
-    /// The panes right of `source` in `content`, top to bottom, from the pane frames of the screen
-    /// that holds `source`, active or not (``RightColumnPlacement/column(beside:frames:gap:)``),
-    /// keeping those that take new tabs. Review of #28044 at bd2b918d: the active screen's frames
-    /// read an empty column for a chat on a screen the person switched away from mid-open.
-    static func rightPanes(beside source: LayoutPaneID, in content: WorkspaceContentController) -> [LayoutPaneID] {
-        RightColumnPlacement.column(beside: source, frames: content.layoutView.navigationFrames(ofScreenContaining: source))
-            .filter { content.panes[$0]?.stripModel.showsNewTabButton == true }
     }
 }

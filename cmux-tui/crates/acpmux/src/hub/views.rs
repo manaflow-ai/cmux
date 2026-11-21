@@ -41,6 +41,7 @@ pub(crate) fn running_work(session: &Session, turn_runs: bool, commands: usize) 
 
 /// A peer's summary as a census row (`Hub::session_list_summary`): no inventory, and a long
 /// title cut (`TITLE_CHARS`), including in rows supplied by older peers.
+/// A packed row cuts the same with no parse (`PeerRow::changed_text`).
 pub(crate) fn without_summary_tools(mut summary: Value) -> Value {
     if let Some(row) = summary.as_object_mut() {
         row.remove("tools");
@@ -62,7 +63,7 @@ const TITLE_CHARS: usize = 200;
 /// `title`, or for a longer one its first [`TITLE_CHARS`], folded, and masked before it is cut
 /// as a lane's title is ([`masked_cut`]): a secret the cut would split is masked whole, never
 /// left as a head a peer's masking no longer knows (`peer_text.rs`).
-fn summary_title(title: &str) -> String {
+pub(super) fn summary_title(title: &str) -> String {
     if title.chars().nth(TITLE_CHARS).is_none() {
         title.to_owned()
     } else {
@@ -70,8 +71,7 @@ fn summary_title(title: &str) -> String {
     }
 }
 
-/// The tag naming the session whose agent started this one (`Hub::spawned_by`).
-pub const SPAWNED_BY_TAG: &str = "spawnedBy";
+pub use crate::meta_fields::SPAWNED_BY_TAG;
 const COORDINATOR_PARENT_TAG: &str = "mux.parent";
 
 /// The direct parent has the same precedence as lineage_of(), without walking
@@ -85,7 +85,7 @@ fn activity_parent(m: &SessionMeta) -> Option<&str> {
 }
 
 /// [`activity_parent`], for the closed-row cache (`Hub::cached_closed_summary`).
-pub(super) fn activity_parent_id(m: &SessionMeta) -> Option<&str> {
+pub(crate) fn activity_parent_id(m: &SessionMeta) -> Option<&str> {
     activity_parent(m)
 }
 
@@ -711,7 +711,9 @@ impl Hub {
         let summary = SessionSummary {
             session_id: m.id.clone(),
             name: m.name.clone(),
+            handle: Some(m.spoken_handle().into_owned()),
             name_given: m.name_given,
+            former_names: m.former_names.clone(),
             harness: m.harness.clone(),
             family: m.family.clone(),
             cwd: m.cwd.to_string_lossy().into_owned(),
@@ -764,11 +766,21 @@ impl Hub {
             last_prompt: m.last_prompt.clone(),
             preview: m.preview.as_deref().map(|p| short_text(p, 160)),
             last_message: last_message(&m),
+            task_list: m.task_list.as_ref().map(crate::task_list::TaskList::summary),
+            rolling_summary: m.rolling_summary.clone(),
             queued: session.queued(),
+            // The person's unsent text (`set_composer_draft`): an idle app update waits for it.
+            has_draft: m.composer_draft.as_deref().is_some_and(|d| !d.trim().is_empty()),
+            // Background work no turn shows: an idle app update waits for it too.
+            working_below: self.holds_work_below_read(session),
             // A turn failed: the prompts that waited behind it wait for a client to resume them.
             queue_paused: session.queue_paused(),
             // A daemon start holds its queue until a person opens it (`protected_hold.rs`).
             person_hold: self.person_hold(session),
+            // The account's rate limit holds every turn until the reset (`rate_hold.rs`).
+            rate_limited_until: session.rate_hold.until(),
+            // Parked after six failed turns in a row: goes on at `acpmux retry` (`rate_hold.rs`).
+            rate_limit_parked: session.rate_hold.parked(),
             // Its queued prompt waits for a run slot of its parent (`subsession_runs.rs`).
             waits_for_slot: self.waits_for_slot(&m),
             // An agent start under way (`lifecycle.rs` holds `spawn_lock` until the agent answered
@@ -911,6 +923,12 @@ impl Hub {
         let mut summary = serde_json::to_value(summary).unwrap_or(Value::Null);
         summary.set("qualifiedSessionId", Value::String(receipt.qualified_id()));
         summary.set("sessionReceipt", receipt.to_value());
+        // Where its journal's own recovery at the end begins, while it ends the journal: the
+        // owner restores a copy past it from there, however far `lastSeq` is (review of #37284
+        // at 8b5f3063, F2: a recovery as long as the copy was past it hid the copy).
+        if let Some(from) = m.recovered_after.filter(|from| *from < m.last_seq) {
+            summary.set("recoveredAfter", json!(from));
+        }
         // The branch its folder has checked out now (`git_watch.rs`); null on
         // a detached HEAD or outside a repository.
         summary.set("gitBranch", json!(self.git_branch_now(&m)));
@@ -973,7 +991,8 @@ impl Hub {
         self.start_time_breakdown_seed(session);
         let m = session.meta();
         let mut v = self.session_summary(session);
-        v.set("modes", m.modes.clone().unwrap_or(Value::Null));
+        // Its permission modes (`permission_modes.rs`): the phone's Mode picker reads them.
+        v.set("modes", super::permission_modes::of_session(&m).unwrap_or(Value::Null));
         v.set("configOptions", m.config_options.as_deref().cloned().unwrap_or(Value::Null));
         v.set("models", m.models.clone().unwrap_or(Value::Null));
         v.set("agentInfo", m.agent_info.clone().unwrap_or(Value::Null));
@@ -1002,7 +1021,7 @@ impl Hub {
         }
         // The newest command list: a client that has it needs no read of the log for it.
         if let Some(commands) = &m.available_commands {
-            v.set("availableCommands", commands.clone());
+            v.set("availableCommands", Value::clone(commands));
         }
         v.set("forkSeq", json!(m.fork_seq));
         v.set("rulesJson", m.permission_rules.clone().unwrap_or(Value::Null));
@@ -1021,22 +1040,49 @@ impl Hub {
         v
     }
 
+    /// `_acpmux/status`. Every pane's connect waits on it: the app's endpoint lookup that all
+    /// panes share, and the pane's first frame (its machines). So it never waits long on any
+    /// one reading: the readings that may wait (host pressure, the disk, each chat's agent slot)
+    /// run side by side, each under [`STATUS_READING_BUDGET`], and one that misses it is null.
+    /// The config lock is never held across a wait: a writer queued behind a held read would stall
+    /// every later reader. Before this, one chat whose agent was starting or ending, or a slow
+    /// disk walk, held status, and every pane said "Waiting for the agent service" at once
+    /// (Leo, 2026-11-12, ask-64cfa32e34).
     pub async fn status(&self) -> Value {
-        // Before the config lock: it may wait up to `host_pressure::SAMPLE_WAIT` for a sample.
         let loading = !self.store_loaded() || !self.startup_complete();
-        let host_pressure = if loading { Value::Null } else { self.host_pressure_status().await };
-        let cfg = self.config.read().await;
-        // The space of acpmux's disk, `disk.low` with what to free under the floor. Blocking
-        // (statvfs and a bounded, cached folder walk), so off the async workers.
-        let low = cfg.disk_low_bytes.unwrap_or(crate::recovery::DISK_LOW_DEFAULT_BYTES);
-        let disk = if loading {
-            Value::Null
-        } else {
-            tokio::task::spawn_blocking(move || crate::recovery::disk_status(low))
-                .await
-                .unwrap_or(Value::Null)
-        };
-        let sessions = self.sessions();
+        let low = self
+            .config
+            .read()
+            .await
+            .disk_low_bytes
+            .unwrap_or(crate::recovery::DISK_LOW_DEFAULT_BYTES);
+        // Only the sessions that are not closed: a close ends a session's agent and its turn
+        // before its status (`Hub::live_session_handles`), so the closed ones hold no agent and
+        // none is stuck. Status costs the same beside 11k closed chats as beside none.
+        let sessions = self.indexed_live_sessions();
+        let (all, live_ids) = self.session_counts();
+        let (host_pressure, disk, agents) = tokio::join!(
+            within_status_budget(async {
+                if loading { Value::Null } else { self.host_pressure_status().await }
+            }),
+            // The space of acpmux's disk, `disk.low` with what to free under the floor. Blocking
+            // (statvfs and a bounded, cached folder walk), so off the async workers.
+            within_status_budget(async move {
+                if loading {
+                    return Value::Null;
+                }
+                tokio::task::spawn_blocking(move || crate::recovery::disk_status(low))
+                    .await
+                    .unwrap_or(Value::Null)
+            }),
+            within_status_budget(live_agents(&sessions)),
+        );
+        let (host_pressure, disk) =
+            (host_pressure.unwrap_or(Value::Null), disk.unwrap_or(Value::Null));
+        // Counts that missed the budget are null, never 0: readers take a missing count as busy
+        // (`RemoteAgentDaemon.idleForKeyedRestart`) and say nothing of other builds.
+        let (live, other_build) =
+            agents.map_or((Value::Null, Value::Null), |(l, o)| (json!(l), json!(o)));
         let stuck: Vec<Value> = sessions
             .iter()
             .filter_map(|s| {
@@ -1049,30 +1095,23 @@ impl Hub {
                 "stuckSince": since, "stuckError": error}))
             })
             .collect();
-        // Never waits on a chat's child lock: a start or a detach holds it while its agent starts
-        // or ends (`detach_child` through the agent's kill), and every pane's handshake asks this
-        // (`AgentPaneHost` lookup), so one chat ending slowly drew "Waiting for the agent service"
-        // in every pane (cmuxterm-hq#8489). A held lock is an agent starting or ending: live, as
-        // the idle reaper counts it (`idle.rs`), its build read on the next status.
-        let (mut live, mut other_build) = (0, 0);
-        for s in &sessions {
-            let Ok(slot) = s.child.try_lock() else {
-                live += 1;
-                continue;
-            };
-            if let Some(child) = slot.as_ref() {
-                live += 1;
-                if host_build_differs(child.host_build().as_deref(), build()) {
-                    other_build += 1;
-                }
-            }
-        }
+        // Read after every wait above and held through no other.
+        let cfg = self.config.read().await;
         let exe_unstable = crate::daemon::exe_path::current_unstable();
+        let closed = self.closed_listed(all.saturating_sub(live_ids));
         json!({
             "version": VERSION,
             "build": build(),
             // The protocol surfaces this build serves (`capabilities.rs`).
             "capabilities": crate::capabilities::ids(),
+            // The closed rows `_acpmux/sessions` lists with no filter, counted with no row built
+            // (`Hub::closed_listed`): `acpmux ls` counts them on its hidden line while it reads
+            // only the live view (agent service v2, row 7b). Not one snapshot with that read.
+            "closedListed": closed.all,
+            // Of those, the peers' and hub machines' (decision 213): the v2 list holds no closed
+            // row of another machine, so `ls --all` and the other forms that walk the whole view
+            // read v1 while this is not 0.
+            "closedRemoteListed": closed.remote,
             "pid": std::process::id(),
             // Its own executable, and whether it runs as `cmux-tui acp …`, so a
             // client (host enroll) tells which program runs it without scanning
@@ -1085,15 +1124,22 @@ impl Hub {
             "exeStable": exe_unstable.is_none(),
             "exeUnstable": exe_unstable,
             "startedAt": self.started_at,
+            // What kind of device this machine is (`cmux-device-kind`), so the app draws This
+            // Mac with its own glyph (a Mac mini as a Mac mini) beside the peers' `health.device`.
+            "device": cmux_device_kind::this_device().kind.as_str(),
+            "deviceSymbol": cmux_device_kind::this_device().kind.symbol(),
             // Whether this run holds a person key, and its id (`hub/person.rs`):
             // the app checks that a daemon it started with a key still runs.
             "personKey": self.person.has_key(),
             "personInstance": self.person.instance(),
             "home": crate::config::home(),
+            // The supervisor contract's health: this daemon's owner record, today's stops and
+            // their causes, and `restart-budget-exceeded` past the budget (`daemon/supervision.rs`).
+            "supervisor": crate::daemon::supervision::status(&crate::config::home()),
             "userHome": dirs::home_dir(),
             "socket": crate::config::socket_path(),
             "store": cfg.store,
-            "sessions": sessions.len(),
+            "sessions": all,
             // Messages handed to this daemon that are not delivered yet (`outbox.rs`):
             // `acpmux ls` says so, `acpmux send --status` lists them.
             "outboxPending": self.outbox_unsettled(),
@@ -1132,7 +1178,15 @@ impl Hub {
             "listReplies": crate::list_bytes::global().status(),
             // Startup phases, memory, list rebuilds and each connection's queued bytes
             // (`gauges.rs`, `server/queue_gauge.rs`): atomics and short locks no request holds.
-            "gauges": crate::gauges::daemon_status(),
+            "gauges": ({
+                let mut gauges = crate::gauges::daemon_status();
+                gauges["v2SnapshotDamagedFrames"] = json!(self.events.damaged_snapshot_frames());
+                // The v2 list stream on peer links: frames dropped, held bytes (`link_v2.rs`).
+                if let Some(gauges) = gauges.as_object_mut() {
+                    gauges.insert("v2PeerLink".into(), self.link_v2.counters.status());
+                }
+                gauges
+            }),
             "webUrl": web_url(&cfg),
             "listen": cfg.web_listener().map(|w| w.listen.clone()),
             "ready": self.startup_complete(),
@@ -1146,6 +1200,39 @@ impl Hub {
             "host_pressure": host_pressure,
         })
     }
+}
+
+/// The longest `status` waits on any one reading that may wait. Under the app lookup's first
+/// 5 s ask (`AgentPaneHost.lookupStatusAttempts`) with room for the reply.
+// timeout: a reading past it is reported null, never an error; status itself always answers.
+pub(crate) const STATUS_READING_BUDGET: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// `reading`, or None when it misses [`STATUS_READING_BUDGET`].
+async fn within_status_budget<T>(reading: impl std::future::Future<Output = T>) -> Option<T> {
+    tokio::time::timeout(STATUS_READING_BUDGET, reading).await.ok()
+}
+
+/// The chats whose agent runs, and those of them on a host of another build. Never waits on a
+/// chat's child lock: a start or a detach holds it while its agent starts or ends (`detach_child`
+/// through the agent's kill), and every pane's handshake asks status (`AgentPaneHost` lookup), so
+/// one chat ending slowly drew "Waiting for the agent service" in every pane (cmuxterm-hq#8489).
+/// A held lock is an agent starting or ending: live, as the idle reaper counts it (`idle.rs`), its
+/// build read on the next status.
+async fn live_agents(sessions: &[Arc<Session>]) -> (usize, usize) {
+    let (mut live, mut other_build) = (0, 0);
+    for s in sessions {
+        let Ok(slot) = s.child.try_lock() else {
+            live += 1;
+            continue;
+        };
+        if let Some(child) = slot.as_ref() {
+            live += 1;
+            if host_build_differs(child.host_build().as_deref(), build()) {
+                other_build += 1;
+            }
+        }
+    }
+    (live, other_build)
 }
 
 /// Whether a command line runs `cmux-tui acp …` (a cmux session daemon, or
@@ -1270,3 +1357,7 @@ mod time_breakdown_tests {
         assert_eq!(summary["timeBreakdown"]["totalTokens"], 12);
     }
 }
+
+#[cfg(test)]
+#[path = "views_status_budget_tests.rs"]
+mod status_budget_tests;

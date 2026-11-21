@@ -114,6 +114,10 @@ case "$file" in
         exit 0 ;;
     esac
     echo "(pass) $file alone"; exit 0 ;;
+  *tally-fail*)
+    # A red file that still ran to its end: bun prints its closing tally after the failure.
+    echo "(fail) old base assertion"; echo " 1 pass"; echo " 1 fail"; echo "Ran 2 tests across 1 file. [3.00ms]"
+    exit 1 ;;
   *fail-slow*) sleep 1; echo "(fail) a slow broken test"; exit 1 ;;
   *hang*) sleep 60 ;;
   *slow*) sleep 3; echo "(pass) $file" ;;
@@ -457,6 +461,39 @@ class PerFileRunner(unittest.TestCase):
         self.assertEqual(json.loads(results_path.read_text()), {
             "test/retry-hang.test.ts > first attempt assertion": False,
         }, "an incomplete retry must preserve the named first failure")
+
+    def run_states(self, files, extra_env):
+        out = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        result, _, calls = self.run_runner(files, extra_env={
+            **extra_env, "CMUX_WEB_TEST_RESULTS": str(out / "results.json"),
+            "CMUX_WEB_TEST_STATES": str(out / "results.json.states")})
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        return json.loads((out / "results.json.states").read_text()), calls, result.stdout + result.stderr
+
+    def test_a_retry_the_budget_skipped_leaves_the_file_incomplete(self):
+        """#34017: with the retry skipped, the log holds only the first run, whose closing tally must not stand as
+        proof that a retry ran to its end. The bisect's probe_verdict would read the file as green."""
+        file = "test/a-tally-fail.test.ts"
+        states, calls, output = self.run_states([file], {"CMUX_WEB_TEST_RETRIES": "60",
+                                                         "CMUX_WEB_TEST_RETRY_BUDGET": "0"})
+        self.assertEqual(calls, ["./" + file], output)
+        self.assertIn("retry budget exhausted", output)
+        self.assertEqual(states[file], {"result": "FAIL", "completed": False, "retry": "skipped"})
+
+        # The retry cap skips the other red file's retry the same way; the retried one's retry ran to its end. Files
+        # run in parallel, so which red comes first (and takes the one retry) is up to timing.
+        files = ["test/a-tally-fail.test.ts", "test/b-tally-fail.test.ts"]
+        states, calls, output = self.run_states(files, {"CMUX_WEB_TEST_RETRIES": "1"})
+        retried = [f for f in files if calls.count("./" + f) == 2]
+        self.assertEqual(len(retried), 1, output)
+        self.assertEqual(sorted(calls), sorted(["./" + f for f in files] + ["./" + retried[0]]), output)
+        skipped = next(f for f in files if f not in retried)
+        self.assertEqual(states[retried[0]], {"result": "FAIL", "completed": True})
+        self.assertEqual(states[skipped], {"result": "FAIL", "completed": False, "retry": "skipped"})
+
+        # Retries off: the first run is the file's only run, so its tally stands.
+        states, _, output = self.run_states([file], {"CMUX_WEB_TEST_RETRIES": "0"})
+        self.assertEqual(states[file], {"result": "FAIL", "completed": True}, output)
 
     def test_a_flood_is_bounded_but_raw_retry_logs_and_named_failure_are_kept(self):
         raw_logs = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
@@ -814,6 +851,31 @@ class PerFileRunner(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(calls, sorted(f"./{name}" for name in files))
         self.assertEqual(self.peaks(), (1, 1), result.stdout)
+
+    def test_a_smaller_runner_runs_the_declared_widths_at_its_share_and_splits_the_same(self):
+        """The 16 vCPU shards (8 jobs, 4 dev-server files) got 2 and 4 vCPU runners when the pool writer
+        marked the large sizes dead: 8 files at once on 2 cores ran every shard of run 44249075431 (attempt 2)
+        and shards 1, 4, 6 and 8 of run 44258208231 into the 40 min timeout. A runner with fewer cores than the
+        declared size runs at that share of each width, and the split still reads the declared widths."""
+        browser = {f"test/pool-browser-{index}.test.ts": 'import { webkit } from "playwright";\n' for index in range(6)}
+        files = [*browser, *(f"test/pool-jsdom-{index}.test.ts" for index in range(6))]
+        sized = {"CMUX_WEB_TEST_DEV_JOBS": "4", "CMUX_WEB_TEST_SIZED_FOR_VCPU": "16"}
+        for cores, peaks in (("16", (8, 2)), ("8", (4, 1)), ("4", (2, 1)), ("2", (1, 1))):
+            result, _, calls = self.run_runner(files, contents=browser,
+                                               extra_env={**sized, "CMUX_CI_CPU_BUDGET": cores})
+            output = result.stdout + result.stderr
+            self.assertEqual(result.returncode, 0, output)
+            self.assertEqual(calls, sorted(f"./{name}" for name in files))
+            everything, browsers = self.peaks()
+            self.assertLessEqual(everything, peaks[0], f"{cores} cores: {output}")
+            self.assertEqual(browsers, peaks[1], f"{cores} cores: {output}")
+            if cores != "16":
+                self.assertIn(f"this runner has {cores} of the 16 vCPU", output)
+        manifest = self.manifest({name: 5 + index for index, name in enumerate(files)})
+        def shard_files(cores):
+            env = {**sized, "CMUX_WEB_TEST_DURATIONS": manifest, "CMUX_CI_CPU_BUDGET": cores}
+            return [self.run_runner(files, contents=browser, shard=n, shard_count=2, extra_env=env)[2] for n in (1, 2)]
+        self.assertEqual(shard_files("2"), shard_files("16"), "every shard picks the same files on any size")
 
     def test_a_file_can_declare_a_longer_limit_than_the_default(self):
         # editor-page runs 24 browser tests in two engines, about 115 s on the CI runner: the

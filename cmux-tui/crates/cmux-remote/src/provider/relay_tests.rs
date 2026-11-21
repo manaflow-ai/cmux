@@ -61,7 +61,84 @@ async fn a_pause_longer_than_the_backoff_resets_the_counters_whichever_wakeup_fi
     }
 }
 
-async fn receive_test_control(socket: &mut WebSocketStream<TcpStream>) -> RelayControl {
+/// The wall clock of [`a_pause_whose_clocks_all_kept_running_resets_the_counters`]: its own, so the test above
+/// moving its clock never makes this one pass.
+static STEADY_WALL_AHEAD_S: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn steady_test_wall() -> std::time::SystemTime {
+    std::time::SystemTime::UNIX_EPOCH
+        + Duration::from_secs(1_800_000_000 + STEADY_WALL_AHEAD_S.load(AtomicOrdering::SeqCst))
+}
+
+/// A pause longer than the backoff on a VM provider that keeps every guest
+/// clock running: the wall clock moves exactly as far as the monotonic one, so
+/// it never steps past it. The wait still sees the pause (the monotonic clock
+/// moved past the relay's retirement between two looks a second apart), the
+/// counters start over and the next failure waits the first backoff.
+#[tokio::test(start_paused = true)]
+async fn a_pause_whose_clocks_all_kept_running_resets_the_counters() {
+    use super::liveness::{FIRST_CREDENTIAL_BACKOFF, MAX_CREDENTIAL_BACKOFF};
+    for round in 0..32 {
+        let mut retry = Retry::new();
+        let mut wait = Duration::ZERO;
+        while wait < MAX_CREDENTIAL_BACKOFF {
+            wait = retry.wait(Ended::Credential, 1.0);
+        }
+        let (_shutdown_tx, mut shutdown) = watch::channel(false);
+        let task = tokio::spawn(async move {
+            let waited = back_off(&mut retry, wait, &mut shutdown, steady_test_wall).await;
+            (waited, retry)
+        });
+        for _ in 0..8 {
+            tokio::task::yield_now().await;
+        }
+        // Ten minutes paused: both clocks move ten minutes.
+        let paused = Duration::from_secs(600);
+        STEADY_WALL_AHEAD_S.fetch_add(paused.as_secs(), AtomicOrdering::SeqCst);
+        tokio::time::advance(paused).await;
+        let (waited, mut retry) = task.await.unwrap();
+        assert_eq!(waited, Waited::Resumed, "round {round}");
+        assert_eq!(
+            retry.wait(Ended::Credential, 1.0),
+            FIRST_CREDENTIAL_BACKOFF,
+            "round {round}: the next failure waits the first backoff"
+        );
+    }
+}
+
+/// The wall clock of [`a_wall_clock_step_alone_ends_the_wait_as_a_resume`]: its own, as above.
+static FROZEN_WALL_AHEAD_S: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn frozen_test_wall() -> std::time::SystemTime {
+    std::time::SystemTime::UNIX_EPOCH
+        + Duration::from_secs(1_800_000_000 + FROZEN_WALL_AHEAD_S.load(AtomicOrdering::SeqCst))
+}
+
+/// The wall-clock path on its own: the monotonic clock moves 10 s (well
+/// inside the relay's 45 s and the 60 s backoff) while the wall clock moves
+/// ten minutes, so only the wall step can end the wait as a resume.
+#[tokio::test(start_paused = true)]
+async fn a_wall_clock_step_alone_ends_the_wait_as_a_resume() {
+    use super::liveness::MAX_CREDENTIAL_BACKOFF;
+    let mut retry = Retry::new();
+    let mut wait = Duration::ZERO;
+    while wait < MAX_CREDENTIAL_BACKOFF {
+        wait = retry.wait(Ended::Credential, 1.0);
+    }
+    let (_shutdown_tx, mut shutdown) = watch::channel(false);
+    let task =
+        tokio::spawn(
+            async move { back_off(&mut retry, wait, &mut shutdown, frozen_test_wall).await },
+        );
+    for _ in 0..8 {
+        tokio::task::yield_now().await;
+    }
+    FROZEN_WALL_AHEAD_S.fetch_add(600, AtomicOrdering::SeqCst);
+    tokio::time::advance(Duration::from_secs(10)).await;
+    assert_eq!(task.await.unwrap(), Waited::Resumed);
+}
+
+pub async fn receive_test_control(socket: &mut WebSocketStream<TcpStream>) -> RelayControl {
     let message = socket.next().await.unwrap().unwrap();
     let Message::Text(text) = message else {
         panic!("expected relay control text, got {message:?}");
@@ -69,12 +146,12 @@ async fn receive_test_control(socket: &mut WebSocketStream<TcpStream>) -> RelayC
     serde_json::from_str(&text).unwrap()
 }
 
-async fn send_test_control(socket: &mut WebSocketStream<TcpStream>, control: &RelayControl) {
-    socket.send(Message::Text(serde_json::to_string(control).unwrap().into())).await.unwrap();
+pub async fn send_test_control(ws: &mut WebSocketStream<TcpStream>, control: &RelayControl) {
+    ws.send(Message::Text(serde_json::to_string(control).unwrap().into())).await.unwrap();
 }
 
 #[allow(clippy::result_large_err)] // Required by tungstenite's handshake callback signature.
-async fn accept_with_authorization(stream: TcpStream) -> (WebSocketStream<TcpStream>, String) {
+pub async fn accept_with_authorization(stream: TcpStream) -> (WebSocketStream<TcpStream>, String) {
     let authorization = Arc::new(StdMutex::new(None));
     let observed = authorization.clone();
     let socket = accept_hdr_async(stream, move |request: &Request, response| {
@@ -876,7 +953,7 @@ async fn daemon_registration_refreshes_after_authentication_rejection() {
         maximum_frame_bytes: 64,
         control_timeout: Duration::from_secs(2),
     };
-    let (mut socket, lease) =
+    let DaemonControl { mut socket, lease_seconds: lease, .. } =
         authenticate_daemon_control(&config, &credentials, &RelayTls::default()).await.unwrap();
     assert_eq!(lease, 30);
     assert_eq!(calls.load(AtomicOrdering::SeqCst), 2);
@@ -1469,4 +1546,38 @@ async fn a_flood_leaves_the_batched_sender_in_shared_messages() {
         messages * (MAX_RELAY_BATCH_FRAMES / 2) <= FLOOD_FRAMES,
         "a flood of {FLOOD_FRAMES} frames left in {messages} messages"
     );
+}
+
+/// A signed ticket's lifetime is read from its claims, and only a source that
+/// can give a new ticket schedules a renewal: at two thirds of the lifetime.
+#[test]
+fn a_signed_ticket_renews_at_two_thirds_of_its_lifetime_and_an_opaque_one_never() {
+    use base64::Engine as _;
+    let claims = serde_json::json!({
+        "version": 2,
+        "issuer": "relay.test",
+        "permission": "register",
+        "role": "daemon",
+        "slot": "slot-a",
+        "circuit": null,
+        "lane": null,
+        "generation": null,
+        "issued_at_unix": 1_000,
+        "expires_at_unix": 1_300,
+    });
+    let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .encode(serde_json::to_vec(&claims).unwrap());
+    let signed = RelayCredential::parse(format!("v2.{payload}.signature")).unwrap();
+    assert_eq!(signed.lifetime(), Some(Duration::from_secs(300)));
+    let callback = RelayCredentialSource::callback(|| async { Ok::<_, ()>(String::new()) });
+    let now = Instant::now();
+    assert_eq!(renewal_time(&callback, &signed, now), Some(now + Duration::from_secs(200)));
+    // The same ticket from a static source cannot be renewed.
+    let fixed = RelayCredentialSource::static_ticket(format!("v2.{payload}.signature")).unwrap();
+    assert_eq!(renewal_time(&fixed, &signed, now), None);
+    // Opaque or malformed tickets keep a registration as before.
+    for opaque in ["o2.abc.def", "registration-ticket", "v2.not-base64!.sig", "v2.e30.sig"] {
+        let credential = RelayCredential::parse(opaque.to_owned()).unwrap();
+        assert_eq!(renewal_time(&callback, &credential, now), None, "{opaque}");
+    }
 }

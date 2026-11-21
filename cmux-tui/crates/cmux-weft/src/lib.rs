@@ -1,17 +1,15 @@
 //! Weft: cmux's own WireGuard mesh.
 //!
-//! Three parts, one crate (design: `plans/cmux-next/mesh-DESIGN.md`):
+//! Design: `plans/cmux-next/mesh-DESIGN.md`. Its coordination service and
+//! relay (`weft-coord`, `weft-relay`) were deleted on 2026-11-16: nothing
+//! called them. What is left:
 //!
-//! - [`coord`]: the coordination and ACL service. It knows every tailnet,
-//!   device, auth key and policy, and hands each device its netmap: the peers
-//!   it may talk to, the inbound filter it enforces, the relay map and a
-//!   relay ticket.
-//! - [`relay`]: a DERP-shaped relay over WebSocket. It forwards opaque
-//!   WireGuard datagrams between devices of one tailnet and can read none
-//!   of them.
 //! - [`client`]: a device. It runs `cmux-wg` (boringtun + smoltcp) inside the
 //!   process, so it needs no root, no kernel extension and no system VPN, and
 //!   enforces the inbound filter on every accepted connection.
+//! - [`admin`]: the `weft admin` client of the coordinator's API.
+//! - [`policy`], [`signing`], [`ticket`], [`relay_frame`]: the ACL and the
+//!   wire formats the client speaks.
 
 // Same crash ratchet as the other network services (crash-elimination.md 6).
 #![cfg_attr(
@@ -29,10 +27,8 @@
 pub mod admin;
 pub mod b64;
 pub mod client;
-pub mod coord;
 pub mod keys;
 pub mod policy;
-pub mod relay;
 pub mod relay_frame;
 pub mod signing;
 pub mod ticket;

@@ -19,6 +19,7 @@
 //! they go, and it stops at its page's bytes. Leo, 2026-11-12: "Delete the pacer, the snapshot
 //! variants, watch_delta.rs and Known."
 
+use super::list_guard::BuiltRow;
 use super::session_pages::{PageRow, Picked, pick_page};
 use super::*;
 
@@ -59,7 +60,7 @@ impl PageRow for Unbuilt {
     fn session_id(&self) -> &str {
         match &self.source {
             Source::Own(session) => &session.id,
-            Source::Peer(row) => row.summary.session_id(),
+            Source::Peer(row) => row.summary.session_id().unwrap_or(""),
         }
     }
 
@@ -99,18 +100,24 @@ impl ListRows {
     pub(crate) fn value(&self, hub: &Hub, row: &Unbuilt, with_tools: bool) -> Value {
         match &row.source {
             Source::Own(session) => hub.cached_closed_summary(session, with_tools),
+            // Parsed from the text the list writes (`peer_row.rs`), its tools left out unless
+            // `with_tools`.
             Source::Peer(row) => {
-                let row = super::peers::listed_remote_row(row, &self.states);
-                if with_tools { row } else { super::views::without_summary_tools(row) }
+                serde_json::from_str(&self.peer_text(row, with_tools)).unwrap_or(Value::Null)
             }
         }
+    }
+
+    /// Peer row `row` as the list writes it, with tools when `with_tools`: its own text, no parse.
+    fn peer_text(&self, row: &RemoteSession, with_tools: bool) -> String {
+        super::peers::listed_remote_text(row, &self.states, with_tools)
     }
 
     /// [`Self::value`], serialized: a closed row of this daemon's is its cached bytes, unparsed.
     pub(crate) fn text(&self, hub: &Hub, row: &Unbuilt, with_tools: bool) -> Arc<str> {
         match &row.source {
             Source::Own(session) => hub.own_row_text(session, with_tools),
-            Source::Peer(_) => self.value(hub, row, with_tools).to_string().into(),
+            Source::Peer(row) => self.peer_text(row, with_tools).into(),
         }
     }
 }
@@ -185,7 +192,7 @@ impl Hub {
             own.into_iter().map(|(s, at)| Unbuilt::placed(s, at)).collect();
         // A peer's row sorts before the window's last own row when newer, or as new and a lower id.
         let within = |r: &RemoteSession| {
-            let (at, id) = (r.summary.updated_ms(), r.summary.session_id());
+            let (at, id) = (r.summary.updated_ms(), r.summary.session_id().unwrap_or(""));
             from.is_none_or(|from| at <= from)
                 && last.as_ref().is_none_or(|(last_at, last_id)| {
                     at > *last_at || (at == *last_at && id < last_id.as_str())
@@ -206,12 +213,17 @@ impl Hub {
         &self,
         params: &Value,
         with_tools: bool,
-    ) -> Result<(Vec<Value>, Option<Value>), RpcError> {
+    ) -> Result<(Vec<BuiltRow>, Option<Value>), RpcError> {
         let (list, Picked { rows: picked, next }) = self.picked_page(params)?;
         let built = picked
             .iter()
             .filter_map(|&at| list.rows().get(at))
-            .map(|row| list.value(self, row, with_tools))
+            .map(|row| match &row.source {
+                Source::Own(_) => BuiltRow::Tree(list.value(self, row, with_tools)),
+                Source::Peer(peer) => {
+                    BuiltRow::Peer(list.peer_text(peer, with_tools), peer.clone())
+                }
+            })
             .collect();
         Ok((built, next))
     }
@@ -230,6 +242,68 @@ impl Hub {
         let text = |row: &Unbuilt| list.text(self, row, with_tools);
         super::list_guard::bounded(list.rows(), text, params, budget)
     }
+}
+
+impl Hub {
+    /// The rows `keys` name, as `_acpmux/sessions` writes them with `with_tools`: this daemon's
+    /// session by its id ([`Hub::own_row_text`], a closed one from its cached bytes), a peer's
+    /// or a hub machine's by its `PEER/ID` row key (the mirrored row, never asked of the peer).
+    /// `None` for a key that names no row. Only the rows asked for are built, whatever the
+    /// list's size (`_acpmux/info` with `sessionIds`, agent service v2 row 7b).
+    pub(crate) fn rows_by_key(&self, keys: &[String], with_tools: bool) -> Vec<Option<Arc<str>>> {
+        /// A key's row, found before any is built.
+        enum Found {
+            Own(Arc<Session>),
+            Mirrored(Arc<RemoteSession>),
+        }
+        // The lookups only under the locks, one lock at a time: no row is built while a peer's
+        // writer waits.
+        let mut found: Vec<Option<Found>> =
+            keys.iter().map(|key| self.session_by_id(key).map(Found::Own)).collect();
+        {
+            let remote = self.remote_sessions.read();
+            for (key, found) in keys.iter().zip(found.iter_mut()) {
+                if found.is_none() && key.contains('/') {
+                    *found = remote.get(key.as_str()).cloned().map(Found::Mirrored);
+                }
+            }
+        }
+        let mut states = None;
+        keys.iter()
+            .zip(found)
+            .map(|(key, found)| match found {
+                Some(Found::Own(session)) => Some(self.own_row_text(&session, with_tools)),
+                found => {
+                    let row = match found {
+                        Some(Found::Mirrored(row)) => row,
+                        _ if key.contains('/') => self.mesh_book_row(key)?,
+                        _ => return None,
+                    };
+                    let states = states.get_or_insert_with(|| self.peer_link_states());
+                    Some(super::peers::listed_remote_text(&row, states, with_tools).into())
+                }
+            })
+            .collect()
+    }
+
+    /// How many closed rows `_acpmux/sessions` with no filter lists: this daemon's `own` closed
+    /// sessions and the peers' and hub machines' mirrored ones, read from their status with no
+    /// row built (`ls`'s hidden line, beside a read of the live view), and of those the mirrored
+    /// ones (which the v2 list does not hold: a form that walks its whole view reads v1 while
+    /// any is listed).
+    pub(crate) fn closed_listed(&self, own: usize) -> ClosedListed {
+        let closed = |row: &RemoteSession| row.summary.status() == Some("closed");
+        let peers = self.remote_sessions.read().values().filter(|row| closed(row)).count();
+        let remote = peers + self.mesh_book_count(closed);
+        ClosedListed { all: own + remote, remote }
+    }
+}
+
+/// [`Hub::closed_listed`]: the closed rows the unfiltered list holds, and of those the ones other
+/// machines list.
+pub(crate) struct ClosedListed {
+    pub(crate) all: usize,
+    pub(crate) remote: usize,
 }
 
 /// The rows a window of the kept order holds past a page's `limit`: a filter or two may leave a

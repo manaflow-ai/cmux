@@ -12,9 +12,11 @@
 //! at its page's bytes ([`bounded`]), and a follow builds the rows that changed. A request never
 //! waits for its turn and is never refused for its cost; it costs its own page.
 
+use super::list_tee::TeeHandle;
 use super::session_pages::PageRow;
 use super::*;
 use cmux_json::JsonSet as _;
+use std::collections::HashSet;
 use std::ops::Range;
 
 /// The hub's event channel. Every send is a change some list shows.
@@ -34,11 +36,28 @@ pub(crate) struct Events {
     /// next, so no cursor a client took from a notice is past a change it was never sent
     /// (#42091 F1).
     untold: std::sync::Mutex<HashSet<String>>,
+    /// This daemon's rows only their agent's stream changed since they were last told (a chunk's
+    /// preview, a tool call's `turn.doing`): told at a read as `untold` are, but each at most once
+    /// per [`STREAM_TELL_EVERY`] ([`StreamedRows`]).
+    streamed: std::sync::Mutex<StreamedRows>,
     /// Records since the last list read that reach other rows: each one's session and its parent
     /// (`Hub::note_rows_reading`).
     reaching: std::sync::Mutex<Vec<(String, Option<String>)>>,
     /// This run's id for list positions: a cursor of another run is no cursor here.
     epoch: String,
+    tee: std::sync::OnceLock<Arc<TeeHandle>>,
+    /// Connections' fan-out tasks subscribed now (`Hub::subscribe_fanout`): how many takes each
+    /// event's fan-out clock waits for.
+    fanout_connections: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+/// A connection's fan-out task's place in [`Events::fanout_connections`], given up on drop.
+pub struct FanoutSeat(Arc<std::sync::atomic::AtomicUsize>);
+
+impl Drop for FanoutSeat {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
 }
 
 impl Events {
@@ -48,19 +67,75 @@ impl Events {
             summary_generation: Arc::new(AtomicU64::new(0)),
             rows: Default::default(),
             untold: Default::default(),
+            streamed: std::sync::Mutex::new(StreamedRows::new(STREAM_TELL_EVERY)),
             reaching: Default::default(),
             epoch: super::row_log::new_epoch(),
+            tee: Default::default(),
+            fanout_connections: Default::default(),
         }
+    }
+
+    pub(crate) fn install_tee(&self, tee: Arc<TeeHandle>) {
+        let _ = self.tee.set(tee);
+    }
+
+    pub(super) fn damaged_snapshot_frames(&self) -> u64 {
+        self.tee.get().map_or(0, |tee| tee.damaged_snapshot_frames())
+    }
+
+    fn mark_tee(&self, id: &str) {
+        if let Some(tee) = self.tee.get() {
+            tee.mark(id);
+        }
+    }
+
+    pub(super) fn mark_remote_tee(&self, peer: &str, id: &str) {
+        if let Some(tee) = self.tee.get() {
+            tee.mark_remote(peer, id);
+        }
+    }
+
+    pub(super) fn origin_tee(&self, id: &str, state: acpmux_book::index::OriginState, since: u64) {
+        if let Some(tee) = self.tee.get() {
+            tee.origin(id, state, since);
+        }
+    }
+
+    /// A tee is installed and its v2 `list` holds the hub machines' rows.
+    pub(super) fn tee_lists_hub_rows(&self) -> bool {
+        self.tee.get().is_some_and(|tee| tee.lists_hub_rows())
+    }
+
+    pub(super) fn remote_tee_ready(&self) {
+        if let Some(tee) = self.tee.get() {
+            tee.remote_ready();
+        }
+    }
+
+    /// Every send goes out here: its fan-out clock starts, owed by each connection's fan-out task
+    /// subscribed now (`gauges.fanout`).
+    fn send_now(&self, event: HubEvent) -> Result<usize, broadcast::error::SendError<HubEvent>> {
+        event.row.fanout.arm(self.fanout_connections.load(Ordering::Acquire));
+        self.tx.send(event)
+    }
+
+    /// A connection's fan-out task subscribes: it counts toward each event's fan-out until the
+    /// guard drops.
+    pub(super) fn subscribe_fanout(&self) -> (broadcast::Receiver<HubEvent>, FanoutSeat) {
+        // Counted before it subscribes: an event sent between the two is owed one more take than
+        // it gets, so it is no sample, never a sample taken before every connection had it.
+        self.fanout_connections.fetch_add(1, Ordering::AcqRel);
+        (self.tx.subscribe(), FanoutSeat(self.fanout_connections.clone()))
     }
 
     /// Sends `event`, stamped with the list position of the row it changes, if any.
     fn stamped(&self, mut event: HubEvent) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         let Some((key, gone)) = super::row_log::row_change(&event) else {
-            return self.tx.send(event);
+            return self.send_now(event);
         };
         let mut rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
         event.list_seq = rows.stamp(key, gone);
-        self.tx.send(event)
+        self.send_now(event)
     }
 
     /// Marks `session`'s row changed with no notice a watcher hears (a streamed chunk's preview,
@@ -70,10 +145,35 @@ impl Events {
         self.untold.lock().unwrap_or_else(|e| e.into_inner()).insert(session.to_owned());
     }
 
+    /// Marks `session`'s row changed by its agent's stream alone (a chunk's preview, a tool
+    /// call's `turn.doing`): told at a read, at most once per [`STREAM_TELL_EVERY`].
+    fn stamp_streamed(&self, session: &str) {
+        self.streamed.lock().unwrap_or_else(|e| e.into_inner()).waiting.insert(session.to_owned());
+    }
+
+    /// Tells a streamed row at most once per `every` (a test's short window).
+    #[cfg(test)]
+    pub(super) fn set_stream_tell_every(&self, every: std::time::Duration) {
+        self.streamed.lock().unwrap_or_else(|e| e.into_inner()).every = every;
+    }
+
+    /// Whether `session`'s row waits to be told for its agent's stream.
+    #[cfg(test)]
+    pub(super) fn stream_untold(&self, session: &str) -> bool {
+        self.streamed.lock().unwrap_or_else(|e| e.into_inner()).waiting.contains(session)
+    }
+
     /// Stamps and tells every row changed with no notice since the last read: a follow after
     /// it sends each as it is now, and a watcher hears each as `session_changed`.
     fn tell_untold(&self) {
-        let untold = std::mem::take(&mut *self.untold.lock().unwrap_or_else(|e| e.into_inner()));
+        let mut untold =
+            std::mem::take(&mut *self.untold.lock().unwrap_or_else(|e| e.into_inner()));
+        let due = self
+            .streamed
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .due(&untold, std::time::Instant::now());
+        untold.extend(due);
         for session in untold {
             self.tell_row(&session);
         }
@@ -119,6 +219,12 @@ impl Events {
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         debug_assert!(event.remote.is_none(), "a peer's event goes through Events::send_remote");
         self.all_rows_stale();
+        if event.remote.is_none()
+            && (crate::server::session_change_kind(&event.record.kind).is_some()
+                || event.record.kind == "purged")
+        {
+            self.mark_tee(&event.session_id);
+        }
         self.stamped(event)
     }
 
@@ -135,8 +241,8 @@ impl Events {
         &self,
         event: HubEvent,
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
-        self.stamp_own(&event.session_id);
-        self.tx.send(event)
+        self.stamp_streamed(&event.session_id);
+        self.send_now(event)
     }
 
     /// Sends a peer's change ([`HubEvent::remote`], `peers.rs`): every local closed row keeps its
@@ -146,7 +252,50 @@ impl Events {
         event: HubEvent,
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         debug_assert!(event.remote.is_some(), "a local event goes through Events::send");
+        if let Some(remote) = event.remote.as_ref() {
+            self.mark_remote_tee(&remote.peer, &event.session_id);
+        }
         self.stamped(event)
+    }
+
+    /// Sends many changes of `peer`'s rows at once (`Hub::announce_remote_rows`), each marked
+    /// [`HubEvent::peer_batch`], then the batch's close ([`super::PEER_ROWS_CHANGED`]). They are
+    /// stamped and sent under one hold of the row log, so their positions are consecutive and
+    /// nothing goes out between them: a watcher that applied every notice before the close holds
+    /// a cursor below the batch's first row, and the close names the position before that row
+    /// (`afterSeq`) and its last (`listSeq`). A follow from `afterSeq` (or any cursor below it)
+    /// answers every row of the batch as it is when read.
+    pub(super) fn send_remote_batch(&self, peer: &str, events: Vec<HubEvent>) {
+        for event in &events {
+            self.mark_remote_tee(peer, &event.session_id);
+        }
+        let count = events.len();
+        let mut rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
+        let after = rows.head();
+        for mut event in events {
+            debug_assert!(event.remote.as_ref().is_some_and(|r| r.peer == peer));
+            if let Some((key, gone)) = super::row_log::row_change(&event) {
+                event.list_seq = rows.stamp(key, gone);
+            }
+            event.peer_batch = true;
+            let _ = self.tx.send(event);
+        }
+        let _ = self.tx.send(HubEvent {
+            session_id: String::new(),
+            record: Arc::new(EventRecord {
+                seq: 0,
+                at: crate::store::now_ms(),
+                dir: "peer".into(),
+                kind: super::PEER_ROWS_CHANGED.into(),
+                msg: json!({"count": count, "afterSeq": after}),
+                host_seq: None,
+            }),
+            remote: Some(RemoteRef { peer: peer.to_owned(), summary: Value::Null.into() }),
+            update_line: Default::default(),
+            row: Default::default(),
+            list_seq: rows.head(),
+            peer_batch: false,
+        });
     }
 
     /// Sends a change of `session`'s own row, which no other row reads (`Hub::append`): of the
@@ -160,8 +309,19 @@ impl Events {
         event: HubEvent,
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         session.summary_gen.fetch_add(1, Ordering::SeqCst);
+        if event.remote.is_none()
+            && (crate::server::session_change_kind(&event.record.kind).is_some()
+                || event.record.kind == "purged")
+        {
+            self.mark_tee(&session.id);
+        }
         if super::row_log::row_change(&event).is_none() {
-            self.stamp_own(&session.id);
+            if event.record.dir == "in" {
+                // The agent's own stream (a tool call and its updates, a plan), as a chunk is.
+                self.stamp_streamed(&session.id);
+            } else {
+                self.stamp_own(&session.id);
+            }
         }
         self.stamped(event)
     }
@@ -171,6 +331,7 @@ impl Events {
     pub(super) fn row_changed(&self, session: &Session) {
         self.stamp_own(&session.id);
         session.summary_gen.fetch_add(1, Ordering::SeqCst);
+        self.mark_tee(&session.id);
     }
 
     /// Every closed row's cached bytes go stale (a session came that may be another's parent).
@@ -182,9 +343,67 @@ impl Events {
     /// closed row goes stale, and no cursor from before it can be followed (`RowLog::barrier`), so
     /// each reconnecting client reads the first page again. Before, a follow after it was empty
     /// and the client kept the rows as they were (review of #41865 at 316f5ca).
-    pub(super) fn changed(&self) {
+    pub(super) fn changed(&self, session: Option<&Session>) {
         self.all_rows_stale();
         self.rows.lock().unwrap_or_else(|e| e.into_inner()).barrier();
+        if let Some(tee) = self.tee.get() {
+            if let Some(session) = session {
+                tee.mark(&session.id);
+            } else {
+                tee.mark_all();
+            }
+        }
+    }
+}
+
+/// How often, at most, a row its agent's stream changed is told to the watchers.
+///
+/// A row only its stream changed is told at the next list read, not at each chunk. On a busy
+/// daemon something reads the list several times a second (pages, `acpmux ls`, peers, tools),
+/// and each read sent every streaming chat's whole row (4 to 6 KB) to every watching connection:
+/// the app's and the iPhone host's, with nobody using either (Leo's Mac, 2026-11-19: 312 MB in
+/// 90 s from acpmux, 45 MB of it to the iPhone host). What a watcher hears now is bounded by the
+/// chats that stream, not by how often anything reads. The stream's end (`turn_result`, `status`)
+/// is a record watchers hear at once, with the row as it is then.
+pub(crate) const STREAM_TELL_EVERY: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// The rows waiting to be told for their agent's stream, and when each row was last told.
+pub(crate) struct StreamedRows {
+    pub(super) waiting: HashSet<String>,
+    /// Rows told less than `every` ago; older entries go at each read, so it holds at most the
+    /// rows told in the last `every`.
+    told: std::collections::HashMap<String, std::time::Instant>,
+    pub(super) every: std::time::Duration,
+}
+
+impl StreamedRows {
+    fn new(every: std::time::Duration) -> Self {
+        Self { waiting: HashSet::new(), told: Default::default(), every }
+    }
+
+    /// At a read: the waiting rows to tell now (none told within `every`), beside `telling`, the
+    /// rows told now for another change, whose rows carry the stream too. A row told within
+    /// `every` keeps waiting for a later read, so a cursor is never past it: it takes a later
+    /// position when told (#42091 F1).
+    fn due(&mut self, telling: &HashSet<String>, now: std::time::Instant) -> Vec<String> {
+        let every = self.every;
+        self.told.retain(|_, at| now.saturating_duration_since(*at) < every);
+        let mut due = Vec::new();
+        let told = &self.told;
+        self.waiting.retain(|id| {
+            if telling.contains(id) {
+                return false;
+            }
+            if told.contains_key(id) {
+                return true;
+            }
+            due.push(id.clone());
+            false
+        });
+        for id in telling.iter().chain(&due) {
+            self.told.insert(id.clone(), now);
+        }
+        due
     }
 }
 
@@ -332,9 +551,82 @@ pub(crate) fn cut_page(
     page_text(next.map(|next| next.to_string()), &page)
 }
 
+/// A list row built for a page (`Hub::session_page_rows`): this daemon's as a tree, or a peer's
+/// as its text (`PeerRow::listed`) with its row, whose paging keys are kept typed: never parsed.
+pub(crate) enum BuiltRow {
+    Tree(Value),
+    Peer(String, Arc<RemoteSession>),
+}
+
+impl PageRow for BuiltRow {
+    fn session_id(&self) -> &str {
+        match self {
+            Self::Tree(row) => PageRow::session_id(row),
+            Self::Peer(_, r) => r.summary.session_id().unwrap_or(""),
+        }
+    }
+
+    fn updated_ms(&self) -> u64 {
+        match self {
+            Self::Tree(row) => PageRow::updated_ms(row),
+            Self::Peer(_, r) => r.summary.updated_ms(),
+        }
+    }
+
+    fn peer(&self) -> Option<&str> {
+        match self {
+            Self::Tree(row) => PageRow::peer(row),
+            Self::Peer(_, r) => r.summary.peer(),
+        }
+    }
+
+    fn status(&self) -> Option<&str> {
+        match self {
+            Self::Tree(row) => PageRow::status(row),
+            Self::Peer(_, r) => r.summary.status(),
+        }
+    }
+}
+
+/// A row [`serialize_in_order`] writes: its text, and its paging keys.
+pub(crate) trait InOrder {
+    fn write(&self, out: &mut Vec<u8>);
+    fn paging_keys(&self, at: usize) -> Value;
+}
+
+impl InOrder for Value {
+    fn write(&self, out: &mut Vec<u8>) {
+        // A Value always serializes, and Vec's writer cannot fail.
+        let _ = serde_json::to_writer(out, self);
+    }
+
+    fn paging_keys(&self, at: usize) -> Value {
+        paging_keys(self, at)
+    }
+}
+
+impl InOrder for BuiltRow {
+    fn write(&self, out: &mut Vec<u8>) {
+        match self {
+            Self::Tree(row) => row.write(out),
+            Self::Peer(text, _) => out.extend_from_slice(text.as_bytes()),
+        }
+    }
+
+    fn paging_keys(&self, at: usize) -> Value {
+        match self {
+            Self::Tree(row) => paging_keys(row, at),
+            Self::Peer(_, r) => {
+                let row = &r.summary;
+                keys_of(at, row.session_id(), row.updated_ms(), row.peer(), row.status())
+            }
+        }
+    }
+}
+
 /// `rows`, in the order given (not sorted), as a list's text, where each is in it, and the
 /// paging keys of each (`at` its place): what [`cut_page`] cuts.
-pub(crate) fn serialize_in_order(rows: &[Value]) -> Built {
+pub(crate) fn serialize_in_order<R: InOrder>(rows: &[R]) -> Built {
     let prefix = br#"{"sessions":["#;
     let mut whole = Vec::from(&prefix[..]);
     let (mut spans, mut keys) = (Vec::with_capacity(rows.len()), Vec::with_capacity(rows.len()));
@@ -343,10 +635,9 @@ pub(crate) fn serialize_in_order(rows: &[Value]) -> Built {
             whole.push(b',');
         }
         let start = whole.len();
-        // A Value always serializes, and Vec's writer cannot fail.
-        let _ = serde_json::to_writer(&mut whole, row);
+        row.write(&mut whole);
         spans.push(start..whole.len());
-        keys.push(paging_keys(row, at));
+        keys.push(row.paging_keys(at));
     }
     whole.extend_from_slice(b"]}");
     // serde_json writes UTF-8.
@@ -390,10 +681,19 @@ fn fit_row<'a, K: PageRow + ?Sized>(
     }
 }
 
-/// `row` serialized ([`fit_row`]): whole when it fits in `budget`, else trimmed to fit or a stub
-/// with its keys, as a page sends a row too large for it.
-pub(crate) fn fit_value(row: &Value, budget: usize) -> String {
-    fit_row(&row.to_string(), row, budget).into_owned()
+/// Row text `row` ([`fit_row`]): whole when it fits in `budget`, else trimmed to fit or a stub
+/// with its keys, as a page sends a row too large for it. Parsed only when it does not fit.
+pub(crate) fn fit_text(row: String, budget: usize) -> String {
+    if row.len() <= budget {
+        return row;
+    }
+    let mut value: Value = serde_json::from_str(&row).unwrap_or_default();
+    let keys = paging_keys(&value, 0);
+    if super::reply_fit::fit_object(&mut value, budget) {
+        value.to_string()
+    } else {
+        too_large_stub(&keys, row.len())
+    }
 }
 
 /// The cursor of the page after `last`: a census's (`orderBy`, `s:<id>`) or the list's
@@ -431,15 +731,28 @@ fn too_large_stub<K: PageRow + ?Sized>(key: &K, bytes: usize) -> String {
 /// The paging keys of `row`, at `at` in its list's text: `sessionId`, `updatedAt`, `peer` and
 /// `status`, each only when it has one.
 fn paging_keys(row: &Value, at: usize) -> Value {
+    let text = |k: &str| row.get(k).and_then(Value::as_str);
+    let updated = row.get("updatedAt").and_then(Value::as_u64).unwrap_or_default();
+    keys_of(at, text("sessionId"), updated, text("peer"), text("status"))
+}
+
+/// [`paging_keys`] of a row's fields (`updatedAt` 0 as none).
+fn keys_of(
+    at: usize,
+    id: Option<&str>,
+    updated: u64,
+    peer: Option<&str>,
+    status: Option<&str>,
+) -> Value {
     let mut keys = json!({"at": at});
-    if let Some(id) = row.get("sessionId").and_then(Value::as_str) {
+    if let Some(id) = id {
         keys.set("sessionId", Value::String(id.to_owned()));
     }
-    if let Some(at) = row.get("updatedAt").and_then(Value::as_u64).filter(|at| *at != 0) {
-        keys.set("updatedAt", Value::from(at));
+    if updated != 0 {
+        keys.set("updatedAt", Value::from(updated));
     }
-    for k in ["peer", "status"] {
-        if let Some(v) = row.get(k).and_then(Value::as_str) {
+    for (k, v) in [("peer", peer), ("status", status)] {
+        if let Some(v) = v {
             keys.set(k, Value::String(v.to_owned()));
         }
     }
@@ -499,3 +812,7 @@ mod tests;
 #[cfg(test)]
 #[path = "list_scale_tests.rs"]
 mod scale_tests;
+
+#[cfg(test)]
+#[path = "stream_tell_tests.rs"]
+mod stream_tell_tests;

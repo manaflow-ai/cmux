@@ -27,7 +27,7 @@ fn a_page_and_a_whole_read_are_the_bytes_the_summaries_write() {
     );
     let built = serialize_in_order(&rows);
     assert_eq!(built.0, json!({"sessions": rows}).to_string());
-    assert_eq!(serialize_in_order(&[]).0, r#"{"sessions":[]}"#);
+    assert_eq!(serialize_in_order::<Value>(&[]).0, r#"{"sessions":[]}"#);
     let reply = |p: &Value| super::super::session_pages::session_list_reply(rows.clone(), p);
     let next = reply(&json!({"limit": 2})).unwrap()["nextCursor"].clone();
     for params in [
@@ -335,8 +335,8 @@ async fn a_live_chats_stream_keeps_closed_rows_cached() {
         "closed rows rebuilt while one live chat streamed: {rebuilt} for {CHUNKS} lists of \
          {CLOSED} closed rows"
     );
-    // The live row is told before the next list read: it was stamped, not built anew.
-    assert!(hub.events.untold.lock().unwrap().contains("live"));
+    // The live row is told at a later list read: it was stamped, not built anew.
+    assert!(hub.events.stream_untold("live"));
     cached_rows_equal_uncached(&hub);
 
     // Another record of the live chat changes its own row only: no closed row is rebuilt.

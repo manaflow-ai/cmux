@@ -115,7 +115,7 @@ impl RowLog {
 /// `server::deliver` sends a `session_changed` for.
 pub(super) fn row_change(ev: &HubEvent) -> Option<(RowKey, bool)> {
     let rec = &ev.record;
-    if rec.kind == PEER_LAGGED {
+    if rec.kind == PEER_LAGGED || rec.kind == PEER_ROWS_CHANGED {
         return None;
     }
     if let Some(remote) = &ev.remote {
@@ -157,6 +157,7 @@ pub(super) fn row_event(session: &str) -> HubEvent {
         update_line: Default::default(),
         row: Default::default(),
         list_seq: 0,
+        peer_batch: false,
     }
 }
 
@@ -257,7 +258,12 @@ impl Hub {
                 (RowKey::Peer { .. }, _) if own_only => continue,
                 (_, true) => None,
                 (RowKey::Own(id), false) => self.resolve(id).ok().map(|s| {
-                    if tools { self.session_summary(&s) } else { self.session_list_summary(&s) }
+                    let row = if tools {
+                        self.session_summary(&s)
+                    } else {
+                        self.session_list_summary(&s)
+                    };
+                    row.to_string()
                 }),
                 (RowKey::Peer { peer, mux }, false) => {
                     let held = remote.find_mux(peer, mux).map(|(_, r)| r.clone());
@@ -268,22 +274,20 @@ impl Hub {
                             |r: &RemoteSession| r.peer == *peer && r.receipt.mux_session_id == *mux;
                         self.mesh_book_rows(mine).into_iter().next()
                     });
-                    held.map(|r| {
-                        let summary = super::peers::listed_remote_row(&r, &states);
-                        if tools { summary } else { super::views::without_summary_tools(summary) }
-                    })
+                    // The row's own text, not parsed (`peer_row.rs`).
+                    held.map(|r| super::peers::listed_remote_text(&r, &states, tools))
                 }
             };
             let (text, removal) = match row {
                 // The first row of a reply too large for it is trimmed, its largest fields first,
-                // or sent as a stub with its keys, as a page's is (`list_guard::fit_value`): a
+                // or sent as a stub with its keys, as a page's is (`list_guard::fit_text`): a
                 // follow of one huge row stays under the cap and never ends in
                 // `message.too_large` (#42131 review, F2). A later one ends the reply (`more`) and
                 // goes first in the next.
                 Some(row) if sessions.is_empty() && removed.is_empty() => {
-                    (super::list_guard::fit_value(&row, budget.saturating_sub(used + 1)), None)
+                    (super::list_guard::fit_text(row, budget.saturating_sub(used + 1)), None)
                 }
-                Some(row) => (row.to_string(), None),
+                Some(row) => (row, None),
                 None => {
                     let removal = match &key {
                         RowKey::Own(id) => json!({"sessionId": id}),
@@ -355,6 +359,7 @@ impl Hub {
             update_line: Default::default(),
             row: Default::default(),
             list_seq: 0,
+            peer_batch: false,
         }
     }
 }

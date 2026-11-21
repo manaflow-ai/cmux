@@ -793,7 +793,8 @@ fn recovery_copies_the_records_it_checked_when_the_cache_drops_them() {
     };
     let storage = SimStorage::new(64);
     let (journal, _, _) = open_at(&storage, slow_retry, 0).unwrap_or_else(|e| panic!("{e}"));
-    // Record 1 fills page 0 and part of page 1, and is fully synced, its marker too.
+    // Record 1 fills page 0 and part of page 1, and is fully synced; its marker is owed and goes
+    // out with record 2.
     assert_eq!(journal.append(1, Class::Ack, &vec![b'a'; SIM_PAGE + 1000]), Ok(1));
     journal.wait_durable(1, WAIT).unwrap_or_else(|e| panic!("{e}"));
     assert!(eventually(|| journal.full_durable_lsn() >= 1), "{:?}", journal.stats());
