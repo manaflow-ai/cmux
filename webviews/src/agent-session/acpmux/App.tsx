@@ -940,6 +940,11 @@ declare global {
       /// How a Cloud start goes (cloudStartProgress.ts `cloudStartPushed`): `{key, step?, machine?,
       /// size?, secrets?, network?}` for the start `cloud.startChat {key}` began.
       cloudStartProgress?(push: unknown): void;
+      /// `{text, replaces}`: the text the tab this chat replaces held when it closed (`text`), when that
+      /// is not what the handshake's `draft` carried (`replaces`). A Cloud start's page takes its seed
+      /// before the start hands the tab off, so that it can draw out of sight first; what the person
+      /// typed in between comes here.
+      lateDraft?(value: unknown): void;
       /// Experimental workflow summary/detail (Labs), separate from environment preview and off by default.
       applyWorkflowLabs?(on: boolean): void;
       /// The native Debug Settings baseline for the sidebar latest-reply preview.
@@ -8283,6 +8288,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       },
       cloudStartProgress(push) {
         setCloudStart((current) => cloudStartPushed(current, push));
+      },
+      lateDraft(value) {
+        if (!value || typeof value !== "object") return;
+        const { text, replaces } = value as { text?: unknown; replaces?: unknown };
+        if (typeof text !== "string") return;
+        // The composer holds what the handshake's draft put there: the tab's text as it closed takes
+        // its place (composerDraft.ts `lateDraftText`). It is the chat's draft from here on too, so a
+        // composer made later (none yet, a remount) starts with it and not with the earlier text.
+        composerHandle.current?.lateDraft(text, typeof replaces === "string" ? replaces : "");
+        setDraft(text);
       },
       applyPreview(on) {
         // The environment picker, Cloud (Move to Cloud, the account's Cloud machines) and Sandboxed
