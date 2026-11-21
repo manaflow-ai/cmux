@@ -271,6 +271,7 @@ import Testing
         let page = first.container
         let scale = window.backingScaleFactor
 
+        let before = CEFHostView.trackerStats
         var ready = 0
         var readyCame: CheckedContinuation<Void, Never>?
         page.commitWillResize(by: CGSize(width: 480, height: 0)) {
@@ -294,6 +295,10 @@ import Testing
         }
         #expect(ready == 1)
         #expect(answers.asked == [CGSize(width: 880 * scale, height: 300 * scale)], "the page was not asked for its layout at the zoomed size")
+        // An answer ends the wait at once: no longer bound is asked for, and the wait counts as answered.
+        #expect(page.commitWaitTicks == nil, "a page that answered still asks its commit to wait")
+        #expect(CEFHostView.trackerStats.commitWaitsAnswered == before.commitWaitsAnswered + 1, "an answered wait is not counted")
+        #expect(CEFHostView.trackerStats.commitWaitsAtBound == before.commitWaitsAtBound, "an answered wait is counted at its bound")
 
         // The frame tick shows the zoom: the container takes the size the page already has.
         page.setFrameSize(CGSize(width: 880, height: 300))
@@ -317,6 +322,7 @@ import Testing
         let page = first.container
         #expect(page.commitWaitTicks == nil, "a page with no commit asks one to wait")
 
+        let before = CEFHostView.trackerStats
         var ready = 0
         page.commitWillResize(by: CGSize(width: 480, height: 120)) { ready += 1 }
         #expect(page.commitWaitTicks == CEFCommitPageWait.commitTicks, "a page laying out ahead does not ask its commit to wait for it")
@@ -328,6 +334,9 @@ import Testing
         frames.tick()
         #expect(ready == 1, "a slow page is not ready at its bound: its pane would show its ground")
         #expect(page.commitWaitTicks == nil, "a page that reported still asks its commit to wait")
+        let after = CEFHostView.trackerStats
+        #expect(after.commitWaitsAtBound == before.commitWaitsAtBound + 1, "a wait that reached its bound is not counted at its bound")
+        #expect(after.commitWaitsAnswered == before.commitWaitsAnswered, "a wait that reached its bound is counted as answered")
     }
 
     /// A change taken back before it showed (`commitWillResize(by: .zero)`) gives the page its pane's size again at

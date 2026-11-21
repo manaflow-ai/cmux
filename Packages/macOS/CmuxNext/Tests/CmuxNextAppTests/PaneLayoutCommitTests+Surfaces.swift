@@ -154,6 +154,32 @@ extension PaneLayoutCommitTests {
         #expect(new.isShown(by: Self.shown(screen)), "the change did not show after the longest wait")
     }
 
+    /// A held key (10 layout changes in a row, one each frame tick: zooms and splits) with a producer that asks for 6 ticks and never
+    /// reports: the wait is the screen's, not each change's, so a change that comes while another waits gets only the
+    /// ticks left. A frame shows a new layout by the 7th tick (the 6 asked for and the tick that shows it), never later.
+    @Test func aBurstOfChangesCannotPushItsFrameOutWithoutEnd() throws {
+        let harness = Harness(Self.pair, focused: Self.left, holds: false, surfaces: true)
+        defer { harness.window.closeAfterTest() }
+        Self.rest(harness)
+        let screen = try #require(harness.screen)
+        let style = harness.root.context.style
+        let old = Rest(harness.model.screens, in: screen, style: style)
+        let left = try #require(harness.provider.surface(Self.left))
+        left.commitWaitTicks = 6
+
+        var shownAt: Int?
+        for tick in 1...10 {
+            // A zoom, then a split of the zoomed pane's place, and so on: each resizes the waiting pane again.
+            harness.model.apply(screens: tick.isMultiple(of: 2) ? Self.pairSplit(.vertical) : Self.pairZoomed)
+            harness.root.syncWithModel()
+            _ = harness.root.advanceFrame(PaneMotionBench.frameBudget)
+            if shownAt == nil, !old.isShown(by: Self.shown(screen)) { shownAt = tick }
+        }
+        #expect(left.asks.count >= 7, "set-up: the producer did not hear each change of the burst: \(left.asks.count)")
+        let shown = try #require(shownAt, "10 changes in a row kept the old layout on screen for 10 ticks")
+        #expect(shown <= 7, "a burst of changes pushed the frame out to tick \(shown), past the 6 ticks asked for and the tick that shows it")
+    }
+
     /// A pane that shows its ground for a late producer, whose producer then goes (its view hides): the next change
     /// that resizes the pane asks no producer and waits for none, and the pane shows its content again with that
     /// change. The ground never stays for a producer that is no longer there.
