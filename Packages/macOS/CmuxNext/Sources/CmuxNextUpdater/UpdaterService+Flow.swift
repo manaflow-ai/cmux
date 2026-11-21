@@ -87,7 +87,8 @@ extension UpdaterService {
     @discardableResult
     public func prepareForQuit() -> UpdateQuitAction {
         syncFlowPhase()
-        if case .downloading(let transfer) = flow.phase, transfer.stage == .downloading,
+        if case .downloading(let transfer) = flow.phase,
+           transfer.stage != .preparing,
            cancelDownloadNow() {
             log.append("quit: cancelling the active update download")
         }

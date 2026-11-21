@@ -33,7 +33,15 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | mcp-fanout | `mcp-fanout.sh` (`mcp-fanout.py`) on a fleet Mac, any published app (`app=`) | MCP tool-server processes, RSS, idle CPU per kind at N open chats; first cmux tool call latency. |
 | workspace-factory | `workspace-factory.sh` (`workspace-factory/`, the `wsfactory` Rust factory) on a fleet Mac | A per-job throwaway workspace (APFS clone of a read-only seed) against today's cold and warm-slot step workspaces: start, build, cache hit, disk left behind. |
 | stress | `split-spring.sh --suite=stress` (`scripts/cmux-next/stress-bench.py`, `stress_load.py`; the cli angle runs `scripts/stress-cli-socket-api.py`) on the exclusive bench worker | The app under extreme stress, one angle per launch (cpu/thread starvation, many streaming mock chats with long transcripts, many workspaces with output floods, CLI/socket flood, memory past RAM into swap): frame p50/p95, dropped frames, input latency, daemon RTT, app CPU, footprint, hangs, baseline and stress window each. |
+| dev-loop | `dev-loop-ceiling.sh` (`dev-loop/<loop>.sh`, `dev-loop/bound.py`) on a fleet Mac | Edit to running for web swap, daemon restart, Swift inject and the startup loop, each over its simulated stage-floor bound; worst ratio (goal dev-loop-ceiling). |
 
+
+## Dev loop
+
+| name | what it measures | ticket / owner | last touched | status |
+|---|---|---|---|---|
+| `dev-loop-ceiling.sh` | Runs each `dev-loop/<loop>.sh` on one Mac, then `dev-loop/bound.py` (dev-loop bench). | goal dev-loop-ceiling | 2026-11-21 | active |
+| `dev-loop/bound.py` | Each loop's p50 over the Monte Carlo critical path of its stage floors; writes report.json. | goal dev-loop-ceiling | 2026-11-21 | active |
 
 ## Launch and update
 
