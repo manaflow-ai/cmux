@@ -2,6 +2,8 @@ import type { TrustRefusal } from "./direct";
 
 /** The daemon capability required for the inline /btw reply shape. */
 export const BTW_INLINE = "btw-inline-v1";
+/** A chat on another machine answers /btw inline itself (`_meta.acpmux.features`, RemoteAcpmuxWire). */
+export const BTW_INLINE_HERE = "btw_inline";
 
 function isUnsupportedNativeAction(error: unknown): boolean {
   const code = (error as { code?: unknown } | null)?.code;
@@ -12,11 +14,24 @@ export function supportsBtwInline(capabilities: ReadonlySet<string> | undefined)
   return capabilities?.has(BTW_INLINE) === true;
 }
 
+/** The daemon capability for a read-only guest from another harness (`targetHarness`). */
+export const BTW_GUEST = "btw-guest-v1";
+
+/** Whether this daemon answers a guest from another harness inline. An older one would ask the
+ *  chat's own harness instead, or refuse `inline`, so the pane offers no guest there. */
+export function supportsBtwGuest(capabilities: ReadonlySet<string> | undefined): boolean {
+  return supportsBtwInline(capabilities) && capabilities?.has(BTW_GUEST) === true;
+}
+
 interface BtwClient {
   capabilities: ReadonlySet<string> | undefined;
   readonly selectedSession: string | undefined;
   readonly selectionToken: number;
   btw(question: string, sessionId: string): Promise<string>;
+  /// A Cloud chat's own inline answer on its machine (`agent-session-btw`), when its wire names
+  /// `btw_inline`: the app host's `chat.btw.inline` reaches only this Mac's acpmux.
+  readonly answersBtwInline?: boolean;
+  btwInlineHere?(question: string, sessionId: string): Promise<string>;
   routeTrustRefusal?(refusal: TrustRefusal, again?: () => void): boolean;
 }
 
@@ -37,6 +52,12 @@ export async function askBtwQuestion(
   const current = () => client.selectedSession === sessionId && client.selectionToken === selection;
   if (!current()) throw new Error(actions.staleMessage());
   try {
+    // A Cloud chat: its machine answers inline. No legacy side session: none opens beside it here.
+    if (client.answersBtwInline && client.btwInlineHere) {
+      const answer = await client.btwInlineHere(question, sessionId);
+      if (!current()) throw new Error(actions.staleMessage());
+      return answer;
+    }
     if (supportsBtwInline(client.capabilities)) {
       try {
         return await actions.inline(question, sessionId);

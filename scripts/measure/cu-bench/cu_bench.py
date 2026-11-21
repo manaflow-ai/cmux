@@ -147,6 +147,8 @@ def line_labels(line: str) -> tuple[str | None, list[str], str]:
 
     Shapes seen: `12 button Description: 1, ID: One` (index, role, pairs), `- [12] AXButton "1"
     (id=One)` (bracketed index, quoted title)."""
+    # A diff line's old values (`~ [3] text "7" (was: "0")`) are not the state.
+    line = line.split(" (was: ", 1)[0]
     m = LINE_INDEX.search(line)
     if not m:
         return None, [], ""
@@ -316,16 +318,19 @@ class Mcp:
         return result, size
 
     def close(self) -> None:
-        if self.proc.poll() is None:
+        # The group, whatever its leader's state: an exited leader can leave a child running in it (cmux#41767
+        # review F1). The group keeps the leader's pid as its id while any member lives.
+        for sig in (signal.SIGTERM, signal.SIGKILL):
             try:
-                os.killpg(self.proc.pid, signal.SIGTERM)
-            except (ProcessLookupError, PermissionError):
-                self.proc.terminate()
+                os.killpg(self.proc.pid, sig)
+            except ProcessLookupError:
+                break
+            except PermissionError:
+                pass
             try:
-                self.proc.wait(timeout=10)
+                self.proc.wait(timeout=10 if sig == signal.SIGTERM else 5)
             except subprocess.TimeoutExpired:
-                self.proc.kill()
-                self.proc.wait(timeout=5)
+                pass
         for stream in (self.proc.stdin, self.proc.stdout, self.stderr):
             try:
                 if stream:
@@ -396,11 +401,19 @@ class Adapter:
         tool = dict(PROFILES)[self.profile]
         args = dict(self.target or {})
         p = props(self.tools[tool])
+        # cmux shows only the changes after a first look: a bench reads the
+        # whole state every time.
+        if "full" in p:
+            args["full"] = True
         if "screenshot" in p:
             args["screenshot"] = screenshot
         elif "include_screenshot" in p:
             args["include_screenshot"] = screenshot
         return tool, args
+
+    def state_has_no_flag(self) -> bool:
+        p = props(self.tools[dict(PROFILES)[self.profile]])
+        return self.profile != "tree" and "screenshot" not in p and "include_screenshot" not in p
 
     def op(self, op: str) -> tuple[str, dict]:
         """(tool, arguments) for one sample of `op`."""
@@ -686,6 +699,9 @@ def report(engines: dict[str, Engine], run: dict) -> dict:
             "profile": e.adapter.profile if e.adapter else None,
             "tools": sorted(e.adapter.tools) if e.adapter else None,
             "startup_ms": e.startup_ms, "unavailable": e.unavailable, "errors": e.errors[:20],
+            # True when the state tool has no way to skip its screenshot: its ax_tree row then
+            # includes that capture and is not a tree-only number.
+            "ax_tree_has_screenshot": e.adapter.state_has_no_flag() if e.adapter else None,
             "ops": {op: summarize(s) for op, s in e.samples.items()},
             "e2e": {"n": len(e.e2e), "ok": len(e2e_ok) if e.e2e else None,
                     "reads_84": sum(1 for x in e.e2e if x.get("reads_84")) if e.e2e else None,
@@ -734,6 +750,8 @@ def markdown(data: dict) -> str:
         e = data["engines"][n]
         if e.get("unavailable"):
             notes.append(f"- {n}: unavailable: {e['unavailable']}")
+        if e.get("ax_tree_has_screenshot"):
+            notes.append(f"- {n}: its state tool cannot skip the screenshot, so ax_tree includes one")
         for op, row in e["ops"].items():
             if row.get("first_error"):
                 notes.append(f"- {n} {op}: {row['errors']} errors, first: {row['first_error']}")
@@ -742,7 +760,7 @@ def markdown(data: dict) -> str:
         for err in e.get("errors") or []:
             notes.append(f"- {n}: {err}")
     if notes:
-        lines += ["", "Errors:", ""] + notes
+        lines += ["", "Notes and errors:", ""] + notes
     return "\n".join(lines) + "\n"
 
 
@@ -773,7 +791,9 @@ def cmd_run(args) -> int:
     (out / "cu-bench.json").write_text(json.dumps(data, indent=2) + "\n")
     (out / "summary.md").write_text(markdown(data))
     print(markdown(data), flush=True)
-    return 0 if live else 4
+    measured = any(s.get("ok") for e in engines.values() for rows in e.samples.values() for s in rows)
+    # 4: no engine started, or none answered a single call (the artifacts above still say why).
+    return 0 if measured else 4
 
 
 def cmd_summary(args) -> int:

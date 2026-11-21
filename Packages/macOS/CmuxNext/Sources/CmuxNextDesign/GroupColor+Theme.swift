@@ -38,6 +38,54 @@ extension GroupColor {
     /// sidebar header bar and the tab group chip.
     nonisolated public func fillRGB(_ tokens: ThemeTokens) -> ThemeRGB { rgb(.fill, dark: tokens.isDark) }
 
+    /// A resting workspace row's color bar stands at most this far from the sidebar (WCAG contrast), so the title
+    /// (about 9:1 or more) reads first.
+    nonisolated public static let railRestContrast = 2.2
+    /// A selected workspace row's color bar stands at most this far from the sidebar: stronger than at rest.
+    nonisolated public static let railEmphasizedContrast = 3.0
+
+    /// A workspace row's color bar (`workspaceColors.indicatorStyle` `leftRail`, the default) in `tokens`.
+    ///
+    /// The swatch is taken toward the sidebar until it stands at most ``railRestContrast`` from it
+    /// (``railEmphasizedContrast`` when `emphasized`, a selected row), so a picked color reads as a quiet mark
+    /// beside the title in every theme, light and dark, never as loud as the title (Lawrence 2026-11-20, "these
+    /// colors look horrible by default": the full-strength vibrant blue drew at 7:1). A swatch already that quiet
+    /// is kept as it is, so a light hue never fades out.
+    ///
+    /// - Parameters:
+    ///   - tokens: The theme the row draws in.
+    ///   - emphasized: Whether the row is selected (or a drop target), so its bar steps up.
+    ///   - muted: Halve the swatch's OKLCH chroma first, for a softer, grayer bar at the same contrast.
+    /// - Returns: The bar's opaque color.
+    nonisolated public func railRGB(_ tokens: ThemeTokens, emphasized: Bool, muted: Bool = false) -> ThemeRGB {
+        let ground = tokens.sidebarBackground.composited(over: tokens.windowBackground.withAlpha(1)).withAlpha(1)
+        var swatch = swatchRGB(tokens).withAlpha(1)
+        if muted {
+            // Half the chroma at the same lightness and hue: a softer, grayer hue that still names the color.
+            let lch = swatch.oklch
+            swatch = ThemeRGB(oklchLightness: lch.lightness, chroma: lch.chroma * 0.5, hue: lch.hue)
+        }
+        let target = emphasized ? Self.railEmphasizedContrast : Self.railRestContrast
+        guard swatch.contrast(with: ground) > target else { return swatch }
+        // Contrast falls steadily as the swatch moves toward the ground, so the least move that reaches the target is
+        // found by halving.
+        var (low, high) = (0.0, 1.0)
+        for _ in 0..<14 {
+            let mid = (low + high) / 2
+            if swatch.mixed(toward: ground, mid).contrast(with: ground) > target { low = mid } else { high = mid }
+        }
+        return swatch.mixed(toward: ground, high)
+    }
+
+    /// ``railRGB(_:emphasized:muted:)`` in the active theme scope (the app theme outside one).
+    ///
+    /// - Parameters:
+    ///   - emphasized: Whether the row is selected (or a drop target).
+    ///   - muted: Halve the swatch's chroma first (the Sidebar States Playground's muted looks).
+    public func railColor(emphasized: Bool, muted: Bool = false) -> NSColor {
+        railRGB(Self.activeTokens, emphasized: emphasized, muted: muted).nsColor
+    }
+
     /// The color where it marks content (tab tints, space avatars and dots, profile dots).
     public var markColor: NSColor { swatchRGB(Self.activeTokens).nsColor }
 

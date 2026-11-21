@@ -54,13 +54,20 @@ extension HomeChiefPetSetting {
 }
 
 extension ChiefDockSetting {
+    /// `home.chiefDock.sidePanel`: On: every window keeps the Chief docked as a side panel at the Dock Edge beside the workspace it shows (never over Home), and the sidebar's Chief row opens it there. Off by default: the Chief floats only on Cmd-I (David Beyer's feedback, 2026-11-20).
+    public nonisolated static let sidePanelPath = ["home", "chiefDock", "sidePanel"]
+    public nonisolated static let sidePanelDefault = false
     /// `home.chiefDock.edge`: Left: most people keep the Chief on the left.
     public nonisolated static let edgePath = ["home", "chiefDock", "edge"]
     public nonisolated static let edgeDefault = "left"
     public nonisolated static let edgeValues = ["left", "right", "top", "bottom"]
-    /// `home.chiefDock.openBeside`: On: a link clicked in the Chief opens its workspace with the Chief floating over it.
+    /// `home.chiefPanel.style`: The compose bar: the least on screen that still takes a message (user 2026-11-07).
+    public nonisolated static let stylePath = ["home", "chiefPanel", "style"]
+    public nonisolated static let styleDefault = "composeBar"
+    public nonisolated static let styleValues = ["composeBar", "pill", "card", "panel", "bubble", "seeThrough", "seeThroughBar"]
+    /// `home.chiefDock.openBeside`: On: a link clicked in the Chief opens its workspace with the Chief floating over it. Off by default (cmux#45889): a link opens only its target.
     public nonisolated static let openBesidePath = ["home", "chiefDock", "openBeside"]
-    public nonisolated static let openBesideDefault = true
+    public nonisolated static let openBesideDefault = false
 }
 
 extension HomeChiefEngineSetting {
@@ -81,7 +88,7 @@ nonisolated enum HomeSettingsSchema {
                 section: .home,
                 group: group,
                 title: SettingsText.keyed("settings.home.server", "Server"),
-                help: SettingsText.keyed("settings.home.server.help", "Direct messages and group chats use cmux Cloud by default. A self-hosted server is reached over Tailscale by its MagicDNS name, for example http://mini.tail1234.ts.net:7320. No password is sent: the server knows you by your Tailscale login."),
+                help: SettingsText.keyed("settings.home.server.help", "Self-hosted: a Tailscale MagicDNS address, such as http://mini.tail1234.ts.net:7320."),
                 kind: .choiceOrURL([
                     SettingChoice("hosted", SettingsText.keyed("settings.choice.homeServer.hosted", "cmux Cloud")),
                 ], urlKey: "selfHosted"),
@@ -100,7 +107,7 @@ nonisolated enum HomeSettingsSchema {
                 section: .home,
                 group: group,
                 title: SettingsText.keyed("settings.home.chiefBubbleStyle", "Bubble Style"),
-                help: SettingsText.keyed("settings.home.chiefBubbleStyle.help", "iMessage shows your messages in blue and the Chief's in gray. Theme uses your theme's accent and surface colors."),
+                help: SettingsText.keyed("settings.home.chiefBubbleStyle.help", "iMessage: blue and gray. Theme: your theme's colors."),
                 kind: .choice([
                     SettingChoice(HomeChiefBubbleStyle.imessage.rawValue, "iMessage"),
                     SettingChoice(HomeChiefBubbleStyle.theme.rawValue, SettingsText.keyed("settings.choice.chiefBubbleStyle.theme", "Theme")),
@@ -113,7 +120,7 @@ nonisolated enum HomeSettingsSchema {
                 section: .home,
                 group: group,
                 title: SettingsText.keyed("settings.home.feedInChief", "Show the Feed in Chief"),
-                help: SettingsText.keyed("settings.home.feedInChief.help", "Feed notices, such as updates and pull requests, appear among your main Chief's messages. Only you see them; the Chief does not read them."),
+                help: SettingsText.keyed("settings.home.feedInChief.help", "Feed notices show among the Chief's messages. The Chief does not read them."),
                 kind: .toggle,
                 default: .bool(HomeFeedRowsSetting.fallback),
                 keywords: ["chief", "feed", "notices", "updates", "pull requests", "timeline", "home"]
@@ -123,7 +130,7 @@ nonisolated enum HomeSettingsSchema {
                 section: .home,
                 group: group,
                 title: SettingsText.keyed("settings.home.bubbleColors.sent", "My Bubble Color"),
-                help: SettingsText.keyed("settings.home.bubbleColors.help", "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable."),
+                help: SettingsText.keyed("settings.home.bubbleColors.help", "Right-click a chat and choose Chat Colors to set its own."),
                 kind: .color,
                 default: nil,
                 defaultLabel: SettingsText.keyed("settings.home.bubbleColors.default", "Bubble Style"),
@@ -134,7 +141,7 @@ nonisolated enum HomeSettingsSchema {
                 section: .home,
                 group: group,
                 title: SettingsText.keyed("settings.home.bubbleColors.sentText", "My Text Color"),
-                help: SettingsText.keyed("settings.home.bubbleColors.help", "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable."),
+                help: SettingsText.keyed("settings.home.bubbleColors.help", "Right-click a chat and choose Chat Colors to set its own."),
                 kind: .color,
                 default: nil,
                 defaultLabel: SettingsText.keyed("settings.home.bubbleColors.default", "Bubble Style"),
@@ -145,7 +152,7 @@ nonisolated enum HomeSettingsSchema {
                 section: .home,
                 group: group,
                 title: SettingsText.keyed("settings.home.bubbleColors.received", "Their Bubble Color"),
-                help: SettingsText.keyed("settings.home.bubbleColors.help", "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable."),
+                help: SettingsText.keyed("settings.home.bubbleColors.help", "Right-click a chat and choose Chat Colors to set its own."),
                 kind: .color,
                 default: nil,
                 defaultLabel: SettingsText.keyed("settings.home.bubbleColors.default", "Bubble Style"),
@@ -156,7 +163,7 @@ nonisolated enum HomeSettingsSchema {
                 section: .home,
                 group: group,
                 title: SettingsText.keyed("settings.home.bubbleColors.receivedText", "Their Text Color"),
-                help: SettingsText.keyed("settings.home.bubbleColors.help", "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable."),
+                help: SettingsText.keyed("settings.home.bubbleColors.help", "Right-click a chat and choose Chat Colors to set its own."),
                 kind: .color,
                 default: nil,
                 defaultLabel: SettingsText.keyed("settings.home.bubbleColors.default", "Bubble Style"),
@@ -190,7 +197,7 @@ nonisolated enum HomeSettingsSchema {
                 section: .home,
                 group: group,
                 title: SettingsText.keyed("settings.home.channelsEnabled", "Channels"),
-                help: SettingsText.keyed("settings.home.channelsEnabled.help", "Show Channels below Home in the sidebar. You can also turn it on or off from the command palette."),
+                help: SettingsText.keyed("settings.home.channelsEnabled.help", "Show Channels below Home in the sidebar."),
                 kind: .toggle,
                 default: .bool(HomeChannelsSetting.fallback),
                 keywords: ["home", "channels", "slack", "threads", "sidebar", "messages"]
@@ -206,7 +213,7 @@ nonisolated enum HomeSettingsSchema {
                 section: .home,
                 group: group,
                 title: SettingsText.keyed("settings.home.chiefPetEnabled", "Show Chief Pet"),
-                help: SettingsText.keyed("settings.home.chiefPetEnabled.help", "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session. While it shows, ⌃⌥⌘C opens its reply box from any app."),
+                help: SettingsText.keyed("settings.home.chiefPetEnabled.help", "A small Chief over every app shows agent events. ⌃⌥⌘C opens its reply box."),
                 kind: .toggle,
                 default: .bool(HomeChiefPetSetting.fallback),
                 keywords: ["chief", "pet", "mascot", "floating", "notifications", "reply", "dock"]
@@ -241,16 +248,26 @@ nonisolated enum HomeSettingsSchema {
         ]
     }
 
-    /// The Chief panel (user 2026-11-06): the edge the Chief docks at when the person docks it, and whether a link clicked in the Chief opens its workspace with the Chief floating over it.
+    /// The Chief panel (user 2026-11-06): whether every window keeps it as a side panel, the edge the Chief docks at when the person docks it, and whether a link clicked in the Chief opens its workspace with the Chief floating over it.
     static var chiefDockRows: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.chiefDock", "Chief Dock")
         return [
+            SettingDescriptor(
+                ChiefDockSetting.sidePanelPath,
+                section: .home,
+                group: group,
+                title: SettingsText.keyed("settings.home.chiefDockSidePanel", "Chief in Side Panel"),
+                help: SettingsText.keyed("settings.home.chiefDockSidePanel.help", "Keeps the Chief docked beside every workspace. Cmd-I hides or shows it."),
+                kind: .toggle,
+                default: .bool(ChiefDockSetting.sidePanelDefault),
+                keywords: ["chief", "dock", "side", "panel", "sidebar", "pane", "window", "docked", "always", "home"]
+            ),
             SettingDescriptor(
                 ChiefDockSetting.edgePath,
                 section: .home,
                 group: group,
                 title: SettingsText.keyed("settings.home.chiefDockEdge", "Dock Edge"),
-                help: SettingsText.keyed("settings.home.chiefDockEdge.help", "The window edge the Chief goes to when you dock it. The rest of the window shows the workspace you pick."),
+                help: SettingsText.keyed("settings.home.chiefDockEdge.help", "The window edge the Chief docks to."),
                 kind: .choice([
                     SettingChoice("left", SettingsText.keyed("settings.choice.chiefDockEdge.left", "Left")),
                     SettingChoice("right", SettingsText.keyed("settings.choice.chiefDockEdge.right", "Right")),
@@ -261,11 +278,29 @@ nonisolated enum HomeSettingsSchema {
                 keywords: ["chief", "dock", "window", "edge", "left", "right", "top", "bottom", "side", "home"]
             ),
             SettingDescriptor(
+                ChiefDockSetting.stylePath,
+                section: .home,
+                group: group,
+                title: SettingsText.keyed("settings.home.chiefPanelStyle", "Floating Chief Style"),
+                help: SettingsText.keyed("settings.home.chiefPanelStyle.help", "How the Chief looks floating over a workspace. Drag any style by its grip."),
+                kind: .choice([
+                    SettingChoice("composeBar", SettingsText.keyed("settings.choice.chiefPanelStyle.composeBar", "Compose Bar")),
+                    SettingChoice("pill", SettingsText.keyed("settings.choice.chiefPanelStyle.pill", "Pill")),
+                    SettingChoice("card", SettingsText.keyed("settings.choice.chiefPanelStyle.card", "Card")),
+                    SettingChoice("panel", SettingsText.keyed("settings.choice.chiefPanelStyle.panel", "Panel")),
+                    SettingChoice("bubble", SettingsText.keyed("settings.choice.chiefPanelStyle.bubble", "Bubble")),
+                    SettingChoice("seeThrough", SettingsText.keyed("settings.choice.chiefPanelStyle.seeThrough", "See-Through")),
+                    SettingChoice("seeThroughBar", SettingsText.keyed("settings.choice.chiefPanelStyle.seeThroughBar", "See-Through Bar")),
+                ]),
+                default: .string(ChiefDockSetting.styleDefault),
+                keywords: ["chief", "floating", "style", "compose", "pill", "card", "panel", "bubble", "minimal", "home"]
+            ),
+            SettingDescriptor(
                 ChiefDockSetting.openBesidePath,
                 section: .home,
                 group: group,
                 title: SettingsText.keyed("settings.home.chiefDockOpenBeside", "Show Chief When Opening Workspaces"),
-                help: SettingsText.keyed("settings.home.chiefDockOpenBeside.help", "A workspace, tab or agent link clicked in the Chief opens that workspace with the Chief floating over it. Press Esc or Cmd-I to hide it."),
+                help: SettingsText.keyed("settings.home.chiefDockOpenBeside.help", "Links in the Chief open their workspace with the Chief over it. Esc hides it."),
                 kind: .toggle,
                 default: .bool(ChiefDockSetting.openBesideDefault),
                 keywords: ["chief", "dock", "window", "links", "workspace", "beside", "home"]
@@ -282,7 +317,7 @@ nonisolated enum HomeSettingsSchema {
                 section: .home,
                 group: group,
                 title: SettingsText.keyed("settings.home.chiefEngine", "Engine"),
-                help: SettingsText.keyed("settings.home.chiefEngine.help", "Which Chief Home opens. Auto uses this Mac's Chief while it runs here, else the Hosted Chief in the cloud."),
+                help: SettingsText.keyed("settings.home.chiefEngine.help", "Auto uses this Mac's Chief while it runs, else the Hosted Chief."),
                 kind: .choice([
                     SettingChoice("auto", SettingsText.keyed("settings.choice.chiefEngine.auto", "Auto")),
                     SettingChoice("local", SettingsText.keyed("settings.choice.chiefEngine.local", "This Mac")),

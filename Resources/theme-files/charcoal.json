@@ -1,0 +1,27 @@
+// Charcoal: a quiet dark chat-app look. A charcoal page, a darker sidebar, gray accents, no borders and
+// no wallpaper. Copy it to ~/.config/cmux/themes/charcoal.json (yours wins over this one), edit and
+// save: the running app repaints at once, no relaunch.
+{
+  "name": "Charcoal",
+  "description": "A charcoal page, a darker sidebar, gray accents, no borders.",
+
+  // The terminal theme, and its own colors.
+  "appearance.theme": "Builtin Dark",
+  "colors": { "background": "#212121", "foreground": "#ececec", "selection": "#424242", "accent": "#b4b4b4" },
+  "appearance.accent": "neutral",
+
+  "appearance.background": "none",
+  "appearance.borders": "none",
+  "appearance.chromeStyle": "flat",
+
+  // A near-black sidebar beside the charcoal page and agent pane.
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#171717",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "appearance.surfaces.agentPane.color": "#212121",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "sidebar.sectionLook": "quiet",
+  "appearance.statusIndicator.style": "dot",
+
+  "appearance.density": "comfortable"
+}

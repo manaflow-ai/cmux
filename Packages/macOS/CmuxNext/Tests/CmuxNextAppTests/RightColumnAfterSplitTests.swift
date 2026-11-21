@@ -9,15 +9,15 @@ import Foundation
 import Testing
 
 /// Review of #29787 at 29861047: what opens on the right right after a split read the panes' widths
-/// from their views, not from the layout. While the split's spring runs, the source pane still shows
-/// its width from before the split (its content is held at that size until the spring lands) and the
-/// new pane starts at a sliver. In a window narrower than twice the chat floor, the source read about
+/// from their views, not from the layout. A split is one commit that shows at the next frame tick:
+/// until that tick the source pane's view still has its width from before the split, and the new
+/// pane's view has no size yet. In a window narrower than twice the chat floor, the source read about
 /// 880 pt instead of about 440, so a link (or an agent's side chat or subagent) opened at once went
 /// to a new split below the pane on the right instead of a tab in it, the place it takes once both
 /// panes are measured. A script or agent that splits and then opens at once hit it every time.
 ///
-/// The test is the layout's clock (`DisplayLinkDriver.isManual`), so the split's spring stays at its
-/// first frame for every open below: the race is the same on every host.
+/// The test is the layout's clock (`DisplayLinkDriver.isManual`) and runs no frame tick, so the split
+/// has not shown yet for every open below: the race is the same on every host.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"), .closesItsWindows)
 struct RightColumnAfterSplitTests {
     static let link = URL(string: "https://github.com/manaflow-ai/cmux/pull/2")!
@@ -44,21 +44,23 @@ struct RightColumnAfterSplitTests {
             let floor = RightColumnPlacement.minimumChatWidth
             try await PinnedPageTests.until({ LinkOpener.width(of: pane).map { $0 >= floor && $0 < 2 * floor } == true },
                                             report: { "fixture: the lone pane is \(String(describing: LinkOpener.width(of: pane))) pt, wanted \(floor) to \(2 * floor)" })
-            // From here the test is the clock: the split's spring never steps on its own. Re-attaching
-            // stops a clock already running (a fade), which would otherwise step the spring too.
+            // From here the test is the clock: no frame tick shows the split on its own. Re-attaching
+            // stops a clock already running (a fade), which would otherwise tick the layout too.
             root.driver.isManual = true
             root.driver.detach()
             root.driver.attach(to: root)
             defer { root.driver.isManual = false }
 
             let right = try await Self.splitRight(services, content)
-            let springing = root.screenViews.values.contains { $0.hasMotion }
-            try #require(springing, "fixture: the split's spring has landed already")
+            // The split resizes the source pane, so it waits for the frame tick that shows it: the views
+            // still have their sizes from before the split.
+            let waits = root.screenViews.values.contains { $0.frameInput.snapWaitsForContent }
+            try #require(waits, "fixture: the split has shown already")
             try #require(LinkOpener.rightPanes(beside: pane.layoutPaneID, in: content) == [right.layoutPaneID],
                          "fixture: the right column is not the split's pane")
             try #require(!LinkOpener.holds(right, .browser), "fixture: the pane on the right holds a browser")
 
-            // The width the source rests at once the split lands, not the one its view still shows.
+            // The width the source rests at once the split shows, not the one its view still has.
             #expect(LinkOpener.width(of: pane).map { $0 < floor } == true,
                     "the source read \(String(describing: LinkOpener.width(of: pane))) pt after the split, its width before it")
 

@@ -17,6 +17,9 @@ export type SignIn = {
   signedOut: Readonly<Record<string, string>>;
   /// Runs `login` for `harness` in a terminal tab; the pane checks again when it is back.
   logIn(harness: string, login: string): void;
+  /// ``logIn``, resolving whether the host opened the tab: it opens a login only on the person's
+  /// own gesture (a model pick's setup offers Sign In when it refused, harnessSetup.ts).
+  openLogIn?(harness: string, login: string): Promise<boolean>;
 };
 
 export const SignInContext = createContext<SignIn | undefined>(undefined);

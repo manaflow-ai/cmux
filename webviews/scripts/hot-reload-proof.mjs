@@ -23,14 +23,7 @@ import { chromium } from "playwright";
 const ownWebviews = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 // What the pane's dev server reads from the repository: webviews and the files outside it that
 // its runtime imports.
-const SOURCES = [
-  "webviews",
-  "config",
-  "schemas",
-  "web/data",
-  "Resources/markdown-viewer",
-  "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts",
-];
+const SOURCES = ["webviews", "config", "schemas", "web/data", "Resources/markdown-viewer"];
 const args = process.argv.slice(2);
 const replay = args.find((arg) => arg.startsWith("--replay="))?.slice("--replay=".length);
 const audit = args.includes("--audit") && !replay;

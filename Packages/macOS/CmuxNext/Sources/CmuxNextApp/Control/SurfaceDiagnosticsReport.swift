@@ -48,7 +48,7 @@ enum SurfaceDiagnosticsReport {
                 #endif
                 if case .terminal(let entry)? = row.pane.currentTabKey.flatMap(row.pane.existingContent(for:)) {
                     object["attach"] = .string(entry.io.attachPhase.journalName)
-                    object["link"] = .string(Self.linkName(entry.session.model.connection))
+                    object["link"] = .string(entry.session.model.connection.diagnosticName)
                     let diagnostics = entry.session.diagnostics
                     if let fields = JSONValue(foundation: entry.session.diagnosticFields(diagnostics))?.objectValue {
                         object.merge(fields) { _, new in new }
@@ -107,15 +107,6 @@ enum SurfaceDiagnosticsReport {
     }
     #endif
 
-    private static func linkName(_ status: TerminalConnectionStatus) -> String {
-        switch status {
-        case .connected: "connected"
-        case .restoring: "restoring"
-        case .exited: "exited"
-        case .disconnected(let cause, let reconnecting): "disconnected:\(cause)\(reconnecting ? ":reconnecting" : "")"
-        }
-    }
-
     private static func hibernation(_ services: AppServices) -> JSONValue {
         guard let hibernation = services.cache.hibernation else { return .null }
         let setting = hibernation.setting
@@ -128,7 +119,7 @@ enum SurfaceDiagnosticsReport {
             "frozen": .array(hibernation.frozen.sorted().map(JSONValue.string)),
             // Each live page's lifecycle phase (workspace hibernation discards only `mountedHidden` ones).
             "page_phases": .object(Dictionary(uniqueKeysWithValues: services.cache.browsers.keys.map { ($0, JSONValue.string(services.cache.phase(of: $0).rawValue)) })),
-            "chat_pages": .array(services.madeAgentTabs?.views.keys.sorted().map(JSONValue.string) ?? []),
+            "chat_pages": .array(services.madeAgentTabs?.views.keys.map(\.key).sorted().map(JSONValue.string) ?? []),
             "neighbor_radius": JSONValue(hibernation.neighborRadius),
             "awake_neighbors": .array(hibernation.awakeNeighbors.sorted().map(JSONValue.string)),
             "prewarmed_total": JSONValue(hibernation.prewarmedCount),

@@ -7,6 +7,12 @@
 //!
 //! - `bookmarks.list {browser_profile_id}`: `{bookmarks_revision, bookmarks}`
 //!   in listing order (as `list-bookmarks`).
+//! - `bookmarks.children {browser_profile_id, parent, depth?, limit?}`:
+//!   `{bookmarks_revision, bookmarks, total, truncated}`, the nodes under one
+//!   root or folder down to `depth` levels (1, its children, by default) in
+//!   listing order, at most `limit`; `total` counts the parent's own
+//!   children. The bookmarks bar reads what it draws with it, so its cost
+//!   follows the bar, not the whole tree.
 //! - `bookmarks.search {browser_profile_id, text, limit?}`: `{bookmarks}`,
 //!   nodes whose title or URL holds every term, tree order. `text` is at
 //!   most 1 KiB and 32 terms (also for `rank`).
@@ -52,6 +58,8 @@ const MAX_KEY_BYTES: usize = 128;
 const HASHED_KEY_PREFIX: &str = "sha256:";
 /// Most bytes of a search or rank query.
 const MAX_QUERY_BYTES: usize = 1024;
+/// Most rows one `bookmarks.children` returns (a folder menu's subtree).
+const MAX_CHILDREN_LIMIT: usize = 20_000;
 /// The replay origin of routed bookmark ops.
 const REPLAY_ORIGIN: &str = "bookmarks.routed";
 
@@ -88,6 +96,17 @@ impl Query {
         }
         Ok(())
     }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Children {
+    browser_profile_id: String,
+    parent: String,
+    #[serde(default)]
+    depth: Option<usize>,
+    #[serde(default)]
+    limit: Option<usize>,
 }
 
 #[derive(Deserialize)]
@@ -137,6 +156,20 @@ pub(super) fn routed(
             let Profile { browser_profile_id } = parse(params)?;
             let (revision, bookmarks) = read(mux, operation, &browser_profile_id)?;
             Ok(json!({"bookmarks_revision": revision, "bookmarks": bookmarks.listing()}))
+        }
+        "bookmarks.children" => {
+            let request: Children = parse(params)?;
+            let (revision, tree) = read(mux, operation, &request.browser_profile_id)?;
+            let depth =
+                request.depth.unwrap_or(1).clamp(1, cmux_bookmarks_core::MAX_BOOKMARK_DEPTH);
+            let limit = request.limit.unwrap_or(MAX_LIMIT).min(MAX_CHILDREN_LIMIT);
+            let (bookmarks, truncated) = subtree(&tree, &request.parent, depth, limit);
+            Ok(json!({
+                "bookmarks_revision": revision,
+                "bookmarks": bookmarks,
+                "total": tree.children(&request.parent).len(),
+                "truncated": truncated,
+            }))
         }
         "bookmarks.search" => {
             let query: Query = parse(params)?;
@@ -277,6 +310,24 @@ fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
+}
+
+/// The nodes under `parent` down to `depth` levels, depth-first in listing
+/// order, at most `limit`; true when more were left out.
+fn subtree(tree: &Tree, parent: &str, depth: usize, limit: usize) -> (Vec<Value>, bool) {
+    let mut rows = Vec::new();
+    let mut stack: Vec<(&cmux_bookmarks_core::Bookmark, usize)> =
+        tree.children(parent).into_iter().rev().map(|node| (node, 1)).collect();
+    while let Some((node, level)) = stack.pop() {
+        if rows.len() == limit {
+            return (rows, true);
+        }
+        rows.push(json!(node));
+        if level < depth {
+            stack.extend(tree.children(&node.id).into_iter().rev().map(|child| (child, level + 1)));
+        }
+    }
+    (rows, false)
 }
 
 /// The profile's stored tree and its revision.

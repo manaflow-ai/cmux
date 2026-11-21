@@ -4,6 +4,7 @@
 
 use super::machine::{deleted, machine_mutation, trimmed};
 use crate::api::args;
+use crate::api::models::check_revision;
 use crate::api::{CloudError, ControlPlane, Ctx, codes, decode_answer};
 use cmux_cloud_wire::{CloudSnapshotCreateOp, CloudSnapshotListOp, Op};
 use serde_json::{Value, json};
@@ -17,18 +18,22 @@ pub(super) fn run<C: ControlPlane>(
         "cloud.snapshot.list" => {
             let map = args::object(raw, &["machine"])?;
             args::opt_id(map, "machine")?;
-            let list: <CloudSnapshotListOp as Op>::Result =
+            let mut list: <CloudSnapshotListOp as Op>::Result =
                 decode_answer(name, ctx.wire(name, args::params(map, &["machine"]))?.value)?;
+            for snapshot in &mut list.snapshots {
+                check_revision(name, &mut snapshot.revision)?;
+            }
             Ok(json!({ "snapshots": list.snapshots }))
         }
         "cloud.snapshot.create" => {
             let map = args::object(raw, &["machine", "name"])?;
             args::id(map, "machine")?;
             args::text(map, "name", 80)?;
-            let answer: <CloudSnapshotCreateOp as Op>::Result = decode_answer(
+            let mut answer: <CloudSnapshotCreateOp as Op>::Result = decode_answer(
                 name,
                 ctx.wire(name, args::params(map, &["machine", "name"]))?.value,
             )?;
+            check_revision(name, &mut answer.snapshot.revision)?;
             Ok(json!({ "snapshot": answer.snapshot }))
         }
         "cloud.snapshot.restore" => {

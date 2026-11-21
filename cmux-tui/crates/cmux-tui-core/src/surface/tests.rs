@@ -9,6 +9,10 @@ mod clear_history_tests;
 #[cfg(unix)]
 mod clipboard_read;
 mod colors;
+#[cfg(unix)]
+mod fence_wait_cancel;
+#[cfg(unix)]
+mod host_frames_spawn;
 mod hosted;
 mod input;
 #[cfg(unix)]
@@ -27,6 +31,7 @@ mod resize_conformance;
 #[cfg(unix)]
 mod scroll_stress;
 mod stream_progress;
+mod unviewed_frames;
 use base64::Engine as _;
 use std::sync::mpsc::sync_channel;
 

@@ -1,6 +1,6 @@
 ---
 name: cmux-sudo
-description: "Run one command as root through the person's approval: the request_elevation tool shows them a card with the exact command and a password field, and cmux runs sudo for you. Use when a step truly needs root (fs_usage, dtruss, powermetrics, a protected log, or a fix the person asked for), when sudo asks for a password, or when the person offers to type their password."
+description: "Run one command as root with the person's approval: the request_elevation tool shows them the exact command and a password field, and cmux runs sudo. Use when a step truly needs root, or when sudo asks for a password."
 ---
 
 # Running a command as root

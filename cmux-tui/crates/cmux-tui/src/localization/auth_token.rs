@@ -13,7 +13,7 @@ pub(crate) struct AuthTokenMessages {
 
 pub(super) const ENGLISH: AuthTokenMessages = AuthTokenMessages {
     usage: "usage: cmux auth token [--team TEAM] [--json]\n\nPrint a short-lived cmux access token from the cmux app's signed-in session,\nfor the cmux platform API and hosted MCP outside the app:\n\n  export CMUX_TOKEN=$(cmux auth token)\n  curl -H \"Authorization: Bearer $CMUX_TOKEN\" https://<platform>/v1/machines\n\nThe token is good for about ten minutes and has no refresh token: ask again\nwhen it expires. It acts for your account and one team, and can never run\ncommands on a machine. Sign in in the cmux app first.\n\n  --team TEAM   The team (team_ and 20 hex digits). Default: the app's team.\n  --json        Also print token_type, team, user, expires_at, expires_in and\n                api_origin (the cmux API that issued it).\n\nSee docs/cmux-next/auth-token.md.\n",
-    unknown_verb: "unknown auth verb \"{verb}\"; use token",
+    unknown_verb: "unknown auth verb \"{verb}\"; use token (`cmux auth --help`)",
     no_token: "the cmux app answered auth.token without a token",
     whoami_usage: "usage: cmux whoami [--json]\n\nSay who the cmux app is signed in as: your cmux user and team.\nSign in with `cmux login`, sign out with `cmux logout`.\n",
     whoami_signed_in: "Signed in to cmux as user {user}, team {team}",

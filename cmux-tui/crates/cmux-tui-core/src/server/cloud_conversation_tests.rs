@@ -1198,3 +1198,20 @@ fn a_refused_inbox_page_leaves_the_cloud_rows_unavailable() {
         assert_eq!(conversations::cloud_rows_failure(&signed_out.into()), state);
     }
 }
+
+/// The app's feed presence ends with its connection: a frontend that set
+/// active and then went away without a clean exit (a crash) no longer
+/// counts as active, so the person's phone pushes are not held back.
+#[test]
+fn a_closed_frontend_connection_takes_its_feed_presence_with_it() {
+    let (mux, client, _backend) = cloud_mux();
+    let other = mux.control_clients.register(ClientTransport::Unix, writer());
+    mux.feed_client().set_presence(client, true);
+    mux.feed_client().set_presence(other, true);
+    assert!(disconnect_client(&mux, client, false));
+    assert!(mux.feed_client().presence(), "the other frontend still holds it");
+    assert!(disconnect_client(&mux, other, false));
+    assert!(!mux.feed_client().presence(), "a closed connection kept the app active");
+    mux.feed_client().shutdown();
+    mux.cloud_conversations().unwrap().shutdown();
+}

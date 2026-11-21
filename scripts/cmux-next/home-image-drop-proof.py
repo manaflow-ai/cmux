@@ -31,6 +31,9 @@ parser.add_argument("--app", required=True)
 parser.add_argument("--out", required=True)
 parser.add_argument("--only", default="", help="comma-separated case names (default: all)")
 opts = parser.parse_args()
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from bench_launch import require_no_person_mac  # noqa: E402
+require_no_person_mac("home-image-drop-proof")  # it posts real input (CGEventPost): never on a person's Mac
 os.makedirs(opts.out, exist_ok=True)
 
 APP = opts.app

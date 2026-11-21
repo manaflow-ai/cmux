@@ -57,6 +57,11 @@ public final class NewTerminalTrace: Sendable {
         public internal(set) var timedOut = false
         let armedAt: UInt64
         var marks = [UInt64?](repeating: nil, count: Mark.allCases.count)
+        /// Every surface identity observed for this terminal. A new tab starts
+        /// with a provisional surface, then the daemon reports its real one;
+        /// an attach can use either (or zero while resolving by resource id).
+        var surfaces = Set<UInt64>()
+        var terminalResourceID: String?
 
         /// Milliseconds from `action` (from arming when no action ran) to `mark`; nil when it never ran.
         public func milliseconds(_ mark: Mark) -> Double? {
@@ -160,27 +165,55 @@ public final class NewTerminalTrace: Sendable {
     }
 
     /// The store first has the bound terminal's tab, on daemon surface `surface`.
-    public func tabAdded(terminal: String, surface: UInt64) {
+    public func tabAdded(terminal: String, surface: UInt64, terminalResourceID: String? = nil) {
         guard isArmed else { return }
         let now = Self.now()
         update { record, _ in
-            guard record.terminal == terminal, record.surface == nil else { return }
+            guard record.terminal == terminal else { return }
+            record.surfaces.insert(surface)
             record.surface = surface
             record.set(.tabAdded, now)
+            if record.terminalResourceID == nil { record.terminalResourceID = terminalResourceID }
+        }
+    }
+
+    /// The IO's target gate resolved its known tab to a daemon attachment.
+    /// This is an explicit handoff, never a guess based on surface numbering.
+    public func targetResolved(from source: UInt64, surface: UInt64, terminalResourceID: String?) {
+        guard isArmed else { return }
+        update { record, _ in
+            guard record.surfaces.contains(source) else { return }
+            if let known = record.terminalResourceID, let terminalResourceID, known != terminalResourceID { return }
+            if surface != 0 {
+                record.surfaces.insert(surface)
+                record.surface = surface
+            }
+            if record.terminalResourceID == nil { record.terminalResourceID = terminalResourceID }
         }
     }
 
     /// Marks `mark` for the bound terminal's surface `surface` (the attach).
-    public func mark(_ mark: Mark, surface: UInt64) {
+    public func mark(_ mark: Mark, surface: UInt64, terminalResourceID: String? = nil) {
         guard isArmed else { return }
         let now = Self.now()
-        update { record, _ in if record.surface == surface { record.set(mark, now) } }
+        update { record, _ in
+            let surfaceMatches = record.surfaces.contains(surface)
+            let resourceMatches = terminalResourceID.flatMap { id in
+                record.terminalResourceID.map { $0 == id }
+            } ?? false
+            if let known = record.terminalResourceID, let terminalResourceID, known != terminalResourceID { return }
+            guard surfaceMatches || resourceMatches else { return }
+            record.set(mark, now)
+        }
     }
 
     /// The IO `io` was made for surface `surface`: a session over it is the bound terminal's view.
     public func watch(io: ObjectIdentifier, surface: UInt64) {
         guard isArmed else { return }
-        update { record, watch in if record.surface == surface { watch.io = io } }
+        update { record, watch in
+            guard record.surfaces.contains(surface), watch.io != io else { return }
+            watch = Watch(io: io)
+        }
     }
 
     /// A session over `io` created its surface. Marks `surface_created` and watches the

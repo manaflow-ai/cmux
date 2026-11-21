@@ -32,6 +32,9 @@ export interface MediaRef {
   dark: string;
   alt: string;
   video: boolean;
+  /** The same view before the change, when the highlight carries a before/after pair; the
+      main picture is then the after. Only the What's New page shows it (ReleaseParts Media). */
+  before?: { src: string; alt: string };
 }
 
 export interface ReleaseItem {
@@ -130,15 +133,31 @@ function entryId(id: string): string {
   return normalized || id;
 }
 
+/** A highlight's picture: its `after` (else the first that is not a `before`), with the pair's
+    `before` when both are pictures. A `before` alone shows nothing: it is not what changed. */
+export function highlightMedia(media: Highlight["media"]): MediaRef | undefined {
+  const shown = (media ?? []).filter((m) => admissibleSource(m.url));
+  const main = shown.find((m) => m.role === "after") ?? shown.find((m) => m.role !== "before");
+  if (!main) return undefined;
+  const src = admissibleSource(main.url)!;
+  const video = main.kind === "video";
+  const before = video ? undefined : shown.find((m) => m.role === "before" && m.kind !== "video");
+  return {
+    light: src,
+    dark: src,
+    alt: main.alt,
+    video,
+    ...(before ? { before: { src: admissibleSource(before.url)!, alt: before.alt } } : {}),
+  };
+}
+
 function fromHighlight(highlight: Highlight): ReleaseItem {
-  const media = highlight.media?.find((m) => admissibleSource(m.url));
-  const src = media ? admissibleSource(media.url)! : undefined;
   return {
     id: highlight.id,
     category: highlight.category ?? "new",
     title: highlight.title,
     summary: highlight.body,
-    media: media && src ? { light: src, dark: src, alt: media.alt, video: media.kind === "video" } : undefined,
+    media: highlightMedia(highlight.media),
     action: highlight.action ? { id: highlight.action.id, title: highlight.action.title } : undefined,
   };
 }

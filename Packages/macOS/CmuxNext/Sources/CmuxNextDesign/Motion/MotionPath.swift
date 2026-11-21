@@ -66,12 +66,13 @@ public struct MotionPath {
     }
 
     /// - Parameter kindOf: Reads an animation value's kind; called once per animation value list (tests count it).
-    init(_ layer: CALayer, _ keyPath: String, now: CFTimeInterval, kindOf: (Any?) -> ValueKind?) {
+    /// - Parameter keys: The animation keys the path reads (every key by default).
+    init(_ layer: CALayer, _ keyPath: String, now: CFTimeInterval, kindOf: (Any?) -> ValueKind?, keys: (String) -> Bool = { _ in true }) {
         switch keyPath {
         case "bounds.size": model = CGPoint(x: layer.bounds.width, y: layer.bounds.height)
         default: model = layer.position
         }
-        for key in layer.animationKeys() ?? [] {
+        for key in layer.animationKeys() ?? [] where keys(key) {
             guard let animation = layer.animation(forKey: key) else { continue }
             let path = (animation as? CAPropertyAnimation)?.keyPath ?? ""
             guard path == keyPath || path.hasPrefix(keyPath + ".") else { continue }
@@ -88,6 +89,16 @@ public struct MotionPath {
                                     component: Self.component(of: property?.keyPath ?? keyPath, under: keyPath),
                                     additive: property?.isAdditive ?? false, curve: Self.curve(animation, kindOf: kindOf)))
         }
+    }
+
+    /// What the animations of `keyPath` on `layer` under the keys `keys` accepts add to its model value at media
+    /// time `time` (zero when none runs then): the part of what the layer shows that those moves still owe. Any key
+    /// path works, `opacity` too (a number is in x). A move that takes over the moves in flight restarts from the
+    /// model plus this offset (`TabStripMove`).
+    public static func offset(of layer: CALayer, _ keyPath: String, at time: CFTimeInterval, keys: (String) -> Bool) -> CGPoint {
+        let path = MotionPath(layer, keyPath, now: time, kindOf: ValueKind.init(of:), keys: keys)
+        let value = path.value(at: time)
+        return CGPoint(x: value.x - path.model.x, y: value.y - path.model.y)
     }
 
     /// The latest media time an animation of the path ends; nil when nothing moves it.

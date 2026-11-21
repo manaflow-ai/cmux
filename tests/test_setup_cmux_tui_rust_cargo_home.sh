@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# .github/actions/setup-cmux-tui-rust/runner-cargo-home.sh gives each runner
+# .github/actions/runner-cargo-home/runner-cargo-home.sh (run by the
+# runner-cargo-home and setup-cmux-tui-rust actions) gives each runner
 # instance on a shared-HOME host its own CARGO_HOME. With one ~/.cargo, a
 # sibling job's rust-cache post step deleted ~/.cargo/registry/src under a
 # running cargo build (runs 42477732646 and 42478799348, 2026-11-08).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SCRIPT="$ROOT/.github/actions/setup-cmux-tui-rust/runner-cargo-home.sh"
+SCRIPT="$ROOT/.github/actions/runner-cargo-home/runner-cargo-home.sh"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 TMP="$(cd "$TMP" && pwd -P)"
 
@@ -65,6 +66,13 @@ c="$(run_as "$shared" container)"
 # A job that sets CARGO_HOME itself keeps it.
 k="$(run_as "$shared" actions-runner-glaeda "CARGO_HOME=$TMP/job-cargo")"
 [ ! -s "$k/env" ] || fail "a job's own CARGO_HOME was replaced"
+
+# dtolnay/rust-toolchain's CARGO_HOME=$HOME/.cargo is the shared home: replaced.
+d="$(run_as "$shared" actions-runner-glaeda "CARGO_HOME=$shared/.cargo")"
+[ "$(cat "$d/env")" = "CARGO_HOME=$shared/actions-runner-glaeda/_work/.cargo-home" ] \
+  || fail "the shared \$HOME/.cargo from dtolnay/rust-toolchain was kept: $(cat "$d/env")"
+d="$(run_as "$shared" actions-runner-glaeda "CARGO_HOME=$shared/.cargo/")"
+[ -s "$d/env" ] || fail "the shared \$HOME/.cargo/ (trailing slash) was kept"
 
 # Windows runners keep theirs.
 w="$(run_as "$shared" actions-runner-glaeda RUNNER_OS=Windows)"

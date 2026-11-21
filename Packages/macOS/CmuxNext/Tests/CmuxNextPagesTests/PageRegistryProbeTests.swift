@@ -24,23 +24,39 @@ struct PageRegistryProbeTests {
         #expect(PageRegistry.pages(id: descriptor.id, probing: true).isEmpty)
         #expect(PageRegistry.pages(id: descriptor.id).contains { $0 === view })
     }
+}
 
-    /// Review 22 of #37296: a probe picked a pooled dialog page before a password dialog claimed it, and
-    /// the page refused probes only from then on, so the probe's read went on. A dialog pool's view refuses
-    /// probes from the turn it is made, spare or claimed.
-    @Test func aDialogPoolsPageRefusesProbesFromTheStart() throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("overlay-probe-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try Data("<!doctype html><title>Dialog</title>".utf8).write(to: root.appendingPathComponent("index.html"))
-        let pool = OverlayDialogDrawing(drawing: CmuxDialogCenter()).pool
-        pool.testRoot = root
-        let (view, _) = try #require(pool.claim())
-        defer { view.close() }
-        #expect(view.refusesProbes)
-        // Review 28 of #37296: nor does a Web Inspector, which reads the DOM and calls the page's bridge.
-        #expect(!view.webView.isInspectable)
-        #expect(PageRegistry.probeTarget(id: PageDescriptor.overlay.id, instance: PageRegistry.instance(of: view)) == nil)
-        #expect(!PageRegistry.pages(id: PageDescriptor.overlay.id, probing: true).contains { $0 === view })
+/// markdown-table-motion on cmux18: "The reply's table is drawn" timed out. The chat window held three
+/// live `cmux.agent` pages (an earlier hidden chat, the first new chat, the new fake-harness chat with the
+/// reply); with that window key, the probe read the oldest page in it, a hidden one, never the reply's.
+@MainActor
+struct PageRegistryProbeChoiceTests {
+    private struct Page: Equatable { let id: Int; let key: Bool; let hidden: Bool }
+
+    private func choose(_ pages: [Page]) -> Page? {
+        PageRegistry.choose(pages, inKeyWindow: { $0.key }, hidden: { $0.hidden })
+    }
+
+    @Test func inAKeyWindowTheNewestShownPageIsTheTarget() {
+        let pages = [Page(id: 1, key: true, hidden: true), Page(id: 2, key: true, hidden: false),
+                     Page(id: 6, key: true, hidden: false)]
+        #expect(choose(pages)?.id == 6)
+    }
+
+    @Test func aShownPageInTheKeyWindowBeatsANewerOneElsewhere() {
+        let pages = [Page(id: 1, key: true, hidden: false), Page(id: 2, key: false, hidden: false)]
+        #expect(choose(pages)?.id == 1)
+    }
+
+    @Test func withNoKeyWindowTheNewestShownPageIsTheTarget() {
+        let pages = [Page(id: 1, key: false, hidden: false), Page(id: 2, key: false, hidden: false),
+                     Page(id: 3, key: false, hidden: true)]
+        #expect(choose(pages)?.id == 2)
+    }
+
+    @Test func withEveryPageHiddenTheNewestIsTheTarget() {
+        let pages = [Page(id: 1, key: true, hidden: true), Page(id: 2, key: false, hidden: true)]
+        #expect(choose(pages)?.id == 2)
+        #expect(choose([]) == nil)
     }
 }

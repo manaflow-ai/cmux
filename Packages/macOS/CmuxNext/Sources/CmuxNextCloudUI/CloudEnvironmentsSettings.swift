@@ -108,11 +108,22 @@ public final class CloudEnvironmentsSettings {
 
     /// `cloud.environment.set`'s params for a Save: only the fields the page sent; an empty repo clears it.
     static func saveArgs(_ request: CloudEnvironmentsRun) throws -> Data {
-        var args: [String: String?] = [:]
-        if let id = request.id { args["environment"] = .some(id) }
-        if let name = request.name { args["name"] = .some(name) }
-        if let repo = request.repo { args["repo"] = repo.isEmpty ? .some(nil) : .some(repo) }
-        if let script = request.setupScript { args["setup_script"] = .some(script) }
-        return try JSONEncoder().encode(args)
+        try JSONEncoder().encode(SaveArgs(request: request))
+    }
+
+    private struct SaveArgs: Encodable {
+        let request: CloudEnvironmentsRun
+        private enum CodingKeys: String, CodingKey { case environment, name, repo, env, setupScript = "setup_script" }
+
+        func encode(to encoder: any Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encodeIfPresent(request.id, forKey: .environment)
+            try c.encodeIfPresent(request.name, forKey: .name)
+            if let repo = request.repo {
+                if repo.isEmpty { try c.encodeNil(forKey: .repo) } else { try c.encode(repo, forKey: .repo) }
+            }
+            try c.encodeIfPresent(request.setupScript, forKey: .setupScript)
+            try c.encodeIfPresent(request.env, forKey: .env)
+        }
     }
 }

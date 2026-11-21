@@ -23,6 +23,7 @@ on:
       - skills/cmux-cloud-vm/references/headless.md
       - cmux-tui/rust-toolchain.toml
       - .github/actions/setup-cmux-tui-rust/**
+      - .github/actions/runner-cargo-home/**
       - .github/workflows/cmux-vm-clients.yml
   push:
     # feat-cmux-next too: cmux VM lands there first, and without this run an
@@ -38,6 +39,7 @@ on:
       - skills/cmux-cloud-vm/references/headless.md
       - cmux-tui/rust-toolchain.toml
       - .github/actions/setup-cmux-tui-rust/**
+      - .github/actions/runner-cargo-home/**
       - .github/workflows/cmux-vm-clients.yml
 
 concurrency:
@@ -141,6 +143,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - id: install
         run: bun install --frozen-lockfile

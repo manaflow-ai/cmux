@@ -28,6 +28,8 @@ public struct TaskManagerRow: Sendable, Equatable, Identifiable {
 
     /// The pid, for sorting and display.
     public var pid: Int32 { id.pid }
-    /// CPU for sorting: no value sorts as zero.
-    public var cpuSortValue: Double { cpu ?? 0 }
+    /// The CPU column's text: a dash until a second sample.
+    public var cpuText: String { cpu.map { ResourceFormat.cpu($0) } ?? Strings.pending }
+    /// The Memory column's text.
+    public var memoryText: String { ResourceFormat.memory(memoryBytes) }
 }

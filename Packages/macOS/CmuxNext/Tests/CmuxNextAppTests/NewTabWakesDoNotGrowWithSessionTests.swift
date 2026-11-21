@@ -114,7 +114,7 @@ struct NewTabWakesDoNotGrowWithSessionTests {
             var reads: [ObjectIdentifier: (site: String, tabs: Int)] = [:]
             for (index, tab) in models.enumerated() {
                 let wakes = ObservationWakes()
-                ObservationWakes.$current.withValue(wakes) { tab.title = "tab \(index)" }
+                ObservationWakes.$current.withValue(wakes) { tab.titleText = "tab \(index)" }
                 for (instance, site) in wakes.woken { reads[instance, default: (site, 0)].tabs += 1 }
                 await drainMain() // the woken observers re-arm before the next tab changes
             }

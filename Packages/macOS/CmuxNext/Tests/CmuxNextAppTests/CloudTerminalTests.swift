@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextCloud
 @testable import CmuxNextApp
+import CmuxNextDaemonService
 @testable import CmuxNextDaemon
 import Foundation
 import Testing
@@ -24,12 +25,12 @@ struct CloudTerminalTests {
     }
 
     @Test func noWorkspaceArgumentMakesAWorkspace() throws {
-        #expect(try CloudHandlers.machineWorkspaceArgument(ActionInvocation(origin: .cli), machine: "vm-a") == nil)
+        #expect(try CloudHandlerRules().arg("machineWorkspace", ActionInvocation(origin: .cli), extra: ["machine": "vm-a"]) is NSNull)
     }
 
     @Test func theWorkspaceArgumentIsTrimmed() throws {
         let invocation = ActionInvocation(arguments: ["workspace": .string("  ws_one \n")], origin: .cli)
-        #expect(try CloudHandlers.machineWorkspaceArgument(invocation, machine: "vm-a") == "ws_one")
+        #expect(try CloudHandlerRules().arg("machineWorkspace", invocation, extra: ["machine": "vm-a"]) as? String == "ws_one")
     }
 
     /// `--workspace` with no value reaches the action as `true`; blank text refuses the same way,
@@ -38,7 +39,7 @@ struct CloudTerminalTests {
     func aWorkspaceFlagWithoutAnIdSaysHowToPassOne(value: ActionValue) {
         let invocation = ActionInvocation(arguments: ["workspace": value], origin: .cli)
         #expect(throws: ActionFailure(message: CloudStrings.machineWorkspaceRequired("vm-a"))) {
-            try CloudHandlers.machineWorkspaceArgument(invocation, machine: "vm-a")
+            try CloudHandlerRules().arg("machineWorkspace", invocation, extra: ["machine": "vm-a"])
         }
         #expect(CloudStrings.machineWorkspaceRequired("vm-a").contains("cmux cloud new-terminal-on-machine --target machine:vm-a"))
     }

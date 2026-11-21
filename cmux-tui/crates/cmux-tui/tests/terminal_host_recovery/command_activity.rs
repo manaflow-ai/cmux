@@ -893,3 +893,6 @@ fn an_agent_question_reaches_the_notification_and_its_row_in_memory_only() {
     let _ = fs::remove_dir_all(&payload_dir);
     assert!(!still, "an answered question is forgotten: {rows}");
 }
+
+#[path = "dismissed_dialog.rs"]
+mod dismissed_dialog;

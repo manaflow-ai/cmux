@@ -8,7 +8,7 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
 use acpmux::workflow_runs::{Child, RunRecord, State, Store};
 use serde_json::{Value, json};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::CString;
 use std::fs;
 use std::io::Read;
@@ -20,6 +20,8 @@ use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../acpmux/tests/fake_workflow_agent.py");
+/// The stand-in agent that answers `envs: A,B` with its own environment.
+const PROBE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../acpmux/tests/fake_agent.py");
 const SCRIPT: &str = ".cmux/workflows/proof.workflow.js";
 
 struct Machine {
@@ -37,7 +39,10 @@ impl Machine {
             dir.path().join("acpmux/config.json"),
             json!({
                 "defaultHarness":"fake", "permissionPolicy":"ask",
-                "harnesses":{"fake":{"argv":["python3",FAKE],"family":"fake"}}
+                "harnesses":{"fake":{"argv":["python3",FAKE],"family":"fake"},
+                    "probe":{"argv":["python3",PROBE],"family":"fake"},
+                    "probe-marked":{"argv":["python3",PROBE],"family":"fake",
+                        "env":{"ACPMUX_CALLER_SUBAGENT":"general-purpose:a0a68e7af3df5967e"}}}
             })
             .to_string(),
         )
@@ -92,6 +97,99 @@ impl Machine {
                 String::from_utf8_lossy(&output.stdout)
             )
         })
+    }
+
+    /// A chat of the stand-in agent ([`PROBE`]): its id, and the acpmux environment its agent
+    /// got (caller token, sockets, home), which an MCP server its harness starts inherits.
+    fn agent_chat(&self) -> (String, Vec<(String, String)>) {
+        self.agent_chat_of("probe")
+    }
+
+    /// [`Self::agent_chat`] with harness `harness`.
+    fn agent_chat_of(&self, harness: &str) -> (String, Vec<(String, String)>) {
+        use std::io::{BufRead, BufReader, Write};
+        let socket = self.dir.path().join("acpmux/acpmux.sock");
+        let stream = std::os::unix::net::UnixStream::connect(socket).unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(60))).unwrap();
+        let mut reader = BufReader::new(stream);
+        let mut call = |id: u64, method: &str, params: Value| {
+            let request = json!({"jsonrpc":"2.0","id":id,"method":method,"params":params});
+            writeln!(reader.get_mut(), "{request}").unwrap();
+            let mut text = String::new();
+            loop {
+                let mut line = String::new();
+                assert_ne!(reader.read_line(&mut line).unwrap(), 0, "closed before {method}");
+                let message: Value = serde_json::from_str(&line).unwrap();
+                if message["id"] == id {
+                    return (message, text);
+                }
+                if let Some(t) =
+                    message.pointer("/params/update/content/text").and_then(Value::as_str)
+                {
+                    text.push_str(t);
+                }
+            }
+        };
+        call(1, "initialize", json!({"protocolVersion": 1, "clientCapabilities": {}}));
+        let work = fs::canonicalize(self.dir.path().join("work")).unwrap();
+        let (created, _) = call(
+            2,
+            "session/new",
+            json!({"cwd": work, "mcpServers": [], "_meta": {"acpmux": {"harness": harness}}}),
+        );
+        let session = created["result"]["sessionId"]
+            .as_str()
+            .unwrap_or_else(|| panic!("no chat: {created}"))
+            .to_owned();
+        let names = "ACPMUX_ENV,ACPMUX_HOME,ACPMUX_SOCKET,ACPMUX_SESSION_ID,ACPMUX_SESSION_TOKEN,\
+            ACPMUX_SESSION_TOKEN_SOCKET,CMUX_AGENT_SESSION,ACPMUX_CALLER_SUBAGENT";
+        let prompt = json!({"sessionId": session,
+            "prompt": [{"type": "text", "text": format!("envs: {names}")}]});
+        let (reply, text) = call(3, "session/prompt", prompt);
+        assert!(reply.get("error").is_none(), "{reply}");
+        let env: BTreeMap<String, String> = serde_json::from_str(&text).unwrap_or_else(|_| {
+            // Never the text: it holds the chat's caller token.
+            panic!("no environment ({} bytes of reply)", text.len())
+        });
+        let env = env.into_iter().filter(|(_, value)| !value.is_empty()).collect::<Vec<_>>();
+        assert!(env.iter().any(|(k, _)| k == "ACPMUX_SESSION_TOKEN"), "no caller token");
+        (session, env)
+    }
+
+    /// One `cmux_exec` call of `script` to `cmux mcp serve` run with the chat's agent `env`,
+    /// with `meta` as Claude Code's `_meta`: the call's result.
+    fn mcp_exec(&self, env: &[(String, String)], script: &str, meta: Value) -> Value {
+        use std::io::{BufRead, BufReader, Write};
+        let mut command = self.command(&["mcp", "serve"]);
+        command
+            .envs(env.iter().map(|(key, value)| (key, value)))
+            .env("CMUX_NEXT_CONFIG_FILE", self.dir.path().join("home/.config/cmux/cmux-next.json"))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped());
+        let mut child = command.spawn().unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        for message in [
+            json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+                "protocolVersion": "2025-06-18", "capabilities": {},
+                "clientInfo": {"name": "claude-code", "version": "2"}}}),
+            json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
+            json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {
+                "name": "cmux_exec", "arguments": {"script": script}, "_meta": meta}}),
+        ] {
+            writeln!(stdin, "{message}").unwrap();
+        }
+        let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+        let result = loop {
+            let line = lines.next().expect("an MCP reply").unwrap();
+            let message: Value = serde_json::from_str(&line).unwrap();
+            if message["id"] == 2 {
+                break message["result"].clone();
+            }
+        };
+        drop(stdin);
+        let _ = child.kill();
+        let _ = child.wait();
+        result
     }
 
     fn write(&self, source: &str) {
@@ -326,4 +424,97 @@ fn product_workflow_reads_machine_result_and_terminal_child_journal() {
             "{kind} journal must retain the exact final machine result"
         );
     }
+}
+
+/// W5-M (a), bench round 4: a Claude Code subagent that starts a workflow through cmux's MCP
+/// (`cmux.cmux_workflow` in a `cmux_exec` script) owns that workflow's work as its Bash would:
+/// the workflow's commands run with the subagent's mark (`ACPMUX_CALLER_SUBAGENT`), so an
+/// `acpmux send` in them names the subagent, and its report goes to the subagent, not the lead.
+#[test]
+fn w5s_a_workflow_a_subagent_starts_runs_its_commands_as_that_subagent() {
+    const SUB: &str = "a0a68e7af3df5967e";
+    let machine = Machine::start();
+    let (session, env) = machine.agent_chat();
+    // What acpmux's PreToolUse hook records for the subagent's `cmux_exec` call (`bg_hook.rs`).
+    let home = machine.dir.path().join("acpmux");
+    acpmux::subagent_call::record(&home, &session, "toolu_01wf", SUB, "general-purpose").unwrap();
+    let source = r#"return await machine('printf %s "$ACPMUX_CALLER_SUBAGENT"',{on:'local'});"#;
+    let script = format!(
+        "return await cmux.cmux_workflow({{action:'start',name:'Subagent proof',source:{}}});",
+        json!(source)
+    );
+    let answer = machine.mcp_exec(&env, &script, json!({"claudecode/toolUseId": "toolu_01wf"}));
+    assert_ne!(answer["isError"], true, "{answer}");
+    let runs = machine.runs().list().unwrap();
+    let [run] = runs.as_slice() else { panic!("one run expected: {answer}") };
+    assert_eq!(run.owner_session_id, session, "the subagent's chat owns the run");
+    let completed = machine.until(&run.id, |run| run.state == State::Completed);
+    let result = &completed.outcome.as_ref().unwrap().as_ref().unwrap()["result"];
+    assert_eq!(
+        result["text"],
+        format!("general-purpose:{SUB}"),
+        "the workflow's command did not run as the subagent: {result}"
+    );
+}
+
+/// Review of #39667: a workflow runs as a subagent only when that subagent's own call, still
+/// running, in the same chat, starts it. The chat's own call (no subagent recorded for it), a call
+/// that has ended, a call of another chat, and the person's `cmux workflow start` all start a run
+/// whose commands carry no subagent.
+#[test]
+fn w5s_a_workflow_no_running_subagent_call_starts_runs_as_no_subagent() {
+    const SUB: &str = "a0a68e7af3df5967e";
+    let machine = Machine::start();
+    let (session, env) = machine.agent_chat();
+    let (other, _) = machine.agent_chat();
+    let home = machine.dir.path().join("acpmux");
+    let record = |chat: &str, call: &str| {
+        acpmux::subagent_call::record(&home, chat, call, SUB, "general-purpose").unwrap();
+    };
+    // An ended call: its PostToolUse removed the record.
+    record(&session, "toolu_01ended");
+    acpmux::subagent_call::end(&home, &session, "toolu_01ended");
+    // A call of another chat: recorded there, not in this one.
+    record(&other, "toolu_01other");
+    let source = r#"return await machine('printf %s "$ACPMUX_CALLER_SUBAGENT"',{on:'local'});"#;
+    let started = |name: &str, call: &str| {
+        let script = format!(
+            "return await cmux.cmux_workflow({{action:'start',name:{},source:{}}});",
+            json!(name),
+            json!(source)
+        );
+        let answer = machine.mcp_exec(&env, &script, json!({"claudecode/toolUseId": call}));
+        assert_ne!(answer["isError"], true, "{name}: {answer}");
+    };
+    // A subagent of the chat runs a call meanwhile: the lead's own call still names none.
+    record(&session, "toolu_01live");
+    started("Lead's own call", "toolu_01lead");
+    started("Ended call", "toolu_01ended");
+    started("Other chat's call", "toolu_01other");
+    machine.write(&format!("export const meta={{name:'Person start'}};\n{source}"));
+    let person = machine.json(&["workflow", "start", SCRIPT]);
+    assert!(person["runId"].is_string(), "no run: {person}");
+    let runs = machine.runs().list().unwrap();
+    assert_eq!(runs.len(), 4, "{runs:?}");
+    for run in runs {
+        let completed = machine.until(&run.id, |run| run.state == State::Completed);
+        let result = &completed.outcome.as_ref().unwrap().as_ref().unwrap()["result"];
+        assert_eq!(result["text"], "", "{} ran as a subagent: {result}", run.name);
+        assert_eq!(completed.caller_subagent, None, "{} names a subagent", run.name);
+    }
+}
+
+/// Review of #39733: only a workflow runner the daemon started for a subagent has its mark. A
+/// harness profile whose env sets `ACPMUX_CALLER_SUBAGENT` does not give it to the agent, so an
+/// agent's own MCP servers never send as a subagent that did not make the call.
+#[test]
+fn w5s_a_profile_env_gives_an_agent_no_subagent_mark() {
+    let machine = Machine::start();
+    let (_, env) = machine.agent_chat_of("probe-marked");
+    // Names only, never values: the env holds the chat's caller token.
+    let keys = env.iter().map(|(key, _)| key.as_str()).collect::<Vec<_>>();
+    assert!(
+        !keys.contains(&"ACPMUX_CALLER_SUBAGENT"),
+        "the agent got a subagent mark from its profile (its env has {keys:?})"
+    );
 }

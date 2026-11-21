@@ -3,17 +3,20 @@ public import Foundation
 import CmuxNextWakeups
 
 /// What a rollback compares, read off the main actor
-/// (``UpdaterService/rollbackInputs(stateDirectories:)``).
+/// (``UpdaterService/rollbackInputs(to:checkOnly:stateDirectories:)``).
 nonisolated public struct RollbackInputs: Sendable {
-    /// Kept versions, newest first, each with the schemas it reads (its
-    /// Info.plist, else its own CLI; nil when neither says).
+    /// Kept versions, newest first. The rollback's target carries the schemas it reads (its
+    /// Info.plist, its recorded probe, else its own CLI; nil when none says) and its team.
     public var kept: [KeptVersion]
     /// The newest schema each store holds; nil when they could not be read.
     public var stored: [String: Int]?
+    /// The running app's signing team; nil for an unsigned app.
+    public var teamID: String?
 
-    public init(kept: [KeptVersion], stored: [String: Int]?) {
+    public init(kept: [KeptVersion], stored: [String: Int]?, teamID: String? = nil) {
         self.kept = kept
         self.stored = stored
+        self.teamID = teamID
     }
 }
 
@@ -30,7 +33,7 @@ extension UpdaterService {
     public var keptVersions: KeptVersionStore {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let root = support.appending(path: "cmux-next/\(identity.bundleIdentifier ?? "cmux")/versions", directoryHint: .isDirectory)
-        return KeptVersionStore(root: root, teamID: { UpdateDropBack.signingTeam(of: $0) })
+        return KeptVersionStore(root: root, teamID: { UpdateDropBack.signingTeam(of: $0) }, teams: signingTeams)
     }
 
     /// An update staged: keep the running bundle for rollback now, off the
@@ -64,6 +67,12 @@ extension UpdaterService {
                     return false
                 }
             }) ?? false
+            // The clone just kept is this build (the running path may hold another one by now, after a
+            // switch); a rollback to it later reads this answer instead of starting a cold copy.
+            let clone = store.root.appending(path: build, directoryHint: .isDirectory).appending(path: bundle.lastPathComponent)
+            if kept, let schemas = await StoreSchemaProbe(bundle: clone).readable() {
+                _ = try? await work.run(.bestEffort, mayBlock: .files) { store.recordSchemas(schemas, for: build) }
+            }
             self?.keptRunningBuild = kept ? .kept : nil
         }
     }
@@ -82,26 +91,47 @@ extension UpdaterService {
         }
     }
 
-    /// Reads the kept versions and the stored schemas off the main actor:
-    /// each probe runs a bundled CLI. `stateDirectories` are the daemons'
-    /// state roots (nil: cmux-tui's default).
-    public func rollbackInputs(stateDirectories: [URL?]) async -> RollbackInputs {
+    /// Reads what a rollback to `build` (nil: the newest kept) compares, off the main actor. Only
+    /// that build is checked: its signature (one full check of every nested binary), then, without
+    /// recorded schemas and only when that check passed, its own CLI; the stored schemas and the
+    /// running app's team are read beside it. `stateDirectories` are the
+    /// daemons' state roots (nil: cmux-tui's default). `checkOnly` (the card's "would it run")
+    /// takes an earlier signature answer for the target; a rollback that runs checks it afresh.
+    public func rollbackInputs(to build: String?, checkOnly: Bool = false, stateDirectories: [URL?]) async -> RollbackInputs {
         let store = keptVersions
         let bundle = Bundle.main.bundleURL
+        let work = work
         // A directory listing and a read of each kept bundle's Info.plist: file I/O on the files lane. The
         // probes are awaited child processes (no thread waits).
         var kept = (try? await work.run(.userVisible, mayBlock: .files) { store.list() }) ?? []
-        for index in kept.indices where kept[index].storeSchemas == nil {
-            kept[index].storeSchemas = await StoreSchemaProbe(bundle: kept[index].bundle).readable()
+        async let stored = StoreSchemaProbe(bundle: bundle).stored(stateDirectories: stateDirectories)
+        async let team = try? work.run(.userVisible, mayBlock: .files) {
+            store.teams.team(of: bundle, read: UpdateDropBack.signingTeam(of:))
         }
-        return RollbackInputs(kept: kept, stored: await StoreSchemaProbe(bundle: bundle).stored(stateDirectories: stateDirectories))
+        let index = build == nil ? kept.indices.first : kept.firstIndex { $0.build == build }
+        let running = await team ?? nil
+        if let index {
+            let target = kept[index]
+            // A check may reuse an earlier answer only when no code of the bundle runs after it: without a
+            // valid record its CLI runs next, so it is checked afresh (a CLI replaced under an unchanged
+            // seal keeps the cache key).
+            let reuses = checkOnly && target.storeSchemas != nil
+            kept[index] = (try? await work.run(.userVisible, mayBlock: .files) { store.verified(target, reusing: reuses) }) ?? target
+            // Its CLI runs only once its signature is this app's team: a kept bundle changed on disk never
+            // runs code as the app (``RollbackDecision`` refuses it on the team before any schema).
+            if kept[index].storeSchemas == nil, let running, kept[index].teamID == running,
+               let probed = await StoreSchemaProbe(bundle: target.bundle, timeout: .seconds(30)).readable() {
+                kept[index].storeSchemas = probed
+                _ = try? await work.run(.bestEffort, mayBlock: .files) { store.recordSchemas(probed, for: target.build) }
+            }
+        }
+        return RollbackInputs(kept: kept, stored: await stored, teamID: running)
     }
 
     /// Whether a rollback to `build` (nil: the newest kept) would run.
     public func rollbackDecision(to build: String?, inputs: RollbackInputs) -> Result<KeptVersion, RollbackRefusal> {
         guard let stored = inputs.stored else { return .failure(.storesUnknown) }
-        return RollbackDecision.decide(kept: inputs.kept, build: build, stored: stored,
-                                       teamID: UpdateDropBack.signingTeam(of: Bundle.main.bundleURL))
+        return RollbackDecision.decide(kept: inputs.kept, build: build, stored: stored, teamID: inputs.teamID)
     }
 }
 
@@ -117,18 +147,21 @@ extension UpdaterService {
     var runsPickedBuild: Bool { defaults.string(forKey: Self.pickedBuildKey) == identity.build }
 
     /// Rolls back to `build` (nil: the newest kept) when ``rollbackDecision``
-    /// allows it: swaps the bundles, stops offering the build left behind,
-    /// then quits keeping every session and lets `relaunch` reopen the app.
+    /// allows it: swaps the bundles (on the files lane: the clone of the running build and the
+    /// renames are disk work), stops offering the build left behind, then quits keeping every
+    /// session and lets `relaunch` reopen the app.
     @discardableResult
-    public func rollback(to build: String?, inputs: RollbackInputs, relaunch: (URL) -> Void) throws -> KeptVersion {
+    public func rollback(to build: String?, inputs: RollbackInputs, relaunch: (URL) -> Void) async throws -> KeptVersion {
         let target = try rollbackDecision(to: build, inputs: inputs).get()
-        let bundle = Bundle.main.bundleURL
-        try RollbackSwap.perform(current: bundle, currentBuild: identity.build, target: target,
-                                 store: keptVersions, limit: preferences.keepPreviousVersions)
-        defaults.set(identity.build, forKey: Self.skipsBuildsThroughKey)
+        let bundle = Bundle.main.bundleURL, current = identity.build, store = keptVersions, limit = preferences.keepPreviousVersions
+        let started = ContinuousClock.now
+        _ = try await work.run(.userBlocking, mayBlock: .files, shutdown: .blockShutdown) {
+            try RollbackSwap.perform(current: bundle, currentBuild: current, target: target, store: store, limit: limit)
+        }
+        defaults.set(current, forKey: Self.skipsBuildsThroughKey)
         defaults.set(target.build, forKey: Self.pickedBuildKey)
-        controller?.skipsBuildsThrough = identity.build
-        log.append("rolled back \(identity.build) -> \(target.build)")
+        controller?.skipsBuildsThrough = current
+        log.append("rolled back \(current) -> \(target.build) (swap \(started.duration(to: .now)))")
         willRelaunch?()
         relaunch(bundle)
         return target

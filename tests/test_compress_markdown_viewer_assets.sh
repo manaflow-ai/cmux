@@ -11,7 +11,7 @@ printf 'export const chunk = "chunk";\n' > "$TMP_DIR/markdown-viewer/chunks/chun
 printf 'already compressed\n' > "$TMP_DIR/markdown-viewer/nested/keep.js.deflate"
 printf 'body { color: red; }\n' > "$TMP_DIR/markdown-viewer/style.css"
 
-"$ROOT/scripts/compress-markdown-viewer-assets.sh" "$TMP_DIR/markdown-viewer" >/tmp/cmux-compress-assets.log
+"$ROOT/scripts/compress-markdown-viewer-assets.sh" "$TMP_DIR/markdown-viewer" >"$TMP_DIR/compress-assets.log"
 
 for path in \
   "$TMP_DIR/markdown-viewer/top.js" \

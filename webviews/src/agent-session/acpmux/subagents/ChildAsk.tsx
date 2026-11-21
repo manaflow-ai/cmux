@@ -43,6 +43,8 @@ export const ChildAsk = memo(function ChildAsk({
         shortcuts={shortcuts}
         waiting={waiting}
         focusComposer={focusComposer}
+        // A sub-session's plan builds from its own chat: the build answers the shown chat's ask.
+        buildsPlan={false}
       />
     </section>
   );

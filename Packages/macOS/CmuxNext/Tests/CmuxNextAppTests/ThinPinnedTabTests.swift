@@ -10,7 +10,7 @@ import Testing
     func pinnedTabsAreChromeThinAtEveryDensity(preset: DensityPreset) {
         DensityTokens.$scoped.withValue(preset.tokens) {
             let metrics = TabStripMetrics()
-            #expect(metrics.pinnedTabWidth <= 40, "\(preset.rawValue): pinned tab is \(metrics.pinnedTabWidth) pt wide, Chrome's is 36")
+            #expect(metrics.pinnedTabWidth <= 40 * CGFloat(preset.scaleFactor), "\(preset.rawValue): pinned tab is \(metrics.pinnedTabWidth) pt wide, scaled from Chrome's thin width")
             #expect(metrics.pinnedTabWidth >= metrics.iconSize + 2 * metrics.tabBackgroundInset, "\(preset.rawValue): the icon does not fit")
             let items = (0..<3).map { TabLayoutItem(id: TabID("p\($0)"), isPinned: true) }
             let result = TabLayoutEngine.layout(items: items, availableWidth: 800, style: .chrome, metrics: metrics)

@@ -29,6 +29,7 @@ const base: ReturnBriefInput = {
     kind: "tests",
     state: "succeeded",
     tests: { passed: 12, failed: 0, skipped: 1 },
+    repository: "example/atlas",
     githubRunId: 47,
   },
   artifact: {

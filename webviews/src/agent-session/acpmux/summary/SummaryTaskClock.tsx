@@ -1,4 +1,5 @@
 import { createContext, useContext, type ReactNode } from "react";
+import { Clock } from "../../../ui/Typography";
 import { formatDuration } from "../conversation/turns";
 import { useNow } from "../subagents/subagentGroupModel";
 
@@ -13,5 +14,5 @@ export function SummaryTaskClock({ live, children }: { live: boolean; children: 
 
 export function RunningElapsed({ startedAt }: { startedAt: number }) {
   const now = useContext(TaskNow);
-  return formatDuration(Math.max(0, now - startedAt));
+  return <Clock text={formatDuration(Math.max(0, now - startedAt))} />;
 }

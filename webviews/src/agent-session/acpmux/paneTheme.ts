@@ -6,8 +6,10 @@ import { configureSelectionReply } from "./conversation/selectionReplyModel";
 import { configureToolRunLook } from "./toolRunLook";
 import { configureSentLook } from "./conversation/sentMessageLineModel";
 import { configureInboxNoticeLook } from "./conversation/inboxNoticeLook";
+import { configureInboxThreadLook } from "./conversation/inboxThreadLook";
+import { configureReceivedLook } from "./conversation/receivedLook";
 import { configureMessageLineLook } from "./conversation/messageLineLook";
-import { configureNoticeLook } from "./conversation/noticeLook";
+import { configureNoticeBodyLook, configureNoticeLook } from "./conversation/noticeLook";
 import { configureTurnActionsPlacement } from "./turnActionsPlacement";
 
 /** The same host theme before mount and on subsequent bridge pushes. */
@@ -18,8 +20,11 @@ export function applyPaneTheme(theme: Record<string, unknown>): void {
   configureToolRunLook(theme.toolRunLook);
   configureSentLook(theme.sentLook);
   configureInboxNoticeLook(theme.inboxNoticeLook);
+  configureInboxThreadLook(theme.inboxThreadLook);
+  configureReceivedLook(theme.receivedLook);
   configureMessageLineLook(theme.messageLineLook);
   configureNoticeLook(theme.noticeLook);
+  configureNoticeBodyLook(theme.noticeBodyLook);
   configureTurnActionsPlacement(theme.turnActionsPlacement);
   configureSubagentTray(theme.subagentTray);
   configureSubagentTrayPlacement(theme.subagentTrayPlacement);

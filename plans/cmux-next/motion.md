@@ -19,7 +19,7 @@ quick 80 ms (hover and pressed fills, focus rings, anything leaving), micro
 is a step or 0, and every spring ends visibly (within 0.5%,
 `perceivedDuration`) by 240 ms; entering eases out, and nothing delays input. A web fold, Show more or panel that
 grows or shrinks to a new height rides the settle (`--cmux-ease-settle`,
-`cubic-bezier(0.16, 1, 0.3, 1)`, over `--cmux-motion-settle`, 265 ms; TypeScript
+`cubic-bezier(0.16, 1, 0.3, 1)`, over `--cmux-motion-settle`, 180 ms; TypeScript
 `MOTION_SETTLE` and `MOTION_SETTLE_MS`): a strong ease-out that starts at full
 speed and decelerates into its end on a long soft tail, never past it (Leo
 2026-11-07: "they dont overshoot but they decelerate at the end. i think that
@@ -27,12 +27,14 @@ might be the key"). split-motion-sweep measured it on a reference panel's folds:
 a first-order exponential, 1 - e^(-t/38 ms) (about 53% of the travel in the first
 frame, within 0.5 pt of rest by about 225 ms, fold and unfold alike; a critically
 damped spring fit it to 2.2-4.7% rms, the exponential to 0.1-1.1%). The
-cubic-bezier is within 1.1% of it at every point; the exact `linear()` copy is not
-the value because WebKit before Safari 17.2 (macOS 14.0 and 14.1) has no
-`linear()` easing. It is measured, so it is the one length off the step list;
-it is visibly at rest by the 240 ms ceiling. Native: the same
-CAMediaTimingFunction over 0.265 s, or for an interruptible spring an overdamped
-one (mass 1, stiffness 20800, damping 826). Reduce Motion and the pane's
+cubic-bezier over 265 ms is within 1.1% of it at every point; the exact `linear()`
+copy is not the value because WebKit before Safari 17.2 (macOS 14.0 and 14.1) has
+no `linear()` easing. It runs the standard step's 180 ms instead, the same curve
+compressed, so a fold is at rest 85 ms sooner (Leo 2026-11-09: "there's some sort
+of 'settling' and like ok maybe but the animations end to end need to just resolve
+faster"). Native: the same
+CAMediaTimingFunction over 0.18 s, or for an interruptible spring an overdamped
+one (mass 1, stiffness 45100, damping 1216). Reduce Motion and the pane's
 animations off make it one step. Session Info's section folds and Show more
 lists use it first.
 Off-scale fades went to the nearest step that is not longer (focus and
@@ -43,7 +45,9 @@ cursorHide, hibernateIcon, the attention swell and the agent cursor glide limit
 ceiling kept their damping and got a shorter response: zoom 0.2 (was 0.30,
 354 ms visible), exit 0.2 (0.24, 283 ms), split 0.23 (0.28, 287 ms), popover
 0.24 (0.25, 248 ms), pinDrag 0.215 (0.351, 390 ms); scroll and screen 0.2,
-panel 0.165 and popoverClose 0.15 now end by 180 ms. `settle` stays at 235 ms
+panel 0.165 and popoverClose 0.15 now end by 180 ms. Split went to 0.11 (113 ms
+visible, 80% of its travel by 50 ms) on 2026-11-08, when Leo set Claude desktop's
+split as the bar ("our animations should be so fast"). `settle` stays at 235 ms
 (it carries the release velocity). Exceptions: the long ambient fades
 `highlight` (1.2 s) and `hibernateRing` (1 s), loops, and hover-intent
 delays (tooltip, hover card aim and grace, marquee, launch), which are waits,
@@ -60,14 +64,17 @@ would do it, spring curves", "proper physics". Design:
 
 - Physics: `SpringValue.step` is the closed-form damped harmonic
   oscillator (under-, critically and over-damped), exact at any frame rate,
-  retargetable with its velocity. `SpringParameters(duration:bounce:)` is
-  SwiftUI's `Spring(duration:bounce:)`.
+  retargetable. A step starts with no more velocity than cannot pass the
+  target: toward the target and at most omega x the distance left
+  (`SpringParameters.admitted`; a rect by edge, `AnimatedFrame`), so a
+  release or a new target under a moving value stops on its place.
 - One source (hq-1d D2, Lawrence: "decouple from swift app as much as
   possible"): the tokens live in the spec's design-tokens.json `motion`
-  (springs, fades, loops, speed, settle thresholds, the structural set, the
-  bounce and the per-kind defaults). cmux-tui/crates/cmux-motion reads them
-  at build time (build.rs) and owns the closed-form step
-  (`SpringValue::solve`, `advance_spring`), the structural bounce rule
+  (springs, fades, loops, speed, settle thresholds and the per-kind
+  defaults; every spring's damping is 1 there and in the Swift app since
+  2026-11-10, and build.rs refuses a damping under 1). cmux-tui/crates/cmux-motion
+  reads them at build time (build.rs) and owns the closed-form step
+  (`SpringValue::solve`, `advance_spring`), the speed rule
   (`MotionPolicy::spring`) and the switches (`AnimationSwitches`,
   `set_animation_switches`); cmux-app-ffi exposes them to macOS as
   `cmux_motion_*` (include/cmux_motion_ffi.h). Until the app's FFI pin
@@ -79,9 +86,10 @@ would do it, spring curves", "proper physics". Design:
   `FrameScheduler`. The tab strips, the layout (panes, dividers, columns,
   screens, drop zones) step on it with the same `dt` and it goes idle with
   the last spring (`debug.motion` `display_links` is 0 at rest).
-- Bounce: structural tokens (`move`, `appear`, `disappear`) are critically
-  damped by default (never past the target); `ui.animations.bounce`
-  "subtle" gives them bounce `motion.spring.subtleBounce` (0.15).
+- No bounce (Lawrence 2026-11-10; motion-first-principles-DESIGN.md,
+  principle 5): every spring token is critically damped and never passes its
+  target. `ui.animations.bounce` is a retired key
+  (schemas/settings/retired-keys.json): an old file that sets it still loads.
 - Per kind, under `ui.animationSpeed`: `ui.paneAnimations` (pane layout,
   rule 9) and `ui.animations.newWorkspace` off by default (Lawrence
   2026-10-14: no big animations by default), `ui.animations.newTab` on
@@ -91,7 +99,7 @@ would do it, spring curves", "proper physics". Design:
   Off applies that change in one step; true opts into its spring. cmux-motion
   `MotionKind` / `AnimationSwitches` carry exactly these three keys
   (`MotionKind::config_path`). Palette: Toggle New Tab / New Workspace
-  Animations, Use Bouncy Animations, Use Animations Without Bounce.
+  Animations.
 - Reduce Motion: no movement and no crossfade standing in for it; chrome
   takes its new places in one step (the tab strip and sidebar crossfades are
   gone).
@@ -101,15 +109,16 @@ would do it, spring curves", "proper physics". Design:
   fraction. Every moving pane is laid out live at the rect its spring presents
   on every display frame, its tab strip, terminal and page included, as a
   live window resize is (Lawrence 2026-10-18: "content must move while it
-  animates"); nothing holds a final-size layout under a clip. A zoom or
-  unzoom does the same on the `zoom` spring: the zooming pane is the topmost
+  animates"); nothing holds a final-size layout under a clip. A zoom does
+  the same on the `zoom` spring and an unzoom on the shorter `unzoom` spring
+  (a close takes `paneClose`, shorter than `split`): the zooming pane is the topmost
   layer, its tab strip whole in every frame, and covers the other panes,
   which stay opaque and still. A released divider stays where the pointer let go;
   a Shift release lands it on a snap on the pane spring, a split divider's from the
   pointer's speed, a column edge's from rest (resize-modifiers.md; the fling snap and
   `motion.divider.releaseProjection` went 2026-11-03: no hold or jump in a drag,
   FRAME OWNER REFACTOR KEYS).
-  A split (Cmd-D, Cmd-Shift-D) moves on its own `split` spring (0.28 s, damping 0.95; Lawrence
+  A split (Cmd-D, Cmd-Shift-D) moves on its own `split` spring (0.085 s, damping 1 since 2026-11-10; Lawrence
   2026-10-19: "resize all of them while adding a new one"), and the even sizing of its chain
   shows in the key's frame with the split (`LayoutModel.showSplitSizing`), not after the
   daemon's reply: one target, one motion (split-spring-animation/DESIGN.md).
@@ -188,7 +197,8 @@ would do it, spring curves", "proper physics". Design:
    changes stay as a crossfade of at most 0.1 s, and hover and pressed fills
    are instant; spinners and pulses stop and show a static glyph.
 8. `ui.animationSpeed` in cmux.json: `"fast"` (default), `"normal"` (every
-   time constant x1.5, about Apple's system pacing), `"off"` (every change in
+   time constant x1.5, about Apple's system pacing, and never past the 300 ms
+   cap: see "The cap and the pairs"), `"off"` (every change in
    one frame, no crossfade, no loops). Palette actions: Use Fast Animations,
    Use Normal Animations, Turn Off Animations
    (`appearance.animationSpeed.{fast,normal,off}`). "off" wins over Reduce
@@ -198,21 +208,37 @@ would do it, spring curves", "proper physics". Design:
    hoverCards, home, cursor, indicators, feedback, web). Every animation asks its
    category's gate (`Motion.sidebar`, `Motion.tabs`, ...), and a switch that is
    off acts as "off" for its area ([motion-DESIGN.md](motion-DESIGN.md)).
-9. Pane layout motion is OFF by default (Lawrence 2026-10-14: "get rid of
-   big animations by default for the panes"). `ui.paneAnimations` (toggle
-   "Animate Panes", default false) gates every pane layout spring:
+9. Pane layout motion has one switch, `ui.paneAnimations` (toggle "Animate
+   Panes"). It was off by default from 2026-10-14 (Lawrence: "get rid of
+   big animations by default for the panes") and is ON by default since
+   2026-10-16 (Lawrence: "We want animations on by default but then we can
+   let people configure it to disable the animations completely";
+   `schemas/settings/source/appearance.json`, `PaneAnimationsSetting`). The
+   pane motion contract is in
+   [motion-first-principles-DESIGN.md](motion-first-principles-DESIGN.md). It
+   gates every pane layout spring:
    split grow-in, close and move-away, swap, zoom and unzoom
    (`PaneZoomMotion`), divider ratio changes from the model, the column
-   strip's programmatic reveal and centering, row reveal and the screen
-   switch slide. Off: they apply in one frame (`Motion.animatesPaneLayout`,
+   strip's programmatic reveal and centering and row reveal. Off: they
+   apply in one frame (`Motion.animatesPaneLayout`,
    read by `LayoutViewContext.animatesPaneLayout`). Why instant and not a
    short fade: a terminal reflows once at the final size, nothing draws a
    half-moved pane, and a crossfade over a reflowing terminal reads as
    flicker; it also matches classic cmux, whose splits apply at once. Kept
    on: direct manipulation (trackpad fling settle, wheel notches, divider
    drag), focus ring and dim fades, hover feedback, tab strip motion and
-   the drop-target overlay. `ui.paneAnimations` true restores the springs;
-   `ui.animationSpeed` "off" and Reduce Motion still snap them.
+   the drop-target overlay. `ui.animationSpeed` "off" and Reduce Motion
+   snap the springs with either value.
+   A change of screen is not pane layout motion and has no animation with
+   any setting (Lawrence 2026-11-10: "we should remove changing screen
+   animation"). The screen that becomes active shows at rest in the turn
+   that applies the change and the old one hides in that turn
+   (`LayoutRootView.showScreen`): no slide, no fade, and no camera, ring or
+   dim spring in the screen that shows or hides. Chrome shows a tab's view
+   the same way, in the turn that activates it. Until then the new screen
+   slid in from 18% of the width with its alpha on the `screen` spring
+   while the old one faded out. The system's full-screen transition is
+   macOS's own and stays.
 10. Performance (architecture.md sections 3 and 5): hot-path animation is
    CALayer or display-link driven; a display link runs only while something
    moves and pauses itself; idle CPU stays 0%; nothing blocks the main
@@ -226,6 +252,11 @@ stops (0.25 pt and 2 pt/s). Both are simulated at 120 Hz with the same spring
 code the app runs; the measured column comes from `debug.motion` on tag
 nxmot (MacBook Pro, 120 Hz).
 
+Since 2026-11-10 every token's damping is 1 (no bounce in any motion): a row
+below with a lower damping, or an overshoot, shows the value before that, and
+its times are of that value. `MotionTunables.springDefaults` has the values the
+app runs.
+
 | Token | Response / damping | Visible end | Rest | Used by |
 | --- | --- | --- | --- | --- |
 | `move` | 0.15 / 1.00 | 183 ms | 258 ms | tab reflow and reorder, sidebar row moves, inserts (a row grows in its own slot) and removals (it shrinks in place), all on this one spring (cx-bqm6), pane and divider frames (ratio, equalize, unzoom), sidebar drag gap |
@@ -235,7 +266,6 @@ nxmot (MacBook Pro, 120 Hz).
 | `disappear` | 0.11 / 1.00 | 133 ms | 200 ms | tab close (width to 0), group collapse, sidebar hide (timed equivalent), browser toolbar hide |
 | `settle` | 0.22 / 0.85 | 175 ms | 342 ms | release after drag: tab drop, drag ghost landing, sidebar row drop (carries pointer velocity; 0.8 pt overshoot on 200 pt) |
 | `scroll` | 0.22 / 0.90 | 208 ms | 267 ms | tab strip reveal, strip column reveal, wheel notch, trackpad fling snap |
-| `screen` | 0.22 / 0.90 | 208 ms | 267 ms | screen switch slide |
 | `track` | 0.12 / 0.90 | 117 ms | 167 ms | drop-zone highlight, drag ghost jumps between targets |
 | `selection` | 0.15 / 0.90 | 142 ms | 200 ms | page info toggle (the sidebar selection does not animate, SIDEBAR-SELECTION-NO-TRAVEL-ANIMATION) |
 | `panel` | 0.18 / 0.85 | 142 ms | 283 ms | hover card slide |
@@ -253,7 +283,7 @@ nxmot (MacBook Pro, 120 Hz).
 | `crossfade` | 0.10 s | hover card thumbnail swap; the Reduce Motion ceiling |
 | `lift` | 0.12 s | sidebar drag lift shadow |
 | `theme` | `appearance.colorTransition.duration` (200 ms) | every theme and color change, through `ColorTransition` (cx-3rf4z): the window backdrop blends from the color on screen in OKLab (or sRGB) keyframes, so a quick A, B, C switch retargets from the blend in flight; a theme, light/dark, app theme or accent change fades each window from its last composited frame (`WindowColorFade`: the frame on screen lies over the window and fades out on the curve, so a second change mid-fade starts from the blend; terminal surfaces have no single color); scope overrides fade their roots' areas; a workspace switch fades the sidebar and titlebar areas and blends the Liquid Glass tint on the window's MotionClock; a room takes a workspace's colors at any light/dark; curves, spring timing and the color mix come from cmux-motion (app FFI ABI 3); web pages transition their `--cmux-*` colors (registered `<color>` properties) with the same duration, curve and blend space. Curve: `easeOut` default, `easeInOut`, `linear`, `spring` (response, damping; colors hold at the target), `cubicBezier`. `enabled: false` or duration 0 is instant; Reduce Motion: a crossfade of at most 0.1 s by default (`reduceMotion: instant` or `full`); `ui.animationSpeed: off` is instant. The content swap of a workspace switch never fades. |
-| `launch` | 0.24 s | the cmux mark resolving on the glass of a window still connecting (`LaunchMarkView`); 0.36 s at normal speed, under 400 ms; a plain fade under Reduce Motion |
+| `launch` | 0.24 s | the cmux mark resolving on the glass of a window still connecting (`LaunchMarkView`); 0.30 s at normal speed, the cap; a plain fade under Reduce Motion |
 | `pinLift` | 0.15 s, linear | Home list pin drag: the tile scaling up to the lift (MessagesLab `beginPinDrag`, a `CABasicAnimation` with no timing function) |
 | `pinSettle` | 0.25 s, linear | Home list pin drag: a dropped tile scaling back (`landPinDrag`, the same) |
 | `pinShrink` | 0.22 s | Home list pin drag: a ghost shrinking onto its row's avatar and fading out (`landPinDrag`) |
@@ -283,8 +313,48 @@ Leaving stops the marquee at once; a title caught mid-scroll springs back
 with `disappear` from its presented position. `normal` scales delay,
 scroll and hold by 1.5; Reduce Motion and `off` never start it.
 
-"normal" multiplies every response and fade duration by 1.5; damping does
-not change. Loops keep their period (they show state, not transitions).
+"normal" multiplies every response and fade duration by 1.5, up to the cap;
+damping does not change. Loops keep their period (they show state, not
+transitions).
+
+### The cap and the pairs
+
+No motion that a person waits for ends visibly after 300 ms, at any speed
+(`MotionPolicy.cap`; `MotionCapTests` asks every token at "fast" and at
+"normal"). The time of a spring is its visible end (within 0.5% of its travel,
+`SpringParameters.perceivedDuration`); the time of a fade or a tween is its
+duration. At "fast" no token is over the cap. At "normal" a time that 1.5x
+would take past the cap is cut to the cap (a spring gets the response 0.25,
+which ends visibly at 294 ms), and a time under the cap is not changed. The
+agent cursor's glide and the attention ring's arrival swell take the same cut
+(`MotionPolicy.scaled`). The cap never makes a motion shorter than its token.
+
+At "normal" the cut changes these (before, then now): the springs `zoom`,
+`exit` and `scroll` (354 ms, 294 ms), `settle` (390 ms, 294 ms), `popover`
+(425 ms, 294 ms) and `pinDrag` (381 ms, 294 ms); the fades `launch`,
+`clickPulse`, `cursorHide` and `hibernateIcon`, the agent cursor's longest
+glide and the attention ring's arrival swell (360 ms, 300 ms).
+
+Not under the cap, because no one waits for them: the ambient fades
+(`MotionFade.isAmbient`: `focusFlash`, `wallpaper`, `highlight`,
+`hibernateRing`; each keeps a limit of its own in `MotionCapTests`), the loops,
+the attention blinks and the marquee.
+
+The exit of a pair ends sooner than its enter: a person waits for what arrives
+and not for what leaves. `MotionPair.all` is the one list of the pairs:
+
+| Pair | Enter | Exit | Visible end at "fast" (enter, exit) |
+| --- | --- | --- | --- |
+| pane split and close | `split` | `paneClose` | 100 ms, 75 ms |
+| pane zoom and unzoom | `zoom` | `unzoom` | 235 ms, 177 ms |
+| appear and disappear | `appear` | `disappear` | 158 ms, 129 ms |
+| popup open and close | `popover` | `popoverClose` | 283 ms, 177 ms |
+| fade in and out | `fadeIn` | `fadeOut` | 120 ms, 80 ms |
+| tab open and close | `tabOpen` (tween) | `tabClose` (tween) | 200 ms, 200 ms |
+
+The tab pair is the one equal pair: a strip change is one tween for every tab
+(the tab that opens or closes and the tabs that make or take room move on one
+clock), and the open and the close use the same one.
 
 ## Why these values
 
@@ -293,16 +363,16 @@ not change. Loops keep their period (they show state, not transitions).
   Apple's default `Spring(duration:bounce: 0)`. The long sub-pixel tail of
   critical damping is paid with a shorter response instead of a lower
   damping: `move` 0.15 s ends visibly at 183 ms (120 Hz), inside the 200 ms
-  budget the GPUI motion tests hold (225 ms tolerance). `ui.animations.bounce`
-  "subtle" (0.15, damping 0.85) is opt-in. Release, scroll and overlay
-  springs keep 0.85 to 0.9.
+  budget the GPUI motion tests hold (225 ms tolerance). Release, scroll and
+  overlay springs are critically damped too since 2026-11-10 (no bounce in
+  any motion); the opt-in `ui.animations.bounce` "subtle" is gone.
 - Response 0.15 to 0.22 s. Apple's system defaults (`.smooth` / `.snappy`
   at 0.5 s perceptual duration, NSAnimationContext 0.25 s) suit consumer
   apps; a tab strip is used hundreds of times an hour. Our `move` ends
   visibly at 183 ms, with a spring's continuity: an interrupted move
   retargets instead of restarting.
-- `scroll` is a spring with stiffness 800 (response 0.222 s) and 0.9
-  damping; damping 1 leaves a slow sub-pixel tail.
+- `scroll` is a spring with response 0.2 s and damping 1 (0.9 until
+  2026-11-10; it passed its target by 0.15% of the travel).
 - Hover in 0.08 s and focus in 0.1 s: fast enough to read as instant
   feedback, slow enough that sweeping the pointer across tabs does not
   strobe. Press states have no animation.
@@ -351,8 +421,8 @@ rest).
 | Browser toolbar show / hide | constraint 0.2 s, same curve | `appear` / `disappear` (timed equivalent) | 200 ms | 175 / 142 ms | - |
 | Browser progress line | CATransaction 0.2 s | `move` (timed equivalent) | 200 ms | 192 ms | - |
 | strip column scroll (reveal, wheel, fling) | display-link spring 0.42/0.96 | `scroll` | 458 / 592 ms | 208 / 267 ms | 366-377 ms (reveal of a full-width column; rest is longer for long travel) |
-| Screen switch | display-link spring 0.38/0.92 | `screen` | 367 / 475 ms | 208 / 267 ms | 244-249 ms |
-| Splits (Cmd-D, Cmd-Shift-D) | one frame | `split` (0.28 / 0.95, 2026-10-19; was `move`): the new pane grows from the far edge of the pane it split while its whole even chain makes room on the same spring, and the divider slides in from that edge (cx-f6i7, split-spring-animation) | 0 | 195 ms (95%) / 375 ms (700 pt) | - |
+| Screen switch | display-link spring 0.38/0.92 | `screen` | 367 / 475 ms | 208 / 267 ms | 244-249 ms (until 2026-11-10; now one frame, no animation, rule 9) |
+| Splits (Cmd-D, Cmd-Shift-D) | one frame | `split` (0.085 / 1; 0.11 / 0.95 from 2026-11-08; 0.28 from 2026-10-19, was `move`): the new pane grows from the far edge of the pane it split while its whole even chain makes room on the same spring, and the divider slides in from that edge (cx-f6i7, split-spring-animation) | 0 | 77 ms (95%) / 175 ms (700 pt) | - |
 | Pane close, move | one frame | one frame (unchanged) | 0 | 0 | - |
 | Pane ratio, equalize, width presets, pane zoom | display-link spring 0.34/0.88 | `move` | 292 / 483 ms | 192 / 250 ms | 258 ms (column width preset) |
 | Drop-zone overlay | display-link spring 0.20/0.90 | `track` | 192 / 250 ms | 117 / 167 ms | - |

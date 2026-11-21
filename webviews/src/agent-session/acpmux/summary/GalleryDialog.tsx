@@ -9,6 +9,7 @@ import { canRender } from "../conversation/renderCardModel";
 import { ToolImages } from "../conversation/ToolRow";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { Close } from "../conversation/icons";
+import { belowTabRowStyle, useTabRow } from "../header/tabRow";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { chatGallery, galleryItems, type GalleryFilter } from "./chatGallery";
@@ -36,6 +37,8 @@ export function GalleryDialog({
   const [filter, setFilter] = useState<GalleryFilter>("all");
   const shown = galleryItems(items, filter);
   const framed = canRender();
+  // Below the pane's tab row, as the image viewer (header/tabRow.ts belowTabRowStyle).
+  const below = belowTabRowStyle(useTabRow());
   return (
     <Dialog
       open
@@ -45,6 +48,7 @@ export function GalleryDialog({
       label={t("gallery.title")}
       className="acpmux-chat-gallery"
       backdropClassName="acpmux-image-viewer-backdrop"
+      style={below}
       initialFocus={close}
     >
       <div className="acpmux-image-viewer-bar">

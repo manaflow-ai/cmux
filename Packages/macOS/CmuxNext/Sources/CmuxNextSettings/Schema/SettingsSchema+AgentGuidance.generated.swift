@@ -2,10 +2,10 @@
 // schemas/settings/source/agent-guidance.json. Do not edit; edit the JSON and rerun.
 
 extension AgentGuidanceSettings {
-    /// `agents.guidance.claude`: On: a new Claude Code chat gets the cmux:cmux-chat skill's first-turn pointer (agent_guidance.rs CLAUDE_GUIDANCE). The skill itself stays listed either way.
+    /// `agents.guidance.claude`: On: a new Claude Code chat gets cmux's chat guidance (agent_guidance.rs CLAUDE_GUIDANCE) in its system prompt (--append-system-prompt). The cmux:cmux-chat skill stays listed either way.
     public nonisolated static let guidanceClaudePath = ["agents", "guidance", "claude"]
     public nonisolated static let guidanceClaudeDefault = true
-    /// `agents.guidance.codex`: On: a new Codex chat gets cmux's chat guidance as first-turn context (agent_guidance.rs AGENT_GUIDANCE), the channel Codex uses for AGENTS.md.
+    /// `agents.guidance.codex`: On: a new Codex chat gets cmux's chat guidance (agent_guidance.rs AGENT_GUIDANCE) as its developer instructions, or as first-turn context when its Codex config sets developer_instructions itself.
     public nonisolated static let guidanceCodexPath = ["agents", "guidance", "codex"]
     public nonisolated static let guidanceCodexDefault = true
     /// `agents.guidance.otherAgents`: On: every other harness (Gemini, OpenCode, pi, your own) gets the same first-turn guidance as Codex.
@@ -27,7 +27,7 @@ nonisolated enum AgentGuidanceSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.agents.guidance.claude", "cmux Guidance for Claude Code"),
-                help: SettingsText.keyed("settings.agents.guidance.claude.help", "New Claude Code chats are told how cmux shows their work: the plan checklist, side sessions, session links and the closing recap."),
+                help: SettingsText.keyed("settings.agents.guidance.claude.help", "Tells new Claude Code chats how cmux shows plans, side sessions and recaps."),
                 kind: .toggle,
                 default: .bool(AgentGuidanceSettings.guidanceClaudeDefault),
                 keywords: ["guidance", "skills", "system prompt", "instructions", "agents", "claude"]
@@ -37,7 +37,7 @@ nonisolated enum AgentGuidanceSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.agents.guidance.codex", "cmux Guidance for Codex"),
-                help: SettingsText.keyed("settings.agents.guidance.codex.help", "New Codex chats are told how cmux shows their work: the plan checklist, side sessions, session links and the closing recap."),
+                help: SettingsText.keyed("settings.agents.guidance.codex.help", "Tells new Codex chats how cmux shows plans, side sessions and recaps."),
                 kind: .toggle,
                 default: .bool(AgentGuidanceSettings.guidanceCodexDefault),
                 keywords: ["guidance", "skills", "system prompt", "instructions", "agents", "codex"]
@@ -47,7 +47,7 @@ nonisolated enum AgentGuidanceSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.agents.guidance.otherAgents", "cmux Guidance for Other Agents"),
-                help: SettingsText.keyed("settings.agents.guidance.otherAgents.help", "Other agents (Gemini, OpenCode and the ones you added) get the same guidance about how cmux shows their work."),
+                help: SettingsText.keyed("settings.agents.guidance.otherAgents.help", "Gemini, OpenCode and agents you added get the same guidance."),
                 kind: .toggle,
                 default: .bool(AgentGuidanceSettings.guidanceOtherAgentsDefault),
                 keywords: ["guidance", "skills", "system prompt", "instructions", "agents"]
@@ -57,7 +57,7 @@ nonisolated enum AgentGuidanceSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.agents.guidance.userSkills", "Your Skills in Every Chat"),
-                help: SettingsText.keyed("settings.agents.guidance.userSkills.help", "Skills you put in ~/.config/cmux/skills, one folder each with a SKILL.md, reach every new agent chat."),
+                help: SettingsText.keyed("settings.agents.guidance.userSkills.help", "Skills in ~/.config/cmux/skills (a folder with a SKILL.md each) reach every new chat."),
                 kind: .toggle,
                 default: .bool(AgentGuidanceSettings.guidanceUserSkillsDefault),
                 keywords: ["guidance", "skills", "system prompt", "instructions", "agents", "custom", "user skills"]

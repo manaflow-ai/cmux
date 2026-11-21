@@ -89,11 +89,12 @@
 #   beside it as cmux-browser-host (cmux-browser-host.sha256; browser_host_url=
 #   and browser_host_sha256= in the pin), where the daemon looks for it (the
 #   sibling of its own executable); without it the daemon has no browser host.
-#   Tree mode fetches the agent screen-detection plugin the same way:
+#   The agent screen-detection plugin rides the same way:
 #   cmux-tui-agent-screen-detection-<target> goes beside it as
-#   cmux-agent-screen-detection (cmux-agent-screen-detection.sha256), which the
-#   daemon runs by default; the pin carries no plugin fields yet (Release
-#   bundles none until its notices are mapped). The slim terminal host rides
+#   cmux-agent-screen-detection (cmux-agent-screen-detection.sha256;
+#   agent_screen_detection_url= and agent_screen_detection_sha256= in the pin),
+#   which the daemon runs by default (the sibling of its own executable); a pin
+#   without those fields stays valid and bundles none. The slim terminal host rides
 #   the same way, tree mode only: cmux-tui-host-<target> goes beside it as
 #   cmux-tui-host (cmux-tui-host.sha256), which a macOS daemon runs every
 #   terminal host from; without it hosts re-exec the daemon's own binary. The
@@ -107,6 +108,7 @@
 #        | app-host-path [--tree|--pin] (where fetch puts the app host)
 #        | cloud-server-path [--tree|--pin] (where fetch puts cmux-cloud)
 #        | browser-host-path [--tree|--pin] (where fetch puts cmux-browser-host)
+#        | agent-screen-detection-path [--tree|--pin] (where fetch puts cmux-agent-screen-detection)
 #        | acpmux-path (where a tree fetch puts acpmux)
 #        | resolve-commit (the commit that published this tree; waits for it)
 #        | resolve-exact (release and RC builds: resolve-commit for HEAD itself, printed
@@ -120,7 +122,10 @@
 #          no Mac Release compile is required: the nightly compiles the app itself)
 #        | runs-state <commit> (its cmux-tui artifacts runs: active, none, unknown, or "ended <conclusions>")
 #        | active-publisher <key> (the head commit of an active cmux-tui artifacts run whose
-#          commit has tree <key>; nothing when none; "unknown" when the runs cannot all be read)
+#          commit has tree <key>; nothing when none; "unknown" when the runs cannot all be read;
+#          CMUX_TUI_TREE_SKIP_PUBLISHERS, space-separated commits, are passed over)
+#        | run-progress <commit> (its active cmux-tui artifacts runs, from their jobs:
+#          building, "failed <job>: <url>", "stalled <what>", none or unknown)
 #        | verify-key <key> (commit=<publishing commit> when tree <key> is published and its
 #          manifest sha256 verifies; exit 1 not published (a 404), 3 a read failure or unverifiable)
 #        | wait (wait for the tree; superseded=true output for a superseded commit)
@@ -135,6 +140,8 @@
 #        | local-build <binary> (exit 0 when that build has this checkout's key)
 #        | show | pin --commit <sha> [--verified-run <id>]
 set -euo pipefail
+# A stalled git transfer (under 1 KB/s for 120 s) ends instead of holding the nightly (run 44232805509).
+export GIT_HTTP_LOW_SPEED_LIMIT="${GIT_HTTP_LOW_SPEED_LIMIT:-1000}" GIT_HTTP_LOW_SPEED_TIME="${GIT_HTTP_LOW_SPEED_TIME:-120}"
 
 # The binary the cmux-next app bundles and the gate commands (probe, wait,
 # resolve-commit, resolve-newest-published, pin) read on any host.
@@ -177,6 +184,12 @@ read_pin() {
   if [[ -n "$pin_browser_host_url$pin_browser_host_sha256" ]]; then
     [[ "$pin_browser_host_url" == https://* && "$pin_browser_host_sha256" =~ ^[0-9a-f]{64}$ ]] || {
       echo "error: malformed pin $pin_file (browser_host_url= and browser_host_sha256= go together)" >&2; exit 1; }
+  fi
+  pin_agent_screen_detection_url="$(pin_field agent_screen_detection_url)"
+  pin_agent_screen_detection_sha256="$(pin_field agent_screen_detection_sha256)"
+  if [[ -n "$pin_agent_screen_detection_url$pin_agent_screen_detection_sha256" ]]; then
+    [[ "$pin_agent_screen_detection_url" == https://* && "$pin_agent_screen_detection_sha256" =~ ^[0-9a-f]{64}$ ]] || {
+      echo "error: malformed pin $pin_file (agent_screen_detection_url= and agent_screen_detection_sha256= go together)" >&2; exit 1; }
   fi
 }
 
@@ -441,6 +454,95 @@ else:
 ' <<<"$body" 2>/dev/null || echo unknown
 }
 
+# Prints how cmux-tui artifacts runs of commit <sha> are doing, one line,
+# from their jobs, so a waiter follows the run's live state instead of only "active":
+#   building             a run is making progress: nothing below holds for it
+#   failed <job>: <url>  every active run has a failed preflight, build or publish job on its last
+#                        retry attempt, so none publishes the tree
+#   stalled <what>       every active run is stuck: a job (or the run itself, with no
+#                        jobs yet) has waited for a runner longer than
+#                        CMUX_TUI_TREE_RUNNER_STALL_SECONDS (default 900)
+#   none                 no run, or the newest completed run has no required-job failure
+#   unknown              the runs or a run's jobs could not be read (keep waiting)
+# A queued job is one with no runner: GitHub lists it before any runner takes it.
+artifacts_run_progress() {
+  local sha="$1" api runs body ids id jobs_dir verdicts=() stall now
+  stall="${CMUX_TUI_TREE_RUNNER_STALL_SECONDS:-900}"
+  [[ "$stall" =~ ^[1-9][0-9]*$ ]] || stall=900
+  now="$(date +%s)"; now="${now%%.*}"
+  api="${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY:-manaflow-ai/cmux}"
+  runs="$(github_get "$api/actions/workflows/cmux-tui-artifacts.yml/runs?head_sha=$sha&per_page=20")" || { echo unknown; return 0; }
+  ids="$(python3 -c '
+import json, sys
+try:
+    runs = json.loads(sys.stdin.read())["workflow_runs"]
+except Exception:
+    print("unknown"); sys.exit(0)
+assert isinstance(runs, list) and all(isinstance(r, dict) for r in runs)
+active = [r for r in runs if r.get("status") != "completed"]
+# Active retries take precedence over older terminal attempts. With none active,
+# inspect the newest run so a completed preflight failure keeps its job and URL.
+for r in active or runs[:1]:
+    print(r.get("id"))
+' <<<"$runs" 2>/dev/null || echo unknown)"
+  [[ "$ids" != unknown ]] || { echo unknown; return 0; }
+  [[ -n "$ids" ]] || { echo none; return 0; }
+  jobs_dir="$(mktemp -d "${TMPDIR:-/tmp}/cmux-tui-jobs.XXXXXX")" || { echo unknown; return 0; }
+  mkdir -p "$jobs_dir/jobs"
+  printf '%s\n' "$runs" > "$jobs_dir/runs.json"
+  while read -r id; do
+    [[ "$id" =~ ^[0-9]+$ ]] || { rm -rf "$jobs_dir"; echo unknown; return 0; }
+    body="$(github_get "$api/actions/runs/$id/jobs?filter=latest&per_page=100")" || { rm -rf "$jobs_dir"; echo unknown; return 0; }
+    printf '%s\n' "$body" > "$jobs_dir/jobs/$id"
+  done <<<"$ids"
+  python3 - "$jobs_dir" "$now" "$stall" "${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-manaflow-ai/cmux}" <<'PY' 2>/dev/null || echo unknown
+import datetime, json, os, re, sys
+jobs_dir, now, stall, web = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4]
+runs = {str(r.get("id")): r for r in json.load(open(os.path.join(jobs_dir, "runs.json")))["workflow_runs"] if isinstance(r, dict)}
+# Jobs whose failure means the run publishes no tree: preflight, builds and publish. The
+# primary macOS leg is left out: build-darwin-fallback rebuilds it when it fails.
+REQUIRED = re.compile(r"^(cmux-tui tree preflight$|build(-linux|-darwin-fallback)?( / |$)|publish (to R2|tree-addressed))")
+DARWIN_PRIMARY = re.compile(r"^build / .*-apple-darwin")
+# cmux-tui-artifacts-retry re-runs a failed run's failed jobs until attempt MAX_ATTEMPTS
+# (scripts/ci/cmux_tui_artifacts_retry.py): an active attempt before the last is not final.
+# A completed failure retains its error; callers give retries two observations to start.
+# (tree 453a2f94 published on such a retry, 2026-11-18).
+MAX_ATTEMPTS = 3
+def age(stamp):
+    if not stamp:
+        return 0
+    t = datetime.datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
+    return now - int(t.timestamp())
+failed, stalled = [], []
+for run_id in sorted(os.listdir(os.path.join(jobs_dir, "jobs"))):
+    run = runs.get(run_id, {})
+    jobs = json.load(open(os.path.join(jobs_dir, "jobs", run_id)))["jobs"]
+    url = run.get("html_url") or f"{web}/actions/runs/{run_id}"
+    bad = [j for j in jobs if j.get("conclusion") in ("failure", "timed_out", "cancelled")
+           and REQUIRED.match(j.get("name", "")) and not DARWIN_PRIMARY.match(j.get("name", ""))]
+    if bad and (run.get("status") == "completed" or int(run.get("run_attempt") or 1) >= MAX_ATTEMPTS):
+        failed.append(f"{bad[0]['name']}: {url}")
+        continue
+    if run.get("status") == "completed":
+        continue
+    # Preflight, build and publish jobs hold the tree back; a shadow or upload job may queue.
+    waiting = [j for j in jobs if j.get("status") in ("queued", "waiting", "pending") and not j.get("runner_name")
+               and REQUIRED.match(j.get("name", ""))]
+    late = [j for j in waiting if age(j.get("created_at")) >= stall]
+    if late:
+        j = max(late, key=lambda j: age(j.get("created_at")))
+        labels = ",".join(j.get("labels") or []) or "no label"
+        stalled.append(f"{j.get('name')} queued {age(j.get('created_at')) // 60} min for {labels}: {url}")
+        continue
+    if not jobs and age(run.get("created_at")) >= stall:
+        stalled.append(f"run pending {age(run.get('created_at')) // 60} min with no job started: {url}")
+        continue
+    print("building"); sys.exit(0)
+print(("failed " + failed[0]) if failed else ("stalled " + stalled[0]) if stalled else "none")
+PY
+  rm -rf "$jobs_dir"
+}
+
 # Prints the newer head of the pushed branch (GITHUB_REF) when <sha> was
 # superseded: every artifacts run for it ended cancelled or skipped (success
 # without publishing) and the branch head has moved. Prints nothing otherwise,
@@ -514,7 +616,8 @@ try:
     runs = json.loads(sys.stdin.read()).get("workflow_runs", [])
 except Exception:
     runs = []
-active = [r for r in runs if r.get("status") != "completed"]
+skip = set(sys.argv[1].split())
+active = [r for r in runs if r.get("status") != "completed" and r.get("head_sha") not in skip]
 # The cmux-next branches publish the trees other runs wait for: compare them first.
 active.sort(key=lambda r: r.get("head_branch") not in ("feat-cmux-next", "feat-cmux-next-acpmux"))
 seen = set()
@@ -523,7 +626,7 @@ for run in active:
     if sha not in seen:
         seen.add(sha)
         print(sha)
-' <<<"$body")
+' "${CMUX_TUI_TREE_SKIP_PUBLISHERS:-}" <<<"$body")
   (( ${#candidates[@]} > 0 )) || return 0
   deadline=$(( $(date +%s) + budget ))
   if (( ${#missing[@]} > 0 )); then
@@ -1201,7 +1304,7 @@ tree_published() {
 probe_checkout_tree() {
   local key legacy publisher="${CMUX_TUI_TREE_PUBLISHER_SHA:-}"
   local base_key="" source="" state="" reason="" recheck="${CMUX_TUI_TREE_RECHECK_SECONDS:-20}" superseded=""
-  local fetch_key="" resolved="" publisher_unknown=""
+  local fetch_key="" resolved="" publisher_unknown="" head_sha=""
   key="$(tree_key HEAD)"
   legacy="$(legacy_tree_key HEAD)"
   [[ "$legacy" == "$key" ]] && legacy=""
@@ -1231,6 +1334,16 @@ probe_checkout_tree() {
     fi
   elif base_key="$(pull_request_base_key 2>/dev/null)" && [[ "$base_key" == "$key" ]]; then
     source="commit:$(git -C "$repo_root" rev-parse HEAD^1)"
+  elif [[ "${GITHUB_EVENT_NAME:-}" == pull_request ]] && head_sha="$(git -C "$repo_root" rev-parse --verify -q HEAD^2)" \
+      && [[ "$(tree_key "$head_sha" 2>/dev/null)" == "$key" ]] \
+      && [[ "$(artifacts_runs_state_or_limited "$head_sha")" != none ]]; then
+    # A same-repository pull request whose merge keeps its head's tree: the
+    # head's push publishes it. Read from git, so no API listing (which can
+    # fail under the fetch budget or the rate limit) decides the publisher.
+    # Only when that push has an artifacts run: a definite `none` (a publish
+    # that main starts instead) falls through to the same-key search below,
+    # as before #43406 (pin-cmux-tui-probe.test.sh case (d)).
+    source="commit:$head_sha"
   elif [[ ("${GITHUB_EVENT_NAME:-}" == pull_request || "${GITHUB_EVENT_NAME:-}" == workflow_dispatch \
       || "${CMUX_TUI_TREE_DISPATCH:-}" == 1) ]] \
       && ! tree_published "$key" "$legacy"; then
@@ -1271,7 +1384,16 @@ probe_checkout_tree() {
         state=failed
       fi ;;
     none)
-      if [[ -z "$source" && -n "$publisher_unknown" ]]; then
+      if [[ -z "$source" && -n "$publisher_unknown" && "${GITHUB_EVENT_NAME:-}" == pull_request ]]; then
+        # SAME_TREE_STATUS_NEVER_SILENT: this merge tree is neither the base's nor
+        # the head's (both checked above, from git), and no run builds a pull
+        # request's merge. A deferral here leaves a wait marker no publish
+        # ends, and the PR's required same-tree status never posts
+        # (2026-11-14: cmux#43400 tree a9c19390, cmux#43027 tree afcdb2bb).
+        # Red and retryable instead.
+        state=failed
+        reason="tree $key is this pull request's own merge of a base whose cmux-tui source moved: neither the base's nor the head's push publishes it, and the active cmux-tui artifacts runs could not all be compared with it in time. Update the branch (gh pr update-branch) so its merge tree is the tree its push publishes"
+      elif [[ -z "$source" && -n "$publisher_unknown" ]]; then
         # Fails open: the active runs could not all be compared in time, so a
         # same-tree publisher may exist. Deferred leaves the wait marker (and a
         # DEV run's dev-daily-tree-wait polls) instead of reporting a red.
@@ -1663,6 +1785,11 @@ fetch_pin() {
   else
     rm -f "$dir/cmux-browser-host"
   fi
+  if [[ -n "$pin_agent_screen_detection_url" ]]; then
+    fetch_pinned "$pin_agent_screen_detection_url" "$pin_agent_screen_detection_sha256" "$dir/cmux-agent-screen-detection" cmux-agent-screen-detection
+  else
+    rm -f "$dir/cmux-agent-screen-detection"
+  fi
 }
 
 cmd="${1:-}"
@@ -1685,18 +1812,19 @@ case "$cmd" in
     manifest_url="$BASE/$commit/manifest.json"
     download "$manifest_url" "$temp_dir/manifest.json" || {
       echo "error: $manifest_url is not published; run the cmux-tui artifacts workflow on $commit (see --help)" >&2; exit 1; }
-    read -r manifest_commit sha256 run app_host_sha256 cloud_server_sha256 browser_host_sha256 < <(python3 - "$temp_dir/manifest.json" "cmux-tui-$TARGET" "cmux-tui-app-host-$TARGET" "cmux-tui-cloud-server-$TARGET" "cmux-tui-browser-host-$TARGET" <<'PY'
+    read -r manifest_commit sha256 run app_host_sha256 cloud_server_sha256 browser_host_sha256 agent_screen_detection_sha256 < <(python3 - "$temp_dir/manifest.json" "cmux-tui-$TARGET" "cmux-tui-app-host-$TARGET" "cmux-tui-cloud-server-$TARGET" "cmux-tui-browser-host-$TARGET" "cmux-tui-agent-screen-detection-$TARGET" <<'PY'
 import json, re, sys
 m = json.load(open(sys.argv[1]))
 run = re.search(r"/actions/runs/(\d+)", m.get("attestationUrl") or "")
 binaries = m.get("binaries", {})
-print(m.get("sourceCommit", ""), binaries.get(sys.argv[2], ""), run.group(1) if run else "-", binaries.get(sys.argv[3], "") or "-", binaries.get(sys.argv[4], "") or "-", binaries.get(sys.argv[5], "") or "-")
+print(m.get("sourceCommit", ""), binaries.get(sys.argv[2], ""), run.group(1) if run else "-", binaries.get(sys.argv[3], "") or "-", binaries.get(sys.argv[4], "") or "-", binaries.get(sys.argv[5], "") or "-", binaries.get(sys.argv[6], "") or "-")
 PY
 )
     [[ "$run" == - ]] && run=""
     [[ "$app_host_sha256" == - ]] && app_host_sha256=""
     [[ "$cloud_server_sha256" == - ]] && cloud_server_sha256=""
     [[ "$browser_host_sha256" == - ]] && browser_host_sha256=""
+    [[ "$agent_screen_detection_sha256" == - ]] && agent_screen_detection_sha256=""
     [[ "$manifest_commit" == "$commit" && "$sha256" =~ ^[0-9a-f]{64}$ ]] || {
       echo "error: $manifest_url does not describe cmux-tui-$TARGET for $commit" >&2; exit 1; }
     url="$BASE/$commit/cmux-tui-$TARGET"
@@ -1732,6 +1860,15 @@ PY
     else
       echo "note: $commit published no cmux-browser-host; the pin bundles none"
     fi
+    agent_screen_detection_url=""
+    if [[ "$agent_screen_detection_sha256" =~ ^[0-9a-f]{64}$ ]]; then
+      agent_screen_detection_url="$BASE/$commit/cmux-tui-agent-screen-detection-$TARGET"
+      download "$agent_screen_detection_url" "$temp_dir/cmux-agent-screen-detection"
+      [[ "$(sha256_of "$temp_dir/cmux-agent-screen-detection")" == "$agent_screen_detection_sha256" ]] || {
+        echo "error: $agent_screen_detection_url does not match its manifest" >&2; exit 1; }
+    else
+      echo "note: $commit published no cmux-agent-screen-detection; the pin bundles none"
+    fi
     {
       echo "# Hosted cmux-tui that release and RC builds bundle (dogfood builds use the same-tree binary). Refresh: scripts/cmux-next/pin-cmux-tui.sh --help"
       echo "commit=$commit"
@@ -1750,6 +1887,10 @@ PY
       if [[ -n "$browser_host_url" ]]; then
         echo "browser_host_url=$browser_host_url"
         echo "browser_host_sha256=$browser_host_sha256"
+      fi
+      if [[ -n "$agent_screen_detection_url" ]]; then
+        echo "agent_screen_detection_url=$agent_screen_detection_url"
+        echo "agent_screen_detection_sha256=$agent_screen_detection_sha256"
       fi
     } > "$pin_file"
     echo "pinned $commit ($version)"
@@ -1809,6 +1950,16 @@ PY
       echo "$repo_root/cmux-tui/target/hosted/$pin_commit/cmux-browser-host"
     fi
     ;;
+  agent-screen-detection-path)
+    mode_from_args "$@"
+    [[ "$mode" == tree ]] && TARGET="$(host_tree_target)"
+    if [[ "$mode" == tree ]]; then
+      echo "$(tree_dir "$(checkout_tree_key)")/cmux-agent-screen-detection"
+    else
+      read_pin
+      echo "$repo_root/cmux-tui/target/hosted/$pin_commit/cmux-agent-screen-detection"
+    fi
+    ;;
   resolve-commit)
     resolve_tree_commit
     ;;
@@ -1825,6 +1976,10 @@ PY
   active-publisher)
     [[ "${1:-}" =~ ^[0-9a-f]{40}$ ]] || { echo "error: active-publisher takes a 40-hex tree key" >&2; exit 2; }
     active_publisher_for_key "$1"
+    ;;
+  run-progress)
+    [[ "${1:-}" =~ ^[0-9a-f]{40}$ ]] || { echo "error: run-progress takes a 40-hex commit" >&2; exit 2; }
+    artifacts_run_progress "$1"
     ;;
   resolve-exact)
     resolve_exact_tree

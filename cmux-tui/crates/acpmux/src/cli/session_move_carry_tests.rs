@@ -144,6 +144,54 @@ fn a_file_named_like_pathspec_magic_carries_only_itself() {
 }
 
 #[test]
+fn a_checkout_with_no_index_carries_no_deletion_of_a_tracked_secret() {
+    let src = tempfile::tempdir().unwrap();
+    repo(src.path());
+    sh(src.path(), "printf 'S=1\\n' > .env && git add -f .env && git commit -qm env");
+    sh(src.path(), "printf 'two\\n' >> kept.txt && rm .git/index");
+    let carry = snapshot(&here, src.path(), true).unwrap();
+    let patch = String::from_utf8_lossy(&carry.patch);
+    assert!(!patch.contains("deleted file"), "{patch}");
+    assert!(patch.contains("kept.txt"), "{patch}");
+}
+
+#[test]
+fn a_sparse_checkout_carries_its_changes() {
+    let src = tempfile::tempdir().unwrap();
+    repo(src.path());
+    sh(
+        src.path(),
+        "mkdir -p in out && printf 'a\\n' > in/a && printf 'b\\n' > out/b && git add -A \\
+         && git commit -qm dirs && git sparse-checkout set --cone in && printf 'more\\n' >> in/a \\
+         && printf 'new\\n' > in/new",
+    );
+    let carry = snapshot(&here, src.path(), true).unwrap();
+    let patch = String::from_utf8_lossy(&carry.patch);
+    assert!(patch.contains("in/a") && patch.contains("in/new"), "{patch}");
+    assert!(!patch.contains("out/b"), "{patch}");
+}
+
+#[test]
+fn a_sparse_checkout_with_no_index_refuses_rather_than_delete_outside_its_cone() {
+    let src = tempfile::tempdir().unwrap();
+    repo(src.path());
+    sh(
+        src.path(),
+        "mkdir -p in out && printf 'a\\n' > in/a && printf 'b\\n' > out/b && git add -A \\
+         && git commit -qm dirs && git sparse-checkout set --cone in && printf 'more\\n' >> in/a \\
+         && rm .git/index",
+    );
+    let e = snapshot(&here, src.path(), true).unwrap_err().to_string();
+    assert!(e.contains("sparse checkout with no index"), "{e}");
+    // The recovery the refusal names gives the index back with its sparse marks, edits kept,
+    // and the carry then takes only the change inside the cone.
+    sh(src.path(), "git reset -q && git sparse-checkout reapply");
+    let carry = snapshot(&here, src.path(), true).unwrap();
+    let patch = String::from_utf8_lossy(&carry.patch);
+    assert!(patch.contains("in/a") && !patch.contains("out/b"), "{patch}");
+}
+
+#[test]
 fn a_head_that_moves_between_the_two_reads_refuses() {
     let src = tempfile::tempdir().unwrap();
     repo(src.path());
@@ -164,4 +212,23 @@ fn a_base_that_moved_refuses() {
     let carry = Carry { base: "a".repeat(40), patch: vec![], files: 0, left_out: vec![] };
     assert!(check_base(&carry, &"a".repeat(40)).is_ok());
     assert!(check_base(&carry, &"b".repeat(40)).is_err());
+}
+
+/// Uncommitted work of any size goes with the chat: a move never refuses it for its size. The
+/// file is random bytes, which do not compress, so its patch is past the 64 MiB a move once
+/// refused at; it arrives byte for byte.
+#[test]
+fn uncommitted_work_of_any_size_is_carried_whole() {
+    let src = tempfile::tempdir().unwrap();
+    let dst = tempfile::tempdir().unwrap();
+    repo(src.path());
+    sh(src.path(), "mkdir -p data && head -c 62914560 /dev/urandom > data/large.bin");
+    let carry = snapshot(&here, src.path(), true).unwrap();
+    assert!(carry.patch.len() > 64 * 1024 * 1024, "{}", carry.patch.len());
+    assert_eq!(carry.files, 1);
+    sh(dst.path(), &format!("git clone -q --branch lane/t {} .", src.path().display()));
+    let out = apply(dst.path(), &carry);
+    assert!(out.ok, "{}", out.stderr);
+    let read = |d: &Path| std::fs::read(d.join("data/large.bin")).unwrap();
+    assert!(read(dst.path()) == read(src.path()), "the large file arrives byte for byte");
 }
