@@ -64,6 +64,8 @@ import Testing
         content.emit = { type, id, _ in if type == .pick { picked.append(id) } }
         original.performClick(nil)
         model.title = "Changed title"
+        // A changed row is rebuilt (an unchanged one keeps its view: NativePopupRowCountTests).
+        model.rows[0].label = "Changed pick"
         content.update(model)
         let replacement = try #require(Self.descendants(of: content).compactMap { $0 as? NSButton }.first)
         #expect(replacement !== original && window.firstResponder === replacement)

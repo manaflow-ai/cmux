@@ -18,7 +18,9 @@ final class NativePopupSliderView: NSView {
     var commit: () -> Void = {}
     var prepareCommit: (() -> (() -> Void)?)?
     var escape: () -> Void = {}
-    var preferredHeight: CGFloat { descriptor.recommendedLabel == nil ? 84 : 104 }
+    var preferredHeight: CGFloat { Self.preferredHeight(for: descriptor) }
+    /// The row's height for `descriptor`, known before its view exists (the popup's row window).
+    static func preferredHeight(for descriptor: NativePopupSlider) -> CGFloat { descriptor.recommendedLabel == nil ? 84 : 104 }
     override var isFlipped: Bool { true }
 
     init(row: NativePopupRow, descriptor: NativePopupSlider) {

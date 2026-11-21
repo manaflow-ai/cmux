@@ -111,7 +111,7 @@ import Testing
         let accessory = try #require(content.searchAccessoryTab)
         #expect(accessory.accessibilityPerformPress())
         #expect(opened == ["account"])
-        #expect(!content.enabledRows.contains { $0.0.id == "account" }, "the arrows never reach the avatar")
+        #expect(!content.listRows.contains { $0.id == "account" }, "the arrows never reach the avatar")
         #expect(content.rowView(id: "account") === accessory)
     }
 

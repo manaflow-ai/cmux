@@ -42,11 +42,10 @@ extension NativePopupContent {
     }
 
     func navigateFromSlider(_ id: String, key: UInt16) -> Bool {
-        let enabled = enabledRows
-        guard let index = enabled.firstIndex(where: { $0.0.id == id }),
-              let following = enabled.dropFirst(index + 1).first(where: { $0.0.kind == .action }) else { return false }
+        guard let index = listIndex[id],
+              let following = listRows[(index + 1)...].first(where: { $0.kind == .action }) else { return false }
         if key == 125 {
-            selected = following.0.id; selectionReason = "keyboard"
+            selected = following.id; selectionReason = "keyboard"
             paintSelection()
             window?.makeFirstResponder(self)
             emit(.highlight, selected, nil)
@@ -67,15 +66,15 @@ extension NativePopupContent {
         case #selector(NSResponder.insertTab(_:)):
             guard control === search, let search, search.isEnabled,
                   model?.search?.completeOnTab == true else { return false }
-            guard let row = enabledRows.first(where: { $0.0.id == selected && $0.0.kind == .action && $0.0.completion != nil })
-                    ?? enabledRows.first(where: { $0.0.kind == .action && $0.0.completion != nil }),
-                  let completion = row.0.completion, completion != search.stringValue else { return false }
-            emit(.complete, row.0.id, completion)
+            guard let row = listRow(selected).flatMap({ $0.kind == .action && $0.completion != nil ? $0 : nil })
+                    ?? listRows.first(where: { $0.kind == .action && $0.completion != nil }),
+                  let completion = row.completion, completion != search.stringValue else { return false }
+            emit(.complete, row.id, completion)
             return true
         case #selector(NSResponder.insertNewline(_:)):
             guard control === search, let search, search.isEnabled else { return false }
             if model?.search?.submitOnReturn == true {
-                let id = enabledRows.first(where: { $0.0.id == selected })?.0.id
+                let id = listRow(selected)?.id
                 emit(.submit, id, search.stringValue)
                 return true
             }
