@@ -1,6 +1,7 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 import CmuxHomeCore
+import CmuxNextHome
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextHomeModel
@@ -135,16 +136,16 @@ extension CaptureSceneRegistry {
         }
         // The window can leave Home after the snapshot (a capture once showed
         // the newest terminal's workspace by the click): show it again first.
-        let wasShown = page.host.flatMap(HomePageTab.transcript(in:))?.debugFirstRunShown == true
+        let wasShown = page.host.flatMap(HomeNativeTranscriptView.first(in:))?.debugFirstRunShown == true
         if !wasShown {
             TopPages.show(.home, services: services, in: controller.state)
             page.show(ConversationID(chief))
             frames.start()
-            _ = await frames.settled(until: { page.host.flatMap(HomePageTab.transcript(in:))?.debugFirstRunShown == true },
+            _ = await frames.settled(until: { page.host.flatMap(HomeNativeTranscriptView.first(in:))?.debugFirstRunShown == true },
                                      start: ContinuousClock.now, window: 100, deadline: 3_000)
             _ = frames.stop()
         }
-        guard let transcript = page.host.flatMap(HomePageTab.transcript(in:)), transcript.debugFirstRunShown else {
+        guard let transcript = page.host.flatMap(HomeNativeTranscriptView.first(in:)), transcript.debugFirstRunShown else {
             return .object(["error": .string("Home's first-run panel is not shown"), "home_reshown": .bool(!wasShown)])
         }
         let rows = transcript.debugFirstRunAgents

@@ -62,7 +62,7 @@ def pr(number, **overrides):
 class GeneratedPaths(unittest.TestCase):
     def setUp(self):
         self.catch_up = load()
-        self.patterns = self.catch_up.generated_patterns((ROOT / ".gitattributes").read_text(encoding="utf-8"))
+        self.patterns = self.catch_up.merge_rules((ROOT / ".gitattributes").read_text(encoding="utf-8"))
 
     def test_the_bundles_and_strings_tables_are_generated(self):
         for path in (
@@ -72,6 +72,9 @@ class GeneratedPaths(unittest.TestCase):
             "Resources/markdown-viewer/webviews-app/chunks/vendor.mjs",
             "webviews/src/agent-session/acpmux/generated/strings.json",
             "webviews/src/pages/settings/generated/strings.json",
+            # Every other generated family (scripts/cmux-next/generated_merge.py), the protocol codegen included.
+            "webviews/src/protocol/generated/types.ts",
+            "webviews/src/agent-session/acpmux/protocol/generated/types.ts",
         ):
             self.assertTrue(self.catch_up.is_generated(path, self.patterns), path)
 
@@ -79,7 +82,9 @@ class GeneratedPaths(unittest.TestCase):
         for path in (
             "webviews/src/agent-session/acpmux/App.tsx",
             "webviews/src/agent-session/acpmux/Localizable.xcstrings",
-            "webviews/src/protocol/generated/types.ts",
+            # Hand-written files inside a generated directory, taken back out by a later `!merge`.
+            "cmux-tui/bindings/java/src/com/cmux/raw/CmuxClient.java",
+            "cmux-tui/crates/cmux-agent-pane-policy/policy.json",
             "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneModel.swift",
             ".gitattributes",
         ):

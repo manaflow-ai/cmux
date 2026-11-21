@@ -127,6 +127,10 @@ import { KIND_LINE_SEPARATOR, trayKindLineLook } from "./trayKindLine.experiment
 import { traySurfaceLook } from "./traySurface.experiment";
 import { trayLatestLook } from "./trayLatest.experiment";
 import { hatChevronLook, hatDoneCheckPlace, hatDoneLook, hatRowMotionLook } from "./hatParts.experiment";
+import { hatTuckLook } from "./hatTuck.experiment";
+import { hatOpenLook } from "./hatOpen.experiment";
+import { SubagentCardBody, SubagentPreviewCard } from "./SubagentPreview";
+import "./hatOpen.css";
 import { DoneCheck, DoneMark } from "./DoneMark";
 import { Tick, useGlide } from "./trayMotion";
 import { useCountedRender } from "../perfRender";
@@ -142,6 +146,7 @@ import type { AcpmuxPlanEntry } from "../model";
 import type { TrayHandleSide } from "../chatDisplay";
 import { earlierPlanHead, planHead } from "./subagentTrayModel";
 import { focusRingShown } from "../../../ui/focusModality";
+import { focusRoute } from "../../../ui/focusRoute";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -299,9 +304,13 @@ export const SubagentTray = memo(function SubagentTray({
   const [kindLine] = useState(() => experimentArm(trayKindLineLook));
   const [latestAt] = useState(() => experimentArm(trayLatestLook));
   const [chevronAt] = useState(() => experimentArm(hatChevronLook));
+  const [tuckLook] = useState(() => experimentArm(hatTuckLook));
   const [doneLook] = useState(() => experimentArm(hatDoneLook));
   const [checkPlace] = useState(() => experimentArm(hatDoneCheckPlace));
   const [rowMotion] = useState(() => experimentArm(hatRowMotionLook));
+  // How a line opens what it stands for (hatOpen.experiment.ts; Lawrence, 2026-11-20: "ui for opening
+  // subagents is very confusing").
+  const [openLook] = useState(() => experimentArm(hatOpenLook));
   const showLatest = latestAt !== "tooltip";
   const latestPlacement = latestAt === "tooltip" ? undefined : latestAt;
   const agentsById = useMemo(
@@ -360,6 +369,8 @@ export const SubagentTray = memo(function SubagentTray({
   const headed = items.length + finished.length > 0 || planned;
   // A header that opens the panel never expands in place.
   const open = !headed || (opened === true && opensPanel !== "header");
+  // The `hide` arm (hatOpen.experiment.ts): a headed hat hides from a button in its header, not the top edge.
+  const hidesInHead = Boolean(onTuck) && headed && openLook === "hide";
   // The list opens and folds on the shared fold, its height only (no fade in), from the header's
   // chevron.
   // A fold while the page is away (hidden, or in its first frames back) applies at once: the shared
@@ -382,7 +393,8 @@ export const SubagentTray = memo(function SubagentTray({
     // Fell to the page (the line left with the fold), or still in the tray (an inert line): only
     // then. Focus the person put elsewhere since stays where it is.
     const fell = !focused || focused === tray?.ownerDocument.body;
-    if ((fell || tray?.contains(focused)) && focused !== headButton.current) headButton.current?.focus();
+    if ((fell || tray?.contains(focused)) && focused !== headButton.current)
+      focusRoute(headButton.current, "system", "the subagent tray changed");
   }, [open]);
   // Held while open, or while the pointer or keyboard focus is on it (Leo, 2026-11-07: "if you have
   // things expanded and you're looking at them, they shouldn't just disappear like that"). Enter and
@@ -484,9 +496,11 @@ export const SubagentTray = memo(function SubagentTray({
   );
   // What runs by name, newest first: computed when the items change (an event), never per tick.
   // The width the list's scrollbar takes, if it takes any (a classic, always-shown scrollbar): the
-  // header's panel button and chevron move in by it too, so they stay over the lines' Stop and chevron
-  // columns (Leo, 2026-11-03: "all that alignment can be done better ... the chevrons with the stop
-  // symbols"). One observer on the list while it is mounted; it disconnects with the list.
+  // lines give it their end inset (subagents.css `--acpmux-tray-inset-end`), so their Stop and chevron
+  // columns stay under the header's (Leo, 2026-11-03: "all that alignment can be done better ... the
+  // chevrons with the stop symbols"), and the header never moves as the hat opens or folds (Leo,
+  // 2026-11-14: "don't do that for the composer hat"). One observer on the list while it is mounted;
+  // it disconnects with the list.
   const [gutter, setGutter] = useState(0);
   const listRef = useCallback((node: HTMLUListElement | null) => {
     if (!node) return undefined;
@@ -570,6 +584,9 @@ export const SubagentTray = memo(function SubagentTray({
   const workText =
     items.length + finished.length === 0 ? "" : loneHead ? loneHead.title : named ? shownNames.join(" · ") : title;
   const headText = [planText, workText].filter(Boolean).join(" · ");
+  // A tray with only a plan draws the Plan mode mark in its head's icon slot; with work beside the
+  // plan the head keeps the work's ring.
+  const planOnly = Boolean(planText) && !workText;
   const moreCount = items.length - shownNames.length;
   // Keep live and ended cards in one keyed child list. When a task completes, its card moves
   // between groups without remounting, so keyboard focus and the open affordance stay put.
@@ -704,8 +721,10 @@ export const SubagentTray = memo(function SubagentTray({
       data-stop={stopLook}
       data-opens={(headed && opensPanel) || undefined}
       data-tucks={onTuck ? tuckSide : undefined}
+      data-tuck-look={onTuck ? tuckLook : undefined}
       data-chevron={headed ? chevronAt : undefined}
       data-row-motion={rowMotion}
+      data-open-look={openLook}
       data-sized={(resizes && hatHeight !== undefined) || undefined}
       style={
         gutter > 0 || (resizes && hatHeight !== undefined)
@@ -766,12 +785,18 @@ export const SubagentTray = memo(function SubagentTray({
             // (desktop.css --grid-tray-text) instead of jumping to the inset.
             <span
               className="acpmux-lineage__icon"
-              data-state={runs ? "running" : "done"}
-              // An empty stack (a plan with nothing running) keeps the slot blank, never the ring.
-              data-blank={head === "bare" || head === "stack" || undefined}
+              data-state={planOnly ? "done" : runs ? "running" : "done"}
+              // A plan-only header draws the Plan mode mark over its rows' status column (Lucas, 2026-11-14:
+              // "we should either have an icon (ideally) or align it"). Else an empty stack keeps the slot
+              // blank, never the ring.
+              data-blank={(!planOnly && (head === "bare" || head === "stack")) || undefined}
               aria-hidden="true"
             >
-              <Icon name={head === "session" ? "agent.session" : HEAD_ICON} size={ROW_ICON} row />
+              <Icon
+                name={planOnly ? PLAN_ICON : head === "session" ? "agent.session" : HEAD_ICON}
+                size={ROW_ICON}
+                row
+              />
             </span>
           )}
           {/* Its words slide as a status line hands over: a new name joining, the lone item's task (Leo,
@@ -846,6 +871,9 @@ export const SubagentTray = memo(function SubagentTray({
           )}
           {/* The panel button's room, in the lines' Stop column: the button lies over it, outside the
               header's own button (a button holds no button). */}
+          {/* The `hide` arm (hatOpen.experiment.ts): the hide control's room in the header, one column
+              before the panel button's, so it never sits where the expand chevron is. */}
+          {hidesInHead && <span className="acpmux-running-tray__hide-slot" aria-hidden="true" />}
           {opensPanel === "button" && <span className="acpmux-running-tray__open-slot" aria-hidden="true" />}
           {/* The one trailing column every line's chevron ends in. */}
           <span className="acpmux-running-tray__status">
@@ -918,7 +946,21 @@ export const SubagentTray = memo(function SubagentTray({
           onDoubleClick={() => setHatHeight(undefined, true)}
         />
       )}
-      {onTuck && (
+      {hidesInHead && (
+        // The `hide` arm: the header's own hide button, over its slot, shown while the pointer is on
+        // the hat or it has keyboard focus; the top edge keeps only the resize rim.
+        <button
+          type="button"
+          className="acpmux-running-tray__hide"
+          data-with-panel={opensPanel === "button" || undefined}
+          aria-label={t("tray.tuck")}
+          title={t("tray.tuck")}
+          onClick={onTuck}
+        >
+          <Icon name="action.hide" size={ROW_ICON} row />
+        </button>
+      )}
+      {onTuck && !hidesInHead && (
         <button
           type="button"
           className="acpmux-running-tray__tuck"
@@ -980,6 +1022,14 @@ export const SubagentTray = memo(function SubagentTray({
     const key = itemKey(item);
     const isOpen = expanded.has(key);
     const toggleThis = () => toggleLine(key);
+    // hatOpen.experiment.ts: `row` opens what every line stands for on its click and keeps the details
+    // behind the chevron, its own button. `rolodex` previews every line in a card on hover; a subagent's
+    // line opens it as today, and a command's or a chat's still expands in place, since its output, link
+    // and Open chat do not fit a hover card.
+    const opensRow = openLook === "row";
+    const detailsButton = (can: boolean) =>
+      openLook === "row" && can ? { open: isOpen, label: t("message.details"), onToggle: toggleThis } : undefined;
+    const peek = openLook === "rolodex" ? "acpmux-hat-peek" : undefined;
     if (item.kind === "agent") {
       const parent = item.agent.parent === null ? undefined : agentsById.get(item.agent.parent);
       const agentLatest = latestLine(t, item.agent, awaitsOwnWork(item.agent));
@@ -1014,6 +1064,9 @@ export const SubagentTray = memo(function SubagentTray({
               latestAt={latestPlacement}
               via={parent ? subagentTaskLabel(t, parent) : undefined}
               onOpen={() => onOpen(item.agent.id)}
+              card={peek && <SubagentPreviewCard agent={item.agent} waiting={waiting} />}
+              cardClassName={peek}
+              disclose={detailsButton(true)}
               after={
                 item.agent.state === "running"
                   ? stop && !item.agent.command && <StopButton agent={item.agent} stop={stop} solid />
@@ -1032,6 +1085,12 @@ export const SubagentTray = memo(function SubagentTray({
                 t("subagents.stop", { name: subagentDisplayName(t, item.agent) }),
                 () => stop(item.agent.id),
               ),
+          )}
+          {/* The `row` arm: its chevron shows its whole task and what it does now under the line. */}
+          {openLook === "row" && (
+            <TrayLineFold open={isOpen}>
+              <TrayAgentDetail name={subagentTaskLabel(t, item.agent)} task={item.agent.task} latest={agentLatest} />
+            </TrayLineFold>
           )}
         </>
       );
@@ -1057,6 +1116,7 @@ export const SubagentTray = memo(function SubagentTray({
       );
       // A subagent's command says whose it is: "Reviewer · Waiting 14m · hold".
       const named = sendLabel(t, item.command) ?? read.label;
+      const openTerminal = canOpenTerminal && onOpenCommand ? () => onOpenCommand(item.command) : undefined;
       return (
         <>
           {menu(
@@ -1074,12 +1134,33 @@ export const SubagentTray = memo(function SubagentTray({
               doneLook={doneLook}
               state={t(STATUS_LABEL[status])}
               quiet={runs || status === "done"}
-              expanded={isOpen}
+              expanded={opensRow && openTerminal ? undefined : isOpen}
               trayColumns
               time={commandElapsed}
               // Expands to its tail where there is one to show: a host that reads its output or opens
               // its terminal, or a link it is about.
-              onOpen={onOpenCommand || canReadTail || read.link ? toggleThis : undefined}
+              onOpen={
+                opensRow && openTerminal
+                  ? openTerminal
+                  : onOpenCommand || canReadTail || read.link
+                    ? toggleThis
+                    : undefined
+              }
+              card={
+                peek && (
+                  <SubagentCardBody
+                    name={named}
+                    status={status}
+                    state={t(STATUS_LABEL[status])}
+                    latest={item.command.command}
+                  />
+                )
+              }
+              cardClassName={peek}
+              // Its own details button only where the row opens something else (its terminal) and the
+              // details hold more than that: a row that only expands keeps today's one chevron, so no two
+              // controls do the same thing.
+              disclose={detailsButton(Boolean(openTerminal && (canReadTail || read.link || item.owner)))}
               after={
                 stopProcess &&
                 processId && (
@@ -1134,9 +1215,30 @@ export const SubagentTray = memo(function SubagentTray({
           state={sessionRetrying ? retryLabel(t, sessionRetrying) : t(STATUS_LABEL[SESSION_STATUS[item.session.state]])}
           quiet={!sessionRetrying && (item.session.state === "running" || item.session.state === "idle")}
           trayColumns
-          expanded={isOpen}
+          expanded={opensRow && onOpenSession ? undefined : isOpen}
           // Only a line with something to show expands; one with nothing is a quiet, disabled line.
-          onOpen={onOpenSession || item.session.doing ? toggleThis : undefined}
+          onOpen={
+            opensRow && onOpenSession
+              ? () => onOpenSession(item.session.sessionId)
+              : onOpenSession || item.session.doing
+                ? toggleThis
+                : undefined
+          }
+          card={
+            peek && (
+              <SubagentCardBody
+                name={item.session.title}
+                status={sessionRetrying ? "running" : SESSION_STATUS[item.session.state]}
+                state={
+                  sessionRetrying ? retryLabel(t, sessionRetrying) : t(STATUS_LABEL[SESSION_STATUS[item.session.state]])
+                }
+                latest={item.session.doing}
+              />
+            )
+          }
+          cardClassName={peek}
+          // As a command's: a details button only where the row opens the chat and there is a step to show.
+          disclose={detailsButton(Boolean(onOpenSession && item.session.doing))}
         />
         <TrayLineFold open={isOpen}>
           <TrayAgentDetail
@@ -1318,6 +1420,8 @@ function stackMarks(
 /// The header's fixed mark for background work (trayHead.experiment.ts): a running ring, never the
 /// chat bubble, which reads as a message, and never the spinner, which each working line keeps.
 const HEAD_ICON = "app.sample.runningagents";
+/// A plan header's mark: the composer's Plan mode checklist (composerPlusRegistry.ts).
+const PLAN_ICON = "mode.plan";
 
 const NO_ITEMS: readonly TrayItem[] = [];
 const NO_ARRIVALS: ReadonlySet<string> = new Set();

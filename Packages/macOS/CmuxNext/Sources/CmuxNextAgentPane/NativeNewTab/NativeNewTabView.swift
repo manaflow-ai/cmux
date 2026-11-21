@@ -147,7 +147,7 @@ public final class NativeNewTabView: NSView, NSTextFieldDelegate {
             }
             let row = rows[index]
             view.isHidden = false
-            view.show(NativeNewTabRowContent(row, strings: strings), selected: index == selected)
+            view.show(NativeNewTabRowContent(row, strings: strings, home: model.page.home), selected: index == selected)
             view.activate = { [weak model] in model?.activate(row) }
         }
         divider.isHidden = rows.isEmpty

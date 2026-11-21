@@ -53,6 +53,43 @@ import CmuxNextDesignTokens
         }
     }
 
+    /// a1273: a button on a popover's menu glass (the bookmark bubble) has no scrim under it, so whatever page shows
+    /// through can be the brightest or the darkest: every ink still reads at 4.5:1, in each role and state, light, dark
+    /// and a theme with its own accent, and a gray button keeps a fill that reads as a button.
+    @Test func everyDialogButtonInkReadsOnTheMenuGlassOverAnyPage() {
+        let accented = ThemeInput(background: ThemeRGB(hex: 0x1F2430), foreground: ThemeRGB(hex: 0xCBCCC6))
+        for input in [Self.light, Self.dark, accented] {
+            let tokens = ThemeTokens.derive(from: input)
+            let card = CmuxDialogButtonLook.menuCardSurfaces(tokens)
+            for role in [CmuxDialogButton.Role.default, .destructive, .cancel, .normal] {
+                for state in CmuxDialogButtonLook.State.allCases {
+                    let look = CmuxDialogButtonLook(role: role, tokens: tokens, state: state, card: card)
+                    #expect(look.surfaces.count == card.count)
+                    for surface in look.surfaces {
+                        #expect(look.title.contrast(with: surface) >= 4.5, "\(role) \(state) title: \(look.title.contrast(with: surface)):1")
+                        #expect(look.keyHint.contrast(with: surface) >= 4.5, "\(role) \(state) hint: \(look.keyHint.contrast(with: surface)):1")
+                    }
+                    #expect(look.fill.alpha > 0.05, "\(role) \(state): a fill, not bare text")
+                }
+            }
+        }
+    }
+
+    /// A filled destructive button (the close question's Close) is white on red in every theme and state, as macOS
+    /// draws one (Aziz 2026-11-13: "the black on red looks bad it must be white on red"); light themes drew black.
+    @Test func aFilledDestructiveButtonIsWhiteOnRed() {
+        let accented = ThemeInput(background: ThemeRGB(hex: 0x1F2430), foreground: ThemeRGB(hex: 0xCBCCC6))
+        for input in [Self.light, Self.dark, accented] {
+            let tokens = ThemeTokens.derive(from: input)
+            for state in CmuxDialogButtonLook.State.allCases {
+                let look = CmuxDialogButtonLook(role: .destructive, tokens: tokens, state: state)
+                #expect(look.title == ThemeRGB(red: 1, green: 1, blue: 1), "\(state) title \(look.title) on \(look.fill)")
+                #expect(look.fill.red > look.fill.green * 1.5 && look.fill.red > look.fill.blue * 1.5, "\(state) fill \(look.fill) is not red")
+                #expect(look.title.contrast(with: look.fill) >= 4.5)
+            }
+        }
+    }
+
     /// The keyboard focus shows on a solid default button too: the ring sits just outside the fill,
     /// in its window, and nothing clips it (a ring drawn inside a solid fill, or clipped away, left
     /// the focused button looking like any other).

@@ -58,6 +58,20 @@ extension GlyphInkMeasure {
     }
 }
 
+extension GlyphInkMeasure {
+    /// The band's buttons laid out from the glyphs they draw at the current density. Each button draws its glyph
+    /// first: a button redraws in its own `layout()`, which runs after its band's and the window root's, so after a
+    /// density switch the slots came from the last density's glyphs and the buttons kept its places (Lucas
+    /// 2026-11-17: the toggle, Back and Forward sat off the traffic lights' line until another switch).
+    /// - Parameter buttons: The band's buttons, in band order.
+    /// - Parameter gap: The ink gap between consecutive glyphs.
+    /// - Returns: The band's ``TopRowSpacing/Slots``.
+    public func slots(for buttons: [TitlebarBandButton], gap: CGFloat) -> TopRowSpacing.Slots {
+        for button in buttons { button.renderSymbol() }
+        return slots(for: buttons.map(\.image), gap: gap)
+    }
+}
+
 extension TopRowSpacing.Slots {
     /// Each button's frame at `presence` (0 collapsed at the band's origin, 1 full), centered in a band `height` tall:
     /// every frame and gap scales with it, so the band closes to 0 width with no jump.

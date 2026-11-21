@@ -19,6 +19,8 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var rowColor: GroupColor?
     /// How `rowColor` draws: `.leftRail` or `.fill` (`.dot` draws it as the icon instead).
     public var colorStyle: WorkspaceColorIndicatorStyle = .dot
+    /// How a `.leftRail` row draws `rowColor`: its bar, wash and title tint (``WorkspaceRailLook/standard`` in the app).
+    public var railLook = WorkspaceRailLook.standard
     /// The second line: the shown second-line elements in order, joined.
     public var detail: String?
     /// The tab count, when that element is on.
@@ -61,6 +63,8 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var status: SidebarWorkspaceStatus?
     /// The computer the workspace runs on, while the sidebar lists more than one (SidebarMachineMark).
     public var machine: SidebarMachineMark?
+    /// The workspace runs on a Cloud machine: a small cloud mark right after its name, the row's only sign of it.
+    public var runsInCloud = false
     /// The computer as a one-list row names it, with its status when it cannot connect
     /// (`gpu-box · Failed to start`, `SidebarLayout.machineLabel`; set by `SidebarLayoutOptions.rowContent`
     /// in every row mode): no line draws it any more (Leo 2026-10-30), so the row's accessibility label

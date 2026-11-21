@@ -126,6 +126,56 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 240_000,
     ownPart: true,
   },
+  // A 1,000,000-event chat (CMUX-571, cmux#37713): the pane client's open, one older page and its heap, for long turns
+  // and for 4-record turns. perf-cron.py's web-ui-million part runs both (about 2 minutes on a lane VM).
+  {
+    name: "million-event-chat",
+    file: "million-event-chat.bench.ts",
+    args: ["1000000", "20"],
+    timeoutMs: 300_000,
+    ownPart: true,
+  },
+  {
+    name: "million-event-chat-short",
+    file: "million-event-chat.bench.ts",
+    args: ["1000000", "20"],
+    env: { SHAPE: "short" },
+    timeoutMs: 300_000,
+    ownPart: true,
+  },
+  // A chat at any length (goal chats-flat-at-any-length): a 100k-row chat opened and grown live, one and 20 at once,
+  // against empty chats; renderer idle CPU, streaming CPU and PSS, and their worst ratio. perf-cron.py's web-ui-flat
+  // part runs it, under that part's 30-minute run cap.
+  {
+    name: "chat-100k-flat",
+    file: "chat-100k-flat.bench.ts",
+    args: ["100000", "20"],
+    env: { CASES: "main" },
+    timeoutMs: 1_200_000,
+    ownPart: true,
+  },
+  // Its 20 chats grown live to 100k rows each (about 28 minutes on a 4-vCPU runner): perf-cron.py's web-ui-flat-grown
+  // part, under that part's 30-minute run cap. Its windows are 5 s (three of each kind, as in the main part) so the
+  // repeats fit under that cap.
+  {
+    name: "chat-100k-flat-grown",
+    file: "chat-100k-flat.bench.ts",
+    args: ["100000", "20"],
+    env: { CASES: "grown-many", IDLE_S: "5", STREAM_S: "5" },
+    timeoutMs: 1_770_000,
+    ownPart: true,
+  },
+  // Composer typing under load (CMUX-571, Leo 2026-11-16: "but typing under load is not good enough"): 500 keys
+  // 20 ms apart in Chromium and WebKit, idle (L0), a focused reply and tool stream (L1), ten other streaming documents
+  // (L2) and a focused 100k-row stream (L3); keydown to paint p95/p99 against the report-only 16/33 ms targets
+  // (composerTypingRows.ts). perf-cron.py's web-ui-typing part runs it; each load ends by its 120 s safety deadline.
+  {
+    name: "composer-typing",
+    file: "composer-typing.bench.ts",
+    args: ["--mode", "L0,L1,L2,L3", "--engines", "chromium,webkit", "--lengths", "60", "--keys", "500", "--gap", "20"],
+    timeoutMs: 1_500_000,
+    ownPart: true,
+  },
   // The same clock tick and 30-row list update drawn by an app (scene ops) and by the first-party component:
   // main-thread ms and React commits per update. Run with `--only extension-parity`.
   {
@@ -135,15 +185,29 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 180_000,
     ownPart: true,
   },
+  // The markdown page at 10 KB to 50 MB, deep nesting, a 5 MB line and a file appended to 50 times: first-screen
+  // ms per case, and exits 1 when a case's first screen passes 3x the 10 KB one's. Run with
+  // `--only markdown-viewer-stress`.
+  {
+    name: "markdown-viewer-stress",
+    file: "markdown-viewer-stress.bench.ts",
+    args: ["2"],
+    timeoutMs: 900_000,
+    ownPart: true,
+  },
   // The same benches on the god session (bench/godFixture.ts: tens of thousands of rows, MB tool outputs, nested
   // subagents, images, months of history). Their rows carry `god` after the prefix (chat_open.god.compact.latest),
   // so each pairs with its ordinary row; perf-cron.py runs them as a part of their own (web-ui-god), beside the
-  // ordinary three: the six timeouts sum to 1,710 s, under that part's 1,800 s cap (about 13 minutes measured).
+  // ordinary chat-switch and transcript-replay: the five timeouts sum to 1,695 s, under that part's 1,800 s cap.
+  // chat-open-god opens the small chat and the god one in the same rounds (PAIRED=1), interleaved with a calibration
+  // page (bench/runnerCalibration.ts), so the ordinary chat-open no longer runs in that part: 7 rounds, against the
+  // 3 that left chat_open.god.compact.attach_to_latest reading the runner (89 to 174 ms for the same work). 24 s for
+  // both chats at 3 rounds on a linux-pool runner (2026-11-19).
   {
     name: "chat-open-god",
     file: "chat-open.bench.ts",
-    args: ["3", "300"],
-    env: { FIXTURE: "god" },
+    args: ["7", "300"],
+    env: { FIXTURE: "god", PAIRED: "1" },
     timeoutMs: 300_000,
     ownPart: true,
   },

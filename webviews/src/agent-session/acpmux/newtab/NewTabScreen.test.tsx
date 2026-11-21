@@ -24,6 +24,7 @@ import type { CloudMachine } from "../cloudMachines";
 import { setNativeHost } from "../native";
 import { resetToastAvoidanceReports } from "../toastAvoidance";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { Popover } from "../../../ui/Popover";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -131,6 +132,180 @@ function promptValue(field = container.querySelector<MarkdownFieldElement>(".nt-
   return (field?.acpmuxMarkdownField?.plainText() ?? "").replace(/\n$/, "");
 }
 
+test.each(["minimal", "default"] as const)("%s home offers creation only as matching suggestions", async (template) => {
+  const creates: string[] = [];
+  const asks: unknown[][] = [];
+  await act(async () =>
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        snapshot={noChat()}
+        template={template}
+        onCreate={(kind) => creates.push(kind)}
+        onAsk={(...args) => asks.push(args)}
+      />,
+    ),
+  );
+  expect(container.querySelector("[data-create]")).toBeNull();
+  expect(document.querySelector(".nt-popover")).toBeNull();
+  await typePrompt("unrelated question");
+  for (const kind of ["terminal", "browser", "chat"] as const)
+    expect(document.querySelector(".nt-popover")?.textContent).not.toContain(translateNewTab(`create.${kind}`));
+  for (const kind of ["terminal", "browser", "chat"] as const) {
+    const field = await typePrompt(translateNewTab(`create.${kind}`));
+    const rows = [...document.querySelectorAll<HTMLElement>(".nt-row")];
+    const index = rows.findIndex((row) => row.textContent?.includes(translateNewTab(`create.${kind}`)));
+    expect(index).toBeGreaterThanOrEqual(0);
+    if (kind !== "chat") continue;
+    for (let i = 0; i < index; i++) await press(field, "ArrowDown");
+    await press(field, "Enter");
+  }
+  expect(asks.length).toBe(1);
+  expect(asks[0]?.[1]).toBe("");
+  expect(creates).toEqual([]);
+});
+
+// Lucas 2026-11-20: a hovered row and the arrow keys' row lit up at once. The pointer moves the one selection.
+test("the pointer and the arrow keys move one selection in the suggestions", async () => {
+  await act(async () => root!.render(<NewTabScreen {...firstRunProps} snapshot={noChat()} />));
+  const field = await typePrompt("ls");
+  const rows = () => [...document.querySelectorAll<HTMLElement>(".nt-popover .nt-row")];
+  const selected = () => rows().flatMap((row, index) => (row.classList.contains("is-selected") ? [index] : []));
+  const last = rows().length - 1;
+  expect(last).toBeGreaterThanOrEqual(1);
+  expect(selected()).toEqual([0]);
+  const move = (index: number, screenY: number) =>
+    act(async () => {
+      rows()[index]!.dispatchEvent(new dom!.window.MouseEvent("mousemove", { bubbles: true, screenX: 40, screenY }));
+    });
+  // WebKit's mousemove when the list opens or scrolls under a still pointer: the first move only records the spot.
+  await move(last, 100);
+  expect(selected(), "a first move does not take the selection").toEqual([0]);
+  await move(last, 101);
+  expect(selected(), "the hovered row is the selection").toEqual([last]);
+  expect(rows()[last]!.getAttribute("aria-selected")).toBe("true");
+  await press(field, "ArrowUp");
+  expect(selected(), "the arrow keys go on from the hovered row").toEqual([last - 1]);
+  // The same spot after the list scrolls under a still pointer keeps the keys' row.
+  await move(last, 101);
+  expect(selected(), "a still pointer does not take the selection back").toEqual([last - 1]);
+  await move(last, 102);
+  expect(selected(), "a moved pointer does").toEqual([last]);
+  // Closed and opened again under a pointer that moved while it was closed: its first move only records the spot.
+  await typePrompt("");
+  await typePrompt("ls");
+  const before = selected();
+  await move(before[0] === 0 ? last : 0, 300);
+  expect(selected(), "a reopened list keeps its selection on the first move").toEqual(before);
+});
+
+test.each(["terminal", "browser", "chat"] as const)(
+  "Enter on %s with staged attachments runs the creation command",
+  async (kind) => {
+    const creates: string[] = [];
+    const asks: unknown[][] = [];
+    const attachment: ComposerAttachment = {
+      id: "staged",
+      kind: "text",
+      name: "notes.txt",
+      mimeType: "text/plain",
+      size: 5,
+      text: "hello",
+    };
+    await act(async () =>
+      root!.render(
+        <NewTabScreen
+          {...firstRunProps}
+          snapshot={noChat()}
+          takeDraft={() => ({
+            text: translateNewTab(`create.${kind}`) + inlineToken(attachment.id),
+            attachments: [attachment],
+          })}
+          onCreate={(value) => creates.push(value)}
+          onAsk={(...args) => asks.push(args)}
+        />,
+      ),
+    );
+    const field = await promptField();
+    await settleReact();
+    const rows = [...document.querySelectorAll<HTMLElement>(".nt-row")];
+    const index = rows.findIndex(
+      (row) => row.dataset.type === "create" && row.textContent?.includes(translateNewTab(`create.${kind}`)),
+    );
+    expect(index).toBeGreaterThanOrEqual(0);
+    for (let i = 0; i < index; i++) await press(field, "ArrowDown");
+    await press(field, "Enter");
+    expect(creates).toEqual(kind === "chat" ? [] : [kind]);
+    expect(asks.length).toBe(kind === "chat" ? 1 : 0);
+    if (kind === "chat") {
+      expect(asks[0]?.[1]).toBe("");
+      expect(asks[0]?.[5]).toEqual([attachment]);
+    }
+  },
+);
+
+test("Add harness keeps the typed draft through setup", async () => {
+  const asks: unknown[][] = [];
+  let resume: ((harness: string) => void) | undefined;
+  await act(async () =>
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        chips={({ onAddAgent }) => (
+          <button className="acpmux-add-harness" onClick={onAddAgent}>
+            Add harness
+          </button>
+        )}
+        onAsk={(...args) => asks.push(args)}
+        onSetup={(continuation) => {
+          resume = continuation;
+        }}
+      />,
+    ),
+  );
+  await typePrompt("keep my draft");
+  await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-add-harness")!.click());
+  expect(resume).toBeDefined();
+  await act(async () => resume!("claude"));
+  expect(asks[0]?.[1]).toBe("keep my draft");
+});
+
+test("New Tab suggestions keep the composer's page glass", async () => {
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+      />,
+    );
+  });
+  await typePrompt("fix the flaky test");
+  const popover = document.querySelector(".nt-popover");
+  expect(popover).toBeTruthy();
+  expect(popover!.hasAttribute("data-host-glass")).toBe(false);
+  expect(popover!.hasAttribute("data-host-glass-cover")).toBe(false);
+});
+
+test("other popovers keep native popup glass", async () => {
+  await act(async () => {
+    root!.render(
+      <Popover open onOpenChange={() => {}} anchor={container} label="Details" initialFocus={false}>
+        Details
+      </Popover>,
+    );
+  });
+  const popover = document.querySelector(".ui-popover");
+  expect(popover).toBeTruthy();
+  expect(popover!.getAttribute("data-host-glass")).toBe("popover");
+  expect(popover!.hasAttribute("data-host-glass-cover")).toBe(true);
+});
+
 test("New Tab exposes the chat composer attachment menu", async () => {
   await act(async () => {
     root!.render(
@@ -211,7 +386,7 @@ test("New Tab + offers Search chats and Search pages as app actions, and no Sear
 });
 
 const firstRunProps = {
-  // The stage's environment card and create row are the Default template's; an unset template is Minimal.
+  // An unset template is Minimal.
   template: "default" as const,
   snapshot: noChat([], { catalog: [] }),
   onAsk: () => {},
@@ -524,6 +699,57 @@ test("No folder, then a remote machine with a folder: location and send name tha
   expect(asks[0]?.[6]).toEqual({ peer: "build-box" });
 });
 
+// cmux#46019: Cmd-N's new workspace opens a new page; the machine picked on the last one is where it starts.
+test("a page started on the last picked machine sends there, and a machine pick is kept for the next page", async () => {
+  const asks: unknown[][] = [];
+  const page = (startMachine?: string) => (
+    <NewTabScreen
+      snapshot={noChat([], { peers: ["build-box", "gpu-box"], peerKinds: { "build-box": "ssh", "gpu-box": "ssh" } })}
+      cwd="/Users/you/src/cmux"
+      startCwd="/Users/you/src/cmux"
+      projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
+      machineName="This Mac"
+      environments
+      {...(startMachine ? { startMachine } : {})}
+      onAsk={(...args) => asks.push(args)}
+      onOpen={() => {}}
+      onSearch={() => {}}
+      onShell={() => {}}
+      onJump={() => {}}
+      onOpenSession={() => {}}
+      onShowAll={() => {}}
+    />
+  );
+  const had = "localStorage" in scope;
+  const before = scope.localStorage;
+  scope.localStorage = dom!.window.localStorage;
+  try {
+    await act(async () => root!.render(page("build-box")));
+    expect(container.querySelector(".nt-location")?.textContent).toContain("build-box");
+    await typePrompt("fix it");
+    await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+    expect(asks.length).toBe(1);
+    expect(asks[0]?.[6]).toEqual({ peer: "build-box" });
+
+    // A machine picked on a page is what the next page starts on (lastNewChatPlace.ts).
+    await act(async () => root!.render(<div />));
+    await act(async () => root!.render(page()));
+    await openMachines(container.querySelector<HTMLButtonElement>('[data-kind="computer"] button')!);
+    const gpu = [...document.querySelectorAll<HTMLElement>('.acpmux-env-row[data-kind="ssh"]')].find((row) =>
+      row.textContent?.includes("gpu-box"),
+    );
+    expect(gpu).toBeTruthy();
+    await act(async () => gpu!.click());
+    expect(JSON.parse(dom!.window.localStorage.getItem("cmux.agentPane.lastNewChatPlace") ?? "null")).toEqual({
+      kind: "machine",
+      peer: "gpu-box",
+    });
+  } finally {
+    if (had) scope.localStorage = before;
+    else delete scope.localStorage;
+  }
+});
+
 test.each(["", "Implement a todo list"])("Return without a harness opens setup for typed draft %j", async (draft) => {
   let opened = 0;
   const searches: string[] = [];
@@ -798,7 +1024,7 @@ test("shell mode asks for no command list and starts no chat for a path in its c
   expect(container.querySelector(".nt-field .acpmux-slash-token")).toBeNull();
 });
 
-test("a cleared draft forgets the row the arrows chose: the same word typed again and Return sends", async () => {
+test("a listed row is always highlighted: Return picks it, and after Esc Return sends the word", async () => {
   const asks: unknown[][] = [];
   const skill = { name: "review-pr", description: "", source: "skill" as const };
   await act(async () => {
@@ -810,15 +1036,22 @@ test("a cleared draft forgets the row the arrows chose: the same word typed agai
       />,
     );
   });
+  // Leo, 2026-11-20: "i click enter and it should do it".
   let field = await typePrompt("fix /pr");
   expect(container.querySelector("#acpmux-slash-menu")).not.toBeNull();
-  await press(field, "ArrowDown");
-  await typePrompt("");
-  field = await typePrompt("fix /pr");
-  // The same word typed again opens the list again.
-  expect(container.querySelector("#acpmux-slash-menu")).not.toBeNull();
+  // One completion UI: the system's spelling and inline predictions are off while the list shows.
+  const editor = () => field.querySelector<HTMLElement>("[contenteditable]")!;
+  expect(editor().getAttribute("spellcheck")).toBe("false");
+  expect(editor().getAttribute("writingsuggestions")).toBe("false");
   await press(field, "Enter");
-  expect(promptValue()).not.toContain("/review-pr");
+  expect(promptValue()).toContain("/review-pr");
+  expect(container.querySelector("#acpmux-slash-menu")).toBeNull();
+  expect(editor().getAttribute("writingsuggestions")).toBeNull();
+  expect(asks).toEqual([]);
+  field = await typePrompt("fix /pr");
+  expect(container.querySelector("#acpmux-slash-menu")).not.toBeNull();
+  await press(field, "Escape");
+  await press(field, "Enter");
   expect(asks.map((ask) => ask[1])).toEqual(["fix /pr"]);
 });
 
@@ -1082,6 +1315,36 @@ test("with Cloud picked and No folder, a send names no folder: not even the tab'
   expect(clouded[0]?.[2]).toBeUndefined();
 });
 
+// cmux#45946: a tab that inherited a folder the chip does not show (no start folder from the host) reads
+// "No folder"; its Cloud send copied that folder anyway ("tmp" on the start card).
+test("with Cloud picked and the chip reading No folder, a send names no folder, not the tab's unshown folder", async () => {
+  const clouded: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        cwd="/tmp/inherited"
+        template="default"
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+        environments
+        runMode={{ mode: "cloud", onMode: () => {} }}
+        onCloud={(...args) => (clouded.push(args), false)}
+      />,
+    );
+  });
+  expect(container.querySelector(".nt-location")?.textContent).toContain("No folder");
+  await typePrompt("1+1");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect(clouded.length).toBe(1);
+  expect(clouded[0]?.[2]).toBeUndefined();
+});
+
 test("while a Cloud start is out the box takes no edits, and takes them again once it ends", async () => {
   const page = (cloudStarting: boolean) => (
     <NewTabScreen
@@ -1292,8 +1555,17 @@ test.each(
       />,
     );
   await act(async () => render("sandboxed"));
-  const create = (kind: string) => container.querySelector<HTMLButtonElement>(`[data-create="${kind}"]`)!;
-  await act(async () => create("chat").click());
+  const create = async (kind: "chat" | "terminal" | "browser") => {
+    await typePrompt(translateNewTab(`create.${kind}`));
+    const row = [...document.querySelectorAll<HTMLElement>('.nt-row[data-type="create"]')].find((item) =>
+      item.textContent?.includes(translateNewTab(`create.${kind}`)),
+    );
+    expect(row).toBeTruthy();
+    await act(async () =>
+      row!.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })),
+    );
+  };
+  await create("chat");
   if (setup) {
     expect(resume).toBeDefined();
     await act(async () => resume!("claude"));
@@ -1301,7 +1573,7 @@ test.each(
   expect(sandboxed.length).toBe(1);
   expect(asks).toEqual([]);
   await act(async () => render("persistent"));
-  await act(async () => create(kind).click());
+  await create(kind);
   expect(asks.length).toBe(kind === "chat" ? 1 : 0);
   expect(creates).toEqual(kind === "chat" ? [] : [kind]);
 });
@@ -1897,4 +2169,89 @@ test("a page that has focus already reports its field ready at once, and only on
   expect(ready).toEqual(["cmd-t-1"]);
   await render("cmd-t-2");
   expect(ready).toEqual(["cmd-t-1", "cmd-t-2"]);
+});
+
+// Lawrence 2026-11-19: "i did cmd n and started typing and it didnt have focus". On the cmux23 bench, typing
+// "hello world 123" at once after Cmd-N left "llo world 123", "lo world 123" or "ello world 123": every key reached the
+// field, but a token change after the readiness (an adopt that takes the next token in place, a context update with no
+// token) ran the field's show-focus again, and it selected all the text typed so far. The next key replaced it.
+test.each([
+  ["a context update with no token", undefined],
+  ["an adopt with the next token", "cmd-n-2"],
+] as const)("keys typed after the readiness stay when %s comes", async (_, next) => {
+  Object.defineProperty(dom!.window.document, "hasFocus", { configurable: true, value: () => true });
+  const render = (token: string | undefined) =>
+    act(async () => {
+      root!.render(
+        <NewTabScreen
+          snapshot={noChat()}
+          inputToken={token}
+          onInputReady={() => {}}
+          onAsk={() => {}}
+          onOpen={() => {}}
+          onSearch={() => {}}
+          onShell={() => {}}
+          onJump={() => {}}
+          onOpenSession={() => {}}
+          onShowAll={() => {}}
+        />,
+      );
+    });
+  await render("cmd-n-1");
+  const field = await typePrompt("he");
+  await render(next);
+  await act(async () => field.acpmuxMarkdownField!.insertText("llo"));
+  expect(promptValue(), "the token change selected the typed text, and the next keys replaced it").toBe("hello");
+});
+
+test("Return runs a typed shell command in a terminal; Cmd-Return still asks the agent", async () => {
+  const shells: string[] = [];
+  const asks: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        template="minimal"
+        snapshot={noChat([])}
+        onShell={(command) => void shells.push(command)}
+        onAsk={(...args) => void asks.push(args)}
+      />,
+    );
+  });
+  let field = await typePrompt("git status");
+  expect(document.querySelector('.nt-row[data-type="run"]')?.getAttribute("aria-selected")).toBe("true");
+  await press(field, "Enter");
+  expect(shells).toEqual(["git status"]);
+  expect(asks).toEqual([]);
+  field = await typePrompt("git status");
+  await press(field, "Enter", { metaKey: true });
+  expect(shells).toEqual(["git status"]);
+  expect(asks.map((ask) => ask[1])).toEqual(["git status"]);
+});
+
+// Lawrence 2026-11-19 (New Tab typing lag): a key in the New Tab field renders what the key changed, never the
+// composer chips (the agent and model pickers, the folder and machine chips, each with its own menus): on cmux21
+// they rendered again on every key, about 2 ms of page work a key, because the screen handed them new props each render.
+test("a key in the New Tab field renders the chips no more", async () => {
+  const renders: Record<string, unknown>[] = [];
+  const Counted = (chipProps: Record<string, unknown>) => {
+    renders.push(chipProps);
+    return <span className="counted-chips" />;
+  };
+  await act(async () => root!.render(<NewTabScreen {...firstRunProps} snapshot={noChat()} chips={Counted} />));
+  const field = await typePrompt("a");
+  const before = renders.length;
+  for (const text of ["ab", "abc", "abcd", "abcde"]) {
+    field.acpmuxMarkdownField!.writeText(text, text.length, text.length);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  }
+  const changed = renders.slice(before).map((now, index) => {
+    const last = renders[before + index - 1] ?? {};
+    return Object.keys({ ...last, ...now }).filter((key) => last[key] !== now[key]);
+  });
+  expect(promptValue()).toBe("abcde");
+  expect(
+    renders.length - before,
+    `chips rendered again for 4 keys, props that changed: ${JSON.stringify(changed)}`,
+  ).toBe(0);
 });

@@ -321,10 +321,9 @@ for (const cell of CELLS) {
       if (folder) expect(starts[0]!.params.cwd).toBe(folder);
       else expect(starts[0]!.params).toMatchObject({ home: true });
       expect(starts[0]!.params.cwd).not.toBe(SCRATCH);
-      // The account the chat runs in is the app's active one: the Where control names it before Send.
+      // The Where control says Cloud and nothing else, never the team (https://github.com/manaflow-ai/cmux/issues/45695).
       const where = host.querySelector<HTMLElement>('.acpmux-location-picker[data-kind="computer"] button');
-      const named = `${where?.getAttribute("aria-label") ?? ""} ${where?.textContent ?? ""}`;
-      expect(named).toContain(TEAMS[cell.team].name);
+      expect(where?.textContent?.trim()).toBe("Cloud");
       return;
     }
 

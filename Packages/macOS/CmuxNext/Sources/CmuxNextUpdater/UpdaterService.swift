@@ -109,6 +109,8 @@ public final class UpdaterService {
     /// What's New after an update (WHATS-NEW-AFTER-UPDATE): the bundled
     /// documents and this feed's nightly digests. The App loads it at launch.
     public let whatsNew: WhatsNewCenter
+    /// The one-time ask to star cmux on GitHub, in the tip card's slot (``StarPromptCenter``).
+    public let starPrompt: StarPromptCenter
     /// Where a staged update is recorded for the next build's What's New (nil: not recorded).
     @ObservationIgnored let lastUpdates: WhatsNewLastUpdateStore?
     /// The record last written, so an unchanged one is not written again.
@@ -136,6 +138,17 @@ public final class UpdaterService {
     public internal(set) var stagedVersion: String?
     public internal(set) var stagedNotes: ReleaseNotes?
     @ObservationIgnored var stagedNotesTask: (build: String, task: Task<Void, Never>)?
+    /// The staged build's pre-warm, running or ended (``prewarmStagedUpdate(trigger:)``, once per build).
+    @ObservationIgnored var prewarmRun: StagedPrewarmRun?
+    /// The install click waiting for that pre-warm (``installAfterPrewarm(_:)``), and the bound of its wait.
+    @ObservationIgnored var prewarmWaitingInstall: PrewarmWaitingInstall?
+    @ObservationIgnored let prewarmWaitTimer: DemandTimer
+    /// ``prewarmInstallBound``; tests shorten or lengthen it.
+    @ObservationIgnored var prewarmInstallWait: Duration = UpdaterService.prewarmInstallBound
+    /// The last skipped pre-warm's build and reason (``prewarmStagedUpdate(trigger:)``), logged once.
+    @ObservationIgnored var prewarmSkipLogged: String?
+    /// Replaces a staged build's pre-warm (``StagedUpdatePrewarm/perform(work:processes:timeout:marker:urgency:progress:)``) in tests; returns its log line.
+    @ObservationIgnored var prewarmRunner: (@Sendable (StagedUpdatePrewarm) async -> String)?
     /// This build's own verified notes, read once when the Updated card has
     /// no change list of its record (``loadCurrentBuildNotesIfNeeded()``).
     public internal(set) var currentBuildNotes: ReleaseNotes?
@@ -244,6 +257,15 @@ public final class UpdaterService {
     @ObservationIgnored let relaunchMomentHold: UpdateRelaunchMomentHold
     /// How long input must be quiet before a nightly installs by itself (`updates.idleInstallQuietSeconds`).
     @ObservationIgnored public internal(set) var idleInstallQuiet: Duration = UpdateRelaunchBlockers.quietInputPeriod
+    /// Update When Idle's idle time (`updates.installWhenIdleMinutes`), nil while `updates.installWhenIdle` is off.
+    @ObservationIgnored public internal(set) var installWhenIdle: Duration?
+    /// Why Update When Idle holds a staged install now, nil when nothing does (set by the App: it reads the
+    /// input time, agent turns and drafts and asks cmux-window-rules `update_idle`). Without it the
+    /// setting installs nothing by itself.
+    @ObservationIgnored public var idleInstallGate: (@MainActor () -> UpdateRelaunchMoment.Interruption?)?
+    /// Stands in for the Mac's last input for Update When Idle (`debug.updater {action: "input"}` in DEV and bench
+    /// builds; the update-idle harness: a fleet Mac has no person). Nil reads the real input time.
+    @ObservationIgnored public var debugLastInput: Date?
     /// The install in flight started by itself (the idle policy): a failure opens nothing.
     @ObservationIgnored var automaticInstallInFlight = false
     /// The build Sparkle said it installs (`updaterWillInstallUpdate`): the relaunch's focus record names it.
@@ -294,6 +316,7 @@ public final class UpdaterService {
         cardTimer = DemandTimer(owner: "UpdaterService.card", clock: clock)
         installTimer = DemandTimer(owner: "UpdaterService.install", clock: clock)
         snoozeTimer = DemandTimer(owner: "UpdaterService.snooze", clock: clock)
+        prewarmWaitTimer = DemandTimer(owner: "UpdaterService.prewarmWait", clock: clock)
         stagedRefresh = StagedUpdateRefresh(clock: clock)
         tipCheck = TipUpdateCheck(clock: clock)
         releasePushRetry = DemandTimer(owner: "UpdaterService.releasePush", clock: clock)
@@ -304,6 +327,7 @@ public final class UpdaterService {
         self.switcher = switcher
         let lastUpdates = recordsUpdates ? WhatsNewLastUpdateStore.app(bundleIdentifier: identity.bundleIdentifier) : nil
         self.lastUpdates = lastUpdates
+        starPrompt = StarPromptCenter(defaults: defaults, now: now)
         whatsNew = WhatsNewCenter(currentVersion: identity.shortVersion, currentBuild: identity.build, defaults: defaults,
                                   sources: Self.whatsNewSources(identity: identity), lastUpdates: lastUpdates)
         // On disk too (``UpdateLogFile``): unified logging kept none of a nightly's updater lines.
@@ -314,7 +338,7 @@ public final class UpdaterService {
         // person's app: with the lines before the quit, the file says what relaunched cmux.
         log.append("launch \(identity.shortVersion) build \(identity.build) (\(identity.track)), pid \(ProcessInfo.processInfo.processIdentifier)"
             + (CommandLine.arguments.contains(UpdateRelaunchFocus.reopenArgument) ? ", reopened behind by an automatic install" : ""))
-        relaunchMomentHold = UpdateRelaunchMomentHold(clock: clock, log: { [log] in log.append($0) })
+        relaunchMomentHold = UpdateRelaunchMomentHold(clock: clock, now: now, log: { [log] in log.append($0) })
         releasePush = ReleasePushListener(runningBuild: identity.build, clock: clock, log: { [log] in log.append($0) })
         // The managed policy is re-read by the driver on every start and check,
         // so it is not a reason to skip building it.
@@ -631,7 +655,8 @@ public final class UpdaterService {
             ring: ring,
             card: card,
             cardPresentation: cardPresentation,
-            badge: footerPill?.title
+            badge: footerPill?.title,
+            relaunchHold: relaunchHold
         )
     }
 

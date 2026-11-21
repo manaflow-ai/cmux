@@ -28,8 +28,8 @@ struct NewTabRapidPairTests {
             + "reserved tab \(services.daemon.store.reservedWorkspace?.tabKey ?? "none")"
     }
 
-    /// The pool keeps two spares, which it fills only after one served an open: the rig hands out the launch's spare
-    /// first. `painted(n)` / `framed(n)`: the n-th spare parked after that counts as drawn / reports its frames in a pane.
+    /// The pool raised to two spares (`debug.new_tab capacity`; the app keeps one), which it fills only after one served
+    /// an open: the rig hands out the launch's spare first. `painted(n)` / `framed(n)`: the n-th spare parked after that counts as drawn / reports its frames in a pane.
     static func filledPool(_ services: AppServices, window: NSWindow, folder: URL, painted: @escaping (Int) -> Bool = { _ in true },
                            framed: @escaping (Int) -> Bool = { _ in true }) async throws -> Rig {
         let html = folder.appending(path: "index.html")
@@ -172,9 +172,9 @@ struct NewTabRapidPairTests {
         }
     }
 
-    /// A launch loads one page, as before two spares: the second is made only after a spare served an open, so its load
-    /// never meets the session's first open.
-    @Test func aLaunchMakesOneSpareUntilOneServedAnOpen() async throws {
+    /// A launch loads one page, and the pool keeps one (Home idle memory, Leo 2026-11-14): the first open adopts it and
+    /// its replacement is the only page at idle.
+    @Test func aLaunchMakesOneSpareAndThePoolKeepsOne() async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-rapid-pair-launch")
             try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
@@ -185,8 +185,8 @@ struct NewTabRapidPairTests {
             let html = folder.appending(path: "index.html")
             try Data("<html><body>New Tab spare fixture</body></html>".utf8).write(to: html)
             let pool = services.newTabSpares
+            #expect(pool.capacity == 1, "the pool keeps \(pool.capacity) spares at idle")
             pool.dropAll()
-            pool.capacity = 2
             pool.makeSpare = { page in
                 let model = AgentPaneModel(host: services.agentTabs.host, newTab: page)
                 guard let view = AgentPaneView(model: model, source: .bundled(html)) else { return nil }
@@ -208,8 +208,16 @@ struct NewTabRapidPairTests {
             try await Task.sleep(for: .seconds(2))
             #expect(rig.made.count == 1, "the launch made \(rig.made.count) spares before any open; \(Self.poolState(services, rig))")
             pool.retarget(window)
+            let launch = try #require(pool.spare?.view)
+            let openings = pool.openings.count
             NewTabPage.open(in: pane, seed: nil)
-            try await PasswordManagerRouteTests.until({ rig.made.count >= 3 }, within: .seconds(5), report: { "\(rig.made.count - 1) spares after the first open" })
+            #expect(pool.openings.dropFirst(openings).first?.spare == true, "the first Cmd-T loaded cold: \(pool.openings.dropFirst(openings).map(\.spare))")
+            #expect(pool.spare?.view !== launch, "the first Cmd-T did not adopt the launch's spare")
+            try await PasswordManagerRouteTests.until({ rig.made.count == 2 && pool.spare != nil }, within: .seconds(5),
+                                                      report: { "no spare after the first open; \(Self.poolState(services, rig))" })
+            // Past the quiet-input warm again: still one page at idle.
+            try await Task.sleep(for: .seconds(2))
+            #expect(rig.made.count == 2 && pool.spares.count == 1, "the pool holds \(pool.spares.count) spares at idle (\(rig.made.count) made)")
         }
     }
 }

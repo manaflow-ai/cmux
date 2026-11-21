@@ -25,7 +25,8 @@ Safari, on one Mac, the same way for every browser:
 Method (after Ardia's docs/perf/vs-browsers.md, so numbers compare):
   - local pages on 127.0.0.1 (pages.py), no network-dependent rows;
   - every launch starts from its own APFS clone of a template profile made
-    once per browser (one launch, settle, quit); HOME and CFFIXED_USER_HOME
+    once per browser (one launch, settle until its first-run writes end, quit:
+    settle_template); HOME and CFFIXED_USER_HOME
     point into the run folder, so nothing touches the worker's ~/Library;
   - Chromium browsers get --user-data-dir --remote-debugging-port
     --no-first-run --no-default-browser-check --password-store=basic
@@ -144,6 +145,56 @@ def now_ms() -> float:
 
 def sleep(seconds: float):
     time.sleep(seconds)  # bench: a deliberate settle or idle window
+
+
+def tree_states(root: str) -> dict[str, tuple[float, int]]:
+    """(mtime, size) of every file under `root`."""
+    states = {}
+    for folder, _dirs, files in os.walk(root):
+        for file in files:
+            path = os.path.join(folder, file)
+            try:
+                info = os.lstat(path)
+            except OSError:
+                continue
+            states[path] = (info.st_mtime, info.st_size)
+    return states
+
+
+# A template launch must outlast a browser's first-run jobs, or every launch cloned from it runs them
+# again inside its measured windows. cmux NEXT's Chromium: the component updater's first check 60 s
+# after start (Widevine, CRL set, optimization hints, on-device suggest, subresource filter, each also
+# copied into component_crx_cache), done by about 95 s. A 45 s template ended before it, so every
+# launch's Home window paid 23 to 62 MB of it (runs 43649027609 and step 2fc0210280de). The built-in
+# uBlock Origin's filter cache (Local Extension Settings, IndexedDB, about 70 MB) is written again on
+# every launch, not once, so no template holds it: that is app idle cost, and the Home row keeps it.
+CHROMIUM_COMPONENT_CHECK_S = 60.0  # ChromeConfigurator's InitialDelay, without --component-updater=fast-update
+TEMPLATE_MIN_S = CHROMIUM_COMPONENT_CHECK_S + 15.0
+TEMPLATE_QUIET_S = 30.0
+TEMPLATE_MAX_S = 150.0  # past the component updater (done by ~95 s); uBO and Dawn caches never go quiet
+TEMPLATE_POLL_S = 5.0
+
+
+def settle_template(root: str, minimum: float, quiet: float = TEMPLATE_QUIET_S, cap: float = TEMPLATE_MAX_S,
+                    clock=time.monotonic, wait=sleep, states=tree_states) -> tuple[float, list[str]]:
+    """Wait at least `minimum` s, then until no file under `root` changed for `quiet` s; stop at `cap` s
+    whatever happens (the stop condition). Answers the seconds waited and the files still changing at the
+    end (empty when it went quiet), so a template that hit the cap names its writers."""
+    start = clock()
+    wait(minimum)
+    last = states(root)
+    quiet_since = clock()
+    changed: list[str] = []
+    while clock() - quiet_since < quiet:
+        if clock() - start >= cap:
+            return clock() - start, changed
+        wait(max(0.0, min(TEMPLATE_POLL_S, quiet - (clock() - quiet_since), cap - (clock() - start))))
+        now = states(root)
+        changed = sorted(path for path, state in now.items() if last.get(path) != state)
+        if changed:
+            quiet_since = clock()
+        last = now
+    return clock() - start, []
 
 
 # ---------------------------------------------------------------- helper
@@ -369,13 +420,13 @@ class ChromiumBrowser(Browser):
         if handle in self.tabs:
             self.tabs.remove(handle)
 
-    def template(self, profile: str, settle: float):
+    def template(self, profile: str, settle):
         self.launch(profile, self.server.url("idle", "template"))
         try:
             self.ready()
             if not self.can_link:
                 self.new_tab(self.server.url("idle", "template"), "template")
-            sleep(settle)
+            settle()
         finally:
             self.quit()
 
@@ -470,11 +521,11 @@ class CmuxBrowser(Browser):
             self.instance = None
         self.tabs = []
 
-    def template(self, profile: str, settle: float):
+    def template(self, profile: str, settle):
         self.launch(profile, None)
         try:
             self.ready()
-            sleep(settle)
+            settle()
         finally:
             self.quit()
 
@@ -502,7 +553,7 @@ class SafariBrowser(Browser):
         self.tabs.append(tab_id)
         return tab_id
 
-    def template(self, profile: str, settle: float):
+    def template(self, profile: str, settle):
         return
 
 
@@ -572,9 +623,18 @@ class Run:
         template = os.path.join(self.work, "templates", browser.name)
         if os.path.isdir(template) or browser.name == "safari":
             return
-        log(f"{browser.name}: template profile ({self.args.template_settle:.0f} s)")
+        log(f"{browser.name}: template profile (at least {self.args.template_settle:.0f} s, then until "
+            f"{TEMPLATE_QUIET_S:.0f} s with no writes, at most {TEMPLATE_MAX_S:.0f} s)")
         os.makedirs(template)
-        browser.template(template, self.args.template_settle)
+
+        def settle():
+            took, writing = settle_template(template, self.args.template_settle)
+            if writing:
+                log(f"{browser.name}: template still writing after {took:.0f} s (cap): "
+                    + ", ".join(os.path.relpath(path, template) for path in writing[:5]))
+            else:
+                log(f"{browser.name}: template quiet after {took:.0f} s")
+        browser.template(template, settle)
 
     # -- cold launches
 
@@ -904,8 +964,66 @@ def palette_rows(path: str | None) -> tuple[dict, list[str]]:
     return rows, lines
 
 
+def pane_drag_rows(path: str | None) -> tuple[dict, list[str]]:
+    """Rows and BENCH.md lines from scripts/ci/frame-pacing/pane_drag.py's report (RFD 0022 item 1): tab drags and
+    pane-header drags through the real mouse path at 2, 8 and 30 panes of mixed kinds. Report only."""
+    if not path or not os.path.exists(path):
+        return {}, []
+    data = json.load(open(path))
+    rows, lines = {}, []
+    lines += ["## Pane and tab drag (cmux NEXT, tagged Debug build)", "",
+              "**Debug only**, like the tab switch rows; report only (no threshold fails the bench). pane_drag.py: "
+              "`debug.mouse` down, one drag event per 120 Hz frame, up. Input to move = the mouse-up's event time "
+              "to the first display frame whose pane layout differs (p50 / max ms); lift = first drag event to "
+              "the first frame the tab strip changes. Over 8.33 ms = frames whose main-thread work passed one "
+              "120 Hz frame, while dragging + after the drop; missed = display intervals over 1.5 refreshes. Blank = "
+              "frames from the commit on with a pane showing its late ground, at alpha 0, or not shown yet (the "
+              "app's signal); pixel-late = frames after rest whose pane pixels still differ from their final "
+              "picture (ScreenCaptureKit rows; noise = the same test at rest before the press). Jumps = a pane "
+              "moving again after it rested.", "",
+              "| Gesture | Panes | Landed | Input to move | Lift | Over 8.33 ms | Missed | Blank / drop | "
+              "Pixel-late / drop (noise) | Jumps |", "|---|---|---|---|---|---|---|---|---|---|"]
+
+    def ms(spread):
+        return f"{spread['p50']:.1f} / {spread['max']:.1f}" if spread else "–"
+
+    def both(entry, key):
+        a, b = entry.get(f"drag_{key}"), entry.get(f"drop_{key}")
+        return "–" if a is None and b is None else f"{a or 0} + {b or 0}"
+
+    for count in data.get("counts") or []:
+        panes = (count.get("setup") or {}).get("panes", count.get("asked"))
+        if count.get("error"):
+            lines.append(f"| – | {panes} | not run: {count['error']} | | | | | | | |")
+            continue
+        for gesture, label in (("tab", "Tab drag"), ("pane", "Pane header drag")):
+            entry = count.get(gesture) or {}
+            if not entry.get("drops"):
+                first = next((d.get("error") for d in entry.get("each") or [] if d.get("error")), "no drop")
+                lines.append(f"| {label} | {panes} | not run: {first} | | | | | | | |")
+                continue
+            pixel = "–" if entry.get("pixel_late_per_drop") is None else \
+                f"{entry['pixel_late_per_drop']:g} ({entry.get('pixel_noise_frames')})"
+            blank = "–" if entry.get("blank_frames_per_drop") is None else f"{entry['blank_frames_per_drop']:g}"
+            lines.append(f"| {label} | {panes} | {entry['landed']}/{entry['drops']} | {ms(entry.get('drop_ms'))} | "
+                         f"{ms(entry.get('lift_ms')) if gesture == 'tab' else 'n/a'} | {both(entry, 'main_over_8_33')} | "
+                         f"{both(entry, 'missed')} | {blank} | {pixel} | {entry.get('jumps') if entry.get('jumps') is not None else '–'} |")
+            slug = f"pane-drag-{gesture}-{count.get('asked', panes)}"
+            if entry.get("drop_ms"):
+                rows.setdefault(f"{slug}-input-to-move", {})[TAB_SWITCH_BROWSER] = {
+                    "median": entry["drop_ms"]["p50"], "max": entry["drop_ms"]["max"], "n": entry["drop_ms"]["n"]}
+            for key in ("blank_frames_per_drop", "pixel_late_per_drop", "jumps"):
+                if entry.get(key) is not None:
+                    rows.setdefault(f"{slug}-{key.replace('_', '-')}", {})[TAB_SWITCH_BROWSER] = {"median": entry[key]}
+    theirs = data.get("theirs") or {}
+    lines += ["", f"Claude Code desktop (the RFD's \"theirs\" column): "
+              f"{'measured' if theirs.get('ran') else 'not run. ' + str(theirs.get('reason') or '')}", ""]
+    return rows, lines
+
+
 def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str | None = None,
-           palette: str | None = None, budgets: str | None = None):
+           palette: str | None = None, budgets: str | None = None,
+           panedrag: str | None = None):
     path = os.path.join(out, "samples.jsonl")
     samples = [json.loads(line) for line in open(path) if line.strip()] if os.path.exists(path) else []
     meta = json.load(open(os.path.join(out, "meta.json")))
@@ -914,6 +1032,12 @@ def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str 
     rows.update(switch_rows)
     palette_found, palette_lines = palette_rows(palette)
     rows.update(palette_found)
+    try:  # report only: a broken pane-drag file never turns the bench red
+        drag_found, drag_lines = pane_drag_rows(panedrag)
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        drag_found, drag_lines = {}, ["## Pane and tab drag (cmux NEXT, tagged Debug build)", "",
+                                      f"Not read: {error!r}", ""]
+    rows.update(drag_found)
     errors = [s for s in samples if s["row"] == "session-error" or (s.get("value") is None and s.get("note"))]
     budget_errors = sum(1 for sample in samples if sample["browser"] == budget.NAME and sample["row"] == "session-error")
     # The run's budgets file decides, so samples are judged against the scenario that collected them.
@@ -959,6 +1083,7 @@ def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str 
     lines += budget_lines
     lines += switch_lines
     lines += palette_lines
+    lines += drag_lines
     if errors:
         lines += ["## Rows that could not be measured", ""]
         seen = set()
@@ -1066,7 +1191,8 @@ def main():
     run.add_argument("--idle", type=float, default=60)
     run.add_argument("--active", type=float, default=30)
     run.add_argument("--settle", type=float, default=30)
-    run.add_argument("--template-settle", type=float, default=45)
+    run.add_argument("--template-settle", type=float, default=TEMPLATE_MIN_S,
+                     help="template minimum, past Chromium's 60 s component-updater check (settle_template)")
     run.add_argument("--max-load", type=float, default=4)
     run.add_argument("--quiet-wait", type=float, default=120)
     run.add_argument("--cmux-ref", default="")
@@ -1080,6 +1206,7 @@ def main():
     rep.add_argument("--json")
     rep.add_argument("--tabswitch", help="tab-switch-matrix.py's --json report")
     rep.add_argument("--palette", help="palette-open-stages.py's --json report")
+    rep.add_argument("--panedrag", help="scripts/ci/frame-pacing/pane_drag.py's --json report")
     rep.add_argument("--budgets", help="budgets.json (default: the one the run used); an enforced budget "
                      "the cmux-budget session broke exits 1")
     gat = sub.add_parser("gate")
@@ -1092,7 +1219,7 @@ def main():
         random.seed(0)
         Run(args).main()
     elif args.command == "report":
-        result = report(args.out, args.md, args.json, args.tabswitch, args.palette, args.budgets)
+        result = report(args.out, args.md, args.json, args.tabswitch, args.palette, args.budgets, args.panedrag)
         sys.exit(1 if result["budgets"]["failed"] else 0)
     else:
         sys.exit(gate(args.results, args.baseline, args.tolerance))

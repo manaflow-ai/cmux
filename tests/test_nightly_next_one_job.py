@@ -96,6 +96,8 @@ class NightlyNextOneJobTests(unittest.TestCase):
 
     def test_no_artifact_carries_the_app_into_or_out_of_it(self) -> None:
         for step in self.job.get("steps") or []:
+            if "signer shadow" in str(step.get("name") or "").lower():
+                continue
             uses = str(step.get("uses") or "")
             self.assertNotIn("download-artifact", uses, f"{step.get('name')}: the one job downloads nothing")
             run = str(step.get("run") or "")
@@ -108,11 +110,37 @@ class NightlyNextOneJobTests(unittest.TestCase):
                 self.assertNotRegex(path, r"\.app\b|cmux-nightly-unsigned|prepared-app|signed-app",
                                     f"{step.get('name')} uploads the app")
 
+    def test_signer_shadow_handoff_is_explicitly_default_off_and_before_secrets(self) -> None:
+        steps = self.job.get("steps") or []
+        names = [str(step.get("name") or "") for step in steps]
+        package = names.index("Package unsigned app for signer shadow")
+        digest = names.index("Record unsigned app digest for signer shadow")
+        upload = names.index("Upload unsigned app for signer shadow")
+        retry = names.index("Retry unsigned app upload for signer shadow")
+        first_secret = next(
+            i for i, step in enumerate(steps)
+            if self.SIGNING_SECRET.search(json.dumps(step))
+        )
+        self.assertLess(package, digest)
+        self.assertLess(digest, upload)
+        self.assertLess(upload, retry)
+        self.assertLess(retry, first_secret)
+        for index in (package, digest, upload, retry):
+            condition = one_line(steps[index].get("if"))
+            self.assertIn("vars.NIGHTLY_SIGNER_SHADOW == 'on'", condition)
+            self.assertIn("!env.LEFT_SLOT", condition)
+        self.assertEqual(steps[upload].get("continue-on-error"), True)
+        self.assertEqual((steps[upload].get("with") or {}).get("retention-days"), 1)
+        self.assertEqual((steps[retry].get("with") or {}).get("overwrite"), True)
+
     def test_it_holds_its_own_concurrency_group_and_never_cancels_a_started_run(self) -> None:
-        # Scoped to the run: a shared group would let a newer run replace this one's pending job
-        # (tests/test_nightly_delivery_concurrency.py); the push group already runs one nightly-next at a time.
-        self.assertEqual(self.job.get("concurrency"), {"group": "${{ format('nightly-next-one-{0}', github.run_id) }}",
-                                                       "cancel-in-progress": False})
+        # The push slot (docs/ci/nightly-workflow-notes.md#note-19): a loop run's nightly-next-one takes
+        # nightly-next-one-push, any other run's is scoped to the run; tests/test_nightly_next_push_slot_at_build.py.
+        self.assertEqual(self.job.get("concurrency"), {
+            "group": "${{ github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || "
+                     "inputs.nightly_next_loop_retry != '') && 'nightly-next-one-push' || "
+                     "format('nightly-next-one-{0}', github.run_id) }}",
+            "cancel-in-progress": False})
 
     def test_it_is_admitted_as_a_signing_job(self) -> None:
         self.assertIn(JOB, signing_runner.SIGNING_JOBS["nightly.yml"])
@@ -130,7 +158,7 @@ class NightlyNextOneJobTests(unittest.TestCase):
                      "Generate Sparkle appcasts (nightly)", "Verify version surfaces",
                      "Verify bundled CLI commands run from the bundle alone",
                      "Verify signed diff sidecar protocol contract",
-                     "Verify signed app entitlements and the Computer Use helper ticket",
+                     "Verify signed app entitlements",
                      "Run bundled Ghostty theme picker helper regression", "Verify signed app SSH daemon contract",
                      "Verify final DMG artifact", "Launch smoke from a fresh home",
                      "Require every DMG to match a tested digest", "Take the nightly-next publish lease",
@@ -199,7 +227,7 @@ class NightlyNextOneJobTests(unittest.TestCase):
     # verify-final-dmg-nightly's, which run without secrets in the split path).
     BUNDLE_RUNNERS = (
         "Verify version surfaces", "Verify bundled CLI commands run from the bundle alone",
-        "Verify signed diff sidecar protocol contract", "Verify signed app entitlements and the Computer Use helper ticket",
+        "Verify signed diff sidecar protocol contract", "Verify signed app entitlements",
         "Run bundled Ghostty theme picker helper regression", "Verify signed app SSH daemon contract",
         "Verify final DMG artifact", "Launch smoke from a fresh home",
     )
@@ -215,7 +243,7 @@ class NightlyNextOneJobTests(unittest.TestCase):
         signing = [i for i, b in enumerate(blobs) if self.SIGNING_SECRET.search(b)]
         publication = [i for i, b in enumerate(blobs) if self.PUBLICATION_SECRET.search(b)]
         self.assertTrue(signing and publication)
-        self.assertEqual(min(signing), first + 1, "the first check sits right before the first signing secret")
+        self.assertLess(first, min(signing), "the first check precedes the first signing secret")
         self.assertEqual(min(publication), second + 1, "the second check sits right before the publication secrets")
         self.assertLess(max(signing), second, "no signing secret after the publication check")
 

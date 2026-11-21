@@ -117,6 +117,7 @@ fn cloud_triggers(t: &Trigger) -> Result<Value, Failure> {
         Trigger::Manual => Ok(json!([{"type": "manual"}])),
         Trigger::At { .. } => usage(messages().cloud_local_only.replace("{flag}", "at")),
         Trigger::Watch { .. } => usage(messages().cloud_local_only.replace("{flag}", "watch")),
+        Trigger::Event { .. } => usage(messages().cloud_local_only.replace("{flag}", "when")),
         Trigger::Every { seconds, anchor } => match every_as_cron(*seconds, *anchor) {
             Some(expr) => Ok(cron(expr, "UTC")),
             None => usage(messages().teleport_every.replace("{value}", &t.describe())),

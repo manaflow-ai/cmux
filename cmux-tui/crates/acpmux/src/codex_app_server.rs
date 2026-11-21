@@ -22,6 +22,7 @@ use cmux_json::JsonSet as _;
 
 mod background;
 mod message_phases;
+mod provider;
 pub use background::TERMINATE;
 mod usage_limits;
 #[cfg(test)]
@@ -34,6 +35,7 @@ pub struct Translator {
     inner: cmux_codex_acp::Translator,
     background: Mutex<background::Background>,
     message_phases: Mutex<message_phases::MessagePhases>,
+    provider: Mutex<provider::ProviderPin>,
     #[cfg(unix)]
     auth: Mutex<AuthGate>,
 }
@@ -230,8 +232,17 @@ impl Translator {
         start
     }
 
+    fn provider(&self) -> std::sync::MutexGuard<'_, provider::ProviderPin> {
+        self.provider.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     /// One message from the hub.
     pub fn from_client(&self, msg: &Value) -> Vec<Out> {
+        let out = self.translate_client(msg);
+        self.provider().outgoing(out)
+    }
+
+    fn translate_client(&self, msg: &Value) -> Vec<Out> {
         #[cfg(unix)]
         {
             self.handle_client_read(msg, codex_auth_file::read)
@@ -294,6 +305,14 @@ impl Translator {
 
     /// One line from the app-server.
     pub fn from_server(&self, raw: &Value) -> Vec<Out> {
+        if let Some(out) = self.provider().answer(raw) {
+            return out;
+        }
+        let out = self.translate_server_line(raw);
+        self.provider().outgoing(out)
+    }
+
+    fn translate_server_line(&self, raw: &Value) -> Vec<Out> {
         if let Some(out) = self.background().response(raw) {
             return out;
         }
@@ -414,6 +433,7 @@ impl Translator {
 
     /// The app-server exited or its pipe closed.
     pub fn server_closed(&self, why: &str) -> Vec<Out> {
+        self.provider().closed();
         let mut out = Vec::new();
         #[cfg(unix)]
         out.extend(self.auth.lock().unwrap_or_else(|e| e.into_inner()).fail(&self.inner));
@@ -488,6 +508,7 @@ fn translator_with(prompt_suggestions: bool) -> Arc<Translator> {
         }),
         background: Mutex::default(),
         message_phases: Mutex::default(),
+        provider: Mutex::default(),
         #[cfg(unix)]
         auth: Mutex::new(AuthGate::new()),
     })
@@ -646,6 +667,42 @@ mod tests {
         let done = split(tr.from_server(&json!({"method": "turn/completed",
             "params": {"threadId": "t", "turn": {"id": "turn-1", "status": "completed", "items": []}}})));
         (options, done.server)
+    }
+
+    /// A chat reopened after its app-server restarted (Retry, a later message) runs on the
+    /// provider codex is configured for now, not the one its rollout recorded (cmux#48354).
+    #[test]
+    fn a_resumed_chat_names_the_configured_model_provider() {
+        let tr = translator_with(false);
+        let start = split(tr.start());
+        let init = start.server[0]["id"].clone();
+        let list = split(tr.from_server(
+            &json!({"id": init, "result": {"userAgent": "acpmux/0.164.0 (Linux; x86_64)"}}),
+        ));
+        if let Some(list) = list.server.iter().find(|m| m["method"] == "model/list") {
+            split(tr.from_server(&json!({"id": list["id"], "result": {"data": []}})));
+        }
+        let resume = split(tr.from_client(&json!({"jsonrpc": "2.0", "id": 1,
+            "method": "session/resume", "params": {"sessionId": "t", "cwd": "/tmp", "mcpServers": []}})));
+        assert!(
+            !resume.server.iter().any(|m| m["method"] == "thread/resume"),
+            "held: {:?}",
+            resume.server
+        );
+        let ask = resume.server.iter().find(|m| m["method"] == "config/read").expect("asks codex");
+        let released = split(tr.from_server(&json!({"jsonrpc": "2.0", "id": ask["id"],
+            "result": {"config": {"model_provider": "subrouter"}}})));
+        let resumed =
+            released.server.iter().find(|m| m["method"] == "thread/resume").expect("released");
+        assert_eq!(resumed["params"]["modelProvider"], "subrouter");
+        assert_eq!(resumed["params"]["threadId"], "t");
+        // Its answer reaches the hub as before.
+        let opened = split(tr.from_server(&json!({"id": resumed["id"],
+            "result": {"thread": {"id": "t", "turns": []}, "model": "gpt-6.1-sol"}})));
+        assert!(
+            opened.hub.iter().any(|m| m.to_value().get("result").is_some()),
+            "no resume result"
+        );
     }
 
     #[test]
