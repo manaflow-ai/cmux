@@ -126,17 +126,40 @@ public final class OnboardingWindowPresenter {
         public var skipsFirstRun: Bool { self != .firstRun }
     }
 
-    /// The launch's steps before the person's own work: none; only the cmux Tools question
-    /// (``askAgentToolsOnce(source:defaults:)``); or the first run, for which this returns true (the
-    /// first run asks the question among its steps).
-    public func showLaunchSteps(_ steps: LaunchSteps, agentTools: (any AgentToolsSource)?, defaults: UserDefaults = .standard) async -> Bool {
+    /// The launch's steps before the person's own work: none; on a first run Make cmux Yours
+    /// (``showMakeItYoursAtFirstRun(isFirstRun:defaults:)``), then only the cmux Tools question
+    /// (``askAgentToolsOnce(source:defaults:)``); or, with onboarding on, the first run, for which this
+    /// returns true (the first run asks the question among its steps).
+    public func showLaunchSteps(_ steps: LaunchSteps, isFirstRun: Bool = false, agentTools: (any AgentToolsSource)?,
+                                defaults: UserDefaults = .standard) async -> Bool {
         switch steps {
         case .none: return false
         case .agentToolsOnly:
+            await showMakeItYoursAtFirstRun(isFirstRun: isFirstRun, defaults: defaults)
+            await untilClosed()
             await askAgentToolsOnce(source: agentTools, defaults: defaults)
             return false
-        case .firstRun: return true
+        case .firstRun:
+            await showMakeItYoursAtFirstRun(isFirstRun: isFirstRun, defaults: defaults)
+            await untilClosed()
+            return true
         }
+    }
+
+    /// Make cmux Yours' once flag.
+    public static let makeItYoursShownKey = "home.firstRun.makeItYoursShown"
+
+    /// A new person's one setup screen (cmux#48416): how they work (GUI-first, recommended, or
+    /// terminal-first), the density and a background, once per app channel (`defaults`) and only on a
+    /// first run: an existing installation (`isFirstRun` false) keeps its settings and never sees it.
+    public func showMakeItYoursAtFirstRun(isFirstRun: Bool, defaults: UserDefaults = .standard) async {
+        let key = Self.makeItYoursShownKey
+        guard !defaults.bool(forKey: key) else { return }
+        // An upgrade is no first run; a first run marks it only once the step showed.
+        guard isFirstRun else { return defaults.set(true, forKey: key) }
+        guard controller == nil else { return }
+        show(step: .makeItYours)
+        defaults.set(true, forKey: key)
     }
 
     /// Set once the cmux Tools step was shown under the launch-only rule (agents cmux starts, its

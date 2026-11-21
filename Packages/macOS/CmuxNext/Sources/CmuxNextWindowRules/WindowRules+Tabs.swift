@@ -37,9 +37,11 @@ extension WindowRules {
         public var user = false
         public var followsSetting = false
         public var canHostAgent = false
+        /// The person works terminal-first (`tabs.newTabTemplate` `terminal`): their Cmd-T opens a terminal.
+        public var terminalFirst = false
 
         public init(selectedKind: String?, engine: String?, localBrowser: Bool, agent: Bool, newTabPage: Bool,
-                    user: Bool = false, followsSetting: Bool = false, canHostAgent: Bool = false) {
+                    user: Bool = false, followsSetting: Bool = false, canHostAgent: Bool = false, terminalFirst: Bool = false) {
             self.selectedKind = selectedKind
             self.engine = engine
             self.localBrowser = localBrowser
@@ -48,6 +50,7 @@ extension WindowRules {
             self.user = user
             self.followsSetting = followsSetting
             self.canHostAgent = canHostAgent
+            self.terminalFirst = terminalFirst
         }
     }
 

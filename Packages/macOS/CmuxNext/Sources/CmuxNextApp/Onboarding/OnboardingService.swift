@@ -67,6 +67,10 @@ final class OnboardingService {
     private(set) lazy var signInHarnesses = SettingsHarnesses(environment: { [weak services] in services.flatMap(QuitAgents.environment) },
                                                               openTerminal: { [weak self] line in await self?.openSignIn(line) ?? false })
     private(set) lazy var agentTools = AgentToolsStepModel.cliSource(cli: { [bundled = services.bundledCLI] in await bundled.resolve() }, settings: { [weak services] in services?.settings })
+    /// Make cmux Yours' choices over the settings owner; density goes through its action, which also applies the tokens.
+    private(set) lazy var firstRunChoices = FirstRunChoicesSettingsSource(settings: { [weak services] in services?.settings }, setDensity: { [weak services] preset in
+        _ = services?.registry.perform("appearance.density.set", invocation: ActionInvocation(arguments: ["density": .string(preset)], origin: .user))
+    })
     /// The top page a Sign In left (Bring your history); it shows again once the tool window closes.
     private var pageLeftForSignIn: TopPageRoute?
 
@@ -97,7 +101,7 @@ final class OnboardingService {
             }
         }
         presenter.makeModel = { [weak self] step in
-            self.map { OnboardingModel(services: AppOnboardingServices(owner: $0), step: step, agentTools: $0.agentTools) }
+            self.map { OnboardingModel(services: AppOnboardingServices(owner: $0), step: step, agentTools: $0.agentTools, choices: $0.firstRunChoices) }
         }
         presenter.onWindowClose = { [weak self] in
             guard let self, let page = pageLeftForSignIn else { return }
@@ -171,7 +175,7 @@ final class OnboardingService {
     /// The launch's steps (``AppEnvironment/launchSteps``): with onboarding on, a first run starts Home's Set Up cmux card
     /// (the Agents window and the CLI toast count as shown), else Agents, then Bring your history (``OnboardingWindowPresenter/showFirstRunSteps``).
     func showFirstRunSteps(isFirstRun: Bool) async {
-        guard await presenter.showLaunchSteps(services.environment.launchSteps, agentTools: agentTools) else { return }
+        guard await presenter.showLaunchSteps(services.environment.launchSteps, isFirstRun: isFirstRun, agentTools: agentTools) else { return }
         let route = setup.route(isFirstRun: isFirstRun, replacedKeys: [CLIInstallHandlers.offeredAtLaunchKey], screenReader: NSWorkspace.shared.isVoiceOverEnabled)
         if route == .startCard { DebugTimings.markLaunch("first_run.setup_card_shown") }
         // The cmux Tools question comes at launch whatever owns the first run, for an existing
@@ -192,14 +196,16 @@ final class OnboardingService {
     /// workspace of its own in the front window (cmux#48416: "on first launch, show a new chat automatically").
     /// Its own workspace, as New Agent Chat over a top page makes one: from Chief's workspace New Agent Chat
     /// docks beside the Chief, and Chief keeps its welcome for when the person opens it. It comes after the
-    /// launch's steps (``showFirstRunSteps(isFirstRun:)``), so the chat is what shows once those close. Once per
-    /// install, and never for capture builds or the showcase (``AppEnvironment/launchSteps`` `.none`), whose
+    /// launch's steps (``showFirstRunSteps(isFirstRun:)``, Make cmux Yours among them), so the chat is what shows once
+    /// those close; none for a person who picked terminal-first there. Once per install, and never for capture builds or the showcase (``AppEnvironment/launchSteps`` `.none`), whose
     /// captures expect the fresh landing.
     /// - Returns: The new workspace's id, or nil when none was due or this Mac cannot hold a chat yet.
     @discardableResult
     func openFirstChat(isFirstRun: Bool, defaults: UserDefaults = .standard) async -> String? {
         guard Self.opensFirstChat(isFirstRun: isFirstRun, steps: services.environment.launchSteps, defaults: defaults),
               services.agentTabs.canHost(on: services.daemon) else { return nil }
+        // A person who picked terminal-first in Make cmux Yours gets no chat they did not ask for.
+        guard services.settings?.snapshot.newTabTemplate != .terminal else { return nil }
         defaults.set(true, forKey: Self.firstChatOpenedKey)
         var spawn = WorkspaceSpawn(cwd: nil)
         spawn.firstChat = AgentPaneSeed()

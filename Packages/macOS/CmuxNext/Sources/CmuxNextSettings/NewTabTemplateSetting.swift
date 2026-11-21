@@ -1,5 +1,5 @@
 /// Which New Tab page template shows (cx-yabk, plans/cmux-next/new-tab-templates.md), set in
-/// Settings. Terminal draws the default screen: New Tab never opens a terminal by itself.
+/// Settings. Terminal is no page: a person's New Tab opens a terminal instead (the page, opened another way, draws the default screen).
 public nonisolated enum NewTabTemplate: String, Sendable, Hashable, CaseIterable {
     /// The composer alone (Leo 2026-10-20: "only do the composer for the default"), with no
     /// greeting and no widgets (Lawrence 2026-11-09: "remove widgets completely"). What an unset key shows.
@@ -17,7 +17,8 @@ public nonisolated enum NewTabTemplate: String, Sendable, Hashable, CaseIterable
     case console
     /// The Terminal | Browser | Agent page.
     case classic
-    /// No page: New Tab opens a terminal.
+    /// Terminal-first (picked at the first run, cmux#48416): a person's New Tab (Cmd-T) opens a
+    /// terminal (cmux-window-rules `tabs::new_tab_kind`), and splits keep the terminal.
     case terminal
 }
 
