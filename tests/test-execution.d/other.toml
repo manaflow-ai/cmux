@@ -272,7 +272,7 @@ reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). Checks that 
 [[test]]
 path = "tests/test_guard_step_inputs.py"
 lane = "manual"
-reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/ci/guard_step_inputs.py, run_ci_guards.py --affected's per-diff guard step selection (imports, run scripts, named and walked folders, whole-tree reasons); run python3 tests/test_guard_step_inputs.py yourself after changing either, and guard_step_inputs.py --verify for the traced check over every real step (about 5 min)."
+reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). Pins scripts/ci/guard_step_inputs.py, run_ci_guards.py --affected's per-diff guard step selection (imports, run scripts, named and walked folders, whole-tree reasons); run python3 tests/test_guard_step_inputs.py yourself after changing either, and guard_step_inputs.py --verify for the traced check over every real step (about 5 min)."
 
 [[test]]
 path = "tests/test_guards_new_reds.py"
