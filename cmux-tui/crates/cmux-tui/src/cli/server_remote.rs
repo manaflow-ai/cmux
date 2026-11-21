@@ -354,8 +354,13 @@ pub(crate) fn run_request(request: &Request) -> i32 {
 fn install(request: &Request, steps: &mut Steps) -> i32 {
     let ep = &request.endpoint;
     let batch = !steps.interactive;
-    let commit =
-        if request.nightly { None } else { install_commit(cmux_build_identity::BUILD_IDENTITY) };
+    // cmux-build-identity is a Unix-only dependency (Cargo.toml); a Windows
+    // build has no stamped commit, so it installs the current NIGHTLY build.
+    #[cfg(unix)]
+    let own = cmux_build_identity::BUILD_IDENTITY;
+    #[cfg(not(unix))]
+    let own = "";
+    let commit = if request.nightly { None } else { install_commit(own) };
     let target = match (request.stable, commit) {
         (true, _) => Build::Stable,
         (false, Some(commit)) => Build::Commit(commit),
