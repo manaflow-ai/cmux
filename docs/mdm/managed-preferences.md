@@ -24,8 +24,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `window.titlebarButtons` | string | `"hover"` | `hover`, `always` | Titlebar Buttons. With the sidebar hidden, On Hover shows its buttons only over the top row. |
 | `app.globalHotKey` | boolean | `false` |  | Global Hot Key. Show/Hide All Windows (⌃⌥⌘.) works while another app is in front. |
 | `app.startAgentGlobalHotKey` | boolean | `false` |  | Start Agent from Any App. ⌃⌥⌘Space starts an agent while another app is in front. |
-| `app.captureScreenshotGlobalHotKey` | boolean | `false` |  | Capture Screenshot to Chat from Any App. Capture Screenshot to Chat (⌃⌥⌘S) works while another app is in front. Change its key in Keyboard Shortcuts. |
-| `app.hideDockIconWithoutWindows` | boolean | `true` |  | Hide Dock Icon When No Windows Are Open. cmux stays in the menu bar until a window opens. |
+| `app.hideDockIconWithoutWindows` | boolean | `false` |  | Hide Dock Icon When No Windows Are Open. cmux stays in the menu bar until a window opens. |
 | `app.showMenuBarIcon` | boolean | `true` |  | Show Menu Bar Icon |
 | `tabs.newTabTemplate` | string | `"minimal"` | `minimal`, `cards`, `default`, `threads`, `console`, `classic`, `terminal` | New Tab Template. The layout of the New Tab page. Terminal opens a terminal instead. |
 | `tabs.nativeNewTabPage` | boolean | `false` |  | Native New Tab Page. Cmd-T opens the faster native New Tab page. Recent chats and widgets are web only. |
@@ -68,6 +67,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `updates.web` | string | `"every-merge"` | `every-merge`, `nightly`, `off` | Web UI Updates. Every Merge gets web UI changes minutes after they land. |
 | `updates.liveWebReload` | boolean | `true` |  | cmux Live. Lets cmux live start show your checkout's web UI, each saved edit at once. |
 | `updates.installOnQuit` | boolean | `false` |  | Install Updates When Quitting. A downloaded update installs as cmux quits. Terminals keep running. |
+| `updates.installWhenIdle` | boolean | `false` |  | Update When Idle. Installs a downloaded update after cmux has been idle for the time below, never while an agent is working or a message is unsent. Agents keep running. |
+| `updates.installWhenIdleMinutes` | real | `15` | 1 to 240 | Idle Time Before Updating. How long cmux must be idle before Update When Idle installs. |
 | `updates.notify` | string | `"badge"` | `badge`, `silent` | When an Update Is Ready |
 | `updates.keepPreviousVersions` | real | `1` | 0 to 5 | Keep Previous Versions. Earlier builds kept so you can roll back. Uses almost no disk until files change. |
 | `updates.showWhatsNew` | boolean | `true` |  | Show What's New After Updates. A sidebar card links to What's New after an update. |
@@ -166,7 +167,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `workspaces.hibernation.enabled` | boolean | `true` |  | Hibernate Idle Workspaces. Frees the memory of unused workspaces. Terminals and agents keep running. |
 | `workspaces.hibernation.idleMinutes` | real | `60` | 5 to 10080 | Hibernate After. Minutes a workspace goes unopened and unchanged before it hibernates. |
 | `workspaces.hibernation.hiddenSpaceMinutes` | real | `15` | 5 to 1440 | Hibernate Hidden Spaces After. Idle minutes before the workspaces of a space no window shows hibernate. |
-| `workspaces.freeing.enabled` | boolean | `false` |  | Free Idle Terminals. Ends idle shells of long-unused workspaces; they restart in the same folder. |
+| `workspaces.freeing.enabled` | boolean | `true` |  | Free Idle Terminals. Ends idle shells of long-unused workspaces; they restart in the same folder. |
 | `workspaces.freeing.idleMinutes` | real | `1440` | 60 to 43200 | Free Terminals After. Minutes before a hibernated workspace's idle shells end (1440 is a day). |
 | `workspaces.freeing.agents` | boolean | `true` |  | Free Idle Agents. Also ends idle Claude Code and Codex sessions; opening the tab resumes them. |
 | `workspaces.freeing.runningCommands` | string | `"never"` | `never`, `relaunch` | Running Commands. What happens to a command that still runs in a workspace that frees its terminals. |
@@ -336,6 +337,10 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.promptCoach` | boolean | `true` |  | Prompt Coach. After a chat with many corrections, shows a better first prompt. |
 | `agentPane.display.statusVerbs.mode` | string | `"thinking"` | `thinking`, `rotate`, `custom` | Working Status Verbs. Choose whether the live status line rotates through verbs or stays on Thinking. |
 | `agentPane.display.statusVerbs.custom` | string |  |  | Custom Working Verbs. Comma-separated -ing verbs for the live status line. |
+| `agentPane.display.thinking.shimmer` | string | `"cadenced"` | `cadenced`, `continuous` | Thinking Shimmer. How the light band moves across the live status line. |
+| `agentPane.display.thinking.shimmerPeriod` | real | `1250` | 600 to 4000 | Shimmer Speed. How long one continuous pass of the shimmer takes. |
+| `agentPane.display.thinking.shimmerBand` | real | `0` | 0 to 240 | Shimmer Width. The width of the shimmer's light band. 0 uses half the line. |
+| `agentPane.display.thinking.jumpButton` | string | `"arrow"` | `arrow`, `dots` | Jump to Latest While Working. What the Jump to latest button shows while the agent works. |
 | `agentPane.display.harnessPlacement` | string | `"symbols"` | `symbols`, `left`, `top`, `compact` | Model Picker Harness Placement |
 | `agentPane.display.rail.side` | string | `"left"` | `left`, `right` | Prompt Rail Side. Right-click the rail to move it. |
 | `agentPane.display.commandLabels` | string | `[]` |  | Command Labels. The names the chat shows for background commands. |
