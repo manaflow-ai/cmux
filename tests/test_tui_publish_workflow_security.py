@@ -274,7 +274,10 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert 'CARGO_HTTP_TIMEOUT: "120"' in daemon
     assert 'CARGO_HTTP_MULTIPLEXING: "false"' in daemon
     assert "cache-all-crates: true" in daemon
-    assert "for attempt in 1 2 3" in daemon
+    # A red test runs once; only a fetch fault runs it again (cargo_test_retry.py).
+    assert "scripts/ci/cargo_test_retry.py" in daemon
+    assert "--attempts 3 --require-tests" in daemon
+    assert "for attempt in 1 2 3" not in daemon
     assert 'cargo test "${members[@]}" --locked cmux_next_' in daemon
     assert "scripts/ci/cmux-next-daemon-test-packages.sh" in daemon
 
