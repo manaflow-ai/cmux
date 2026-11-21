@@ -1838,6 +1838,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// deadline and the held frame's cap leave the pending place alone until
     /// it does (a restore then would find the rows still missing).
     private var olderRowsAsked = false
+    /// Flings a reset stopped to place the reader (demo and bench readout,
+    /// `historyfling`).
+    private(set) var flingsStoppedByReset = 0
     /// A place is waiting to be put back (the held frame stays for it).
     private var restorePending: Bool { readingMark != nil || pendingRestore != nil }
     /// A place is waiting and the replay that places it is in (or overdue).
@@ -1945,6 +1948,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             return
         }
         if scrollView.isDecelerating || fling != nil {
+            flingsStoppedByReset += 1
             fling?.stop()
             fling = nil
             stopGlide()
@@ -2984,7 +2988,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // The reader moved to within a screen of the oldest row held: a Mac
         // terminal that attached with its latest screen first brings older
         // rows (never for the page's own placement or a short document).
-        if scrollView.isTracking || scrollView.isDecelerating,
+        if scrollView.isTracking || scrollView.isDecelerating || fling != nil,
            scrollView.contentOffset.y < -scrollView.contentInset.top + scrollView.bounds.height {
             model.session.loadOlderHistory()
         }
@@ -3202,6 +3206,16 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         fling = animator
         animator.start()
+    }
+
+    /// DEBUG demo: a fling up from here that runs out half a screen below the
+    /// top of the rows held, slowing through the last screen the way a
+    /// reader's fling into the top does (`historyfling`). The demo fling
+    /// keeps `velocity * 0.998^ms`, so it travels `velocity / 2.002` points.
+    func flingToNearTop() {
+        let distance = scrollView.contentOffset.y + scrollView.contentInset.top - scrollView.bounds.height / 2
+        guard distance > 0 else { return }
+        fling(velocity: -distance * 2.002)
     }
 
     // MARK: Keyboard
