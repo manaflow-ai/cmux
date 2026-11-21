@@ -30,7 +30,7 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.tasks"),
             GroupSpec(group: "settings.group.announcements"),
         ],
-        actions: [.general], aliases: [.general]
+        lead: [.textSize], actions: [.general], aliases: [.general]
     )
 
     /// The app update's status, how this Mac updates, then every channel's recent builds (docs/release-rings.md in hq). After the groups: the Web UI card (the web half of Updates; NIGHTLY only), then the channels.
@@ -348,6 +348,8 @@ extension SettingsPageLayout {
         id: "experimental", title: SettingsText.keyed("settings.category.experimental", "Experimental"), symbol: "flask",
         groups: [
             GroupSpec(group: "settings.group.labs", keys: ["appearance.experimentalControls"]),
+            // Taste prototypes, each behind its own switch, all off by default.
+            GroupSpec(group: "settings.group.experiments"),
             GroupSpec(group: "settings.group.appearanceTuning"),
         ]
     )
