@@ -1131,6 +1131,49 @@ class PublicationReceipt(unittest.TestCase):
         self.assertEqual(ns.classified_span(prev, waiting, set(), state, "", now)["to"], "2026-11-20T02:30:00Z",
                          "the span ends where a run is not classified yet")
 
+    def test_a_span_that_ends_before_the_report_is_partial(self):
+        # A confirmed predecessor, a last feed at 10:00, runs classified to 10:00, a merge at 11:00 with no feed yet,
+        # and a report until 12:00: the runs after 10:00 are unread, so a feed holding that merge may exist.
+        end, feeds, git = PrAttribution.busy_week()
+        last = ns.ts(feeds[-1]["feed_at"])
+        span = {"from": ns.iso(end - 8 * 86400), "to": feeds[-1]["feed_at"]}
+        rows = [{"status": "unattributed", "feed_at": None}]
+        pairs = [(ns.ts(f["feed_at"]), {**f, "confirmed": True, "confirmed_identity": True}) for f in feeds]
+        self.assertFalse(ns.covered(rows, pairs, end - 7 * 86400, last + 7200, span))
+        self.assertTrue(ns.covered(rows, pairs, end - 7 * 86400, last, span), "a span to the report's end covers it")
+        data = ns.pr_attribution([], ".", run=git, now=last + 7200,
+                                 feeds=[{**f, "confirmed": True, "confirmed_identity": True} for f in feeds],
+                                 classified=span)
+        self.assertTrue(data["partial"])
+
+    def test_a_rerun_with_unread_earlier_attempts_stays_unclassified(self):
+        def run(i, start, attempt):
+            return {"id": i, "event": "push", "status": "completed", "conclusion": "success", "run_attempt": attempt,
+                    "display_title": "x", "created_at": start, "run_started_at": start}
+        now = "2026-11-20T03:00:00Z"
+        runs = [run(1, "2026-11-20T01:00:00Z", 1), run(2, "2026-11-20T02:00:00Z", 4)]
+        state = {"records": [{"sign_run": 1}, {"sign_run": 2, "sign_attempt": 4}], "unpublished": []}
+        self.assertEqual(ns.classified_span(None, runs, set(), state, "", now)["to"], "2026-11-20T02:00:00Z",
+                         "only attempt 4 is known: attempts 1 to 3 may have published")
+        span = ns.classified_span(None, runs, set(), state, "", now, {(2, 4)})
+        self.assertEqual((span["to"], span["complete"]), (now, [[2, 4]]), "every earlier attempt read")
+        self.assertEqual(ns.classified_span(span, runs, set(), state, "", now)["to"], now, "kept with the span")
+        body = ns.history_comment([], [], classified=span)
+        self.assertEqual(ns.parse_history(body)["classified"]["complete"], [[2, 4]])
+        # record() reads EARLIER_ATTEMPTS earlier attempts; a run at attempt 4 has three, so it is not complete.
+        r4 = {**one_job_run(), "run_attempt": 4}
+        api = {"workflows/nightly.yml/runs": {"workflow_runs": [r4]}}
+        for k in (4, 3, 2, 1):
+            api[f"runs/43300000001/attempts/{k}/jobs"] = {"jobs": one_job_jobs(feed=False)}
+        st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=FakeGh(api=api))
+        self.assertEqual(st["classified"]["to"], ns.started(r4))
+        self.assertNotIn("complete", st["classified"])
+        r3 = {**r4, "run_attempt": 3}
+        api["workflows/nightly.yml/runs"] = {"workflow_runs": [r3]}
+        st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=FakeGh(api=api))
+        self.assertEqual(st["classified"]["complete"], [[43300000001, 3]])
+        self.assertGreaterEqual(st["classified"]["to"], ns.started(r3))
+
 
 if __name__ == "__main__":
     unittest.main()
