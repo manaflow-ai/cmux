@@ -65,7 +65,9 @@ extension CMUXCLI {
                         .appendingPathComponent(sessionsListEncodeClaudeProjectDir(cwd))
                 )
             }
-            for projectDir in lookup.projectDirs(configRoot: root) {
+            // A workflow container is an entry named after the session, so only
+            // the folders that hold one need the check.
+            for projectDir in lookup.projectDirs(configRoot: root, holdingEntryFor: record.sessionId) {
                 appendIfWorkflowContainer(
                     projectRoot: (projectsRoot as NSString).appendingPathComponent(projectDir)
                 )

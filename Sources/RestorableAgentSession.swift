@@ -3203,7 +3203,9 @@ struct RestorableAgentSessionIndex: Sendable {
                     projectRoot: (projectsRoot as NSString).appendingPathComponent(encodeClaudeProjectDir(cwd))
                 )
             }
-            for projectDir in lookup.projectDirs(configRoot: root) {
+            // A workflow container is an entry named after the session, so only
+            // the folders that hold one need the check.
+            for projectDir in lookup.projectDirs(configRoot: root, holdingEntryFor: sessionId) {
                 appendIfWorkflowContainer(
                     projectRoot: (projectsRoot as NSString).appendingPathComponent(projectDir)
                 )
@@ -3570,6 +3572,12 @@ struct RestorableAgentSessionIndex: Sendable {
     private struct ClaudeTranscriptProjectRootCache: Sendable {
         var stamp: ClaudeTranscriptDirectoryStamp?
         var lookups: [String: ClaudeTranscriptLookupResult] = [:]
+        // Session ids with an entry directly in this project root
+        // (`ClaudeProjectSessionEntryIndex.sessionIds`). Adding, removing or
+        // renaming an entry bumps the project root mtime, so the set is as stable
+        // under the stamp as a `.present` or `.missing` lookup. Nil until listed,
+        // and for a root that has to be probed for every session.
+        var sessionIdsWithEntries: Set<String>?
     }
 
     private struct ClaudeTranscriptProjectDirsCache: Sendable {
@@ -3592,8 +3600,9 @@ struct RestorableAgentSessionIndex: Sendable {
     // nested `<sessionId>/messages/` layout (or on zero-byte files growing in place)
     // are marked `requiresPerLoadRecheck` and re-probed once per load instead of being
     // trusted across loads.
-    // Growth stays bounded: per-root session entries only exist for hook-store records
-    // the loader walks and are replaced wholesale when that directory's mtime changes,
+    // Growth stays bounded: per-root lookups only exist for hook-store records the
+    // loader walks, and a root's listed session ids are bounded by its entries on
+    // disk. Both are replaced wholesale when that directory's mtime changes,
     // while caches for deleted project directories are pruned when the projects/
     // listing is revalidated (deletion bumps the projects/ root mtime).
     private nonisolated static let claudeTranscriptSharedStore = OSAllocatedUnfairLock(
@@ -3613,6 +3622,7 @@ struct RestorableAgentSessionIndex: Sendable {
         private var volatileTranscriptLookupCheckedThisLoad: Set<String> = []
         private var transcriptPathByConfigRootAndSession: [String: String] = [:]
         private var missingTranscriptPathByConfigRootAndSession: Set<String> = []
+        private var sessionEntryIndexByConfigRoot: [String: ClaudeProjectSessionEntryIndex] = [:]
 
         init(homeDirectory: String, fileManager: FileManager) {
             self.homeDirectory = homeDirectory
@@ -3812,7 +3822,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 return nil
             }
 
-            for projectDir in projectDirs(configRoot: standardizedRoot) {
+            for projectDir in projectDirs(configRoot: standardizedRoot, holdingEntryFor: sessionId) {
                 if let path = transcriptPath(
                     configRoot: standardizedRoot,
                     projectDirName: projectDir,
@@ -3824,6 +3834,66 @@ struct RestorableAgentSessionIndex: Sendable {
             }
             missingTranscriptPathByConfigRootAndSession.insert(key)
             return nil
+        }
+
+        /// The folders under `projects/` that can hold an entry for `sessionId`
+        /// (`<sessionId>.jsonl` or `<sessionId>/`), in listing order. Callers
+        /// probe these instead of every folder, so a record whose session wrote
+        /// nothing costs no per-folder checks.
+        func projectDirs(configRoot: String, holdingEntryFor sessionId: String) -> [String] {
+            let standardizedRoot = (configRoot as NSString).standardizingPath
+            return sessionEntryIndex(configRoot: standardizedRoot).projectDirs(sessionId: sessionId)
+        }
+
+        private func sessionEntryIndex(configRoot standardizedRoot: String) -> ClaudeProjectSessionEntryIndex {
+            if let index = sessionEntryIndexByConfigRoot[standardizedRoot] {
+                return index
+            }
+
+            let projectsRoot = (standardizedRoot as NSString).appendingPathComponent("projects")
+            var index = ClaudeProjectSessionEntryIndex()
+            for projectDir in projectDirs(configRoot: standardizedRoot) {
+                let projectRoot = ((projectsRoot as NSString).appendingPathComponent(projectDir) as NSString)
+                    .standardizingPath
+                index.add(projectDir: projectDir, sessionIds: sessionIdsWithEntries(inProjectRoot: projectRoot))
+            }
+            sessionEntryIndexByConfigRoot[standardizedRoot] = index
+            return index
+        }
+
+        /// The session ids with an entry in `projectRoot`, or nil when the folder
+        /// has to be probed for every session (`ClaudeProjectSessionEntryIndex`).
+        private func sessionIdsWithEntries(inProjectRoot projectRoot: String) -> Set<String>? {
+            guard usesSharedStore else {
+                return listSessionIdsWithEntries(inProjectRoot: projectRoot)
+            }
+
+            let stamp = validatedProjectRootStamp(projectRoot)
+            if let cached = RestorableAgentSessionIndex.claudeTranscriptSharedStore.withLock({ store in
+                store.projectRootCaches[projectRoot]?.sessionIdsWithEntries
+            }) {
+                return cached
+            }
+            guard let sessionIds = listSessionIdsWithEntries(inProjectRoot: projectRoot) else {
+                return nil
+            }
+            RestorableAgentSessionIndex.claudeTranscriptSharedStore.withLock { store in
+                var cache = store.projectRootCaches[projectRoot] ?? ClaudeTranscriptProjectRootCache(stamp: stamp)
+                guard cache.stamp == stamp else { return }
+                cache.sessionIdsWithEntries = sessionIds
+                store.projectRootCaches[projectRoot] = cache
+            }
+            return sessionIds
+        }
+
+        private func listSessionIdsWithEntries(inProjectRoot projectRoot: String) -> Set<String>? {
+            // The per-folder lookup answers "missing" for anything that is not a
+            // directory, so such an entry of `projects/` holds no session.
+            guard directoryExists(atPath: projectRoot) else { return [] }
+            guard let entries = try? fileManager.contentsOfDirectory(atPath: projectRoot) else {
+                return nil
+            }
+            return ClaudeProjectSessionEntryIndex.sessionIds(entryNames: entries)
         }
 
         private func validatedProjectsRootStamp(configRoot standardizedRoot: String) -> ClaudeTranscriptDirectoryStamp? {
