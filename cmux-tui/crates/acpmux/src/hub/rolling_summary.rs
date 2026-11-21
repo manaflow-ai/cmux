@@ -74,8 +74,8 @@ impl Hub {
         }
         if let Some(recap) = recap {
             let summary = RollingSummary {
-                text: short_text(&one_line(&recap.text), TEXT_CHARS),
-                next: recap.ask.as_deref().map(|a| short_text(&one_line(a), NEXT_CHARS)),
+                text: cut(&recap.text, TEXT_CHARS),
+                next: recap.ask.as_deref().map(|a| cut(a, NEXT_CHARS)),
                 source: WRAP_UP.to_owned(),
                 turn: session.read_meta(|m| m.turn_count),
                 at: crate::store::now_ms(),
@@ -269,7 +269,17 @@ fn label<'a>(line: &'a str, key: &str) -> Option<&'a str> {
 fn clean(text: &str, chars: usize) -> Option<String> {
     let text = one_line(text);
     let text = text.trim().trim_matches(['"', '“', '”', '\'', '`']).trim();
-    (!text.is_empty()).then(|| short_text(text, chars))
+    (!text.is_empty()).then(|| cut(text, chars))
+}
+
+/// `text` on one line, at most `chars` characters with its ellipsis (`short_text` keeps `chars`
+/// and then adds one).
+fn cut(text: &str, chars: usize) -> String {
+    let line = one_line(text);
+    if line.chars().count() <= chars {
+        return line;
+    }
+    short_text(&line, chars.saturating_sub(1))
 }
 
 fn one_line(text: &str) -> String {
@@ -310,6 +320,10 @@ mod tests {
         assert!(text.chars().count() <= TEXT_CHARS, "{text}");
         assert!(next.unwrap().chars().count() <= NEXT_CHARS);
         assert!(!text.contains('\n'));
+        assert!(text.ends_with('…'));
+        // A summary at the limit stays whole.
+        let whole = "a".repeat(TEXT_CHARS);
+        assert_eq!(cut(&whole, TEXT_CHARS), whole);
     }
 
     #[test]
