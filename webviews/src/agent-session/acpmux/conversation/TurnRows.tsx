@@ -178,6 +178,7 @@ function groupNode(
         <AcpmuxSendLine
           key={sendKey(group.item.tool!.id, group.send.index) || index}
           tool={group.item.tool!}
+          messageAt={rowAt}
           send={group.send}
         />
       );
@@ -190,6 +191,7 @@ function groupNode(
               <AcpmuxSendLine
                 key={sendKey(entry.item.tool!.id, entry.send.index) || at}
                 tool={entry.item.tool!}
+                messageAt={rowAt}
                 send={entry.send}
                 grouped
               />
@@ -201,7 +203,14 @@ function groupNode(
       );
     }
     case "subsession":
-      return <SubsessionCallCard key={group.item.tool!.id || index} call={group.call} tool={group.item.tool!} />;
+      return (
+        <SubsessionCallCard
+          key={group.item.tool!.id || index}
+          call={group.call}
+          tool={group.item.tool!}
+          messageAt={rowAt}
+        />
+      );
     case "subsessionGroup":
       return (
         <SubsessionCallCard
