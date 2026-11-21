@@ -4,8 +4,66 @@ import ScreenCaptureKit
 import WebKit
 
 #if DEBUG
+func triggerTitlebarFullDesktopScreenshot() {
+    Task.detached(priority: .userInitiated) {
+        let response = TerminalController.captureFullDesktopScreenshot("titlebar")
+        cmuxDebugLog("titlebar.captureScreenshot.result \(response)")
+    }
+}
+#else
+func triggerTitlebarFullDesktopScreenshot() {}
+#endif
+
+#if DEBUG
 extension TerminalController {
+    /// Captures the current desktop compositor output without activating,
+    /// focusing, moving, or resizing any window. This is DEBUG-only because it
+    /// intentionally includes every visible desktop window with no redaction.
+    nonisolated static func captureFullDesktopScreenshot(_ args: String) -> String {
+        guard !Thread.isMainThread else {
+            return "ERROR: screenshot must run off the main thread"
+        }
+
+        let label = WindowScreenshotLabel(args).value
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+            .replacingOccurrences(of: ":", with: "-")
+            .replacingOccurrences(of: "+", with: "_")
+        let shortId = UUID().uuidString.prefix(8)
+        let screenshotId = "\(timestamp)_\(shortId)"
+        let outputDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-screenshots")
+        try? FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+        let filename = label.isEmpty ? "\(screenshotId).png" : "\(label)_\(screenshotId).png"
+        let outputPath = outputDir.appendingPathComponent(filename)
+
+        guard let image = CGWindowListCreateImage(
+            .null,
+            .optionOnScreenOnly,
+            kCGNullWindowID,
+            [.bestResolution, .boundsIgnoreFraming]
+        ) else {
+            return "ERROR: Failed to capture desktop"
+        }
+        guard let pngData = NSBitmapImageRep(cgImage: image).representation(
+            using: .png,
+            properties: [:]
+        ) else {
+            return "ERROR: Failed to create PNG data"
+        }
+
+        do {
+            try pngData.write(to: outputPath)
+        } catch {
+            return "ERROR: Failed to write file: \(error.localizedDescription)"
+        }
+        return "OK \(screenshotId) \(outputPath.path)"
+    }
+
     nonisolated func captureScreenshot(_ args: String) -> String {
+        if args.split(whereSeparator: \.isWhitespace).first == "full" {
+            let label = args.split(whereSeparator: \.isWhitespace).dropFirst().joined(separator: " ")
+            return Self.captureFullDesktopScreenshot(label)
+        }
         guard !Thread.isMainThread else {
             return "ERROR: screenshot must run off the main thread"
         }
