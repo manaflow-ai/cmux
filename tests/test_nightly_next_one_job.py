@@ -245,9 +245,26 @@ class NightlyNextOneJobTests(unittest.TestCase):
         self.assertTrue(signing and publication)
         self.assertLess(first, min(signing), "the first check precedes the first signing secret")
         self.assertEqual(min(publication), second + 1, "the second check sits right before the publication secrets")
-        self.assertLess(max(signing), second, "no signing secret after the publication check")
+        # The post-feed delta build is the one exception: it signs the deltas with the Sparkle key after the
+        # feed (docs/ci/nightly-workflow-notes.md#note-31), behind a third stray-process check of its own, and
+        # runs no bundle code (it mounts DMGs and runs Sparkle's tools). Every such step is continue-on-error.
+        deltas_check = names.index("Refuse stray processes before secrets (deltas)")
+        late = [i for i in signing if i > second]
+        self.assertEqual([names[i] for i in late], ["Build the nightly-next deltas after the feed"])
+        self.assertTrue(all(i > deltas_check for i in late), "the deltas' stray check precedes the signing key")
+        self.assertLess(names.index("Build the nightly-next deltas after the feed"),
+                        names.index("Upload the deltas and give the live item its deltas"))
+        for name in ("Refuse stray processes before secrets (deltas)", "Build the nightly-next deltas after the feed",
+                     "Upload the deltas and give the live item its deltas"):
+            step = steps[names.index(name)]
+            self.assertIs(step.get("continue-on-error"), True, name)
+            self.assertIn("!env.LEFT_SLOT", one_line(step.get("if")), name)
+            self.assertIn("steps.upload_next_appcasts.outputs.feed_written == 'true'", one_line(step.get("if")), name)
+        self.assertIn("steps.deltas-stray.outcome == 'success'",
+                      one_line(steps[names.index("Build the nightly-next deltas after the feed")].get("if")))
 
         runners = [names.index(n) for n in self.BUNDLE_RUNNERS]
+        signing = [i for i in signing if i < second]
         for index in runners:
             # Nothing from the bundle runs while the signing secrets are in the job, and the publication check
             # comes after the last of them, so nothing such a step left behind meets the publication secrets.
