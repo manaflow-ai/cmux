@@ -194,7 +194,8 @@ final class AppSceneNativeView: NSView {
         case .circle, .capsule, .rectangle, .roundedRectangle, .line: AppSceneShapeNSView(id: id, node: node)
         case .zStack: AppSceneZStackNSView(id: id, node: node)
         case .particles: AppSceneParticlesNSView(id: id, node: node)
-        case .vStack, .lazyVStack, .group, .forEach, .reorderable, .hStack: AppSceneStackNSView(id: id, node: node)
+        case .reorderable: AppSceneReorderableNSView(id: id, node: node)
+        case .vStack, .lazyVStack, .group, .forEach, .hStack: AppSceneStackNSView(id: id, node: node)
         }
     }
 

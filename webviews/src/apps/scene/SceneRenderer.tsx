@@ -14,6 +14,7 @@ import {
 import { Spinner } from "../../agent-session/acpmux/conversation/icons";
 import { Switch } from "../../ui/Switch";
 import { SceneContextMenu, SceneMenu } from "./sceneMenus";
+import { SceneReorderable } from "./SceneReorderable";
 import { SceneSymbol } from "./SceneSymbol";
 import { SceneChoreography, nodeChoreography } from "./SceneChoreography";
 import { SceneParticles } from "./SceneParticles";
@@ -507,9 +508,20 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
   if (!node) return null;
   const props = node.props;
   const disabled = inheritedDisabled || props.disabled === true || leaving;
-  const children = shown.map((child) => (
+  const childView = (child: (typeof shown)[number]) => (
     <SceneNodeView key={child.id} id={child.id} store={store} dispatch={dispatch} leaving={child.leaving} />
-  ));
+  );
+  const children =
+    node.type === "Reorderable" && props.onMove === true && !disabled ? (
+      <SceneReorderable
+        node={node}
+        store={store}
+        dispatch={dispatch}
+        rows={shown.map((child) => ({ ...child, content: childView(child) }))}
+      />
+    ) : (
+      shown.map(childView)
+    );
   const content = contentOf(node, children, dispatch, disabled, partRef);
   if (content === undefined) return null;
   const style = sceneStyle(props) as SceneStyle & Record<`--${string}`, string | undefined>;

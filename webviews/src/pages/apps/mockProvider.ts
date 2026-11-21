@@ -44,10 +44,14 @@ export class MockAppsProvider implements PageClient {
   private readonly seqs = new Map<number, number>();
   private readonly handlers = new Map<string, PageHandler>();
 
-  constructor(data = sampleApps()) {
+  /** The owner offers the Examples shelf (developer mode, or a `cmux ext dev` app). */
+  examples: boolean;
+
+  constructor(data: ReturnType<typeof sampleApps> = sampleApps()) {
     this.details = data.details;
     this.installed = data.installed;
     this.grants = data.grants;
+    this.examples = data.examples === true;
   }
 
   async call<R>(op: string, rawParams: unknown): Promise<R> {
@@ -66,6 +70,7 @@ export class MockAppsProvider implements PageClient {
           listings: Object.values(this.details).map((detail) => this.listing(detail)),
           next_cursor: null,
           revision: this.revision,
+          examples: this.examples,
         } as R;
       case AppsOps.catalogGet: {
         const detail = this.details[app];
@@ -252,6 +257,7 @@ export class MockAppsProvider implements PageClient {
       categories: detail.categories,
       keywords: detail.keywords,
       hide_only: detail.tier === "first-party",
+      shelf: detail.shelf ?? "store",
       install: installed
         ? {
             installed: true,
@@ -293,6 +299,8 @@ export function sampleApps(): {
   details: Record<string, AppDetail>;
   installed: Record<string, InstalledApp>;
   grants: Record<string, Grants>;
+  /** The owner offers the Examples shelf. */
+  examples?: boolean;
 } {
   const base = { install_count: 0, installed: false, screenshots: [] as string[], icon: { path: ICON } };
   const details: Record<string, AppDetail> = {
