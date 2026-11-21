@@ -15,7 +15,7 @@ import Testing
 /// workspace and its Chief pane close, and nothing keeps them pinned
 /// (https://github.com/manaflow-ai/cmux/issues/26003).
 @MainActor
-@Suite("Chief disabled releases Home", .serialized)
+@Suite("Chief disabled releases Home", .serialized, .exclusiveAppContext)
 struct ChiefDisabledHomeTests {
     /// Restores `chief.enabled` after a test changes it.
     private struct ChiefEnabledOverride {
