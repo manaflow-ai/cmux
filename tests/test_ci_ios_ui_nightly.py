@@ -125,6 +125,18 @@ class WiringTests(unittest.TestCase):
             "cancel-in-progress": False,
         })
 
+    def test_only_runs_that_can_change_the_issue_enter_the_report_queue(self):
+        # A newer queued report replaces a waiting one. A run whose conclusion
+        # plans nothing (cancelled, skipped, ...) must therefore never queue,
+        # or it can replace a waiting failure report and lose that failure.
+        condition = yaml.safe_load(NIGHTLY.read_text())["jobs"]["report"]["if"]
+        admitted = set(re.findall(r"github\.event\.workflow_run\.conclusion == '(\w+)'", condition))
+        conclusions = {"action_required", "cancelled", "failure", "neutral", "skipped", "stale", "success",
+                       "timed_out", "startup_failure"}
+        acting = {c for c in conclusions
+                  if any(MODULE.issue_plan(c, is_open, False) != "none" for is_open in (False, True))}
+        self.assertEqual(admitted, acting)
+
 
 class CommandReportTests(unittest.TestCase):
     """A slower report job must not open a second red issue (#44421)."""
