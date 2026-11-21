@@ -99,6 +99,19 @@ await requireBrowserLane("settings-sidebar-border-browser.test.ts", async () => 
     }
   });
 
+  test("while the window's sidebar is hidden the line fades, as the section list's edge always did", async () => {
+    const page = await open("light", 1000);
+    try {
+      await page.evaluate(() => (document.documentElement.dataset.appSidebar = "hidden"));
+      await page.waitForFunction(
+        () => getComputedStyle(document.querySelector(".settings > .sidebar")!).borderRightColor === "rgba(0, 0, 0, 0)",
+      );
+      expect((await edge(page)).color).toBe("rgba(0, 0, 0, 0)");
+    } finally {
+      await page.close();
+    }
+  });
+
   test("a narrow pane's stacked strip keeps no side line", async () => {
     const page = await open("light", 480);
     try {

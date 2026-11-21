@@ -87,13 +87,6 @@
   background: transparent;
 }
 
-/* Beside the content only: a narrow pane stacks the sidebar as a strip above it (refined.css draws
-   its bottom line there). */
-@media (min-width: 601px) {
-  :root[data-settings-look="refined"] .settings > .sidebar {
-    border-right: var(--cmux-sidebar-border-width, 1px) solid var(--polish-divider);
-  }
-}
 
 :root[data-settings-look="refined"] .settings::before {
   content: "";
@@ -128,9 +121,22 @@
    - lifted: the content fill at the row's own size and corners, raised by the low elevation;
    - pill: the selection fill on the shade (the look before the tone joined it). */
 @media (min-width: 601px) {
+  /* The sidebar's edge line, beside the content only: a narrow pane stacks the sidebar as a strip
+     above it (refined.css draws its bottom line there). While the window's sidebar is hidden it fades
+     until the pointer is over the list, as styles.css's (nxdog41). */
+  :root[data-settings-look="refined"] .settings > .sidebar {
+    border-right: var(--cmux-sidebar-border-width, 1px) solid var(--polish-divider);
+  }
+
+  :root[data-settings-look="refined"][data-app-sidebar="hidden"] .settings > .sidebar:not(:hover) {
+    border-right-color: transparent;
+  }
+
   @container style(--cmux-chrome-tone: 1) {
+    /* No line, and no width either: the sidebar clips its shade and the folder tab at its padding
+       edge, so a clear border would leave a strip of page between the shade and the panel. */
     :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"]) .settings > .sidebar {
-      border-right-color: transparent;
+      border-right: 0;
     }
 
     :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"]) .settings::before {

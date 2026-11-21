@@ -483,12 +483,12 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         return css(backgrounds.dividerLine(base: base) ?? base)
     }
 
-    /// `--cmux-sidebar-border-width`: the native sidebar's resting edge line in CSS px, before the interface
-    /// scale (the page's zoom applies it); `0px` when `sidebar.border` is off or under `appearance.borders` none.
+    /// `--cmux-sidebar-border-width`: the native sidebar's resting edge line as CSS px of a page zoomed by
+    /// `app.uiScale` (`PageWebView.pageZoom`), as the `--cmux-sidebar-row-*` sizes are, so it draws the native
+    /// line's points; `0px` when `sidebar.border` is off or under `appearance.borders` none.
     @MainActor
     static var sidebarBorderWidth: String {
-        let points = Metrics.sidebarBorderWidth / max(Metrics.scale(1), 0.01)
-        return "\(points)px"
+        SidebarCardMetrics.px(Metrics.sidebarBorderWidth / max(DesignSettings.shared.uiScale, 0.01))
     }
 
     /// The inputs of the page theme that no theme change pushes: `appearance.borders`, `appearance.fontSmoothing`, the divider
