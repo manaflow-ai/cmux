@@ -1,6 +1,7 @@
 // Boots the changelog page (`cmux-page://cmux.changelog/`). In the app the host installs the
 // `cmuxPage` bridge; in the browser dev loop (`/changelog/?mock`) the mock provider stands in.
 import "../shared/desktop";
+import "../shared/transientMaterial";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { createStrings } from "../shared/i18n";
@@ -12,6 +13,7 @@ import { routeChipHost } from "./ChangePullRequest";
 import { MockChangelogProvider } from "./mockProvider";
 import {
   ChangelogStore,
+  parseCompareMode,
   parseDesign,
   parseNewsLayout,
   parseSheetLayout,
@@ -44,6 +46,7 @@ export function mountChangelogPage(root: HTMLElement, client: PageClient | null 
           news={parseNewsLayout(location.hash)}
           sheet={parseSheetLayout(location.hash)}
           prs={parseSheetLinks(location.hash)}
+          compare={parseCompareMode(location.hash)}
           focus={parseFocus(location.hash)}
         />
       </UiProvider>,

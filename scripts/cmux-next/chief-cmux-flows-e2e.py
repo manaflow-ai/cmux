@@ -17,6 +17,8 @@ Usage: chief-cmux-flows-e2e.py --tag <tag> --app PATH --debug-cli PATH [--out DI
 Submit the nx-remote job with --allow-agents: gui and input jobs default to ACPMUX_AGENT_LAUNCH=deny (cx-tgf4h).
 """
 import argparse, json, os, re, signal, socket, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -264,7 +266,7 @@ app = None
 def cleanup():
     if opts.keep:
         return
-    print("cleanup", flush=True)
+    safe_print("cleanup", flush=True)
     rpc("action.run", {"id": "quitEndSessions"}, timeout=10)
     if app:
         try:
@@ -284,7 +286,7 @@ def cleanup():
             parts = line.split(None, 1)
             # The bundle's own executables only (this script's argv names the bundle too).
             if len(parts) == 2 and parts[1].startswith(APP + "/") and int(parts[0]) != os.getpid():
-                print("leftover", line[:160], flush=True)
+                safe_print("leftover", line[:160], flush=True)
                 try:
                     os.kill(int(parts[0]), signal.SIGTERM)
                 except OSError:

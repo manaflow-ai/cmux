@@ -101,6 +101,7 @@ export function LaneNoticeBatch({ row, renderMessage }: { row: AcpmuxRow; render
             batch.rows.map((member) => (member.incoming?.kind === "message" ? member.incoming.message : undefined)),
             // A delivery that held only its thread's preview stands for the thread's whole count.
             batch.rows.map((member) => member.inboxThread?.count),
+            batch.rows.map((member) => member.at),
           )}
         />
       ) : (

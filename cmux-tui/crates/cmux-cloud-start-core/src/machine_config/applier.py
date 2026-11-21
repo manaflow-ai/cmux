@@ -31,7 +31,10 @@ RESERVED = {"PATH", "HOME", "USER", "LOGNAME", "SHELL", "IFS", "ENV", "BASH_ENV"
             # Read by python3 (the applier itself, and any setup step), so a config never steers it.
             "PYTHONHOME", "PYTHONPATH", "PYTHONSTARTUP", "PYTHONINSPECT", "PYTHONUSERBASE", "PYTHONSAFEPATH",
             # The model plane's (~/.config/cmux/model-plane.env): a file from a repo must not route agents elsewhere.
-            "OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN"}
+            "OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN",
+            # The gateway's endpoints for Gemini and Grok (acpmux provider_cloud_auth.rs).
+            "GOOGLE_GEMINI_BASE_URL", "GROK_MODELS_BASE_URL", "GROK_MODELS_LIST_URL",
+            "GROK_XAI_API_BASE_URL"}
 MAX_BYTES, MAX_NAMES, MAX_COMMANDS = 64 * 1024, 100, 50
 BOOTSTRAP_WAIT_S = 3 * 3600
 LOCK_WAIT_S = 5  # see take_lock
@@ -260,7 +263,7 @@ def delivered():
         return set()
     with os.fdopen(fd) as f:
         st = os.fstat(f.fileno())
-        if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid() or st.st_size > 4 << 20:
+        if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid():
             return set()
         return {m.group(1) for m in re.finditer(r"^export ([A-Za-z_][A-Za-z0-9_]*)=", f.read(), re.M)}
 
@@ -304,8 +307,6 @@ def secret_values():
         st = os.fstat(f.fileno())
         if not stat.S_ISREG(st.st_mode):
             return []  # never sourced (machine.env takes a regular file only)
-        if st.st_size > 4 << 20:
-            raise Refused(f"{SECRETS_FILE} is over 4 MiB: deliver the secrets again (cmux cloud deliver-secrets)")
         # Bytes as they are (a CR stays a CR, any byte round-trips), so each value masks as setup prints it.
         text = f.read().decode("utf-8", "surrogateescape")
     if "\0" in text:  # bash drops a NUL when it sources the file, so the value it sets is not the one masked

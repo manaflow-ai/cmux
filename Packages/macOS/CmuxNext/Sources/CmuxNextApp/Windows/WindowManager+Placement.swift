@@ -28,6 +28,24 @@ struct PendingPlacement {
 // personal order in the home session, else `move-workspace-to-group` on the
 // owning daemon.
 extension WindowManager {
+    /// A drop of a row still being created (`SidebarRowState.creating`; Leo 2026-11-06: "I can only drag them after a
+    /// super long time") at `position` of window `window`'s `sections`: its create's slot now (`PendingWorkspaceRow.dropped`),
+    /// drawn at once and placed once the daemon lists the workspace. False off its machine section.
+    func reslotCreates(_ ids: [String], at position: DropPosition, in window: String, sections: [SidebarRowSection]) -> Bool {
+        let rows = PendingWorkspaceRows.shared
+        let slots = ids.compactMap { id in rows.rows.first { $0.id == id }?.dropped(at: position, in: sections).map { (id, $0) } }
+        guard slots.count == ids.count else { return false }
+        for (id, slot) in slots {
+            rows.reslot(id, to: slot)
+            if pendingPlacements[id] == nil { pendingPlacementOrder.append(id) }
+            var pending = pendingPlacements[id] ?? PendingPlacement(window: window, slot: nil, byDefault: nil, then: nil)
+            (pending.slot, pending.byDefault, pending.anchorWaitSince) = (slot, nil, nil) // its `then` and run stay
+            pendingPlacements[id] = pending
+        }
+        applyPendingPlacements(live: Set(ids.filter { services.machines.workspace(id: $0) != nil }))
+        return true
+    }
+
     func forgetCreate(_ id: String) { pendingPlacements[id] = nil; pendingPlacementOrder.removeAll { $0 == id }; PendingWorkspaceRows.shared.remove(id) } // a create ended without its workspace
     /// Retries the placements a cold or updated layout deferred (`awaitsCurrentAnchor`), once a
     /// sidebar rows pass has realized the fresh rows; nothing to do while none waits.

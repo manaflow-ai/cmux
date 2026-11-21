@@ -111,6 +111,8 @@ pub fn start_chat_plan_entry(
         ("created_by", machine.created_by.clone().map(Value::from)),
         ("pause_reason", machine.pause_reason.map(|reason| json!(reason))),
         ("chats", chats.map(Value::from)),
+        // The machine's disk: a start that asked a larger size than it has is refused before any copy or clone.
+        ("disk_mb", machine.size.as_ref().and_then(|size| size.storage_mb).map(Value::from)),
     ];
     for (key, value) in optional {
         if let Some(value) = value {

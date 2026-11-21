@@ -22,6 +22,9 @@ public struct NewFrontendBrowserTabRequest: DaemonRequest {
     public var url: String
     public var engine: BrowserEngine
     public var pane: PaneID?
+    /// `frontend-browser-tab-workspace-v1`, instead of `pane`: the tab goes in this workspace's pane, or in a
+    /// first pane the daemon makes when it has none, so no terminal is needed to host it.
+    public var workspace: WorkspaceHandle?
     public var title: String?
     public var faviconURL: String?
     public var profileID: String?
@@ -40,12 +43,13 @@ public struct NewFrontendBrowserTabRequest: DaemonRequest {
     /// one daemon commit and one `pane-added` delta; `pane` never lists it (a link opened to the right).
     public var split: ConversationTabSplit?
 
-    public init(url: String, engine: BrowserEngine, pane: PaneID? = nil, title: String? = nil, faviconURL: String? = nil,
+    public init(url: String, engine: BrowserEngine, pane: PaneID? = nil, workspace: WorkspaceHandle? = nil, title: String? = nil, faviconURL: String? = nil,
                 profileID: String? = nil, size: CellSize? = nil, activate: Bool? = nil, after: SurfaceID? = nil,
                 split: ConversationTabSplit? = nil) {
         self.url = url
         self.engine = engine
         self.pane = pane
+        self.workspace = workspace
         self.title = title
         self.faviconURL = faviconURL
         self.profileID = profileID

@@ -927,7 +927,7 @@ struct SidebarRowsMoveOnRenderServerTests {
         options.chatHistory = state
         let layout = SidebarLayout.make(sections: Self.sections([1, 2, 3]), metrics: .standard, options: options)
         try #require(layout.pinnedChatsY != nil)
-        let history = SidebarChatHistoryViews()
+        let history = SidebarChatHistoryViews(makePage: { _ in nil })
         history.place(layout, state: state, metrics: .standard, in: list, animated: false)
         let block = history.pinned
         let slot = block.frame

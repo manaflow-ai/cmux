@@ -52,6 +52,11 @@ pub struct MachineExtra {
     /// app. Older backends omit this field.
     #[serde(default, skip_serializing_if = "Vec::is_empty", alias = "providerCapabilities")]
     pub provider_operations: Vec<String>,
+    /// Optional latest guest disk report. Keep the object opaque so this relay
+    /// preserves new health fields without coupling the app server to the
+    /// machine telemetry schema.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disk_health: Option<Value>,
     /// Optional idle-pause diagnostics from the cmux REST VM projection.
     /// Keep the object opaque here so this relay preserves new diagnostic
     /// fields without coupling the app server to the cron implementation.
@@ -130,7 +135,19 @@ pub(crate) fn decode_connect_info(op: &str, mut value: Value) -> Result<ConnectI
     {
         fields.insert("vm_kind".into(), VM_KIND_UNKNOWN.into());
     }
-    decode_answer::<<CloudMachineConnectInfoOp as Op>::Result>(op, value)
+    let mut info = decode_answer::<<CloudMachineConnectInfoOp as Op>::Result>(op, value)?;
+    check_revision(op, &mut info.revision)?;
+    Ok(info)
+}
+
+/// An answer's revision (a snapshot's, a `connect_info`'s) checked as a
+/// [`Machine`]'s is: a decimal, leading zeros stripped; anything else is a
+/// `bad_response`, since the generated types keep it as any string.
+pub(crate) fn check_revision(op: &str, revision: &mut String) -> Result<(), CloudError> {
+    *revision = Revision::try_from(std::mem::take(revision))
+        .map_err(|e| CloudError::new(super::codes::BAD_RESPONSE, format!("{op}: {e}")))?
+        .into();
+    Ok(())
 }
 
 /// `cloud.machine.connect_info` (contract 1.7): how `cmux link` reaches a

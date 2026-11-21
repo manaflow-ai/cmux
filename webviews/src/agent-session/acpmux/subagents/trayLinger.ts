@@ -58,6 +58,10 @@ export type Linger = {
   /// Ended keys whose grace ran out, or that ended before this view watched: never shown again
   /// while they stay ended.
   readonly expired: Set<string>;
+  /// The end this view recorded for each ended key it let linger, kept after its grace runs out while
+  /// it stays ended: a subagent whose own grace ran out still shows under a parent or child that
+  /// lingers, and its time must stay where it ended.
+  readonly ends: Map<string, number>;
   /// The time the clock was paused (held, or out of sight), up to `pausedSince`.
   pausedTotal: number;
   /// When the current pause began; undefined while the clock runs.
@@ -70,6 +74,7 @@ export const createLinger = (): Linger => ({
   seenLive: new Set(),
   lingering: new Map(),
   expired: new Set(),
+  ends: new Map(),
   pausedTotal: 0,
   pausedSince: undefined,
   holding: false,
@@ -82,6 +87,8 @@ const activeAt = (state: Linger, now: number) =>
 export type LingerStep = {
   /// What stays, by key, with when it ended (for its order and its time).
   kept: ReadonlyMap<string, number>;
+  /// The end recorded for every ended key this view let linger, staying or not (`Linger.ends`).
+  ends: ReadonlyMap<string, number>;
   /// When the next one expires (the clock's ms), or undefined when nothing can expire: the hat is
   /// held or out of sight, or nothing lingers. This is the one timer's stop condition.
   next: number | undefined;
@@ -123,6 +130,7 @@ export function stepLinger(
     state.seenLive.add(key);
     state.expired.delete(key);
     state.lingering.delete(key);
+    state.ends.delete(key);
   }
   const endedKeys = new Set<string>();
   const shown: { key: string; record: { due: number; end: number } }[] = [];
@@ -142,6 +150,7 @@ export function stepLinger(
       const end = Math.min(endedAt ?? now, now);
       record = { due: active + grace - (state.seenLive.has(key) ? 0 : now - end), end };
       state.lingering.set(key, record);
+      state.ends.set(key, end);
     }
     if (looked) record.due = Math.max(record.due, active + cooldown);
     shown.push({ key, record });
@@ -162,8 +171,9 @@ export function stepLinger(
   // Only keys still listed stay recorded, so another chat's or a cleared list's never pile up.
   for (const key of state.lingering.keys()) if (!endedKeys.has(key)) state.lingering.delete(key);
   for (const key of state.expired) if (!endedKeys.has(key)) state.expired.delete(key);
+  for (const key of state.ends.keys()) if (!endedKeys.has(key)) state.ends.delete(key);
   for (const key of state.seenLive) if (!liveKeys.has(key) && !endedKeys.has(key)) state.seenLive.delete(key);
-  return { kept, next };
+  return { kept, ends: new Map(state.ends), next };
 }
 
 const sameKept = (a: ReadonlyMap<string, number>, b: ReadonlyMap<string, number>) => {
@@ -173,6 +183,11 @@ const sameKept = (a: ReadonlyMap<string, number>, b: ReadonlyMap<string, number>
 };
 
 const NO_KEPT: ReadonlyMap<string, number> = new Map();
+
+/// What the hat shows of what ended: what stays (`kept`, by key, at its end) and every end this view
+/// recorded (`ends`), for the members of a group that stays after their own grace ran out.
+export type Lingering = { readonly kept: ReadonlyMap<string, number>; readonly ends: ReadonlyMap<string, number> };
+const NO_LINGERING: Lingering = { kept: NO_KEPT, ends: NO_KEPT };
 
 export type LingerOptions = {
   /// The grace, in ms; TRAY_LINGER_MS by default (a gallery stage shortens it).
@@ -207,19 +222,20 @@ export function useTrayLinger(
     offsetMs = 0,
     clock: localClock = Date.now,
   }: LingerOptions = {},
-): ReadonlyMap<string, number> {
+): Lingering {
   const clock = useCallback(() => localClock() - offsetMs, [localClock, offsetMs]);
-  const state = useRef<{ chat: string | undefined; linger: Linger; kept: ReadonlyMap<string, number> }>(undefined);
+  const state = useRef<{ chat: string | undefined; linger: Linger; shown: Lingering }>(undefined);
   const [tick, setTick] = useState(0);
   const step = useMemo(() => {
     let own = state.current;
     if (!own || own.chat !== chat) {
-      own = { chat, linger: createLinger(), kept: NO_KEPT };
+      own = { chat, linger: createLinger(), shown: NO_LINGERING };
       state.current = own;
     }
     const result = stepLinger(own.linger, { live, ended, hold, seen, now: clock(), grace, cooldown, together });
-    if (!sameKept(result.kept, own.kept)) own.kept = result.kept;
-    return { kept: own.kept, next: result.next };
+    if (!sameKept(result.kept, own.shown.kept) || !sameKept(result.ends, own.shown.ends))
+      own.shown = { kept: result.kept, ends: result.ends };
+    return { shown: own.shown, next: result.next };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `tick` re-runs the pass when the next expiry is due
   }, [chat, live, ended, hold, seen, grace, cooldown, together, clock, tick]);
   useEffect(() => {
@@ -227,7 +243,7 @@ export function useTrayLinger(
     const timer = setTimeout(() => setTick((current) => current + 1), Math.max(0, step.next - clock()));
     return () => clearTimeout(timer);
   }, [step, clock]);
-  return step.kept;
+  return step.shown;
 }
 
 /// When an item ended, if known.
@@ -235,9 +251,14 @@ export const trayItemEnd = (item: TrayItem): number | undefined =>
   item.kind === "agent" ? item.agent.endedAt : item.kind === "command" ? item.command.endedAt : undefined;
 
 /// The ended items that stay, latest end first. A subagent and the nested ones under it move as one
-/// group, kept while any of them is, at its latest end. A command whose end only this view saw takes
-/// that time as its end, so its line can say how long it ran.
-export function lingeringTrayItems(ended: readonly TrayItem[], kept: ReadonlyMap<string, number>): TrayItem[] {
+/// group, kept while any of them is, at its latest end. A command or a subagent whose end only this
+/// view saw takes that time as its end, so its line says how long it ran and that time stays put when
+/// the hat folds and opens again (its line, Elapsed.tsx, mounts anew).
+export function lingeringTrayItems(
+  ended: readonly TrayItem[],
+  kept: ReadonlyMap<string, number>,
+  ends: ReadonlyMap<string, number> = kept,
+): TrayItem[] {
   if (kept.size === 0) return [];
   const groups: { at: number; index: number; items: TrayItem[] }[] = [];
   let current: { at: number; index: number; items: TrayItem[] } | undefined;
@@ -246,12 +267,19 @@ export function lingeringTrayItems(ended: readonly TrayItem[], kept: ReadonlyMap
       current = { at: Number.NEGATIVE_INFINITY, index: groups.length, items: [] };
       groups.push(current);
     }
-    const at = kept.get(trayItemKey(item));
+    const key = trayItemKey(item);
+    const at = kept.get(key);
     if (at !== undefined) current.at = Math.max(current.at, at);
+    // Its own grace may have run out while the group stays: the end it was seen at still holds.
+    const end = at ?? ends.get(key);
     current.items.push(
-      item.kind === "command" && at !== undefined && item.command.endedAt === undefined
-        ? { ...item, command: { ...item.command, endedAt: at } }
-        : item,
+      end === undefined
+        ? item
+        : item.kind === "command" && item.command.endedAt === undefined
+          ? { ...item, command: { ...item.command, endedAt: end } }
+          : item.kind === "agent" && item.agent.endedAt === undefined
+            ? { ...item, agent: { ...item.agent, endedAt: end } }
+            : item,
     );
   }
   return groups

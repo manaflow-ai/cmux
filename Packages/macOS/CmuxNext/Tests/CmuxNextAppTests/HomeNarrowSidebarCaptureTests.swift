@@ -15,7 +15,7 @@ struct HomeNarrowSidebarCaptureTests {
     func render(listWidth: CGFloat) throws -> CGImage? {
         _ = NSApplication.shared
         let suite = "cmux.tests.narrowSidebarCapture.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 300))
         let now = Date()
@@ -28,6 +28,7 @@ struct HomeNarrowSidebarCaptureTests {
         content.wantsLayer = true
         content.layer?.backgroundColor = NSColor(white: 0.12, alpha: 1).cgColor
         let split = HomeSidebarSplitView(sidebar: home, content: content, widths: HomeSidebarWidth(defaults: defaults))
+        split.showsList = true // the person showed the list (folded by default: ChiefReplacesHomeTests)
         split.windowKey = { "capture" }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 300), styleMask: [.borderless],
                               backing: .buffered, defer: false)

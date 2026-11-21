@@ -58,17 +58,17 @@ Why these:
   as answered within the first 5 frames. `move` (0.15) finished 92% of the travel before the
   reply's resize even started, which is what made the second phase stand out; at that pace a
   split also reads as a snap, not a motion.
-- **Damping 0.95.** Critical damping (1.0) has the slowest possible tail for its response: 446 ms
+- **Damping 1 since 2026-11-10** (no bounce in any motion, Lawrence; the response is 0.085 s now). The
+  choice until then: **damping 0.95.** Critical damping (1.0) has the slowest possible tail for its response: 446 ms
   to the last visible pixel at 0.28. 0.95 cuts that to ~375 ms, and its one overshoot is
   e^(-ζπ/√(1-ζ²)) = 7e-5 of the travel: 0.05 pt on 700 pt, under half a pixel even at 2x (the
   frame snaps at 0.25 pt and 2 pt/s before that). 0.90 still overshoots 0.5 pt (one pixel at
   2x, a terminal column for a frame); 0.85 overshoots 3 pt, visible.
-- **Not structural.** Structural springs are forced to damping ≥ 1 with bounce "none" and get
-  0.15 bounce with "subtle"; both would undo the choice above. `zoom` and `exit` are not
-  structural either.
+- (Until 2026-11-10 a bounce setting changed the structural springs, and `split` was not one of them.
+  The setting is gone.)
 - `ui.animationSpeed` normal scales it 1.5x like every token; Debug Settings can tune it live
-  (`motion.spring.split`); the pane motion variant lab keeps its choices (`crisp`: `move`,
-  `softLanding`: `settle`).
+  (`motion.spring.split`); the pane motion variant lab keeps its choice `crisp` (`move`; `softLanding`
+  was deleted 2026-11-10, no bounce in any motion).
 
 ## Implementation
 

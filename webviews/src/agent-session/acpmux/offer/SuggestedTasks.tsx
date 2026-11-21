@@ -18,6 +18,7 @@ import { ContextMenu } from "../../../ui/ContextMenu";
 import "./suggestedTasks.css";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
 import { openSessionAttributes } from "../conversation/menuParts";
+import { AgentTag } from "../conversation/AgentTag";
 import { OfferOptions } from "./OfferOptions";
 import {
   initialChoice,
@@ -345,8 +346,10 @@ function StartedTask({
   );
 }
 
-/// The prompt that brought a started task's result back: "Received message from <title> ›",
-/// which opens that task's chat. It draws as another agent's message line does
+/// The prompt that brought a started task's result back: "Received message from <title> ›". Its
+/// title is a link chip, the one part that opens that task's chat and lights under the pointer; the
+/// line itself opens nothing (Leo, 2026-11-05: "subagents need to have their clickable bit be
+/// highlighted instead of the whole line click sending me to the subagent righ split"). It draws as another agent's message line does
 /// (conversation/IncomingMessageCard.tsx): at the left with the agent's text, never the person's
 /// bubble, a small bot first and the task's title as a chip. The title keeps its place in the
 /// sentence in every language.
@@ -361,27 +364,26 @@ export function ReceivedResult({
   // Read only, the line says what came back; the chat it came from is the owner's to open.
   const readOnly = useTranscriptReadOnly();
   const [before, after = ""] = t("offer.received", { title: "\u0000" }).split("\u0000");
-  const Line = readOnly ? "div" : "button";
   return (
     <div className="acpmux-task-received">
-      <Line
-        {...(readOnly
-          ? {}
-          : {
-              type: "button" as const,
-              onClick: () => onOpen(result.childSessionId),
-              ...openSessionAttributes(result.childSessionId),
-            })}
-        className="acpmux-task-received-line"
-      >
+      <div className="acpmux-task-received-line">
         <span className="acpmux-task-received-icon">
           <Bot size={16} />
         </span>
         {before}
-        <span className="acpmux-task-received-title">{result.title}</span>
+        {readOnly ? (
+          <span className="acpmux-task-received-title">{result.title}</span>
+        ) : (
+          <AgentTag
+            name={result.title}
+            className="acpmux-task-received-title"
+            attributes={openSessionAttributes(result.childSessionId)}
+            onClick={() => onOpen(result.childSessionId)}
+          />
+        )}
         {after}
         <Icon name="disclosure.collapsed" size={12} />
-      </Line>
+      </div>
     </div>
   );
 }

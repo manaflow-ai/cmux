@@ -7,17 +7,20 @@ name: Swift acpmux calls are in the protocol
 # the protocol, so a drifted method or param fails here instead of at the daemon. It runs when
 # either side changes: seconds, no build.
 on:
+  # feat-cmux-next runs this in the post-merge batch (cmux-next-post-merge.yml, suite
+  # swift-acpmux-protocol in .github/post-merge-batch.json), not once per merge: sha is the commit to
+  # test, only one job id a bisect probe runs alone.
+  workflow_call:
+    inputs:
+      sha:
+        description: Commit to test (empty is the caller's commit).
+        type: string
+        default: ""
+      only:
+        description: Run only this job id (a bisect probe); empty runs every job.
+        type: string
+        default: ""
   pull_request:
-    paths:
-      - "Packages/macOS/CmuxNext/Sources/**"
-      - "cmux-tui/crates/acpmux/spec/acpmux-protocol.json"
-      - "scripts/ci/check-swift-acpmux-protocol.py"
-      - "scripts/ci/swift-acpmux-protocol-allowlist.txt"
-      - "tests/test_check_swift_acpmux_protocol.py"
-      - ".github/workflows/swift-acpmux-protocol.yml"
-  push:
-    branches:
-      - feat-cmux-next
     paths:
       - "Packages/macOS/CmuxNext/Sources/**"
       - "cmux-tui/crates/acpmux/spec/acpmux-protocol.json"
@@ -28,7 +31,8 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: swift-acpmux-protocol-${{ github.ref }}
+  # A batch run and its bisect probes (one commit, one job each) never cancel one another.
+  group: swift-acpmux-protocol-${{ github.ref }}${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || '' }}
   cancel-in-progress: true
 
 permissions:
@@ -41,12 +45,14 @@ env:
 jobs:
   check:
     name: Swift acpmux calls are in the protocol
+    if: ${{ inputs.only == '' || inputs.only == 'check' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          ref: ${{ inputs.sha || '' }}
           sparse-checkout: |
             Packages/macOS/CmuxNext/Sources
             cmux-tui/crates/acpmux/spec/acpmux-protocol.json

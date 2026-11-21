@@ -75,7 +75,7 @@ impl Hub {
         if session.profile_respawn.swap(false, Ordering::SeqCst) {
             // The next list is built anew; the start's own records follow.
             session.state_seq.fetch_add(1, Ordering::SeqCst);
-            self.events.changed();
+            self.events.row_changed(session);
         }
     }
 

@@ -68,6 +68,10 @@ public nonisolated struct MachineSectionRow: Identifiable, Hashable, Sendable {
     /// A machine that joined through the hub (a pair code or a one-line token): reached through the
     /// mesh, with Check, Rotate Credential and Revoke. Nil for a machine the app connects to.
     public let joined: JoinedMachine?
+    /// The SF Symbol of the device the machine is, as its daemon named it (`identify` `machine_symbol`,
+    /// cmux-device-kind); nil before it said, from an older daemon, or for a Cloud machine, which is
+    /// the cloud by its source (its VM calls itself a Linux server). The page draws its glyph.
+    public let symbol: String?
 
     /// - Parameter kind: nil takes `.local` for this Mac and `.ssh` for any other machine (a joined
     ///   machine's own row, ``joined(_:health:)``, passes `.joined`).
@@ -75,7 +79,7 @@ public nonisolated struct MachineSectionRow: Identifiable, Hashable, Sendable {
     ///   writes the state; `.resuming` keeps a spinner. A connected link wins over either.
     public init(id: String, name: String, isConnected: Bool, isLocal: Bool, kind: MachineKind? = nil, isConnecting: Bool = false,
                 serverState: MachineServerState? = nil, health: HostHealth? = nil, healthStep: HostStep? = nil,
-                joined: JoinedMachine? = nil) {
+                joined: JoinedMachine? = nil, symbol: String? = nil) {
         self.id = id
         self.name = name
         self.isConnected = isConnected
@@ -87,6 +91,7 @@ public nonisolated struct MachineSectionRow: Identifiable, Hashable, Sendable {
         self.health = health
         self.healthStep = healthStep
         self.joined = joined
+        self.symbol = self.kind == .cloud ? nil : symbol
     }
 
     /// The row of a joined machine, with its last Check from `health`.

@@ -1,6 +1,7 @@
-// The tucked hat's pull tab is a small glass control joined to the composer's hairline. Keep its
-// visible bridge (8px out from each side of the pill, so it follows the pill as it grows), count
-// type and glass tokens together when the tray is polished.
+// The tucked hat's pull tab is a small glass control on the composer's hairline. It draws no line of
+// its own beside the pill (Leo, 2026-11-11: "did this line behind the count box get removed yet?"):
+// the card's line runs up to its rim (test/composer-hat-line-gap.test.ts measures the pixels). Keep
+// its count type and glass tokens together when the tray is polished.
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -25,11 +26,9 @@ describe("tucked hat pull tab count", () => {
 });
 
 describe("tucked hat pull tab styling", () => {
-  test("the bridge meets a compact glass control", () => {
-    const bridge = rule(".acpmux-tray-pull__hat::before,\n.acpmux-tray-pull__hat::after");
+  test("a compact glass control with no line of its own beside it", () => {
     const control = rule(".acpmux-tray-pull__hat");
-    expect(bridge).toContain("--cmux-hairline");
-    expect(bridge).toContain("width: var(--ds-space-2)");
+    expect(css, "the pill draws no ::before or ::after stub").not.toMatch(/\.acpmux-tray-pull__hat::(before|after)/);
     expect(control).toContain("--glass-tint");
     expect(control).toContain("--glass-rim-shadow");
     expect(control).toContain("--ds-radius-control");

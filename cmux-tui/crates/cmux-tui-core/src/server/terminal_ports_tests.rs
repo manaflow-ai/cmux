@@ -1,5 +1,7 @@
 use std::net::TcpListener;
 
+use cmux_local_url::MAX_CANDIDATES;
+
 use super::*;
 
 fn ports(text: &str) -> Vec<(u16, String, String)> {

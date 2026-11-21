@@ -122,6 +122,7 @@ enum ScreenGroupCommands {
             return ScreenCommands.close(ref.members, in: ref.workspace, daemon: ref.daemon, services: services)
         }
         let group = ref.group.id
+        services.keyRouter.creationInputCoordinator.drop(closing: ref.members.flatMap(\.panes))
         ref.daemon.send("close-screen-group") { _ = try await $0.closeScreenGroup(group) }
     }
 

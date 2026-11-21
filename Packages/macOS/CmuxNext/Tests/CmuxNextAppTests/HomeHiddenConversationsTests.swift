@@ -1,6 +1,7 @@
 import CmuxHomeCore
 @testable import CmuxNextHome
 @testable import CmuxNextHomeEngine
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -42,7 +43,7 @@ import Testing
 
     @Test func deleteHidesUntilNewMessageAndPersists() {
         let suite = "cmux.tests.homeHidden.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
+        let defaults = UserDefaults(testSuiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         let box = Box()
         let source = Self.source(defaults, box)
@@ -62,7 +63,7 @@ import Testing
 
     @Test func showHiddenListsEveryOneAgain() {
         let suite = "cmux.tests.homeHidden.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
+        let defaults = UserDefaults(testSuiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         let source = Self.source(defaults, Box())
         source.hide(ConversationID("conv_joker"))
@@ -71,5 +72,19 @@ import Testing
         #expect(source.unhideAll() == 2)
         #expect(Self.listed(source) == ["conv_austin", "conv_joker"])
         #expect(Self.listed(Self.source(defaults, Box())) == ["conv_austin", "conv_joker"])
+    }
+
+    /// Lawrence 2026-11-09 ("redo all our dialogs so they show less often"): Delete Conversation no longer asks
+    /// "Are you sure?"; it deletes at once and its toast's Undo lists that one conversation again, for good.
+    @Test func undoListsTheOneDeletedConversationAgainAndPersists() {
+        let suite = "cmux.tests.homeHidden.\(UUID().uuidString)"
+        let defaults = UserDefaults(testSuiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let source = Self.source(defaults, Box())
+        source.hide(ConversationID("conv_joker"))
+        source.hide(ConversationID("conv_austin"))
+        source.unhide(ConversationID("conv_joker"))
+        #expect(Self.listed(source) == ["conv_joker"])
+        #expect(Self.listed(Self.source(defaults, Box())) == ["conv_joker"])
     }
 }

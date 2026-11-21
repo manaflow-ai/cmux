@@ -191,8 +191,16 @@ export function HistoryPage({
           {snap.error}
         </p>
       ) : null}
+      {/* The owner's list is not complete yet: the rows that came stay, and the page asks again by itself. */}
+      {snap.pending && !down && snap.groups.length > 0 ? (
+        <output className="history-pending">{t("page.stillLoading")}</output>
+      ) : null}
       {down && !downLasting ? null : down ? (
         <output className="history-empty">{t("page.disconnected")}</output>
+      ) : snap.groups.length === 0 && snap.pending ? (
+        // A list that is not complete is never "No history": the page says so (a status region, as the
+        // line above the rows is) and asks again by itself.
+        <output className="history-empty">{t("page.stillLoading")}</output>
       ) : snap.groups.length === 0 ? (
         <div className="history-empty">{snap.loading ? "" : t(snap.text ? "page.emptySearch" : "page.empty")}</div>
       ) : (

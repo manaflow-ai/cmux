@@ -132,3 +132,19 @@ test("a different provider's same family name remains distinct", () => {
   ];
   expect(relevantModelSections(catalog, undefined).shown).toEqual(catalog);
 });
+
+// Nov 9: Claude Code listed claude-fable-5-2 before the catalog knew it. The new release has no
+// catalog family, so it never led its line: Fable 5.1 stayed beside it and Fable 5.2 read as an
+// unrelated model. A release the catalog lacks takes the family its id's line already has.
+test("a release the catalog has not seen leads its line and folds the older version", () => {
+  const menu = [
+    { id: "opus", name: "Opus 5.5", family: "Opus", release: "claude-opus-5-5" },
+    { id: "claude-fable-5-2", name: "Claude Fable 5.2" },
+    { id: "claude-fable-5-1", name: "Fable 5.1", family: "Fable" },
+    { id: "claude-fable-5", name: "Fable 5", family: "Fable" },
+    { id: "sonnet", name: "Sonnet 5.5", family: "Sonnet", release: "claude-sonnet-5-5" },
+  ];
+  const result = relevantModelSections(menu, ids(menu));
+  expect(ids(result.shown)).toEqual(["opus", "claude-fable-5-2", "sonnet"]);
+  expect(ids(result.more)).toEqual(["claude-fable-5-1", "claude-fable-5"]);
+});

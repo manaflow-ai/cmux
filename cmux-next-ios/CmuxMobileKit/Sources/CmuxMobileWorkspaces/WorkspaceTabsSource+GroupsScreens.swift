@@ -201,7 +201,7 @@ struct PageToast: View {
                 .id(text)
             }
         }
-        .animation(CmuxMobileTheme.standard.motion.snappy.animation, value: source.toastText)
+        .animation(CmuxMobileTheme.standard.motion.snappy.animation.unlessReduceMotion, value: source.toastText)
     }
 }
 #endif

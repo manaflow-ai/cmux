@@ -1,0 +1,78 @@
+//! The v2 gate rows of the design doc's row 5f: every `v2.pr05f.*` measure.
+
+use super::super::{GOD_SMALL_LIMIT, GateRow};
+
+pub const ROWS: &[GateRow] = &[
+    GateRow {
+        pr: "5f",
+        name: "v2.pr05f.apply_newest",
+        done_when: "A chat made newest in its folder is a persistent path copy: at 2,000 folders against 5, tree-rule ratio 5.7, all-sample ratio 9.4, and under 10 microseconds.",
+        measured: true,
+        ratio: 5.7,
+        ratio_all: Some(9.4),
+        god_max: Some(10_000.0),
+    },
+    GateRow {
+        pr: "5f",
+        name: "v2.pr05f.apply_move",
+        done_when: "A chat moved between folders copies two persistent paths: at 2,000 folders against 5, tree-rule ratio 5.7, all-sample ratio 9.4, and under 10 microseconds.",
+        measured: true,
+        ratio: 5.7,
+        ratio_all: Some(9.4),
+        god_max: Some(10_000.0),
+    },
+    GateRow {
+        pr: "5f",
+        name: "v2.pr05f.first_window",
+        done_when: "The first folders window stays within 1.2x at 2,000 folders against 5.",
+        measured: true,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: Some(2.0),
+        god_max: None,
+    },
+    GateRow {
+        pr: "5f",
+        name: "v2.pr05f.deep_page",
+        done_when: "A deep folders page stays within 1.2x at 2,000 folders against 5.",
+        measured: true,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: Some(2.0),
+        god_max: None,
+    },
+    GateRow {
+        pr: "5f",
+        name: "v2.pr05f.serving_window",
+        done_when: "The folders serving window returns three rows within 1.2x at 2,000 folders against 5, with pooled samples within 2x.",
+        measured: true,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: Some(2.0),
+        god_max: None,
+    },
+    GateRow {
+        pr: "5f",
+        name: "v2.pr05f.serving_page",
+        done_when: "A deep folders page returning three rows stays within 1.2x at 2,000 folders against 5, with pooled samples within 2x.",
+        measured: true,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: Some(2.0),
+        god_max: None,
+    },
+    GateRow {
+        pr: "5f",
+        name: "v2.pr05f.equal_entry",
+        done_when: "An equal folder entry produces zero folder operations.",
+        measured: true,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: None,
+        god_max: None,
+    },
+    GateRow {
+        pr: "5f",
+        name: "v2.pr05f.tail_replay",
+        done_when: "A live folders sid reads 100 retained steps within 1.2x at 2,000 folders against 5, with pooled samples within 2x.",
+        measured: true,
+        ratio: GOD_SMALL_LIMIT,
+        ratio_all: Some(2.0),
+        god_max: None,
+    },
+];

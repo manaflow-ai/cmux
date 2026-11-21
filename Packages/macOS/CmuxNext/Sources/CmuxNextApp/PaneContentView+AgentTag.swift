@@ -19,13 +19,13 @@ extension PaneContentView {
         }
     }
 
-    /// The corner controls at the content's top-right: the zoom indicator under the strip and the
+    /// The corner controls at the content's top-right: the zoom indicator under the strip (no tab bar controls) and the
     /// pane's header (a toolbar's buttons, a chat's header), the agent tag left of it.
     func layoutAgentTag() {
         let host = contentHost.frame, top = barPosition == .top && !isBandActive && stripView.frame.height > 0 && host.minY < stripView.frame.maxY ? stripView.frame.maxY : host.minY
         if zoomIndicator == nil, stripView.model.zoomsSelected { zoomIndicator = PaneZoomIndicatorView(model: stripView.model) } // its first zoom lays the pane out
         if let zoomIndicator, zoomIndicator.superview !== self { addSubview(zoomIndicator, positioned: .above, relativeTo: agentTag) }
-        let trailing = zoomIndicator?.place(in: host, top: max(top, paneHeaderHeight)) ?? 0
+        let trailing = zoomIndicator?.place(in: host, top: max(top, paneHeaderHeight), elsewhere: toolbar.map { !$0.view.isHidden && $0.view.zoomed } ?? false) ?? 0 // shown in the tab bar's trailing slot when the bar shows
         guard !agentTag.isHidden, !isBandActive else { agentTag.frame = .zero; return }
         agentTag.place(in: host, top: top, trailing: trailing)
     }

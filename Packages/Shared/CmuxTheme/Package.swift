@@ -14,15 +14,9 @@ let package = Package(
             targets: ["CmuxTheme"]
         ),
     ],
-    dependencies: [
-        .package(path: "../CMUXMobileCore"),
-    ],
     targets: [
         .target(
             name: "CmuxTheme",
-            dependencies: [
-                .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
-            ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
     ]

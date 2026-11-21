@@ -21,6 +21,9 @@ export type PeerLink = {
   why?: LinkWhy;
   /// A person must act (sign-in, an update): no Reconnect.
   stuck?: true;
+  /// When acpmux says the link took its current state (ms since the epoch), for a link that is not
+  /// connected: the row counts its quiet time from it (afterDelay.ts `useLinkDownSaid`).
+  since?: number;
 };
 
 type Shown = { link: LinkState; reconnecting?: true; why?: LinkWhy; stuck?: true } | null;
@@ -48,14 +51,21 @@ type LinkSnapshot = {
   peerStates?: Record<string, string> | undefined;
   peerLinks?: Record<string, PeerLinkDetail> | undefined;
   peerConnected?: Record<string, boolean> | undefined;
+  /// The chat drawn from the Mac's copy while its machine does not answer: the peer copy banner shows.
+  peerCopy?: { peer: string; offline: boolean } | undefined;
+  /// The tab's chat is not listed because its machine is not connected: the unavailable state says so.
+  unavailable?: { reason: string } | undefined;
 };
 
 /// The link of the peer the open chat runs on (the session this Mac's acpmux mirrors,
 /// `summary.peer`), as acpmux last said it (`peerLinks`, else an older daemon's `peerStates` word,
 /// both kept current by `_acpmux/peer_state_changed`; `peerConnected` before the first state
-/// arrives), or null for a chat on this Mac. A Cloud peer that is not answering, or paused, says
-/// nothing here: the peer copy banner says whether it is paused or starting, and offers Resume
-/// (PeerCopyBanner.tsx). O(1).
+/// arrives), or null for a chat on this Mac. A Cloud link that comes back on its own is left to the
+/// peer copy banner while that banner shows (`peerCopy`), which says whether the machine is paused or
+/// starting and offers Resume (PeerCopyBanner.tsx): a Cloud machine that was connected keeps its
+/// `last_seen`, so acpmux may report a pause as `reconnecting`, and the row would spin
+/// "Reconnecting…" beside the banner's Resume. With no banner the row keeps its warning, and a step a
+/// person must take (a refused sign-in, an update: `stuck`) always stays here. O(1).
 export function peerLink(snapshot: LinkSnapshot): PeerLink | null {
   const peer = snapshot.summary?.peer;
   if (!peer) return null;
@@ -69,7 +79,13 @@ export function peerLink(snapshot: LinkSnapshot): PeerLink | null {
         ? undefined
         : { link: connected ? "connected" : "offline" };
   if (!known) return null;
-  if (known.link === "offline" && snapshot.peerKinds?.[peer] === "cloud") return null;
+  const cloud = snapshot.peerKinds?.[peer] === "cloud";
+  const banner = snapshot.peerCopy?.offline === true && snapshot.peerCopy.peer === peer;
+  if (cloud && !known.stuck && (known.link === "offline" || (known.link !== "connected" && banner))) return null;
+  // One line per cause (Leo, 2026-11-14): a link the peer copy banner or the missing chat's state
+  // already says is down is not said again here, on any machine. A step a person must take stays.
+  const toldAbove = banner || snapshot.unavailable?.reason === "offline";
+  if (!known.stuck && known.link !== "connected" && toldAbove) return null;
   const why: LinkWhy | undefined =
     known.why ?? (known.link !== "connected" && detail?.cause === LOCAL ? LOCAL : undefined);
   return {
@@ -78,5 +94,6 @@ export function peerLink(snapshot: LinkSnapshot): PeerLink | null {
     ...(known.reconnecting ? { reconnecting: true } : {}),
     ...(why ? { why } : {}),
     ...(known.stuck ? { stuck: true } : {}),
+    ...(known.link !== "connected" && detail?.since !== undefined ? { since: detail.since } : {}),
   };
 }

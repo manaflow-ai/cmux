@@ -133,6 +133,7 @@ export function PendingMessagesCard({
               member.incoming?.kind === "message" ? member.incoming.message : undefined,
             ),
             (displayRows ?? rows).map((member) => member.inboxThread?.count),
+            (displayRows ?? rows).map((member) => member.at),
           )}
         />
       </div>

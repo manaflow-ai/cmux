@@ -89,6 +89,47 @@ int main() {
   Allowed(false, "about:blank", "cmux-page://cmux.agent/__artifact", "cmux.agent", false);
   Allowed(false, "about:srcdoc", "cmux-page://cmux.agent/", "cmux.agent", false);
   {
+    using cmux_shim::JudgePageRequest;
+    using cmux_shim::PageRequestVerdict;
+    auto judged = [](const char* frame, const char* parent, const char* domain, bool settled, PageRequestVerdict want,
+                     const std::string& what) { Expect(JudgePageRequest(false, frame, parent, domain, settled) == want, what); };
+    // A page's own scripts and styles asked for before the browser side saw its top frame commit
+    // (a busy first launch: the frame still reads about:blank, no parent) wait for the frame's URL.
+    // Before, every file of the page was refused and the Markdown tab beside Home stayed blank
+    // (0 of 10 fresh launches on a new profile showed the page on cmux-lawrence-2).
+    judged("about:blank", "", "cmux.markdown", false, PageRequestVerdict::kWaitForFrame, "blank top frame waits");
+    judged("", "", "cmux.markdown", false, PageRequestVerdict::kWaitForFrame, "empty top frame waits");
+    // Settled, it is judged by what the browser then knows: the page's own document, or refused.
+    judged("cmux-page://cmux.markdown/", "", "cmux.markdown", true, PageRequestVerdict::kAllow, "settled page frame");
+    judged("about:blank", "", "cmux.markdown", true, PageRequestVerdict::kRefuse, "a top frame that stays blank");
+    judged("https://evil.test/", "", "cmux.markdown", true, PageRequestVerdict::kRefuse, "settled web frame");
+    judged("cmux-page://cmux.agent/", "", "cmux.markdown", true, PageRequestVerdict::kRefuse, "another cmux page");
+    // Nothing else waits: a frame with a URL, a child frame, an artifact context.
+    judged("https://evil.test/", "", "cmux.markdown", false, PageRequestVerdict::kRefuse, "web frame never waits");
+    judged("about:blank", "https://evil.test/", "cmux.markdown", false, PageRequestVerdict::kRefuse,
+           "blank child of a web page never waits");
+    judged("about:blank", "cmux-page://cmux.agent/__artifact", "cmux.agent", false, PageRequestVerdict::kRefuse,
+           "artifact child never waits");
+    judged("cmux-page://cmux.agent/__artifact", "", "cmux.agent", false, PageRequestVerdict::kRefuse,
+           "artifact frame never waits");
+    // After the wait: the page's document and the page as first party, nothing else.
+    using cmux_shim::DeferredPageRequestAllowed;
+    Expect(DeferredPageRequestAllowed("cmux-page://cmux.markdown/", "cmux-page://cmux.markdown/", "cmux.markdown"),
+           "deferred: page frame, page first party");
+    Expect(!DeferredPageRequestAllowed("cmux-page://cmux.markdown/", "https://evil.test/", "cmux.markdown"),
+           "deferred: a web document that replaced the page");
+    Expect(!DeferredPageRequestAllowed("cmux-page://cmux.markdown/", "", "cmux.markdown"),
+           "deferred: no first party");
+    Expect(!DeferredPageRequestAllowed("https://evil.test/", "cmux-page://cmux.markdown/", "cmux.markdown"),
+           "deferred: frame settled on a web page");
+    Expect(!DeferredPageRequestAllowed("about:blank", "cmux-page://cmux.markdown/", "cmux.markdown"),
+           "deferred: frame stayed blank");
+    Expect(!DeferredPageRequestAllowed("cmux-page://cmux.markdownx/", "cmux-page://cmux.markdownx/", "cmux.markdown"),
+           "deferred: a page whose name only starts the same");
+    Expect(!DeferredPageRequestAllowed("cmux-page://cmux.agent/__artifact", "cmux-page://cmux.agent/", "cmux.agent"),
+           "deferred: artifact frame");
+  }
+  {
     const std::string page = "cmux-page://cmux.agent/";
     const std::string artifact = cmux_shim::kArtifactFrameURL;
     auto navigation = [&](bool main, const std::string& current, const std::string& parent,
@@ -363,6 +404,86 @@ int main() {
     Expect(mime == "text/plain" && charset == "iso-8859-1", "content type other parameters dropped");
     cmux_shim::SplitPageMimeType("", &mime, &charset);
     Expect(mime.empty() && charset.empty(), "content type empty");
+  }
+
+  // A video's first chunk of a longer file is one answer to the rest of the file: Chromium takes a
+  // cmux-page:// answer's length as the file's (Leo, 2026-11-03: "i can neither preview a vid in
+  // place nor have it pop up anymore"). The page host's 8 MiB of a 12 MB recording at bytes=0-.
+  {
+    const int64_t mib8 = 8 << 20, total = 12'345'678;
+    const std::vector<std::pair<std::string, std::string>> first = {
+        {"Content-Range", "bytes 0-" + std::to_string(mib8 - 1) + "/" + std::to_string(total)},
+        {"Accept-Ranges", "bytes"}};
+    cmux_shim::PageRangedStream stream;
+    Expect(cmux_shim::PlanRangedStream("bytes=0-", 206, first, mib8, &stream), "a first chunk of a longer file streams");
+    Expect(stream.length == total, "the answer's length is the rest of the file, got " + std::to_string(stream.length));
+    Expect(stream.next == mib8 && stream.total == total, "the next chunk starts after the first");
+    Expect(stream.headers.size() == 2 && stream.headers[0].second == "bytes 0-12345677/12345678",
+           "the answer's Content-Range names the rest of the file");
+    Expect(cmux_shim::PageRangedStreamNextRange(stream) == "bytes=8388608-", "the next ask is open-ended from there");
+    // The second chunk is the rest; it must start where the first ended and stay the same file.
+    const auto second = cmux_shim::PageRangeHeaders("Content-Range: bytes 8388608-12345677/12345678\n");
+    Expect(cmux_shim::AcceptRangedChunk(&stream, 206, second, total - mib8), "the next chunk is taken");
+    Expect(stream.next == total, "the stream ends at the file's end");
+    Expect(!cmux_shim::AcceptRangedChunk(&stream, 206, second, total - mib8), "nothing past the end is taken");
+
+    // A seek: Chromium asks again from the middle; the page host's chunk from there streams too.
+    const auto middle = cmux_shim::PageRangeHeaders("Content-Range: bytes 9000000-17388607/30000000\n");
+    Expect(cmux_shim::PlanRangedStream("bytes=9000000-", 206, middle, mib8, &stream) && stream.next == 9'000'000 + mib8,
+           "a seek's first chunk streams");
+    Expect(stream.length == 21'000'000, "a seek's answer is the rest from there");
+
+    // Chunks that are not the next part of the same file are refused (the stream fails).
+    cmux_shim::PlanRangedStream("bytes=0-", 206, first, mib8, &stream);
+    Expect(!cmux_shim::AcceptRangedChunk(&stream, 206, cmux_shim::PageRangeHeaders("Content-Range: bytes 0-9/12345678"), 10),
+           "a chunk from another place is refused");
+    Expect(!cmux_shim::AcceptRangedChunk(&stream, 206, cmux_shim::PageRangeHeaders("Content-Range: bytes 8388608-8388617/99"), 10),
+           "a chunk of a file of another size is refused");
+    Expect(!cmux_shim::AcceptRangedChunk(&stream, 404, {}, 0), "a refused chunk (the grant is gone) fails the stream");
+    Expect(!cmux_shim::AcceptRangedChunk(&stream, 206, cmux_shim::PageRangeHeaders("Content-Range: bytes 8388608-8388617/12345678"), 9),
+           "a chunk shorter than its Content-Range is refused");
+
+    // Answers that are already whole stay as they are: a closed range, a 200, a 416, a bad header.
+    Expect(!cmux_shim::PlanRangedStream("bytes=0-1", 206, cmux_shim::PageRangeHeaders("Content-Range: bytes 0-1/8"), 2, &stream),
+           "a closed range is answered as asked");
+    Expect(!cmux_shim::PlanRangedStream("bytes=0-", 206, cmux_shim::PageRangeHeaders("Content-Range: bytes 0-7/8"), 8, &stream),
+           "a chunk that reaches the end is the whole answer");
+    Expect(!cmux_shim::PlanRangedStream("bytes=0-", 200, {}, 8, &stream), "a 200 is the whole file");
+    Expect(!cmux_shim::PlanRangedStream("bytes=99-", 416, cmux_shim::PageRangeHeaders("Content-Range: bytes */8"), 0, &stream),
+           "a 416 stays a 416");
+    Expect(!cmux_shim::PlanRangedStream("bytes=4-", 206, cmux_shim::PageRangeHeaders("Content-Range: bytes 0-1/8"), 2, &stream),
+           "a chunk from another place than asked is not streamed");
+    Expect(!cmux_shim::PlanRangedStream("bytes=0-", 206, cmux_shim::PageRangeHeaders("Content-Range: bytes 0-3/8"), 2, &stream),
+           "a chunk shorter than its Content-Range is not streamed");
+    Expect(!cmux_shim::PlanRangedStream("bytes=-4", 206, cmux_shim::PageRangeHeaders("Content-Range: bytes 4-5/8"), 2, &stream),
+           "a suffix range is not streamed");
+    Expect(cmux_shim::PlanRangedStream("", 206, cmux_shim::PageRangeHeaders("Content-Range: bytes 0-1/8"), 2, &stream) &&
+               stream.length == 8,
+           "a request with no Range header streams the whole file");
+  }
+
+  // Only a bundled file named by its content may be kept by the renderer (pane.css?h=...).
+  {
+    Expect(cmux_shim::IsContentHashedQuery("h=0123abcd"), "an 8-digit content hash is kept");
+    Expect(cmux_shim::IsContentHashedQuery("h=" + std::string(64, 'f')), "a 64-digit content hash is kept");
+    Expect(!cmux_shim::IsContentHashedQuery(""), "a file with no query is not kept");
+    Expect(!cmux_shim::IsContentHashedQuery("h=0123abc"), "a hash under 8 digits is not kept");
+    Expect(!cmux_shim::IsContentHashedQuery("h=" + std::string(65, 'f')), "a hash over 64 digits is not kept");
+    Expect(!cmux_shim::IsContentHashedQuery("h=0123ABCD"), "upper-case digits are not kept");
+    Expect(!cmux_shim::IsContentHashedQuery("h=0123abcd&x=1"), "another parameter after the hash is not kept");
+    Expect(!cmux_shim::IsContentHashedQuery("v=0123abcd"), "another parameter is not kept");
+  }
+
+  // cmux-page:// asks for V8's code cache (pane.js compiles once, not on every launch), which
+  // Chromium allows only for a standard scheme; the rest of its options stay as they were.
+  {
+    namespace opt = cmux_shim::page_scheme_option;
+    const int options = cmux_shim::kCmuxPageSchemeOptions;
+    Expect((options & opt::kCodeCache) != 0, "cmux-page registers as a code cache scheme");
+    Expect(opt::kCodeCache == (1 << 7), "the code cache bit is the fork's CMUX_CEF_SCHEME_OPTION_CODE_CACHE (1 << 7)");
+    Expect((options & opt::kStandard) != 0, "cmux-page stays standard (Chromium's code cache needs it)");
+    Expect(options == (opt::kStandard | opt::kSecure | opt::kCorsEnabled | opt::kFetchEnabled | opt::kCodeCache),
+           "cmux-page is standard, secure, CORS, fetch and code cache, nothing else (no local, CSP bypass or isolation)");
   }
 
   std::string cleanup = "rm -rf '" + made + "' '" + base + "'";

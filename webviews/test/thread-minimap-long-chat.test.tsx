@@ -6,6 +6,7 @@ import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { teardownDom } from "./support/domTeardown";
 // These tests drive the compact (Codex) rail; the default arm draws no minimap (layout.experiment.ts).
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 
@@ -14,6 +15,7 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
   pretendToBeVisual: true,
   virtualConsole: new VirtualConsole(),
 });
+
 const resizeObservers = new Set<{ fire(): void }>();
 const scope = globalThis as Record<string, unknown>;
 const replacements: Record<string, unknown> = {
@@ -103,15 +105,17 @@ dom.window.HTMLElement.prototype.scrollTo = function (this: HTMLElement, options
 } as typeof HTMLElement.prototype.scrollTo;
 
 const { act } = await import("react");
+// The minimap places its band in the frame after a scroll event, as a browser runs it.
+const scrolledFrame = (target: EventTarget) =>
+  act(async () => {
+    target.dispatchEvent(new dom.window.Event("scroll"));
+    await new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve(null)));
+  });
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const row = (id: string, kind: string, text?: string): AcpmuxRow => ({ id, kind, text, version: 1, at: 1 });
@@ -432,7 +436,7 @@ test("a focused tick that goes away with its chat is not held drawn when the cha
     await show(long, "long-away-a");
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
     scroller.scrollTop = 0;
-    await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+    await scrolledFrame(scroller);
     expect(document.querySelector(`[data-tick="0"]`)).not.toBeNull();
     expect(document.querySelector(`[data-tick="1999"]`)).toBeNull();
   } finally {
@@ -457,7 +461,7 @@ test("a focused tick whose rail hides and comes back in the same chat is not hel
   const scroller = () => document.querySelector<HTMLElement>(".acpmux-scroll")!;
   const scrollTo = async (top: number) => {
     scroller().scrollTop = top;
-    await act(async () => void scroller().dispatchEvent(new dom.window.Event("scroll")));
+    await scrolledFrame(scroller());
   };
   try {
     const long = span(0, 2000);
@@ -499,7 +503,7 @@ test("a keyboard-focused tick whose rail hides comes back with no tick held and 
   const scroller = () => document.querySelector<HTMLElement>(".acpmux-scroll")!;
   const scrollTo = async (top: number) => {
     scroller().scrollTop = top;
-    await act(async () => void scroller().dispatchEvent(new dom.window.Event("scroll")));
+    await scrolledFrame(scroller());
   };
   try {
     const long = span(0, 2000);

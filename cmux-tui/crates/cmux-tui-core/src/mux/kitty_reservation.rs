@@ -56,6 +56,56 @@ impl Mux {
         KittyImageWaveExpectation { mux: Arc::downgrade(self) }
     }
 
+    /// Size the Kitty image budget for `count` surviving terminals a start
+    /// will adopt, one [`KittyImageAdoptionExpectation`] each, before any of
+    /// them reserves.
+    pub(crate) fn expect_kitty_image_adoptions(
+        self: &Arc<Self>,
+        count: usize,
+    ) -> Vec<KittyImageAdoptionExpectation> {
+        if count == 0 {
+            return Vec::new();
+        }
+        {
+            let mut budget = self.kitty_image_budget.lock().unwrap_or_else(PoisonError::into_inner);
+            budget.expected_adoptions = budget.expected_adoptions.saturating_add(count);
+            Self::rebalance_kitty_image_budget_owners(&mut budget);
+        }
+        self.start_kitty_image_budget_worker();
+        (0..count).map(|_| KittyImageAdoptionExpectation { mux: Arc::downgrade(self) }).collect()
+    }
+
+    /// One counted adoption reserves as `slot`
+    /// ([`KittyImageAdoptionExpectation::name`]).
+    pub(super) fn name_kitty_image_adoption(
+        self: &Arc<Self>,
+        slot: SurfaceId,
+    ) -> KittyImageSurfaceExpectation {
+        {
+            let mut budget = self.kitty_image_budget.lock().unwrap_or_else(PoisonError::into_inner);
+            budget.expected_adoptions = budget.expected_adoptions.saturating_sub(1);
+            budget.expected.insert(slot);
+            Self::rebalance_kitty_image_budget_owners(&mut budget);
+        }
+        KittyImageSurfaceExpectation { mux: Arc::downgrade(self), surface: slot }
+    }
+
+    /// Give back the share of a counted adoption that never reserved.
+    pub(super) fn forget_kitty_image_adoption(self: &Arc<Self>) {
+        {
+            let mut budget = self.kitty_image_budget.lock().unwrap_or_else(PoisonError::into_inner);
+            if budget.expected_adoptions == 0 {
+                return;
+            }
+            budget.expected_adoptions -= 1;
+            Self::rebalance_kitty_image_budget_owners(&mut budget);
+        }
+        // A reservation waiting on the larger bucket may fit now, and the
+        // terminals that run may grow back.
+        self.kitty_image_budget_changed.notify_all();
+        self.start_kitty_image_budget_worker();
+    }
+
     /// Give back an expectation no reservation took: `surface`'s, and up to
     /// `wave` of a wave's.
     pub(super) fn forget_kitty_image_expectation(
