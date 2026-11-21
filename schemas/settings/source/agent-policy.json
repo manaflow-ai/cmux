@@ -1281,7 +1281,7 @@
     },
     {
       "agent": "userOnly",
-      "why": "On, Settings edits the MCP servers, skills and commands in Claude Code's and Codex's own config files: only the person turns that on.",
+      "why": "On, Settings shows and edits Claude Code's and Codex's own settings, MCP servers, skills, commands and hooks in their own config files: only the person turns that on.",
       "keys": [
         "labs.agentCustomization"
       ]
