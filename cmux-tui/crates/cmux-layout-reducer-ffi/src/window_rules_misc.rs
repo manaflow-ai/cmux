@@ -284,6 +284,11 @@ pub(crate) fn respond_misc(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, 
             let facts: launch::LandingFacts = read(request)?;
             value(launch::landing(&facts))?
         }
+        // A Home landing that waits for Home's workspace: wait, land in the saved front window, or stop.
+        b"window_launch_pending_home" => {
+            let facts: launch::PendingHome = read(request)?;
+            value(launch::pending_home(&facts))?
+        }
         // What a launch opens fresh: Home, a New Tab workspace, nothing until Home is ensured, or the saved windows.
         b"window_launch_fresh_landing" => {
             let facts: launch::FreshFacts = read(request)?;
