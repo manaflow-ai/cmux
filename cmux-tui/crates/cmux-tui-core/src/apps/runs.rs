@@ -10,6 +10,7 @@ use std::time::Instant;
 use super::host::HostProcess;
 use super::mirror::Origin;
 use super::supervisor::{ApiError, Host, HostKey, HostState, Inner, Out, Responder, Supervisor};
+use crate::panic_free::RecoverPoison;
 
 /// Answered runs kept for replay.
 const RUN_KEYS: usize = 256;
@@ -77,7 +78,7 @@ impl Supervisor {
     pub fn run(&self, request: RunRequest, respond: Responder) {
         let RunRequest { app, op, args, idempotency_key, origin, gesture, caller } = request;
         let outs = {
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = self.inner.lock().recover_poison();
             // Full names (`cmux.cloud.machine.list`) and short names run the
             // same op and share its idempotency keys.
             let op = match inner.catalog.packages.get(&app) {
@@ -157,7 +158,7 @@ impl Supervisor {
                 Ok(Box::new(move |result: Result<Value, ApiError>| {
                     let Some(me) = me.upgrade() else { return };
                     let waiters = {
-                        let mut inner = me.inner.lock().unwrap();
+                        let mut inner = me.inner.lock().recover_poison();
                         // Only an answer is stored; after a failure a retry runs again.
                         let previous = if result.is_ok() {
                             inner.run_keys.insert(key, RunKey::Done(result.clone()))
@@ -225,9 +226,16 @@ impl Supervisor {
             return Err(ApiError::new("apps.hidden", "the app is hidden from this surface"));
         }
         let Some(export) = export else {
+            Self::server_approved_locked(inner, app)?;
             Self::admit_server_op(inner, app, op, origin)?;
             return Ok(Target::Server);
         };
+        // A `js` server's op runs in the app host, behind the same gates as
+        // a server op (servers.rs).
+        if super::servers::kind(package) == Some("js") {
+            Self::server_approved_locked(inner, app)?;
+            Self::admit_server_op(inner, app, op, origin)?;
+        }
         if inner.safe_mode.is_some() {
             return Err(ApiError::new("apps.safe_mode", super::safe_mode::OFF));
         }

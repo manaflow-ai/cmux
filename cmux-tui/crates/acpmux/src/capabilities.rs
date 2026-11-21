@@ -116,8 +116,9 @@ pub const CAPABILITIES: &[Capability] = &[
     // the list's pages with `usage: true`.
     Capability { id: "session-usage-v1", wire: &[method::MUX_USAGE] },
     // Each local session summary says `hasDraft` and `workingBelow`, omitted when false
-    // (`protocol/session.rs`, `Hub::holds_work_below`). Only from a daemon that lists this id does a
-    // missing field mean false; the app's Update When Idle holds on any other (absent is unknown).
+    // (`protocol/session.rs`, `Hub::holds_work_below_read`). Only from a daemon that lists this
+    // id does a missing field mean false; the app's Update When Idle holds on any other (absent
+    // is unknown).
     Capability { id: SESSION_IDLE_FACTS, wire: &[method::MUX_SESSIONS] },
     // `_acpmux/info {sessionIds, row: true}`: the session list's rows of up to 100 chats by key,
     // the bytes `_acpmux/sessions` lists, and `_acpmux/status`'s `closedListed`. A list caller

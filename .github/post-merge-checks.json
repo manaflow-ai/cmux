@@ -22,10 +22,6 @@
     }
   },
   "workflows": {
-    "acpmux-sim-sweep.yml": {
-      "kind": "check",
-      "why": "the full acpmux simulation sweep runs per acpmux merge; pull requests run the fixed-window acpmux-sim (#48513)"
-    },
     "app-ffi-release.yml": {
       "kind": "publish",
       "why": "publishes the app FFI release from the base"
