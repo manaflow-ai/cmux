@@ -375,19 +375,22 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         defer { live.stop() }
         // The browser tab opens first, before anything connected.
         _ = await live.browserLink(macID: "m1")
-        let terminal = live.terminalSession(tabID: "s1", programName: "zsh", macID: "m1")
-        #expect(terminal != nil)
-        var states: [TerminalConnectionState] = []
-        if let terminal { states.append(terminal.connectionState) }
+        // The flag every terminal of the Mac reads, from launch until the Mac is live.
+        var saidOffline = live.sessions["m1"]?.terminalsOffline ?? false
         await settle {
-            if let terminal { states.append(terminal.connectionState) }
-            return store.macConnection["m1"] == .connected
+            saidOffline = saidOffline || (live.sessions["m1"]?.terminalsOffline ?? false)
+            return store.macDataPhase("m1") == .live
         }
         #expect(store.macConnection["m1"] == .connected)
         #expect(dialer.dialCount("m1") == 1)
-        #expect(!states.contains { if case .offline = $0 { true } else { false } })
-        // The browser tab reads the same link the terminal uses.
-        #expect(await live.browserLink(macID: "m1") != nil)
+        #expect(!saidOffline)
+        // Then the terminal: it rides the same link, and is not offline.
+        let terminal = live.terminalSession(tabID: "s1", programName: "zsh", macID: "m1")
+        #expect(terminal != nil)
+        if let terminal, case .offline = terminal.connectionState { Issue.record("terminal says offline on a live link") }
+        // Opening the browser tab again does not dial a second link.
+        _ = await live.browserLink(macID: "m1")
+        await drain()
         #expect(dialer.dialCount("m1") == 1)
     }
 
