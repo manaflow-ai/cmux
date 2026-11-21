@@ -74,12 +74,24 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
     }
 
     /// Folds one journaled event for a surface into a decision.
+    ///
+    /// - Parameter turnOverBefore: The notification reconciler's
+    ///   ``AgentNotificationReconciler/turnIsOver(for:)`` read just before it
+    ///   applied this event. An error that arrives once the agent ended its
+    ///   turn is a late report for that turn (a dropped connection surfacing
+    ///   on a wake), not a failure of work in progress.
+    /// - Parameter turnOverAfter: The same read just after `apply`, or `nil`
+    ///   when the caller has no reconciler and every completion ends the turn.
+    ///   A completion with background work or children still running, or the
+    ///   pane's own idle settlement, leaves it `false`: the turn may still fail.
     public mutating func observe(
         kind: AgentJournalEventKind,
         surfaceId: String,
         isSubagent: Bool,
         detail: String?,
-        sessionId: String? = nil
+        sessionId: String? = nil,
+        turnOverBefore: Bool = false,
+        turnOverAfter: Bool? = nil
     ) -> Action {
         // Nested agents report through their parent; resuming the parent
         // pane for a child's failure would inject text into the wrong turn.
@@ -102,6 +114,9 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
             // once through the error notification without one. An event with
             // no detail says nothing new, so it neither schedules nor cancels.
             guard let detail, !detail.isEmpty else { return .none }
+            // The turn this error would resume already finished, or is
+            // waiting on a human. Its completion cleared any pending resume.
+            guard !turnOverBefore else { return .none }
             var state = surfaces[surfaceId] ?? SurfaceState()
             guard classifier.isRetryable(detail: detail), state.streak < delays.count else {
                 let hadPending = state.pendingToken != nil
@@ -121,15 +136,10 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
             return .schedule(surfaceId: surfaceId, attempt: state.streak + 1, delay: delay, token: nextToken)
         case .turnCompleted:
             guard !isStaleLifecycleEvent(surfaceId: surfaceId, sessionId: sessionId) else { return .none }
-            // A turn finished normally: the agent recovered, so the failing
-            // streak and the marker's count are both over.
-            guard var state = surfaces[surfaceId] else { return .none }
-            let hadPending = state.pendingToken != nil
-            state.streak = 0
-            state.total = 0
-            state.pendingToken = nil
-            surfaces[surfaceId] = state
-            return hadPending ? .cancel(surfaceId: surfaceId) : .none
+            // Background work, a running child or the pane's own settlement:
+            // the turn may still fail, so the streak and marker count carry on.
+            guard turnOverAfter ?? true else { return cancelPending(surfaceId: surfaceId) }
+            return endTurn(surfaceId: surfaceId)
         case .turnStarted, .approvalRequested, .questionRequested, .planReviewRequested, .attentionResolved:
             guard !isStaleLifecycleEvent(surfaceId: surfaceId, sessionId: sessionId) else { return .none }
             // The agent is working again, or waits on a human: never type
@@ -152,11 +162,29 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
             return hadPending ? .cancel(surfaceId: surfaceId) : .none
         case .childSpawned, .childCompleted, .childFailed, .stateChanged,
              .idleObserved, .messagePublished:
-            // Progress and idle observations do not change whether the
+            // The last child finishing after the Stop, or a correction that
+            // restores idle, ends the turn the same way a completion does.
+            if turnOverAfter == true, !turnOverBefore,
+               !isStaleLifecycleEvent(surfaceId: surfaceId, sessionId: sessionId) {
+                return endTurn(surfaceId: surfaceId)
+            }
+            // Other progress and idle observations do not change whether the
             // errored turn still needs a resume. An idle prompt that follows
             // an error is exactly the state a resume addresses.
             return .none
         }
+    }
+
+    /// A turn finished normally: the agent recovered, so the failing streak
+    /// and the marker's count are both over.
+    private mutating func endTurn(surfaceId: String) -> Action {
+        guard var state = surfaces[surfaceId] else { return .none }
+        let hadPending = state.pendingToken != nil
+        state.streak = 0
+        state.total = 0
+        state.pendingToken = nil
+        surfaces[surfaceId] = state
+        return hadPending ? .cancel(surfaceId: surfaceId) : .none
     }
 
     /// Records that the scheduled resume for `token` was sent. Returns the
