@@ -9,6 +9,13 @@
 // keeps each channel icon inside the stable icon's shape: the banner is clipped
 // to the stable artwork's alpha, so the silhouette and the size stay the same.
 //
+// It first rebuilds every size of the stable AppIcon set, light and dark,
+// from its 1024 px master (512@2x.png, the cmux logo; the same art as
+// web/public/brand/app-icon-light.png and app-icon-dark.png). The smaller
+// files were older renders: 512.png (= 256@2x.png) had a dotted rim and a
+// lighter chevron, and macOS 26 and later judge an asset-catalog icon by its
+// 512 pt image, so they drew the stable icon shrunk inside a grey square.
+//
 // Usage: swift scripts/generate_channel_icons.swift   (from the repo root)
 
 import AppKit
@@ -32,6 +39,9 @@ private let channels = [
 
 private let files = ["16.png", "16@2x.png", "32.png", "32@2x.png", "128.png", "128@2x.png",
                      "256.png", "256@2x.png", "512.png", "512@2x.png"]
+
+/// Pixel width of each file in `files`.
+private let pixels = [16, 32, 32, 64, 128, 256, 256, 512, 512, 1024]
 
 private let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
 private let assets = root.appendingPathComponent("Assets.xcassets")
@@ -119,6 +129,23 @@ private func write(_ image: CGImage, to url: URL) {
     CGImageDestinationAddImage(dest, image, nil)
     guard CGImageDestinationFinalize(dest) else { fatalError("cannot write \(url.path)") }
 }
+
+private func resized(_ image: CGImage, to size: Int) -> CGImage {
+    let ctx = context(size, size)
+    ctx.interpolationQuality = .high
+    ctx.draw(image, in: CGRect(x: 0, y: 0, width: size, height: size))
+    return ctx.makeImage()!
+}
+
+let stable = assets.appendingPathComponent("AppIcon.appiconset")
+for suffix in ["", "_dark"] {
+    let master = load(stable.appendingPathComponent("512@2x\(suffix).png"))
+    for (file, size) in zip(files, pixels) where size < master.width {
+        let name = file.replacingOccurrences(of: ".png", with: "\(suffix).png")
+        write(resized(master, to: size), to: stable.appendingPathComponent(name))
+    }
+}
+print("wrote AppIcon")
 
 for channel in channels {
     for file in files {
