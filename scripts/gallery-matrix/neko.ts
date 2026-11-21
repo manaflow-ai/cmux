@@ -49,7 +49,7 @@ try {
           });
           try {
             const page = await context.newPage();
-            for (const set of ["noto", "fluent", "lucide", "authored", "earfold", "tailterm", "whisker"]) {
+            for (const set of ["noto", "fluent", "lucide", "authored", "earfold", "tailterm", "whisker", "r3tail", "r3mix"]) {
               const errors: string[] = [];
               const listener = (error: Error) => errors.push(error.message);
               page.on("pageerror", listener);
@@ -72,15 +72,11 @@ try {
               await stage
                 .locator("img")
                 .evaluateAll((images) => Promise.all(images.map((image) => (image as HTMLImageElement).decode())));
-              await stage.locator("[data-neko-drawing]").evaluateAll((elements) =>
-                Promise.all(
-                  elements.map((element) => {
-                    const image = new Image();
-                    image.src = (element as HTMLElement).dataset.nekoDrawing!;
-                    return image.decode();
-                  }),
-                ),
-              );
+              // Round drawings are inline SVG from the shared renderer; a candidate row must draw them.
+              if (["earfold", "tailterm", "whisker", "r3tail", "r3mix"].includes(set)) {
+                const drawn = await stage.locator("[data-neko-drawing] svg[data-icon] path").count();
+                if (drawn === 0) throw new Error(`${set}: no candidate drawings rendered`);
+              }
               const provenance = await page.locator("[data-gallery-revision]").evaluate((el) => ({
                 revision: (el as HTMLElement).dataset.galleryRevision,
                 source: (el as HTMLElement).dataset.gallerySource,

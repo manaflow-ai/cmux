@@ -62,8 +62,7 @@ struct SettingsButtonStyle: ButtonStyle {
             .foregroundStyle(destructive ? SettingsStyle.danger : SettingsStyle.text)
             .padding(.horizontal, Metrics.space4)
             .padding(.vertical, Metrics.space2)
-            .background(configuration.isPressed ? SettingsStyle.selection : SettingsStyle.hover,
-                        in: RoundedRectangle(cornerRadius: SettingsStyle.corner, style: .continuous))
-            .contentShape(Rectangle())
+            .cmuxPressFill(configuration.isPressed, rest: SettingsStyle.hover, pressed: SettingsStyle.selection,
+                           cornerRadius: SettingsStyle.corner)
     }
 }

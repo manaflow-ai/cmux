@@ -3,12 +3,16 @@
 //! Most of a new tab's launch is starting its host process. The owner keeps
 //! at most one host process that has only run `exec` and waits on its
 //! bootstrap pipe ([`StandbyTerminalHost`]): no identity, no PTY, no child,
-//! no timers, so it uses no CPU. A `new-tab` prelaunch adopts it and sends
-//! the tab's directory, command, environment and size in the Launch frame,
-//! so the spare never carries a previous tab's environment. Rules:
+//! no timers, so it uses no CPU. A `new-tab` prelaunch adopts it, and so
+//! does a create whose host launches inside its creation (a split or pane
+//! without a size, a new screen or workspace, `Mux::take_spare_terminal_host`).
+//! The adopter sends the terminal's directory, command, environment and size
+//! in the Launch frame, so the spare never carries a previous tab's
+//! environment. Rules:
 //!
-//! - Lazy: the spare exists only after the first new tab of this owner, so a
-//!   headless daemon that never opens a tab never starts one.
+//! - Lazy: the spare exists only after the first terminal create of this
+//!   owner, so a headless daemon that never creates a terminal never starts
+//!   one.
 //! - A burst of new tabs takes the spare once; the rest launch as before. The
 //!   refill runs on the terminal work pool, one at a time, cap one spare.
 //! - A spare that died before adoption is dropped and the tab launches as

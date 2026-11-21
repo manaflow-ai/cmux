@@ -40,7 +40,7 @@ struct AgentPaneComposerRingSettingTests {
     }
 
     @Test func sitsNextToShowContextUsageOnTheSettingsPage() {
-        let keys = SettingsPageLayout.specs.first { $0.id == "agents" }?.groups.flatMap(\.keys) ?? []
+        let keys = SettingsPageLayout.specs.first { $0.id == "chat" }?.groups.flatMap(\.keys) ?? []
         let show = keys.firstIndex(of: "agentPane.showContextUsage")
         let ring = keys.firstIndex(of: "agentPane.composerRing")
         #expect(show != nil && ring == show.map { $0 + 1 })

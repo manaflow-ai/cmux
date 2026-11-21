@@ -1949,40 +1949,23 @@ fn png_dimensions(data_b64: &str) -> Option<(u32, u32)> {
     (width > 0 && height > 0).then_some((width, height))
 }
 
+/// The decoded length of canonical padded standard base64, or `None`. It
+/// decodes through a stack buffer, so a frame is checked without a copy.
 fn canonical_base64_decoded_len(input: &str) -> Option<usize> {
-    let bytes = input.as_bytes();
-    if !bytes.len().is_multiple_of(4) {
-        return None;
+    // A multiple of 4, so only the last chunk may end in padding.
+    const CHUNK: usize = 4 * 256;
+    let mut buffer = [0_u8; CHUNK / 4 * 3];
+    let mut chunks = input.as_bytes().chunks(CHUNK).peekable();
+    let mut len = 0_usize;
+    while let Some(chunk) = chunks.next() {
+        if chunks.peek().is_some() && chunk.last() == Some(&b'=') {
+            return None;
+        }
+        len = len.checked_add(
+            base64::engine::general_purpose::STANDARD.decode_slice(chunk, &mut buffer).ok()?,
+        )?;
     }
-    let padding = bytes.iter().rev().take_while(|byte| **byte == b'=').count();
-    if padding > 2 {
-        return None;
-    }
-    let data_len = bytes.len().checked_sub(padding)?;
-    if !bytes[..data_len].iter().all(|byte| base64_value(*byte).is_some()) {
-        return None;
-    }
-    if !bytes[data_len..].iter().all(|byte| *byte == b'=') {
-        return None;
-    }
-    if padding == 1 && base64_value(*bytes.get(data_len.checked_sub(1)?)?)? & 0b11 != 0 {
-        return None;
-    }
-    if padding == 2 && base64_value(*bytes.get(data_len.checked_sub(1)?)?)? & 0b1111 != 0 {
-        return None;
-    }
-    bytes.len().checked_div(4)?.checked_mul(3)?.checked_sub(padding)
-}
-
-fn base64_value(byte: u8) -> Option<u8> {
-    match byte {
-        b'A'..=b'Z' => Some(byte - b'A'),
-        b'a'..=b'z' => Some(byte - b'a' + 26),
-        b'0'..=b'9' => Some(byte - b'0' + 52),
-        b'+' => Some(62),
-        b'/' => Some(63),
-        _ => None,
-    }
+    Some(len)
 }
 
 fn target_info(params: &Value, session_id: Option<&str>) -> Option<TargetInfo> {

@@ -454,34 +454,6 @@ fn digest_json(surface: SurfaceId, digest: &TerminalSnapshotDigest) -> Value {
     })
 }
 
-/// The `output`/`colors-changed` event of a snapshot viewer, or `None` for a
-/// frame a snapshot viewer never receives (grid changes become snapshots).
-fn frame_json(
-    surface: SurfaceId,
-    frame: &AttachFrame,
-    generation: u64,
-    offset: u64,
-) -> Option<Value> {
-    match frame {
-        AttachFrame::Output(output) => Some(json!({
-            "event": "output", "surface": surface, "data": base64(output),
-            "generation": generation, "offset": offset,
-        })),
-        AttachFrame::OutputWithColors { output, colors } => Some(json!({
-            "event": "output", "surface": surface, "data": base64(output),
-            "generation": generation, "offset": offset,
-            "colors": terminal_colors_json(**colors, true),
-        })),
-        AttachFrame::ColorsChanged(colors) => {
-            let mut value = terminal_colors_json(**colors, true);
-            value.insert("event", json!("colors-changed"));
-            value.insert("surface", json!(surface));
-            Some(value)
-        }
-        AttachFrame::Resized { .. } | AttachFrame::ResizedWithColors { .. } => None,
-    }
-}
-
 fn frame_output_len(frame: &AttachFrame) -> usize {
     match frame {
         AttachFrame::Output(output) | AttachFrame::OutputWithColors { output, .. } => output.len(),
@@ -528,11 +500,42 @@ impl SnapshotWorker {
             return true;
         }
         let bytes = std::mem::take(&mut self.hidden_batch);
-        let value = json!({
-            "event": "output", "surface": self.surface_id, "data": base64(&bytes),
-            "generation": self.generation, "offset": self.offset,
-        });
-        self.send(&value)
+        self.send_output(&bytes, None)
+    }
+
+    /// Send one `output` event at the viewer's position.
+    fn send_output(&self, output: &[u8], colors: Option<&Value>) -> bool {
+        match self.writer.send_snapshot_output_backpressured(
+            self.surface_id,
+            output,
+            (self.generation, self.offset),
+            colors,
+            &self.outbound_stream,
+        ) {
+            Ok(()) => true,
+            Err(error) => {
+                handle_attach_send_error(&self.lifecycle, &error);
+                false
+            }
+        }
+    }
+
+    /// Send `frame` as the event a snapshot viewer gets for it (none for a
+    /// grid change, which becomes a snapshot).
+    fn send_frame(&self, frame: &AttachFrame) -> bool {
+        match frame {
+            AttachFrame::Output(output) => self.send_output(output, None),
+            AttachFrame::OutputWithColors { output, colors } => {
+                self.send_output(output, Some(&terminal_colors_json(**colors, true)))
+            }
+            AttachFrame::ColorsChanged(colors) => {
+                let mut value = terminal_colors_json(**colors, true);
+                value.insert("event", json!("colors-changed"));
+                value.insert("surface", json!(self.surface_id));
+                self.send(&value)
+            }
+            AttachFrame::Resized { .. } | AttachFrame::ResizedWithColors { .. } => true,
+        }
     }
 
     fn send(&self, value: &Value) -> bool {
@@ -678,11 +681,7 @@ impl SnapshotWorker {
                     if frame_output_len(&frame) > 0 {
                         digest_at = Some(Instant::now() + SNAPSHOT_DIGEST_IDLE);
                     }
-                    flushed
-                        && match frame_json(self.surface_id, &frame, self.generation, self.offset) {
-                            Some(value) => self.send(&value),
-                            None => true,
-                        }
+                    flushed && self.send_frame(&frame)
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) if self.tail.is_some() => {
                     self.send_tail_chunk()
@@ -916,6 +915,111 @@ pub(super) fn attach_overflow_json(surface: SurfaceId) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The JSON value the worker built for each event before it wrote
+    /// `output` events straight into the outbound buffer.
+    fn frame_json_reference(
+        surface: SurfaceId,
+        frame: &AttachFrame,
+        generation: u64,
+        offset: u64,
+    ) -> Option<Value> {
+        match frame {
+            AttachFrame::Output(output) => Some(json!({
+                "event": "output", "surface": surface, "data": base64(output),
+                "generation": generation, "offset": offset,
+            })),
+            AttachFrame::OutputWithColors { output, colors } => Some(json!({
+                "event": "output", "surface": surface, "data": base64(output),
+                "generation": generation, "offset": offset,
+                "colors": terminal_colors_json(**colors, true),
+            })),
+            AttachFrame::ColorsChanged(colors) => {
+                let mut value = terminal_colors_json(**colors, true);
+                value.insert("event", json!("colors-changed"));
+                value.insert("surface", json!(surface));
+                Some(value)
+            }
+            AttachFrame::Resized { .. } | AttachFrame::ResizedWithColors { .. } => None,
+        }
+    }
+
+    /// Serializing one 64 KiB `output` event: the value path against the
+    /// direct writer. Run on the fleet:
+    /// `cargo test -p cmux-tui-core --release --lib snapshot_output_event_bench -- --ignored --nocapture`
+    #[test]
+    #[ignore = "bench"]
+    fn snapshot_output_event_bench() {
+        let service = crate::server::RenderService::new();
+        let output: Vec<u8> = (0..64 * 1024).map(|index| (index % 251) as u8).collect();
+        let frame = AttachFrame::Output(output.clone());
+        let rounds = 2_000u32;
+        let start = Instant::now();
+        for round in 0..rounds {
+            let value = frame_json_reference(1, &frame, 1, u64::from(round)).unwrap();
+            std::hint::black_box(service.serialize(&value).unwrap());
+        }
+        let value_path = start.elapsed() / rounds;
+        let start = Instant::now();
+        for round in 0..rounds {
+            std::hint::black_box(
+                service.serialize_snapshot_output(1, &output, 1, u64::from(round), None).unwrap(),
+            );
+        }
+        let direct = start.elapsed() / rounds;
+        println!("SNAPSHOT-OUTPUT-BENCH 64KiB value_path={value_path:?} direct={direct:?}");
+    }
+
+    /// A snapshot viewer's `output` event is byte-identical to the line the
+    /// worker serialized from a JSON value: every base64 padding length,
+    /// binary bytes, an empty chunk, large offsets, with and without colors.
+    #[test]
+    fn snapshot_output_events_match_the_value_serialization() {
+        let service = crate::server::RenderService::new();
+        let colors = crate::TerminalColors {
+            fg_override: Some(ghostty_vt::Rgb { r: 1, g: 2, b: 3 }),
+            ..crate::TerminalColors::default()
+        };
+        let outputs: Vec<Vec<u8>> = vec![
+            Vec::new(),
+            b"a".to_vec(),
+            b"ab".to_vec(),
+            b"abc".to_vec(),
+            (0..=255u8).collect(),
+            b"\x1b[31m\"quoted\" \\ back\x1b[0m\r\n".repeat(400),
+        ];
+        for output in outputs {
+            for (generation, offset) in [(0, 0), (7, 1 << 40), (u64::MAX, u64::MAX)] {
+                let frames = [
+                    AttachFrame::Output(output.clone()),
+                    AttachFrame::OutputWithColors {
+                        output: output.clone(),
+                        colors: Box::new(colors),
+                    },
+                ];
+                for frame in frames {
+                    let value = frame_json_reference(42, &frame, generation, offset).unwrap();
+                    let expected = service.serialize(&value).unwrap();
+                    let with_colors = match &frame {
+                        AttachFrame::OutputWithColors { colors, .. } => {
+                            Some(terminal_colors_json(**colors, true))
+                        }
+                        _ => None,
+                    };
+                    let written = service
+                        .serialize_snapshot_output(
+                            42,
+                            &output,
+                            generation,
+                            offset,
+                            with_colors.as_ref(),
+                        )
+                        .unwrap();
+                    assert_eq!(written.as_bytes(), expected.as_bytes());
+                }
+            }
+        }
+    }
 
     #[test]
     fn snapshot_throttled_reply_names_its_request() {

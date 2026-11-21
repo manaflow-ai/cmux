@@ -1,5 +1,8 @@
 # React screens: which Swift screens move to React pages
 
+> Superseded for native chrome and Home by `language-layers.md` (2026-11-09): those are Swift. The
+> MOVE verdicts below hold only for full tab pages.
+
 Lawrence (2026-10-10): every complicated Swift screen in cmux-next becomes a React page, built like
 History; the iMessage-style Home pane stays native (the channels Home page is its React
 alternative). Epic bead: cx-0rpl.

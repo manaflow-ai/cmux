@@ -93,12 +93,11 @@ impl Hub {
         sender: Option<&str>,
         by: &str,
     ) -> Vec<String> {
-        let (gone, mut ledger) = {
-            let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            let gone = take(session, &mut queue, key, sender, by);
-            // Pinned before the queue lets them go, as `remove_queued_with` pins one.
-            (gone, session.prompts.lock().unwrap_or_else(|e| e.into_inner()))
-        };
+        // Taken out and logged under one lock, as `remove_queued_by` does.
+        let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let gone = take(session, &mut queue, key, sender, by);
+        // Pinned before the queue lets them go, as `remove_queued_with` pins one.
+        let mut ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
         self.settle_superseded(session, gone, &mut ledger, by)
     }
 

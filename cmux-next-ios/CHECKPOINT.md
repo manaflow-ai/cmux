@@ -32,7 +32,7 @@ Branch `feat-cnx-ios` (integration). Checkpoint branch: `feat-cnx-ios-checkpoint
 | Mac app (cmux-next + bundled `cmux-mobile-host`) | Side-by-side production build "cmux NEXT mobile" running on the user's Mac | `~/cmux-mobile-builds/20261013-2f984af108-mac-prod/`; source `feat-cnx-ios-machost` |
 | Dev backend | `https://cmux-mobile-api-dev.debussy.workers.dev` (dev + prod Stack) | `cmux-next-ios/backend` |
 | Prod backend | `https://mobile-api.cmux.dev` (API 0.7.0, prod Stack only), PlanetScale `cmux/cmux-next-ios-prod` | `cmux-next-ios/backend` |
-| Shared UI packages | CmuxTabsKit == origin/feat-cmux-next-tabs-kit 0ea4df4e; CmuxConversation == origin/feat-imsg-parity-gui c735526c | `cmux-next-ios/scripts/check-tabskit-sync.sh` |
+| Shared UI packages | CmuxTabsKit and CmuxConversation live in feat-cmux-next (the only copy since 2026-11-11) | `Packages/iOS/AGENTS.md` |
 
 Pairing between the user's real iPhone and real Mac works (WebRTC direct, WireGuard via TURN).
 Note: the next iOS production build points at the PROD Worker; the running Mac app still
@@ -62,7 +62,7 @@ Apple sign-in, device removal, notarized Mac app); Chief over the link approved.
 
 ## How to resume
 
-1. `git -C worktrees/feat-cnx-ios pull`; `cmux-next-ios/scripts/check-tabskit-sync.sh`.
+1. `git -C worktrees/feat-cnx-ios pull`.
 2. Build: `cmux-next-ios/scripts/demo-build.sh --config Production --ref <sha> --skip-mac`.
 3. Install: `xcrun devicectl device install app --device 00008150-0005154E0E84401C <app>`.
 4. E2E: `cmux-next-ios/verify/e2e/run.sh` (once the e2erig agent lands it).

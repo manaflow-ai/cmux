@@ -119,7 +119,7 @@ final class AgentDriveIndicatorView: ClickableButton {
         switch variant {
         case .capsule:
             fill.frame = b
-            fill.cornerRadius = b.height / 2
+            fill.cornerRadius = b.height / 2 // radius-allow: the agent-drive status capsule, a status mark
             glyph.frame = CGRect(x: Metrics.space1 * 1.5, y: (b.height - g) / 2, width: g, height: g)
             let size = nameLabel.naturalSize
             nameLabel.frame = NSRect(x: glyph.frame.maxX + Metrics.space1, y: (b.height - ceil(size.height)) / 2,
@@ -130,14 +130,14 @@ final class AgentDriveIndicatorView: ClickableButton {
         case .badge:
             let d = min(b.width, b.height)
             fill.frame = CGRect(x: (b.width - d) / 2, y: (b.height - d) / 2, width: d, height: d)
-            fill.cornerRadius = d / 2
+            fill.cornerRadius = d / 2 // radius-allow: a round status badge
             let inner = g - 3
             glyph.frame = CGRect(x: (b.width - inner) / 2, y: (b.height - inner) / 2, width: inner, height: inner)
         case .dot:
             let d = SidebarStyle.dotSize
             // Width equals height and the radius is half of it: a true circle.
             fill.frame = CGRect(x: (b.width - d) / 2, y: (b.height - d) / 2, width: d, height: d)
-            fill.cornerRadius = d / 2
+            fill.cornerRadius = d / 2 // radius-allow: a status dot
             glyph.frame = .zero
         }
     }

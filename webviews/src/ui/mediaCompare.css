@@ -79,7 +79,7 @@
   appearance: none;
 }
 .ui-compare-range::-webkit-slider-thumb { -webkit-appearance: none; width: 32px; height: 100vh; }
-.ui-compare:has(.ui-compare-range:focus-visible) .ui-compare-handle svg { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }
+.ui-compare:has(.ui-compare-range:focus-visible) .ui-compare-handle .ui-compare-glyph { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }
 /* Side by side: each half its own picture, from its top left, under its label. */
 .ui-compare[data-mode="side"] { grid-template-columns: 1fr 1fr; gap: var(--ds-space-1); }
 .ui-compare[data-mode="side"] .ui-compare-pane[data-side="before"] { position: relative; inset: auto; grid-area: 1 / 1; }
@@ -121,5 +121,5 @@
   font: inherit;
   font-size: var(--text-detail);
 }
-.ui-compare-switch button[aria-pressed="true"] { background: var(--ui-compare-hover); color: var(--ui-compare-text); font-weight: 600; }
+.ui-compare-switch button[aria-pressed="true"] { background: var(--ui-compare-hover); color: var(--ui-compare-text); }
 .ui-compare-switch button:focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: -2px; }

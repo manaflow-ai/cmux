@@ -38,6 +38,7 @@ public final class OmnibarTabBinding {
             httpsFallback.expect(url, current: tab.state.loadError)
         }
         addressBar.bindKeywords(of: tab)
+        addressBar.bindPreloading(of: tab)
         observation = ObservationLoop { [weak self] in self?.render() }
     }
 

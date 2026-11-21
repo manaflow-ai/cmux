@@ -68,7 +68,7 @@ final class HomeTableShimmer {
     /// A skeleton block (the card's own fill under the bitmap's skeleton colour) with the light band in it.
     private static func make() -> CALayer {
         let block = CALayer()
-        block.cornerRadius = 8
+        block.cornerRadius = HomeCardDraw.pictureRadius
         block.masksToBounds = true
         block.addSublayer(CALayer())
         let band = CAGradientLayer()

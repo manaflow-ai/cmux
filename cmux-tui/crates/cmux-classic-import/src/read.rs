@@ -1,6 +1,8 @@
-//! The classic save a run reads: the channel the [`Finder`] picks, trying
-//! its session file, `-previous` copy and newest archive in turn until one
-//! decodes. A local folder that is gone opens the home folder.
+//! The classic save a run reads: the channels the [`Finder`] orders, newest
+//! save first, trying each one's session file, `-previous` copy and newest
+//! archive in turn until one decodes. A local folder that is gone opens the
+//! home folder, and each terminal's scrollback is the text its new shell
+//! prints ([`crate::replay`]).
 
 use std::path::{Path, PathBuf};
 
@@ -20,13 +22,13 @@ pub struct Save {
 }
 
 /// The save a run reads; `file` reads only that file (as stable's), else
-/// the finder's candidates. None when classic saved nothing readable; an
+/// every channel's candidates, newest channel first. None when classic saved nothing readable; an
 /// error only when the one file there is could not be read, so a damaged
 /// session with a good copy beside it still migrates.
 pub fn read(finder: &Finder, file: Option<&Path>, home: &Path) -> Result<Option<Save>, Error> {
     let candidates = match file {
         Some(file) => vec![(file.to_path_buf(), STABLE_BUNDLE_ID.to_string())],
-        None => finder.candidates(None),
+        None => finder.all_candidates(),
     };
     let home_text = home.to_string_lossy();
     let mut skipped = Vec::new();
@@ -39,12 +41,17 @@ pub fn read(finder: &Finder, file: Option<&Path>, home: &Path) -> Result<Option<
                 continue;
             }
         };
-        let opened =
-            snapshot.opening_missing_folders(&home_text, &|folder| Path::new(folder).is_dir());
+        let opened = snapshot
+            .opening_missing_folders(&home_text, &|folder| Path::new(folder).is_dir())
+            .replaying_scrollback();
         let Some(source) = finder.source(path, bundle, opened.created_at) else { continue };
+        // Only the read channel's files are backed up: another channel's stale save may be huge.
         let mut backups = vec![path.clone()];
         backups.extend(
-            candidates.iter().map(|(other, _)| other.clone()).filter(|other| other != path),
+            candidates
+                .iter()
+                .filter(|(other, channel)| channel == bundle && other != path)
+                .map(|(other, _)| other.clone()),
         );
         return Ok(Some(Save { snapshot: opened, source, backups, skipped }));
     }
@@ -89,8 +96,9 @@ pub fn resume(finder: &Finder, source: &Source, backups: &Path, home: &Path) -> 
         if !same {
             continue;
         }
-        let opened =
-            snapshot.opening_missing_folders(&home_text, &|folder| Path::new(folder).is_dir());
+        let opened = snapshot
+            .opening_missing_folders(&home_text, &|folder| Path::new(folder).is_dir())
+            .replaying_scrollback();
         return Some(Save {
             snapshot: opened,
             source: source.clone(),

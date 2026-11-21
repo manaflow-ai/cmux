@@ -189,7 +189,7 @@ describe("APNs payload and sender", () => {
   })
 
   it("collapses a session's finished turns into one notification and keeps each ask", () => {
-    const target: PushRegistration = { deviceId: "d", ownerUserId: "o", token: "aa", environment: "production", topic: "dev.cmux.mobile", kinds: ["completed"], mutedMacs: [], previews: true, updatedAt: "" }
+    const target: PushRegistration = { deviceId: "d", space: "", ownerUserId: "o", token: "aa", environment: "production", topic: "dev.cmux.mobile", kinds: ["completed"], mutedMacs: [], previews: true, updatedAt: "" }
     const done = { ...event, kind: "completed" as const, eventId: "t-s1-t9" }
     // A newer finished turn (or error, or Chief reply) of the same session replaces the older one.
     expect(collapseId(done)).toBe("turn-s1")
@@ -235,6 +235,7 @@ describe("APNs payload and sender", () => {
     const config = { keyP8: await exportPKCS8(privateKey), keyId: "KEY123", teamId: "TEAM123" }
     const target = (token: string, environment: "sandbox" | "production"): PushRegistration => ({
       deviceId: "d",
+      space: "",
       ownerUserId: "o",
       token,
       environment,
@@ -265,6 +266,7 @@ describe("APNs payload and sender", () => {
     const config = { keyP8: await exportPKCS8(privateKey), keyId: "KEY456", teamId: "TEAM456" }
     const target: PushRegistration = {
       deviceId: "phone",
+      space: "",
       ownerUserId: "owner",
       token: "cc".repeat(32),
       environment: "sandbox",

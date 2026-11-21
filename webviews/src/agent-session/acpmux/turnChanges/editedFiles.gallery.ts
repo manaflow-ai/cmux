@@ -61,6 +61,31 @@ function turn(files: Edit[], prompt = "Add retries with backoff to the fetch hel
   ]);
 }
 
+/// Two finished turns that each edited files: an earlier card and the chat's latest one.
+function twoTurns() {
+  return chat([
+    user("Add retries with backoff to the fetch helper", 12),
+    activity(
+      FILES.map((file) => tool(`Edit ${file.path}`, "edit", "completed", { diffs: [file] })),
+      11.9,
+    ),
+    assistant("Done: the client retries through withRetry, with tests.", 11.2),
+    summary(11.2, { status: "completed", toolCount: FILES.length }),
+    user("Make the retry count a setting", 6),
+    activity(
+      [
+        tool(`Edit ${FILES[1]!.path}`, "edit", "completed", {
+          diffs: [{ ...FILES[1]!, oldText: retry, newText: retry.replace("3", "5") }],
+        }),
+      ],
+      5.9,
+    ),
+    assistant("The retry count reads the setting now.", 5.2),
+    summary(5.2, { status: "completed", toolCount: 1 }),
+  ]);
+}
+const EARLIER = ".acpmux-edited[data-earlier]";
+
 const setting =
   (value: Record<string, unknown>): Play =>
   async ({ document, waitFor }) => {
@@ -88,6 +113,32 @@ const expandAll: Play = async (ctx) => {
 };
 
 const variants: Record<string, AgentPaneVariant> = {
+  "earlier-at-rest": {
+    note: "Two turns that edited files: only the latest card shows Undo and View changes at rest; the earlier card's wait for hover or focus.",
+    height: 700,
+    snapshot: twoTurns(),
+    play: async ({ waitFor, document }) => {
+      await waitFor(() => document.querySelector(EARLIER));
+    },
+  },
+  "earlier-hovered": {
+    note: "The pointer on the earlier card: its Undo and View changes fade in where they always sit.",
+    height: 700,
+    snapshot: twoTurns(),
+    play: async ({ hover, waitFor, document }) => {
+      await waitFor(() => document.querySelector(EARLIER));
+      await hover({ selector: `${EARLIER} .acpmux-edited-head` });
+    },
+  },
+  "earlier-focused": {
+    note: "Tab onto the earlier card's View changes: its buttons show for the keyboard too.",
+    height: 700,
+    snapshot: twoTurns(),
+    play: async ({ focus, waitFor, document }) => {
+      await waitFor(() => document.querySelector(`${EARLIER} .acpmux-review-changes`));
+      await focus({ selector: `${EARLIER} .acpmux-review-changes` });
+    },
+  },
   "one-file": {
     note: "One edited file: the card names it; Undo and View changes.",
     snapshot: turn([FILES[0]!], "Wrap fetch in withRetry"),
