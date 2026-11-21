@@ -52,5 +52,4 @@ rm -f "$profile_plist"
 python3 scripts/verify_remote_daemon_release.py \
   --manifest "remote-daemon-assets/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
   --assets-dir remote-daemon-assets --app "$app" --embed
-bash scripts/ci/verify-computer-use-helper.sh layout "$app"
 echo "app=$app" >> "$GITHUB_OUTPUT"

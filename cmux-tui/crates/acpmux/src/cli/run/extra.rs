@@ -281,7 +281,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 print_json(&v)
             } else if v.get("pending").and_then(Value::as_bool) == Some(true) {
                 println!(
-                    "sent a one-time code into this session's inbox: it arrives as a message from acpmux; run the `acpmux register {name} --code ...` it gives to finish"
+                    "sent a one-time code into this session's inbox: it arrives as a message from acpmux; run the `{} register {name} --code ...` it gives to finish",
+                    crate::cli::entry::program()
                 );
             } else {
                 let field =
@@ -299,14 +300,26 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::Rename { session, new_name } => {
+        Command::Rename { session, new_name, handle } => {
             let client = connect(true).await?;
-            let id = resolve_id(&client, &session).await?;
-            let v = client
-                .request(method::MUX_RENAME, json!({"sessionId": id, "newName": new_name}))
-                .await?;
+            let id = if handle {
+                crate::cli::resolve::control_id(&client, &session).await?
+            } else {
+                resolve_id(&client, &session).await?
+            };
+            let params = if handle {
+                json!({"sessionId": id, "newHandle": new_name})
+            } else {
+                json!({"sessionId": id, "newName": new_name})
+            };
+            let v = client.request(method::MUX_RENAME, params).await?;
             if json_out {
                 print_json(&v)
+            } else if handle {
+                println!(
+                    "{}",
+                    v["handle"].as_str().ok_or_else(|| anyhow!("rename returned no handle"))?
+                );
             } else {
                 println!("renamed")
             }
@@ -468,22 +481,24 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::MoveSessions {
+        Command::MoveSessions(crate::cli::command::MoveSessionsArgs {
             sessions,
             host,
             all_idle,
             interrupt,
+            after_turn,
             leave_dirty,
             carry_changes,
             cwd,
             dry_run,
             from,
-        } => {
+        }) => {
             let args = super::session_move::MoveArgs {
                 sessions,
                 host,
                 all_idle,
                 interrupt,
+                after_turn,
                 leave_dirty,
                 carry_changes,
                 cwd,
@@ -493,8 +508,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             };
             super::session_move::run(args, json_out).await
         }
-        Command::Transfer { session, to, cwd, name, interrupt } => {
-            super::transfer::run(&session, &to, cwd, name, interrupt, json_out).await
+        Command::Transfer { session, to, cwd, name, interrupt, after_turn } => {
+            super::transfer::run(&session, &to, cwd, name, interrupt, after_turn, json_out).await
         }
         Command::Import { path, name } => {
             let client = connect(true).await?;
@@ -1217,6 +1232,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     let list =
                         peers.get("peers").and_then(Value::as_array).cloned().unwrap_or_default();
                     let (name, host, port) = crate::cli::host_enroll::pick_target(&list, &target);
+                    if !json_out
+                        && let Some(note) = crate::cli::host_enroll::hub_route_note(&list, &name)
+                    {
+                        println!("{note}");
+                    }
                     let plan = crate::cli::host_enroll::Plan {
                         name,
                         host,

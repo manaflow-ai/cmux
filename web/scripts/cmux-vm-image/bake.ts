@@ -4,7 +4,10 @@
  *
  * Usage (from web/):
  *   bun ../images/cmux-vm/bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>]
- *       [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree] [--layered]
+ *       [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree] [--layered] [--large]
+ *
+ * - --large: a second snapshot of the same builder, grown to the default Cloud chat start size (large-image.ts),
+ *   named <name>-large and recorded as `large` in the result. The image's own snapshot, id and fields do not change.
  *
  * - --layered: the image as cached layers, system -> agents -> app (layers.ts); only a layer whose inputs
  *   changed rebuilds. Dev snapshots only; the full bake stays the weekly and manual source of truth.
@@ -75,6 +78,7 @@ import { npmCachePrefillCommand, npmCacheSizeCommand } from "./dep-cache";
 import {
   cmuxTuiWebsocketSmokeCommand,
   DEVBOX_INSTANCE_ID_COMMAND,
+  devboxClaudeSettingsDefaultsCommand,
   devboxFileBytes,
   devboxGhosttyVersion,
   devboxIdentityCheckCommand,
@@ -111,6 +115,7 @@ import {
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { DNS_CHECK_PATH, dnsCheckScript, resolverBakeCommand } from "./dns";
 import { MACHINE_HEALTH_ARM_COMMAND, machineHealthBakeCommand, machineHealthFiles } from "./machine-health";
+import { growToShape, LARGE_IMAGE_SHAPE, type LargeImageRecord, largeImageName, MEMORY_GUARD_REFRESH_COMMAND, memoryGuardProblems, ROOT_DEVICE_COMMAND } from "./large-image";
 import {
   argValue,
   createVm,
@@ -269,6 +274,12 @@ export type BakeOptions = {
    * smoke): they were 73 s of a warm per-commit bake. --layered only.
    */
   deferInventory?: boolean;
+  /**
+   * Also snapshot the builder grown to LARGE_IMAGE_SHAPE (large-image.ts), after the image's own snapshot: the
+   * same tree at the size a default Cloud chat start asks for. Dev snapshots only. A failure here never fails
+   * the bake: the image's own snapshot is already taken, and nothing boots the large one yet.
+   */
+  large?: boolean;
 };
 
 /**
@@ -1024,6 +1035,8 @@ async function writeModelPlane(ctx: Ctx): Promise<void> {
   await writeGuestFile(vm, VM_GUEST_MODEL_PLANE_ENV_PATH, renderVmGuestModelPlaneEnvFile(vmGuestModelPlaneEnv()), 0o644);
   for (const file of AGENT_SIGN_IN_FILES) await writeGuestFile(vm, file.path, devboxFileBytes(file.name), 0o644);
   await L.step(vm, "agent-sign-in", agentSignInCheckCommand());
+  // After wireCmuxTui, whose hook install wrote the work user's ~/.claude/settings.json; this only adds keys it lacks.
+  await L.step(vm, "claude-settings-defaults", devboxClaudeSettingsDefaultsCommand());
   await L.step(vm, "agent-model-route-dirs", `install -d -m 755 /etc/claude-code /etc/codex ${AGENT_MODEL_ROUTE_DIR}`);
   for (const file of agentModelRouteFiles()) await writeGuestFile(vm, file.path, file.text, file.mode);
   await writeGuestFile(vm, AGENT_MODEL_ROUTE_SYNC_PATH, agentModelRouteSyncScript(), 0o755);
@@ -1246,7 +1259,38 @@ async function allSnapshots(fs: ReturnType<typeof freestyleClient>): Promise<Arr
 }
 const SNAPSHOT_PAGE = 100;
 
-/** One builder from `from`, `steps` on it, its snapshot slugged `name`; the builder is deleted unless kept. */
+/**
+ * The large image (large-image.ts): the builder, already snapshotted as the image, grown to LARGE_IMAGE_SHAPE and
+ * snapshotted again as `<name>-large`. Only the resize and checks run in between, so both snapshots hold one tree;
+ * the checks that guard the image's snapshot (nothing writing under /tmp, no per-machine file, the health timer
+ * armed with no pass recorded) run again right before this one.
+ */
+async function snapshotLarge(vm: Vm, name: string, options: BakeOptions, ledger: Ledger, L: StepLog, parentSlug?: string): Promise<LargeImageRecord> {
+  const t0 = Date.now();
+  const largeName = largeImageName(name);
+  const grow = await growToShape(vm);
+  L.log(`LARGE grow ${JSON.stringify(grow)}`);
+  // The memory guards are percentages systemd resolved at the small size: reload them, and refuse a stale one.
+  const guards = memoryGuardProblems(await L.step(vm, "large-memory-guards", MEMORY_GUARD_REFRESH_COMMAND));
+  if (guards.length > 0) throw new Error(`the memory guards did not follow the new size: ${guards.join("; ")}`);
+  const rootDevice = (await L.step(vm, "large-root-device", ROOT_DEVICE_COMMAND)).trim();
+  await L.step(vm, "large-tmp-no-writer", tmpWritersCommand());
+  await L.step(vm, "large-snapshot-ready", snapshotReadyCommand());
+  await L.step(vm, "large-machine-health-arm", MACHINE_HEALTH_ARM_COMMAND);
+  const tSnap = Date.now();
+  // The same parent label as the image's own snapshot, so gc-layers.ts keeps the layers this one was built on.
+  const snap = await vm.snapshot({ displayName: options.layered ? layerLabel(largeName, parentSlug) : largeName, slug: largeName });
+  if (!snap?.snapshotId) throw new Error("large snapshot response carried no id");
+  ledger.record(snap.snapshotId, "snapshot", largeName);
+  const snapshotMs = Date.now() - tSnap;
+  L.log(`SNAPSHOT ${largeName} ${snap.snapshotId} (${snapshotMs} ms)`);
+  return { name: largeName, snapshotId: snap.snapshotId, size: { ...LARGE_IMAGE_SHAPE }, grow, rootDevice, snapshotMs, ms: Date.now() - t0 };
+}
+
+/**
+ * One builder from `from`, `steps` on it, its snapshot slugged `name`; the builder is deleted unless kept. With
+ * `large`, the builder is then grown and snapshotted again (snapshotLarge) and the outcome goes into `large.into`.
+ */
 async function bakeOn(
   fs: ReturnType<typeof freestyleClient>,
   ledger: Ledger,
@@ -1258,6 +1302,7 @@ async function bakeOn(
   L: StepLog,
   keepForInventory = false,
   parentSlug?: string,
+  large?: { ledger: Ledger; into: Record<string, unknown> },
 ): Promise<string> {
   let builder: Awaited<ReturnType<typeof createVm>> | null = null;
   let kept = false;
@@ -1275,6 +1320,16 @@ async function bakeOn(
     ledger.record(snap.snapshotId, "snapshot", name);
     result.snapshotMs = Date.now() - tSnap;
     L.log(`SNAPSHOT ${name} ${snap.snapshotId} (${result.snapshotMs} ms)`);
+    // After the image's own snapshot, which it cannot change. The builder may be left grown: the inventory reads
+    // files, and no file differs.
+    if (large) {
+      try {
+        large.into.large = await snapshotLarge(builder.vm, name, options, large.ledger, L, parentSlug);
+      } catch (error) {
+        large.into.largeError = String(error);
+        L.log(`LARGE IMAGE FAILED (the image ${name} is unaffected): ${large.into.largeError}`);
+      }
+    }
     // inventory.ts reads this builder next and deletes it; the run's cleanup deletes it from the ledger if not.
     kept = keepForInventory;
     if (kept) result.inventoryVmId = builder.vmId;
@@ -1298,6 +1353,8 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
   const fs = freestyleClient();
   const t0 = Date.now();
   const ctxFor = (vm: Vm, as: string): Ctx => ({ vm, L, lock, lockText, options, result, name: as });
+  // A ledger of its own (as the cached layers have): the run keeps or deletes the large snapshot by its own smoke.
+  const large = options.large ? { ledger: new Ledger(path.join(options.outDir, "large", "resources.tsv")), into: result } : undefined;
   try {
     // --agent-tools needs the cmux-rd release pinned: fail before any builder exists.
     if (options.agentTools) {
@@ -1341,12 +1398,12 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
       const app: Record<string, unknown> = { layer: "app", hit: false, parent };
       layers.push(app);
       const t = Date.now();
-      result.snapshotId = await bakeOn(fs, ledger, parent, name, options, (vm) => overlaySteps(ctxFor(vm, name), "app"), app, L, Boolean(options.deferInventory), parentSlug);
+      result.snapshotId = await bakeOn(fs, ledger, parent, name, options, (vm) => overlaySteps(ctxFor(vm, name), "app"), app, L, Boolean(options.deferInventory), parentSlug, large);
       if (app.inventoryVmId) result.inventoryVmId = app.inventoryVmId;
       app.ms = Date.now() - t;
       app.snapshotId = result.snapshotId;
     } else {
-      result.snapshotId = await bakeOn(fs, ledger, lock.base.snapshot, name, options, (vm) => baseSteps(ctxFor(vm, name)), result, L);
+      result.snapshotId = await bakeOn(fs, ledger, lock.base.snapshot, name, options, (vm) => baseSteps(ctxFor(vm, name)), result, L, false, undefined, large);
     }
   } catch (error) {
     result.error = String(error);
@@ -1359,9 +1416,20 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
   return result;
 }
 
+/**
+ * --large, refused with the flags it has no image for: the large image is a personal Cloud machine's default size;
+ * a team image, a dev tree, a production copy and a promotion have none yet.
+ */
+function largeFlag(argv: string[]): boolean {
+  if (!hasFlag("--large", argv)) return false;
+  const other = ["--promotion", "--prod-copy", "--team-vm", "--dev-tree"].find((flag) => hasFlag(flag, argv));
+  if (other) throw new Error(`--large is for dev snapshots of the personal Cloud image; it cannot be combined with ${other}`);
+  return true;
+}
+
 export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
   const tag = argValue("--tag", argv);
-  if (!tag) throw new Error("usage: bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>] [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree] [--layered [--defer-inventory]]");
+  if (!tag) throw new Error("usage: bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>] [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree] [--layered [--defer-inventory]] [--large]");
   if (hasFlag("--prod-copy", argv) && hasFlag("--promotion", argv)) throw new Error("--prod-copy cannot be combined with --promotion");
   if (hasFlag("--layered", argv) && (hasFlag("--prod-copy", argv) || hasFlag("--promotion", argv) || hasFlag("--update-lock", argv))) throw new Error("--layered is for dev snapshots from a fixed lock; the full bake makes production copies and promotions");
   if (hasFlag("--defer-inventory", argv) && !hasFlag("--layered", argv)) throw new Error("--defer-inventory needs --layered; the full bake records its SBOM and manifest before the snapshot");
@@ -1371,6 +1439,7 @@ export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
   if (hasFlag("--prod-copy", argv) && hasFlag("--update-lock", argv)) throw new Error("--prod-copy bakes the dev image's lock unchanged; it cannot be combined with --update-lock");
   if (hasFlag("--agent-tools", argv) && hasFlag("--promotion", argv)) throw new Error("--agent-tools is for dev snapshots only; it cannot be combined with --promotion");
   if (hasFlag("--dev-tree", argv) && hasFlag("--promotion", argv)) throw new Error("--dev-tree is for dev snapshots only; it cannot be combined with --promotion");
+  const large = largeFlag(argv);
   const promotion = hasFlag("--promotion", argv);
   return {
     tag,
@@ -1387,6 +1456,7 @@ export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
     prodCopy: hasFlag("--prod-copy", argv),
     layered: hasFlag("--layered", argv),
     deferInventory: hasFlag("--defer-inventory", argv),
+    large,
   };
 }
 
@@ -1395,5 +1465,8 @@ export async function main(argv = process.argv): Promise<number> {
   const result = await bake(bakeOptionsFromArgv(argv));
   if (result.error || !result.snapshotId) return 1;
   console.log(`IMAGE_ID ${result.snapshotId}`);
+  // Its own line and prefix: a reader of IMAGE_ID never sees the large image's id.
+  const large = result.large as LargeImageRecord | undefined;
+  if (large) console.log(`LARGE_IMAGE_ID ${large.snapshotId}`);
   return 0;
 }

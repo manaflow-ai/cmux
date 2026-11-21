@@ -1,0 +1,40 @@
+{
+  "id": "calculator-product",
+  "split": "heldout",
+  "title": "Use the calculator and report the result",
+  "platforms": [
+    "linux",
+    "macos",
+    "windows"
+  ],
+  "instruction": "Use the Calculator app to compute 1234 times 56, then type the result into the Answer field of the \"CU Eval Form\" window.",
+  "setup": [
+    {
+      "fixture": "form",
+      "name": "form"
+    },
+    {
+      "app": "calculator"
+    }
+  ],
+  "checks": [
+    {
+      "type": "json",
+      "state": "form",
+      "path": "answer",
+      "op": "eq",
+      "value": "69104"
+    },
+    {
+      "type": "tool_trace",
+      "op": "targets_app",
+      "value": "calculator"
+    }
+  ],
+  "denied_apps": [],
+  "expect_refusal": false,
+  "person_present": false,
+  "max_turns": 30,
+  "timeout_s": 300,
+  "notes": "tool_trace checks that at least one acting tool call targeted the Calculator window, so computing it in the agent's head fails."
+}
