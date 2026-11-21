@@ -511,6 +511,8 @@ fn serve_viewer<S: ViewerStream>(
     if crate::desktop::reports_cursor() {
         host_caps.push(caps::CURSOR);
     }
+    // Frames over one FEC block keep their parity, in interleaved blocks (design D6).
+    host_caps.push(caps::FEC_BLOCKS);
     // No clipboard.text here: clipboard sync is opt-in per session, and only `serve` (the
     // app's share, whose setup carries the person's choice) offers it (clipboard.rs).
     let negotiated = match negotiate(&service, &caps, &[SERVICE_DESKTOP], &host_caps) {
