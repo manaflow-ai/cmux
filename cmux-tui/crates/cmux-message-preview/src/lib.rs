@@ -95,7 +95,6 @@ impl Default for Words {
 
 /// One piece of the message, in order.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(dead_code, reason = "red: tables are not read yet")]
 enum Piece {
     Words(String),
     Table(Table),
