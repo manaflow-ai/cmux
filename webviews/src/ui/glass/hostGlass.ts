@@ -115,6 +115,12 @@ export const HOST_GLASS_DEADLINE_MS = 50;
 /** Frames a new surface's content shows before its box goes to the App: Chromium's frames reach the
  * screen this many frames after the App's own commits. */
 export const HOST_GLASS_HOLD_FRAMES = 2;
+/** Frames a report at a new page zoom waits before it goes to the App, for the same reason: the App
+ * moved its glass at once while the page's frame at that zoom reached the screen two or three frames
+ * later, so the glass led the menu and showed a stray rim at the new box (33 to 50 ms in 3 of 6 zoom
+ * changes with the model picker open, measured on a NIGHTLY). The page keeps measuring through the hold
+ * and sends what it measures when it ends. */
+export const HOST_GLASS_ZOOM_HOLD_FRAMES = HOST_GLASS_HOLD_FRAMES;
 /** Unchanged frames before the follow loop stops. */
 const STABLE_FRAMES = 3;
 
@@ -224,6 +230,9 @@ export function reportHostGlass(
   let sent = "[]";
   // The zoom the last report was measured at: a zoom change alone reports again.
   let sentZoom = 1;
+  // A report at a zoom the App has not placed yet, held since frame `zoomHeldAt` (NaN: none held).
+  let heldZoom = Number.NaN;
+  let zoomHeldAt = 0;
   let live = true;
 
   // The deadline stays armed while a surface is marked "1" before the App answered (adopt): only an
@@ -271,7 +280,21 @@ export function reportHostGlass(
   };
   const send = (surfaces: HostGlassSurface[], elements: Element[], zoom: number) => {
     const text = JSON.stringify(surfaces);
-    if (text === sent && (zoom === sentZoom || surfaces.length === 0)) return;
+    if (text === sent && (zoom === sentZoom || surfaces.length === 0)) {
+      heldZoom = Number.NaN;
+      return;
+    }
+    // A new zoom moves the App's glass once the page's frame at that zoom is on screen, not before
+    // (HOST_GLASS_ZOOM_HOLD_FRAMES). Nothing on the App's glass yet (an empty last report) has nothing
+    // to lead, and a withdrawal never waits.
+    if (zoom !== sentZoom && sent !== "[]" && surfaces.length > 0) {
+      if (zoom !== heldZoom) {
+        heldZoom = zoom;
+        zoomHeldAt = paints;
+      }
+      if (paints - zoomHeldAt < HOST_GLASS_ZOOM_HOLD_FRAMES) return;
+    }
+    heldZoom = Number.NaN;
     sent = text;
     sentZoom = zoom;
     post(surfaces, zoom).then(() => {
@@ -365,7 +388,8 @@ export function reportHostGlass(
     const key = measure();
     stable = key === last ? stable + 1 : 0;
     last = key;
-    if (ids.size > 0 && (stable < STABLE_FRAMES || holding())) frame = view.requestAnimationFrame(tick);
+    if (ids.size > 0 && (stable < STABLE_FRAMES || holding() || !Number.isNaN(heldZoom)))
+      frame = view.requestAnimationFrame(tick);
   };
   function kick() {
     stable = 0;

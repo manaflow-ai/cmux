@@ -342,12 +342,11 @@ extension WindowController {
     }
 
     private func makeChiefPanelView() -> ChiefPanelView {
-        let settings = services.settings, look = ChiefPanelScreenLook(share: { [weak services] in services?.chiefScreenShare }, settings: { settings })
+        let settings = services.settings
         let view = ChiefPanelView(title: HomeStrings.chiefName, launcher: ChiefLauncherPanel(frames: FloatingChatFrames(defaults: .standard, storageKey: ChiefLauncherPanel.framesKey)), actions: .init(
             toggleDock: { [weak self] in self.map { $0.toggleChiefPanelDock(edge: $0.services.chiefDockEdge) } }, hide: { [weak self] in self?.hideChiefPanel() },
-            moved: { [weak self] in self?.state.chiefPanel.floatingFrame = $0; self?.frameChiefPanelDidChange() }, stop: { [weak self] in _ = self?.services.registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user)) },
-            toggleSeesScreen: look.toggle, opened: { [weak self] in look.panelOpened(window: self?.window?.title) }))
-        view.follow({ ChiefPanelStyle(rawValue: settings?.snapshot.chiefPanelStyle ?? "") ?? .default }, seesScreen: { look.seesScreen })
+            moved: { [weak self] in self?.state.chiefPanel.floatingFrame = $0; self?.frameChiefPanelDidChange() }, stop: { [weak self] in _ = self?.services.registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user)) }))
+        view.follow({ ChiefPanelStyle(rawValue: settings?.snapshot.chiefPanelStyle ?? "") ?? .default })
         chiefPanelView = view
         return view
     }

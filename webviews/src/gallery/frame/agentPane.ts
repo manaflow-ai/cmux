@@ -5,9 +5,9 @@
 // app's own snapshot does. The theme goes through `applyTheme` (AgentPaneTheme.swift's values) and
 // the font through `applyCustomization` (the user's agent pane theme.css), the app's own inputs.
 import type { AgentPaneVariant } from "../format";
-import { addPseudoLocales } from "../pseudo";
 import type { StageContext } from "./context";
 import { installChipHost } from "./chips";
+import { installPaneStrings } from "./paneStrings";
 import { resetSummaryCards } from "../../agent-session/acpmux/summary/cardState";
 import { setChatDisplay } from "../../agent-session/acpmux/chatDisplay";
 import { prepareMockTransport } from "../../agent-session/acpmux/mockTransport";
@@ -53,12 +53,7 @@ function withLook(state: AgentPaneVariant, context: StageContext): AgentPaneVari
 
 export async function mountAgentPane(variant: AgentPaneVariant, context: StageContext): Promise<void> {
   const state = withLook(variant, context);
-  const strings = (await import("../../agent-session/acpmux/generated/strings.json")).default as unknown as Record<
-    string,
-    Record<string, string>
-  >;
-  addPseudoLocales(strings);
-  globalThis.__cmuxPaneStrings = strings as never;
+  await installPaneStrings();
   installChipHost(state.chipHost);
   resetSummaryCards();
   setPreviewComposerLook(state.composerLook);
