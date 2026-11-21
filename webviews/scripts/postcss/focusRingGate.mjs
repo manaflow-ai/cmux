@@ -10,7 +10,142 @@
 export const FOCUS_RING_GATE = ':where(:not(:root[data-focus-modality="pointer"] *))';
 
 /** Returns `selector` with the gate after every `:focus-visible`, or after the `:has(...)` that holds
- * it; already gated selectors stay.
+ * it, or on the subject when it is left of a sibling combinator (see gateSiblingLeft); already gated
+ * selectors stay. Each selector of a list is gated on its own. */
+export function gateFocusVisible(selector) {
+  if (!selector.includes(":focus-visible") || selector.includes(FOCUS_RING_GATE)) return selector;
+  const parts = splitTopLevel(selector, ",");
+  const gated = parts.map((one) => gateSiblingLeft(one) ?? gateInPlace(one));
+  // Nothing gated (a `:focus-visible` only inside an attribute value): the selector as written.
+  return gated.every((one, index) => one === parts[index]) ? selector : gated.join(", ");
+}
+
+/** A `:focus-visible` left of a `+` or `~` gets its gate on the subject instead. Left of a sibling
+ * combinator, an `:is()` or `:where()` whose branch names no class, id or attribute (the gate is one,
+ * `:where(:not(:root[...] *))`) makes Chromium treat that part as any element: each node inserted
+ * anywhere in the page then restyled its later siblings and searched their subtrees for the subject.
+ * While a reply streamed, the one rule of that shape (suggestedTasks.css, the agent tag's chevron)
+ * cost 25-40% of the chat page's style time (Chromium style invalidation trace, 2026-11-17). The gate
+ * is a condition on the page's root, so on the subject it means the same. A `:focus-visible` inside a
+ * functional pseudo-class on the left (`:is(:hover, :focus-visible)`, `:not(...)`) stays in place:
+ * that `:is()` has the same cost, so css-invalidation-scope.test.ts refuses it; write one selector per
+ * state instead. Returns undefined when it does not apply. */
+function gateSiblingLeft(selector) {
+  const cut = lastSiblingCombinator(selector);
+  if (cut < 0) return undefined;
+  const left = trimCss(selector.slice(0, cut));
+  const spots = focusVisibleSpots(left);
+  if (!spots.length || spots.some((spot) => spot.names.some((name) => name !== "has"))) return undefined;
+  // Only from a compound right before a `+` or `~`: a sibling is never the root. Off an ancestor that
+  // can be the root (`:root:has(:focus-visible) > head + body`) the gate would change what matches.
+  if (spots.some((spot) => !beforeSiblingCombinator(left + " +", spot.at))) return undefined;
+  // A subject with a pseudo-element other than one plain one at its end (`:before`, `::after:hover`,
+  // `::slotted(:is(.x))`) keeps the gate in place: after it, the selector would be invalid.
+  const subject = selector.slice(cut);
+  const pseudo = /::[\w-]+(\([^()]*\))?$/.exec(subject);
+  const rest = pseudo ? subject.slice(0, pseudo.index) : subject;
+  if (/::|:(?:before|after|first-line|first-letter)\b/.test(rest)) return undefined;
+  // The right side (from the combinator on) gated as before; gateInPlace may list it twice.
+  return splitTopLevel(gateInPlace(subject), ",")
+    .map((right) => withSubjectGate(`${left} ${right}`))
+    .join(", ");
+}
+
+/** `selector` with the gate at the end of its subject, before its pseudo-element. */
+function withSubjectGate(selector) {
+  const pseudo = /::[\w-]+(\([^()]*\))?$/.exec(selector);
+  const at = pseudo ? pseudo.index : selector.length;
+  if (selector.slice(0, at).endsWith(FOCUS_RING_GATE)) return selector;
+  return selector.slice(0, at) + FOCUS_RING_GATE + selector.slice(at);
+}
+
+/** Each `:focus-visible` in `text`: its index and the functional pseudo-classes open around it. */
+function focusVisibleSpots(text) {
+  const spots = [];
+  const names = [];
+  scanTopLevel(
+    text,
+    (c, i) => {
+      if (c === "(") names.push(/:([\w-]+)$/.exec(text.slice(0, i))?.[1] ?? "");
+      else if (c === ")") names.pop();
+      else if (text.startsWith(":focus-visible", i) && !/[\w-]/.test(text[i + 14] ?? ""))
+        spots.push({ at: i, names: [...names] });
+    },
+    true,
+  );
+  return spots;
+}
+
+/** Whether the compound holding index `at` ends in a `+` or `~` combinator. */
+function beforeSiblingCombinator(selector, at) {
+  let next = "";
+  scanTopLevel(selector, (c, i, depth) => {
+    if (next || depth || i <= at) return;
+    if (/[\s>+~]/.test(c) && selector[i - 1] !== "\\") next = c;
+  });
+  if (!/\s/.test(next)) return next === "+" || next === "~";
+  // Whitespace: a descendant combinator unless a `>`, `+` or `~` follows it.
+  const after = /^\s*([>+~])?/.exec(selector.slice(selector.indexOf(next, at)))?.[1];
+  return after === "+" || after === "~";
+}
+
+/** `text` trimmed, keeping an escaped trailing space (`.b\ `). */
+function trimCss(text) {
+  let out = text.trimStart();
+  while (/\s$/.test(out) && !/\\\s$/.test(out)) out = out.slice(0, -1);
+  return out;
+}
+
+/** Index of the last `+` or `~` combinator outside parentheses, brackets and strings, or -1. */
+function lastSiblingCombinator(selector) {
+  let cut = -1;
+  scanTopLevel(selector, (c, i, depth) => {
+    if (!depth && (c === "+" || c === "~")) cut = i;
+  });
+  return cut;
+}
+
+/** Splits at `separator` outside parentheses, brackets and strings; keeps the text as written. */
+function splitTopLevel(selector, separator) {
+  const parts = [];
+  let from = 0;
+  scanTopLevel(selector, (c, i, depth) => {
+    if (!depth && c === separator) {
+      parts.push(trimCss(selector.slice(from, i)));
+      from = i + 1;
+    }
+  });
+  parts.push(trimCss(selector.slice(from)));
+  return parts;
+}
+
+/** Calls `visit(char, index, depth)` for each character outside strings and brackets; with `all`,
+ * also inside parentheses (depth counts them). */
+function scanTopLevel(text, visit, all = false) {
+  let quote = "";
+  let bracket = 0;
+  let depth = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    const c = text[i];
+    if (quote) {
+      if (c === "\\") i += 1;
+      else if (c === quote) quote = "";
+    } else if (c === '"' || c === "'") quote = c;
+    else if (c === "\\") i += 1;
+    else if (c === "[") bracket += 1;
+    else if (c === "]") bracket -= 1;
+    else if (bracket) continue;
+    else if (c === "(") {
+      if (all) visit(c, i, depth);
+      depth += 1;
+    } else if (c === ")") {
+      depth -= 1;
+      if (all) visit(c, i, depth);
+    } else if (all || !depth) visit(c, i, depth);
+  }
+}
+
+/** One selector with the gate after every `:focus-visible`, or after the `:has(...)` that holds it.
  *
  * Where the gate goes matters in WebKit (the app's web view): it does not restyle an element whose
  * `:has(...)` holds the gate when the root attribute flips, so `.box:has(:focus-visible GATE)`
@@ -24,8 +159,8 @@ export const FOCUS_RING_GATE = ':where(:not(:root[data-focus-modality="pointer"]
  * `:has(...)` (`:has(.grip:is(:hover, :focus-visible))`) would take its hover branch down with the
  * gate, so the selector is listed twice: once with that `:focus-visible` never matching (`:not(*)`,
  * the other alternatives as they were, ungated) and once gated. */
-export function gateFocusVisible(selector) {
-  if (!selector.includes(":focus-visible") || selector.includes(FOCUS_RING_GATE)) return selector;
+function gateInPlace(selector) {
+  if (!selector.includes(":focus-visible")) return selector;
   const after = new Set();
   // Positions of the hoisted `:focus-visible`s that share an `:is()`/`:where()` with other
   // alternatives, which the ungated copy replaces with `:not(*)`.
