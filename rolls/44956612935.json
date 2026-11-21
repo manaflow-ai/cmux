@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44956612935",
+  "recorded_at": "2026-11-21T22:56:17Z",
+  "reason": "cmux-tui 7d71bb2097f7 changes the image's cmux-tui (pinned d0b731b6e91b)",
+  "dry_run": false,
+  "cmux_tui": "7d71bb2097f7e45813a72f7a78971f605a3bb059",
+  "fixes": [
+    {
+      "sha": "02a40e965fa8b281b0f5df6d5ee828c9020e3155",
+      "mergedAt": "2026-11-21T13:09:21-08:00",
+      "subject": "cmux remote: a first connect that times out says why and what to do; the wait says how to stop (#48950)"
+    },
+    {
+      "sha": "cc5630b81275477c52e18d301c0d99b9be53c4f3",
+      "mergedAt": "2026-11-21T21:09:11+00:00",
+      "subject": "acpmux: hub reads retry transient hub failures and name the direct route (#48249)"
+    },
+    {
+      "sha": "939187928be9bd618108b4df1329c064d6f87e43",
+      "mergedAt": "2026-11-21T21:05:51+00:00",
+      "subject": "ghostty-vt: read a history page with one lookup per row, not per cell (#47453)"
+    },
+    {
+      "sha": "be805d96fcacaa76db6c6ebafa2ceba6b47fc6cc",
+      "mergedAt": "2026-11-21T21:01:19+00:00",
+      "subject": "Draw extension status items (cmux.status/1) in the titlebar and menu bar menu (#47317)"
+    },
+    {
+      "sha": "e7b1336d1747517bccee3c572389a10daadbbf28",
+      "mergedAt": "2026-11-21T12:57:33-08:00",
+      "subject": "Merge origin/feat-cmux-next (0ddeae6ef3e5) into feat-cmux-next"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-21T22:56:17Z",
+    "snapshot_id": "sh-bb3f228a6f644dd7af646ec804fa6e87",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44956612935): 29 checks passed"
+  },
+  "promotion": {
+    "result": "failed",
+    "job": "failure",
+    "commit": "",
+    "image": "",
+    "revision": "ci-44956612935-1",
+    "at": null
+  },
+  "rolled_back": false
+}
