@@ -79,22 +79,30 @@ struct CloudChatsScreen: View {
                 }
             }
             .navigationDestination(item: $selectedLocation) { location in
-                CloudMachineChatsScreen(live: shell.live, macID: location.macID, machine: location.machine,
+                CloudMachineChatsScreen(connect: connect(to: location),
+                                        macID: location.macID, machine: location.machine,
                                         macName: macName(location.macID), preferredSession: attention?.sessionID)
             }
             .task(id: Load(mac: attention == nil ? macID : "", macs: eligibleMacIDs.sorted(),
                            live: shell.live.map(ObjectIdentifier.init), team: shell.store.activeTeamID, refresh: refresh)) {
                 shell.cloudMacID = attention == nil && !macID.isEmpty ? macID : nil
                 selectedLocation = nil
-                locations = []
                 error = nil
                 needsMac = false
                 guard let live = shell.live, attention != nil ? !eligibleMacIDs.isEmpty : !macID.isEmpty else {
+                    locations = []
                     loading = false
                     needsMac = true
                     return
                 }
-                loading = true
+                // The machines this run last read through the Mac draw at once and are replaced in
+                // place when the Mac answers: no spinner over a list the phone holds.
+                let kept = attention == nil ? CloudChatsMemory.shared.machines(on: macID) : nil
+                locations = kept.map { CloudChatDirectory.scopedMachines($0, attention: nil).map { CloudChatLocation(macID: macID, machine: $0) } } ?? []
+                loading = kept == nil
+                // A sign-out while the Mac answers bumps the memory's generation: this read's
+                // answer is then not kept (`keep` refuses it), so the next account never sees it.
+                let generation = CloudChatsMemory.shared.generation
                 do {
                     let found: [CloudChatLocation]
                     if let attention {
@@ -106,6 +114,8 @@ struct CloudChatsScreen: View {
                         found = match.map { [$0] } ?? []
                     } else {
                         let listed = try await live.cloudMachines(on: macID)
+                        try Task.checkCancellation()
+                        CloudChatsMemory.shared.keep(machines: listed, on: macID, readIn: generation)
                         found = CloudChatDirectory.scopedMachines(listed, attention: nil)
                             .map { CloudChatLocation(macID: macID, machine: $0) }
                     }
@@ -116,10 +126,18 @@ struct CloudChatsScreen: View {
                 } catch {
                     guard !Task.isCancelled else { return }
                     loading = false
-                    self.error = "Couldn't load Cloud chats. Try again."
+                    // Kept machines stay listed: opening one says why if it can't connect.
+                    if locations.isEmpty { self.error = "Couldn't load Cloud chats. Try again." }
                 }
             }
         }
+    }
+
+    /// The machine's chat channel through the live coordinator (nil: no live link). Built here, typed,
+    /// and not inline in `body`, where the compiler could not type the optional async closure.
+    private func connect(to location: CloudChatLocation) -> (@MainActor () async throws -> CloudChatRelay)? {
+        guard let live = shell.live else { return nil }
+        return { try await live.cloudChats(on: location.macID, machine: location.machine) }
     }
 
     private func macName(_ id: String) -> String {
@@ -199,15 +217,19 @@ struct CloudChatsConnectFailed: View {
     }
 }
 
-private struct CloudMachineChatsScreen: View {
-    let live: LiveCoordinator?
+/// A Cloud machine's chats. `connect` opens its chat channel through the Mac (nil: no Mac to
+/// reach it through); the recovery gallery passes one that never answers (`cloudkept`).
+struct CloudMachineChatsScreen: View {
+    let connect: (@MainActor () async throws -> CloudChatRelay)?
     let macID: String
     let machine: CloudChatMachine
     let macName: String
     let preferredSession: String?
-    @State private var relay: CloudChatRelay?
+    /// The machine's channel: its connect outlives the list's `.task`, which SwiftUI cancels when
+    /// a kept chat tapped while it opens pushes over the list (``CloudMachineConnection``).
+    @State private var connection = CloudMachineConnection()
+    private var relay: CloudChatRelay? { connection.relay }
     @State private var selectedSession: String?
-    @State private var error: String?
     @State private var refresh = 0
     @State private var connectingSince = Date.now
     /// The relay was not ready within `cloudConnectBudget`.
@@ -231,16 +253,7 @@ private struct CloudMachineChatsScreen: View {
                 } else {
                     let listed = CloudChatList.newest(relay.hub.sessions.values, shown: shown)
                     List {
-                        ForEach(listed.rows, id: \.id) { chat in
-                            Button { selectedSession = chat.id } label: {
-                                VStack(alignment: .leading) {
-                                    Text(chat.name.isEmpty ? chat.harness : chat.name)
-                                    if let prompt = chat.lastPrompt, !prompt.isEmpty {
-                                        Text(prompt).lineLimit(2).foregroundStyle(.secondary)
-                                    }
-                                }
-                            }
-                        }
+                        chatRows(listed.rows)
                         if listed.hasOlder {
                             Section {
                                 Button("Show Older Chats") { shown += CloudChatList.pageSize }
@@ -257,6 +270,12 @@ private struct CloudMachineChatsScreen: View {
                 }
             } else if let cause = failure {
                 CloudChatsConnectFailed(cause: cause) { refresh += 1 }
+            } else if let kept, !kept.isEmpty {
+                // The chats this run last listed on the machine, while its channel opens: the list
+                // the Mac sends takes their place (same rows, same order). A chat tapped now opens
+                // once the channel is ready.
+                List { chatRows(kept) }
+                    .accessibilityIdentifier("cloudChats.kept")
             } else {
                 CloudChatsConnecting(machine: machine.name, mac: macName, since: connectingSince)
             }
@@ -279,9 +298,14 @@ private struct CloudMachineChatsScreen: View {
             Text(startError)
         }
         .navigationDestination(item: $selectedSession) { sessionID in
-            if let store = relay?.store(sessionID: sessionID) {
+            switch connection.destination(for: sessionID, kept: kept) {
+            case .chat(let store):
                 AgentChatScreen(store: store)
-            } else {
+            case .waiting:
+                // A kept chat tapped before the machine's channel is ready: it opens in place once it is.
+                CmuxSpinner()
+                    .accessibilityIdentifier("cloudChats.keptOpening")
+            case .unavailable:
                 ContentUnavailableView("Chat unavailable", systemImage: "bubble.left")
             }
         }
@@ -292,17 +316,15 @@ private struct CloudMachineChatsScreen: View {
             guard !Task.isCancelled, relay?.hub.isReady != true else { return }
             timedOut = true
         }
-        .task(id: refresh) {
-            error = nil
-            do {
-                guard let live else { error = "Connect your Mac."; return }
-                relay = try await live.cloudChats(on: macID, machine: machine)
-            } catch {
-                guard !Task.isCancelled else { return }
-                self.error = "Couldn't connect. Try again."
-            }
-        }
+        // One connect per Reconnect: shown again after a pushed chat is popped, the list keeps it.
+        .task(id: refresh) { connection.open(attempt: refresh, connect: connect) }
         .overlay { if starting { CmuxSpinner(label: Text("Starting chat…")) } }
+        // The machine's list as it reads now, for the next open (``CloudChatsMemory``).
+        .onChange(of: relay?.hub.isReady == true ? relay?.hub.sessions : nil, initial: true) { _, sessions in
+            // A channel opened before a sign-out never stores into the memory after it.
+            guard let sessions, let relayGeneration = connection.relayGeneration else { return }
+            CloudChatsMemory.shared.keep(chats: sessions.values, at: location, readIn: relayGeneration)
+        }
         // The preferred chat opens once it is listed: with the first page, or with a later one.
         .onChange(of: relay?.hub.isReady == true && preferredSession.flatMap { relay?.hub.sessions[$0] } != nil, initial: true) { _, ready in
             guard ready, !openedPreferred, let preferredSession,
@@ -313,9 +335,27 @@ private struct CloudMachineChatsScreen: View {
         }
     }
 
+    private var location: CloudChatLocation { CloudChatLocation(macID: macID, machine: machine) }
+
+    /// The chats this run last listed on this machine (``CloudChatsMemory``).
+    private var kept: [AcpmuxSession]? { CloudChatsMemory.shared.chats(at: location) }
+
+    @ViewBuilder private func chatRows(_ rows: [AcpmuxSession]) -> some View {
+        ForEach(rows, id: \.id) { chat in
+            Button { selectedSession = chat.id } label: {
+                VStack(alignment: .leading) {
+                    Text(chat.name.isEmpty ? chat.harness : chat.name)
+                    if let prompt = chat.lastPrompt, !prompt.isEmpty {
+                        Text(prompt).lineLimit(2).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+
     /// Why the connect stopped, naming the step that did not answer; nil while it may still finish.
     private var failure: String? {
-        if error != nil { return "\(macName) didn't reach \(machine.name). Check that the Mac is awake and online." }
+        if connection.error != nil { return "\(macName) didn't reach \(machine.name). Check that the Mac is awake and online." }
         if relay?.error != nil || relay?.hub.lastError != nil { return "\(machine.name) didn't open its chats through \(macName)." }
         if timedOut { return "No answer from \(machine.name) through \(macName) in \(cloudConnectBudget.components.seconds) s." }
         return nil

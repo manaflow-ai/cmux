@@ -43,6 +43,9 @@ public final class AgentChatsModel {
     @ObservationIgnored private weak var backend: (any AgentChatsBackend)?
     /// Each Mac's chats as this run last listed them: a list opened again starts from them.
     @ObservationIgnored private let memory: AgentChatsMemory?
+    /// ``AgentChatsMemory/generation`` when this list opened: after a sign-out nothing it reads
+    /// (a page landing late, an archive) is kept for the next account.
+    @ObservationIgnored private let memoryGeneration: Int
 
     /// Starts from the chats `memory` kept for the Mac (shown at once, then read again by
     /// ``load()``), else from the loading state.
@@ -50,6 +53,7 @@ public final class AgentChatsModel {
         self.macID = macID
         self.backend = backend
         self.memory = memory
+        memoryGeneration = memory?.generation ?? 0
         if !macID.isEmpty, let kept = memory?.page(for: macID) {
             chats = kept.chats
             nextCursor = kept.nextCursor
@@ -60,7 +64,7 @@ public final class AgentChatsModel {
     /// The chats listed now are what a list opened again starts from.
     private func remember() {
         guard !macID.isEmpty, phase == .loaded else { return }
-        memory?.keep(AgentChatPage(chats: chats, nextCursor: nextCursor), for: macID)
+        memory?.keep(AgentChatPage(chats: chats, nextCursor: nextCursor), for: macID, readIn: memoryGeneration)
     }
 
     /// The rows the list shows now.
