@@ -14,14 +14,17 @@ import Testing
     static let draft = String(repeating: "a pasted line of the draft, long enough to matter\n", count: 120)
         + "re if its like the connection is actually working"
 
-    private func rig(pasteSubmit: Bool) async throws -> (FakeTerminalDaemon, DaemonTerminalSession, TerminalModel) {
+    private func rig(pasteSubmit: Bool, channels: ChannelLog = ChannelLog(), clock: (() -> TimeInterval)? = nil) async throws -> (FakeTerminalDaemon, DaemonTerminalSession, TerminalModel) {
         let daemon = FakeTerminalDaemon()
         daemon.afterAttach = nil
         daemon.pasteSubmit = pasteSubmit
         let link = MockMacLink { service, line in daemon.respond(service, line) }
         let session = DaemonTerminalSession(surface: 7) {
-            DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
+            let channel = try await link.openChannel(service: "daemon", args: [:])
+            channels.append(channel)
+            return DaemonClient(channel: channel)
         }
+        if let clock { session.now = clock }
         session.start { _ in }
         try await waitUntil { session.isAttached }
         let model = TerminalModel(session: session, artifactSource: UnavailableArtifactSource(), title: "composer-paste")
@@ -50,6 +53,7 @@ import Testing
         #expect(request["submit"] as? Bool == true)
         #expect(request["bytes"] == nil)
         #expect(model.composerText.isEmpty)
+        #expect(model.composerNotice == nil)
     }
 
     /// Keys typed before the Send reach the terminal first, in their own request.
@@ -77,6 +81,87 @@ import Testing
         model.send()
         try await Task.sleep(for: .milliseconds(300))
         #expect(!sends(daemon).contains { $0["submit"] != nil || $0["text"] != nil })
+    }
+
+    // MARK: Silent failure: a send that does not reach the terminal brings the draft back with a notice.
+
+    /// The daemon answers the paste with an error.
+    @Test func aRefusedSendGivesTheDraftBack() async throws {
+        let (daemon, session, model) = try await rig(pasteSubmit: true)
+        defer { session.stop() }
+        daemon.refusesPasteSubmit = true
+        model.composerText = Self.draft
+        model.send()
+        try await waitUntil { model.composerNotice != nil }
+        #expect(model.composerNotice == TerminalConnectionState.composerSendNotSentNotice)
+        #expect(model.composerText == Self.draft)
+    }
+
+    /// The channel fails after the paste was written and before its answer (a reconnect
+    /// mid-send): the Mac may or may not have it, it is not sent again, and the person is told.
+    @Test func aChannelLostMidSendGivesTheDraftBack() async throws {
+        let channels = ChannelLog()
+        let (daemon, session, model) = try await rig(pasteSubmit: true, channels: channels, clock: { 1000 })
+        defer { session.stop() }
+        daemon.unansweredSends = true
+        model.composerText = Self.draft
+        model.send()
+        try await waitUntil { sends(daemon).count == 1 }
+        #expect(model.composerText.isEmpty)
+        await channels.last?.close(code: "link_closed", reason: "link dropped")
+        try await waitUntil { model.composerNotice != nil }
+        #expect(model.composerNotice == TerminalConnectionState.composerSendNotSentNotice)
+        #expect(model.composerText == Self.draft)
+        #expect(sends(daemon).count == 1, "a written paste is never sent twice")
+    }
+
+    /// Sent during a blip and held past the 10 s hold: dropped, never typed late, and given back.
+    @Test func aSendHeldPastTheHoldGivesTheDraftBack() async throws {
+        let channels = ChannelLog()
+        var clock: TimeInterval = 1000
+        let (daemon, session, model) = try await rig(pasteSubmit: true, channels: channels, clock: { clock })
+        defer { session.stop() }
+        await channels.last?.close(code: "link_closed", reason: "blip")
+        try await waitUntil { !session.isAttached }
+        model.composerText = Self.draft
+        model.send()
+        #expect(model.composerText.isEmpty)
+        clock += DaemonTerminalSession.inputHoldLimit + 0.5
+        session.reconnect()
+        try await waitUntil { session.isAttached }
+        try await waitUntil { model.composerNotice != nil }
+        #expect(model.composerNotice == TerminalConnectionState.composerSendNotSentNotice)
+        #expect(model.composerText == Self.draft)
+        #expect(sends(daemon).isEmpty)
+    }
+
+    /// A draft bigger than the hold, sent during a blip, is refused inside `send`: the composer keeps it.
+    @Test func aDraftBiggerThanTheHoldStaysInTheComposer() async throws {
+        let channels = ChannelLog()
+        let (_, session, model) = try await rig(pasteSubmit: true, channels: channels, clock: { 1000 })
+        defer { session.stop() }
+        await channels.last?.close(code: "link_closed", reason: "blip")
+        try await waitUntil { !session.isAttached }
+        let big = String(repeating: "x", count: DaemonTerminalSession.inputHoldBytes + 1) + "\nend"
+        model.composerText = big
+        model.send()
+        #expect(model.composerText == big)
+        #expect(model.composerNotice == TerminalConnectionState.composerSendNotSentNotice)
+    }
+
+    /// After a drop the session refuses input until it attaches again: a send then stays in the composer.
+    @Test func aSendTheSessionRefusesStaysInTheComposer() async throws {
+        let channels = ChannelLog()
+        let (_, session, model) = try await rig(pasteSubmit: true, channels: channels, clock: { 1000 })
+        defer { session.stop() }
+        await channels.last?.close(code: "link_closed", reason: "blip")
+        try await waitUntil { !session.isAttached }
+        // Fills the hold: dropped, and input is refused until the next attach.
+        session.send(Data(repeating: UInt8(ascii: "y"), count: DaemonTerminalSession.inputHoldBytes + 1))
+        model.composerText = Self.draft
+        model.send()
+        #expect(model.composerText == Self.draft)
+        #expect(model.composerNotice == TerminalConnectionState.composerSendNotSentNotice)
     }
 
     private func waitUntil(attempts: Int = 300, _ condition: @MainActor () -> Bool) async throws {

@@ -106,7 +106,7 @@ public final class DaemonTerminalSession: TerminalSession {
     /// `attach-replay-history-rows-v1`, and its lane did not refuse it).
     private var tailReplay = false
     /// The daemon lists `send-expect-agent-v1`: `send` takes `submit` with
-    /// `paste` (``sendPasteAndSubmit(_:)``). An older daemon ignores `submit`
+    /// `paste` (``sendPasteAndSubmit(_:notSent:)``). An older daemon ignores `submit`
     /// and would paste the draft with no Return: it gets the mirror's paste.
     private var pasteSubmit = false
     /// The `agent-cli-frame` stream and the newest frame this mirror drew
@@ -156,8 +156,13 @@ public final class DaemonTerminalSession: TerminalSession {
     /// `typed`: the person's own input; false for Ghostty's replies to
     /// terminal queries (``sendReply(_:)``), which are never "keys not sent".
     /// `paste`: the bytes are the composer's draft (UTF-8), sent alone as
-    /// `send {text, paste:true, submit:true}` (``sendPasteAndSubmit(_:)``).
-    private var input: [(bytes: Data, at: TimeInterval, detached: Bool, typed: Bool, paste: Bool)] = []
+    /// `send {text, paste:true, submit:true}` (``sendPasteAndSubmit(_:notSent:)``).
+    private var input: [(bytes: Data, at: TimeInterval, detached: Bool, typed: Bool, paste: Int?)] = []
+    /// A composer paste's "not sent" call, by its id in `input` (`paste`):
+    /// called once when the paste is dropped, refused or answered with an
+    /// error, and forgotten once the daemon answers it.
+    private var pasteNotSent: [Int: @MainActor () -> Void] = [:]
+    private var nextPaste = 0
     /// Keys queued while detached expired: everything typed until the next
     /// attach is refused, so no fragment of a command (its last 2 s) can
     /// reach the shell after the rest was dropped (r13 review).
@@ -203,7 +208,7 @@ public final class DaemonTerminalSession: TerminalSession {
     var tailProbeArmed: Bool { tailProbe != nil }
     private var nextInputBatch = 0
     /// Batches of the failed channel, held until its sends all settle.
-    private var inputFailed: [(number: Int, bytes: Data, at: TimeInterval, written: Bool, typed: Int, paste: Bool)] = []
+    private var inputFailed: [(number: Int, bytes: Data, at: TimeInterval, written: Bool, typed: Int, paste: Int?)] = []
     private var inputDrainScheduled = false
     private var handler: (@MainActor (TerminalSessionEvent) -> Void)?
     /// Decodes lines given to `handle(_:)` (the attach stream has its own, off the main actor).
@@ -348,7 +353,7 @@ public final class DaemonTerminalSession: TerminalSession {
 
     public func send(_ bytes: Data) {
         guard !bytes.isEmpty else { return }
-        enqueueTyped(bytes, paste: false)
+        enqueueTyped(bytes, paste: nil)
     }
 
     /// The composer's Send as one `send {surface, text, paste:true,
@@ -357,18 +362,28 @@ public final class DaemonTerminalSession: TerminalSession {
     /// be lost after a replay) and writes Return in the same request.
     /// False against a daemon that does not list `send-expect-agent-v1`, or
     /// before the first attach said which daemon this is.
-    public func sendPasteAndSubmit(_ text: String) -> Bool {
+    public func sendPasteAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void) -> Bool {
         guard pasteSubmit, !text.isEmpty else { return false }
-        enqueueTyped(Data(text.utf8), paste: true)
+        let id = nextPaste
+        nextPaste += 1
+        pasteNotSent[id] = notSent
+        enqueueTyped(Data(text.utf8), paste: id)
         return true
     }
 
-    private func enqueueTyped(_ bytes: Data, paste: Bool) {
+    /// Tells the screen a composer paste was not sent (once).
+    private func pasteWasNotSent(_ id: Int?) {
+        guard let id, let notSent = pasteNotSent.removeValue(forKey: id) else { return }
+        notSent()
+    }
+
+    private func enqueueTyped(_ bytes: Data, paste: Int?) {
         // A reattach that gave up: typing tries again (the line it printed says so).
         if gaveUp { reconnect() }
         if refusingInput, !attached {
             log.notice("surface \(self.surface, privacy: .public): \(bytes.count, privacy: .public) typed bytes refused (earlier keys were already dropped)")
             handler?(.inputNotSent(bytes: bytes.count))
+            pasteWasNotSent(paste)
             return
         }
         input.append((bytes, now(), !attached, true, paste))
@@ -430,6 +445,7 @@ public final class DaemonTerminalSession: TerminalSession {
     /// Drops every queued key, refuses input until the next attach, and tells the screen.
     private func dropDetachedInput(reason: String) {
         let bytes = input.reduce(0) { $0 + ($1.typed ? $1.bytes.count : 0) }
+        let pastes = input.compactMap(\.paste)
         input.removeAll()
         // Only terminal replies were waiting: nothing the person typed was
         // lost, so typing goes on and the screen says nothing.
@@ -437,6 +453,7 @@ public final class DaemonTerminalSession: TerminalSession {
         if !attached { refusingInput = true }
         log.notice("surface \(self.surface, privacy: .public): \(bytes, privacy: .public) typed bytes dropped (\(reason, privacy: .public))")
         handler?(.inputNotSent(bytes: bytes))
+        pastes.forEach(pasteWasNotSent)
     }
 
     public func resize(columns: Int, rows: Int) {
@@ -527,6 +544,7 @@ public final class DaemonTerminalSession: TerminalSession {
         dropInputLane()
         outbox.removeAll()
         input.removeAll()
+        pasteNotSent.removeAll()
         tailProbe?.cancel()
         tailProbe = nil
     }
@@ -1332,7 +1350,7 @@ public final class DaemonTerminalSession: TerminalSession {
         // A composer paste goes alone, as its own request; keys before and
         // after it are batches of their own, in order on the same channel.
         let paste = input[0].paste
-        let count = paste ? 1 : (input.firstIndex(where: \.paste) ?? input.count)
+        let count = paste != nil ? 1 : (input.firstIndex(where: { $0.paste != nil }) ?? input.count)
         let taken = input.prefix(count)
         let batch = taken.reduce(into: Data()) { $0.append($1.bytes) }
         // The person's own bytes in it: a failed batch of terminal replies
@@ -1347,7 +1365,7 @@ public final class DaemonTerminalSession: TerminalSession {
             var written = false
             do {
                 let submit: @Sendable () async throws -> String = {
-                    try await target.submit("send", params: paste
+                    try await target.submit("send", params: paste != nil
                         ? ["surface": surface, "text": String(decoding: batch, as: UTF8.self), "paste": true, "submit": true]
                         : ["surface": surface, "bytes": batch.base64EncodedString()], deadline: deadline)
                 }
@@ -1356,7 +1374,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 let id: String
                 if onLane {
                     guard let submitted = try await Self.within(.seconds(10), submit) else {
-                        abandonInputLane(target, number: number, bytes: batch.count, typed: typedBytes, wasWriting: true)
+                        abandonInputLane(target, number: number, bytes: batch.count, typed: typedBytes, paste: paste, wasWriting: true)
                         return
                     }
                     id = submitted
@@ -1371,7 +1389,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 let reply: Data
                 if onLane {
                     guard let answer = try await Self.within(.seconds(10), { try await target.reply(to: id) }) else {
-                        abandonInputLane(target, number: number, bytes: batch.count, typed: typedBytes, wasWriting: false)
+                        abandonInputLane(target, number: number, bytes: batch.count, typed: typedBytes, paste: paste, wasWriting: false)
                         return
                     }
                     reply = answer
@@ -1381,6 +1399,10 @@ public final class DaemonTerminalSession: TerminalSession {
                 if let error = Self.error(in: reply) {
                     lastError = error
                     log.error("send failed: \(error, privacy: .public)")
+                    // A composer paste the daemon refused: the screen gets its text back.
+                    pasteWasNotSent(paste)
+                } else if let paste {
+                    pasteNotSent[paste] = nil
                 }
             } catch {
                 if !written { inputWriting = false }
@@ -1418,11 +1440,11 @@ public final class DaemonTerminalSession: TerminalSession {
     /// The input lane gave no answer in time (`wasWriting`: the batch's
     /// write itself hung): given up, and the batch is not sent again (the
     /// Mac may already have typed it).
-    private func abandonInputLane(_ lane: DaemonClient, number: Int, bytes: Int, typed: Int, wasWriting: Bool) {
+    private func abandonInputLane(_ lane: DaemonClient, number: Int, bytes: Int, typed: Int, paste: Int?, wasWriting: Bool) {
         log.error("send on the input lane got no answer; using the attach channel")
         abandonedInputLane = lane
         inputRecovering = true
-        inputFailed.append((number, Data(count: bytes), now(), written: true, typed: typed, paste: false))
+        inputFailed.append((number, Data(count: bytes), now(), written: true, typed: typed, paste: paste))
         if wasWriting { inputWriting = false }
         if inputClient === lane { dropInputLane() }
         inputSettled()
@@ -1453,9 +1475,11 @@ public final class DaemonTerminalSession: TerminalSession {
                 // The keys typed since go too: no part of a command may run
                 // after an earlier part that may be lost.
                 let bytes = failed.reduce(0) { $0 + $1.typed } + input.reduce(0) { $0 + ($1.typed ? $1.bytes.count : 0) }
+                let pastes = failed.compactMap(\.paste) + input.compactMap(\.paste)
                 input.removeAll()
                 log.notice("surface \(self.surface, privacy: .public): \(bytes, privacy: .public) typed bytes not sent again (the Mac may have typed them before the channel failed)")
                 handler?(.inputNotSent(bytes: bytes))
+                pastes.forEach(pasteWasNotSent)
             } else if !failed.isEmpty {
                 // A batch of replies alone is stale after the outage (and a
                 // written one may have arrived): dropped.
