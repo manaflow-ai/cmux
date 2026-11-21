@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44904535869",
+  "recorded_at": "2026-11-21T12:52:08Z",
+  "reason": "cmux-tui 2f20def2a0dc changes the image's cmux-tui (pinned 956c434a7045)",
+  "dry_run": false,
+  "cmux_tui": "2f20def2a0dc9e3daaafa6a4b2b47f2418aefac2",
+  "fixes": [
+    {
+      "sha": "63626c1ee032b249585fc7461b85da105a91b312",
+      "mergedAt": "2026-11-21T11:58:18Z",
+      "subject": "chore(next): base autofix at a6ce2a55a286"
+    },
+    {
+      "sha": "5b3f533d223f8d30bdb5e17076b878b0355cbad6",
+      "mergedAt": "2026-11-21T11:43:29Z",
+      "subject": "Calendar widget: a cmux.widget/1 store app in the style of Apple's Calendar Up Next (#47735)"
+    },
+    {
+      "sha": "d1024754d1bb9295c0aff194c9f98173f71bb0f5",
+      "mergedAt": "2026-11-21T03:37:54-08:00",
+      "subject": "Previews: words, not Markdown, in the daemon's rows, the Chief's push, the phone's quote; pictures in the Mac bubble"
+    },
+    {
+      "sha": "6e7e61c866cfdf8d0c21fa6809759dc6108ea81d",
+      "mergedAt": "2026-11-21T03:37:54-08:00",
+      "subject": "Previews: red tests for Markdown in the daemon's rows, the Chief's push, the phone's quote and the bubble's pictures"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-21T12:52:08Z",
+    "snapshot_id": "sh-3b3d066f4d474b6780bc81f110949258",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44904535869): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "62ed271d0ba463a6fd533658f0c0588fb49d9b65",
+    "image": "cloud-native-auto-2f20def2-44904535869-1",
+    "revision": "ci-44904535869-1",
+    "at": "2026-11-21T12:52:08Z"
+  },
+  "rolled_back": false
+}
