@@ -813,6 +813,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
         let opener = HomeAttachmentOpen(folder: HomeMedia.directory)
         return (try? opener.namedCopy(of: local.fileURL, name: local.ref.name, hash: local.ref.hash)) ?? local.fileURL
     }
+    /// A picture the person deleted keeps its prepared file here until a send or `removeDraft`:
+    /// Edit > Undo can put it back in the field, and the send still has its file.
+    func canRestoreDraftAttachment(_ id: ID) -> Bool { drafts[id] != nil }
     func takeDroppedAttachments(from pasteboard: NSPasteboard) -> Bool { (onAttachmentDrop ?? onAttachmentPasteboard)(pasteboard) }
     func acceptsDroppedAttachments(from pasteboard: NSPasteboard) -> Bool { (acceptsAttachmentDrop ?? acceptsAttachmentDrag)(pasteboard) }
     func attachmentDropTargeted(_ targeted: Bool) { onAttachmentDropTarget(targeted) }

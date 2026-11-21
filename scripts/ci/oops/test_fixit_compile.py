@@ -199,7 +199,7 @@ class TscHelperFailures(unittest.TestCase):
         got = self.run_tsc("cat >/dev/null\nexit 0\n")
         self.assertEqual(got.returncode, 2, got.stdout + got.stderr)
         self.assertNotIn("Traceback", got.stdout + got.stderr)
-        self.assertIn("printed no plan", got.stdout)
+        self.assertIn("printed no JSON plan", got.stdout)
 
     def test_a_crash_while_planning_keeps_the_checks_status(self):
         original = fc.tsc_plan

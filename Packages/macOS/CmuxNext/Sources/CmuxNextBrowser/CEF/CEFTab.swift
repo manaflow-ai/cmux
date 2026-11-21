@@ -35,6 +35,14 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored public private(set) var browserID: Int32?
     /// Set once by `markAgentDriven`; saved passwords do not fill in this tab.
     @ObservationIgnored public internal(set) var isAgentDriven = false
+    /// The fork refuses this page's WebAuthn now (CMUX_WEBAUTHN_MODE_REFUSE, set by ``applyWebAuthnRefusal()`` or
+    /// copied by the fork from an opener that had it), until the person takes the page (``allowWebAuthnForPerson()``).
+    @ObservationIgnored var webAuthnRefused = false
+    /// Passkey hand-offs whose trigger runs now (``handOverWebAuthn(during:)``): their click is the person's.
+    @ObservationIgnored var webAuthnHandOvers = 0
+    /// An agent acted in the page (``markAgentDriven()``) since the person last took it (their input or a hand-off):
+    /// its WebAuthn is refused then. An agent's reads (``markAgentReading()``) leave it as it is.
+    @ObservationIgnored var webAuthnAgentActs = false
     /// An extension's popup window shown over a pane (`CEFPaneHost+PopupWindows`): its host holds the window.
     public var isExtensionWindow: Bool { host.popupWindow != nil }
     @ObservationIgnored var passwordFill = PasswordFillState()
@@ -402,7 +410,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // The page the person waits for: the next spare is made once it arrived (`CEFArrivingPages`).
         if navigates, host.visibleTab === self, !isAgentDriven { runtime.arriving.began(id) }
         CEFAgentURLGuard.applyShimGuard(self)
-        // Before any load: an agent tab's page never reaches a passkey ceremony.
+        // Before any load: an agent tab's page never reaches a passkey ceremony. A new browser starts allowed.
+        webAuthnRefused = false
         applyWebAuthnRefusal()
         // An address committed during creation replaces the page creation was started with (and an
         // agent tab's deferred load of that page): it is the tab's one navigation.

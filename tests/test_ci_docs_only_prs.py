@@ -84,7 +84,6 @@ SCOPED: dict[str, str] = {
     "billing.yml": "docs/billing/** by name, the billing spec beside its package",
     "ci-artifact-transport.yml": "workers/ci-artifacts/**",
     "cloudflare-relay.yml": "cmux-tui/relays/cloudflare-do/**",
-    "cmux-actions.yml": "workers/cmux-actions/**",
     "cmux-next-crash-class.yml": "Packages/macOS/CmuxNext/Sources/**",
     "cmux-next-remote-daemon.yml": "daemon/remote/**",
     "cmux-next.yml": "the plan docs a Swift target names (put back by name; test_unrouted_plan_docs_skip_cmux_next) "
@@ -98,7 +97,6 @@ SCOPED: dict[str, str] = {
     "fleet-rd-host-macos.yml": "cmux-tui/crates/cmux-rd-host/**",
     "fleet-test-compile.yml": "Packages/Shared/**",
     "gallery-advisory.yml": "webviews/** and scripts/gallery-matrix/**",
-    "gallery-health.yml": "design/icons/**",
     "ios-reliability-matrix.yml": "cmux-next-ios/rust/** and the vendored smoltcp",
     "ios-review-gate.yml": "cmux-next-ios/AppStoreReview/**, whose Markdown the gate reads",
     "iroh-v2.yml": "workers/iroh-v2/**",
