@@ -1,6 +1,7 @@
 //! Owns the remaining daemon, session maintenance, peer, and output commands.
 
 use super::*;
+use anyhow::Context;
 
 fn peer_add_params(name: &str, url: &str, token: Option<&str>) -> Value {
     let mut params = json!({"name": name, "url": url, "wait": false});
@@ -749,7 +750,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             print_start_modes().await;
             Ok(())
         }
-        Command::Web { no_open, show_token, rotate_token } => {
+        Command::Web { app, no_open, show_token, rotate_token } => {
             let client = connect(true).await?;
             let m = if rotate_token { method::MUX_WEB_TOKEN_ROTATE } else { method::MUX_STATUS };
             let v = client.request(m, json!({})).await?;
@@ -758,6 +759,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 .and_then(Value::as_str)
                 .ok_or_else(|| anyhow!("daemon has no web listener"))?
                 .to_owned();
+            let url = if app {
+                let mut url = reqwest::Url::parse(&url).context("invalid web listener URL")?;
+                url.set_path("/app/");
+                url.to_string()
+            } else {
+                url
+            };
             if json_out {
                 // JSON mode is for scripts: report the URL, open nothing.
                 print_json(&json!({"url": url}));
