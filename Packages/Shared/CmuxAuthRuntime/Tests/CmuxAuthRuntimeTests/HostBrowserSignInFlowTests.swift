@@ -536,7 +536,9 @@ import Testing
         #expect(harness.coordinator.isAuthenticated == false)
         #expect(await harness.tokenStore.getStoredRefreshToken() == nil)
         #expect(await harness.tokenStore.getStoredAccessToken() == nil)
-        #expect(harness.flow.lastFailure == nil)
+        // Safari handed off a sign-in this launch never started (the app
+        // relaunched mid sign-in): say so rather than ignore it.
+        #expect(harness.flow.lastFailure == .invalidCallback)
     }
 
 }

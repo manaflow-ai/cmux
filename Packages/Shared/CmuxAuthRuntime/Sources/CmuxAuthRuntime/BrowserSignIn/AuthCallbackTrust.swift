@@ -108,6 +108,11 @@ struct HostBrowserIssuedCallbackStates {
         return difference == 0
     }
 
+    /// A check that turns true once `lifetime` has passed on `clock`.
+    static func deadlineCheck(clock: any Clock<Duration>, after lifetime: Duration) -> @Sendable () -> Bool {
+        expiry(clock: clock, after: lifetime)
+    }
+
     private static func expiry<C: Clock>(clock: C, after lifetime: Duration) -> @Sendable () -> Bool
         where C.Duration == Duration {
         let deadline = clock.now.advanced(by: lifetime)
