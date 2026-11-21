@@ -131,7 +131,7 @@ class WorkflowShape(unittest.TestCase):
         self.assertEqual(set(place["LINUX_ONLY"].split()), light)
         self.assertEqual(set(place["JOBS"].split()), light)
         for key, each in doc["jobs"].items():
-            # fast-check-route is held to ubuntu-latest by fast_check_route.py check (the decision takes no pool runner).
+            # fast-check-route is held to the 2-vCPU pool by fast_check_route.py check (the decision takes no pool runner).
             if key in light or key in ("portable-placement", "fast-check-route"):
                 continue
             with self.subTest(runner=key):

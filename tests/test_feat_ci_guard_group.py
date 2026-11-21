@@ -268,7 +268,7 @@ class TheGuardGroupRunsOnItsMeasuredSize(unittest.TestCase):
         measured = entry("cmux-next-guards.yml", "ci-guard-group")
         pool_route = (f"vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_{measured['failover']}"
                       f" || fromJSON(vars.RUNNER_POOLS).linux_{measured['size']}")
-        # Its only need is the ubuntu-latest path route (fast_check_route.py): a pull request that touches nothing a
+        # Its only need is the 2-vCPU path route (fast_check_route.py): a pull request that touches nothing a
         # guard group reads skips it; an empty route (a push, a router failure) runs it.
         self.assertEqual(self.job()["needs"], "fast-check-route")
         self.assertEqual(self.job()["if"],

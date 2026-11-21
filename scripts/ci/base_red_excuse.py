@@ -5107,6 +5107,7 @@ GUARD_WORKFLOWS = {
                           "(guards_new_reds.py --tip), so no pull request's red is its",
         "rust-notices-tree": _PRODUCT,
         "pr-red-checks": _PUBLISH,
+        "fast-check-route": "decides from the changed paths which guard jobs run; it checks nothing itself",
     },
     "ci-guards.yml": {
         "workflow-guard-submodule-forward-only": "reads the submodules' remote history, not only the tree",
