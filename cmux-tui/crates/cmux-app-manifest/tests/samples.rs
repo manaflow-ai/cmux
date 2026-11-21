@@ -24,6 +24,7 @@ mod apps {
         let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
         let mut dirs = Vec::new();
         for folder in ["samples/apps", "examples/extensions"] {
+            // affected-reads: samples/apps examples/extensions
             let root = repo.join(folder);
             dirs.extend(
                 std::fs::read_dir(&root)

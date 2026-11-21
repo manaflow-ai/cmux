@@ -33,6 +33,8 @@ FAST_REASON = "(no Mac tier)"
 NO_FAST_TIER_REASON = "(no Mac fast tier)"
 # The router imports these from scripts/ci; the old router gets its own copies.
 ROUTER_FILES = ("cmux_next_route.py", "select_package_tests.py")
+# Read by the router when the ref has them (the daemon tier's map, cmux#45464); an older base has none.
+OPTIONAL_ROUTER_FILES = ("affected-jobs.json",)
 
 Router = Callable[[list[str]], tuple[dict[str, str], list[str]]]
 
@@ -135,6 +137,11 @@ def load_router(root: Path, ref: str | None) -> Router:
         text = subprocess.run(["git", "show", f"{ref}:scripts/ci/{name}"], cwd=root, check=True,
                               capture_output=True, text=True).stdout
         (directory / name).write_text(text)
+    for name in OPTIONAL_ROUTER_FILES:
+        found = subprocess.run(["git", "show", f"{ref}:scripts/ci/{name}"], cwd=root, check=False,
+                               capture_output=True, text=True)
+        if found.returncode == 0:
+            (directory / name).write_text(found.stdout)
     return _router(_load(directory, "cmux_next_route_old"), root)
 
 
