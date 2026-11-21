@@ -1,0 +1,10 @@
+{
+  "id": "ui.dialog",
+  "title": "Dialog and alert sheet",
+  "spec": "design/surface-materials.md",
+  "captures": [
+    { "state": "titled", "entry": "ui.dialog", "variant": "titled", "width": 560, "height": 420 },
+    { "state": "alert", "entry": "ui.dialog", "variant": "alert", "width": 560, "height": 420 }
+  ],
+  "keep": [{ "name": "buttons", "selector": "[role=dialog] button, [role=alertdialog] button", "why": "Dialog buttons and their key hints are the standard dialog contract (CLAUDE.md: CmuxDialogSpec / ui/DialogButton)." }]
+}

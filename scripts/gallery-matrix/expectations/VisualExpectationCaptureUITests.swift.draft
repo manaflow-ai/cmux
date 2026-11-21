@@ -1,0 +1,171 @@
+// DRAFT, not compiled. Goes to cmux-next-ios/UITests/VisualExpectationCaptureUITests.swift (the
+// CmuxMobileAppUITests target takes every file in UITests/, project.yml), run on the fleet with
+//   cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA \
+//     --arg test --arg ui=VisualExpectationCaptureUITests --artifact artifacts/ios-sim/evidence.zip
+// Plan and mapping: scripts/gallery-matrix/expectations/capture-ios.md.
+import UIKit
+import XCTest
+
+/// One screenshot per (surface, state, scheme) of design/visual-expectations/ios/*.json, for the visual
+/// expectation gate. Each capture's `launch` arguments go to the app (RecoveryGalleryRoot), with
+/// `-cmux-mobile-gallery-appearance <scheme>` appended. Two test-side directives in `launch` are taken out
+/// before the launch: `-cmux-visual-wait <id or label>` (wait for that element instead of the gallery root)
+/// and `-cmux-visual-tap <id or label>` (tap that button, then wait). A state that does not appear fails the
+/// test; a launch alone is never accepted as a picture of the state.
+///
+/// Attachments (exported by `xcresulttool export attachments` into ui-attachments/ with manifest.json):
+/// - `vexp__<surface>__<state>__<scheme>`: the PNG screenshot, at device scale.
+/// - `vexp-meta`: JSON {"scale", "os", "model", "screen": [w, h] in points}, the sidecar scale and renderer id.
+/// - `vexp-error__<surface>__<state>__<scheme>`: plain text, why that state did not capture (the test
+///   records the failure and goes on to the next state, so one broken state does not hide the others).
+///
+/// The expectations are read from the checkout on the worker: a simulator test process runs on the Mac and
+/// can read host paths, and #filePath is this file's path in the checkout xcodebuild compiled. A surface
+/// filter, when the step passes one, comes as TEST_RUNNER_CMUX_VISUAL_SURFACES=a,b (xcodebuild forwards
+/// TEST_RUNNER_* to the test process without the prefix).
+final class VisualExpectationCaptureUITests: XCTestCase {
+    private struct Capture {
+        let surface: String
+        let state: String
+        let schemes: [String]
+        let launch: [String]
+        let waitFor: String?
+        let tap: String?
+    }
+
+    override func setUp() { continueAfterFailure = true }
+
+    @MainActor func testVisualExpectations() throws {
+        let captures = try loadCaptures()
+        XCTAssertFalse(captures.isEmpty, "no ios expectations under \(Self.expectationsDir.path)")
+        XCUIDevice.shared.orientation = .portrait
+        attachMeta()
+        for scheme in ["light", "dark"] {
+            XCUIDevice.shared.appearance = scheme == "dark" ? .dark : .light
+            for capture in captures where capture.schemes.contains(scheme) {
+                shoot(capture, scheme: scheme)
+            }
+        }
+    }
+
+    // MARK: - Capture
+
+    @MainActor private func shoot(_ capture: Capture, scheme: String) {
+        let key = "\(capture.surface)__\(capture.state)__\(scheme)"
+        let app = XCUIApplication()
+        app.launchArguments = capture.launch + ["-cmux-mobile-gallery-appearance", scheme]
+        app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
+        app.launch()
+        defer { app.terminate() }
+        let scene = gallerySceneName(capture.launch)
+        let root = app.descendants(matching: .any)["recoveryGallery.\(scene)"]
+        guard root.waitForExistence(timeout: 20) else {
+            return fail(key, "the gallery root recoveryGallery.\(scene) did not appear in 20 s")
+        }
+        if let tap = capture.tap {
+            let button = app.buttons[tap]
+            guard button.waitForExistence(timeout: 10) else { return fail(key, "no button \(tap) to tap") }
+            button.tap()
+        }
+        if let wanted = capture.waitFor {
+            let element = app.descendants(matching: .any)[wanted]
+            guard element.waitForExistence(timeout: 10) else { return fail(key, "\(wanted) did not appear in 10 s") }
+        }
+        // Presentation animations end before the still: wait for the hierarchy to stop changing, bounded.
+        settle(app)
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "vexp__\(key)"
+        shot.lifetime = .keepAlways
+        add(shot)
+    }
+
+    @MainActor private func settle(_ app: XCUIApplication) {
+        var last = app.debugDescription
+        for _ in 0..<10 {
+            let idle = expectation(description: "frame")
+            idle.isInverted = true
+            wait(for: [idle], timeout: 0.25)
+            let now = app.debugDescription
+            if now == last { return }
+            last = now
+        }
+    }
+
+    private func fail(_ key: String, _ why: String) {
+        let note = XCTAttachment(string: why)
+        note.name = "vexp-error__\(key)"
+        note.lifetime = .keepAlways
+        add(note)
+        XCTFail("\(key): \(why)")
+    }
+
+    @MainActor private func attachMeta() {
+        let screen = UIScreen.main
+        let meta: [String: Any] = [
+            "scale": screen.scale,
+            "os": "\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)",
+            "model": ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] ?? UIDevice.current.model,
+            "device": ProcessInfo.processInfo.environment["SIMULATOR_DEVICE_NAME"] ?? "",
+            "screen": [screen.bounds.width, screen.bounds.height],
+        ]
+        let data = (try? JSONSerialization.data(withJSONObject: meta, options: [.sortedKeys])) ?? Data()
+        let note = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
+        note.name = "vexp-meta"
+        note.lifetime = .keepAlways
+        add(note)
+    }
+
+    // MARK: - Expectations
+
+    /// cmux-next-ios/UITests/<this file> -> <checkout>/design/visual-expectations/ios
+    private static let expectationsDir = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("design/visual-expectations/ios", isDirectory: true)
+
+    private func loadCaptures() throws -> [Capture] {
+        let only = ProcessInfo.processInfo.environment["CMUX_VISUAL_SURFACES"]
+            .map { Set($0.split(separator: ",").map(String.init)) }
+        let files = try FileManager.default.contentsOfDirectory(at: Self.expectationsDir, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "json" }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        var captures: [Capture] = []
+        for file in files {
+            let raw = try JSONSerialization.jsonObject(with: Data(contentsOf: file))
+            guard let surface = raw as? [String: Any], let id = surface["id"] as? String else {
+                XCTFail("\(file.lastPathComponent): no id"); continue
+            }
+            if let only, !only.contains(id) { continue }
+            let schemes = surface["schemes"] as? [String] ?? ["light", "dark"]
+            for case let spec as [String: Any] in surface["captures"] as? [Any] ?? [] {
+                guard let state = spec["state"] as? String, let launch = spec["launch"] as? [String] else {
+                    XCTFail("\(id): a capture needs state and launch"); continue
+                }
+                let (args, tap, waitFor) = directives(launch)
+                captures.append(Capture(surface: id, state: state, schemes: schemes, launch: args,
+                                        waitFor: waitFor, tap: tap))
+            }
+        }
+        return captures
+    }
+
+    /// The launch arguments without the test-side directives, and the directives' values.
+    private func directives(_ launch: [String]) -> ([String], tap: String?, waitFor: String?) {
+        var args: [String] = []
+        var tap: String?
+        var waitFor: String?
+        var i = 0
+        while i < launch.count {
+            switch launch[i] {
+            case "-cmux-visual-tap" where i + 1 < launch.count: tap = launch[i + 1]; i += 2
+            case "-cmux-visual-wait" where i + 1 < launch.count: waitFor = launch[i + 1]; i += 2
+            default: args.append(launch[i]); i += 1
+            }
+        }
+        return (args, tap, waitFor)
+    }
+
+    private func gallerySceneName(_ launch: [String]) -> String {
+        guard let i = launch.firstIndex(of: "-cmux-mobile-recovery-gallery"), i + 1 < launch.count else { return "states" }
+        return launch[i + 1]
+    }
+}

@@ -1,0 +1,6 @@
+{
+  "id": "ui.tooltip",
+  "title": "Tooltip",
+  "captures": [{ "state": "title-detail", "entry": "ui.tooltip", "variant": "title-detail", "width": 560, "height": 320 }],
+  "keep": []
+}

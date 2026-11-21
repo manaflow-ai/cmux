@@ -1,0 +1,6 @@
+{
+  "id": "ui.feature-tip",
+  "title": "Feature tip card",
+  "captures": [{ "state": "live", "entry": "ui.feature-tip", "variant": "live", "width": 560, "height": 360 }],
+  "keep": []
+}

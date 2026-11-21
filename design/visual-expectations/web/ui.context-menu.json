@@ -1,0 +1,9 @@
+{
+  "id": "ui.context-menu",
+  "title": "Context menu",
+  "spec": "design/surface-materials.md",
+  "captures": [{ "state": "open", "entry": "ui.context-menu", "variant": "open", "width": 560, "height": 420 }],
+  "keep": [
+    { "name": "menu-rows", "selector": "[role=menuitem]", "why": "Context menus share the menu row contract." }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "id": "pages.apps",
+  "title": "Apps page: list, detail and installing",
+  "captures": [
+    { "state": "list", "entry": "pages.apps", "variant": "list", "width": 1000, "height": 640 },
+    { "state": "installing", "entry": "pages.apps", "variant": "installing", "width": 1000, "height": 640 }
+  ],
+  "keep": []
+}

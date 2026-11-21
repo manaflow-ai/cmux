@@ -1,0 +1,6 @@
+{
+  "id": "ui.combobox",
+  "title": "Combobox suggestions",
+  "captures": [{ "state": "open", "entry": "ui.combobox", "variant": "open", "width": 560, "height": 420 }],
+  "keep": [{ "name": "input", "selector": "[role=combobox]", "why": "The field keeps its size and type while suggestions show." }]
+}

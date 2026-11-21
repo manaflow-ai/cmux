@@ -1,0 +1,32 @@
+{
+  "id": "settings",
+  "platform": "mac",
+  "title": "Settings: General (an in-window page)",
+  "schemes": ["light", "dark"],
+  "tolerance": { "ratio": 0.002, "threshold": 0.1 },
+  "keep": [
+    {
+      "name": "sidebar header",
+      "why": "The traffic lights, sidebar toggle, back/forward and new-workspace buttons are shared by every page; opening Settings never moves them.",
+      "box": [0, 0, 228, 40]
+    }
+  ],
+  "captures": [
+    {
+      "state": "general",
+      "stateFile": "scripts/cmux-next/visual-gate/states/settings.json",
+      "keep": [
+        {
+          "name": "settings header",
+          "why": "The Settings tab title, search field and section tabs (General first) are the page's navigation; their order and spacing change only on purpose.",
+          "box": [662, 0, 438, 125]
+        },
+        {
+          "name": "window card",
+          "why": "The General > Window card (Titlebar, Titlebar Buttons, Global Hot Key, Start Agent from Any App, Dock and menu bar icons) is the reference settings card layout.",
+          "box": [674, 228, 410, 310]
+        }
+      ]
+    }
+  ]
+}

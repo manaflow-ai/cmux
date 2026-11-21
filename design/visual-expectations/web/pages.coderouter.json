@@ -1,0 +1,10 @@
+{
+  "id": "pages.coderouter",
+  "title": "Code router page: connected, error and loading",
+  "captures": [
+    { "state": "connected", "entry": "pages.coderouter", "variant": "connected", "width": 900, "height": 640 },
+    { "state": "error", "entry": "pages.coderouter", "variant": "error", "width": 900, "height": 640 },
+    { "state": "loading", "entry": "pages.coderouter", "variant": "loading", "width": 900, "height": 640 }
+  ],
+  "keep": []
+}

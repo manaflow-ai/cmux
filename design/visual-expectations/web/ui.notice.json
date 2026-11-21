@@ -1,0 +1,11 @@
+{
+  "id": "ui.notice",
+  "title": "Notices and toasts (error, ask, stack)",
+  "spec": "design/surface-materials.md",
+  "captures": [
+    { "state": "card", "entry": "ui.notice", "variant": "card", "width": 560, "height": 420 },
+    { "state": "stack", "entry": "ui.notice", "variant": "stack", "width": 560, "height": 420 },
+    { "state": "error", "entry": "ui.notice", "variant": "error-retry-first", "width": 560, "height": 420 }
+  ],
+  "keep": [{ "name": "actions", "selector": ".ui-notice button", "why": "Toast actions keep their order, size and placement (Retry leads on an error)." }]
+}

@@ -1,0 +1,9 @@
+{
+  "id": "pages.changelog",
+  "title": "What's New: page and update sheet",
+  "captures": [
+    { "state": "nightly-update", "entry": "pages.changelog", "variant": "nightly-update", "width": 1000, "height": 640 },
+    { "state": "sheet", "entry": "pages.changelog", "variant": "sheet", "width": 1000, "height": 640 }
+  ],
+  "keep": []
+}

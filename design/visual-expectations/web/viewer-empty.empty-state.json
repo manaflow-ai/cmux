@@ -1,0 +1,10 @@
+{
+  "id": "viewer-empty.empty-state",
+  "title": "Viewer empty, loading and error states",
+  "captures": [
+    { "state": "empty", "entry": "viewer-empty.empty-state", "variant": "empty", "width": 560, "height": 430 },
+    { "state": "loading", "entry": "viewer-empty.empty-state", "variant": "loading", "width": 560, "height": 430 },
+    { "state": "error", "entry": "viewer-empty.empty-state", "variant": "error", "width": 560, "height": 430 }
+  ],
+  "keep": []
+}

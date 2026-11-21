@@ -1,0 +1,12 @@
+{
+  "id": "ui.menu",
+  "title": "Menu (shared web menu popup)",
+  "spec": "design/surface-materials.md",
+  "captures": [
+    { "state": "open", "entry": "ui.menu", "variant": "open", "width": 560, "height": 420 },
+    { "state": "submenu", "entry": "ui.menu", "variant": "submenu", "width": 560, "height": 420 }
+  ],
+  "keep": [
+    { "name": "menu-rows", "selector": "[role=menuitem], [role=menuitemcheckbox], [role=menuitemradio]", "why": "Row height, label and shortcut columns are the menu's contract (design/components/menu.md)." }
+  ]
+}
