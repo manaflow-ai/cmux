@@ -185,6 +185,11 @@
   border-radius: calc(var(--ds-radius-control) + var(--ui-dialog-padding));
   background: var(--glass-tint);
 }
+/* A quick-open palette (the ledger's) is a dialog but floats like a popup: it takes the popup tint, not
+   the sheet veil, so the page's text never ghosts through its search row. */
+.ui-dialog.ui-glass.ui-glass-transient {
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-transient-web-tint), transparent);
+}
 
 /* Menu sections and separators look the same in every host (dogfood 2026-10-09: the agent pane's reasoning menu drew
    "Reasoning" and "Service Tier" as large unstyled titles at another indent, with no line between the sections, because

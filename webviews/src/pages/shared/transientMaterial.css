@@ -14,7 +14,7 @@
   --host-glass-fill: transparent;
 }
 
-:is(:root[data-transient-material], .transient-material-scope) .ui-dialog.ui-glass {
+:is(:root[data-transient-material], .transient-material-scope) .ui-dialog.ui-glass:not(.ui-glass-transient) {
   --glass-tint: var(--transient-surface-veil);
   --glass-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));
 }
