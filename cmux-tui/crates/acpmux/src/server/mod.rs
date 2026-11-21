@@ -1278,7 +1278,10 @@ pub async fn serve_ws_until(
             let presented =
                 std::mem::take(&mut *seen_peer.lock().unwrap_or_else(|e| e.into_inner()));
             if browser_app.load(std::sync::atomic::Ordering::Relaxed) {
-                proof = ConnAuth::BrowserApp;
+                // `/app/ws`'s scoped token is the listener's, narrowed to this path: served as the
+                // listener token is, under every Web rule, and able to enroll and present its own
+                // device (`web_device.rs`). Taking this branch skips the LocalApp, paired-device
+                // and peer promotions below, so nothing else can raise it.
             } else if let Some(device) = &device {
                 (origin, proof) = pairing::origin_of(device);
             } else if peer_auth.as_ref().is_some_and(|a| a.is_peer(peer, &presented)) {
