@@ -16,6 +16,13 @@ struct NotificationPolicyEffectsPatchTests {
         }
     }
 
+    /// A muted workspace keeps only the history record; every alerting effect stays off.
+    @Test func mutedHistoryOnlyRecordsWithoutAlerting() {
+        var expected = NotificationPolicyEffects.allSuppressed
+        expected.record = true
+        #expect(NotificationPolicyEffects.mutedHistoryOnly == expected)
+    }
+
     /// An absent or empty patch resolves to the defaults.
     @Test func absentFieldsKeepTheDefaults() {
         #expect(NotificationPolicyEffects(applying: nil) == NotificationPolicyEffects())
