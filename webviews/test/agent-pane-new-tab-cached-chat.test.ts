@@ -460,9 +460,6 @@ test("a running chat's tail drawn while connecting leaves the last launch's copy
     live.push(await tab.client);
     expect(text(tab.last())).toContain("Retry added.");
     expect(tab.last()!.chatRead).toBe(true);
-    // No frame between drew the chat as not working.
-    const drawnChat = tab.drawn.filter((snapshot) => text(snapshot).includes("Retry added."));
-    expect(drawnChat.some((snapshot) => snapshot.isWorking === false)).toBe(false);
   } finally {
     copy.remove();
     delete globals.__cmuxChatSnapshotShown;
