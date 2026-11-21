@@ -33,11 +33,18 @@ use crate::cli::process_owner::{self, Owned, Verdict};
 use crate::client::Client;
 use crate::rpc::method;
 
+/// Reads a JSON pointer without indexing: a missing key reads `null`.
+fn at<'a>(v: &'a Value, pointer: &str) -> &'a Value {
+    v.pointer(pointer).unwrap_or(&Value::Null)
+}
+
 /// What a process acpmux started is for, from its own marks and records, never its name alone.
 fn kind(o: &Owned, daemon: Option<u32>, hosts: &[HostRow]) -> &'static str {
     let argv = o.argv.as_deref().unwrap_or(&[]);
     let has = |a: &str| argv.iter().skip(1).any(|x| x == a);
-    if daemon == Some(o.proc.pid) || argv.windows(2).any(|w| w[0] == "daemon" && w[1] == "run") {
+    if daemon == Some(o.proc.pid)
+        || argv.windows(2).any(|w| matches!(w, [a, b] if a == "daemon" && b == "run"))
+    {
         return "daemon";
     }
     if has(agent_host::HOST_ARG) {
@@ -367,10 +374,10 @@ pub(crate) fn build(g: &Gathered, sessions: &Sessions, connected: bool) -> Value
         "socketExists": crate::config::socket_path().exists(),
         "connected": connected,
     });
-    let in_use = processes.iter().filter(|p| p["state"] == "in-use").count();
-    let idle = processes.iter().filter(|p| p["state"] == "idle").count();
-    let orphaned = processes.iter().filter(|p| p["state"] == "orphaned").count();
-    let unknown = processes.iter().filter(|p| p["state"] == "unknown").count();
+    let in_use = processes.iter().filter(|p| *at(p, "/state") == "in-use").count();
+    let idle = processes.iter().filter(|p| *at(p, "/state") == "idle").count();
+    let orphaned = processes.iter().filter(|p| *at(p, "/state") == "orphaned").count();
+    let unknown = processes.iter().filter(|p| *at(p, "/state") == "unknown").count();
     json!({
         "product": "acpmux",
         "home": home,
@@ -378,7 +385,7 @@ pub(crate) fn build(g: &Gathered, sessions: &Sessions, connected: bool) -> Value
             "processes": processes.len(), "inUse": in_use, "idle": idle,
             "orphaned": orphaned, "unknown": unknown,
             "hostRecords": records.len(),
-            "staleHostRecords": records.iter().filter(|r| r["state"] == "stale").count(),
+            "staleHostRecords": records.iter().filter(|r| *at(r, "/state") == "stale").count(),
             "strayLiveLocks": stray.len(),
         },
         "processes": processes,
@@ -515,30 +522,30 @@ pub(crate) fn remove_stray_lock(
 }
 
 fn print_human(c: &Value) {
-    let s = &c["summary"];
+    let s = at(c, "/summary");
     println!(
         "acpmux: {} processes ({} in use, {} idle, {} orphaned, {} unknown); {} host records ({} stale); {} stray locks",
-        s["processes"],
-        s["inUse"],
-        s["idle"],
-        s["orphaned"],
-        s["unknown"],
-        s["hostRecords"],
-        s["staleHostRecords"],
-        s["strayLiveLocks"]
+        at(s, "/processes"),
+        at(s, "/inUse"),
+        at(s, "/idle"),
+        at(s, "/orphaned"),
+        at(s, "/unknown"),
+        at(s, "/hostRecords"),
+        at(s, "/staleHostRecords"),
+        at(s, "/strayLiveLocks")
     );
-    for p in c["processes"].as_array().into_iter().flatten() {
-        let argv = p["argv"]
+    for p in at(c, "/processes").as_array().into_iter().flatten() {
+        let argv = at(p, "/argv")
             .as_array()
             .map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" "));
         let argv: String = argv.unwrap_or_default().chars().take(80).collect();
         println!(
             "{:>7} {:<11} {:<9} {:<12} {}  {}",
-            p["pid"],
-            p["kind"].as_str().unwrap_or("-"),
-            p["state"].as_str().unwrap_or("-"),
-            p["sessionName"].as_str().or(p["sessionId"].as_str()).unwrap_or("-"),
-            p["reason"].as_str().unwrap_or(""),
+            at(p, "/pid"),
+            at(p, "/kind").as_str().unwrap_or("-"),
+            at(p, "/state").as_str().unwrap_or("-"),
+            at(p, "/sessionName").as_str().or(at(p, "/sessionId").as_str()).unwrap_or("-"),
+            at(p, "/reason").as_str().unwrap_or(""),
             argv
         );
     }
@@ -557,18 +564,18 @@ pub async fn ps(json_out: bool) -> Result<()> {
 
 /// `acpmux gc [--apply]`.
 pub async fn gc(apply: bool, json_out: bool) -> Result<()> {
-    let c = census().await;
-    let candidates: Vec<u32> = c["gc"]["candidates"]
+    let c = &census().await;
+    let candidates: Vec<u32> = at(c, "/gc/candidates")
         .as_array()
         .into_iter()
         .flatten()
-        .filter_map(|r| r["pid"].as_u64().and_then(|p| u32::try_from(p).ok()))
+        .filter_map(|r| at(r, "/pid").as_u64().and_then(|p| u32::try_from(p).ok()))
         .collect();
-    let stray: Vec<PathBuf> = c["state"]["strayLiveLocks"]
+    let stray: Vec<PathBuf> = at(c, "/state/strayLiveLocks")
         .as_array()
         .into_iter()
         .flatten()
-        .filter_map(|r| r["path"].as_str().map(PathBuf::from))
+        .filter_map(|r| at(r, "/path").as_str().map(PathBuf::from))
         .collect();
     let mut ended = Vec::new();
     let mut removed = Vec::new();
@@ -616,11 +623,11 @@ pub async fn gc(apply: bool, json_out: bool) -> Result<()> {
     let receipt = json!({
         "product": "acpmux",
         "dryRun": !apply,
-        "candidates": c["gc"]["candidates"],
-        "refused": c["gc"]["refused"],
-        "strayLiveLocks": c["state"]["strayLiveLocks"],
-        "staleHostRecords": c["state"]["hostRecords"].as_array().into_iter().flatten()
-            .filter(|r| r["state"] == "stale").cloned().collect::<Vec<_>>(),
+        "candidates": at(c, "/gc/candidates"),
+        "refused": at(c, "/gc/refused"),
+        "strayLiveLocks": at(c, "/state/strayLiveLocks"),
+        "staleHostRecords": at(c, "/state/hostRecords").as_array().into_iter().flatten()
+            .filter(|r| *at(r, "/state") == "stale").cloned().collect::<Vec<_>>(),
         "ended": ended,
         "removed": removed,
         "skipped": skipped,
@@ -633,27 +640,33 @@ pub async fn gc(apply: bool, json_out: bool) -> Result<()> {
     let n = candidates.len();
     let verb = if apply { "ended" } else { "would end" };
     println!(
-        "acpmux gc{}: {verb} {} orphaned process(es); {} refused; {} stray lock(s)",
+        "acpmux gc{}: {verb} {} orphaned process(es); {} refused; {verb} {} stray lock(s)",
         if apply { "" } else { " (dry run; --apply ends them)" },
         if apply { ended.len() } else { n },
-        c["gc"]["refused"].as_array().map_or(0, Vec::len),
-        stray.len()
+        at(c, "/gc/refused").as_array().map_or(0, Vec::len),
+        if apply { removed.len() } else { stray.len() }
     );
     let listed: Vec<&Value> = if apply {
         ended.iter().collect()
     } else {
-        c["gc"]["candidates"].as_array().into_iter().flatten().collect()
+        at(c, "/gc/candidates").as_array().into_iter().flatten().collect()
     };
     for r in listed {
-        println!("  {}  {}", r["pid"], r["reason"].as_str().unwrap_or(""));
+        println!("  {}  {}", at(r, "/pid"), at(r, "/reason").as_str().unwrap_or(""));
     }
-    for r in c["gc"]["refused"].as_array().into_iter().flatten().chain(skipped.iter()) {
-        let what = r["pid"].as_u64().map_or_else(|| r["path"].to_string(), |p| p.to_string());
-        println!("  {what}  refused: {}", r["refused"].as_str().unwrap_or(""));
+    for r in at(c, "/gc/refused").as_array().into_iter().flatten().chain(skipped.iter()) {
+        let what = at(r, "/pid")
+            .as_u64()
+            .map_or_else(|| at(r, "/path").as_str().unwrap_or("-").to_string(), |p| p.to_string());
+        println!("  {what}  refused: {}", at(r, "/refused").as_str().unwrap_or(""));
     }
     if apply {
         for r in &removed {
-            println!("  {}  removed: {}", r["path"], r["reason"].as_str().unwrap_or(""));
+            println!(
+                "  {}  removed: {}",
+                at(r, "/path").as_str().unwrap_or("-"),
+                at(r, "/reason").as_str().unwrap_or("")
+            );
         }
     } else {
         for p in &stray {

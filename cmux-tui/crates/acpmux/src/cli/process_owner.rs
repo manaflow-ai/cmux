@@ -543,8 +543,10 @@ pub(crate) async fn end_owned(
         "processes": procs.iter().map(|p| p.pid).collect::<Vec<_>>(),
         "sigkill": left.iter().map(|p| p.pid).collect::<Vec<_>>(),
     });
-    if let Some(reason) = reason {
-        entry["reason"] = json!(reason);
+    if let Some(reason) = reason
+        && let Some(fields) = entry.as_object_mut()
+    {
+        fields.insert("reason".into(), json!(reason));
     }
     log_kill(&entry);
     entry
