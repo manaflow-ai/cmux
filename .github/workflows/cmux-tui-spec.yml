@@ -31,6 +31,8 @@ on:
       - "scripts/ci/affected_jobs_replay.py"
       - "scripts/ci/tree_result.py"
       - ".github/actions/tree-result/**"
+      - ".github/actions/rust-compile-cache/**"
+      - "scripts/ci/rust_compile_cache.py"
       - "tests/test_ci_tree_result.py"
       - "tests/test_ci_affected_jobs.py"
       # Files outside cmux-tui that acpmux or its path dependencies include_str!
@@ -364,7 +366,7 @@ jobs:
           fi
 
       - name: Report the shared compile cache
-        if: ${{ always() }}
+        if: ${{ always() && steps.tree.outputs.hit != 'true' }}
         uses: ./.github/actions/rust-compile-cache
         with:
           mode: report
@@ -556,7 +558,7 @@ jobs:
           python3 "$verdict" judge --head "$head_log" --retry "$retry_log" --base "$base_log" --job "$JOB"
 
       - name: Report the shared compile cache
-        if: ${{ always() }}
+        if: ${{ always() && steps.tree.outputs.hit != 'true' }}
         uses: ./.github/actions/rust-compile-cache
         with:
           mode: report
@@ -643,7 +645,7 @@ jobs:
         run: cargo clippy --locked -p acpmux --features sim --test sim -- -D warnings
 
       - name: Report the shared compile cache
-        if: ${{ always() }}
+        if: ${{ always() && steps.tree.outputs.hit != 'true' }}
         uses: ./.github/actions/rust-compile-cache
         with:
           mode: report
@@ -740,7 +742,7 @@ jobs:
           grep -E '^sim: ' "$RUNNER_TEMP/sim.log" >> "$GITHUB_STEP_SUMMARY" || true
 
       - name: Report the shared compile cache
-        if: ${{ always() }}
+        if: ${{ always() && steps.tree.outputs.hit != 'true' }}
         uses: ./.github/actions/rust-compile-cache
         with:
           mode: report
