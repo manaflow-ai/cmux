@@ -6,7 +6,7 @@
   "description": "A gray sidebar beside a white page, near-black text, big round corners, no borders.",
 
   "appearance.theme": "Builtin Light",
-  "colors": { "background": "#ffffff", "foreground": "#0d0d0d", "selection": "#e3e3e3", "cursor": "#0d0d0d", "accent": "#5d5d5d" },
+  "colors": { "background": "#ffffff", "foreground": "#0d0d0d", "selection": "#e3e3e3", "cursor": "#0d0d0d", "accent": "#777777" },
   "appearance.appTheme": "followTerminal",
   "appearance.accent": "neutral",
 
@@ -16,7 +16,9 @@
   "appearance.chromeStyle": "flat",
 
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#ececec",
+  // The sidebar and the accent a step lighter than the recipe's (#ececec, #5d5d5d), so the muted
+  // captions of a selected row read at 4.5:1 (`cmux theme check`).
+  "appearance.surfaces.sidebar.color": "#f9f9f9",
   "appearance.surfaces.sidebar.opacity": 0.94,
   "appearance.surfaces.agentPane.color": "#ffffff",
   "appearance.surfaces.agentPane.opacity": 1,
