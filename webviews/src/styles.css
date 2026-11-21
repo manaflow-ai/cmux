@@ -7,6 +7,8 @@
 /* The one Tailwind theme (schemas/design-scale, type-scale and motion-scale, through
    webviews/scripts/pages/gen-design-scale.mjs): p-3, rounded-md, text-body, bg-hover, shadow-elevation-2. */
 @import "./ui/theme.generated.css";
+/* The chrome follows the app density (diffSurface marks the root data-page-density). */
+@import "./pages/shared/pageDensity.css";
 
 :root {
   color-scheme: light dark;
@@ -2360,7 +2362,7 @@ svg[data-icon-fill] {
   padding: 0 12px 0 17px;
   font-family: var(--cmux-diff-ui-font-family);
   font-size: var(--text-field);
-  line-height: calc(20px * var(--cmux-interface-scale, 1));
+  line-height: calc(20px * var(--page-density-text, var(--cmux-interface-scale, 1)));
   /* Regular weight, as the code below it (diffWeight.ts). */
   font-weight: 400;
   color: var(--cmux-diff-fg);

@@ -2,6 +2,7 @@
 // The diff viewer page (cmux-page://cmux.diff/) on fixed patches: the real page entry (main.tsx)
 // over an in-page cmuxPage host that serves the patch (src/gallery/frame/pages.ts).
 import { diffPageEntry } from "../../gallery/format";
+import { pageDensities, pageDensityPlay } from "../../gallery/pageDensityFixtures";
 
 const before = `export function request(url: string) {
   return fetch(url).then((response) => response.json());
@@ -259,6 +260,19 @@ export default diffPageEntry({
         { path: "src/net/client.ts", before, after },
         { path: "src/net/retry.ts", after: retry },
       ],
+    },
+    "density-compact": {
+      note: "The same change at Compact: the toolbar, the file bars and the files list draw at the density's size, the code at its own (diff-viewer/density.ts).",
+      files: [
+        { path: "src/net/client.ts", before, after },
+        { path: "src/net/retry.ts", after: retry },
+      ],
+      play: async (ctx) => {
+        // As the host's scale script does: the density on the root, then the change event.
+        await pageDensityPlay(pageDensities.find((density) => density.name === "compact")!.scale)(ctx);
+        ctx.document.defaultView?.dispatchEvent(new Event("cmux-ui-scale-change"));
+        await ctx.waitFor(() => ctx.document.querySelector(".file-header"), { capMs: 10_000 });
+      },
     },
     unified: {
       note: "The same change, unified layout.",
