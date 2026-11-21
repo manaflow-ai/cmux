@@ -955,14 +955,18 @@ extension ShellModel {
             return
         }
         guard screenSharing == nil else { return }
+        let environment = ProcessInfo.processInfo.environment
         #if DEBUG
         let isDebug = true
+        // A tag stack's backend brings its own device hub (CloudBackendOverride.deviceHub).
+        let stackHub = CloudBackendOverride.resolve(environment: environment, defaults: .standard)?.deviceHub
         #else
         let isDebug = false
+        let stackHub: URL? = nil
         #endif
         let auth = auth
         let configuration = ScreenSharingService.Configuration(
-            baseURL: ScreenSharingService.hubURL(isDebug: isDebug, environment: ProcessInfo.processInfo.environment),
+            baseURL: ScreenSharingService.hubURL(isDebug: isDebug, environment: environment, stackHub: stackHub),
             bundleIdentifier: Bundle.main.bundleIdentifier ?? "dev.cmux.mobile",
             deviceName: UIDevice.current.name,
             tokens: DeviceHubAccountToken { try await auth.accessToken() },

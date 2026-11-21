@@ -108,6 +108,7 @@ import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./ha
 import {
   injectedNewTabContext,
   useEarlyNewTabContext,
+  useLostSharedPart,
   useNewTabAdoption,
   useNewTabPlaces,
   adoptionPlan,
@@ -116,14 +117,13 @@ import {
   useSessionAdoption,
   type SessionAdoption,
   withHandshakeNewTab,
-  useLostSharedPart,
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import {
   heldPick,
-  shownCloudStartPick,
-  withDraftFolder,
   withCloudStartFolder,
+  withDraftFolder,
+  shownCloudStartPick,
   withCloudStartPick,
 } from "./newtab/draftFolder";
 import {
@@ -139,7 +139,7 @@ import { rememberStartedProject } from "./newtab/startedProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { TaskGoalStrip } from "./TaskGoalStrip";
 import { goalHatPlace } from "./goalHat.experiment";
-import { githubFolderRepo, githubFolder } from "./githubRepos";
+import { githubFolder, githubFolderRepo } from "./githubRepos";
 import { StyleSwitch } from "./newtab/StyleSwitch";
 import { useSessionCommands } from "./newtab/useSessionCommands";
 import { screenTemplate, shownTemplate, pageStyle, pickNewTabStyle } from "./newtab/templates";
@@ -556,7 +556,7 @@ import { ChatHeaderTools } from "./header/ChatHeaderTools";
 import { HEADER_ACTIONS, guardedChatMenu, menuGroups, type ChatMenuItem } from "./header/chatHeaderToolsModel";
 import { ThreadTitle } from "./header/ThreadTitle";
 import { deleteChatRow, moveMachineRow } from "./header/chatRows";
-import { moveToTerminal, terminalMoveRow } from "./header/terminalMoveRow";
+import { moveToTerminal, terminalMoveRow, TERMINAL_SWITCH_ACTION, terminalSwitchRow } from "./header/terminalMoveRow";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { setTabRow, tabRowStyle, useTabRow, useTabRowRoot, useTabRowTools } from "./header/tabRow";
 import { SubagentComposer } from "./subagents/SubagentComposer";
@@ -586,6 +586,8 @@ import {
   cloudStartTeam,
   makeCloudSignInRetry,
   grantedCloudStart,
+  pickedChatCloudCall,
+  pickOnlyNewChat,
   newTabProjectPick,
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
@@ -594,8 +596,6 @@ import {
   heldPromptShown,
   cloudPickExtras,
   composerCloudStartFolder,
-  pickedChatCloudCall,
-  pickOnlyNewChat,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
 import { holdsDraft, promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
@@ -830,7 +830,7 @@ import { NO_MENTIONS, StartedMentionsContext, type StartedMentions } from "./sta
 import { type SessionHover, SessionHoverContext } from "./started/sessionHoverCardModel";
 import { SessionHoverStore, withSessionIds } from "./started/sessionHover";
 import { pageChatStore, setPageChats } from "./chips/cmuxLinkResolve";
-import { setLinkPlaces } from "./chips/cmuxLinkPlaces";
+import { setLinkPlaces, updateLinkPlaces } from "./chips/cmuxLinkPlaces";
 import { SubsessionStore, type Subsessions, subsessionRows } from "./subagents/subsessions";
 import {
   type StartedCache,
@@ -848,11 +848,11 @@ import { holdWebSwap, pageEditHold, pageReleaseHold } from "../../pages/shared/w
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import {
   SandboxTab,
-  newTabRunModeRows,
   sandboxAgent,
   sandboxPageRefusal,
   sandboxRetryable,
   type RunMode,
+  newTabRunModeRows,
 } from "./sandboxRun";
 import { SandboxRunView } from "./SandboxRunView";
 import { PaneFeatureTips } from "./featureTips";
@@ -963,6 +963,7 @@ declare global {
       applyAttentionTabs?(tabs: unknown): void;
       /// The workspaces, panes and tabs a pasted cmux link names (chips/cmuxLinkPlaces.ts).
       applyLinkPlaces?(places: unknown): void;
+      applyLinkPlacesChanged?(places: unknown): void;
       /// Scrolls to a turn a `cmux://session/<id>#turn-<turnId>` link names (links.ts), once its row
       /// renders; gives up quietly after a few seconds.
       revealTurn?(turnId: string): void;
@@ -3794,7 +3795,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
 
   const processSource = useMemo<ProcessSource>(
     () => ({
-      listProcesses: (sessionId) => directClient.current?.listProcesses(sessionId) ?? Promise.reject(new Error()),
+      listProcesses: (sessionId, recent) =>
+        directClient.current?.listProcesses(sessionId, recent) ?? Promise.reject(new Error()),
       watchProcesses: (listener) => directClient.current?.watchProcesses(listener) ?? (() => undefined),
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new client is a new source
@@ -3868,6 +3870,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       backgroundOpen ||
       snapshot.isWorking ||
       transcriptRunning.length > 0,
+    // The whole history only while a list of it shows; the tray and the card read the recent ones.
+    (sessionInfoOn && sessionInfoOpened) || backgroundOpen,
   );
   const runningCommandList = useMemo(
     () =>
@@ -6197,20 +6201,25 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         : NO_COMMANDS,
     [subagentTray, processRegistry, transcriptTasks],
   );
-  const endedCommandsKey = endedCommandList
-    .map((task) =>
-      [
-        task.id,
-        task.state,
-        task.command,
-        task.description ?? "",
-        task.startedAt ?? "",
-        task.endedAt ?? "",
-        task.toolCallId ?? "",
-        task.subagent ?? "",
-      ].join("\u0000"),
-    )
-    .join("\u0001");
+  // Built when the list changes, never per render: a chat's ended commands can number thousands.
+  const endedCommandsKey = useMemo(
+    () =>
+      endedCommandList
+        .map((task) =>
+          [
+            task.id,
+            task.state,
+            task.command,
+            task.description ?? "",
+            task.startedAt ?? "",
+            task.endedAt ?? "",
+            task.toolCallId ?? "",
+            task.subagent ?? "",
+          ].join("\u0000"),
+        )
+        .join("\u0001"),
+    [endedCommandList],
+  );
   const endedCommandItems = useMemo((): TrayItem[] => {
     const byId = new Map(trayAgents.map((agent) => [agent.id, agent]));
     return endedCommandList.map((command) => {
@@ -8282,6 +8291,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       },
       applyLinkPlaces(places) {
         setLinkPlaces(places);
+      },
+      applyLinkPlacesChanged(places) {
+        updateLinkPlaces(places);
       },
       revealTurn(turnId) {
         revealRef.current(turnId);
@@ -10815,7 +10827,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     window.addEventListener("cmux-acpmux-menu-command", run);
     return () => window.removeEventListener("cmux-acpmux-menu-command", run);
   }, [localCwd, openInstructions, summary?.family, summary?.harness, t]);
-  const readTabState = () => callNative("pane.tabState").then(setHeaderState);
+  // `pair`: also ask whether a terminal runs this chat (its "..." offers Switch to terminal): the App walks every
+  // machine's agents for it, so only the chat's load and its menu opening ask, never a hover.
+  const readTabState = (pair = false) =>
+    callNative("pane.tabState", pair ? { terminalSwitch: true } : undefined).then(setHeaderState);
   const refreshTabState = () => void readTabState().catch(() => undefined);
   // Terminal and Browser change what is beside the chat: [+] follows once their split lands.
   const runSplitAction = (id: string, cwd: string | undefined, mode: QuickActionMode) => {
@@ -10911,7 +10926,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   };
   // The label starts from the chat's layout; Quick Chat's panel has no tab to read.
   useEffect(() => {
-    if (!quick) void readTabState().catch(() => undefined);
+    if (!quick) void readTabState(true).catch(() => undefined);
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- reread per chat, not per render
   }, [quick, snapshot.sessionId]);
   // A turn's end asks the App for the chat's pull request again (cx-ncc.77.1): the agent may have
@@ -11264,39 +11279,57 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     );
     const remove = sessionId ? guarded(deleteChatRow(requestDelete, t)) : [];
     const moveRow = guarded(moveMachine);
-    // Move to Terminal (header/terminalMoveRow.ts): this pane stops running the chat, then the
-    // harness's own resume runs it in a terminal and the tab closes; never while a turn runs.
-    const terminalMove = guarded(
-      terminalMoveRow(
-        {
-          sessionId,
-          family: summary?.family || summary?.harness,
-          agentSessionId: summary?.agentSessionId,
-          local: !onOtherMachine && !(summary?.host && summary.hostKind !== "local"),
-          native: hasNativeHost(),
-          quick,
-          watching: Boolean(summary?.watching),
-          working: snapshot.isWorking,
-        },
-        (key) =>
-          void moveToTerminal(
-            key,
-            {
-              release: () => (client && sessionId ? client.releaseToTerminal(sessionId) : Promise.reject()),
-              open: (chat) => callNative("chats.openInTerminal", { key: chat }),
-              close: () => runHeaderAction(HEADER_ACTIONS.close),
-              same: sameChat,
-              say: notices.transient,
-            },
-            t,
-          ),
+    // Switch to terminal (header/terminalMoveRow.ts): a terminal runs this chat's session, so the App's Toggle
+    // Terminal and Chat shows it, as the tab's right-click does; it leads the menu, as Switch to Chat leads the
+    // pane's "..." on the terminal.
+    const terminalSwitch = guarded(
+      terminalSwitchRow(
+        { switchable: headerState().terminalSwitch, native: hasNativeHost(), quick },
+        () =>
+          void callNative("action.run", {
+            id: TERMINAL_SWITCH_ACTION,
+            ...(sessionId ? { session: sessionId } : {}),
+          }).catch(sayActionRefusal(notices.transient)),
         t,
       ),
+    );
+    // Move to Terminal (header/terminalMoveRow.ts): this pane stops running the chat, then the
+    // harness's own resume runs it in a terminal and the tab closes; never while a turn runs.
+    // Not on a chat a terminal already runs: Switch to terminal shows that one.
+    const terminalMove = guarded(
+      terminalSwitch.length
+        ? undefined
+        : terminalMoveRow(
+            {
+              sessionId,
+              family: summary?.family || summary?.harness,
+              agentSessionId: summary?.agentSessionId,
+              local: !onOtherMachine && !(summary?.host && summary.hostKind !== "local"),
+              native: hasNativeHost(),
+              quick,
+              watching: Boolean(summary?.watching),
+              working: snapshot.isWorking,
+            },
+            (key) =>
+              void moveToTerminal(
+                key,
+                {
+                  release: () => (client && sessionId ? client.releaseToTerminal(sessionId) : Promise.reject()),
+                  open: (chat) => callNative("chats.openInTerminal", { key: chat }),
+                  close: () => runHeaderAction(HEADER_ACTIONS.close),
+                  same: sameChat,
+                  say: notices.transient,
+                },
+                t,
+              ),
+            t,
+          ),
     );
     // Quick Chat's panel is not a tab: only the chat's own actions.
     if (quick) return menuGroups(fork, continueIn, resend, copy ? [copy] : [], moveRow, tools, remove);
     // ChatGPT's order: the chat's name and pin, new chats from it, Copy, where it shows, then Archive.
     return menuGroups(
+      terminalSwitch,
       [
         {
           key: "rename",
@@ -11797,9 +11830,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     };
     for (const project of directProjects) byPath.set(project.cwd, project);
     for (const path of newTab?.projects ?? []) byPath.set(path, listed(path));
+    // Each folder once: a large profile lists thousands of chats in a few hundred folders.
+    const named = new Set<string>();
     for (const session of newTabFolderSessions) {
-      if (typeof session.cwd !== "string" || !session.cwd) continue;
+      if (typeof session.cwd !== "string" || !session.cwd || named.has(session.cwd)) continue;
       if (session.host && session.hostKind !== "local") continue;
+      named.add(session.cwd);
       byPath.set(session.cwd, listed(session.cwd));
     }
     if (newTab?.cwd) byPath.set(newTab.cwd, listed(newTab.cwd));
@@ -13494,6 +13530,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       relinkingSince={relinkingSince}
       restoring={hostRestoring}
       failureShown={hostErrorSaid}
+      // "Reconnecting…" stays until the waiting line, whose wait starts a moment later, replaces it.
+      waitingSince={hostWaitingSince}
       otherwise={hostWaitOrError}
     />
   );
@@ -14281,7 +14319,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       }
                       summary={sessionInfo.on ? null : (native) => <SummaryButton card={summaryCard} native={native} />}
                       menu={chatMenu}
-                      onMenuOpen={() => Promise.all([readTabState(), readChatMini()])}
+                      onMenuOpen={() => Promise.all([readTabState(true), readChatMini()])}
                       expand={continuing && canContinue ? "continue" : undefined}
                       onExpanded={stopContinuing}
                     />

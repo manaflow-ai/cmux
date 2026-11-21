@@ -12,7 +12,9 @@
 #                 removed, and the phone's kept override cleared
 #   tag-stack     this tag's own `wrangler dev` stack on the dev VM, over the tailnet: its origin from
 #                 scripts/cmux-next/cloud-dev-stack.sh url --tag <tag> (CNX_CLOUD_DEV_STACK names
-#                 another command)
+#                 another command). The stack runs the tag's API, mobile Worker and device hub; both
+#                 apps use all three from the one origin (the Mac from its client-config, the phone
+#                 from the next two ports), and the phone's receipt must name the stack's mobile Worker.
 #   <origin>      https://<host>.<tailnet>.ts.net[:port], `preview-N`, or the dev Workers API origin.
 #                 Anything else is refused before any build (review_mac.py backend-check; the apps
 #                 refuse it too, and Release builds ignore every override).
@@ -103,6 +105,8 @@ TAG="" SLUG="" DEVICE_ID="" TARGET_WORKER="" WORKSPACE=""
 # --backend: what was asked for, the origin it names ("" = the shared dev Workers, no override) and the
 # report's words for it; the Mac app's own answer lands in REPORT_BACKEND_MAC.
 BACKEND_ARG="" BACKEND_URL="" BACKEND_REPORT="shared dev Workers (default, no override)" REPORT_BACKEND_MAC="not checked"
+# A tag stack's own mobile Worker (cloud-dev-stack.sh url --service mobile): the phone's receipt must name it.
+BACKEND_MOBILE_URL=""
 # What the phone gets (default `paired`, the hand-off every dev build must reach):
 #   paired   signed in with the personal account and paired with the same-tag Mac by its code
 #   manual   --manual-pairing: signed in, no pairing code; the person pairs by hand
@@ -184,7 +188,10 @@ review_resolve_backend() {
       out="$("$stack" url --tag "$SLUG" 2>&1)" || die "--backend tag-stack: $stack url --tag $SLUG failed: ${out##*$'\n'}"
       out="$(printf '%s\n' "$out" | awk 'NF { line = $0 } END { print line }')"
       BACKEND_URL="$(mac_py backend-check "$out")" || die "--backend tag-stack: the stack's URL $out is not a tailnet origin"
-      BACKEND_REPORT="$BACKEND_URL (this tag's stack)" ;;
+      # The stack's mobile Worker and device hub: its client-config names them for the Mac, and the phone
+      # derives them from BACKEND_URL; the receipt must show the phone's mobile service is the stack's.
+      BACKEND_MOBILE_URL="$("$stack" url --tag "$SLUG" --service mobile 2>/dev/null | awk 'NF { line = $0 } END { print line }')" || BACKEND_MOBILE_URL=""
+      BACKEND_REPORT="$BACKEND_URL (this tag's stack: API, mobile Worker and device hub)" ;;
     *)
       BACKEND_URL="$(mac_py backend-check "$BACKEND_ARG")" || exit 2
       BACKEND_REPORT="$BACKEND_URL (--backend)" ;;
@@ -294,6 +301,17 @@ fleet_finish_sim() {
   if grep -q "is not the reviewed version" "$STATE/sim-step.err" "$STATE/sim-step.log" 2>/dev/null; then
     # The fleet runs an allowlisted step script only as it is on feat-cmux-next.
     REPORT_SIM="BLOCKED: the fleet refused scripts/ci/cmux-next-ios-sim.sh at $SHA: its handoff mode is not on feat-cmux-next yet (the fleet runs only the reviewed script); rerun after it lands: $(retry_command)"
+    return 1
+  fi
+  # The controller cancels a tag's still-queued step when a newer head of the same tag sends one ("superseded by
+  # <step> (a newer head of this lane)"): nothing failed, this head is just no longer the tag's. It was
+  # reported as "the fleet iPhone build failed (exit 76)" (step f06392e4d16521e2f9762f4b, 2026-11-19).
+  if [[ $rc -ne 0 ]] && grep -q "superseded by" "$STATE/sim-step.err" 2>/dev/null; then
+    local newer
+    # A rerun of this head sends a new step instead of this superseded one again.
+    sim_step_ended "$SIM_STEP" || true
+    newer="$(sed -n 's/.*superseded by \([0-9a-f]\{24\}\).*/\1/p' "$STATE/sim-step.err" | tail -n 1)"
+    REPORT_SIM="BLOCKED: not a failure: step ${SIM_STEP:-not created} was superseded by ${newer:-a newer step}, sent for a newer head of tag $SLUG; a newer review.sh run of this tag owns it; review.sh builds the checkout's HEAD, so to review ${SHA:0:12} again, check it out and rerun: $(retry_command)"
     return 1
   fi
   if [[ $rc -ne 0 || -z "$SIM_STEP" ]]; then
@@ -554,6 +572,7 @@ phone_launch_and_check() {
       verdict="$(/usr/bin/python3 -I "$SCRIPT_DIR/handoff_receipt.py" check "$receipt" --nonce "$nonce" \
         --client-id "$client" --bundle-id "$BUNDLE_ID" --account "$PERSONAL_ACCOUNT" --session "$session" \
         --mac-id "$mac_id" --git-sha "$SHA" --dev-tag "$SLUG" --cloud-backend "${BACKEND_URL:-default}" \
+        ${BACKEND_MOBILE_URL:+--mobile-api "$BACKEND_MOBILE_URL"} \
         ${MAC_BUILD_SPACE:+--build-space "$MAC_BUILD_SPACE"})" || rc=$?
       [[ $rc -eq 1 ]] || break
     else

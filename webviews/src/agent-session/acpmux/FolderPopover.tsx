@@ -519,8 +519,9 @@ export function FolderPopover({
         type="button"
         className="acpmux-location-button ui-ghost ui-ghost-sm"
         aria-label={label}
-        // tooltip-allow: the fixed footer column may truncate a long folder name.
-        title={current}
+        // tooltip-allow: the fixed footer column may truncate a long folder name; with none picked the
+        // tooltip names the control, so its key (data-tooltip-shortcut) still shows.
+        title={current || label}
         data-tooltip-shortcut={shortcut}
         {...press}
       >
