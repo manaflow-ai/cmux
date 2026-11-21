@@ -2099,11 +2099,13 @@ branch's. (The pass record at the end of the job is a separate artifact.)
 
 ## note-211
 
-Above `fast-tier-cargo: Fetch the ghostty-next Zig packages (cached, deadlined, retried)` in `.github/workflows/cmux-next.yml`.
+Retired: `fast-tier-cargo` no longer fetches the ghostty-next Zig packages first.
 
-ghostty-vt-sys's build.rs runs zig, which downloads the packages itself, once and
-unretried: a mid-stream read error failed the job (pkg/highway ReadFailed). Fetch
-them first, each attempt under a deadline and retried.
+The step was added because zig's own unretried download failed the job
+(pkg/highway ReadFailed). ghostty-vt-sys's build.rs now seeds the packages it
+needs from the mirror itself (`curl --retry 3 --retry-all-errors`) and runs zig
+mirror-only in CI, and on a warm cargo cache build.rs does not run at all. The
+step cost about 50 s per run even with every package already present.
 
 ## note-212
 
