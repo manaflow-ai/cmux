@@ -629,18 +629,18 @@ class OneJob(unittest.TestCase):
             ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
             self.assertEqual(len([c for c in gh.calls if c[0][:2] == ["gh", "api"]]), reads, f"attempt {attempt}")
 
-    def test_a_completed_push_run_is_read_whatever_its_conclusion(self):
-        # A job after the publisher can fail a run that published (run 44087850352): failed and cancelled runs are
-        # read once each; one in progress and one of another event are not.
+    def test_a_completed_run_is_read_whatever_its_conclusion_or_event(self):
+        # A job after the publisher can fail a run that published (run 44087850352), and a dispatch publishes too
+        # (run 44904268153): failed, cancelled and dispatched runs are read once each; one in progress is not.
         runs = [one_job_run(1, "failure"), one_job_run(2, "cancelled"), one_job_run(3, None, "in_progress"),
                 {**one_job_run(4), "event": "workflow_dispatch"}]
         gh = FakeGh(api={"workflows/nightly.yml/runs": {"workflow_runs": runs},
-                         "runs/1/attempts/1/jobs": {"jobs": one_job_jobs(feed=False)},
-                         "runs/2/attempts/1/jobs": {"jobs": one_job_jobs(feed=False)}})
+                         **{f"runs/{i}/attempts/1/jobs": {"jobs": one_job_jobs(feed=False)} for i in (1, 2, 4)}})
         st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
-        self.assertEqual((st["new"], sorted(st["new_unpublished"]), st["why"]), ([], [1, 2], None))
-        self.assertEqual(sorted(u["conclusion"] for u in st["unpublished"]), ["cancelled", "failure"])
-        self.assertEqual(len([c for c in gh.calls if c[0][:2] == ["gh", "api"]]), 3)
+        self.assertEqual((st["new"], sorted(st["new_unpublished"]), st["why"]), ([], [1, 2, 4], None))
+        self.assertEqual(sorted(u["conclusion"] for u in st["unpublished"]),
+                         ["cancelled", "failure", "success, no feed upload"])
+        self.assertEqual(len([c for c in gh.calls if c[0][:2] == ["gh", "api"]]), 4)
 
     def test_a_step_is_shown_in_the_diff_only_when_it_moved(self):
         then = synthetic(1, 20.0, {"j_one_job": 18.0, "step:Sign the app": 0.5, "step:Make the DMG": 2.0})
@@ -952,6 +952,49 @@ class PublicationReceipt(unittest.TestCase):
         st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
         self.assertEqual((st["new"], st["new_unpublished"]), ([], [44087850352]))
         self.assertEqual(st["unpublished"][0]["conclusion"], "failure")
+
+    def test_a_retry_dispatch_that_wrote_the_feed_is_recorded(self):
+        # cmux run 44904268153, "Retry nightly-next (1 of 2)": a workflow_dispatch, neither a push nor a sign run.
+        doc = load("run-44904268153-1.json")
+        run, jobs = doc["run"], doc["jobs"]
+        self.assertEqual((run["event"], run["display_title"]), ("workflow_dispatch", "Retry nightly-next (1 of 2)"))
+        gh = FakeGh(api={"workflows/nightly.yml/runs": {"workflow_runs": [run]},
+                         "runs/44904268153/attempts/1/jobs": {"jobs": jobs}})
+        st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
+        self.assertEqual((st["new"], st["why"]), (["4490426815301"], None))
+        r = st["records"][0]
+        self.assertEqual((r["feed_at"], r["confirmed"], r["sha"]),
+                         ("2026-11-21T12:59:48Z", True, "a9aa7a318206e006b1758ea8f9f47effc4e9d825"))
+        self.assertEqual(len([c for c in gh.calls if c[0][:2] == ["gh", "api"]]), 2, "one list, one job list")
+        # A tail-only dispatch (the publisher skipped, no write) is no publication.
+        tail = [j for j in jobs if j["name"] != "nightly-next-one"]
+        gh = FakeGh(api={"workflows/nightly.yml/runs": {"workflow_runs": [run]},
+                         "runs/44904268153/attempts/1/jobs": {"jobs": tail}})
+        st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
+        self.assertEqual((st["new"], st["new_unpublished"], st["feeds"]), ([], [44904268153], []))
+
+    def test_an_earlier_attempt_that_published_joins_the_feed_list(self):
+        rerun = {**one_job_run(), "run_attempt": 3, "conclusion": "failure"}
+        gh = FakeGh(api={"workflows/nightly.yml/runs": {"workflow_runs": [rerun]},
+                         "runs/43300000001/attempts/3/jobs": {"jobs": one_job_jobs(feed=False)},
+                         "runs/43300000001/attempts/2/jobs": {"jobs": one_job_jobs(feed=False)},
+                         "runs/43300000001/attempts/1/jobs": {"jobs": self.jobs("success")}})
+        st = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh)
+        self.assertEqual((st["new"], st["new_unpublished"]), ([], [43300000001]))
+        self.assertEqual([(e["build"], e["confirmed"]) for e in st["feeds"]], [("4330000000101", True)])
+        self.assertEqual(len([c for c in gh.calls if c[0][:2] == ["gh", "api"]]), 4, "the list and three attempts")
+        # A rerun of a recorded run is read at its new attempt; the older record's attempt is not read again.
+        rec, _ = ns.build_record(one_job_run(), one_job_run(), [], self.jobs("success"), None)
+        body = ns.issue_body([rec], [], ".", run=gh)
+        gh2 = FakeGh(issues=[{"number": 9, "title": ns.ISSUE_TITLE, "body": body}],
+                     api={"workflows/nightly.yml/runs": {"workflow_runs": [{**one_job_run(), "run_attempt": 2}]},
+                          "runs/43300000001/attempts/2/jobs": {"jobs": one_job_jobs(feed=False)}})
+        st2 = ns.record("o/r", "o/hq", 8, ".", "origin/feat-cmux-next", "t", "h", run=gh2)
+        self.assertEqual((st2["new"], st2["new_unpublished"], [r["build"] for r in st2["records"]]),
+                         ([], [43300000001], ["4330000000101"]))
+        self.assertEqual(len([c for c in gh2.calls if c[0][:2] == ["gh", "api"]]), 2)
+        self.assertEqual([(u["sign_run"], u["attempt"]) for u in st2["unpublished"]], [(43300000001, 2)],
+                         "the later attempt's line stays beside the record: it is how that attempt is known")
 
     def test_seeded_unconfirmed_feeds_keep_the_partial_label(self):
         end, feeds, git = PrAttribution.busy_week()

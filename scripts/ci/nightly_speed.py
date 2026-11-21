@@ -183,7 +183,13 @@ BEFORE_FEEDS = "before the oldest observed feed"
 # nightlies) still finds each merge's first feed, and the window is proven covered once that predecessor is held.
 # `confirmed` is true only for a record whose read-back step succeeded; an entry seeded from an older record, which
 # never kept it, is unconfirmed: attribution uses it, but only confirmed entries prove the window covered.
-FEED_KEYS = ("sha", "feed_at", "build", "sign_run", "confirmed")
+# The receipt proves the job wrote and read back the feed at feed_at, not what it published: nightly.yml's step
+# "source" picks its own build, a recovered or a republished one (build and build_sha) before the upload, and the jobs
+# API shows no step output. So `sha` is the run's head commit (sha_source "run_head") and confirmed_identity is
+# false; an entry proves coverage only with confirmed_identity true, which a reader of the published build_sha (a
+# step output, an appcast field or the publisher's receipt) would set with sha_source "build_sha".
+FEED_KEYS = ("sha", "feed_at", "build", "sign_run", "confirmed", "sha_source", "confirmed_identity")
+SHA_SOURCES = ("run_head", "build_sha")
 
 
 class SourceError(Exception):
@@ -340,8 +346,11 @@ def _ancestors_since(git_dir: str, head: str, since: float, run: Callable = subp
 
 
 def feed_entry(r: Dict[str, Any]) -> Dict[str, Any]:
-    """A record's (or entry's) compact feed entry; one without a receipt is unconfirmed."""
-    return {**{k: r.get(k) for k in FEED_KEYS}, "confirmed": r.get("confirmed") is True}
+    """A record's (or entry's) compact feed entry; one without a receipt is unconfirmed, and one whose sha is not
+    read from the published build is the run head's, identity unconfirmed."""
+    identity = r.get("sha_source") == "build_sha" and r.get("confirmed_identity") is True
+    return {**{k: r.get(k) for k in FEED_KEYS}, "confirmed": r.get("confirmed") is True,
+            "sha_source": "build_sha" if identity else "run_head", "confirmed_identity": identity}
 
 
 def feed_list(old: List[Dict[str, Any]], records: List[Dict[str, Any]], now: Optional[float] = None,
@@ -355,8 +364,9 @@ def feed_list(old: List[Dict[str, Any]], records: List[Dict[str, Any]], now: Opt
     for e in list(old) + [feed_entry(r) for r in records]:
         if sound_feed(e):
             seen = by_build.get(e["build"])
-            by_build[e["build"]] = {**feed_entry(e), "confirmed": e.get("confirmed") is True
-                                    or bool(seen and seen["confirmed"])}
+            new = feed_entry(e)
+            by_build[e["build"]] = (seen if seen and seen["confirmed_identity"] and not new["confirmed_identity"]
+                                    else {**new, "confirmed": new["confirmed"] or bool(seen and seen["confirmed"])})
     feeds = sorted(by_build.values(), key=lambda e: ts(e["feed_at"]) or 0)
     before = [i for i, e in enumerate(feeds) if (ts(e["feed_at"]) or 0) < since]
     return feeds[before[-1]:] if before else feeds
@@ -375,8 +385,9 @@ def pr_attribution(records: List[Dict[str, Any]], git_dir: str, base_ref: str = 
     are used when it is not given. A predecessor feed alone proves nothing: a run omitted between two held feeds would
     charge its merges to the later one. The window is covered (``partial`` false) only when every run in it is
     classified (``classified``, classified_span, from at or before its start, and no attributed feed after the span's
-    end), a feed from before it is held, and every feed used is confirmed (its read-back succeeded).
-    ``unconfirmed`` counts the feeds used that have no such receipt. The full rows are the detail
+    end), a feed from before it is held, and every feed used is confirmed (its read-back succeeded) with its identity
+    confirmed (its sha read from the published build, not the run head). ``unconfirmed`` counts the feeds used that
+    have no receipt, ``unidentified`` those whose sha is the run head's. The full rows are the detail
     (`check --json`, pr_stream for `--pr-json`); the issue and its history carry pr_summary.
     """
     end = time.time() if now is None else now
@@ -430,6 +441,7 @@ def pr_attribution(records: List[Dict[str, Any]], git_dir: str, base_ref: str = 
             "attributed": len(durations), "p50": quantile(durations, 0.5), "p90": quantile(durations, 0.9),
             "oldest_feed": iso(feeds[0][0]) if feeds else None, "feeds": len(feeds),
             "unconfirmed": sum(1 for _, e in feeds if not e.get("confirmed")),
+            "unidentified": sum(1 for _, e in feeds if not e.get("confirmed_identity")),
             "classified": classified if sound_span(classified) else None,
             "partial": not covered(rows, feeds, since, classified), "reasons": reasons, "rows": rows}
 
@@ -440,7 +452,7 @@ def covered(rows: List[Dict[str, Any]], feeds: List[Tuple[float, Dict[str, Any]]
     if not sound_span(classified) or not feeds or feeds[0][0] >= since or (ts(classified["from"]) or 0) > since:
         return False
     end = ts(classified["to"]) or 0
-    return all(e.get("confirmed") for _, e in feeds) and all(
+    return all(e.get("confirmed") and e.get("confirmed_identity") for _, e in feeds) and all(
         (ts(r["feed_at"]) or 0) <= end for r in rows if r["status"] == "attributed")
 
 
@@ -449,7 +461,7 @@ def pr_stream(data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     window, its coverage and per merge only its PR, sha, merge time, first feed head and time, minutes and reason. No
     host, runner, job, diff or subject."""
     data = data or {}
-    keys = ("window", "since", "until", "oldest_feed", "partial", "feeds", "unconfirmed", "classified", "count",
+    keys = ("window", "since", "until", "oldest_feed", "partial", "feeds", "unconfirmed", "unidentified", "classified", "count",
             "attributed", "p50", "p90", "reasons")
     out: Dict[str, Any] = {"schema": 1, **{k: data.get(k) for k in keys}}
     out["observed_window"] = {"from": data.get("oldest_feed"), "to": data.get("until")}
@@ -466,7 +478,7 @@ def pr_summary(data: Optional[Dict[str, Any]], shown: int = PR_SUMMARY_ROWS) -> 
     it is expected at the window's old end). ``shown=0`` is the history's copy, no rows at all."""
     data = data or {}
     keys = ("window", "window_days", "since", "until", "count", "attributed", "p50", "p90", "oldest_feed",
-            "partial", "feeds", "unconfirmed", "classified")
+            "partial", "feeds", "unconfirmed", "unidentified", "classified")
     out: Dict[str, Any] = {k: data.get(k) for k in keys if k in data}
     out.setdefault("window", PR_WINDOW_DAYS)
     out.setdefault("count", 0)
@@ -703,7 +715,8 @@ def sound_feed(e: Any) -> bool:
             and isinstance(e.get("feed_at"), str) and ts(e["feed_at"]) is not None
             and isinstance(e.get("build"), str) and bool(e["build"])
             and (e.get("sign_run") is None or (type(e["sign_run"]) is int and e["sign_run"] > 0))
-            and e.get("confirmed") in (None, True, False))
+            and e.get("confirmed") in (None, True, False) and e.get("sha_source") in (None,) + SHA_SOURCES
+            and e.get("confirmed_identity") in (None, True, False))
 
 
 def sound_unpublished(u: Any) -> bool:
@@ -1101,7 +1114,9 @@ def render_verdict(c: Dict[str, Any], repo: str = REPO) -> str:
                              if isinstance(span, dict) else "no run classification is recorded")
                           + f"; the oldest feed is {oldest}." if partial else "")
                        + (f" {prs['unconfirmed']} of {prs.get('feeds')} feeds are unconfirmed (no read-back receipt)."
-                          if prs.get("unconfirmed") else ""))
+                          if prs.get("unconfirmed") else "")
+                       + (f" {prs['unidentified']} of {prs.get('feeds')} feeds name the run's head commit, not the "
+                          "published build_sha (identity unconfirmed)." if prs.get("unidentified") else ""))
         else:
             out.append("Observed window: none, no published nightly is recorded; coverage is partial.")
         out += [f"Attributed {prs.get('attributed', 0)} of {prs.get('count', 0)} first-parent merges. "
