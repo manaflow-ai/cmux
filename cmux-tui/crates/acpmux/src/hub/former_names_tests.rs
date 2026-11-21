@@ -98,7 +98,7 @@ async fn a_former_name_two_sessions_kept_is_refused_with_both() {
     let b = chat(&hub, "b1", "two");
     hub.edit_test_meta(&a, |m| m.former_names = vec!["shared".into()]);
     hub.edit_test_meta(&b, |m| m.former_names = vec!["shared".into()]);
-    let e = hub.resolve("shared").unwrap_err();
+    let Err(e) = hub.resolve("shared") else { panic!("an old name two sessions kept resolved") };
     assert!(e.message.contains("one (a1)") && e.message.contains("two (b1)"), "{}", e.message);
     // Closed ones give way to a live one.
     hub.edit_test_meta(&a, |m| m.status = SessionStatus::Closed);

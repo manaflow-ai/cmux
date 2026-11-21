@@ -83,8 +83,10 @@ impl Hot {
             former_names: summary
                 .get("formerNames")
                 .and_then(Value::as_array)
-                .map(|names| names.iter().filter_map(Value::as_str).map(Box::from).collect())
-                .filter(|names: &Box<[Box<str>]>| !names.is_empty()),
+                .map(|names| -> Box<[Box<str>]> {
+                    names.iter().filter_map(Value::as_str).map(Box::from).collect()
+                })
+                .filter(|names| !names.is_empty()),
             status: text("status"),
             peer: text("peer"),
             agent_session_id: text("agentSessionId"),
