@@ -1,0 +1,10 @@
+{ "envs": [["light","none"],["dark","none"]],
+  "shots": [
+    { "name": "host-waiting-line", "entry": "agent-pane.host-error", "variant": "waiting", "width": 760, "height": 200, "clip": "[data-host-error-fixture]", "margin": 12,
+      "arms": { "before": ".ui-clock::before{content:none!important}.ui-clock::after{content:attr(data-clock-size);display:block;height:0;overflow:hidden;visibility:hidden}", "after": "" } },
+    { "name": "clock-in-sentence-variants", "entry": "ui.inline-figures", "variant": "sentence-before", "width": 760, "height": 220,
+      "arms": { "shipped-before-sizer": "" } },
+    { "name": "clock-in-sentence-after", "entry": "ui.inline-figures", "variant": "sentence-after", "width": 760, "height": 220 },
+    { "name": "clock-in-sentence-top", "entry": "ui.inline-figures", "variant": "sentence-top", "width": 760, "height": 220 },
+    { "name": "clock-in-sentence-grid", "entry": "ui.inline-figures", "variant": "sentence-grid", "width": 760, "height": 220 }
+  ] }
