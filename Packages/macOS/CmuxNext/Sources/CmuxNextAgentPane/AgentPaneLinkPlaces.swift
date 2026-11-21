@@ -11,9 +11,11 @@ public import Foundation
 /// path is its host, and only the App holds every machine's tree.
 ///
 /// App-wide like Needs you's marks, so ``AgentPaneAttentionTabs`` holds the one list
-/// (``AgentPaneAttentionTabs/places``). Each page gets it at load and handshake and again on every
-/// change, the whole latest list (the page keeps one map per push), held per pane to one per turn and
-/// while nobody sees it (``AgentPaneShownPushes``). Ids and titles only, so a chip never asks per link.
+/// (``AgentPaneAttentionTabs/places``). Each page gets the whole list at load and handshake; after
+/// that a rename sends only the renamed places (`linkPlacesChanged`, ``AgentPaneLinkPlacesOwed``) and
+/// any other change the whole latest list (the page keeps one map per whole push), held per pane to one
+/// per turn and while nobody sees it (``AgentPaneShownPushes``). Ids and titles only, so a chip never
+/// asks per link.
 ///
 /// Each workspace has its own observation (``ObservedItems``; PATTERNS.md targeted observation): a
 /// title change in one workspace (an agent's title spinner) names that workspace's places only, and the
@@ -38,6 +40,15 @@ public final class AgentPaneLinkPlaces {
     private var joined: [Place]? = []
     /// The pages pushed so far, held weakly, for the pushes on a change.
     private let views = NSHashTable<AgentPaneView>.weakObjects()
+    /// What each page pushed so far is owed since its last push, by page.
+    private var owed: [ObjectIdentifier: AgentPaneLinkPlacesOwed] = [:]
+    /// ``places`` by id, the last of an id listed twice as the page keeps it, for the renamed places a
+    /// page is owed; nil after a change that adds, drops or moves places (made again from ``places`` at
+    /// the next rename sent).
+    private var byID: [String: Place]?
+    /// The ids ``places`` lists more than once (two machines' workspaces): a rename of one is sent as
+    /// the page keeps it, the last, so ``byID`` is made again.
+    private var listedTwice: Set<String> = []
     /// The App's watch of the workspace list (``follow(_:titles:)``).
     private var watch: Task<Void, Never>?
     /// One observation per workspace, by object and machine name (two machines' workspaces may share an id).
@@ -139,9 +150,33 @@ public final class AgentPaneLinkPlaces {
         // By object and machine name: a workspace whose machine is renamed is named again, no other.
         let slices = observed.items(for: listed, id: { "\(ObjectIdentifier($0))\t\(hosts[ObjectIdentifier($0)] ?? "")" })
         guard slices != self.slices else { return }
+        let renamed = Self.renamed(from: self.slices, to: slices)
         self.slices = slices
         joined = nil
-        for view in views.allObjects { view.shownPushes.push("linkPlaces", to: view) { [weak self] in self?.send(to: $0) } }
+        if let renamed, byID != nil, !renamed.contains(where: { listedTwice.contains($0.id) }) {
+            for place in renamed where byID?[place.id] != nil { byID?[place.id] = place }
+        } else {
+            byID = nil
+        }
+        for view in views.allObjects {
+            owed[ObjectIdentifier(view), default: .wholeList].note(renamed: renamed)
+            view.shownPushes.push("linkPlaces", to: view) { [weak self] in self?.send(to: $0) }
+        }
+    }
+
+    /// The places of `new` whose title, host or workspace name differ from `old`'s, when the two
+    /// lists hold the same places in the same order; nil when a place came, went or moved.
+    static func renamed(from old: [[Place]], to new: [[Place]]) -> [Place]? {
+        guard old.count == new.count else { return nil }
+        var renamed: [Place] = []
+        for (before, after) in zip(old, new) where before != after {
+            guard before.count == after.count else { return nil }
+            for (was, now) in zip(before, after) where was != now {
+                guard was.id == now.id, was.kind == now.kind else { return nil }
+                renamed.append(now)
+            }
+        }
+        return renamed
     }
 
     /// One listed workspace's places, by the titles ``follow(_:titles:)`` was given.
@@ -181,19 +216,53 @@ public final class AgentPaneLinkPlaces {
 
     /// The list, read now, as a page host event; `view` then also gets every change.
     func event(for view: AgentPaneView) -> AgentPageEvent {
-        views.add(view)
+        add(view)
         return .linkPlaces(places)
     }
 
     /// Pushes the list, read now, to `view`'s page; `view` then also gets every change.
     func push(to view: AgentPaneView) {
-        views.add(view)
-        send(to: view)
+        add(view)
+        sendWhole(to: view)
     }
 
+    /// `view` has the whole list as of now and gets every change from here.
+    private func add(_ view: AgentPaneView) {
+        views.add(view)
+        owed[ObjectIdentifier(view)] = .current
+    }
+
+    /// What `view` is owed since its last push: the renamed places, or the whole list.
     private func send(to view: AgentPaneView) {
+        let key = ObjectIdentifier(view)
+        let due = owed[key] ?? .wholeList
+        if due.whole { return sendWhole(to: view) }
+        owed[key] = .current
+        guard let changed = changedPlaces(due.changed), !changed.isEmpty else { return }
+        let event = AgentPageEvent.linkPlacesChanged(changed)
+        view.deliver([event], scripts: ["window.cmuxAcpmuxBridge?.applyLinkPlacesChanged?.(\(event.value.compactText));"])
+    }
+
+    private func sendWhole(to view: AgentPaneView) {
+        owed[ObjectIdentifier(view)] = .current
+        // A page gone since keeps no debt (an identifier is only reused by a page added anew).
+        owed = owed.filter { key, _ in views.allObjects.contains { ObjectIdentifier($0) == key } }
         let event = AgentPageEvent.linkPlaces(places)
         view.deliver([event], scripts: ["window.cmuxAcpmuxBridge?.applyLinkPlaces?.(\(event.value.compactText));"])
+    }
+
+    /// The places listed now under `ids` (a place past ``maximumPlaces`` no page holds is left out).
+    func changedPlaces(_ ids: Set<String>) -> [Place]? {
+        if byID == nil {
+            var index: [String: Place] = [:]
+            var twice: Set<String> = []
+            for place in places {
+                if index.updateValue(place, forKey: place.id) != nil { twice.insert(place.id) }
+            }
+            byID = index
+            listedTwice = twice
+        }
+        return byID.map { index in ids.compactMap { index[$0] } }
     }
 }
 
@@ -201,5 +270,11 @@ extension AgentPageEvent {
     /// The places a cmux link can name (`linkPlaces`): `[{id, kind, title, host?, workspace?}]`.
     static func linkPlaces(_ places: [AgentPaneLinkPlaces.Place]) -> AgentPageEvent {
         AgentPageEvent(kind: "linkPlaces", value: .array(places.map(\.json)))
+    }
+
+    /// Places renamed since the page's last push (`linkPlacesChanged`), in the same shape: the page
+    /// updates the places it holds and keeps every other one.
+    static func linkPlacesChanged(_ places: [AgentPaneLinkPlaces.Place]) -> AgentPageEvent {
+        AgentPageEvent(kind: "linkPlacesChanged", value: .array(places.map(\.json)))
     }
 }

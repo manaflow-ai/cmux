@@ -51,6 +51,22 @@ There is no animation, pulse, timer or observer in the indicator or the popover,
 is the only timer, in the page layer (`pages/shared/pageHealth.ts`), and it stops while the page is
 hidden.
 
+## Which chat, and no click it does not need
+
+David Beyer, 2026-11-20, on a call: "Agent chat needs a repair" did not say which chat, with several
+open. A page part is named by the title its tab shows, in the line and the card's title ("“Fix the
+login bug” needs a repair"); the card's first line says where it is ("Agent chat in cmux-next"), and
+**Show chat** goes there. A stuck page is always on screen (a hidden page is never timed), so Show
+chat brings its window forward and gives the page the keyboard, through the focus route. The place
+comes from the daemon's store (`AppHealthPlaces(store:)`: the tab the page shows, its title, the
+workspace that holds its pane), read only when a line or the card is drawn, never on a heartbeat. A
+page in no tab (Home's dock, a floating chat) keeps the label "Agent chat".
+
+The cap is 3 repairs in 10 minutes, not 3 for good. A part that is out of repairs keeps one deadline,
+when its oldest attempt leaves the window; then, still stuck, it tries again by itself from step 1,
+and its signal coming back drops the alert. Repair now still starts at once. A repair is still never
+run over unsaved edits: the page's reload refuses, and the next step comes.
+
 ## Queued actions never apply and revert
 
 While the session daemon or page host is unreachable, a tab click or close is queued by the host
@@ -65,6 +81,20 @@ Every page that boots through the page bridge beats every 2 s while visible with
 count, and keeps its scroll position and focused draft in sessionStorage, so a repair's reload
 returns the person to where they were. The agent chat composer keeps its own draft
 (`composerDraft.ts`) and is left alone.
+
+A page with nothing happening in it rests (CMUX-571, idle wakeups: a beat is several app wakeups, so
+open pages woke the app every 2 s forever). After 5 quiet beats (10 s: no key, press, wheel, scroll or
+input, and no unsaved edits) it sends one `{rest: true}` beat and arms no timer until something happens.
+The model stops timing a resting page's silence; input the host sends it is still owed an answer, so a
+page that hangs while resting reads as stuck once someone types or clicks in it. The page rests only
+when its last beat was answered `{rest: true}`: the host says so only when the linked health model
+takes rests (`CMUX_HEALTH_ABI_VERSION` 2), so an older pinned model keeps the 2 s beat.
+
+A repair that loads the page again (reload, renderer restart) waits at least `PAGE_BOOT_MS` (30 s)
+for the new document before the next step; its load ends the episode. With the 2 s backoff alone, a
+busy agent chat on a loaded Mac was still loading when its renderer was killed, twice, and the pane
+stayed blank (Leo, 2026-11-11: "i tried uploading this video to my nightly app and it just made the
+screen blank").
 
 ## Treatment
 

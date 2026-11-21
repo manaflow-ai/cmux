@@ -17,9 +17,7 @@ import Testing
 
     init() {
         HomeMarkdownPolicy.install()
-        CustomRows.unregister(HomeTableRowProvider.kind)
-        CustomRows.unregister(HomePlanRowProvider.kind)
-        HomeTableRowProvider.install()
+        HomeTableRowProvider.reinstall()
         CustomRows.register(DrawnRowProvider(kind: Self.bubbleKind, layout: .bubbleIncoming, height: { _, _ in 40 }, draw: { _, _, _, _ in }))
     }
 

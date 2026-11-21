@@ -311,7 +311,7 @@ enum TabMoves {
         }
         if tab.page != nil { return services.pages.storeTabItem(tab)?.title }
         let title = services.home.tabTitle(for: tab)
-        return title == HomeStrings.title ? nil : title
+        return title == HomeStrings.title || title == HomeStrings.legacyTitle ? nil : title
     }
 
     /// The other tabs of a multi-tab move follow the first into the workspace its move made (`key`), in order: one move at a time,

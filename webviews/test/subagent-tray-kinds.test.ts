@@ -12,6 +12,7 @@ import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { RUNNING_TRAY_LIST_LINE } from "../src/agent-session/acpmux/subagents/subagentSelectors";
 
 await requireBrowserLane("subagent-tray-kinds.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -52,7 +53,8 @@ await requireBrowserLane("subagent-tray-kinds.test.ts", async () => {
         if ((await page.locator(".acpmux-running-tray__head").getAttribute("aria-expanded")) !== "true")
           await page.click(".acpmux-running-tray__head");
         await page.waitForFunction(
-          () => document.querySelectorAll(".acpmux-running-tray__list .acpmux-agent-line").length === 5,
+          ({ RUNNING_TRAY_LIST_LINE }) => document.querySelectorAll(RUNNING_TRAY_LIST_LINE).length === 5,
+          { RUNNING_TRAY_LIST_LINE },
         );
         await page.evaluate(() => {
           for (const animation of document.getAnimations())

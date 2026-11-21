@@ -18,6 +18,7 @@ import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import { arms, showArm, type Arm } from "./arm";
+import { MOTION_MS } from "../../../motion/scale.generated";
 
 const PROMPT = "Now add a test for a 503 that recovers on the second try";
 const SENT_ID = "reconvene-send-sent";
@@ -149,14 +150,15 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/VirtualTranscript.tsx#VirtualTranscript", "agent-session/acpmux/Composer.tsx"],
   variants: {
     now: variant(
-      "Shipped: the composer's prompt flies into its bubble while the thread rises into its room on the chase (spring, 180 ms send step), the thinking row fading in on the same clock.",
+      // motion-allow: the historical send step
+      "Shipped: the scale's send step is 0, so the prompt is in its row and the thread in place in the frame of the send (Leo 2026-11-11: \"that slow settle animation is just so bad\"). Before, the composer's prompt flew into its bubble while the thread rose on a 180 ms send step.",
     ),
     instant: variant(
       "The sent prompt is in its row, the rows at their place and the composer empty in the frame of the send; nothing moves after it. Never lags; the rise reads as a cut.",
       ARMS.instant,
     ),
     "bubble-fade": variant(
-      "No chase and no flight: the rows step at once and only the sent bubble fades in at its final place (80 ms). Opacity only, so it costs no layout; a little softer than instant.",
+      `No chase and no flight: the rows step at once and only the sent bubble fades in at its final place (${MOTION_MS.quick} ms). Opacity only, so it costs no layout; a little softer than instant.`,
       ARMS["bubble-fade"],
     ),
     adaptive: variant(

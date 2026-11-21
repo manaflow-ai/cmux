@@ -22,6 +22,7 @@ public final class WorkspacePaletteProvider: PaletteProvider {
 
     public var immediateItems: [PaletteItem]? { makeItems() }
     public func items() async -> [PaletteItem] { makeItems() }
+    public func followChanges(_ changed: @escaping @MainActor () -> Void) -> AnyObject? { source.followChanges(changed) }
 
     /// Higher in the sidebar ranks higher among equal matches.
     var sidebarPrior = PaletteSidebarPrior()

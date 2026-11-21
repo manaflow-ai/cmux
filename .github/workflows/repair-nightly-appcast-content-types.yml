@@ -1,12 +1,8 @@
 name: Repair nightly appcast Content-Type
 
+# A pull request runs the unit test as the ci/steps.toml step `repair-nightly-appcast` (the
+# pr-pipeline linux job); this workflow is the dispatch that repairs the feeds.
 on:
-  pull_request:
-    paths:
-      - .github/workflows/repair-nightly-appcast-content-types.yml
-      - scripts/ci/repair-nightly-appcast-content-types.py
-      - scripts/ci/upload-r2-object.py
-      - tests/test_repair_nightly_appcast_content_types.py
   workflow_dispatch:
     inputs:
       execute:
@@ -19,6 +15,7 @@ permissions:
   actions: read
 
 concurrency:
+  # A dispatch writes nightly R2 objects: one shared group, never cancelled, so two repairs serialise.
   group: repair-nightly-appcast-content-types
   cancel-in-progress: false
 
@@ -40,7 +37,7 @@ jobs:
     environment: release
     if: github.event_name == 'workflow_dispatch'
     needs: test
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

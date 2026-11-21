@@ -81,6 +81,12 @@ nonisolated extension RefusalStrings {
         text("handlers.refusal.agentLinksOff", "agent links are turned off in this build")
     }
 
+    /// An opaque agent link (`?id=aid-…`, a public PR footer's) that names no chat on this Mac or a
+    /// machine it is paired with: the chat is someone else's, or its machine isn't connected.
+    public static var agentReferenceUnavailable: String {
+        text("handlers.refusal.agentReferenceUnavailable", "this agent session isn't available to you: it isn't on this Mac or a machine paired with it")
+    }
+
     /// A nightly pane or tab link: its workspace opened, the item itself has no counterpart here.
     public static var linkItemNotFound: String {
         text("handlers.refusal.linkItemNotFound", "opened the workspace, but the linked pane or tab couldn't be found")
