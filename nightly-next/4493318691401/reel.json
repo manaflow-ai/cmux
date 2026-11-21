@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "build": "4493318691401",
+  "notes": "notes/4493318691401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 49137,
+      "title": "Backdrop art: an East Asian Painting collection of 18 public-domain works",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48450,
+      "title": "ci: validate cmux-tui tree requests locally",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47274,
+      "title": "acpmux: a desktop chat the rate limit stopped holds its messages until the reset",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/47274/hv-4780f79a099a-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 48113,
+      "title": "ci: a rescued FFI build rescues again, to an owned pool its chain has not tried",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48783,
+      "title": "memory-agents: idle GPU over the no-app Mac and disk MB/h rows (goal idle-gpu-disk)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48809,
+      "title": "Preserve native paths when deduplicating dropped screenshots",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48907,
+      "title": "iOS Workspaces: keep one loading skeleton across the first-load hand-off",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/48907/after-workspaces-first-load.mp4",
+      "source": "manual",
+      "note": "2 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 48387,
+      "title": "perf cron: while the rows are stale, the tip goes before a bisect step",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49051,
+      "title": "cmux-bench stress + bench scheduling: before/after pinned to one bench worker (successor of #48808)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49106,
+      "title": "post-merge batch: create the revert branch by API, push the revert as an update",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 46118,
+      "title": "Public glass: .glass(level) for customize views, kit Glass, and a guide",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49091,
+      "title": "acpmux: a machine named at its join is that name to its peers",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/49091/hv-468993d07bb7-video.mp4",
+      "source": "manual"
+    }
+  ]
+}
