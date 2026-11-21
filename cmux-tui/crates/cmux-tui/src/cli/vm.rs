@@ -842,6 +842,14 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     {
         return Some(run_pool(tail, global.output, &env));
     }
+    if scope == Scope::Vm
+        && let [verb, tail @ ..] = rest
+        && verb == "runner"
+    {
+        let mut words = vec!["runner".to_owned()];
+        words.extend(tail.iter().cloned());
+        return Some(run_pool(&words, global.output, &env));
+    }
     if let [verb, tail @ ..] = rest
         && matches!(verb.as_str(), "new" | "create")
     {
