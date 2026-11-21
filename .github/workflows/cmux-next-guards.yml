@@ -318,6 +318,9 @@ jobs:
       placed_attempt: ${{ github.run_attempt }}
       # Whether this pull request is hot-only (the route steps below); empty when they did not run.
       hot_only: ${{ steps.hot-route.outputs.hot_only }}
+      # Input-scoped reuse (scripts/ci/same_tree_reuse.py): rust-notices-tree's inputs are the base's, or it already
+      # passed on them; it is then not started.
+      same_tree: ${{ steps.same-tree.outputs.same_tree }}
     steps:
       # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
@@ -395,6 +398,59 @@ jobs:
             echo "::warning title=hot-only route::cmux_next_route.py --hot-only failed; tooling-tests keeps its mini route."
             echo "hot_only=false" >> "$GITHUB_OUTPUT"
           fi
+
+      # Input-scoped reuse (scripts/ci/same_tree_reuse.py, `inputs` in scripts/ci/same_tree_reuse.json). Leo,
+      # 2026-11-21: "whatever we can reuse, we reuse". rust-notices-tree's key is its workflow file and every input
+      # it lists (Cargo manifests and locks, the notices scripts and pins, license files). When the change leaves them
+      # as the base has them (a pull request's merge commit against its first parent), the job's verdict is the
+      # base's and it is not started: it checked out the whole repository only to
+      # find no notice input changed (84% of its pull request minutes over 11-13..19, cmuxterm-hq RFD 0023). A
+      # receipt of a pass on the same inputs is reused too. The trusted base's script and list key the merge commit,
+      # so a pull request cannot shrink its own list; both files are inputs of the key. CI_SAME_TREE_AUDIT_PERCENT
+      # of hits still run in full; CI_SAME_TREE_REUSE=0 turns it off. Any failure here runs the job.
+      - name: Same-tree keys
+        id: same-tree-keys
+        if: ${{ (vars.CI_SAME_TREE_REUSE || '1') != '0' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -uo pipefail
+          [ -f scripts/ci/same_tree_reuse.py ] || exit 0
+          # A pull request keys its merge commit (hot-route/, fetched with its first parent) and that base. A push
+          # keys its commit only (the trusted checkout): fetching the previous tip would cost more than the job's
+          # push runs save, so a push reuses receipts and records them for the pull requests after it.
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            repo=hot-route base=HEAD^1
+          else
+            repo=. base=""
+          fi
+          [ -d "$repo/.git" ] || exit 0
+          python3 scripts/ci/same_tree_reuse.py keys --workflow .github/workflows/cmux-next-guards.yml \
+            --jobs rust-notices-tree --repo "$repo" ${base:+--base-rev "$base"} >> "$GITHUB_OUTPUT"
+      - name: Look up a same-tree pass of rust-notices-tree
+        id: same-tree-rust-notices-tree
+        if: ${{ steps.same-tree-keys.outputs.rust-notices-tree != '' }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .same-tree/rust-notices-tree
+          key: ${{ steps.same-tree-keys.outputs.rust-notices-tree }}
+          # A red receipt on the same inputs is restored too: named as a known red, never a pass.
+          restore-keys: ${{ steps.same-tree-keys.outputs.rust-notices-tree }}-red
+      - name: Same-tree decision
+        id: same-tree
+        if: ${{ steps.same-tree-keys.outputs.keys != '' }}
+        continue-on-error: true
+        env:
+          KEYS: ${{ steps.same-tree-keys.outputs.keys }}
+          BASE_KEYS: ${{ steps.same-tree-keys.outputs.base_keys }}
+          HITS: rust-notices-tree=${{ steps.same-tree-rust-notices-tree.outputs.cache-hit }}
+          AUDIT_PERCENT: ${{ vars.CI_SAME_TREE_AUDIT_PERCENT }}
+        run: |
+          python3 scripts/ci/same_tree_reuse.py decide --keys "$KEYS" --base-keys "$BASE_KEYS" --hits "$HITS" \
+            --receipts .same-tree --audit-percent "$AUDIT_PERCENT" >> "$GITHUB_OUTPUT"
 
       - name: Mint the owned-pool routing token
         id: route-token
@@ -820,6 +876,10 @@ jobs:
     needs: coalesce
     if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' }}
     name: cmux-next Rust notices generate
+    # Not started when its inputs are the base's or already passed (portable-placement's same-tree decision); a
+    # skipped or failed placement job runs it.
+    needs: [portable-placement]
+    if: ${{ !cancelled() && !fromJSON(needs.portable-placement.outputs.same_tree || '{}')['rust-notices-tree'].reuse }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 25
     steps:
@@ -875,6 +935,41 @@ jobs:
         run: |
           ./scripts/cmux-next/generate-third-party-notices.sh --tui-source tree \
             --cargo-trees "$RUNNER_TEMP/cmux-notices-cargo-trees" --write-cargo-trees
+
+      # Receipts are written only when the job generated the notices (its inputs changed), never for a run that
+      # found nothing to check: a pass that checked nothing must not stand for these inputs.
+      - name: Write the red same-tree receipt
+        if: ${{ failure() && steps.inputs.outputs.run == 'true' && fromJSON(needs.portable-placement.outputs.same_tree || '{}')['rust-notices-tree'].record }}
+        continue-on-error: true
+        env:
+          KEY: ${{ fromJSON(needs.portable-placement.outputs.same_tree || '{}')['rust-notices-tree'].key }}
+        run: python3 scripts/ci/same_tree_reuse.py receipt --job rust-notices-tree --key "$KEY" --conclusion failure --out .same-tree/rust-notices-tree
+      - name: Record the red same-tree receipt
+        if: ${{ failure() && steps.inputs.outputs.run == 'true' && fromJSON(needs.portable-placement.outputs.same_tree || '{}')['rust-notices-tree'].record }}
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .same-tree/rust-notices-tree
+          key: ${{ fromJSON(needs.portable-placement.outputs.same_tree || '{}')['rust-notices-tree'].key }}-red
+      # A sampled audit of a hit ran in full and went red: the receipt or base verdict it contradicts is named.
+      - name: Same-tree audit
+        if: ${{ failure() && fromJSON(needs.portable-placement.outputs.same_tree || '{}')['rust-notices-tree'].audit }}
+        env:
+          RECEIPT: ${{ fromJSON(needs.portable-placement.outputs.same_tree || '{}')['rust-notices-tree'].receipt }}
+          KEY: ${{ fromJSON(needs.portable-placement.outputs.same_tree || '{}')['rust-notices-tree'].key }}
+        run: echo "::error title=same-tree audit::rust-notices-tree failed on the inputs of $KEY, which ${RECEIPT:-the base} passed"
+      - name: Write the same-tree receipt
+        if: ${{ success() && steps.inputs.outputs.run == 'true' && fromJSON(needs.portable-placement.outputs.same_tree || '{}')['rust-notices-tree'].record }}
+        env:
+          KEY: ${{ fromJSON(needs.portable-placement.outputs.same_tree || '{}')['rust-notices-tree'].key }}
+        run: python3 scripts/ci/same_tree_reuse.py receipt --job rust-notices-tree --key "$KEY" --out .same-tree/rust-notices-tree
+      - name: Record the same-tree receipt
+        if: ${{ success() && steps.inputs.outputs.run == 'true' && fromJSON(needs.portable-placement.outputs.same_tree || '{}')['rust-notices-tree'].record }}
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .same-tree/rust-notices-tree
+          key: ${{ fromJSON(needs.portable-placement.outputs.same_tree || '{}')['rust-notices-tree'].key }}
 
   # The checks that judge a change against its base, in one runner session and one checkout: red only for the
   # change's own regression, so a base red never excuses them (next_autoland's NEVER_BASE matches "size cap" and

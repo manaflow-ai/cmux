@@ -89,6 +89,86 @@ class Keys(unittest.TestCase):
             s.make_key("kit tests", BLOB, TREE)
 
 
+class InputKeys(unittest.TestCase):
+    """A job with `inputs` keys only them; the base's key equal to the head's is an inherited verdict."""
+
+    CONFIG = {"wired": {"w.yml": {"host": "h", "jobs": ["notices"],
+                                  "inputs": {"notices": ["**/Cargo.lock", "notices/**", "!notices/README.txt"]}}}}
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.repo = Path(self.dir.name)
+        git(self.repo, "init", "-q")
+        (self.repo / ".github" / "workflows").mkdir(parents=True)
+        (self.repo / ".github" / "workflows" / "w.yml").write_text("on: pull_request\n")
+        (self.repo / "notices").mkdir()
+        (self.repo / "notices" / "gen.sh").write_text("gen\n")
+        (self.repo / "notices" / "README.txt").write_text("read me\n")
+        (self.repo / "crate").mkdir()
+        (self.repo / "crate" / "Cargo.lock").write_text("lock\n")
+        (self.repo / "app.swift").write_text("one\n")
+        git(self.repo, "add", ".")
+        git(self.repo, "commit", "-qm", "one")
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def key(self, rev="HEAD", job="notices", config=None):
+        return s.keys(".github/workflows/w.yml", [job], rev, cwd=str(self.repo), config=config or self.CONFIG)[job]
+
+    def commit(self, path, text):
+        (self.repo / path).parent.mkdir(parents=True, exist_ok=True)
+        (self.repo / path).write_text(text)
+        git(self.repo, "add", ".")
+        git(self.repo, "commit", "-qm", path)
+
+    def test_a_change_outside_the_inputs_keeps_the_key(self):
+        first = self.key()
+        self.assertTrue(first.startswith(s.INPUTS_PREFIX), first)
+        self.commit("app.swift", "two\n")
+        self.commit("notices/README.txt", "excluded by the last matching pattern\n")
+        self.assertEqual(self.key(), first)
+        self.assertEqual(self.key("HEAD~2"), first)
+
+    def test_a_change_to_an_input_changes_the_key(self):
+        first = self.key()
+        self.commit("crate/Cargo.lock", "lock 2\n")
+        self.assertNotEqual(self.key(), first)
+        second = self.key()
+        self.commit("deep/er/Cargo.lock", "a new lock anywhere\n")
+        self.assertNotEqual(self.key(), second)
+
+    def test_the_keying_itself_and_the_list_are_inputs(self):
+        first = self.key()
+        self.commit("scripts/ci/same_tree_reuse.json", "{}\n")
+        self.assertNotEqual(self.key(), first)
+        wider = json.loads(json.dumps(self.CONFIG))
+        wider["wired"]["w.yml"]["inputs"]["notices"].append("app.swift")
+        self.assertNotEqual(self.key(config=wider), self.key())
+
+    def test_a_job_without_inputs_keeps_the_whole_tree_key(self):
+        key = self.key(job="other")
+        self.assertTrue(key.startswith(s.PREFIX + "-other-"), key)
+        self.assertEqual(s.KEY.match(key)["tree"], git(self.repo, "rev-parse", "HEAD^{tree}"))
+
+    def test_an_unchanged_input_set_inherits_the_base_verdict(self):
+        self.commit("app.swift", "two\n")
+        decisions = s.decide({"notices": self.key()}, {}, None, 0, "1", "1", {"notices": self.key("HEAD~1")})
+        self.assertEqual((decisions["notices"]["reuse"], decisions["notices"]["inherit"]), (True, True))
+        self.commit("notices/gen.sh", "gen 2\n")
+        decisions = s.decide({"notices": self.key()}, {}, None, 0, "1", "1", {"notices": self.key("HEAD~1")})
+        self.assertEqual((decisions["notices"]["reuse"], decisions["notices"]["inherit"]), (False, False))
+
+    def test_globs_follow_path_filter_rules(self):
+        self.assertTrue(s.glob_re("**/Cargo.toml").match("Cargo.toml"))
+        self.assertTrue(s.glob_re("**/Cargo.toml").match("a/b/Cargo.toml"))
+        self.assertFalse(s.glob_re("**/Cargo.toml").match("a/Cargo.toml.bak"))
+        self.assertTrue(s.glob_re("scripts/*.sh").match("scripts/a.sh"))
+        self.assertFalse(s.glob_re("scripts/*.sh").match("scripts/x/a.sh"))
+        self.assertTrue(s.glob_re("ghostty-next").match("ghostty-next"))
+        self.assertFalse(s.glob_re("ghostty-next").match("ghostty-next-x"))
+
+
 class Decide(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
@@ -122,6 +202,22 @@ class Decide(unittest.TestCase):
         self.assertFalse(self.decide()["reuse"])
         (self.receipts / "kit-tests" / "receipt.json").write_text("not json")
         self.assertFalse(self.decide()["reuse"])
+
+    def test_a_red_receipt_is_named_and_never_passes(self):
+        self.write(job="kit-tests", key=self.key, run_url="red-run", conclusion="failure")
+        for hit in (True, False):
+            d = self.decide(hit=hit)
+            self.assertEqual((d["reuse"], d["record"], d["known_red"]), (False, True, "red-run"))
+
+    def test_an_inherited_verdict_is_only_for_an_input_key(self):
+        # A whole-tree key equal to the base's is the same tree: an empty change, never an inherited verdict.
+        d = s.decide({"kit-tests": self.key}, {}, None, 0, "1", "1", {"kit-tests": self.key})["kit-tests"]
+        self.assertFalse(d["reuse"])
+        key = s.make_key("kit-tests", BLOB, TREE, s.INPUTS_PREFIX)
+        d = s.decide({"kit-tests": key}, {}, None, 0, "1", "1", {"kit-tests": key})["kit-tests"]
+        self.assertEqual((d["reuse"], d["inherit"]), (True, True))
+        d = s.decide({"kit-tests": key}, {}, None, 100, "1", "1", {"kit-tests": key})["kit-tests"]
+        self.assertEqual((d["reuse"], d["audit"]), (False, True))
 
     def test_audit_runs_a_hit_in_full_and_names_the_receipt(self):
         self.write(job="kit-tests", key=self.key, run_url="u")
@@ -179,6 +275,11 @@ class Rules(unittest.TestCase):
         self.assertTrue(any("judges" in b for b in s.blockers(WORKFLOW, "summary")))
         self.assertTrue(any("needed by summary" in b for b in s.blockers(WORKFLOW, "pure")))
         self.assertIn("host", jobs)
+        base_diff = {"on": {"pull_request": {}}, "jobs": {"j": {"steps": [
+            {"run": "x", "env": {"B": "${{ github.event.pull_request.base.sha || github.event.before }}"}}]}}}
+        self.assertTrue(any("metadata" in b for b in s.blockers(base_diff, "j")))
+        self.assertEqual(s.blockers(base_diff, "j", input_scoped=True), [])
+        self.assertTrue(any("metadata" in b for b in s.blockers(WORKFLOW, "body", input_scoped=True)))
         target = {"on": {"pull_request_target": {}}, "jobs": {"j": {"steps": []}}}
         self.assertTrue(any("pull_request_target" in b for b in s.blockers(target, "j")))
 
