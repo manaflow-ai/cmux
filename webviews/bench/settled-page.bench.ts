@@ -306,7 +306,7 @@ function installFrameReader() {
       } catch {
         mark("out ?");
       }
-      super.send(data);
+      super.send(data as Parameters<WebSocket["send"]>[0]);
     }
   } as typeof WebSocket;
   try {
@@ -692,7 +692,11 @@ try {
       } else throw new Error(`${scenario} runs in first-load-after-restart.bench.ts`);
       const read = await framesOf(page, markOf(target));
       stopStream();
-      if (profiler) printProfile(`${scenario}.${arm}`, (await profiler.send("Profiler.stop")).profile);
+      if (profiler) {
+        // CDP's Profile leaves samples and timeDeltas optional; a profile with no samples prints as empty.
+        const { profile } = await profiler.send("Profiler.stop");
+        printProfile(`${scenario}.${arm}`, { ...profile, samples: profile.samples ?? [], timeDeltas: profile.timeDeltas ?? [] });
+      }
       const judged = judge(read, arm, target);
       if (TRACE) {
         // The timeline to the settled frame: socket traffic, long tasks, and the first frame showing the target.
