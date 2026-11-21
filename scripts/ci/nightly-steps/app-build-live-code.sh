@@ -18,16 +18,20 @@ out="$(mkdir -p "${1:?usage: app-build-live-code.sh OUT}" && cd "$1" && pwd)"
 cd "$(dirname "${BASH_SOURCE[0]}")/../../.."
 # shellcheck source=scripts/live-code/lib/two-pass.sh
 source scripts/live-code/lib/two-pass.sh
+# shellcheck source=scripts/live-code/lib/xcodebuild-args.sh
+source scripts/live-code/lib/xcodebuild-args.sh
 export CMUX_LIVE_CODE_BUILD=1 CMUX_NIGHTLY_HOST_BUILD_ROOT=0 DECIDE_COLD_CACHE_DISABLE=1
 unset CMUX_LIVE_CODE_INTERPOSABLE_LIST
 app="$PWD/build-universal/Build/Products/Release/cmux.app"
 bin="$app/Contents/MacOS/cmux"
 start=$SECONDS
 bash scripts/ci/nightly-steps/app-build-release.sh
+live_code_copy_resource_bundles "$app"
 cp "$RUNNER_TEMP/nightly-release-build.log" "$out/xcodebuild.log"
 [[ -f "$bin" ]] || { echo "live-code variant: pass 1 left no $bin" >&2; exit 1; }
 live_code_list "$bin" "$out"
 CMUX_LIVE_CODE_INTERPOSABLE_LIST="$out/interposable.txt" bash scripts/ci/nightly-steps/app-build-release.sh
+live_code_copy_resource_bundles "$app"
 cp "$RUNNER_TEMP/nightly-release-build.log" "$out/xcodebuild-relink.log"
 live_code_check "$bin" "$out" || { echo "::error title=live code variant::the relinked app binds CmuxNext symbols it does not export, or no bind was read; see $out/missing-2.txt" >&2; exit 1; }
 echo "live-code variant: built in $((SECONDS - start)) s"

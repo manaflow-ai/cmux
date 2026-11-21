@@ -100,7 +100,7 @@ export function saysNothing(reply: string): boolean {
 export function isQuietReply(reply: string): boolean {
   const text = reply.trim();
   const lines = text.split("\n").filter((line) => line.trim()).length;
-  return lines <= 1 && [...text].length <= QUIET_LINE && !text.includes("?") && !text.includes("://");
+  return lines <= 1 && Array.from(text).length <= QUIET_LINE && !text.includes("?") && !text.includes("://");
 }
 /// acpmux's `SHORT_LINE`: the longest reply, in characters, that still reads as one short line.
 const QUIET_LINE = 160;
