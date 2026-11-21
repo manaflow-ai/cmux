@@ -2667,11 +2667,13 @@ class TerminalController {
             let result = await CmuxAutomationInvocationContext.$eventOrigin.withValue(commandOrigin) {
                 await SocketCommandTaskPolicy.$peerProcessID.withValue(pid) {
                     await SocketCommandTaskPolicy.$peerHasSameUID.withValue(peerHasSameUID) {
-                        await processSocketLineAsync(
-                            trimmed,
-                            passwordAuthorization: passwordAuthorization,
-                            rateLimiter: rateLimiter
-                        )
+                        await SocketCommandTaskPolicy.$clientSocket.withValue(socket) {
+                            await processSocketLineAsync(
+                                trimmed,
+                                passwordAuthorization: passwordAuthorization,
+                                rateLimiter: rateLimiter
+                            )
+                        }
                     }
                 }
             }
@@ -4355,7 +4357,8 @@ class TerminalController {
         mapError: (Error) -> String? = { _ in nil },
         _ work: @escaping () async throws -> [String: Any]
     ) -> String {
-        let semaphore = DispatchSemaphore(value: 0)
+        // Ends on completion, the limit, or the socket client hanging up.
+        let completion = ControlClientCompletionWait(clientSocket: SocketCommandTaskPolicy.clientSocket)
         nonisolated(unsafe) var result: Result<[String: Any], Error>?
         // Control-plane requests inside `work` state the earliest of this
         // worker's limit and the socket client's budget the dispatcher bound
@@ -4366,20 +4369,35 @@ class TerminalController {
             } catch {
                 result = .failure(error)
             }
-            semaphore.signal()
+            completion.complete()
         }
         if let timeoutSeconds {
-            if semaphore.wait(timeout: .now() + timeoutSeconds) == .timedOut {
+            // A client that hangs up ends the wait too: the answer goes
+            // nowhere, and waiting would hold one of the control socket's
+            // bounded slots for up to the call's limit (#48314).
+            switch completion.wait(timeoutSeconds: timeoutSeconds) {
+            case .completed:
+                break
+            case .timedOut:
                 task.cancel()
                 return v2Error(
                     id: id,
                     code: "timeout",
                     message: "VM request timed out after \(Int(timeoutSeconds)) seconds"
                 )
+            case .clientClosed:
+                task.cancel()
+                // Nobody reads this reply; the write fails and the connection closes.
+                return v2Error(id: id, code: "client_closed", message: "The socket client closed the connection before the VM request finished")
             }
         } else {
             // Opt-in for operations that enforce their own lifecycle deadline.
-            semaphore.wait()
+            // A client that hangs up still frees the slot; the operation
+            // finishes on its own deadline rather than being cut mid-way.
+            if completion.wait(timeoutSeconds: nil) == .clientClosed {
+                // Nobody reads this reply; the write fails and the connection closes.
+                return v2Error(id: id, code: "client_closed", message: "The socket client closed the connection before the VM request finished")
+            }
         }
         switch result {
         case .success(let payload):
