@@ -1,4 +1,5 @@
 import CmuxMobileAuth
+import CmuxMobileDesign
 import CmuxMobileLive
 import CmuxMobileModel
 import CmuxMobileShell
@@ -17,6 +18,8 @@ struct CmuxMobileApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        // Launch to first interaction (LaunchMarks): dyld, static initializers and UIKit's start end here.
+        LaunchMarks.shared.mark("app_init")
         // An update from the classic app (the same bundle id) left its Keychain items and
         // settings here: they are deleted once, before anything reads either, so this app
         // starts signed out instead of half-reading a classic session.
@@ -67,6 +70,8 @@ struct CmuxMobileApp: App {
                 RecoveryGalleryRoot()
             } else if ShellScreenSharingDemo.isRequested {
                 ShellScreenSharingDemo()
+            } else if ShellScreenSharingLink.isRequested {
+                ShellScreenSharingLink()
             } else if TerminalFloodBenchRoot.isRequested {
                 TerminalFloodBenchRoot()
             } else if TerminalResizeDemoRoot.isRequested {
@@ -83,6 +88,10 @@ struct CmuxMobileApp: App {
             RootView(auth: auth, store: AppStore(teams: [], activeTeamID: "", workspaces: [], feed: []))
             #endif
             }
+            #if DEBUG
+            // `CMUX_MOBILE_LAUNCH_MARKS=1`: the launch marks for LaunchTTIUITests.
+            .overlay(alignment: .topLeading) { LaunchMarksProbe() }
+            #endif
             .modifier(ChiefCallCover(
                 controller: ChiefVoice.controller,
                 scenePhase: scenePhase,

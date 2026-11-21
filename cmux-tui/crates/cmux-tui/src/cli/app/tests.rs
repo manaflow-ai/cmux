@@ -2330,3 +2330,62 @@ fn the_ping_gets_only_what_is_left_of_the_deadline() {
     assert_eq!(windows.len(), 1, "{windows:?}");
     assert!(windows.iter().all(|window| *window <= Duration::from_millis(110)), "{windows:?}");
 }
+
+/// An agent's `cmux window screenshot` of Home came back grey and was read as a blank pane: the
+/// grey is the app's privacy mask. The CLI's line names the masked areas for every screenshot
+/// verb; a raw capture, an empty list or another action adds nothing.
+#[test]
+fn a_masked_screenshot_says_what_its_grey_areas_are() {
+    let masked = json!({ "id": "run_1", "result": { "path": "/tmp/s.png", "masked": 2, "masked_areas": ["chat", "home"] } });
+    for action in ["window screenshot", "pane screenshot", "tab screenshot"] {
+        let note = page::masked_note(&json!({ "action": action }), &masked).expect(action);
+        assert!(note.contains("chat, home"), "{action}: {note}");
+        assert!(note.contains("not blank"), "{action}: {note}");
+    }
+    let raw = json!({ "result": { "path": "/tmp/s.png" } });
+    assert_eq!(page::masked_note(&json!({ "action": "window screenshot" }), &raw), None);
+    let none = json!({ "result": { "path": "/tmp/s.png", "masked": 0, "masked_areas": [] } });
+    assert_eq!(page::masked_note(&json!({ "action": "window screenshot" }), &none), None);
+    assert_eq!(page::masked_note(&json!({ "action": "window close" }), &masked), None);
+}
+
+/// Leo: "you guys kept fighting focus". `cmux cloud start-session --no-focus` (an agent's or a probe's
+/// start, `cloud start-chat --no-focus`'s step) says `focus: false` in the run itself, never an argument the
+/// action does not take; the app then shows, selects and raises nothing for it. Without the flag the run is
+/// today's: no `focus` at all, so a CLI start changes the app's view only with `--focus` (a person's own
+/// start in the app is origin `user`, which always may: `ActionInvocation.allowsViewChange`).
+#[test]
+fn no_focus_asks_the_app_to_leave_the_view_alone() {
+    let start = |extra: &[&str]| {
+        let mut words = args(&["--name", "box", "--agent", "claude"]);
+        words.extend(args(extra));
+        let (method, params) =
+            call(run_action("cloud start-session", &words, ActionName::Cli).unwrap());
+        assert_eq!(method, "action.run");
+        assert_eq!(params["args"]["name"], "box");
+        params
+    };
+    let quiet = start(&["--no-focus"]);
+    assert_eq!(quiet["focus"], false, "{quiet}");
+    assert!(quiet["args"].get("noFocus").is_none(), "{quiet}");
+    // Today's runs, unchanged: none says focus, and `--focus` asks for the view change.
+    assert!(start(&[]).get("focus").is_none());
+    assert_eq!(start(&["--focus"])["focus"], true);
+    // An action with its own `focus` argument (`open-remote`) gets it as that argument too.
+    let (_, remote) =
+        call(run_action("open-remote", &args(&["--no-focus"]), ActionName::Cli).unwrap());
+    assert_eq!(
+        (remote["focus"].clone(), remote["args"]["focus"].clone()),
+        (json!(false), json!(false))
+    );
+    // A person's `cmux cloud new-machine` opens the machine it made; with `--no-focus` nothing opens.
+    let made = json!({ "result": { "machine_id": "vm_1", "status": "running" } });
+    let (_, asked) =
+        call(run_action("cloud new-machine", &args(&["--no-focus"]), ActionName::Cli).unwrap());
+    assert_eq!(created_target(OutputMode::Human, &asked, &made), None);
+    let (_, plain) = call(run_action("cloud new-machine", &[], ActionName::Cli).unwrap());
+    assert_eq!(created_target(OutputMode::Human, &plain, &made).as_deref(), Some("machine:vm_1"));
+    // `cmux vm start-session --help` lists it.
+    let help = super::super::cloud_help::verb_help("start-session", false).unwrap();
+    assert!(help.contains("[--no-focus]"), "{help}");
+}

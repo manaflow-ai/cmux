@@ -89,7 +89,6 @@ src/agent-session/acpmux/ModelPicker.tsx	1
 src/agent-session/acpmux/needsYou/useNeedsYou.ts	1
 src/agent-session/acpmux/newtab/allChatsListModel.ts	1
 src/agent-session/acpmux/newtab/listMotion.ts	1
-src/agent-session/acpmux/newtab/NewTabScreen.tsx	1
 src/agent-session/acpmux/newtab/savedEnvironments.ts	1
 src/agent-session/acpmux/newtab/useNewTabCommand.tsx	1
 src/agent-session/acpmux/NewTabPage.tsx	1
