@@ -116,6 +116,7 @@ import {
   forgetQueuedDraft,
   hydratedDraft,
   lastQueuedDraftText,
+  lateDraftText,
   markDraftRead,
   mergedDraft,
   noteDraftEdited,
@@ -287,6 +288,10 @@ export type ComposerHandle = {
   /// typed after it, and puts the caret at the end. A prompt that already starts with it only
   /// takes focus.
   prefill(prefix: string): void;
+  /// A Cloud start's hand-off (pane/paneSnapshot.ts `lateDraft`): `late` is what the tab this chat replaces held as
+  /// it closed, `replaces` what the handshake's draft put here before. It takes that draft's place;
+  /// text typed here meanwhile stays, after it (composerDraft.ts `lateDraftText`).
+  lateDraft(late: string, replaces: string): void;
   /// Quote in Reply: append after the draft, regardless of focus, ready to type below it.
   quoteReply(markdown: string): void;
   /// What it holds that acpmux's draft does not, for a page about to let go (`pane.wakeState`):
@@ -1465,6 +1470,16 @@ function ComposerFrame({
           writeText(next, next.length);
         }
         field.current?.focus();
+      },
+      lateDraft(late, replaces) {
+        const typed = field.current?.value() ?? textRef.current;
+        const next = lateDraftText(typed, late, replaces);
+        if (next === typed) return;
+        notTyped();
+        field.current?.reset(next);
+        setText(next);
+        setCaret(next.length);
+        pendingCaret.current = next.length;
       },
       quoteReply(markdown) {
         notTyped();

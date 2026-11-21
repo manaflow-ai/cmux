@@ -708,6 +708,15 @@ export function paneSnapshotEffect({
     cloudStartProgress(push) {
       setCloudStart((current) => cloudStartPushed(current, push));
     },
+    lateDraft(value) {
+      if (!value || typeof value !== "object") return;
+      const { text, replaces } = value as { text?: unknown; replaces?: unknown };
+      if (typeof text !== "string") return;
+      // The composer holds what the handshake's draft put there: the tab's text as it closed takes
+      // its place (composerDraft.ts `lateDraftText`). No composer yet: it is the draft it starts with.
+      if (composerHandle.current) composerHandle.current.lateDraft(text, typeof replaces === "string" ? replaces : "");
+      else setDraft(text);
+    },
     applyPreview(on) {
       // The environment picker, Cloud (Move to Cloud, the account's Cloud machines) and Sandboxed
       // runs are not behind Labs (Leo, 2026-10-30: "i dont like putting so much stuff in labs").
