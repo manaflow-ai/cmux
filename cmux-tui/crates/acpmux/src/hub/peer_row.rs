@@ -56,6 +56,7 @@ struct Hot {
     session_id: Option<Box<str>>,
     name: Option<Box<str>>,
     handle: Option<Box<str>>,
+    alias: Option<Box<str>>,
     status: Option<Box<str>>,
     peer: Option<Box<str>>,
     agent_session_id: Option<Box<str>>,
@@ -78,6 +79,13 @@ impl Hot {
             session_id: text("sessionId"),
             name: text("name"),
             handle: text("handle"),
+            alias: summary
+                .get("tags")
+                .and_then(|tags| tags.get("alias"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|alias| !alias.is_empty())
+                .map(Box::from),
             status: text("status"),
             peer: text("peer"),
             agent_session_id: text("agentSessionId"),
@@ -292,6 +300,10 @@ impl PeerRow {
 
     pub fn handle(&self) -> Option<&str> {
         self.hot.handle.as_deref()
+    }
+
+    pub fn alias(&self) -> Option<&str> {
+        self.hot.alias.as_deref()
     }
 
     pub fn status(&self) -> Option<&str> {
