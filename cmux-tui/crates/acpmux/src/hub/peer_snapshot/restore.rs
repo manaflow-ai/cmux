@@ -289,6 +289,7 @@ impl Hub {
                     return;
                 }
                 let (h, p, rows) = (hub.clone(), peer.clone(), rows.clone());
+// bare blocking (daemon): owned startup, loader, probe, timer, or restore work
                 ahead = tokio::task::spawn_blocking(move || h.peer_snapshots.ahead(&p, rows))
                     .await
                     .ok()
@@ -360,6 +361,7 @@ impl Hub {
                             let row = vec![(mux.clone(), created_at, from)];
                             let (h, p, r) = (hub.clone(), peer.clone(), row.clone());
                             let read =
+// bare blocking (daemon): owned startup, loader, probe, timer, or restore work
                                 tokio::task::spawn_blocking(move || h.peer_snapshots.ahead(&p, r));
                             let Some((ahead, since)) = read.await.ok().flatten() else { break };
                             let proofs = od::proofs_past(&hub.outbox, &peer, &row, &since);

@@ -92,6 +92,7 @@ impl Hub {
             // A cache whose fingerprint matches applies at once; the shell
             // runs only when needed, and agent spawns wait for it (at most
             // two `login_env::TIMEOUT` reads) only when nothing else can stand in.
+            // bare blocking (daemon): owned startup, loader, probe, timer, or restore work
             let plan = tokio::task::spawn_blocking(crate::login_env::begin)
                 .await
                 .unwrap_or(crate::login_env::Plan { run_shell: true, wait: true });
@@ -168,6 +169,7 @@ impl Hub {
         }
         tracing::info!("startup complete");
         // Probes and one-shots of earlier runs left files behind: remove them.
+        // bare blocking (daemon): owned startup, loader, probe, timer, or restore work
         let _ = tokio::task::spawn_blocking(|| {
             crate::qos::background(crate::probe_cleanup::at_daemon_start)
         })
@@ -226,6 +228,7 @@ impl Hub {
     async fn verify_launchers(&self) {
         let mut probe = self.config.read().await.clone();
         let before = probe.harnesses.clone();
+        // bare blocking (daemon): owned startup, loader, probe, timer, or restore work
         let Ok(probe) = tokio::task::spawn_blocking(move || {
             crate::config::verify_launchers(&mut probe);
             probe

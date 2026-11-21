@@ -179,3 +179,11 @@ async fn cancel_classes_a_trigger_connection_cancels_its_request() {
     })
     .await;
 }
+
+#[tokio::test]
+async fn a_cancelled_request_that_finishes_later_gets_exactly_one_reply() {
+    a_held_request_is_cancelled("late completion", |hub, rx, tx| {
+        Box::pin(serve_connection_with(hub, rx, tx, Origin::Local))
+    })
+    .await;
+}

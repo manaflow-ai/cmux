@@ -646,13 +646,21 @@ impl Link {
         let source = Arc::new(HubSource::for_peer(self.v2.hub()));
         let daemon_id = self.hub.run_id();
         let inbound = adapter.inbound.clone();
+        let stop = self.hub.request_stop.clone();
         // It ends when its stream does (`end`), or with the daemon.
         let task = self.hub.scope.spawn_until_cancelled("v2 peer link connection", async move {
             // The role is this link's, fixed here: nothing a frame says changes it.
             let surfaces = ["list".to_owned()];
-            let result =
-                acpmux_core::conn::run(reader, writer, source, daemon_id, &surfaces, Role::Peer)
-                    .await;
+            let result = acpmux_core::conn::run_with_stop(
+                reader,
+                writer,
+                source,
+                daemon_id,
+                &surfaces,
+                Role::Peer,
+                Some(stop),
+            )
+            .await;
             if let Err(error) = result {
                 tracing::debug!(%error, "a v2 connection on a peer link ended");
             }

@@ -184,6 +184,7 @@ impl Hub {
         let cache = &self.usage_stats;
         let (trackers, stats) = (cache.trackers.clone(), cache.stats.clone());
         // A read that stops waiting lets the pass go on; the trackers' lock keeps passes apart.
+        // bare blocking (daemon): owned startup, loader, probe, timer, or restore work
         let pass = tokio::task::spawn_blocking(move || {
             let mut trackers = trackers.lock().unwrap_or_else(|e| e.into_inner());
             let mut fresh = Vec::with_capacity(sources.len());

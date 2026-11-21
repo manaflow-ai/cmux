@@ -1489,6 +1489,7 @@ pub(super) async fn end_host_blocking(
             return false;
         }
     }
+    // bare blocking (daemon): owned startup, loader, probe, timer, or restore work
     tokio::task::spawn_blocking(move || {
         agent_host::terminate_unadoptable(&dir, &session_id, nonce.as_deref(), host_pid)
             .unwrap_or(false)

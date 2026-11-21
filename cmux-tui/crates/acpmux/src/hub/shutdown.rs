@@ -160,6 +160,7 @@ impl Hub {
         let _ends = self.settled_by_shutdown.lock().unwrap_or_else(|e| e.into_inner());
         let mut plan = self.shutdown_plan.lock().unwrap();
         plan.started = true;
+        self.request_stop.cancel();
         (plan.end_agents, plan.keep.clone())
     }
 
@@ -206,6 +207,7 @@ impl Hub {
         let (metadata_done, metadata_saved) = tokio::sync::oneshot::channel::<()>();
         let store = {
             let hub = self.clone();
+            // bare blocking (daemon): owned startup, loader, probe, timer, or restore work
             tokio::task::spawn_blocking(move || {
                 for session in hub.sessions() {
                     // A cancelled async log loader can leave its blocking restore running.
@@ -235,6 +237,7 @@ impl Hub {
             let hub = self.clone();
             async move {
                 let _ = metadata_saved.await;
+                // bare blocking (daemon): owned startup, loader, probe, timer, or restore work
                 tokio::task::spawn_blocking(move || {
                     let left = deadline.saturating_duration_since(tokio::time::Instant::now());
                     if !hub.ledger.close(left) {
@@ -247,6 +250,7 @@ impl Hub {
                 .await
             }
         };
+        // bare blocking (daemon): owned startup, loader, probe, timer, or restore work
         let audit = tokio::task::spawn_blocking(move || {
             let left = deadline.saturating_duration_since(tokio::time::Instant::now());
             if !self.audit.close(left) {
@@ -348,6 +352,7 @@ impl Hub {
         }
         // Startup may have been cancelled before adoption reached these hosts. Keep their
         // state and router on an ordinary restart, even when no child link exists yet.
+        // bare blocking (daemon): owned startup, loader, probe, timer, or restore work
         let live = tokio::task::spawn_blocking(Self::read_live_host_sessions).await.ok().flatten();
         let mut children = Vec::new();
         let mut hosted = Vec::new();
