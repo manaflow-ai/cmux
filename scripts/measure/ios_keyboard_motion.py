@@ -59,13 +59,14 @@ PAIR = re.compile(r"(\w+)=(\S+)")
 SCHEMA = "cmux-mobile-bench/keyboard-motion/v1"
 
 
-def attached_traces(folder: Path):
+def attached_traces(folder: Path, kind: str = "trace"):
     """kbm-trace-SURFACE.txt attachments: by file name, or through xcresulttool's manifest.json, which
     names each exported file (exportedFileName) by its suggestedHumanReadableName (the attachment's name,
     maybe with _N_UUID appended)."""
     found = {}
-    for p in folder.rglob("kbm-trace-*.txt"):
-        found[re.sub(r"_\d+_[0-9A-Fa-f-]{36}$", "", p.name[len("kbm-trace-"):-len(".txt")])] = p
+    prefix = f"kbm-{kind}-"
+    for p in folder.rglob(f"{prefix}*.txt"):
+        found[re.sub(r"_\d+_[0-9A-Fa-f-]{36}$", "", p.name[len(prefix):-len(".txt")])] = p
     for manifest in folder.rglob("manifest.json"):
         try:
             entries = json.loads(manifest.read_text())
@@ -75,7 +76,7 @@ def attached_traces(folder: Path):
             for att in (entry.get("attachments") or []) if isinstance(entry, dict) else []:
                 name = str(att.get("suggestedHumanReadableName") or att.get("name") or "")
                 file = manifest.parent / str(att.get("exportedFileName") or "")
-                m = re.match(r"kbm-trace-(.+?)(?:_\d+_[0-9A-Fa-f-]{36})?(?:\.txt)?$", name)
+                m = re.match(rf"{prefix}(.+?)(?:_\d+_[0-9A-Fa-f-]{{36}})?(?:\.txt)?$", name)
                 if m and file.is_file():
                     found[m.group(1)] = file
     return found
@@ -338,6 +339,14 @@ def main() -> int:
     ap.add_argument("--meta", action="append", default=[], help="KEY=VALUE for the report's run block")
     a = ap.parse_args()
     marks, traces, notes = read_console(a.console)
+    # kbm-marks-SURFACE.txt attachments: the same mark and note lines, for a console export that came back empty.
+    if a.attachments and a.attachments.is_dir():
+        for name, path in attached_traces(a.attachments, "marks").items():
+            if name not in marks:
+                m2, _, n2 = read_console(path)
+                marks.setdefault(name, m2.get(name, []))
+                if n2.get(name):
+                    notes.setdefault(name, n2[name])
     traces_dir = a.traces or a.out.parent / "traces"
     traces_dir.mkdir(parents=True, exist_ok=True)
     found = {}
