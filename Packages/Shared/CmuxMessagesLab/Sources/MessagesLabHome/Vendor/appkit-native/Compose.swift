@@ -268,6 +268,9 @@ final class FieldTextView: NSTextView {
     /// Spell checking while typing, off the keystroke frame (SpellCheck.swift); the Edit
     /// menu's "Check Spelling While Typing" switches it.
     lazy var spell = DeferredSpellChecker(view: self)
+    /// cmux: each paragraph's writing direction from its text, the TextKit 1 text storage's delegate
+    /// (ComposeParagraphDirection.swift).
+    let paragraphDirection = ComposeParagraphDirection()
     /// Enables the host's opt-in composer spell checking without changing the system-wide setting.
     func setSpellCheckingEnabled(_ enabled: Bool) {
         if DeferredSpellChecker.useAppKit {
@@ -661,6 +664,7 @@ final class ComposeTextView {
         // cmux: TextKit 1, not Catalyst's TextKit 2: TextKit 2 lays out and draws an edited paragraph
         // whole, so a key at the end of a long one cost the whole paragraph (NSTextView+TextKit1Lines.swift).
         view = FieldTextView(usingTextLayoutManager: false)
+        view.textStorage?.delegate = view.paragraphDirection
         view.wantsLayer = true
         clip.wantsLayer = true
         clip.layer?.masksToBounds = true
@@ -871,7 +875,8 @@ final class ComposeView: UIView {
     /// per view (several Home tabs), from this compose bar's width.
     // cmux: the text always leaves the trailing slot (the waveform's, then the send button's).
     var textWidth: CGFloat { ComposeView.fieldWidth(bounds.width) - 24 - trailingReserve }
-    static func fieldWidth(_ windowWidth: CGFloat) -> CGFloat { 526 + windowWidth - Fixture.windowWidth }
+    // cmux: Messages' 526 pt at its window width, and wider where a narrow pane drops a button (ComposeChromeLayout).
+    static func fieldWidth(_ windowWidth: CGFloat) -> CGFloat { ComposeChromeLayout(width: windowWidth).fieldWidth }
     static let font = Fixture.bodyFont
     /// `writingTools`' raw value for reports: -1 on macOS 14 (no Writing Tools).
     static var writingToolsRaw: Int {
@@ -952,7 +957,8 @@ final class ComposeView: UIView {
     private var dy: CGFloat { bounds.height - Fixture.windowSize.height }
     var anchorBase: CGFloat { ComposeMetrics.anchorBase + dy }
     var fieldBottom: CGFloat { ComposeMetrics.fieldBottom + dy }
-    static let fieldX: CGFloat = 51
+    // cmux: Messages' 51 pt, and the "+" button's place too where a narrow pane drops it (ComposeChromeLayout).
+    static func fieldX(_ width: CGFloat) -> CGFloat { ComposeChromeLayout(width: width).fieldX }
     static let firstBaseline: CGFloat = ComposeMetrics.firstBaseline
 
     static var typing: [NSAttributedString.Key: Any] {
@@ -1109,7 +1115,7 @@ final class ComposeView: UIView {
 
     var fieldRect: CGRect { rect(height: fieldHeight) }
     func rect(height h: CGFloat) -> CGRect {
-        CGRect(x: ComposeView.fieldX, y: fieldBottom - h - 0.25, width: ComposeView.fieldWidth(bounds.width), height: h)
+        CGRect(x: ComposeView.fieldX(bounds.width), y: fieldBottom - h - 0.25, width: ComposeView.fieldWidth(bounds.width), height: h)
     }
 
     /// Text view frame (window coordinates) for a field height.
@@ -1446,15 +1452,17 @@ final class ComposeView: UIView {
 
     private func drawButtons(_ ctx: CGContext) {
         ctx.translateBy(x: 0, y: -(995 + dy))
-        Glass.draw(ctx, rect: CGRect(x: 10.5, y: 1000 + dy, width: 31, height: 30), radius: 15, fill: 49, rim: .button)
-        Glass.draw(ctx, rect: CGRect(x: 586.5 + dx, y: 1000 + dy, width: 31, height: 30), radius: 15, fill: 49, rim: .button)
+        // cmux: a narrow pane drops the emoji button, then the "+" button (ComposeChromeLayout).
+        let chrome = ComposeChromeLayout(width: bounds.width)
+        if chrome.showsPlus { Glass.draw(ctx, rect: CGRect(x: 10.5, y: 1000 + dy, width: 31, height: 30), radius: 15, fill: 49, rim: .button) }
+        if chrome.showsEmoji { Glass.draw(ctx, rect: CGRect(x: 586.5 + dx, y: 1000 + dy, width: 31, height: 30), radius: 15, fill: 49, rim: .button) }
         // Fitted to the lossless stills: plus 15.5 pt medium, the emoji glyph (face.smiling.inverse) 15.5 pt medium.
         let cfg = UIImage.SymbolConfiguration(pointSize: 15.5, weight: .medium)
-        if let img = UIImage(systemName: "plus", withConfiguration: cfg)?.withTintColor(.white, renderingMode: .alwaysOriginal) {
+        if chrome.showsPlus, let img = UIImage(systemName: "plus", withConfiguration: cfg)?.withTintColor(.white, renderingMode: .alwaysOriginal) {
             let s = img.size, c = CGPoint(x: 26, y: 1015.25 + dy)
             img.draw(in: CGRect(x: c.x - s.width / 2, y: c.y - s.height / 2, width: s.width, height: s.height))
         }
-        if let img = FieldChrome.emojiGlyph() {
+        if chrome.showsEmoji, let img = FieldChrome.emojiGlyph() {
             let s = img.size, c = CGPoint(x: 601.875 + dx, y: 1014.875 + dy)
             img.draw(in: CGRect(x: c.x - s.width / 2, y: c.y - s.height / 2, width: s.width, height: s.height))
         }

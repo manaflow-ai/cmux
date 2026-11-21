@@ -1793,15 +1793,15 @@ impl Hub {
     }
 
     /// Keeps a live record of peer `peer`'s session `mux` (`apply_peer_notice`), which came on
-    /// link `link`; `row` is the row the caller already found (Null: none, so nothing is kept).
+    /// link `link`; `listed`: the caller found its row (none: nothing is kept).
     pub(super) fn capture_peer_record(
         &self,
         (peer, generation, link): (&str, u64, u64),
         mux: &str,
-        row: &Value,
+        listed: bool,
         r: &EventRecord,
     ) {
-        if r.seq == 0 || r.dir == "peer" || row.is_null() {
+        if r.seq == 0 || r.dir == "peer" || !listed {
             return;
         }
         let value = json!({"sessionId": mux, "seq": r.seq, "at": r.at, "dir": r.dir, "kind": r.kind, "msg": r.msg});
