@@ -25,6 +25,8 @@ export default componentEntry<ComponentProps<typeof NewTabPageWithWidgetsFixture
   covers: [
     "agent-session/acpmux/newtab/NewTabScreen.tsx",
     "agent-session/acpmux/newtab/NewTabWidgets.tsx#NewTabWidgets",
+    "agent-session/acpmux/newtab/NewTabWidgets.tsx#NewTabWidgetsHost",
+    "agent-session/acpmux/newtab/NewTabWidgets.fixture.tsx#NewTabPageWithWidgetsFixture",
   ],
   load: async () => (await import("./NewTabWidgets.fixture")).NewTabPageWithWidgetsFixture,
   styles: () => Promise.all([import("../styles.css"), import("./screen.css"), import("./widgets.css")]),

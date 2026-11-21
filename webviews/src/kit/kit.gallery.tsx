@@ -218,6 +218,7 @@ export default componentEntry<Props>({
     "kit/Pill.tsx#Pill",
     "kit/Avatar.tsx#Avatar",
     "kit/Field.tsx#Field",
+    "kit/Glass.tsx#Glass",
     "kit/GlassMenu.tsx#GlassMenu",
     "kit/PopoverButton.tsx#PopoverButton",
     "kit/presets/SessionList.tsx#SessionList",

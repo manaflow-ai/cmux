@@ -73,6 +73,7 @@ import {
   type AgentMcpState,
   type AgentHooksRun,
   type AgentHooksState,
+  type RowNoteData,
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
@@ -115,6 +116,12 @@ export type MockOptions = {
   libraryRefusal?: string;
   /** A customization being tried on (`cmux customize try`); absent: none. */
   tryOn?: CustomizeTryOn;
+  /** Row notes the snapshot carries (theme file, Plain Backgrounds); absent: none. */
+  notes?: RowNoteData[];
+  /** Settings > Agents > Claude Code & Codex > Skills; absent: Labs off. */
+  agentSkills?: AgentSkillsState;
+  /** Settings > MCP Servers, Claude Code and Codex: turned on (Labs) over the mock's servers. */
+  agentMcp?: boolean;
 };
 
 /** This Mac joined to a team with the one-line join, every consent switch off. */
@@ -223,6 +230,7 @@ export class MockSettingsProvider {
   /** What `cmux.app.clipboard.write` last wrote. */
   clipboard: string | null = null;
   diagnostics: Diagnostic[];
+  notes: RowNoteData[];
   domains: Domains | null;
   /** The theme file the mock picker returns for `cmux.settings.theme.import`; null: the person left it. */
   importable: GhosttyTheme | null = null;
@@ -256,6 +264,9 @@ export class MockSettingsProvider {
     );
     for (const [key, value] of Object.entries(options.values ?? {})) this.values.set(key, value);
     this.diagnostics = options.diagnostics ?? [];
+    this.notes = options.notes ?? [];
+    if (options.agentSkills) this.agentSkills = options.agentSkills;
+    if (options.agentMcp) this.agentMcp = { ...this.agentMcp, enabled: true };
     this.domains = options.domains === undefined ? mockDomains : options.domains;
     this.failing = options.failing ?? {};
     this.actionRan = options.actionRan ?? true;
@@ -2277,6 +2288,7 @@ export class MockSettingsProvider {
         [...this.managed].map(([key, { source, reason, team }]) => [key, { source, reason, team: team ?? null }]),
       ),
       diagnostics: this.diagnostics,
+      notes: this.notes,
       domains: this.domains ?? { themes: null, font_families: null, sounds: null, recent_fonts: null },
     };
   }
