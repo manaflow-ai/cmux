@@ -14,6 +14,7 @@ import { useT } from "../i18n";
 import { outputWraps, useBlockWrap } from "./blockWrap";
 import { Lines, WrapButton } from "./BlockParts";
 import { lineCount, PREVIEW_LINES, SIDEWAYS_SCROLLER, usePreview, useSidewaysEdge } from "./blockPartsModel";
+import { useLineWindow } from "./lineWindow";
 import { commandFolder } from "./commandFolder";
 import { CopyButton } from "./CopyButton";
 import { menuPartRef } from "./menuParts";
@@ -64,11 +65,14 @@ export function ShellBlock({
   const preview = usePreview(lines, reveal, tall);
   const marked = raw.cut || Boolean(cut && raw.shown);
   // `outputTail` returns a suffix, so keep the source line number alongside it. Without this,
-  // every memoized chunk appears to start at line zero whenever the live 400-line window slides.
+  // every memoized chunk appears to start at line zero whenever the live 400-line lineWindow slides.
   const shownStartLine =
     raw.text && raw.shown && raw.shown !== raw.text
       ? raw.text.slice(0, raw.text.length - raw.shown.length).split("\n").length - 1
       : 0;
+  // Finished and cut to its box, it mounts only the lines in the box's view (lineWindow.ts).
+  const shownLines = useMemo(() => (raw.shown ? raw.shown.split("\n").length : 0), [raw.shown]);
+  const lineWindow = useLineWindow(body, shownLines, preview.cut && !live, t("shell.label"), lineCount(raw.shown));
   useSidewaysEdge(body);
   // Following first, so the fade reads where the box ends up, not where it was.
   useFollowEnd(body, raw.shown, live && preview.cut);
@@ -126,7 +130,12 @@ export function ShellBlock({
         )}
         {raw.shown ? (
           <span className="cv-shell__output">
-            <Lines text={raw.shown} windowed={live && !raw.all} startLine={shownStartLine} />
+            <Lines
+              text={raw.shown}
+              windowed={live && !raw.all}
+              startLine={shownStartLine}
+              lineWindow={preview.cut && !live ? lineWindow : undefined}
+            />
           </span>
         ) : null}
       </pre>

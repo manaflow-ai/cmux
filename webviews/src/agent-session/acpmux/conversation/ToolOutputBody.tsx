@@ -7,6 +7,7 @@ import { hoverActions } from "../../../ui/hoverActions.experiment";
 import { outputWraps, useBlockWrap } from "./blockWrap";
 import { Lines, WrapButton } from "./BlockParts";
 import { lineCount, SIDEWAYS_SCROLLER, usePreview, useSidewaysRef } from "./blockPartsModel";
+import { useLineWindow } from "./lineWindow";
 import { CopyButton } from "./CopyButton";
 import { ChevronRight } from "./icons";
 import { Markdown } from "./Markdown";
@@ -38,6 +39,9 @@ function MonoOutput({
   const t = useT();
   const [wrap] = useBlockWrap("output", shaped);
   const sideways = useSidewaysRef<HTMLPreElement>();
+  // Cut to its box, it mounts only the lines in the box's view (lineWindow.ts).
+  const lines = useMemo(() => text.split("\n").length, [text]);
+  const lineWindow = useLineWindow(sideways, lines, preview === "cut", t("handoff.tool_output"), lineCount(text));
   const ref = useCallback(
     (node: HTMLPreElement | null) => {
       sideways.current = node;
@@ -63,7 +67,7 @@ function MonoOutput({
           …{"\n"}
         </span>
       )}
-      {text && <Lines text={text} />}
+      {text && <Lines text={text} lineWindow={preview === "cut" ? lineWindow : undefined} />}
     </pre>
   );
 }
