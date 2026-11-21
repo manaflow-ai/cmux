@@ -68,6 +68,8 @@ mod cloud_automation_relay;
 #[cfg(unix)]
 mod cloud_client_session;
 #[cfg(unix)]
+mod cloud_connect;
+#[cfg(unix)]
 mod cloud_environment;
 #[cfg(unix)]
 mod cloud_hands;
@@ -532,6 +534,7 @@ pub(crate) fn rewrite_deprecated_server_lifecycle(args: &mut Vec<String>) {
 pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "agents",
     "chats",
+    "board",
     "harness",
     "remote",
     "script",
@@ -631,7 +634,7 @@ pub(crate) fn early_usage_error(args: &[String], message: &str) -> i32 {
 /// Scopes `main` routes by their first word, before the cmux global options
 /// are read, whose own parser takes `--json` right after the scope word:
 /// acpmux's (`--json` is a global clap option there).
-const JSON_AFTER_SCOPE: &[&str] = &["acp", "agent", "harness", "chats"];
+const JSON_AFTER_SCOPE: &[&str] = &["acp", "agent", "harness", "chats", "board"];
 
 /// `cmux --json <scope> …` for a scope `main` routes by its first word: the
 /// leading `--json` moves to just after the scope word (to the end for `host`
@@ -931,6 +934,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| vnc::run_if_requested(args))
         .or_else(|| cloud_environment::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
+        .or_else(|| cloud_connect::run_if_requested(args))
         .or_else(|| cloud_team_keys::run_if_requested(args))
         .or_else(|| key_broker::run_if_requested(args))
         .or_else(|| cloud_start_chat::run_if_requested(args))

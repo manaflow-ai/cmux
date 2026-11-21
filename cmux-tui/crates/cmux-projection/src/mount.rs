@@ -75,6 +75,37 @@ pub fn mount(overlay: Arc<Overlay>, at: &Path) -> anyhow::Result<Mounted> {
 
 /// Mounts `overlay` at `at` (an existing, empty folder) as `options` say.
 pub fn mount_with(overlay: Arc<Overlay>, at: &Path, options: Options) -> anyhow::Result<Mounted> {
+    let session =
+        fuser::spawn_mount2(filesystem(overlay, &options)?, at, &mount_options(&options))?;
+    Ok(Mounted { session: Some(session) })
+}
+
+/// Mounts `overlay` at `at` and serves it on this thread until it is unmounted from outside
+/// (`fusermount3 -u`). `mounted` runs once the mount is up, before the first request.
+pub fn serve(overlay: Arc<Overlay>, at: &Path, mounted: impl FnOnce()) -> anyhow::Result<()> {
+    let options = Options::default();
+    let mut session =
+        fuser::Session::new(filesystem(overlay, &options)?, at, &mount_options(&options))?;
+    mounted();
+    session.run()?;
+    Ok(())
+}
+
+fn mount_options(options: &Options) -> Vec<MountOption> {
+    let mut mount_options = vec![
+        MountOption::FSName(options.fsname.clone().unwrap_or_else(|| "cmux-projection".into())),
+        MountOption::Subtype("cmux".into()),
+        MountOption::DefaultPermissions,
+        if options.disk_atime { MountOption::Atime } else { MountOption::NoAtime },
+        if options.read_only { MountOption::RO } else { MountOption::RW },
+    ];
+    if options.allow_other {
+        mount_options.push(MountOption::AllowOther);
+    }
+    mount_options
+}
+
+fn filesystem(overlay: Arc<Overlay>, options: &Options) -> anyhow::Result<Fs> {
     let (sender, receiver) = channel::<Job>();
     let receiver = Arc::new(Mutex::new(receiver));
     for index in 0..WORKERS {
@@ -90,19 +121,7 @@ pub fn mount_with(overlay: Arc<Overlay>, at: &Path, options: Options) -> anyhow:
         })?;
     }
     overlay.keep_atime(options.read_only || !options.disk_atime);
-    let fs = Fs { overlay, jobs: sender, listings: HashMap::new() };
-    let mut mount_options = vec![
-        MountOption::FSName(options.fsname.clone().unwrap_or_else(|| "cmux-projection".into())),
-        MountOption::Subtype("cmux".into()),
-        MountOption::DefaultPermissions,
-        if options.disk_atime { MountOption::Atime } else { MountOption::NoAtime },
-        if options.read_only { MountOption::RO } else { MountOption::RW },
-    ];
-    if options.allow_other {
-        mount_options.push(MountOption::AllowOther);
-    }
-    let session = fuser::spawn_mount2(fs, at, &mount_options)?;
-    Ok(Mounted { session: Some(session) })
+    Ok(Fs { overlay, jobs: sender, listings: HashMap::new() })
 }
 
 /// Lazily unmounts whatever is mounted at `at` (a dead mount a daemon restart left), ignoring
