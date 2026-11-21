@@ -61,16 +61,15 @@ for (const profile of profiles) {
         mints = 0
         const bindings = { ...env, TURN_KEY_ID: `bench-${phase}-${profile}-${run}`, TURN_KEY_API_TOKEN: "test-only", ICE_TTL_SECONDS: "300" } as unknown as Env
         const jwt = await token("ice-bench")
-        let handler = await freshHandler()
+        const first = await freshHandler()
+        // Resetting modules invalidates active Miniflare Durable Object stubs.
+        // Load both independent Worker modules before either opens shared storage.
+        const handler = profile === "cold-isolate" ? await freshHandler() : first
+        if (profile === "cold-isolate") expect(handler).not.toBe(first)
         if (profile !== "true-cold") {
           priming = true
-          expect((await request(handler, bindings, jwt)).username).toBe("test-mint-1")
+          expect((await request(first, bindings, jwt)).username).toBe("test-mint-1")
           priming = false
-        }
-        if (profile === "cold-isolate") {
-          const next = await freshHandler()
-          expect(next).not.toBe(handler)
-          handler = next
         }
         if (profile === "past-soft-ttl") ageMs = 151_000
         const result = await request(handler, bindings, jwt)
