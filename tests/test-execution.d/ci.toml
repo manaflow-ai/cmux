@@ -47,8 +47,7 @@ reason = "No new CI tests (Lawrence 2026-10-23). Checks scripts/ci/build_class.p
 
 [[test]]
 path = "tests/test_ci_cache_restore_receipt.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_cache_restore_receipt.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_canonical_build_root.py"

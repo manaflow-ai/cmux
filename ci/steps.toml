@@ -28,7 +28,12 @@ verdict = "no machine: the one check may_merge reads"
 # bin leads the steps' PATH. A warm tree will hold this already; until then it is a few seconds a job.
 [setup]
 linux = '''
-# The workflow parser the contract tests import (PyYAML), beside whatever the machine's python3 has.
+# The workflow parser the contract tests import (PyYAML, pinned). A machine whose python3 already has
+# that version needs nothing; any other gets a venv beside what its python3 has.
+if python3 -c 'import sys, yaml; sys.exit(yaml.__version__ != "6.0.3")' 2>/dev/null; then
+  echo "python3 already has PyYAML 6.0.3"
+  exit 0
+fi
 python3 -m venv --system-site-packages "$CI_TOOLS"
 "$CI_TOOLS/bin/python" -m pip install --disable-pip-version-check --no-input --quiet PyYAML==6.0.3
 '''

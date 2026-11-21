@@ -302,8 +302,7 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_indexnow_notification.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_indexnow_notification.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_install_axe_ci.py"
@@ -420,8 +419,7 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_mac_live_delivery.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_mac_live_delivery.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_machine_join_e2e_workflow.py"
@@ -609,8 +607,7 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_r2_upload_requests.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_r2_upload_requests.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_react_doctor_gate.py"
@@ -789,8 +786,7 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_socket_control_schema.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_socket_control_schema.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_spawn_owner_ratchet.py"
@@ -908,8 +904,7 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_vendored_cmux_agent_cursor.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_vendored_cmux_agent_cursor.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_verification_receipt.py"

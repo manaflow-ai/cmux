@@ -240,7 +240,7 @@ def run_job(table: Table, job: str, paths: list[str] | None, label: str | None =
             ready = setup.ok
         if ready:
             # Advisory steps wait on the network, not a CPU: they all start at once, as before.
-            limit = len(steps) if job == ADVISORY_JOB else min(len(steps), workers or os.cpu_count() or 1)
+            limit = len(steps) if job == ADVISORY_JOB else min(len(steps), workers or max(2, os.cpu_count() or 1))
             with ThreadPoolExecutor(max_workers=limit) as pool:
                 results += pool.map(lambda step: run_step(step, env), steps)
     summary = report(results, job, out)

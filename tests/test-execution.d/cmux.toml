@@ -7,13 +7,11 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_browser_skill.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_browser_skill.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_bug_triage.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_bug_triage.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_code_mode_mcp.py"
@@ -338,18 +336,15 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_settings_jsonc.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_settings_jsonc.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_settings_supported_paths.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_settings_supported_paths.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_settings_transactions.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_settings_transactions.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_tui_artifacts_linux_runner_set.py"
@@ -357,8 +352,7 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_tui_artifacts_retry.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_tui_artifacts_retry.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_tui_daemon_tests_gate.py"
