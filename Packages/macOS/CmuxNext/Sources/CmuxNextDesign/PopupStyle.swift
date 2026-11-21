@@ -114,6 +114,12 @@ public final class PopupHostView: NSView {
         }
     }
 
+    /// The drop the shadow layer casts: the one popover shadow, or a theme file's menu shadow
+    /// (``MenuLook/Shadow``; nil draws none). It must fit in ``PopupStyle/shadowMargin``.
+    public var elevation: Elevation? = PopupStyle.standard.elevation {
+        didSet { if elevation != oldValue { applyElevation() } }
+    }
+
     /// `card` sizes by its frame (the host lays it out). An
     /// `OverlaySurfaceView` card takes the popup radius.
     public init(card: NSView) {
@@ -122,11 +128,8 @@ public final class PopupHostView: NSView {
         wantsLayer = true
         card.translatesAutoresizingMaskIntoConstraints = true
         if let surface = card as? OverlaySurfaceView { surface.cornerRadius = PopupStyle.standard.cornerRadius }
-        let elevation = PopupStyle.standard.elevation
         shadowLayer.shadowColor = NSColor.black.cgColor
-        shadowLayer.shadowOpacity = Float(elevation.alpha)
-        shadowLayer.shadowRadius = elevation.layerRadius
-        shadowLayer.shadowOffset = elevation.layerOffset()
+        applyElevation()
         shadowCutout.fillRule = .evenOdd
         shadowLayer.mask = shadowCutout
         layer?.addSublayer(shadowLayer)
@@ -135,6 +138,12 @@ public final class PopupHostView: NSView {
 
     @available(*, unavailable)
     public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    private func applyElevation() {
+        shadowLayer.shadowOpacity = Float(elevation?.alpha ?? 0)
+        shadowLayer.shadowRadius = elevation?.layerRadius ?? 0
+        shadowLayer.shadowOffset = elevation?.layerOffset() ?? .zero
+    }
 
     public override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)

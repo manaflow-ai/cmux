@@ -270,6 +270,13 @@ extension SettingsSchema {
         // The Chief chat's bubble style and whether it shows the Feed (looks only).
         "home.chiefBubbleStyle", "home.feedInChief", "home.bubbleColors.sent", "home.bubbleColors.sentText",
         "home.bubbleColors.received", "home.bubbleColors.receivedText",
+        // Menu and popover look (theme files and look packs set them); looks only, ends no work.
+        "appearance.menu.cornerRadius", "appearance.menu.borderOpacity", "appearance.menu.shadow",
+        "appearance.menu.fill", "appearance.menu.padding", "appearance.menu.highlightRadius",
+        "appearance.menu.rowHeight", "appearance.menu.shortcuts", "appearance.menu.sectionLabel",
+        "appearance.menu.separator", "appearance.menu.destructiveInk", "appearance.menu.submenu",
+        "appearance.menu.subtitle", "appearance.popover.padding", "appearance.popover.header",
+        "appearance.popover.progressHeight", "appearance.popover.progressFill",
         // Sizes and cmux-browser's own keys: cmux-browser writes them from its UI as `script` (a separate process is never `user`), for example the sidebar width after a resize.
         "appearance.metrics.tabFontSize", "appearance.metrics.tabStripHeight", "appearance.metrics.tabMaxWidth",
         "appearance.metrics.tabMinActiveWidth", "appearance.metrics.tabMinInactiveWidth",
