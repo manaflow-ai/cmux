@@ -145,6 +145,36 @@ fn detail_codes_are_short_tokens_and_never_the_text() {
         ("relay WebSocket authentication was rejected", "rejected"),
         ("the machine has no daemon key", "daemon_key"),
         ("unexpected Bearer eyJhbGciOi.secret-ticket", "other"),
+        // A resume's handshake-step failures (cmux-remote's error texts):
+        // each names itself, not `other`.
+        (
+            "daemon no longer has the requested logical session (it expired or was closed)",
+            "session_gone",
+        ),
+        ("link is closed", "closed"),
+        ("link closed during handshake", "closed"),
+        ("connection is closed", "closed"),
+        ("outbound scheduler closed", "closed"),
+        ("link transport failed: network changed during the redial", "network_changed"),
+        ("reconnect deadline expired after 3 attempts", "deadline"),
+        ("reconnect attempt timed out after 5000ms", "timeout"),
+        ("secure link handshake timed out after 5000ms: the endpoint accepted", "timeout"),
+        ("Noise handshake failed: decrypt error", "noise"),
+        ("invalid handshake prelude: bad magic", "prelude"),
+        ("handshake JSON failed: expected value", "handshake_json"),
+        ("authorization failed: grant expired", "unauthorized"),
+        ("refused: machine paused (paused)", "refused"),
+        ("the daemon did not open its mux control stream: link is closed", "closed"),
+        ("the daemon did not open its mux control stream: stream reset", "mux_refused"),
+        ("stale connection generation 2, current is 3", "stale_generation"),
+        ("connection generation changed from 2 to 3", "generation_changed"),
+        ("frame belongs to another session", "wrong_session"),
+        ("control sequence gap: expected 4, got 9", "sequence_gap"),
+        ("invalid session frame: short header", "bad_frame"),
+        ("link protocol failed: unexpected frame", "protocol"),
+        ("connection protocol failed: bad hello", "protocol"),
+        ("link transport failed: relay stream ended", "transport"),
+        ("link failed: reset by peer", "link"),
     ];
     let token = |code: &str| {
         (1..=24).contains(&code.len())

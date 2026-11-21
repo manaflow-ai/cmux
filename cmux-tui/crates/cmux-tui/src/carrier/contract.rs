@@ -383,6 +383,33 @@ pub(super) fn detail_code(detail: &str) -> Option<String> {
         ("read failed", "closed"),
         ("i/o error", "io"),
         ("daemon key", "daemon_key"),
+        // A resume's handshake-step failures (cmux-remote's ConnectionError,
+        // CryptoError, SessionError and LinkError texts), named so a
+        // `phase=resume outcome=handshake` line says which one it was
+        // instead of `other`. The specific words above win.
+        ("no longer has the requested logical session", "session_gone"),
+        ("link is closed", "closed"),
+        ("link closed", "closed"),
+        ("connection is closed", "closed"),
+        ("outbound scheduler closed", "closed"),
+        ("network changed", "network_changed"),
+        ("deadline expired", "deadline"),
+        ("noise handshake", "noise"),
+        ("handshake prelude", "prelude"),
+        ("handshake json", "handshake_json"),
+        ("authorization failed", "unauthorized"),
+        ("refused: ", "refused"),
+        ("did not open its mux control", "mux_refused"),
+        ("stale connection generation", "stale_generation"),
+        ("generation changed", "generation_changed"),
+        ("generation exhausted", "generation_exhausted"),
+        ("belongs to another session", "wrong_session"),
+        ("sequence gap", "sequence_gap"),
+        ("invalid session frame", "bad_frame"),
+        ("link protocol failed", "protocol"),
+        ("connection protocol failed", "protocol"),
+        ("link transport failed", "transport"),
+        ("link failed", "link"),
     ]
     .into_iter()
     .find(|(marker, _)| lower.contains(marker))
