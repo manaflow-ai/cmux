@@ -11,21 +11,13 @@ import Testing
 
 #if DEBUG
 @MainActor
-@Suite("Workspace group numbered selection", .serialized)
+@Suite("Workspace group numbered selection", .serialized, .exclusiveAppContext)
 struct WorkspaceGroupNumberedSelectionTests {
     @Test func controlTwoSkipsAnchorRepresentedByGroupHeader() throws {
         let appDelegate = try #require(AppDelegate.shared)
         let defaults = UserDefaults.standard
-        let chiefEnabledKey = ChiefCatalogSection().enabled.userDefaultsKey
-        let originalChiefEnabled = defaults.object(forKey: chiefEnabledKey)
-        ChiefSettings.setEnabled(false, in: defaults)
-        defer {
-            if let originalChiefEnabled {
-                defaults.set(originalChiefEnabled, forKey: chiefEnabledKey)
-            } else {
-                defaults.removeObject(forKey: chiefEnabledKey)
-            }
-        }
+        let chief = ChiefEnabledTestOverride(false, in: defaults)
+        defer { chief.restore() }
         let originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(
             prefix: "cmux-workspace-group-numbered-selection"
         )

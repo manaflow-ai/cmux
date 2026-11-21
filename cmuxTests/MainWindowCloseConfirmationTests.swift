@@ -16,17 +16,14 @@ import XCTest
 @MainActor
 final class MainWindowCloseConfirmationTests: XCTestCase {
     private var createdWindowIds: [UUID] = []
-    private var originalChiefEnabled: Any?
+    private var chief: ChiefEnabledTestOverride?
 
     override func setUp() {
         super.setUp()
-        let defaults = UserDefaults.standard
-        let key = ChiefCatalogSection().enabled.userDefaultsKey
-        originalChiefEnabled = defaults.object(forKey: key)
         // These tests exercise the last-workspace/window close contract. Chief
         // Home is an intentionally persistent workspace, so leave the optional
         // feature off to keep the fixture's "last workspace" invariant true.
-        ChiefSettings.setEnabled(false, in: defaults)
+        chief = ChiefEnabledTestOverride(false)
     }
 
     override func tearDown() {
@@ -46,13 +43,8 @@ final class MainWindowCloseConfirmationTests: XCTestCase {
         createdWindowIds.removeAll()
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         appDelegate?.debugCloseMainWindowConfirmationHandler = nil
-        let defaults = UserDefaults.standard
-        let key = ChiefCatalogSection().enabled.userDefaultsKey
-        if let originalChiefEnabled {
-            defaults.set(originalChiefEnabled, forKey: key)
-        } else {
-            defaults.removeObject(forKey: key)
-        }
+        chief?.restore()
+        chief = nil
         super.tearDown()
     }
 

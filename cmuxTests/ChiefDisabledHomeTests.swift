@@ -15,29 +15,10 @@ import Testing
 /// workspace and its Chief pane close, and nothing keeps them pinned
 /// (https://github.com/manaflow-ai/cmux/issues/26003).
 @MainActor
-@Suite("Chief disabled releases Home", .serialized)
+@Suite("Chief disabled releases Home", .serialized, .exclusiveAppContext)
 struct ChiefDisabledHomeTests {
-    /// Restores `chief.enabled` after a test changes it.
-    private struct ChiefEnabledOverride {
-        let key = ChiefCatalogSection().enabled.userDefaultsKey
-        let original: Any?
-
-        init(_ enabled: Bool) {
-            original = UserDefaults.standard.object(forKey: key)
-            ChiefSettings.setEnabled(enabled)
-        }
-
-        func restore() {
-            if let original {
-                UserDefaults.standard.set(original, forKey: key)
-            } else {
-                UserDefaults.standard.removeObject(forKey: key)
-            }
-        }
-    }
-
     @Test func disablingChiefLetsTheHomeGroupUnpinAndHomeClose() throws {
-        let setting = ChiefEnabledOverride(true)
+        let setting = ChiefEnabledTestOverride(true)
         defer { setting.restore() }
         let manager = TabManager()
         let home = try #require(ChiefHomeNavigation.ensureHome(in: manager))
@@ -58,7 +39,7 @@ struct ChiefDisabledHomeTests {
     }
 
     @Test func disabledChiefLetsTheHomePaneClose() throws {
-        let setting = ChiefEnabledOverride(false)
+        let setting = ChiefEnabledTestOverride(false)
         defer { setting.restore() }
         let workspace = Workspace()
         defer { for panel in workspace.panels.values { panel.close() } }
@@ -68,7 +49,7 @@ struct ChiefDisabledHomeTests {
     }
 
     @Test func removeHomeClosesHomeAndUnpinsItsGroupWhenChiefIsOff() throws {
-        let setting = ChiefEnabledOverride(true)
+        let setting = ChiefEnabledTestOverride(true)
         defer { setting.restore() }
         let manager = TabManager()
         let home = try #require(ChiefHomeNavigation.ensureHome(in: manager))
@@ -91,7 +72,7 @@ struct ChiefDisabledHomeTests {
     }
 
     @Test func removeHomeLeavesAWorkspaceWhenHomeWasTheOnlyOne() throws {
-        let setting = ChiefEnabledOverride(true)
+        let setting = ChiefEnabledTestOverride(true)
         defer { setting.restore() }
         let manager = TabManager()
         let home = try #require(ChiefHomeNavigation.ensureHome(in: manager))
@@ -108,7 +89,7 @@ struct ChiefDisabledHomeTests {
     }
 
     @Test func disabledChiefServiceDoesNotStart() {
-        let setting = ChiefEnabledOverride(false)
+        let setting = ChiefEnabledTestOverride(false)
         defer { setting.restore() }
         ChiefService.shared.start()
         #expect(ChiefService.shared.storeIfStarted == nil)
@@ -129,7 +110,7 @@ struct ChiefDisabledHomeTests {
     }
 
     @Test func removeHomeClearsChiefPanesOutsideHome() throws {
-        let setting = ChiefEnabledOverride(true)
+        let setting = ChiefEnabledTestOverride(true)
         defer { setting.restore() }
         let manager = TabManager()
         let mixed = try #require(manager.addWorkspaceIfActive(select: false))
@@ -152,7 +133,7 @@ struct ChiefDisabledHomeTests {
     }
 
     @Test func removeHomeClearsChiefTabsFromADock() throws {
-        let setting = ChiefEnabledOverride(true)
+        let setting = ChiefEnabledTestOverride(true)
         defer { setting.restore() }
         let manager = TabManager()
         let workspace = try #require(manager.addWorkspaceIfActive(select: false))
@@ -169,7 +150,7 @@ struct ChiefDisabledHomeTests {
     }
 
     @Test func unpinningTheHomeGroupOverTheControlSeamIsProtectedWhileChiefIsOn() throws {
-        let setting = ChiefEnabledOverride(true)
+        let setting = ChiefEnabledTestOverride(true)
         defer { setting.restore() }
         let manager = TabManager()
         let home = try #require(ChiefHomeNavigation.ensureHome(in: manager))
@@ -200,7 +181,7 @@ struct ChiefDisabledHomeTests {
     }
 
     @Test func removeHomeClosesAChiefOnlyWorkspaceWithAChiefDockTab() throws {
-        let setting = ChiefEnabledOverride(true)
+        let setting = ChiefEnabledTestOverride(true)
         defer { setting.restore() }
         let manager = TabManager()
         let workspace = try #require(manager.addWorkspaceIfActive(select: false))
@@ -220,7 +201,7 @@ struct ChiefDisabledHomeTests {
     }
 
     @Test func removeChiefPanelsClosesAPinnedDockTabWithoutHistory() throws {
-        let setting = ChiefEnabledOverride(true)
+        let setting = ChiefEnabledTestOverride(true)
         defer { setting.restore() }
         let manager = TabManager()
         let workspace = try #require(manager.addWorkspaceIfActive(select: false))
@@ -253,7 +234,7 @@ struct ChiefDisabledHomeTests {
     }
 
     @Test func reopeningAClosedChiefTabIsRefusedWhileChiefIsOff() throws {
-        let setting = ChiefEnabledOverride(true)
+        let setting = ChiefEnabledTestOverride(true)
         defer { setting.restore() }
         let history = ClosedItemHistoryStore.shared
         history.removeAll()
@@ -322,7 +303,7 @@ struct ChiefDisabledHomeTests {
     }
 
     @Test func recentlyClosedHidesChiefOnlyRecordsWhileChiefIsOff() throws {
-        let setting = ChiefEnabledOverride(true)
+        let setting = ChiefEnabledTestOverride(true)
         defer { setting.restore() }
         let manager = TabManager()
         let mixed = try #require(manager.addWorkspaceIfActive(select: false))
@@ -371,7 +352,7 @@ struct ChiefDisabledHomeTests {
     }
 
     @Test func reopeningAChiefOnlyWorkspaceAddsNothingWhileChiefIsOff() throws {
-        let setting = ChiefEnabledOverride(true)
+        let setting = ChiefEnabledTestOverride(true)
         defer { setting.restore() }
         let source = TabManager()
         let home = try #require(ChiefHomeNavigation.ensureHome(in: source))
@@ -392,7 +373,7 @@ struct ChiefDisabledHomeTests {
     }
 
     @Test func reopeningAClosedWorkspaceDropsItsChiefPanesWhileChiefIsOff() throws {
-        let setting = ChiefEnabledOverride(true)
+        let setting = ChiefEnabledTestOverride(true)
         defer { setting.restore() }
         let source = TabManager()
         let mixed = try #require(source.addWorkspaceIfActive(select: false))
@@ -425,7 +406,7 @@ struct ChiefDisabledHomeTests {
     }
 
     @Test func removeHomeKeepsPanesTheUserAddedToHome() throws {
-        let setting = ChiefEnabledOverride(true)
+        let setting = ChiefEnabledTestOverride(true)
         defer { setting.restore() }
         let manager = TabManager()
         let home = try #require(ChiefHomeNavigation.ensureHome(in: manager))
@@ -443,7 +424,7 @@ struct ChiefDisabledHomeTests {
     }
 
     @Test func removeHomeKeepsAHomeWorkspaceWithDockPanels() throws {
-        let setting = ChiefEnabledOverride(true)
+        let setting = ChiefEnabledTestOverride(true)
         defer { setting.restore() }
         let manager = TabManager()
         let home = try #require(ChiefHomeNavigation.ensureHome(in: manager))
@@ -459,7 +440,7 @@ struct ChiefDisabledHomeTests {
     }
 
     @Test func removeHomeDoesNotHideConversations() throws {
-        let setting = ChiefEnabledOverride(true)
+        let setting = ChiefEnabledTestOverride(true)
         defer { setting.restore() }
         let key = ChiefHomeNavigation.hiddenConversationsKey
         let originalHidden = UserDefaults.standard.object(forKey: key)
@@ -477,7 +458,7 @@ struct ChiefDisabledHomeTests {
     }
 
     @Test func removeHomeLeavesALaterUserPinAlone() throws {
-        let setting = ChiefEnabledOverride(true)
+        let setting = ChiefEnabledTestOverride(true)
         defer { setting.restore() }
         let manager = TabManager()
         let home = try #require(ChiefHomeNavigation.ensureHome(in: manager))
