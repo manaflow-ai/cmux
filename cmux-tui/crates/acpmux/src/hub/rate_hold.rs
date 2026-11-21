@@ -69,6 +69,12 @@
 //!   them in, and a turn that completes with them puts none back. The leading message's sender
 //!   had the turn's error; the others' sends wait on. A turn its model began is continued as
 //!   before, and its messages go back once (`requeue_joined`).
+//!
+//! One model request per probe (gui-429-finish's live storm, 2026-11-19: each probe sent two
+//! full-context bodies). A turn that fails on the limit takes about a second (Claude Code's own
+//! retries), and another agent's notice steered into it meanwhile. While the chat has a strike, no
+//! notice steers into its turn (`inbox.rs`): what comes in waits for the turn's end, then the next
+//! probe carries it or it goes in after the one that succeeds.
 
 use super::*;
 use std::sync::Mutex as StdMutex;

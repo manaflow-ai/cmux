@@ -1572,7 +1572,17 @@ impl Hub {
                             if stopping {
                                 inbox.due_now = true;
                             }
+                            // Nor does a probe of the account's rate limit (a turn while the chat
+                            // has a strike, `rate_hold.rs`): a steer would be a second
+                            // full-context request into the same limit. What is new waits for
+                            // the turn's end, and is due then, as after a Stop: the next probe
+                            // carries it, or it goes in after the one that succeeds.
+                            let probing = session.rate_hold.strikes() > 0;
+                            if probing {
+                                inbox.due_now = true;
+                            }
                             if stopping
+                                || probing
                                 || !steers
                                 || turn.persons
                                 || inbox.held_by_person
