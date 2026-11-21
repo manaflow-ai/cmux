@@ -68,6 +68,8 @@ public final class MessagesLabHomeView: NSView {
     private var openKeyboardWaits = false
     private weak var openKeyboardFrom: NSResponder?
     private var opensOnInstall = false
+    /// DEBUG drive `swipe_trail`: the last played swipe's events, each as the swipe took or passed it.
+    var debugSwipeTrail: [String] = []
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
@@ -658,6 +660,12 @@ public final class MessagesLabHomeView: NSView {
     public var onDraftTextChange: () -> Void {
         get { projection.onDraftTextChange }
         set { projection.onDraftTextChange = newValue }
+    }
+    /// The content hashes of the field's attachments, in order, each time they change: a chip
+    /// added or removed, or the draft sent.
+    public var onDraftAttachmentsChange: ([String]) -> Void {
+        get { projection.onDraftAttachmentsChange }
+        set { projection.onDraftAttachmentsChange = newValue }
     }
     /// Cancel Upload in a bubble's menu (`HomeStoreBinding.cancelSend`).
     public var onCancelSend: (IdempotencyKey) -> Bool {
