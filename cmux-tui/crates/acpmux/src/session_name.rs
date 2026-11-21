@@ -194,6 +194,16 @@ mod tests {
     }
 
     #[test]
+    fn candidates_include_nearby_agent_id_prefixes() {
+        let id = "6e0bad7d-1100-4000-8000-000000000001";
+        assert_eq!(candidates([id, "lane"], "6e0bad7e"), [id]);
+        assert_eq!(
+            candidates(["cosmic-gray/6e0bad7d-1100"], "cosmic-gray/6e0bad7e"),
+            ["cosmic-gray/6e0bad7d-1100"]
+        );
+    }
+
+    #[test]
     fn refusals_keep_the_text_clients_read_and_carry_the_candidates() {
         let e = not_found("lane", &["a/lane".into()]);
         assert!(e.message.starts_with("no session matches \"lane\""), "{}", e.message);

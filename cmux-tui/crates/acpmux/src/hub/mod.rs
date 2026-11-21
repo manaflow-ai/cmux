@@ -2462,7 +2462,7 @@ impl Hub {
             })
             .collect();
         let local_host = requested_host
-            .is_none_or(|host| host == LOCAL_HOST_ID || super::own_host::is_own_machine_name(host));
+            .is_none_or(|host| host == LOCAL_HOST_ID || own_host::is_own_machine_name(host));
         if id_query && local_host {
             names.extend(self.sessions().iter().filter_map(|s| {
                 let meta = s.meta();
