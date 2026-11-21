@@ -723,7 +723,7 @@ async fn cell_host_mac_asleep_link_notices() {
 // Chat: a prompt must not wait behind bulk output (contract point 5)
 // ---------------------------------------------------------------------------
 
-/// A fake acpmux WebSocket. A `test/flood` request makes it push `frames` event frames of
+/// A fake acpmux WebSocket. An `_acpmux/status` request makes it push `frames` event frames of
 /// `size` bytes down that connection; `_acpmux/info` is answered; the moment a
 /// `session/prompt` arrives is sent on `prompt_seen`.
 async fn fake_acpmux(
@@ -764,7 +764,7 @@ async fn fake_acpmux(
                         Some("session/prompt") => {
                             let _ = prompt_seen.send(Instant::now());
                         }
-                        Some("test/flood") => {
+                        Some("_acpmux/status") => {
                             let out = out.clone();
                             tokio::spawn(async move {
                                 let pad = "x".repeat(size);
@@ -801,7 +801,7 @@ async fn cell_chat_prompt_behind_bulk_downstream() {
     let rig = Rig::start_acpmux(1, toxics, url).await;
     let mut channel = rig.phone.open_on("acpmux", json!({}), Lane::Bulk).await.expect("open acpmux channel");
     channel
-        .send(Bytes::from(json!({"jsonrpc": "2.0", "id": 1, "method": "test/flood"}).to_string()))
+        .send(Bytes::from(json!({"jsonrpc": "2.0", "id": 1, "method": "_acpmux/status"}).to_string()))
         .await
         .unwrap();
     // The phone reads nothing for 1.5 s; the link and the relay fill meanwhile.
@@ -828,7 +828,12 @@ async fn cell_chat_prompt_behind_bulk_downstream() {
             let mut stream = serde_json::Deserializer::from_slice(&pending).into_iter::<Value>();
             let mut used = 0;
             while let Some(Ok(event)) = stream.next() {
-                assert_eq!(event["params"]["seq"], got, "flood lost, duplicated or reordered an event");
+                assert_eq!(
+                    event["params"]["seq"],
+                    got,
+                    "flood lost, duplicated or reordered an event: {}",
+                    event.to_string().chars().take(300).collect::<String>()
+                );
                 got += 1;
                 used = stream.byte_offset();
             }
