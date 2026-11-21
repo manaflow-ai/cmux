@@ -116,6 +116,8 @@ mod testapp;
 mod token;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 mod upstream;
+#[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
+mod viewer_hop;
 // `cmux-rd view`: the Linux viewer of a device hub session (Windows follows from the same module).
 #[cfg(all(feature = "link", feature = "openh264", target_os = "linux"))]
 mod view;

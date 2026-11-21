@@ -17,13 +17,20 @@
 //! stdin later: {"candidate":".."} or {"stop":true}
 //!
 //! One pane connects to the socket; a second connection is refused.
+//!
+//! With `"assemble":true` in the answer (design D7, screen-share-under-100ms.md piece 5)
+//! stream 0's video and parity datagrams stop here: [`ViewerHop`] reassembles them, sends
+//! their feedback, and writes the pane one whole frame at a time (`STREAM_LOCAL_FRAME`),
+//! the next once the pane reports the last consumed (`STREAM_LOCAL_REPORT`).
 
 use crate::fdwait::wait_readable;
+use crate::viewer_hop::ViewerHop;
 use crate::wire::{write_frame, FrameReader, FRAME_CONTROL, FRAME_DATAGRAM};
 use crate::Res;
 use cmux_rd_link::net::{Candidate, Net, NetConfig, NetEvent};
 use cmux_rd_link::{EndpointEvent, Event, KeyPair, Role};
-use cmux_rd_proto::app_line::{AppLine, LinePath};
+use cmux_rd_proto::app_line::{AppLine, LineHop, LinePath};
+use cmux_rd_proto::{LocalReport, STREAM_LOCAL_FRAME, STREAM_LOCAL_REPORT};
 use serde::Deserialize;
 use std::io::{self, BufRead, Read, Write};
 use std::net::SocketAddr;
@@ -46,6 +53,11 @@ struct Answer {
     /// The person's "relay only": this side reaches the host through TURN alone.
     #[serde(default)]
     relay_only: bool,
+    /// The app takes whole frames of stream 0 (design D7): this process reassembles it
+    /// and runs its feedback ([`ViewerHop`]). An older app leaves it out and gets
+    /// datagrams, as before.
+    #[serde(default)]
+    assemble: bool,
 }
 
 #[derive(Deserialize)]
@@ -117,7 +129,8 @@ pub fn run() -> Res<()> {
             libc::fcntl(libc::STDIN_FILENO, libc::F_GETFL) | libc::O_NONBLOCK,
         );
     }
-    let reason = bridge(&net, &listener).unwrap_or_else(|e| format!("failed: {e}"));
+    let hop = answer.assemble.then(|| ViewerHop::new(HOP_DEADLINE_US, HOP_NACK_AFTER_US));
+    let reason = bridge(&net, &listener, hop).unwrap_or_else(|e| format!("failed: {e}"));
     let _ = std::fs::remove_file(&answer.socket);
     say(AppLine { ended: Some(reason), ..AppLine::default() });
     drop(net);
@@ -145,10 +158,81 @@ fn app_lines(buf: &mut Vec<u8>) -> Result<Vec<Later>, String> {
     Ok(lines)
 }
 
-fn bridge(net: &Net, listener: &UnixListener) -> Res<String> {
+/// Reassembly deadline and NACK delay of the hop's receiver: the values the app's session
+/// used while it reassembled (RemoteRdSession's defaults).
+const HOP_DEADLINE_US: u64 = 200_000;
+const HOP_NACK_AFTER_US: u64 = 5_000;
+/// How often the hop's frame timings are summarized (an `AppLine` `hop`).
+const HOP_LOG_US: u64 = 5_000_000;
+
+/// Monotonic microseconds on the clock the app reads too: `CLOCK_UPTIME_RAW` on macOS
+/// (mach absolute time: `DispatchTime.uptimeNanoseconds`, `CACurrentMediaTime`), so a
+/// frame's release time here and its presented time there subtract.
+fn now_us() -> u64 {
+    #[cfg(target_os = "macos")]
+    let clock = libc::CLOCK_UPTIME_RAW;
+    #[cfg(not(target_os = "macos"))]
+    let clock = libc::CLOCK_MONOTONIC;
+    let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    // SAFETY: a valid clock id and a pointer to a local timespec.
+    unsafe { libc::clock_gettime(clock, &mut ts) };
+    (ts.tv_sec as u64).saturating_mul(1_000_000) + (ts.tv_nsec as u64) / 1_000
+}
+
+/// The hop's per-frame timings, summarized on one `hop` line every [`HOP_LOG_US`].
+#[derive(Default)]
+struct HopLog {
+    since_us: u64,
+    decoded: Vec<u64>,
+    decode: Vec<u64>,
+    presented: Vec<u64>,
+}
+
+/// The `q` quantile of `v` in milliseconds (sorts `v`).
+fn quantile_ms(v: &mut [u64], q: f64) -> Option<f64> {
+    v.sort_unstable();
+    let i = ((v.len() as f64 - 1.0) * q).round() as usize;
+    v.get(i).map(|us| *us as f64 / 1000.0)
+}
+
+impl HopLog {
+    fn note(&mut self, hop: &mut ViewerHop, now: u64) {
+        for t in hop.take_timings() {
+            self.decoded.extend(t.release_to_decoded_us);
+            self.decode.extend(t.decode_us.map(u64::from));
+            self.presented.extend(t.release_to_presented_us);
+        }
+        if now.saturating_sub(self.since_us) < HOP_LOG_US {
+            return;
+        }
+        self.since_us = now;
+        if self.presented.is_empty() && self.decoded.is_empty() {
+            return;
+        }
+        let s = hop.stats();
+        let line = LineHop {
+            release_to_decoded_ms_p50: quantile_ms(&mut self.decoded, 0.5),
+            decode_ms_p50: quantile_ms(&mut self.decode, 0.5),
+            release_to_presented_ms_p50: quantile_ms(&mut self.presented, 0.5),
+            release_to_presented_ms_p95: quantile_ms(&mut self.presented, 0.95),
+            presented: self.presented.len() as u64,
+            sent: s.sent,
+            replaced: s.replaced,
+            overrun: s.overrun,
+            credit_timeouts: s.credit_timeouts,
+        };
+        say(AppLine { hop: Some(line), ..AppLine::default() });
+        self.decoded.clear();
+        self.decode.clear();
+        self.presented.clear();
+    }
+}
+
+fn bridge(net: &Net, listener: &UnixListener, mut hop: Option<ViewerHop>) -> Res<String> {
     let mut pane: Option<UnixStream> = None;
     let mut reader = FrameReader::default();
     let mut app = Vec::new();
+    let mut hop_log = HopLog::default();
     // Lines that came in the same read as the answer sit in stdin's buffer, where a wait on the
     // descriptor never sees them: the first pass reads them before waiting.
     let mut first = true;
@@ -161,7 +245,15 @@ fn bridge(net: &Net, listener: &UnixListener) -> Res<String> {
             None => fds.push(listener.as_raw_fd()),
         }
         if !std::mem::take(&mut first) {
-            wait_readable(&fds, Some(1_000_000_000))?;
+            // The hop's reassembly deadlines, NACKs and feedback are due on time, not at
+            // the next packet.
+            let wait_ns = hop.as_ref().map_or(1_000_000_000, |h| {
+                h.next_deadline_us()
+                    .saturating_sub(now_us())
+                    .saturating_mul(1_000)
+                    .min(1_000_000_000)
+            });
+            wait_readable(&fds, Some(wait_ns))?;
         }
         for later in app_lines(&mut app)? {
             if later.stop {
@@ -176,6 +268,9 @@ fn bridge(net: &Net, listener: &UnixListener) -> Res<String> {
                 Ok((stream, _)) => {
                     stream.set_nonblocking(true)?;
                     pane = Some(stream);
+                    if let Some(h) = &mut hop {
+                        h.attach();
+                    }
                 }
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => {}
                 Err(e) => return Err(e.into()),
@@ -192,6 +287,12 @@ fn bridge(net: &Net, listener: &UnixListener) -> Res<String> {
                     match ty {
                         FRAME_CONTROL => net.send_control(payload),
                         FRAME_DATAGRAM => net.send_datagram(payload),
+                        STREAM_LOCAL_REPORT => {
+                            if let (Some(h), Ok(report)) = (&mut hop, LocalReport::decode(&payload))
+                            {
+                                h.on_report(report, now_us());
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -223,8 +324,16 @@ fn bridge(net: &Net, listener: &UnixListener) -> Res<String> {
                     }
                 }
                 NetEvent::Endpoint(EndpointEvent::Link(Event::Datagram(datagram))) => {
-                    if let Some(stream) = &mut pane {
-                        write_frame(stream, FRAME_DATAGRAM, &datagram)?;
+                    match &mut hop {
+                        // The display stream's media stays here: reassembled into frames.
+                        Some(h) if ViewerHop::takes(&datagram) => {
+                            h.push_datagram(&datagram, now_us())
+                        }
+                        _ => {
+                            if let Some(stream) = &mut pane {
+                                write_frame(stream, FRAME_DATAGRAM, &datagram)?;
+                            }
+                        }
                     }
                 }
                 NetEvent::Endpoint(EndpointEvent::Link(Event::Closed)) => {
@@ -235,6 +344,20 @@ fn bridge(net: &Net, listener: &UnixListener) -> Res<String> {
                 }
                 _ => {}
             }
+        }
+        if let Some(h) = &mut hop {
+            let now = now_us();
+            h.tick(now);
+            if let Some(stream) = &mut pane {
+                if let Some(frame) = h.next_frame(now) {
+                    // One write per frame: the app reads it whole.
+                    write_frame(stream, STREAM_LOCAL_FRAME, &frame.encode())?;
+                }
+            }
+            for datagram in h.feedback(now) {
+                net.send_datagram(datagram);
+            }
+            hop_log.note(h, now);
         }
     }
 }

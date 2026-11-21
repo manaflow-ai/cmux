@@ -97,6 +97,31 @@ pub struct AppLine {
     /// to show; `{"status":{"state":"waiting_for_consent","message":".."}}`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<LineStatus>,
+    /// `connect` only, every few seconds while it reassembles for the app (design D7):
+    /// what the last frames cost from release to the glass.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hop: Option<LineHop>,
+}
+
+/// The viewer hop's summary since its last line: medians from the app's reports, and
+/// the hop's running counters.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct LineHop {
+    /// Release in `connect` to the app's decoder done, median, milliseconds.
+    pub release_to_decoded_ms_p50: Option<f64>,
+    /// The decoder's own time, median, milliseconds.
+    pub decode_ms_p50: Option<f64>,
+    /// Release in `connect` to the drawable's presented time, median and p95, milliseconds.
+    pub release_to_presented_ms_p50: Option<f64>,
+    pub release_to_presented_ms_p95: Option<f64>,
+    /// Frames presented in the window.
+    pub presented: u64,
+    /// Frames sent to the app, replaced by a newer decodable frame, dropped because the
+    /// app fell behind, and credits given back without a report (running totals).
+    pub sent: u64,
+    pub replaced: u64,
+    pub overrun: u64,
+    pub credit_timeouts: u64,
 }
 
 /// One capture setup state: a stable `state` code and a sentence for the person.
