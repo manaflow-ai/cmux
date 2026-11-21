@@ -467,10 +467,18 @@ function painting(sky: string, hill: string): HostImage {
 
 const BACKGROUNDS: MakeItYoursBackground[] = [
   { id: "daily", name: "", preview: painting("#3b2a4a", "#1d1424") }, // colour-allow: a gallery fixture's stand-in painting, never shipped UI
-  { id: "friedrich-forest-moonlight", name: "Forest in the Moonlight — Caspar David Friedrich", preview: painting("#1f2b3a", "#0e151d") }, // colour-allow: a gallery fixture's stand-in painting, never shipped UI
+  {
+    id: "friedrich-forest-moonlight",
+    name: "Forest in the Moonlight — Caspar David Friedrich",
+    preview: painting("#1f2b3a", "#0e151d"), // colour-allow: a gallery fixture's stand-in painting, never shipped UI
+  },
   { id: "hogai-nio", name: "Nio — Kanō Hōgai", preview: painting("#5a4a32", "#2d2418") }, // colour-allow: a gallery fixture's stand-in painting, never shipped UI
   { id: "klee-fish-magic", name: "Fish Magic — Paul Klee", preview: painting("#14202a", "#2b4a52") }, // colour-allow: a gallery fixture's stand-in painting, never shipped UI
-  { id: "rembrandt-storm-galilee", name: "The Storm on the Sea of Galilee — Rembrandt", preview: painting("#2c3236", "#151a1c") }, // colour-allow: a gallery fixture's stand-in painting, never shipped UI
+  {
+    id: "rembrandt-storm-galilee",
+    name: "The Storm on the Sea of Galilee — Rembrandt",
+    preview: painting("#2c3236", "#151a1c"), // colour-allow: a gallery fixture's stand-in painting, never shipped UI
+  },
 ];
 
 /** Make cmux Yours: as it opens on a new Mac (the recommended answers), while the previews read, after

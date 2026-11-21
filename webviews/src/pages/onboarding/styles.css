@@ -966,8 +966,7 @@
 }
 .onb-make input[type="radio"] {
   position: absolute;
-  width: 1px;
-  height: 1px;
+  inset: 0;
   margin: 0;
   opacity: 0;
   pointer-events: none;
@@ -1017,7 +1016,7 @@
 .onb-make-option-text {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--grid-half-step);
   min-width: 0;
 }
 .onb-make-option-title {
@@ -1054,7 +1053,7 @@
   border-radius: var(--ds-radius-md) var(--ds-radius-md) 0 0;
 }
 .onb-make[data-look="rows"] .onb-make-option:last-child {
-  margin-top: -1px;
+  border-top-width: 0;
   border-radius: 0 0 var(--ds-radius-md) var(--ds-radius-md);
 }
 .onb-make[data-look="rows"] .onb-make-option-text {
@@ -1087,7 +1086,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--ds-space-1);
-  padding: 3px;
+  padding: var(--grid-half-step);
   border-radius: var(--ds-radius-md);
   min-width: 0;
 }
@@ -1113,7 +1112,7 @@ img.onb-make-tile-image {
 }
 .onb-make-tile-name {
   overflow: hidden;
-  padding-inline: 2px;
+  padding-inline: var(--grid-half-step);
   color: var(--page-text-2);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);

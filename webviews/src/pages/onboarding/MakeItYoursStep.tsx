@@ -58,6 +58,7 @@ export function MakeItYoursStep({
                 type="radio"
                 name="workStyle"
                 value={style}
+                aria-label={strings.t(WORK_KEYS[style].title)}
                 checked={choices.workStyle === style}
                 onChange={() => store.call("cmux.onboarding.makeItYours.workStyle", { value: style })}
               />
@@ -83,6 +84,7 @@ export function MakeItYoursStep({
                 type="radio"
                 name="density"
                 value={density}
+                aria-label={strings.t(DENSITY_KEYS[density])}
                 checked={choices.density === density}
                 onChange={() => store.call("cmux.onboarding.makeItYours.density", { value: density })}
               />
@@ -98,7 +100,12 @@ export function MakeItYoursStep({
             const label = backgroundLabel(background.id, background.name);
             const checked = (choices.background ?? NO_BACKGROUND) === background.id;
             return (
-              <label key={background.id || "none"} className="onb-make-tile" data-checked={checked || undefined} title={label}>
+              <label
+                key={background.id || "none"}
+                className="onb-make-tile"
+                data-checked={checked || undefined}
+                title={label}
+              >
                 <input
                   type="radio"
                   name="background"
@@ -111,7 +118,10 @@ export function MakeItYoursStep({
                     })
                   }
                 />
-                <HostIcon image={background.preview} className={cx("onb-make-tile-image", background.id === NO_BACKGROUND && "is-none")} />
+                <HostIcon
+                  image={background.preview}
+                  className={cx("onb-make-tile-image", background.id === NO_BACKGROUND && "is-none")}
+                />
                 {look === "cards" && <span className="onb-make-tile-name">{label}</span>}
               </label>
             );
