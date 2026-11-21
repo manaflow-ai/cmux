@@ -5,6 +5,7 @@
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { captureTurnEnd, playTurnEnd, settleTurnEnd } from "../src/agent-session/acpmux/conversation/turnEndFold";
+import { bezierAt, parseBezier } from "../src/ui/cubicBezier";
 import { LIVE_THINKING } from "../src/agent-session/acpmux/conversation/turns";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 
@@ -41,7 +42,7 @@ function page() {
   const proto = dom.window.HTMLElement.prototype;
   const animations = new Map<
     HTMLElement,
-    Array<{ keyframes: Keyframe[]; delay: number; duration: number; cancelled: boolean }>
+    Array<{ keyframes: Keyframe[]; delay: number; duration: number; easing: string; cancelled: boolean }>
   >();
   Object.defineProperty(proto, "offsetTop", {
     get() {
@@ -64,7 +65,10 @@ function page() {
     let opacity = 1;
     for (const animation of list) {
       if (animation.cancelled) continue;
-      const progress = Math.max(0, Math.min(1, (time - animation.delay) / animation.duration));
+      const linear = Math.max(0, Math.min(1, (time - animation.delay) / animation.duration));
+      // On the animation's own curve, as a browser draws it (linear where it names none).
+      const curve = parseBezier(animation.easing);
+      const progress = curve ? bezierAt(curve, linear) : linear;
       const first = animation.keyframes[0] ?? {};
       const last = animation.keyframes.at(-1) ?? {};
       if (first.translate !== undefined || last.translate !== undefined) {
@@ -90,6 +94,7 @@ function page() {
       keyframes: keyframes as Keyframe[],
       delay: Number(timing.delay ?? 0),
       duration: Number(timing.duration ?? 1),
+      easing: String(timing.easing ?? "linear"),
       cancelled: false,
     };
     const list = animations.get(this) ?? [];
@@ -109,6 +114,16 @@ function page() {
   proto.getAnimations = function () {
     return [];
   };
+  // A browser's computed opacity includes the row's running animations (a fold's hold at no ink).
+  const computed = dom.window.getComputedStyle.bind(dom.window);
+  dom.window.getComputedStyle = ((node: Element, pseudo?: string | null) => {
+    const style = computed(node, pseudo);
+    if (!animations.has(node as HTMLElement)) return style;
+    const { opacity } = sampleAnimation(node as HTMLElement, currentTime);
+    return new Proxy(style, {
+      get: (target, key) => (key === "opacity" ? String(opacity) : Reflect.get(target, key)),
+    });
+  }) as typeof dom.window.getComputedStyle;
   let currentTime = 0;
   const draw = (id: string, kind: string, top: number, height: number, className = "") => {
     const node = dom.window.document.createElement("article");
@@ -165,7 +180,10 @@ function page() {
         };
       });
   };
-  return { dom, thread, draw, frame, others };
+  const at = (time: number) => {
+    currentTime = time;
+  };
+  return { dom, thread, draw, frame, others, at };
 }
 
 function runScenario(scenario: Scenario) {
@@ -319,5 +337,68 @@ test("T5: every reply new at settle paints in its final place, with no ink over 
     expect(result.firstPaintedOffsetPx, result.name).toBeLessThanOrEqual(0.5);
     expect(result.inkWhileAway, result.name).toBeLessThanOrEqual(0.05);
     expect(result.overlapFrames, `${result.name} overlaps ${result.overlapWith}`).toBe(0);
+  }
+});
+
+// A turn that ends while the fold before still holds a reply at no ink (the reply waits for a kept
+// row sliding up through its box): the next fold starts from what each row drew then. Started from
+// its box, the held reply came in at full ink under the kept row still sliding through it (Leo,
+// 2026-11-21: "it was in the agent chat gui the text goes atop one another"; agent-pane-stream-row-
+// overlap, agent messages lagging: two replies drawn at one place, 52 px of ink).
+function runChained(takesHeldReply: boolean) {
+  const p = page();
+  p.draw("working-u", "working", 0, 34);
+  p.draw("work", "activity", 34, 260);
+  p.draw("answer-old", "assistant", 294, 120);
+  p.draw(LIVE_THINKING, "thinking", 414, 22);
+  p.draw("worked-u", "worked", 520, 34);
+  const first = captureTurnEnd(p.thread, p.thread, [row("worked-u", "worked"), row("answer-old")], "chat")!;
+  p.thread.replaceChildren();
+  p.draw("worked-u", "worked", 300, 34);
+  p.draw("answer-new", "assistant", 334, 120);
+  p.draw(LIVE_THINKING, "thinking", 454, 22);
+  const firstFold = playTurnEnd(p.thread, first, "chat", p.thread);
+  // The next turn ends while the reply still holds at no ink, the kept row drawn inside its box.
+  const endsAt = TIMES.find((time) => {
+    p.at(time);
+    const kept = p.thread.querySelector<HTMLElement>('[data-row-id="worked-u"]')!.getBoundingClientRect();
+    return p.frame(time, "answer-new").ink <= 0.05 && kept.top > 340 && kept.top < 440;
+  });
+  expect(endsAt, "the first fold holds the reply while the kept row slides through it").toBeDefined();
+  p.at(endsAt!);
+  const after = takesHeldReply
+    ? [row("worked-u", "worked"), row("worked-v", "worked")]
+    : [row("worked-u", "worked"), row("answer-new"), row("worked-v", "worked")];
+  const second = captureTurnEnd(p.thread, p.thread, after, "chat")!;
+  settleTurnEnd(p.thread, firstFold);
+  p.thread.replaceChildren();
+  p.draw("worked-u", "worked", 300, 34);
+  if (!takesHeldReply) p.draw("answer-new", "assistant", 334, 120);
+  p.draw("worked-v", "worked", takesHeldReply ? 334 : 454, 34);
+  const fold = playTurnEnd(p.thread, second, "chat", p.thread);
+  let overlapFrames = 0;
+  let overlapMaxPx = 0;
+  for (const time of TIMES) {
+    const drawn = p.others(time, "");
+    for (const a of drawn)
+      for (const b of drawn) {
+        if (a === b || a.ink <= 0.05 || b.ink <= 0.05 || a.top > b.top) continue;
+        const shared = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+        if (shared > 0.5) {
+          overlapFrames += 1;
+          overlapMaxPx = Math.max(overlapMaxPx, shared);
+        }
+      }
+  }
+  settleTurnEnd(p.thread, fold);
+  p.dom.window.close();
+  return { overlapFrames, overlapMaxPx };
+}
+
+test("a turn ending while the last fold holds a reply hidden draws no row over another", () => {
+  for (const takesHeldReply of [false, true]) {
+    const result = runChained(takesHeldReply);
+    console.log(`reply-settle chained ${JSON.stringify({ takesHeldReply, ...result })}`);
+    expect(result, `takes the held reply: ${takesHeldReply}`).toEqual({ overlapFrames: 0, overlapMaxPx: 0 });
   }
 });

@@ -129,6 +129,28 @@ export function clippedBottom(node: HTMLElement): number {
   return bottom > 0.5 ? bottom : 0;
 }
 
+/// Under this drawn opacity a row counts as not drawn: a fold takes no copy of it, and moves none
+/// from where its box was (turnEndFold.ts `Drawn.hidden`).
+export const HIDDEN_INK = 0.5;
+
+/// The opacity a mounted row draws with now, its running animations' included (1 where unreadable).
+export function drawnInk(node: HTMLElement): number {
+  const ink = Number.parseFloat(node.ownerDocument.defaultView?.getComputedStyle(node).opacity ?? "");
+  return Number.isFinite(ink) ? ink : 1;
+}
+
+/// The ink a 0-to-1 reveal among `animations` draws now (its eased progress; 1 once it ends or
+/// where there is none), for a row out of the page, whose computed style reads nothing.
+export function revealInk(animations: readonly Animation[]): number {
+  for (const animation of animations) {
+    const effect = animation.effect as KeyframeEffect | null;
+    if (!effect?.getKeyframes().some((frame) => frame.opacity !== undefined)) continue;
+    const progress = effect.getComputedTiming().progress;
+    return typeof progress === "number" ? Math.max(0, Math.min(1, progress)) : 1;
+  }
+  return 1;
+}
+
 /// A drawn copy of `row`, inert, for a fold to move while the row itself goes. A row clipped as its
 /// copy is taken (tailGlide.ts, over the row gliding under it) keeps that clip on the copy: a clone
 /// takes none of the row's animations, so the copy drew its whole box at once, its last lines over
@@ -324,8 +346,8 @@ export function playTurnFold(
     return animation;
   };
   /// A copy's ink going to 0 on the exit's clock: the lead, from the fold's start.
-  const exit = (node: HTMLElement) => {
-    const animation = node.animate([{ opacity: 1 }, { opacity: 0 }], {
+  const exit = (node: HTMLElement, from = 1) => {
+    const animation = node.animate([{ opacity: from }, { opacity: 0 }], {
       duration: fold.lead,
       delay: Math.min(0, fold.start - now),
       easing: EXIT_EASING,
@@ -396,11 +418,17 @@ export function playTurnFold(
     }
     // Gone (the close hid it): its text leaves on the exit lead, before anything moves over its place.
     const exits = place === undefined && fold.lead > 0;
+    // A row still revealing (the open's fade in) drew only part of its ink: its copy goes on from
+    // there, never from whole (a clone takes none of its animations: a row barely in drew its copy's
+    // text at full ink over its neighbors; Leo, 2026-11-21: "the text goes atop one another"). Read
+    // off its reveal's eased progress, the row being out of the page.
+    const drawn = row.reveal ? revealInk(row.animations) : 1;
+    if (drawn < HIDDEN_INK && place === undefined) continue;
     if (place === undefined && !exits) {
-      first.opacity = 1;
+      first.opacity = drawn;
       end.opacity = 0;
     } else if (place !== undefined && row.reveal) {
-      first.opacity = 0;
+      first.opacity = drawn < 1 ? drawn : 0;
       end.opacity = 1;
     }
     if (Object.keys(first).length === 0 && !exits) continue;
@@ -415,7 +443,7 @@ export function playTurnFold(
     };
     // The copy lasts its move, or its exit when it only fades; either ending drops it.
     const motion = Object.keys(first).length > 0 ? play(ghost, [first, end], "forwards") : undefined;
-    const faded = exits ? exit(ghost) : undefined;
+    const faded = exits ? exit(ghost, drawn) : undefined;
     const last = motion ?? faded!;
     last.onfinish = drop;
     last.oncancel = drop;
