@@ -210,10 +210,188 @@ async function measure(
   const browser = await (engine === "webkit" ? webkit : chromium).launch({ headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 1100, height: 820 } });
+    if (process.env.ABL)
+      await page.addInitScript((a) => {
+        (globalThis as { __abl?: string }).__abl = a;
+      }, process.env.ABL);
+    if (process.env.PHASES)
+      await page.addInitScript(() => {
+        // Local-only phase probe: per key, ms from the keydown timeStamp to each window-level point.
+        const process_flush = (globalThis as { __abl?: string }).__abl?.includes("F") ?? false;
+        const g = globalThis as unknown as { __ph: Record<string, number>[] };
+        g.__ph = [];
+        let cur: Record<string, number> | undefined;
+        // Time every app listener on the key's events, by target and a snippet of its source.
+        const lt = ((globalThis as any).__lt = {} as Record<string, [number, number]>);
+        const add = EventTarget.prototype.addEventListener;
+        const wrapped = new WeakMap<object, unknown>();
+        EventTarget.prototype.addEventListener = function (this: EventTarget, type: string, fn: any, opts?: any) {
+          if (
+            !fn ||
+            !["keydown", "keypress", "keyup", "beforeinput", "input", "selectionchange", "compositionend"].includes(
+              type,
+            )
+          )
+            return add.call(this, type, fn, opts);
+          const t = this as any;
+          const label = `${type} ${t === window ? "window" : t === document ? "document" : (t.nodeName ?? "?") + "." + (t.className?.toString?.().slice(0, 24) ?? "")}${typeof opts === "boolean" ? (opts ? " cap" : "") : opts?.capture ? " cap" : ""} :: ${String(
+            typeof fn === "function" ? fn : fn.handleEvent,
+          )
+            .replace(/\s+/g, " ")
+            .slice(0, 90)}`;
+          let w = wrapped.get(fn) as any;
+          if (!w) {
+            w = function (this: unknown, ev: Event) {
+              const t0 = performance.now();
+              try {
+                return typeof fn === "function" ? fn.call(this, ev) : fn.handleEvent(ev);
+              } finally {
+                const r = (lt[label] ??= [0, 0]);
+                r[0] += performance.now() - t0;
+                r[1] += 1;
+              }
+            };
+            wrapped.set(fn, w);
+          }
+          return add.call(this, type, w, opts);
+        };
+        // Time other JS tasks (MessagePort, timers, rAF, observers) by source while a key is in flight.
+        const tk = ((globalThis as any).__tk = {} as Record<string, [number, number]>);
+        const timed = (label: string, fn: any) =>
+          typeof fn !== "function"
+            ? fn
+            : function (this: unknown, ...args: unknown[]) {
+                const t0 = performance.now();
+                try {
+                  return fn.apply(this, args);
+                } finally {
+                  const c = cur as any;
+                  if (c && c.in_bub === undefined) {
+                    const r = (tk[label + " :: " + String(fn).replace(/\s+/g, " ").slice(0, 80)] ??= [0, 0]);
+                    r[0] += performance.now() - t0;
+                    r[1] += 1;
+                  }
+                }
+              };
+        const desc = Object.getOwnPropertyDescriptor(MessagePort.prototype, "onmessage")!;
+        Object.defineProperty(MessagePort.prototype, "onmessage", {
+          ...desc,
+          set(fn) {
+            desc.set!.call(this, timed("port", fn));
+          },
+        });
+        const st = globalThis.setTimeout;
+        (globalThis as any).setTimeout = (fn: any, ms?: number, ...a: unknown[]) => st(timed("timeout", fn), ms, ...a);
+        const raf = globalThis.requestAnimationFrame;
+        (globalThis as any).requestAnimationFrame = (fn: any) => raf(timed("raf", fn));
+        const ric = (globalThis as any).requestIdleCallback;
+        if (ric) (globalThis as any).requestIdleCallback = (fn: any, o?: unknown) => ric(timed("idle", fn), o);
+        for (const O of ["MutationObserver", "ResizeObserver", "IntersectionObserver"] as const) {
+          const Orig = (globalThis as any)[O];
+          if (Orig)
+            (globalThis as any)[O] = class extends Orig {
+              constructor(cb: any, o?: unknown) {
+                super(timed(O, cb), o);
+              }
+            };
+        }
+        for (const m of ["log", "info", "debug", "warn", "error"] as const) {
+          const orig = console[m].bind(console);
+          console[m] = (...args: unknown[]) => {
+            if (cur && cur.in_bub === undefined) {
+              const r = (tk["console." + m + " :: " + String(args[0]).slice(0, 60)] ??= [0, 0]);
+              r[1] += 1;
+            }
+            return orig(...args);
+          };
+        }
+        const pm = window.postMessage.bind(window);
+        (window as any).postMessage = (...a: unknown[]) => {
+          if (cur && cur.in_bub === undefined) {
+            const r = (tk["window.postMessage :: " + String(JSON.stringify(a[0])).slice(0, 60)] ??= [0, 0]);
+            r[1] += 1;
+          }
+          return (pm as any)(...a);
+        };
+        const wk = (globalThis as any).webkit?.messageHandlers;
+        const remove = EventTarget.prototype.removeEventListener;
+        EventTarget.prototype.removeEventListener = function (this: EventTarget, type: string, fn: any, opts?: any) {
+          return remove.call(this, type, (fn && (wrapped.get(fn) as any)) || fn, opts);
+        };
+        const at = (name: string) => {
+          if (cur) cur[name] ??= performance.now() - cur.t0!;
+        };
+        addEventListener(
+          "keydown",
+          (e) => {
+            cur = { t0: e.timeStamp };
+            if ((globalThis as any).__abl?.includes("H") && !(globalThis as any).__hid) {
+              (globalThis as any).__hid = 1;
+              const st = document.createElement("style");
+              st.textContent = ".acpmux-row{display:none!important}";
+              document.head.append(st);
+            }
+            (globalThis as any).__nodes ??= document.getElementsByTagName("*").length;
+            at("kd_cap");
+            add.call(
+              window,
+              "keydown",
+              () => {
+                at("kd_last");
+                if (process_flush && cur) {
+                  const f0 = performance.now();
+                  void document.documentElement.offsetHeight;
+                  cur.flush_last = performance.now() - f0;
+                }
+                const c = cur;
+                queueMicrotask(() => {
+                  if (c) c.kd_lastmt ??= performance.now() - c.t0!;
+                });
+              },
+              { once: true },
+            );
+            add.call(
+              window,
+              "keypress",
+              () => {
+                at("kp_last");
+              },
+              { once: true },
+            );
+            if (process_flush) {
+              const f0 = performance.now();
+              void document.documentElement.offsetHeight;
+              cur.flush = performance.now() - f0;
+              cur.anims = document.getAnimations().length;
+            }
+          },
+          true,
+        );
+        addEventListener("keydown", () => at("kd_bub"), false);
+        addEventListener("keypress", () => at("kp_cap"), true);
+        addEventListener("keypress", () => at("kp_bub"), false);
+        addEventListener("beforeinput", () => at("bi_bub"), false);
+        addEventListener("beforeinput", () => at("bi_cap"), true);
+        addEventListener("input", () => at("in_cap"), true);
+        addEventListener(
+          "input",
+          () => {
+            at("in_bub");
+            const c = cur;
+            queueMicrotask(() => {
+              if (c) {
+                c.mt = performance.now() - c.t0!;
+                g.__ph.push(c);
+              }
+            });
+          },
+          false,
+        );
+      });
     if (mode.startsWith("L") || engine === "webkit") {
       const canonical = mode === "idle" ? "L0" : mode === "stream" ? "L1" : mode;
       try {
-        return {
+        const res = {
           engine,
           ...(await runComposerLoad(page, {
             port,
@@ -225,15 +403,22 @@ async function measure(
             toolLines: TOOL_LINES,
           })),
         };
+        if (process.env.PHASES)
+          console.log(`PHASES ${JSON.stringify(await page.evaluate(() => (globalThis as any).__ph))}`);
+        if (process.env.PHASES)
+          console.log(
+            `NODES ${await page.evaluate(() => (globalThis as any).__nodes)} now ${await page.evaluate(() => document.getElementsByTagName("*").length)}`,
+          );
+        if (process.env.PHASES)
+          console.log(
+            `LISTENERS ${JSON.stringify(await page.evaluate(() => ({ ...(globalThis as any).__lt, ...Object.fromEntries(Object.entries((globalThis as any).__tk).map(([k, v]) => ["TASK " + k, v])) })))}`,
+          );
+        return res;
       } finally {
         await page.close();
       }
     }
     await page.addInitScript(longTaskProbe);
-    if (process.env.ABL)
-      await page.addInitScript((a) => {
-        (globalThis as { __abl?: string }).__abl = a;
-      }, process.env.ABL);
     const rows = await openChat(page, port, Math.max(1, Math.round(length / 3)));
     // WebKit returned above (runComposerLoad): this run is Chromium's, with its DevTools session.
     const cdp = await page.context().newCDPSession(page);
@@ -306,10 +491,12 @@ async function measure(
       const { profile } = (await cdp.send("Profiler.stop")) as { profile: CpuProfile };
       printProfile(length, profile);
     }
-    const { renders, typing } = (await page.evaluate(() => {
+    const { renders, typing, phases } = (await page.evaluate(() => {
       const debug = (window as any).cmuxAcpmuxDebug;
-      return { renders: debug.renders(), typing: debug.typingStats() };
-    })) as { renders: Record<string, number>; typing: Record<string, any> };
+      return { renders: debug.renders(), typing: debug.typingStats(), phases: (globalThis as any).__ph };
+    })) as { renders: Record<string, number>; typing: Record<string, any>; phases?: unknown };
+    console.error(`PHASES-DBG env=${process.env.PHASES} n=${Array.isArray(phases) ? phases.length : typeof phases}`);
+    if (process.env.PHASES) console.log(`PHASES ${JSON.stringify(phases)}`);
     await streaming;
     if (typedEvents) {
       await cdp.send("DOM.getDocument", { depth: 0 });
