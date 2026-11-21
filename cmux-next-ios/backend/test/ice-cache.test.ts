@@ -67,3 +67,26 @@ it("returns STUN on a cold deadline and keeps a late TURN mint for the next call
   expect(fetcher).toHaveBeenCalledTimes(1)
   await waitOnExecutionContext(next)
 })
+
+it("includes a slow shared lookup in the cold deadline and reuses its eventual hit", async () => {
+  const issuedAt = Date.now()
+  const entry = {
+    issuedAt, usableUntil: issuedAt + 270_000,
+    answer: { turn: true, ttl: 300, iceServers: [{ urls: ["turn:relay.test:3478"], username: "stored", credential: "test" }] }
+  }
+  let found!: (value: typeof entry) => void
+  const lookup = new Promise<typeof entry>((resolve) => { found = resolve })
+  const readIce = vi.fn(() => lookup)
+  const env = { ...bindings(), TEAM_HUB: { idFromName: () => "cache", get: () => ({ readIce }) } } as unknown as Env
+  const fetcher = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("unexpected mint"))
+  const ctx = createExecutionContext()
+  const fallback = await cachedIceServers(env, ctx)
+  expect(fallback.turn).toBe(false)
+  found(entry)
+  await waitOnExecutionContext(ctx)
+  const next = createExecutionContext()
+  expect((await cachedIceServers(env, next)).iceServers).toEqual(entry.answer.iceServers)
+  expect(readIce).toHaveBeenCalledTimes(1)
+  expect(fetcher).not.toHaveBeenCalled()
+  await waitOnExecutionContext(next)
+})

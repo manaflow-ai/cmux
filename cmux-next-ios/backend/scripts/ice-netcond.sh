@@ -7,6 +7,7 @@ backend=$(cd "$(dirname "$0")/.." && pwd)
 if ! git -C "$backend" cat-file -e "$base^{commit}" 2>/dev/null; then
   git -C "$backend" fetch --no-tags --depth=1 origin "$base"
 fi
+repo=$(git -C "$backend" rev-parse --show-toplevel)
 scratch=$(mktemp -d)
 trap 'rm -r -- "$scratch"' EXIT
 for phase in before after; do
@@ -14,7 +15,7 @@ for phase in before after; do
   if [[ $phase == after ]]; then ref=HEAD; fi
   dir="$scratch/$phase"
   mkdir "$dir"
-  git -C "$backend" archive "$ref:cmux-next-ios/backend" | tar -x -C "$dir"
+  git -C "$repo" archive "$ref:cmux-next-ios/backend" | tar -x -C "$dir"
   ln -s "$backend/node_modules" "$dir/node_modules"
   cp "$backend/scripts/ice-netcond.ts" "$dir/test/ice-$phase.test.ts"
   (

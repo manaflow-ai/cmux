@@ -73,30 +73,35 @@ async function mint(env: Env, scope: IceScope, ctx: ExecutionContext): Promise<I
   return scope.mint
 }
 
+function serveCached(env: Env, scope: IceScope, ctx: ExecutionContext): IceAnswer | undefined {
+  const entry = scope.entry
+  if (!entry || Date.now() >= entry.usableUntil) return undefined
+  const left = remainingMs(entry)
+  if (left <= (entry.answer.ttl * 1000) / 2) ctx.waitUntil(mint(env, scope, ctx))
+  return { ...entry.answer, ttl: Math.floor(left / 1000) }
+}
+
+async function loadShared(env: Env, scope: IceScope, ctx: ExecutionContext): Promise<IceAnswer> {
+  const stored = await storage(env, scope).readIce().catch(() => {
+    console.log(JSON.stringify({ msg: "TURN cache read failed" }))
+    return undefined
+  })
+  if (stored && (!scope.entry || stored.issuedAt > scope.entry.issuedAt)) scope.entry = stored
+  return serveCached(env, scope, ctx) ?? mint(env, scope, ctx)
+}
+
 export async function cachedIceServers(env: Env, ctx: ExecutionContext): Promise<IceAnswer> {
   if (!env.TURN_KEY_ID || !env.TURN_KEY_API_TOKEN) return iceServers(env)
   // A TURN mint uses the Worker's key and TTL, irrespective of caller or team.
   // This reserved object in the existing binding is accessible on every ingress.
   const key = JSON.stringify(["turn-cache-v1", env.ENVIRONMENT, env.TURN_KEY_ID, iceTtl(env)])
   if (isolate?.key !== key) isolate = { key }
-  const scope = isolate
-  if (!scope.entry || scope.entry.usableUntil <= Date.now()) {
-    const stored = await storage(env, scope).readIce().catch(() => {
-      console.log(JSON.stringify({ msg: "TURN cache read failed" }))
-      return undefined
-    })
-    if (stored && (!scope.entry || stored.issuedAt > scope.entry.issuedAt)) scope.entry = stored
-  }
-  const entry = scope.entry
-  if (entry && Date.now() < entry.usableUntil) {
-    const left = remainingMs(entry)
-    if (left <= (entry.answer.ttl * 1000) / 2) ctx.waitUntil(mint(env, scope, ctx))
-    return { ...entry.answer, ttl: Math.floor(left / 1000) }
-  }
+  const hit = serveCached(env, isolate, ctx)
+  if (hit) return hit
 
   // A slow but successful mint can still populate both caches after this
   // response. Only the foreground wait counts against the Mac's 5 s budget.
-  const pending = mint(env, scope, ctx)
+  const pending = loadShared(env, isolate, ctx)
   ctx.waitUntil(pending)
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
