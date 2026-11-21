@@ -13,7 +13,7 @@ row, module and declaration deltas between two revisions, and exits 0 when the c
 swift-logic-pr-status.py (SwiftLogicPrStatusTests: the pull request status line, against the merge base, fetched
 from a file:// origin) say "not counted" and exit 0 when they cannot count.
 
-Not a CI job (Lawrence 2026-10-23: no new CI gates): run it yourself after a change to the script:
+Not a CI job (Lawrence 2026-10-23: no new CI gates, lifted 2026-11-18): run it yourself after a change to the script:
   python3 -I scripts/cmux-next/tests/test_swift_logic_lines.py
 """
 
