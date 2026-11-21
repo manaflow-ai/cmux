@@ -395,8 +395,12 @@
             "key": "settings.sidebar.showSpaces",
             "text": "Show Spaces"
           },
+          "help": {
+            "key": "settings.sidebar.showSpaces.help",
+            "text": "Spaces show once you have more than one. New Space is in the command palette."
+          },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "sidebar",
             "spaces",
@@ -444,7 +448,7 @@
             "text": "A search button after the profile button. Off: search from the palette."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "sidebar",
             "search",
@@ -686,6 +690,62 @@
           }
         },
         {
+          "key": "sidebar.look",
+          "name": "sidebarLook",
+          "title": {
+            "key": "settings.sidebar.look",
+            "text": "Sidebar Look"
+          },
+          "help": {
+            "key": "settings.sidebar.look.help",
+            "text": "Rows, headers and status marks like another app's sidebar. Your own sidebar settings still win."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "cmux",
+              "title": {
+                "key": "settings.choice.sidebarLookCmux",
+                "text": "cmux"
+              }
+            },
+            {
+              "value": "claude",
+              "title": {
+                "key": "settings.choice.sidebarLookClaude",
+                "text": "Claude"
+              }
+            },
+            {
+              "value": "codex",
+              "title": {
+                "key": "settings.choice.sidebarLookCodex",
+                "text": "Codex"
+              }
+            },
+            {
+              "value": "studio",
+              "title": {
+                "key": "settings.choice.sidebarLookStudio",
+                "text": "Studio"
+              }
+            }
+          ],
+          "default": "cmux",
+          "keywords": [
+            "sidebar",
+            "look",
+            "preset",
+            "style",
+            "claude",
+            "codex",
+            "studio",
+            "like",
+            "app"
+          ],
+          "swift_owner": "SidebarLookPreset"
+        },
+        {
           "key": "sidebar.style",
           "title": {
             "key": "settings.sidebar.style",
@@ -915,6 +975,37 @@
           }
         },
         {
+          "key": "sidebar.settleFinished",
+          "note": "Seen, finished agent chats fold behind a Settled (N) row at the end of their list (SidebarLayout+DoneFold); the rule is Rust's (cmux-layout-reducer settle). Off by default; the Studio look turns it on.",
+          "title": {
+            "key": "settings.sidebar.settleFinished",
+            "text": "Settle Finished Chats"
+          },
+          "help": {
+            "key": "settings.sidebar.settleFinished.help",
+            "text": "A chat whose answer you have read folds into Settled at the end of its list until its next turn."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "sidebar",
+            "settle",
+            "settled",
+            "finished",
+            "done",
+            "read",
+            "seen",
+            "fold",
+            "chats",
+            "threads",
+            "tidy"
+          ],
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
           "key": "sidebar.showColors",
           "title": {
             "key": "settings.sidebar.showColors",
@@ -1094,10 +1185,17 @@
           },
           "help": {
             "key": "settings.sidebar.groupHeader.background.help",
-            "text": "How a group's background draws. Sections shows plain headings instead."
+            "text": "How a group draws. Folders shows plain folders; Sections shows plain headings."
           },
           "kind": "choice",
           "choices": [
+            {
+              "value": "folder",
+              "title": {
+                "key": "settings.choice.groupBackgroundFolder",
+                "text": "Folders"
+              }
+            },
             {
               "value": "auto",
               "title": {
@@ -1127,7 +1225,7 @@
               }
             }
           ],
-          "default": "auto",
+          "default": "folder",
           "keywords": [
             "sidebar",
             "group",
@@ -1387,7 +1485,7 @@
             "text": "A daily tip about a feature you haven't used"
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "sidebar",
             "tips",

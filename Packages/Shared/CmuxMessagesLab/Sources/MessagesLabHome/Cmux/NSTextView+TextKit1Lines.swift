@@ -54,7 +54,7 @@ extension NSTextView {
         var indexes = [Int](repeating: 0, count: count)
         _ = lm.getLineFragmentInsertionPoints(forCharacterAt: line, alternatePositions: false, inDisplayOrder: false,
                                               positions: &positions, characterIndexes: &indexes)
-        return indexes.lastIndex(of: at).map { positions[$0] }
+        return zip(indexes, positions).reversed().first { $0.0 == at }?.1
     }
 
     /// The box of the characters in `range`, in text container coordinates (TextKit 1), or nil.

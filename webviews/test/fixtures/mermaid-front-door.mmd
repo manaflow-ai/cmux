@@ -1,0 +1,29 @@
+flowchart LR
+    Slack([Slack events]) --> CS
+
+    subgraph Write path
+        CS[Connector-service<br/>encrypt-only grant] -->|"encrypt(text, ctx)"| CrW[Cryptor sidecar]
+        CrW -->|ciphertext| CS
+    end
+
+    CS -->|"enc:v1 record, TTL 72h<br/>ctx = {cloudId, channelId, ts}"| R[(Redis<br/>per region)]
+
+    subgraph Read path - the only front door
+        RS[Slack Message Read Service<br/>prod only, decrypt grant] -->|read records| R
+        RS -->|"decrypt + check ctx"| CrR[Cryptor sidecar]
+        CrR --> KMS[(KMS key<br/>dedicated, per region)]
+        RS -.->|log each decrypt| Audit[[Audit logs + alerts]]
+    end
+
+    Caller([API caller<br/>UCT + Slack token + channel access]) -->|authenticated read| RS
+    RS -->|plaintext| Caller
+
+    X1[Direct Redis read / dump]:::blocked -.->|ciphertext only| R
+    X2[Other services]:::blocked -.->|no grant| KMS
+    X3[Staging / laptop / service assume]:::blocked -.->|separate keys, denied| KMS
+    X4[Connector-service decrypt]:::blocked -.->|encrypt-only, S3 export off| KMS
+    A1[Platform admins]:::accepted -.->|full KMS access| KMS
+    A2[Data key in sidecar memory]:::accepted -.-> CrW
+
+    classDef blocked fill:#fde2e2,stroke:#c0392b,color:#7b241c
+    classDef accepted fill:#fff4d6,stroke:#d4a017,color:#7d6608

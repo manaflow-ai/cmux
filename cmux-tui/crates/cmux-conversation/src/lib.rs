@@ -32,9 +32,11 @@ pub use budget::{
     BUDGET_WINDOW, MAX_AGENT_TURNS, MIN_AGENT_GAP_MS, check_agent_budget, check_agent_streak,
     in_thread, parse_rfc3339_millis, streak_of, thread_agent_streak, with_turn,
 };
+/// A message's Markdown as its preview words ([`preview_of`]), shared with the apps' Swift `MessagePreview`.
+pub use cmux_message_preview::{MessagePreview, Words as PreviewWords};
 pub use home::{
     CHIEF_NAME, ChiefState, CloudInboxEntry, HomeInboxInput, HomeKind, HomeListState, HomeRow,
-    OWNER_CLOUD, PREVIEW_CHARS, cloud_row, home_inbox, merge_rows, preview_of,
+    OWNER_CLOUD, PREVIEW_CHARS, cloud_row, home_inbox, is_markdown, merge_rows, preview_of,
 };
 pub use home_delta::{HOME_CHANGE_LOG_CAPACITY, HomeChangeLog, HomeDelta};
 pub use id::{encode_id, format_rfc3339_millis};
