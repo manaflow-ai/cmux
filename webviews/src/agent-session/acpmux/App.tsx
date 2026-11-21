@@ -694,6 +694,7 @@ import { Notice, NoticeSlot } from "./NoticeSlot";
 import { createPaneToasts, paneNotices, postNativePaneToast } from "./paneToasts";
 import { ToastLayer } from "./ToastLayer";
 import { AutoResumeNotice } from "./AutoResumeNotice";
+import { SleepHandoffNotice } from "./SleepHandoffNotice";
 import { liveAutoResume, turnPhase } from "./turnPhase";
 import { RulesNotice } from "./RulesNotice";
 import { type ForumRule, forumRules } from "./rulesNoticeModel";
@@ -12838,6 +12839,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           </output>
         </Notice>
         {!showNewTab && <AutoResumeNotice state={liveAutoResume(liveTurnPhase, snapshot.autoResume)} />}
+        {!showNewTab && (
+          <SleepHandoffNotice
+            note={snapshot.sleepHandoff}
+            canOpen={
+              snapshot.sleepHandoff?.kind === "moved" &&
+              findSession(snapshot.sessions, snapshot.sleepHandoff.routed) !== undefined
+            }
+            onOpen={selectSession}
+          />
+        )}
         {!showNewTab && (
           <ShareNudge
             open={shareNudge.shown}

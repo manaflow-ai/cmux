@@ -94,6 +94,56 @@
           ]
         },
         {
+          "key": "sessions.sleepHandoff.enabled",
+          "name": "sleepHandoffEnabled",
+          "note": "On: when this Mac is about to sleep, the app asks acpmux (_acpmux/sleep_handoff) to move each chat whose turn is running to sessions.sleepHandoff.machine with acpmux session move --interrupt --carry-changes, then continue the turn there (cmux-tui/crates/acpmux/src/cli/run/sleep_handoff.rs). A chat whose uncommitted work the move cannot carry whole stays and says why. Off by default: it moves work to another machine.",
+          "title": {
+            "key": "settings.sessions.sleepHandoff.enabled",
+            "text": "Keep Chats Running When This Mac Sleeps"
+          },
+          "help": {
+            "key": "settings.sessions.sleepHandoff.enabled.help",
+            "text": "When this Mac goes to sleep, chats with a running turn move to the machine below and keep going there. A chat whose uncommitted changes can't all go with it stays here and says why."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "sleep",
+            "lid",
+            "close lid",
+            "laptop",
+            "handoff",
+            "move",
+            "teleport",
+            "cloud",
+            "keep running",
+            "machine"
+          ]
+        },
+        {
+          "key": "sessions.sleepHandoff.machine",
+          "name": "sleepHandoffMachine",
+          "note": "The acpmux peer chats move to on sleep (session move --host): a machine name from Machines, or auto for the move's own placement (never a machine a person works at).",
+          "title": {
+            "key": "settings.sessions.sleepHandoff.machine",
+            "text": "Move Chats To"
+          },
+          "help": {
+            "key": "settings.sessions.sleepHandoff.machine.help",
+            "text": "The name of a machine you connected under Machines, or auto to pick one that's on and not in use."
+          },
+          "kind": "text",
+          "default": "auto",
+          "keywords": [
+            "sleep",
+            "lid",
+            "handoff",
+            "machine",
+            "cloud",
+            "target"
+          ]
+        },
+        {
           "key": "sessions.resumeAgents",
           "name": "resumeAgents",
           "note": "On: a terminal brought back after a crash or restart runs its agent's resume (claude --resume <id>, codex resume <id>) at the new shell's empty prompt. Off, or a settings file that does not parse: nothing runs, and the restored line shows the command. The daemon reads it at each respawn (cmux-tui-util user_settings::resume_agents). Commands other than agents never run again.",

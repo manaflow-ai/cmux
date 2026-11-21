@@ -2472,6 +2472,7 @@ mod pending;
 mod place;
 mod processes;
 mod prompt_cancel;
+mod sleep_handoff;
 mod workflow_activity;
 mod workflow_runs;
 mod worktrees;

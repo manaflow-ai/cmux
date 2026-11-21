@@ -2679,6 +2679,11 @@ async fn dispatch_request_with_identity(
             ))
         }
         "_acpmux/place" => Ok(super::place::place(hub, &params).await),
+        // Moves this machine's chats away: this machine's own app only.
+        "_acpmux/sleep_handoff" if conn.origin != Origin::Local => Err(RpcError::invalid_params(
+            "_acpmux/sleep_handoff answers on this machine's unix socket only",
+        )),
+        "_acpmux/sleep_handoff" => Ok(super::sleep_handoff::start()),
         "_acpmux/move_targets" if conn.origin != Origin::Local => Err(RpcError::invalid_params(
             "_acpmux/move_targets answers on this machine's unix socket only",
         )),

@@ -81,7 +81,7 @@ final class FeedService {
             on(app, NSApplication.didResignActiveNotification, false),
             on(workspace, NSWorkspace.screensDidSleepNotification, false),
             on(workspace, NSWorkspace.sessionDidResignActiveNotification, false),
-            on(workspace, NSWorkspace.willSleepNotification, false),
+            MainActorObservation(NSWorkspace.willSleepNotification, center: workspace) { [socket = acpmuxEnvironment?.socketPath] in update(false); AcpmuxSleepHandoff(socketPath: socket).notify() },
             on(workspace, NSWorkspace.didWakeNotification, nil),
             on(workspace, NSWorkspace.screensDidWakeNotification, nil),
             on(workspace, NSWorkspace.sessionDidBecomeActiveNotification, nil),

@@ -179,6 +179,12 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         ("_acpmux/host_notice", Run(json!({"text": "test notice"}))),
         ("_acpmux/peer_snapshot", Run(json!({"sessionId": "nopeer/x1"}))),
         ("_acpmux/place", Run(json!({}))),
+        (
+            "_acpmux/sleep_handoff",
+            Skip(
+                "starts this daemon's own program as `session sleep-handoff`, the test binary here",
+            ),
+        ),
         ("_acpmux/peer_snapshots_clear", Run(json!({}))),
         (
             "_acpmux/journal_restore",

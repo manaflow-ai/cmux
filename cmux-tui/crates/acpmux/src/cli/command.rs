@@ -830,6 +830,8 @@ pub enum Command {
     #[command(hide = true)]
     MoveSessions(MoveSessionsArgs),
     #[command(hide = true)]
+    SleepHandoff { dry_run: bool },
+    #[command(hide = true)]
     Transfer {
         session: String,
         #[arg(long)]
@@ -1277,6 +1279,15 @@ pub enum SessionCmd {
     /// worktree, a plain folder under the home maps to the same path under the machine's home. The
     /// chat here never runs again, and `resolve` and agent links lead to its new place.
     Move(MoveSessionsArgs),
+    /// Move every chat whose turn is running here to the machine Settings > Agents > Keep Chats
+    /// Running When This Mac Sleeps names, and continue each turn there; the app runs it when
+    /// the Mac is about to sleep. A chat whose uncommitted changes would not all go stays and says
+    /// why. Nothing moves while the setting is off.
+    SleepHandoff {
+        /// Say what would move and change nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Move a chat, with its history, queue and draft, to the daemon at another socket.
     Transfer {
         session: String,
@@ -1683,6 +1694,7 @@ pub fn flatten(c: Command) -> Command {
                 Command::Transfer { session, to, cwd, name, interrupt, after_turn }
             }
             SessionCmd::Move(args) => Command::MoveSessions(args),
+            SessionCmd::SleepHandoff { dry_run } => Command::SleepHandoff { dry_run },
             SessionCmd::Tail { session, last, follow, since } => {
                 Command::Tail { session, last, follow, since }
             }
