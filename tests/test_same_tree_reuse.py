@@ -168,6 +168,131 @@ WORKFLOW = {
 }
 
 
+FILTERED = "on:\n  pull_request:\n    paths:\n      - 'app/**'\n      - '!app/generated.txt'\n"
+MARKERS = {"subject_prefixes": ["chore(next): PR autofix at "], "trailers": ["Autofix-Run: "]}
+
+
+class FixKeys(unittest.TestCase):
+    """A machine-fix head outside the workflow's paths reuses the pass of the tree before the fix."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.repo = Path(self.dir.name)
+        git(self.repo, "init", "-q", "-b", "base")
+        self.write(".github/workflows/w.yml", FILTERED)
+        self.write("app/src.txt", "one\n")
+        self.write("docs/gen.md", "old\n")
+        git(self.repo, "add", ".")
+        git(self.repo, "commit", "-qm", "base")
+        git(self.repo, "checkout", "-qb", "pr")
+        self.write("app/src.txt", "two\n")
+        git(self.repo, "commit", "-qam", "feature")
+        self.before = git(self.repo, "rev-parse", "HEAD")
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def write(self, path, text):
+        (self.repo / path).parent.mkdir(parents=True, exist_ok=True)
+        (self.repo / path).write_text(text)
+
+    def merge(self, head="pr"):
+        """The pull_request run's merge commit: base first, the head second."""
+        git(self.repo, "checkout", "-q", "--detach", "base")
+        git(self.repo, "merge", "-q", "--no-ff", "-m", "merge", head)
+        return git(self.repo, "rev-parse", "HEAD")
+
+    def key(self, rev, job="test"):
+        return s.keys(".github/workflows/w.yml", [job], rev, cwd=str(self.repo))[job]
+
+    def fix(self, message, **files):
+        git(self.repo, "checkout", "-q", "pr")
+        for path, text in files.items():
+            self.write(path.replace("__", "/"), text)
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-qm", message)
+
+    def fix_keys(self, rev):
+        return s.fix_keys(".github/workflows/w.yml", ["test"], rev, cwd=str(self.repo), markers=MARKERS)
+
+    def test_a_fix_outside_the_paths_reuses_the_tree_before_it(self):
+        before = self.key(self.merge())
+        self.fix("chore(next): PR autofix at 0123456789ab\n\nAutofix-Run: https://x/1", **{"docs/gen.md": "new\n"})
+        rev = self.merge()
+        keys, why = self.fix_keys(rev)
+        self.assertEqual(keys, {"test": before}, why)
+        self.assertNotEqual(self.key(rev), before)
+
+    def test_an_added_file_is_taken_back_out(self):
+        before = self.key(self.merge())
+        self.fix("chore(next): PR autofix at 0123456789ab", **{"docs/new.md": "new\n"})
+        keys, why = self.fix_keys(self.merge())
+        self.assertEqual(keys, {"test": before}, why)
+
+    def test_a_negated_path_counts_as_outside(self):
+        self.fix("feature 2", **{"app/generated.txt": "a\n"})
+        before = self.key(self.merge())
+        self.fix("chore(next): PR autofix at 0123456789ab", **{"app/generated.txt": "b\n"})
+        keys, why = self.fix_keys(self.merge())
+        self.assertEqual(keys, {"test": before}, why)
+
+    def test_a_fix_inside_the_paths_runs(self):
+        self.fix("chore(next): PR autofix at 0123456789ab", **{"app/src.txt": "three\n"})
+        keys, why = self.fix_keys(self.merge())
+        self.assertEqual(keys, {})
+        self.assertIn("app/src.txt", why)
+
+    def test_a_person_s_commit_runs(self):
+        self.fix("docs: regenerate", **{"docs/gen.md": "new\n"})
+        self.assertEqual(self.fix_keys(self.merge())[0], {})
+
+    def test_a_trailer_marks_a_fix(self):
+        before = self.key(self.merge())
+        self.fix("regen\n\nAutofix-Run: https://x/2", **{"docs/gen.md": "new\n"})
+        self.assertEqual(self.fix_keys(self.merge())[0], {"test": before})
+
+    def test_a_workflow_without_paths_runs(self):
+        self.fix("workflow", **{".github__workflows__w.yml": "on: pull_request\n"})
+        self.fix("chore(next): PR autofix at 0123456789ab", **{"docs/gen.md": "new\n"})
+        keys, why = self.fix_keys(self.merge())
+        self.assertEqual(keys, {})
+
+    def test_a_base_move_misses(self):
+        before = self.key(self.merge())
+        git(self.repo, "checkout", "-q", "base")
+        self.write("app/other.txt", "x\n")
+        git(self.repo, "add", ".")
+        git(self.repo, "commit", "-qm", "base moved")
+        self.fix("chore(next): PR autofix at 0123456789ab", **{"docs/gen.md": "new\n"})
+        keys, _ = self.fix_keys(self.merge())
+        self.assertNotEqual(keys.get("test"), before)
+
+    def test_the_scratch_index_is_gone(self):
+        self.fix("chore(next): PR autofix at 0123456789ab", **{"docs/gen.md": "new\n"})
+        self.fix_keys(self.merge())
+        self.assertFalse((self.repo / ".git" / "same-tree-fix-index").exists())
+
+    def test_the_repository_markers_name_every_fix_commit(self):
+        markers = s.fix_commits()
+        for subject in ("chore(next): PR autofix at 0123456789ab", "chore(next): base autofix at 0123456789ab",
+                        "chore: pre-push fixes (format, generated files)"):
+            self.assertTrue(s.is_fix_commit(subject, markers), subject)
+        self.assertFalse(s.is_fix_commit("fix: a person's change", markers))
+
+
+class DecideFix(unittest.TestCase):
+    def test_a_receipt_under_the_fix_key_is_a_hit_recorded_under_the_tree_key(self):
+        key = s.make_key("test", BLOB, TREE)
+        fix_key = s.make_key("test", BLOB, "b" * 40)
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "test"
+            s.main(["receipt", "--job", "test", "--key", fix_key, "--out", str(out)])
+            d = s.decide({"test": key}, {"test": True}, Path(tmp), 0, "1", "1", {"test": fix_key})["test"]
+        self.assertTrue(d["reuse"], d)
+        self.assertTrue(d["fix"])
+        self.assertEqual(d["key"], key)
+
+
 class Rules(unittest.TestCase):
     def test_each_impurity_blocks(self):
         jobs = WORKFLOW["jobs"]
