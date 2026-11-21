@@ -3675,127 +3675,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لم تستجب ذاكرة Chief. شغّل Chief (أرسل إليه رسالة في Home)، ثم حاول مرة أخرى."
+            "value": "لم تستجب ذاكرة Chief. شغّل Chief (أرسل إليه رسالة في Chief)، ثم حاول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chiefova memorija nije odgovorila. Pokrenite Chiefa (pošaljite mu poruku u Home), pa pokušajte ponovo."
+            "value": "Chiefova memorija nije odgovorila. Pokrenite Chiefa (pošaljite mu poruku u Chief), pa pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chiefs hukommelse svarede ikke. Start Chief (send en besked i Home), og prøv igen."
+            "value": "Chiefs hukommelse svarede ikke. Start Chief (send en besked i Chief), og prøv igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Das Gedächtnis des Chiefs hat nicht geantwortet. Starte den Chief (sende ihm eine Nachricht in Home) und versuche es erneut."
+            "value": "Das Gedächtnis des Chiefs hat nicht geantwortet. Starte den Chief (sende ihm eine Nachricht in Chief) und versuche es erneut."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The Chief’s memory did not answer. Start the Chief (send it a message in Home), then try again."
+            "value": "The Chief’s memory did not answer. Start the Chief (send it a message in Chief), then try again."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La memoria del Chief no respondió. Inicia el Chief (envíale un mensaje en Home) y vuelve a intentarlo."
+            "value": "La memoria del Chief no respondió. Inicia el Chief (envíale un mensaje en Chief) y vuelve a intentarlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La mémoire du Chief n’a pas répondu. Démarrez le Chief (envoyez-lui un message dans Home), puis réessayez."
+            "value": "La mémoire du Chief n’a pas répondu. Démarrez le Chief (envoyez-lui un message dans Chief), puis réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La memoria del Chief non ha risposto. Avvia il Chief (inviagli un messaggio in Home), poi riprova."
+            "value": "La memoria del Chief non ha risposto. Avvia il Chief (inviagli un messaggio in Chief), poi riprova."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief のメモリが応答しませんでした。Chief を起動して（Home でメッセージを送って）から、もう一度お試しください。"
+            "value": "Chief のメモリが応答しませんでした。Chief を起動して（Chief でメッセージを送って）から、もう一度お試しください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "អង្គចងចាំរបស់ Chief មិនបានឆ្លើយតបទេ។ ចាប់ផ្តើម Chief (ផ្ញើសារទៅវានៅក្នុង Home) រួចព្យាយាមម្តងទៀត។"
+            "value": "អង្គចងចាំរបស់ Chief មិនបានឆ្លើយតបទេ។ ចាប់ផ្តើម Chief (ផ្ញើសារទៅវានៅក្នុង Chief) រួចព្យាយាមម្តងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief의 메모리가 응답하지 않았습니다. Chief를 시작한 다음(Home에서 메시지 보내기) 다시 시도하세요."
+            "value": "Chief의 메모리가 응답하지 않았습니다. Chief를 시작한 다음(Chief에서 메시지 보내기) 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chiefens minne svarte ikke. Start Chief (send den en melding i Home), og prøv igjen."
+            "value": "Chiefens minne svarte ikke. Start Chief (send den en melding i Chief), og prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pamięć Chiefa nie odpowiedziała. Uruchom Chiefa (wyślij mu wiadomość w Home) i spróbuj ponownie."
+            "value": "Pamięć Chiefa nie odpowiedziała. Uruchom Chiefa (wyślij mu wiadomość w Chief) i spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "A memória do Chief não respondeu. Inicie o Chief (envie uma mensagem no Home) e tente novamente."
+            "value": "A memória do Chief não respondeu. Inicie o Chief (envie uma mensagem no Chief) e tente novamente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Память Chief не ответила. Запустите Chief (отправьте ему сообщение в Home) и повторите попытку."
+            "value": "Память Chief не ответила. Запустите Chief (отправьте ему сообщение в Chief) и повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "หน่วยความจำของ Chief ไม่ตอบสนอง เริ่ม Chief (ส่งข้อความถึงใน Home) แล้วลองอีกครั้ง"
+            "value": "หน่วยความจำของ Chief ไม่ตอบสนอง เริ่ม Chief (ส่งข้อความถึงใน Chief) แล้วลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief’in belleği yanıt vermedi. Chief’i başlatın (Home’da ona bir mesaj gönderin) ve yeniden deneyin."
+            "value": "Chief’in belleği yanıt vermedi. Chief’i başlatın (Chief’da ona bir mesaj gönderin) ve yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Пам’ять Chief не відповіла. Запустіть Chief (надішліть йому повідомлення в Home) і спробуйте ще раз."
+            "value": "Пам’ять Chief не відповіла. Запустіть Chief (надішліть йому повідомлення в Chief) і спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bộ nhớ của Chief không phản hồi. Hãy khởi động Chief (gửi tin nhắn trong Home) rồi thử lại."
+            "value": "Bộ nhớ của Chief không phản hồi. Hãy khởi động Chief (gửi tin nhắn trong Chief) rồi thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief 的记忆没有响应。请启动 Chief（在 Home 中给它发消息），然后重试。"
+            "value": "Chief 的记忆没有响应。请启动 Chief（在 Chief 中给它发消息），然后重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief 的記憶沒有回應。請啟動 Chief（在 Home 中傳訊息給它），然後再試一次。"
+            "value": "Chief 的記憶沒有回應。請啟動 Chief（在 Chief 中傳訊息給它），然後再試一次。"
           }
         }
       }

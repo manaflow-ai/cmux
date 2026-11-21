@@ -16,6 +16,10 @@
      makes it instant (fold.ts foldMotion.duration). */
   --cv-fold-duration: var(--cmux-motion-settle, 180ms);
   --cv-fold-ease: var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1));
+  /* Exit before move (exitLead.ts EXIT_LEAD_MS): text a fold takes away fades out over half the quick
+     step on the house ease-out, and the fold's move starts when it ends (design/chat-fold-motion.md). */
+  --cv-exit-lead: calc(var(--cmux-motion-quick, 80ms) / 2); /* motion-allow: the exit lead is half the quick step (exitLead.ts) */
+  --cv-exit-ease: var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
   --cv-text: var(--agent-text);
   --cv-text-muted: var(--agent-muted); /* "Worked for", tool verbs */
   --cv-text-dim: var(--agent-soft); /* progress rows */
@@ -5919,9 +5923,20 @@ a.cv-sha:focus-visible {
 /* Its card (TurnRows.tsx TurnFailure; the turn-error-card experiment's arms): the cause with its
    mark, then the way out and Details on one wrapping row. */
 .cv-turn-error {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--transient-surface-gap);
+}
+/* Its × (cmux#48434): closes the card for good, at the card's top trailing corner; the cause keeps
+   clear of it. */
+.cv-turn-error__dismiss {
+  position: absolute;
+  inset-block-start: var(--ds-space-1);
+  inset-inline-end: var(--ds-space-1);
+}
+.cv-turn-error:has(.cv-turn-error__dismiss) .cv-turn-error__cause {
+  padding-inline-end: calc(var(--ds-space-5) + var(--ds-space-2));
 }
 .cv-turn-error__cause {
   display: flex;
@@ -8028,7 +8043,7 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   overflow: hidden;
   text-overflow: ellipsis;
   padding-inline: calc(8 * var(--ui-px, 1px)) calc(12 * var(--ui-px, 1px));
-  border: var(--cmux-hairline, 0.5px) solid color-mix(in srgb, var(--agent-text) 18%, transparent);
+  border: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge);
   border-radius: 8px;
   background: color-mix(in srgb, var(--glass-surface) var(--cv-selection-reply-veil), transparent);
   -webkit-backdrop-filter: blur(var(--glass-frost)) saturate(1.4);

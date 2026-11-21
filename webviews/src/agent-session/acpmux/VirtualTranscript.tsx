@@ -1,3 +1,4 @@
+import { PendingEntrances } from "./conversation/pendingEntrances";
 import { MARK_INDICATOR, MARK_PROMPT, rowMark, TRANSCRIPT_COMPOSER_GAP, transcriptLiveVars } from "./transcriptGrid";
 import React, {
   useCallback,
@@ -824,7 +825,7 @@ const disclosureControls = (rows: readonly AcpmuxRow[], after: number): string |
 /// The transcript's own sets of rows that enter, fade in as the chat loads, or fade in from a late
 /// page of older history: read when the frames are drawn, so the render reads no ref itself.
 type RowFrameSources = {
-  entering: { readonly current: ReadonlySet<string> };
+  entering: { readonly current: { has(key: string): boolean } };
   loadFade: LoadFadeWindow;
   older: OlderRowFade;
 };
@@ -2718,7 +2719,9 @@ function TranscriptView({
   if (frameSession.session !== sessionKey) setFrameSession({ session: sessionKey, key: frameKey });
   /// A row can be newly arrived but outside the mounted virtual range. Pending entrances are
   /// page-scoped: hiding or switching chats must drop them before that row can mount later.
-  const enteringRows = useRef(new Set<string>());
+  /// Each entry is kept with its arrival time, and a row that mounts long after it arrived (scrolled
+  /// back to) draws in place (conversation/pendingEntrances.ts).
+  const enteringRows = useRef(new PendingEntrances());
   /// Where the tab stop and the selection's ends were found last (rowPresence `hints`).
   const presenceHints = useRef<RowPresenceHints>({});
   useEffect(() => {
@@ -2900,7 +2903,7 @@ function TranscriptView({
     for (let index = from; index < rows.length; index += 1) chatRowsDrawn.add(drawnKey(rows[index]!));
     committedRows.current = { drawn: chatRowsDrawn, rows };
   }, [rows, chatRowsDrawn]);
-  const onEntered = useCallback((id: string) => void enteringRows.current.delete(id), []);
+  const onEntered = useCallback((id: string) => enteringRows.current.delete(id), []);
   const onLoadFaded = useCallback((id: string) => loadFade.shown(id), [loadFade]);
   const onOlderShown = useCallback((id: string) => olderRows.shown(id), [olderRows]);
   useEffect(() => () => olderRows.disconnect(), [olderRows]);
