@@ -256,6 +256,9 @@ def rows_sidebar(rep, size):
         out[f"sidebar.{size}.ticking.cpu_pct"] = (cpu, cpu)
     if isinstance(ticks.get("main_ms_per_s"), (int, float)):
         out[f"sidebar.{size}.ticking.main_ms_per_s"] = (ticks["main_ms_per_s"], ticks["main_ms_per_s"])
+    maps = (ticks.get("per_tick") or {}).get("row_maps")
+    if isinstance(maps, (int, float)):
+        out[f"sidebar.{size}.ticking.row_maps_per_tick"] = (maps, maps)
     for key, m in (s.get("switch_matrix") or {}).items():
         if isinstance(m, dict) and "input_to_idle_ms" in m:
             out[f"workspace_switch.{key}.input_to_idle"] = p50_p95(m["input_to_idle_ms"])
