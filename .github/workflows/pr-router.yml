@@ -87,8 +87,8 @@ jobs:
     needs: route
     if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'swift-linux-packages.yml') }}
     uses: ./.github/workflows/swift-linux-packages.yml
-    # The callee asks contents: read; a job with no grant inherits this file's `permissions: {}`,
-    # and GitHub then refuses to start the whole router run.
+    # A called workflow may ask no more than its caller job grants; with none granted here, every run
+    # ended startup_failure with 0 jobs (swift-linux-packages.yml asks contents: read).
     permissions:
       contents: read
 
