@@ -9,6 +9,7 @@
 #     [--arg=rounds=3] [--arg=launches=2] [--arg=idle=60] [--arg=active=30] [--arg=cmux=build|nightly]
 #     [--arg=browsers=cmux-chromium,cmux-webkit,cmux-terminal,cmux-budget,chrome,helium,ardia,dia,safari] [--arg=gate=1]
 #     [--arg=tabswitch=chromium,webkit,markdown,chat] [--arg=tabcounts=2,10,30] [--arg=palette=on|off]
+#     [--arg=panedrag=on|off] [--arg=panecounts=2,8,30]
 #     [--arg=budgets=scripts/perf-bench/budgets.json] [--arg=bench_config=debug|bench] [--arg=app_config=release|bench]
 # app_config= (default release) is the measured app's build. bench keeps Release optimization and compiles in
 # the debug.* control surface (reload.sh --config bench), so the budget scenario's waker lines (debug.wakeups)
@@ -18,6 +19,9 @@
 # commit) per tab kind at each count, as a "Tab switch" section of BENCH.md and gate rows.
 # palette= (default on) runs a182's scripts/cmux-next/palette-open-stages.py on the same Debug app:
 # Cmd-Shift-P and Cmd-P key-down to the committed frame from each surface ("Palette open" rows).
+# panedrag= (default on) runs scripts/ci/frame-pacing/pane_drag.py on the same Debug app (RFD 0022 item 1): tab drags
+# and pane-header drags through the real mouse path at panecounts= panes of mixed kinds; input to move, frames over
+# 8.33 ms, blank frames per drop and layout jumps, as a "Pane and tab drag" section of BENCH.md. Report only.
 # cmux=build (default) builds a Release app at this checkout; cmux=nightly
 # measures the latest nightly-next DMG. gate=1 fails the step when a cmux row
 # is worse than scripts/perf-bench/baseline/<chip>-macos<major>.json by more
@@ -39,6 +43,7 @@ set -euo pipefail
 suite=xbench parity_rows="" parity_loads="light,load" vdisplay="" geometry=""
 rounds=3 launches=2 idle=60 active=30 settle=30 cmux=build gate=0 maxload=4 bench_config=debug app_config=release
 tabswitch="chromium,webkit,markdown,chat" tabcounts="2,10,30" palette=on budgets=scripts/perf-bench/budgets.json
+panedrag=on panecounts="2,8,30"
 browsers="cmux-chromium,cmux-webkit,cmux-terminal,cmux-budget,chrome,helium,ardia,dia,safari"
 for arg in "$@"; do
   case "$arg" in
@@ -61,6 +66,8 @@ for arg in "$@"; do
     tabswitch=*) tabswitch="${arg#tabswitch=}" ;;
     tabcounts=*) tabcounts="${arg#tabcounts=}" ;;
     palette=*) palette="${arg#palette=}" ;;
+    panedrag=*) panedrag="${arg#panedrag=}" ;;
+    panecounts=*) panecounts="${arg#panecounts=}" ;;
     budgets=*) budgets="${arg#budgets=}" ;;
     *) echo "perf-bench.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
@@ -91,7 +98,7 @@ esac
 [ "$suite" = parity ] && [ "$rounds" = 3 ] && rounds=2
 [ "$suite" = parity ] && [ "$maxload" = 4 ] && maxload=2
 debug=0
-{ [ "$suite" = xbench ] && { [ "$tabswitch" != off ] || [ "$palette" != off ]; }; } && debug=1
+{ [ "$suite" = xbench ] && { [ "$tabswitch" != off ] || [ "$palette" != off ] || [ "$panedrag" != off ]; }; } && debug=1
 if [ "$cmux" = build ] || [ "$debug" = 1 ]; then
   # A fleet step checks out no submodules (only their empty gitlink directories): the app build needs
   # Ghostty's headers, the ghostty-next tree and GhosttyKit.xcframework (as scripts/measure/tab-switch.sh).
@@ -179,6 +186,13 @@ if [ "$debug" = 1 ]; then
       python3 scripts/cmux-next/palette-open-stages.py --tag pbswitch --app "$switch_app" --no-gate \
         --out "$work/palette" --json "$out/palette-open.json" || true
       [ -f "$out/palette-open.json" ] && switch_json="$switch_json --palette $out/palette-open.json"
+    fi
+    if [ "$panedrag" != off ]; then
+      mkdir -p "$work/panedrag"
+      # Its own deadline (--deadline), and a report only: a failed run leaves the section out, never the step red.
+      python3 scripts/ci/frame-pacing/pane_drag.py --app "$switch_app" --counts "$panecounts" \
+        --out "$work/panedrag" --json "$out/pane-drag.json" || echo "PERF-BENCH-PANEDRAG run exit $?"
+      [ -f "$out/pane-drag.json" ] && switch_json="$switch_json --panedrag $out/pane-drag.json"
     fi
   else
     echo "PERF-BENCH-TABSWITCH tagged Debug build failed:"; tail -n 40 "$work/reload-switch.log"; status=1
