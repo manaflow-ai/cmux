@@ -49,7 +49,10 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-import ci_steps  # noqa: E402
+try:  # a head whose step-table runner does not import still routes: its pipeline starts (table_steps)
+    import ci_steps  # noqa: E402
+except Exception:  # noqa: BLE001
+    ci_steps = None
 import docs_only_paths  # noqa: E402
 import head_tier  # noqa: E402
 import workflow_paths_cover_inputs as filters  # noqa: E402
@@ -98,9 +101,11 @@ def affects(config: dict, files: list[str]) -> bool:
 
 def table_steps(config: dict, files: list[str], table: Path | None = None) -> list[str] | None:
     """The steps of the callee's `table_jobs` this change routes; None when the table cannot be read."""
+    # Any failure to read the table (a missing file, bad TOML, a wrong shape, a runner that does not import)
+    # starts the pipeline, whose own run reports it: the router routes more, never less, and never fails on it.
     try:
         routed = ci_steps.route(ci_steps.load(table or ci_steps.TABLE), files)
-    except (OSError, ValueError):
+    except Exception:  # noqa: BLE001
         return None
     return [step for job in config["table_jobs"] for step in routed.get(job, [])]
 

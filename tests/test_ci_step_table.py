@@ -313,6 +313,12 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(started(["ci/steps.toml"])[0], ["pr-pipeline.yml"])
         # A table the router cannot read starts the pipeline: it routes more, never less.
         self.assertIsNone(pr_router.table_steps(callees["pr-pipeline.yml"], ["docs/x.md"], ROOT / "no-such.toml"))
+        with tempfile.TemporaryDirectory() as tmp:
+            for body in ("not toml [", 'setup = "x"\n[jobs]\nlinux = "l"', '[jobs]\nlinux = "l"\n[step]\na = 1'):
+                with self.subTest(body=body):
+                    bad = Path(tmp) / "steps.toml"
+                    bad.write_text(body)
+                    self.assertIsNone(pr_router.table_steps(callees["pr-pipeline.yml"], ["docs/x.md"], bad))
 
     def test_the_router_checks_out_the_table(self) -> None:
         wf = yaml.safe_load((ROOT / ".github/workflows/pr-router.yml").read_text())
