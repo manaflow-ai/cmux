@@ -11,7 +11,7 @@ final class SubagentTranscriptUITests: XCTestCase {
     }
 
     @MainActor
-    private func launch(_ screen: String, count: Int, stream: Bool = false, edge: String? = nil, after: Double? = nil) -> XCUIApplication {
+    private func launch(_ screen: String, count: Int, stream: Bool = false, edge: String? = nil, after: Double? = nil, hz: Double? = nil) -> XCUIApplication {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
@@ -22,6 +22,7 @@ final class SubagentTranscriptUITests: XCTestCase {
         if stream { app.launchEnvironment["CMUX_MOBILE_LIST_STREAM"] = "1" }
         if let edge { app.launchEnvironment["CMUX_MOBILE_LIST_EDGE"] = edge }
         if let after { app.launchEnvironment["CMUX_MOBILE_LIST_EDGE_AFTER"] = "\(after)" }
+        if let hz { app.launchEnvironment["CMUX_MOBILE_LIST_LIVE_HZ"] = "\(hz)" }
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-no-restore"]
         app.launch()
         return app
@@ -108,7 +109,9 @@ final class SubagentTranscriptUITests: XCTestCase {
     func testRunningTranscriptFollowsAtTheEndAndHoldsTheReaderAway() {
         // The stream starts 30 s after launch: the reader reaches the end of a still transcript
         // first (a live one grows faster than swipes reach its end, and never idles for them).
-        let app = launch("subagent", count: 20, stream: true, edge: "late", after: 30)
+        // 10 tokens a second (a row every 2.5 s): XCUITest swipes take seconds each, and must be
+        // able to reach the end of a transcript that grows while they run.
+        let app = launch("subagent", count: 20, stream: true, edge: "late", after: 30, hz: 10)
         defer { app.terminate() }
         XCTAssertTrue(app.navigationBars["WireGuard dialer"].waitForExistence(timeout: 40), "the transcript opens\n\(app.debugDescription)")
         let footer = app.staticTexts["chat.subagent.footer"].firstMatch

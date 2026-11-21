@@ -32,13 +32,13 @@ enum ListStressChatScreens {
             let store = AgentChatStore(source: source)
             seedTranscript(store, items: max(settings.count, 0), running: settings.streams, giant: settings.giant)
             // `late`: the stream starts after `edgeAfter` seconds (a reader at rest at the end first).
-            if settings.streams, settings.edge != "late" { live = streamTranscript(store, source: source) }
+            if settings.streams, settings.edge != "late" { live = streamTranscript(store, source: source, hz: settings.liveHz) }
             let holder = RigStoreHolder(store: store)
             switch settings.edge {
             case "late" where settings.streams:
                 Task { @MainActor in
                     try? await Task.sleep(for: .seconds(settings.edgeAfter))
-                    live = streamTranscript(store, source: source)
+                    live = streamTranscript(store, source: source, hz: settings.liveHz)
                 }
             case "removed":
                 // The chat's records go (its chat closed, or a history that no longer has it).
@@ -173,12 +173,14 @@ enum ListStressChatScreens {
 
     /// A token every 20 ms, a tool call every 500 ms (the answer goes on in a new message after
     /// it), and the 5 siblings changing state once a second.
-    static func streamTranscript(_ store: AgentChatStore, source: RigSource) -> Task<Void, Never> {
-        Task { @MainActor in
+    /// `hz` (`LIST_LIVE_HZ`): tokens a second instead of 50.
+    static func streamTranscript(_ store: AgentChatStore, source: RigSource, hz: Double? = nil) -> Task<Void, Never> {
+        let interval = Duration.seconds(1 / max(hz ?? 50, 0.1))
+        return Task { @MainActor in
             var tick = 0
             var message = 0
             while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(20))
+                try? await Task.sleep(for: interval)
                 // Nothing comes from a Mac that is offline.
                 if source.offline { continue }
                 tick += 1

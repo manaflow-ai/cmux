@@ -274,7 +274,8 @@ struct SubagentTranscriptScreen: View {
             .onScrollPhaseChange { _, new in phase = new }
             .onScrollGeometryChange(for: TranscriptEnd.self) { geometry in
                 // In content coordinates: the bottom inset counts as seen, as at rest on the end.
-                TranscriptEnd(atEnd: geometry.visibleRect.maxY >= geometry.contentSize.height - 24, height: geometry.contentSize.height)
+                // Within 60 pt of the end counts as on it (a fling that stops just short while a row lands).
+                TranscriptEnd(atEnd: geometry.visibleRect.maxY >= geometry.contentSize.height - 60, height: geometry.contentSize.height)
             } action: { old, new in
                 if phase == .interacting || phase == .decelerating {
                     // The reader's own scroll decides.
