@@ -5,6 +5,7 @@ import { externalAccessFromRequest } from "./permissions/externalAccess";
 import { markAgentProgressSource } from "./subagents/agentProgressSource";
 import type { RaceRecord, RaceStart } from "./races/model";
 import { projectLiveProgress, type LiveProgress } from "./liveProgress";
+import { chatTaskListOf, type ChatTaskList } from "./chatTaskList";
 import { UNKNOWN_AUTH, type SessionAuthQuery } from "./sessionAuth";
 import { sameJson } from "./sameJson";
 import { autoResumeAttempt, autoResumeStatus } from "./autoResumeStatus";
@@ -3256,6 +3257,8 @@ export class AcpmuxDirectClient {
   private sessionsReplaced?: { from: Session[]; to: Session[]; at: number[] };
   /// The snapshot summary's `usageStats`, kept while acpmux's numbers are the same (sameUsageStats).
   private summaryUsage?: SessionUsageStats;
+  /// The snapshot summary's `taskList`, kept while acpmux's list is the same (chatTaskListOf).
+  private publishedTaskList?: ChatTaskList;
   private publishedSummaryOf?: {
     summary: unknown;
     usage: unknown;
@@ -6758,6 +6761,13 @@ export class AcpmuxDirectClient {
   /// Chat `sessionId`'s background task `id`'s output from `fromByte`: `{data (base64), nextByte, state, exitCode}`.
   bgOutput(sessionId: string, id: string, fromByte: number): Promise<unknown> {
     return this.request("_acpmux/bg/output", { sessionId, id, fromByte });
+  }
+
+  /// The last `maxBytes` of chat `sessionId`'s background task `id`'s output, with its record
+  /// (`command`, `state`, `exitCode`, `startedAt`, `endedAt`; hub/bg_tasks.rs `bg_output`): what a
+  /// "Background task finished: bg-…" line opens to (BackgroundTurnLine.tsx).
+  bgTail(sessionId: string, id: string, maxBytes: number): Promise<unknown> {
+    return this.request("_acpmux/bg/output", { sessionId, id, maxBytes });
   }
 
   /// Stops chat `sessionId`'s background task `id`.
@@ -10312,7 +10322,7 @@ export class AcpmuxDirectClient {
         // reason `prompt`). Leo, 2026-11-21, on a five-paragraph answer to his message that never
         // drew, the finish's turn having closed quiet over it: "things dont get rendeed?".
         if (msg.steer === true && this.bgDoneTurns.size > 0 && incoming === undefined && !received)
-          for (const id of [...this.bgDoneTurns.keys()]) this.endBgDoneTurn(event, id, "prompt");
+          for (const id of Array.from(this.bgDoneTurns.keys())) this.endBgDoneTurn(event, id, "prompt");
         const shown =
           incoming?.kind === "message"
             ? {
@@ -11475,6 +11485,7 @@ export class AcpmuxDirectClient {
           title: summary.title,
           name: summary.name,
           goal: taskGoal(summary.goal),
+          taskList: (this.publishedTaskList = chatTaskListOf(summary.taskList, this.publishedTaskList)),
           harness: summary.harness,
           family: typeof summary.family === "string" ? summary.family : undefined,
           agentInfo:

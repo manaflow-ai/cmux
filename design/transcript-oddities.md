@@ -109,9 +109,11 @@ State: **fixed** (merged), **open** (root cause known), **unknown** (seen, not r
 ### T4. A large gap between the last tool row and the Thinking line
 
 - **Seen**: Leo, 2026-11-21. Not yet reproduced.
-- **What should be there**: 16 px between a step row and the live line, whose box is 32 px
-  (`transcriptGrid.ts` `transcriptGap`, `TRANSCRIPT_LIVE_STEP_BOX`); tool-line centre to live-line
-  centre 43 px (`transcriptSpacing.ts`).
+- **What should be there**: 8 px between a step row and the live line, whose words are drawn in a
+  22 px box at the top of the footer's 32 px slot (`transcriptGrid.ts` `transcriptGap`,
+  `LIVE_GAP_LOOKS`); tool-line centre to live-line centre 30 px (`transcriptSpacing.ts`). It was
+  16 px and 43 px until Leo, 2026-11-21: "see the space/gap between tool calls and the current
+  shimmer? this isnt great."
 - **Candidates, by reading**: (1) the tool row placed at its estimate instead of its drawn height
   (`VirtualTranscript.tsx` `heightAt` falls back when the width, status edge or reply-actions flag
   differs; the estimate assumes open groups, up to 224 px more than a closed row draws); (2) a tail

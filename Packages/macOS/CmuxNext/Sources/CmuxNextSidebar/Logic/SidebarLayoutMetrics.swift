@@ -237,6 +237,11 @@ nonisolated extension SidebarLayoutOptions {
         if content.detail != nil, let step = ws.agentStep {
             (content.now, content.detail) = (step, step)
         }
+        // Steps left in the agent's task list: a quiet "3/7" where a one-line status would sit, never
+        // over a status or an expanded row's age, and never a line of its own.
+        if let tasks = ws.taskProgress, content.trailingStatus == nil, content.time == nil {
+            (content.tasks, content.trailingStatus) = (tasks, tasks.countText)
+        }
         return content
     }
 

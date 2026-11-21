@@ -48,7 +48,7 @@
     "terminal": ["palette.openGhosttySettings", "reloadConfiguration"],
     "editor": ["fileEditor.importEditorSettings"],
     "browser": ["importFromBrowser", "browser.extensions.manage", "browser.extensions.webStore", "browser.extensions.loadUnpacked"],
-    "home": ["chief.importMemories", "diagnostics.viewHangReport"],
+    "home": ["diagnostics.viewHangReport"],
     "keyboard": ["keybindings.open", "palette.searchShortcuts"],
     "notifications": ["toasts.showHidden"],
     "accounts": ["accounts.refresh", "palette.mobileConnect"],
