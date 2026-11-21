@@ -27,6 +27,9 @@ struct Order {
     sorted: BTreeMap<(Reverse<u64>, String), Arc<Session>>,
     /// Each row's `updatedAt` as it is placed: its key in `sorted`.
     at: HashMap<String, u64>,
+    /// The rows by their byte-page key (`session_pages::page_key_of`, fixed by the id): a byte
+    /// page of the whole list reads its own rows from here, not a hash and sort of every chat.
+    by_key: BTreeMap<(u128, String), Arc<Session>>,
     /// How many times every chat was sorted again (`Hub::list_order_rebuilds_for_test`).
     #[cfg(test)]
     rebuilds: u64,
@@ -35,13 +38,16 @@ struct Order {
 impl Order {
     /// Places row `id` again: where `session`'s `updatedAt` puts it, or nowhere when it is gone.
     fn place(&mut self, id: &str, session: Option<Arc<Session>>) {
+        let key = (super::session_pages::page_key_of(id, None), id.to_owned());
         if let Some(old) = self.at.remove(id) {
             self.sorted.remove(&(Reverse(old), id.to_owned()));
+            self.by_key.remove(&key);
         }
         if let Some(session) = session {
             let updated = session.read_meta(|m| m.updated_at);
             self.at.insert(id.to_owned(), updated);
-            self.sorted.insert((Reverse(updated), id.to_owned()), session);
+            self.sorted.insert((Reverse(updated), id.to_owned()), session.clone());
+            self.by_key.insert(key, session);
         }
     }
 }
@@ -77,6 +83,7 @@ impl Hub {
             order.head = self.events.list_head();
             order.sorted.clear();
             order.at.clear();
+            order.by_key.clear();
             for session in self.session_handles() {
                 let id = session.id.clone();
                 order.place(&id, Some(session));
@@ -105,6 +112,29 @@ impl Hub {
                 order.sorted.range((Reverse(from), String::new())..).take(most).map(row).collect()
             }
         };
+        let all = rows.len() < most;
+        (rows, all)
+    }
+
+    /// At most `most` of this daemon's rows in byte-page key order past key `after` (from the
+    /// first when None), each with its key; and whether they are all the rows past it. Costs the rows changed since the
+    /// last read, and `most`.
+    pub(super) fn own_rows_by_key(
+        &self,
+        after: Option<u128>,
+        most: usize,
+    ) -> (Vec<(u128, Arc<Session>)>, bool) {
+        if after == Some(u128::MAX) {
+            return (Vec::new(), true);
+        }
+        let start = after.map_or(0, |after| after + 1);
+        let order = self.patched_order();
+        let rows: Vec<(u128, Arc<Session>)> = order
+            .by_key
+            .range((start, String::new())..)
+            .take(most)
+            .map(|((key, _), session)| (*key, session.clone()))
+            .collect();
         let all = rows.len() < most;
         (rows, all)
     }
