@@ -33,6 +33,11 @@ public final class TitlebarBandButton: ClickableButton {
     public var symbolPointSize: (() -> CGFloat)? {
         didSet { renderedIconSize = 0; renderSymbol() }
     }
+    /// A tool in a pane's tab row (beside the tab bar's + and the pane's ⋮): its hover fill rounds as a tab pill
+    /// (``Metrics/tabBarControlCornerRadius(fitting:)``), as they do; off, it keeps the band's proportional corner.
+    public var roundsAsTabBarControl = false {
+        didSet { if roundsAsTabBarControl != oldValue { needsLayout = true } }
+    }
     private let badgeLabel = NSTextField(labelWithString: "")
     private var renderedIconSize: CGFloat = 0
     public private(set) lazy var hover = ChromeHover(self, behindContent: true)
@@ -50,10 +55,12 @@ public final class TitlebarBandButton: ClickableButton {
         imageScaling = .scaleProportionallyDown
         applyText()
         renderSymbol()
-        contentTintColor = performWithTheme { Palette.textSecondary }
+        // The glyph keeps its own ink while disabled: AppKit's dimming took it under 2:1; the tertiary
+        // text is the disabled ink, which holds the legible floor (NativeControlContrastAuditTests).
+        (cell as? NSButtonCell)?.imageDimsWhenDisabled = false
+        applyInk()
         badgeLabel.font = Typography.caption
         badgeLabel.alignment = .center
-        badgeLabel.textColor = performWithTheme { Palette.textSecondary }
         badgeLabel.isBezeled = false
         badgeLabel.drawsBackground = false
         badgeLabel.isEditable = false
@@ -74,15 +81,46 @@ public final class TitlebarBandButton: ClickableButton {
     /// Disabled under a still pointer (Back with no history left): hover
     /// follows at once (cx-3wu5).
     override public var isEnabled: Bool {
-        didSet { if followsPointer, isEnabled != oldValue { hover.pointer?.refresh() } }
+        didSet {
+            if followsPointer, isEnabled != oldValue { hover.pointer?.refresh() }
+            applyInk()
+        }
+    }
+
+    // The ink is read in the button's own theme scope (a workspace's theme, not only the app's) when it
+    // joins a window, on every theme change and when it shows: read once at init it kept the app
+    // theme's gray (#bfc0c3) in every room, 1.3 to 2.6:1 on light and tinted themes.
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyInk()
+    }
+
+    override public func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyInk()
+    }
+
+    override public func viewDidUnhide() {
+        super.viewDidUnhide()
+        applyInk()
+    }
+
+    /// Secondary text at rest, tertiary while disabled, in the button's scope.
+    private func applyInk() {
+        performWithTheme {
+            contentTintColor = isEnabled ? Palette.textSecondary : Palette.textTertiary
+            badgeLabel.textColor = Palette.textSecondary
+        }
     }
 
     override public func layout() {
         super.layout()
         renderSymbol()
         // The hover fill is the button's own layer, rounded by the tab's ratio on its own height, so it keeps one
-        // shape at every density (Lucas 2026-11-15: the tab's radius on a smaller button went nearly round at Spacious).
-        layer?.cornerRadius = Metrics.buttonCornerRadius(proportionalTo: bounds.height)
+        // shape at every density (Lucas 2026-11-15: the tab's radius on a smaller button went nearly round at Spacious);
+        // in a tab row, as the tabs beside it (Lawrence 2026-11-20).
+        layer?.cornerRadius = roundsAsTabBarControl ? Metrics.tabBarControlCornerRadius(fitting: bounds.size)
+            : Metrics.buttonCornerRadius(proportionalTo: bounds.height)
         let size = min(Metrics.space3, bounds.height)
         badgeLabel.frame = NSRect(x: bounds.maxX - size, y: bounds.maxY - size, width: size, height: size)
     }
