@@ -45,6 +45,23 @@ INVOKED_PATH = re.compile(r"(?:\./)?(tests(?:_v2)?/[A-Za-z0-9_.-]+\.(?:py|sh))")
 # an allowlist that can be appended to without argument is the failure mode
 # this test exists to prevent.
 UNWIRED: set[str] = {
+    # lane = "manual" in tests/test-execution.d/other.toml (kept manual under the 2026-10-23 no-new-CI rule, lifted 2026-11-18). Proves cmux Files (dev) never
+    # reaches a shipped build; it needs macOS ditto and codesign, and reads the workflows only as data. Run it by hand on
+    # a fleet Mac when the embed phase, FilesHost or the pin changes. Exit: as below.
+    "tests/test_files_host_dev_only.py",
+    # lane = "manual" in tests/test-execution.d/other.toml (kept manual under the 2026-10-23 no-new-CI rule, lifted 2026-11-18). Pins run_ci_guards.py
+    # --affected's per-diff guard step selection; it reads the workflows as data. Run it by hand when
+    # scripts/ci/guard_step_inputs.py or run_ci_guards.py changes. Exit: as below.
+    "tests/test_guard_step_inputs.py",
+    # lane = "manual" in tests/test-execution.d/ci.toml (kept manual under the 2026-10-23 no-new-CI rule, lifted
+    # 2026-11-18). The pre-push hook
+    # refuses a push that adds an unbounded job (prepush-gate.py JOB_BOUNDS_CHECK); it reads the workflows as data.
+    # Run it by hand after changing scripts/ci/workflow_job_bounds.py or .github/workflow-job-bounds.json.
+    "tests/test_ci_workflow_job_bounds.py",
+    # lane = "manual" in tests/test-execution.d/nightly.toml (kept manual under the 2026-10-23 no-new-CI rule, lifted 2026-11-18). Checks the nightly health
+    # gate's verdicts; it reads nightly-next-health.yml only as data. Run it by hand when nightly_next_health.py or
+    # that workflow changes. Exit: as below.
+    "tests/test_nightly_next_health.py",
     # lane = "manual" in tests/test-execution.d/app.toml (kept manual under the 2026-10-23 no-new-CI rule, lifted 2026-11-18). It checks that the app FFI release's Linux control jobs take the nightly lane's reserved label first, never the bulk route alone; it reads app-ffi-repin.yml and app-ffi-release.yml only as data. Run it by hand
     # when those workflows change. Exit: as below.
     "tests/test_app_ffi_release_linux_route.py",
@@ -101,6 +118,11 @@ UNWIRED: set[str] = {
     # Kept manual under the 2026-10-23 no-new-CI rule (lifted 2026-11-18): #44697 added it with no step. It reads test-ios.yml only as data (a bot's re-run
     # on a cmux-next lane takes the picker's Blacksmith route); run it by hand when that route changes. Exit: as below.
     "tests/test_ci_ios_bot_rerun_route.py",
+    # lane = "manual": kept manual under the 2026-10-23 no-new-CI rule (lifted 2026-11-18). It reads the fast-check
+    # workflows only
+    # as data (each routed job's needs and if, and its declared inputs in scripts/ci/fast-check-inputs.json); run
+    # it by hand when fast_check_route.py, that map or a routed workflow changes. Exit: as below.
+    "tests/test_ci_fast_check_route.py",
     # lane = "manual": kept manual under the 2026-10-23 no-new-CI rule (lifted 2026-11-18). Both read the
     # workflows only as data (the receipt jobs' verifier calls; each pull-request job's same-tree reuse or
     # denial in scripts/ci/same_tree_reuse.json); run them by hand when ci_receipt.py, same_tree_reuse.py,

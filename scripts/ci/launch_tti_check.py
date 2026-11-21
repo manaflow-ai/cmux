@@ -42,7 +42,14 @@ a chat input_ms is late by at most that; the terminal's is the echo of the key t
 Exit 0 when every round measured its front.
 
 A NIGHTLY is a Release build: only release control methods and the bundled CLI are used. Posting keys needs the
-process to hold the PostEvent grant; a run without it says `post_access: false` and measures no input.
+process to hold the PostEvent grant (CGPreflightPostEventAccess). A runner without it (`post_access: false`) types in
+the app instead (`input: in_app`, every round row and the TTI line say which path ran, `posted` or `in_app`): the
+launch has CMUX_NEXT_LAUNCH_TYPE_PROBE=1, so the app itself types one key into its key window at its first window
+frame (LaunchTypeProbe, the probe scripts/measure/launch-ready.swift's `type` mode uses), and the terminal's
+interaction is its launch marks `terminal_input_accepted` (accepted_ms) and `terminal_echo` (input_ms): the same
+process start to the typed key taken. `terminal.probe_no_key_window` (no window was key at that frame) fails the
+round. The chat composer posts no input mark in any build yet (`no_mark`), so on either path a chat round measures
+nothing and the row is the terminal's.
 """
 from __future__ import annotations
 
@@ -75,8 +82,11 @@ DEFAULT_PLAN = ("cold_install:chat,cold_install:terminal,cold_after_update:chat,
 PRERUN_S = 60.0
 INPUT_MARK_MESSAGE = b"pane.inputEchoed"  # what a page posts when its composer drew a typed key (the mark's source)
 CHAT_MARK = "agent_pane.input_echoed"
+TYPE_PROBE_VARIABLE = "CMUX_NEXT_LAUNCH_TYPE_PROBE"  # LaunchTypeProbe: the app types one key at its first window frame
+PROBE_TYPED, PROBE_NO_KEY_WINDOW = "terminal.probe_key_typed", "terminal.probe_no_key_window"
 KEPT_MARKS = ("main_start", "first_window_frame_committed", "reveal.pane", "reveal.home", "agent_pane.painted",
-              CHAT_MARK, "first_terminal_surface_created", "terminal_input_accepted", "terminal_echo")
+              CHAT_MARK, "first_terminal_surface_created", "terminal_input_accepted", "terminal_echo", PROBE_TYPED,
+              PROBE_NO_KEY_WINDOW)
 
 
 def log(message: str) -> None:
@@ -180,6 +190,43 @@ def terminal_reading(rows: list[dict], start_ns: int | None) -> dict:
         if str(row.get("complete")).lower() in ("1", "true", "yes") and shown is not None:
             out["input_ms"] = round(at + shown, 1)
             break
+    return out
+
+
+def input_path(post_access: bool, chosen: str = "auto") -> str:
+    """`posted` when this process may post keys (the harness types), else `in_app` (the app's LaunchTypeProbe types);
+    --input posted or in_app picks one whatever the grant (posted without it fails every round, as before)."""
+    if chosen in ("posted", "in_app"):
+        return chosen
+    return "posted" if post_access else "in_app"
+
+
+def launch_env(env: dict, probe: Path, path: str) -> dict:
+    """The measured launch's environment: the typing probe always, the app's own first-frame key on the in_app path."""
+    out = {**env, "CMUX_NEXT_TYPING_PROBE": str(probe)}
+    if path == "in_app":
+        out[TYPE_PROBE_VARIABLE] = "1"
+    return out
+
+
+def in_app_terminal_reading(marks: dict) -> dict:
+    """{accepted_ms, input_ms} from the launch marks on the in_app path: the key LaunchTypeProbe typed left the app for
+    the restored terminal's pty (terminal_input_accepted) and its echo came back (terminal_echo); ms since process
+    start, as launch-ready.swift's type mode reads them."""
+    return {"accepted_ms": marks.get("terminal_input_accepted"), "input_ms": marks.get("terminal_echo")}
+
+
+def round_failures(which: str, path: str, row: dict, marks: dict, settle: float) -> list[str]:
+    """What a round that ran its launch failed on, from its reading (pure). The posted path without the grant has no
+    way to type; the in_app path with no key window at the first frame typed nowhere."""
+    out = []
+    if path == "posted" and not row.get("post_access", True):
+        out.append("this process may not post keys (CGPreflightPostEventAccess false)")
+    if row.get("input_ms") is None and not row.get("no_mark"):
+        if path == "in_app" and which == "terminal" and PROBE_NO_KEY_WINDOW in marks:
+            out.append("the app typed no key: no window was key at its first frame (terminal.probe_no_key_window)")
+        else:
+            out.append(f"the {which} took no key within {settle:.0f} s ({path})")
     return out
 
 
@@ -349,8 +396,9 @@ def prerun(inst: rr.Instance, app: Path, env: dict, out: Path, seconds: float) -
 def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: Path, pristine: Path, env: dict,
                made: dict, keys: Keys, args, out: Path):
     """One quit and measured launch; returns (row, the new process)."""
+    path = input_path(keys.access, args.input)
     row: dict = {"round": n, "kind": kind, "front": which, "workspaces": made.get("list", {}).get("workspaces"),
-                 "post_access": keys.access}
+                 "post_access": keys.access, "input": path}
     failures = row.setdefault("failures", [])
     put = rr.put_front(inst, which, made)
     if put:
@@ -376,8 +424,10 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
     probe = out / f"typing-round{n}.csv"
     probe.unlink(missing_ok=True)
     spawned = uptime_ns()
-    process, fd, _ = rr.launch(app, {**env, "CMUX_NEXT_TYPING_PROBE": str(probe)}, out / "app-tti.log")
+    process, fd, _ = rr.launch(app, launch_env(env, probe, path), out / "app-tti.log")
     start_ns = process_start_uptime_ns(process.pid)
+    if path == "in_app":
+        activate(process.pid)  # the app types into its key window at its first frame: ask for the front from the start
     row["pid"] = process.pid
     row["spawn_to_start_ms"] = round((start_ns - spawned) / 1e6, 1) if start_ns else None
     marks: dict = {}
@@ -393,7 +443,11 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
         # round ends when the chat drew and types nothing into its draft; it reads `no_mark`, not a failure of the app.
         if which == "chat" and not args.has_input_mark and "agent_pane.painted" in marks:
             break
-        if which == "terminal":
+        if which == "terminal" and path == "in_app":
+            term = in_app_terminal_reading(marks)
+            if term["input_ms"] is not None or PROBE_NO_KEY_WINDOW in marks:
+                break
+        elif which == "terminal":
             term = terminal_reading(probe_rows(probe), start_ns)
             if term["input_ms"] is not None:
                 break
@@ -403,7 +457,7 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
         # A terminal key that reached the pty: stop typing so its echo closes the sample (a later key would close it
         # unfinished), and post again only if no echo comes within a second.
         holding = which == "terminal" and term["accepted_ms"] is not None and time.monotonic() - last_post < 1.0
-        if keys.cg is not None and not holding:
+        if path == "posted" and keys.cg is not None and not holding:
             keys.post(process.pid)
             posted += 1
             last_post = time.monotonic()
@@ -412,7 +466,7 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
     read_marks(fd, buf, marks)
     os.close(fd)
     if which == "terminal":
-        term = terminal_reading(probe_rows(probe), start_ns)
+        term = in_app_terminal_reading(marks) if path == "in_app" else terminal_reading(probe_rows(probe), start_ns)
     row["keys_posted"] = posted
     row["main_ms"] = marks.get("main_start")
     row["first_frame_ms"] = marks.get("first_window_frame_committed")
@@ -426,10 +480,7 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
     row["marks"] = {k: marks[k] for k in KEPT_MARKS if k in marks}
     if process.poll() is not None:
         failures.append(f"the app exited (status {process.poll()})")
-    if not keys.access:
-        failures.append("this process may not post keys (CGPreflightPostEventAccess false)")
-    if row.get("input_ms") is None and not row.get("no_mark"):
-        failures.append(f"the {which} took no key within {args.settle:.0f} s")
+    failures += round_failures(which, path, row, marks, args.settle)
     rr.safe_print("TTI-ROUND " + json.dumps(row, default=str), flush=True)
     return row, process
 
@@ -499,11 +550,13 @@ def check(args) -> int:
     # A chat round on a build without the input mark measured nothing about the app and fails nothing (`no_mark`).
     measured = [r for r in result["rounds"] if isinstance(r.get("input_ms"), (int, float)) or r.get("no_mark")]
     passed = status == 0 and len(result["rounds"]) == len(args.plan) and len(measured) == len(args.plan)
-    result.update(summary, verdict="pass" if passed else "fail", post_access=keys.access)
+    result.update(summary, verdict="pass" if passed else "fail", post_access=keys.access,
+                  input=input_path(keys.access, args.input))
     if args.out:
         with open(Path(args.out) / "tti.json", "w") as handle:
             json.dump(result, handle, indent=2, default=str)
-    print("TTI " + json.dumps({k: result.get(k) for k in ("verdict", "post_access", "seed", "seed_error", *summary)}),
+    shown = ("verdict", "post_access", "input", "seed", "seed_error", *summary)
+    print("TTI " + json.dumps({k: result.get(k) for k in shown}),
           flush=True)
     return 0 if passed else (status if status not in (0, None) else 1)
 
@@ -531,6 +584,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--plan", default=DEFAULT_PLAN, help="KIND:FRONT rounds in order; KIND cold_install, "
                                                              "cold_after_update, warm or warm60, FRONT chat or terminal")
     parser.add_argument("--settle", type=float, default=30.0, help="seconds a launch may take to take a key")
+    parser.add_argument("--input", choices=("auto", "posted", "in_app"), default="auto",
+                        help="who types: posted (CGEventPostToPid, needs the PostEvent grant), in_app (the app's "
+                             "LaunchTypeProbe at its first frame), auto (posted when the grant is held)")
     parser.add_argument("--fake-agent", default=str(rr.DEFAULT_FAKE_AGENT))
     parser.add_argument("--out")
     args = parser.parse_args(argv)

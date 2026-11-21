@@ -17,7 +17,12 @@ deletes the clone; off a Mac it prints the fleet route, `cmux-ci hot-verify N --
 | Web (`webviews/`) | `cmux customize use pr:N`, `branch:NAME`, `sha:SHA` or `dir:PATH [--watch]`; back with `cmux customize library off NAME` |
 | Terminal daemon, acpmux Rust (`cmux-tui/`) | `scripts/cmux-next/hot-apply.py plan SHA`, `apply SHA`, `rollback` |
 | A whole PR, branch or commit | `cmux app try <PR\|branch\|sha>`, back with `cmux app try undo` |
-| Swift, Rust the app links, resources | a build; `hot-apply.py plan` says which and why |
+| Web from your checkout, hot reload on save | `cmux live start --worktree <checkout>` |
+| Daemon Rust from your checkout | `cmux live start --rust` |
+| Swift inside function bodies | live code on a Debug base: `cmux live start --swift` ([live code](docs/cmux-next/live-code.md)) |
+| String catalogs (`.xcstrings`), Cloud wire types (`clients/ts`) | `cmux app try`: no build (Swift's translations wait for one) |
+| Backend, images, workers, CI | no app change: `cmux-ci test -- CMD` on Linux; a copy of the NIGHTLY signs in to Cloud (`cmux app try .`) |
+| Swift signatures, stored properties, Rust the app links, resources | a build; `hot-apply.py plan` says which and why |
 
 Full loop: the [cmux-hot-loop skill](skills/cmux-hot-loop/SKILL.md) and
 [docs/cmux-next/hot-reload.md](docs/cmux-next/hot-reload.md#the-loop).
