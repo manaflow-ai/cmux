@@ -38,6 +38,25 @@ python3 -m venv --system-site-packages "$CI_TOOLS"
 "$CI_TOOLS/bin/python" -m pip install --disable-pip-version-check --no-input --quiet PyYAML==6.0.3
 '''
 
+# What only some steps need, made only when a routed step of the job lists it in `needs` (so a pull request
+# that routes no bun step never downloads bun). Each runs in the job's checkout after [setup], all at once, and
+# puts its binaries in "$CI_TOOLS/bin". No root, no apt: a download into $CI_TOOLS (or the runner's tool
+# cache, which a persistent runner keeps, so its next job downloads nothing).
+[tools]
+# The version every workflow that moved here pinned for oven-sh/setup-bun; a newer release of its major passes.
+bun = 'scripts/ci/ensure-bun.sh 1.4.4 "$CI_TOOLS/bin"'
+# The `24.22.1` the repository's other workflows pin for setup-node (the moved one asked for `24`).
+node = '''
+export RUNNER_TOOL_CACHE="${RUNNER_TOOL_CACHE:-$CI_TOOLS/tool-cache}"
+export GITHUB_PATH="$CI_TOOLS/github-path"
+: > "$GITHUB_PATH"
+scripts/ci/ensure-setup-node.sh 24.22.1
+mkdir -p "$CI_TOOLS/bin"
+node_bin="$(tail -n 1 "$GITHUB_PATH")"
+[ -n "$node_bin" ] || node_bin="$(dirname "$(command -v node)")"
+for tool in node npm npx; do ln -sf "$node_bin/$tool" "$CI_TOOLS/bin/$tool"; done
+'''
+
 # Python contract tests that each had a workflow, a runner and a checkout of their own
 # (indexnow-tests.yml, vendored-agent-cursor.yml, r2-upload-tests.yml, cmux-skill-contract.yml,
 # ci-cache-receipts.yml). `inputs` is each one's former path filter.
@@ -290,6 +309,130 @@ rc=0
 python3 -I tests/test_check_swift_acpmux_protocol.py || rc=1
 python3 -I scripts/ci/check-swift-acpmux-protocol.py || rc=1
 exit "$rc"
+'''
+
+# Checks that run bun or node, each of which had a workflow, a runner and a checkout of its own (app-platform.yml,
+# ci-artifact-transport.yml, cloud-vm-image-lock.yml, mux.yml, automation-bench.yml). Those workflows keep their
+# push and dispatch runs; a pull request runs them here. `inputs` is each one's former pull_request path filter.
+[step.app-platform]
+job = "linux"
+timeout = 300
+title = "App platform (runtime, SDK, samples, first-party forks)"
+about = "the app host's runtime bundle and generated cmux global are current, the app-test harness, runtime and sample apps pass their bun tests, and every first-party app runs its own tests as a fork with only the public SDK"
+needs = ["bun"]
+inputs = [
+  "cmux-tui/crates/cmux-app-host/**",
+  "samples/apps/**",
+  "first-party-apps/**",
+  "examples/extensions/**",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/**",
+  "scripts/cmux-next/check-app-platform.sh",
+  "scripts/cmux-next/sync-app-runtime.sh",
+]
+run = "bash scripts/cmux-next/check-app-platform.sh"
+
+[step.mux]
+job = "linux"
+timeout = 300
+title = "mux bun test"
+about = "the mux brain host's bun test suite (mux/), on its frozen lockfile"
+needs = ["bun"]
+inputs = ["mux/**"]
+run = '''
+cd mux
+bun install --frozen-lockfile
+bun test
+'''
+
+[step.automation-bench]
+job = "linux"
+timeout = 300
+title = "Automation bench scoreboard"
+about = "the unit tests of the automation bench scoreboard (tests/automation-bench)"
+needs = ["bun"]
+inputs = ["tests/automation-bench/**"]
+run = "bun test tests/automation-bench"
+
+[step.cloud-vm-image-lock]
+job = "linux"
+timeout = 300
+title = "Cloud VM image lock"
+about = "images/cmux-vm/inputs.lock.json, the sshd policy checker, the bake and promote workflows' step scripts (with a stubbed bun) and the promote workflow's permissions, key handling and delete refusal; web's locked dependencies installed first"
+needs = ["bun"]
+inputs = [
+  "images/cmux-vm/**",
+  "web/scripts/cmux-vm-image/**",
+  "web/tests/vm-image-cmux-vm-lock.test.ts",
+  "web/tests/vm-image-cmux-vm-sshd.test.ts",
+  "web/tests/vm-image-cmux-vm-bake-workflow.test.ts",
+  "web/tests/vm-image-cmux-vm-dev-tree.test.ts",
+  "web/tests/vm-image-cmux-vm-dns.test.ts",
+  "web/tests/vm-image-cmux-vm-machine-health.test.ts",
+  "web/tests/vm-image-cmux-vm-promote-workflow.test.ts",
+  "web/tests/vm-image-cmux-vm-github-auth.test.ts",
+  "web/services/vms/hygiene/cmux-machine-hygiene",
+  ".github/workflows/cloud-vm-image-bake.yml",
+  ".github/workflows/cloud-vm-image-promote.yml",
+]
+run = '''
+cd web
+bun install --frozen-lockfile
+bun test tests/vm-image-cmux-vm-lock.test.ts tests/vm-image-cmux-vm-sshd.test.ts tests/vm-image-cmux-vm-bake-workflow.test.ts tests/vm-image-cmux-vm-dev-tree.test.ts tests/vm-image-cmux-vm-dns.test.ts tests/vm-image-cmux-vm-machine-health.test.ts tests/vm-image-cmux-vm-promote-workflow.test.ts tests/vm-image-cmux-vm-github-auth.test.ts
+'''
+
+# ci-artifact-transport.yml's two halves. Its Python tests ran on every change to its list; its Worker half
+# (npm, node 24) only when workers/ci-artifacts changed, which is now this step's own input, so a change to
+# the Python side installs no node.
+[step.ci-artifact-transport]
+job = "linux"
+timeout = 300
+title = "CI artifact transport"
+about = "the CI artifact transport's and fallback's Python tests (node product cache, LAN product source, R2 artifact and canary, rpath relocation, parallel download)"
+inputs = [
+  ".github/workflows/ci.yml",
+  ".github/workflows/ci-macos.yml",
+  "workers/ci-artifacts/**",
+  "scripts/ci/restore-r2-artifact.py",
+  "scripts/ci/parallel_artifact_download.py",
+  "scripts/ci/deadline_http.py",
+  "tests/test_ci_parallel_artifact_transport.py",
+  "scripts/ci/node_product_cache.py",
+  "docs/ci/node-product-cache-maintenance.md",
+  "scripts/ci/peer_product_source.py",
+  "scripts/ci/restore-app-host-test-product.sh",
+  "scripts/ci/relocate_package_framework_rpaths.py",
+  "tests/test_relocate_package_framework_rpaths.py",
+  "tests/test_node_product_cache.py",
+  "tests/test_lan_product_source.py",
+  "scripts/ci/verify-r2-canary.py",
+  "scripts/ci/r2-canary-cloudflare.py",
+  "tests/test_ci_r2_canary.py",
+  ".github/workflows/ci-artifact-canary.yml",
+  "tests/test_ci_r2_artifact.py",
+  ".github/actions/download-test-product/action.yml",
+  "scripts/ci/measure-r2-artifact-run.py",
+  "tests/git_fixture_env.py",
+]
+run = '''
+python3 tests/test_node_product_cache.py
+python3 tests/test_lan_product_source.py
+python3 tests/test_ci_r2_artifact.py
+python3 tests/test_ci_r2_canary.py
+python3 tests/test_relocate_package_framework_rpaths.py
+python3 tests/test_ci_parallel_artifact_transport.py
+'''
+
+[step.ci-artifact-worker]
+job = "linux"
+timeout = 360
+title = "CI artifact Worker"
+about = "the artifact Worker (workers/ci-artifacts) typechecks and passes its tests against local R2 and Durable Objects; its dependencies install without scripts"
+needs = ["node"]
+inputs = ["workers/ci-artifacts/**"]
+run = '''
+cd workers/ci-artifacts
+npm ci --ignore-scripts --no-audit --no-fund
+WRANGLER_SEND_METRICS=false npm run check
 '''
 
 # The description lints from pr-body-checks.yml. They judge the description, not the code, and only

@@ -17,6 +17,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -240,6 +241,48 @@ class SetupTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertNotIn("setup-ran", out)
 
+    def test_a_tool_is_made_only_for_a_routed_step_that_needs_it(self) -> None:
+        t = table('''
+            [tools]
+            bun = "mkdir -p \\"$CI_TOOLS/bin\\"; echo made-bun >&2; printf '#!/bin/sh\\\\necho bun-ran\\\\n' > \\"$CI_TOOLS/bin/bun\\"; chmod +x \\"$CI_TOOLS/bin/bun\\""
+            node = "echo made-node >&2"
+            [step.a]
+            job = "linux"
+            needs = ["bun"]
+            inputs = ["mux/**"]
+            run = "bun"
+            [step.b]
+            job = "linux"
+            needs = ["node"]
+            inputs = ["workers/**"]
+            run = "true"
+        ''')
+        code, out = self.run_job(t, "linux", ["mux/a.ts"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("bun-ran", out)
+        self.assertEqual(out.count("::group::tool (bun)"), 1)
+        self.assertNotIn("made-node", out)
+        code, out = self.run_job(t, "linux", ["docs/x.md"])
+        self.assertNotIn("made-", out)
+
+    def test_a_failed_tool_fails_the_job_and_runs_no_step(self) -> None:
+        t = table('''
+            [tools]
+            bun = "echo no-release; exit 4"
+            [step.a]
+            job = "linux"
+            needs = ["bun"]
+            run = "echo step-ran"
+        ''')
+        code, out = self.run_job(t, "linux")
+        self.assertEqual(code, 1)
+        self.assertIn("no-release", out)
+        self.assertNotIn("step-ran", out)
+
+    def test_needs_names_a_tool_of_the_table(self) -> None:
+        with self.assertRaises(ci_steps.TableError):
+            table('[step.a]\njob = "linux"\nneeds = ["bun"]\nrun = "true"')
+
     def test_setup_names_a_job_of_the_table(self) -> None:
         with self.assertRaises(ci_steps.TableError):
             table('[setup]\nwindows = "true"\n[step.a]\njob = "linux"\nrun = "true"')
@@ -376,7 +419,10 @@ class PipelineTest(unittest.TestCase):
         # These keep their push, dispatch or post-merge runs; a pull request runs them as steps of the table.
         moved = {"labels-sync.yml": "labels-manifest",
                  "cmux-next-shim-cpp.yml": "shim-cpp", "cmux-next-chromium-currency.yml": "chromium-currency",
-                 "swift-acpmux-protocol.yml": "swift-acpmux-protocol"}
+                 "swift-acpmux-protocol.yml": "swift-acpmux-protocol",
+                 "app-platform.yml": "app-platform", "ci-artifact-transport.yml": "ci-artifact-transport",
+                 "cloud-vm-image-lock.yml": "cloud-vm-image-lock", "mux.yml": "mux",
+                 "automation-bench.yml": "automation-bench"}
         steps = ci_steps.load().steps
         for name, step in moved.items():
             with self.subTest(workflow=name):
@@ -384,6 +430,39 @@ class PipelineTest(unittest.TestCase):
                 self.assertNotIn("pull_request", wf.get("on", wf.get(True)), "the step table runs it")
                 self.assertEqual(steps[step].job, "linux")
         self.assertNotIn("validate", yaml.safe_load((ROOT / ".github/workflows/labels-sync.yml").read_text())["jobs"])
+
+    def test_a_step_that_runs_bun_or_node_says_so(self) -> None:
+        # The tools come from [tools], only for a routed step that lists them; nothing else puts bun or node
+        # on the linux job's PATH, and the runner image is not assumed to hold either.
+        table = ci_steps.load()
+        self.assertEqual(sorted(table.tools), ["bun", "node"])
+        wants_bun = {"app-platform", "mux", "automation-bench", "cloud-vm-image-lock"}
+        wants_node = {"ci-artifact-worker"}
+        for name, step in table.steps.items():
+            if step.job != "linux":
+                continue
+            with self.subTest(step=name):
+                self.assertEqual("bun" in step.needs, name in wants_bun)
+                self.assertEqual("node" in step.needs, name in wants_node)
+                words = set(re.findall(r"[A-Za-z0-9_./-]+", step.run))
+                if words & {"npm", "npx", "node"}:
+                    self.assertIn("node", step.needs)
+                if words & {"bun"}:
+                    self.assertIn("bun", step.needs)
+
+    def test_the_artifact_transport_halves_split_on_workers_ci_artifacts(self) -> None:
+        steps = ci_steps.load().steps
+        self.assertEqual(steps["ci-artifact-worker"].inputs, ("workers/ci-artifacts/**",))
+        self.assertIn("workers/ci-artifacts/**", steps["ci-artifact-transport"].inputs)
+        self.assertEqual(steps["ci-artifact-transport"].needs, ())
+
+    def test_the_pipeline_job_runs_on_the_persistent_pool(self) -> None:
+        wf = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
+        self.assertEqual(
+            wf["jobs"]["linux"]["runs-on"],
+            "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && "
+            "github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || "
+            "vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}")
 
     def test_the_shim_step_runs_every_cpp_script(self) -> None:
         run = ci_steps.load().steps["shim-cpp"].run
@@ -394,9 +473,9 @@ class PipelineTest(unittest.TestCase):
                 self.assertIn(f"./scripts/cmux-next/{script.name}", run)
 
     def test_the_job_timeout_covers_setup_and_every_wave(self) -> None:
-        # Setup, then the linux steps two at once (a 2 vCPU runner), each wave as long as the longest step.
+        # Setup, the tools a routed step needs, then the linux steps two at once (a 2 vCPU runner), each wave as long as the longest step.
         linux = [s for s in ci_steps.load().steps.values() if s.job == "linux"]
-        need = ci_steps.SETUP_TIMEOUT + -(-len(linux) // 2) * max(s.timeout for s in linux)
+        need = ci_steps.SETUP_TIMEOUT + ci_steps.TOOL_TIMEOUT + -(-len(linux) // 2) * max(s.timeout for s in linux)
         wf = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
         self.assertGreaterEqual(wf["jobs"]["linux"]["timeout-minutes"] * 60, need)
 
