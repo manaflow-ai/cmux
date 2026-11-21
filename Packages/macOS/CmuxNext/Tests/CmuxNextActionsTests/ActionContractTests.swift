@@ -50,7 +50,8 @@ import Testing
     /// Extension's Menu Row runs the row an extension added to a right-click menu, which passes it, #43369;
     /// List Team Cloud Sessions, Show Team Cloud Session, List Team Members and List, Add and Remove Cloud
     /// Group Member are `cmux cloud` commands that answer a record to the CLI and MCP, and the catalog's
-    /// data gives each the `familyMember` exemption, #40159).
+    /// data gives each the `familyMember` exemption, #40159; View Screen is a machine header's right-click row,
+    /// and the palette reaches the same screens through cloud open-desktop and Screen Sharing, #47230).
     @Test func everyActionIsInThePaletteUnlessExempt() {
         for descriptor in catalog where !descriptor.isPaletteVisible {
             let reason = descriptor.surfacePlan.palette.exemption
@@ -62,9 +63,9 @@ import Testing
                 "browser.link.copyText", "browser.link.saveAs", "browser.selection.copy", "browser.selection.lookUp",
                 "chief.openSubagent", "cloud.group.memberRemove", "cloud.group.memberSet", "cloud.group.members",
                 "cloud.team.members", "cloud.team.session", "cloud.team.sessions", "commandPaletteNext", "commandPalettePrevious",
-                "computerUse.approval.forget", "computerUse.approval.set", "feed.githubAction", "feed.openItem", "history.goTo", "home.messageAbout", "home.messageChiefFromAnyApp", "home.openConversation", "home.sendSelectionTo", "home.showHideChiefFromAnyApp",
+                "feed.githubAction", "feed.openItem", "history.goTo", "home.messageAbout", "home.messageChiefFromAnyApp", "home.openConversation", "home.sendSelectionTo", "home.showHideChiefFromAnyApp",
                 "home.sendSelectionToChief", "list.next", "list.previous",
-                "import.card", "import.list", "import.suggest",
+                "import.card", "import.list", "import.suggest", "machine.viewScreen",
                 "omnibar.openInBackgroundTab", "omnibar.openInForegroundTab", "openBrowser.chromium", "palette.startAgentFromAnyApp",
                 "sidebar.chat.togglePin", "sidebar.density.comfortable", "sidebar.density.compact", "toggleTabAudioMute"]
             + ["paletteKey.firstItem", "paletteKey.lastItem", "paletteKey.pageUp", "paletteKey.pageDown", "paletteKey.submit",
