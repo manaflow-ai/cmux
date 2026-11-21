@@ -55,12 +55,21 @@ GATE_JOBS = {
 STAGED = {
     ("cla.yml", "CLAAssistant"): "a policy PR to the cla.yml bytes CLA_ACTION_RUNNER_SUCCESSOR_PINS pins",
 }
+# Jobs behind a required check that need no one-job VM lead with cmux-linux, the persistent pool, instead: the
+# merge-group bridge only echoes (no token, no checkout, permissions {}). On 2026-11-21 the gate JIT label started
+# nothing from about 14:40Z while about 300 persistent runners sat idle, so its jobs queued for hours.
+POOL_LABEL = "cmux-linux"
+POOL_OPERAND = "vars.CI_GATE_SKIP_FLEET != '1' && '" + POOL_LABEL + "' || "
+POOL_JOBS = {
+    ("merge-group-policy-checks.yml", "cla-assistant"),
+    ("merge-group-policy-checks.yml", "cla-policy-guard"),
+}
 # The persistent pool (runner group 31 cmux-fleet-linux, runners named cmux-runner-pool-*) reuses its VMs across
 # jobs. Since 2026-11-20 it also registers the overflow provider's Ubuntu size labels (Leo, 11:32Z: "4V CPU, 8, 16,
 # 32, who gives a s***? Just send it somewhere."), so GitHub may schedule a job asking for one of them on a pool VM.
 # On cmux#47869 the CLA policy guard asked for blacksmith-4vcpu-ubuntu-2404, ran on cmux-runner-pool-w4bb-0020 and
 # its runner guard failed the required check (job 136287113965, cmux#48035).
-POOL_LABEL = re.compile(r"\A(?:self-hosted|linux|x64|cmux-fleet-linux(?:-x64)?|blacksmith-\d+vcpu-ubuntu-2404)\Z")
+POOL_LABEL_PATTERN = re.compile(r"\A(?:self-hosted|linux|x64|cmux-fleet-linux(?:-x64)?|blacksmith-\d+vcpu-ubuntu-2404)\Z")
 POOL_RUNNER_NAMES = ("cmux-runner-pool-w4bb-0020", "cmux-runner-pool-a1b2-0001")
 GATE_RUNNER_NAME = "cmux-gha-runner-gt-1763650000-0a1b2c"
 # Gate jobs whose selector after the gate operand (vars.CI_GATE_SKIP_FLEET=1) still names a label the pool carries.
@@ -152,7 +161,8 @@ class RequiredGateLabelTest(unittest.TestCase):
                 continue
             with self.subTest(workflow=name, job=job_id, check=check):
                 value = runs_on(load(name)["jobs"][job_id])
-                self.assertTrue(value.startswith(FORK_BRANCH + GATE_OPERAND), value)
+                operand = POOL_OPERAND if (name, job_id) in POOL_JOBS else GATE_OPERAND
+                self.assertTrue(value.startswith(FORK_BRANCH + operand), value)
 
     def test_a_staged_job_keeps_the_admitted_selector_until_its_step(self) -> None:
         for (name, job_id), step in sorted(STAGED.items()):
@@ -173,21 +183,22 @@ class RequiredGateLabelTest(unittest.TestCase):
     def test_only_gate_jobs_ask_for_the_gate_label(self) -> None:
         # The label stays reserved: a PR or build job on it would put the backlog back in front of the gates.
         found = {(name, job_id) for name, job_id, job in all_jobs() if GATE_LABEL in runs_on(job)}
-        self.assertEqual(found, set(GATE_JOBS) - set(STAGED))
+        self.assertEqual(found, set(GATE_JOBS) - set(STAGED) - POOL_JOBS)
 
     def test_the_switch_leaves_the_previous_selector(self) -> None:
         for name, job_id in sorted(set(GATE_JOBS) - set(STAGED)):
             with self.subTest(workflow=name, job=job_id):
-                after = runs_on(load(name)["jobs"][job_id]).replace(GATE_OPERAND, "", 1)
+                operand = POOL_OPERAND if (name, job_id) in POOL_JOBS else GATE_OPERAND
+                after = runs_on(load(name)["jobs"][job_id]).replace(operand, "", 1)
                 self.assertNotIn(GATE_LABEL, after)
                 self.assertTrue(after.startswith(FORK_BRANCH), after)
                 self.assertRegex(after, r"'blacksmith-\dvcpu-ubuntu-2404' }}$")
 
     def test_the_gate_label_is_not_a_pool_label(self) -> None:
-        self.assertIsNone(POOL_LABEL.match(GATE_LABEL))
+        self.assertIsNone(POOL_LABEL_PATTERN.match(GATE_LABEL))
         for label in ("blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404",
                       "cmux-fleet-linux-x64"):
-            self.assertIsNotNone(POOL_LABEL.match(label), label)
+            self.assertIsNotNone(POOL_LABEL_PATTERN.match(label), label)
 
     def test_a_required_gate_never_defaults_to_a_pool_label(self) -> None:
         # With no repository variable set, every required gate asks for a label only one-job VMs serve.
@@ -196,8 +207,12 @@ class RequiredGateLabelTest(unittest.TestCase):
                 continue
             with self.subTest(workflow=name, job=job_id, check=check):
                 label = default_label(runs_on(load(name)["jobs"][job_id]))
+                if (name, job_id) in POOL_JOBS:
+                    # The merge-group bridge only echoes (no token, no checkout), so it may lead with the pool.
+                    self.assertEqual(label, POOL_LABEL)
+                    continue
                 self.assertEqual(label, GATE_LABEL)
-                self.assertIsNone(POOL_LABEL.match(label or ""), label)
+                self.assertIsNone(POOL_LABEL_PATTERN.match(label or ""), label)
 
     def test_a_required_gate_runner_guard_refuses_the_pool(self) -> None:
         # A runner identity step admits by runner.name prefix: never one a pool runner's name starts with, and on
@@ -216,7 +231,7 @@ class RequiredGateLabelTest(unittest.TestCase):
         shares = set()
         for (name, job_id) in GATE_JOBS:
             labels = skip_fleet_labels(runs_on(load(name)["jobs"][job_id]))
-            if labels is None or any(POOL_LABEL.match(label) for label in labels):
+            if labels is None or any(POOL_LABEL_PATTERN.match(label) for label in labels):
                 shares.add((name, job_id))
         self.assertLessEqual(shares, SKIP_FLEET_FALLBACK_SHARES_POOL, "a new gate fallback shares the pool")
         self.assertEqual(SKIP_FLEET_FALLBACK_SHARES_POOL - shares, set(), "fixed: drop it from the list")

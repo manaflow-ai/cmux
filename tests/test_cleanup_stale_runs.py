@@ -275,15 +275,37 @@ class QueuedListingTests(unittest.TestCase):
         def runs(status, pages=10, *, created=None):
             calls.append(created)
             if len(calls) == 1:
-                return [{"id": i} for i in range(MODULE.LIST_CAP)]
-            return [{"id": f"{created}-{i}"} for i in range(3)] + [{"id": "shared"}]
+                return [{"id": i} for i in range(MODULE.LIST_CAP)], False
+            return [{"id": f"{created}-{i}"} for i in range(3)] + [{"id": "shared"}], True
 
-        with mock.patch.object(client, "runs", side_effect=runs):
+        with mock.patch.object(client, "listing", side_effect=runs):
             found = client.queued_pull_request_runs(now=now, hours=2)
         self.assertEqual(calls[0], "2026-11-19T17:00:00Z..2026-11-19T19:00:00Z")
         self.assertEqual(sorted(calls[1:]), ["2026-11-19T17:00:00Z..2026-11-19T18:00:00Z",
                                              "2026-11-19T18:00:00Z..2026-11-19T19:00:00Z"])
         self.assertEqual(len(found), 7)
+
+    def test_a_capped_listing_of_short_pages_is_split(self):
+        # Review of #47775, F3: 98 visible runs a page over 10 pages is 980, under LIST_CAP, but the listing never
+        # reached an empty page, so the window holds more than it returned.
+        client = MODULE.GitHub("test-token", "test/repo")
+        now = dt.datetime(2026, 11, 19, 19, 0, tzinfo=dt.timezone.utc)
+        windows = []
+
+        def request(method, path, **_):
+            query = dict(item.split("=", 1) for item in path.split("?", 1)[1].split("&"))
+            if query["page"] == "1":
+                windows.append(query["created"])
+            if len(windows) == 1:
+                return {"workflow_runs": [{"id": f"{query['page']}-{i}"} for i in range(98)]}
+            if query["page"] == "1":
+                return {"workflow_runs": [{"id": f"{query['created']}-{i}"} for i in range(2)]}
+            return {"workflow_runs": []}
+
+        with mock.patch.object(client, "request", side_effect=request):
+            found = client.queued_pull_request_runs(now=now, hours=2)
+        self.assertEqual(len(windows), 3)
+        self.assertEqual(len(found), 4)
 
 
 class DeadQueuedTests(unittest.TestCase):
@@ -331,12 +353,17 @@ class DeadQueuedTests(unittest.TestCase):
             "young": dict(self.run_data, created_at="2026-09-18T23:55:00Z"),
             "nightly": dict(self.run_data, path=".github/workflows/nightly.yml"),
             "release": dict(self.run_data, name="Release"),
+            "rerun": dict(self.run_data, run_attempt=2),
         }
         for label, run in cases.items():
             with self.subTest(label):
                 self.assertIsNone(self.kind(run, {6: self.pr("other")}))
         self.assertIsNone(self.kind(self.run_data, {5: self.pr("new", labels=["no-janitor"])}))
         self.assertIsNone(self.kind(self.run_data, {5: self.pr(draft=True, labels=["no-janitor"])}))
+        # Review of #47775, F1: a fresh rerun of an old draft is someone asking for it again.
+        rerun = dict(self.run_data, run_attempt=2)
+        self.assertIsNone(self.kind(rerun, {5: self.pr(draft=True)}))
+        self.assertIsNone(self.kind(rerun, {5: self.pr("new")}))
 
     def run_main(self, api, cleanup="true"):
         environment = {"GH_TOKEN": "t", "GH_REPO": "test/repo", "CLEANUP": cleanup, "DEAD_QUEUED": "true",
@@ -369,6 +396,17 @@ class DeadQueuedTests(unittest.TestCase):
         api.queued_pull_request_runs.return_value = [self.run_data]
         api.request.side_effect = [dict(self.run_data),
                                    {"number": 5, "state": "open", "draft": False, "labels": [], "head": {"sha": "old"}}]
+        api.pull_requests_for_commit.return_value = []
+        self.assertEqual(self.run_main(api), 0)
+        self.assertNotIn("POST", [c.args[0] for c in api.request.call_args_list])
+
+    def test_a_closed_pr_labelled_no_janitor_keeps_its_run(self):
+        # Review of #47775, F2: the inventory sees only open PRs' labels; the reread sees the closed one's.
+        api = mock.Mock()
+        api.open_prs.return_value = {}
+        api.queued_pull_request_runs.return_value = [self.run_data]
+        api.request.side_effect = [dict(self.run_data), {"number": 5, "state": "closed", "draft": False,
+                                                         "labels": [{"name": "no-janitor"}], "head": {"sha": "old"}}]
         api.pull_requests_for_commit.return_value = []
         self.assertEqual(self.run_main(api), 0)
         self.assertNotIn("POST", [c.args[0] for c in api.request.call_args_list])
