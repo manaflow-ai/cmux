@@ -49,7 +49,7 @@ extension SidebarSectionsSetting {
     public nonisolated static let groupByDefault: SidebarGroupBy = .none
     /// `sidebar.showSpaces`.
     public nonisolated static let showSpacesPath = ["sidebar", "showSpaces"]
-    public nonisolated static let showSpacesDefault = false
+    public nonisolated static let showSpacesDefault = true
     /// `sidebar.showProfileControl`.
     public nonisolated static let showProfileControlPath = ["sidebar", "showProfileControl"]
     public nonisolated static let showProfileControlDefault = true
