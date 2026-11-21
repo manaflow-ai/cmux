@@ -30,6 +30,8 @@ struct MacConnection {
     let storedInstanceTag: String?
     /// App-instance identity proven by this live session.
     let authenticatedInstanceTag: String?
+    /// Version proven by this session, independent of an older attach ticket.
+    let authenticatedMacAppVersion: String?
     /// The best live identity for diagnostics and connection snapshots.
     var instanceTag: String? {
         authenticatedInstanceTag ?? storedInstanceTag
@@ -48,6 +50,7 @@ struct MacConnection {
         displayName: String?,
         storedInstanceTag: String?,
         authenticatedInstanceTag: String?,
+        authenticatedMacAppVersion: String? = nil,
         supportedHostCapabilities: Set<String>,
         actionCapabilities: MobileWorkspaceActionCapabilities
     ) {
@@ -59,6 +62,7 @@ struct MacConnection {
         self.displayName = displayName
         self.storedInstanceTag = storedInstanceTag
         self.authenticatedInstanceTag = authenticatedInstanceTag
+        self.authenticatedMacAppVersion = authenticatedMacAppVersion
         self.supportedHostCapabilities = supportedHostCapabilities
         self.actionCapabilities = actionCapabilities
     }
@@ -73,6 +77,7 @@ struct MacConnection {
         generation: UUID,
         displayName: String?,
         instanceTag: String?,
+        authenticatedMacAppVersion: String? = nil,
         supportedHostCapabilities: Set<String>,
         actionCapabilities: MobileWorkspaceActionCapabilities
     ) {
@@ -85,6 +90,7 @@ struct MacConnection {
             displayName: displayName,
             storedInstanceTag: instanceTag,
             authenticatedInstanceTag: instanceTag,
+            authenticatedMacAppVersion: authenticatedMacAppVersion,
             supportedHostCapabilities: supportedHostCapabilities,
             actionCapabilities: actionCapabilities
         )

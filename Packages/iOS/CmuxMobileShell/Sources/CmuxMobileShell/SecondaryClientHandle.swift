@@ -11,6 +11,8 @@ struct SecondaryClientHandle {
     let storedInstanceTag: String?
     /// Instance identity proven by this client's authenticated host status.
     let authenticatedInstanceTag: String?
+    /// Version from the authenticated status used to establish this client.
+    let authenticatedMacAppVersion: String?
     let supportedHostCapabilities: Set<String>
     let actionCapabilities: MobileWorkspaceActionCapabilities
 }

@@ -50,6 +50,11 @@ extension MobileShellComposite {
         let macDeviceID = subscription.macDeviceID
         let promotedInstanceTag = subscription.authenticatedInstanceTag
             ?? subscription.storedInstanceTag
+        guard case .allowed = authenticatedMacBuildAdmission(
+            instanceTag: promotedInstanceTag,
+            macAppVersion: subscription.authenticatedMacAppVersion,
+            client: subscription.client
+        ) else { return false }
         guard ownerKey == MacPairingKey(
             macDeviceID: macDeviceID,
             instanceTag: promotedInstanceTag
@@ -111,6 +116,8 @@ extension MobileShellComposite {
             storedInstanceTag: subscription.storedInstanceTag,
             authenticatedInstanceTag:
                 subscription.authenticatedInstanceTag,
+            authenticatedMacAppVersion:
+                subscription.authenticatedMacAppVersion,
             supportedHostCapabilities:
                 subscription.supportedHostCapabilities,
             actionCapabilities: subscription.actionCapabilities
@@ -135,6 +142,7 @@ extension MobileShellComposite {
         )
         activeTicket = subscription.ticket
         activeMacInstanceTag = promotedInstanceTag
+        authenticatedMacAppVersion = subscription.authenticatedMacAppVersion
         connectedHostName = displayName
             ?? placeholderHostName(
                 for: subscription.ticket,
@@ -164,6 +172,8 @@ extension MobileShellComposite {
         activeRoute = subscription.route
         connectionState = .connected
         markMacConnectionHealthy()
+        clearMacVersionUpdateRequired(for: macDeviceID, instanceTag: activeMacInstanceTag)
+        clearPairingError()
 
         if let previousConnection, let demotedSubscription {
             if let previousForegroundID,
