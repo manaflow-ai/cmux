@@ -425,6 +425,9 @@ pub struct Capture {
     wake_read: Fd,
     size: (u32, u32),
     bounds: Bounds,
+    /// When ScreenCaptureKit answered the shareable-content request (clock ns), for the open's
+    /// step timings.
+    content_ns: u64,
     restart: Restart,
     /// The stream is in [`live_streams`] (only a started capture is; `start` holds that lock while
     /// a failed one drops).
@@ -749,6 +752,18 @@ pub fn displays() -> Res<(Vec<(u32, u32)>, usize)> {
     Ok((sizes, current))
 }
 
+/// The stream size [`Capture::start`] will pick for `main`, read from CoreGraphics without asking
+/// ScreenCaptureKit, so work that needs only the size (the encoder session) can start beside the
+/// stream. None for an index (its order is ScreenCaptureKit's list); the caller checks the guess
+/// against [`Capture::size`].
+pub fn expected_size(which: &str, max_width: Option<u32>) -> Option<(u32, u32)> {
+    (which == "main").then(|| {
+        // SAFETY: CGMainDisplayID has no preconditions.
+        let (width, height) = native_size(unsafe { cg::CGMainDisplayID() });
+        fit(width, height, max_width)
+    })
+}
+
 /// `main` (the menu bar display) or a display's index counted left to right.
 fn pick(displays: &[(Id, u32)], which: &str) -> Res<(Id, u32)> {
     if which == "main" {
@@ -999,6 +1014,7 @@ impl Capture {
         let mut streams = live_streams().lock().unwrap_or_else(|p| p.into_inner());
         let excluded = current_exclusions();
         let (content, displays) = shareable_displays()?;
+        let content_ns = crate::clock::now_ns();
         let picked = pick(&displays, which);
         let result = picked.and_then(|(display, id)| {
             Self::stream(content, display, id, fps, max_width, shows_cursor, &excluded, marker)
@@ -1007,6 +1023,7 @@ impl Capture {
         let (mut capture, all_found) = result?;
         streams.push((capture.stream as usize, capture.restart.display));
         capture.registered = true;
+        capture.content_ns = content_ns;
         drop(streams);
         if !all_found {
             // A window the app just showed is not listed yet: ask again until it is.
@@ -1091,6 +1108,7 @@ impl Capture {
                 added: added.is_ok(),
                 restart,
                 registered: false,
+                content_ns: 0,
             };
             added?;
             start_stream(stream)?;
@@ -1104,6 +1122,11 @@ impl Capture {
 
     pub fn size(&self) -> (u32, u32) {
         self.size
+    }
+
+    /// When ScreenCaptureKit answered the shareable-content request (clock ns).
+    pub fn content_ns(&self) -> u64 {
+        self.content_ns
     }
 
     pub fn bounds(&self) -> Bounds {

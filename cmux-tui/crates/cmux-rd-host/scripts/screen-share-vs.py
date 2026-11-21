@@ -1413,7 +1413,17 @@ class Orchestrator:
             return None
         off_us = offset_ns / 1000.0
         start = t["start_ns"] / 1000.0
+        ready = opened["desktop_ready_us"]
+        # The first frame is the session's from when both it and the desktop were ready: a
+        # frame that arrived before (the encoder still starting, or a desktop opened before
+        # Start) counts from desktop ready, so capture_start + first_capture + gate is
+        # always release - open.
         arrived = f.get("arrived_us")
+        usable = max(arrived, ready) if arrived else None
+        ahead = (opened.get("ahead_open_us"), opened.get("ahead_ready_us"))
+        # The open's own steps (the newest line: an early open dropped for a wrong cursor guess
+        # logs one too, before the open that served the session).
+        steps = next((x["open_steps"] for x in reversed(timing) if "open_steps" in x), {})
 
         def ms(us):
             return None if us is None else round(us / 1000.0, 3)
@@ -1421,11 +1431,19 @@ class Orchestrator:
         return {
             # the viewer has the answer -> the host opens the session (handshake, hello, start)
             "signal": ms(opened["open_us"] - off_us - start),
-            # capture stream and encoder start
-            "capture_start": ms(opened["desktop_ready_us"] - opened["open_us"]),
-            # the capture's first frame arrives
-            "first_capture": ms(arrived - opened["desktop_ready_us"]) if arrived else None,
-            "gate": ms(f["release_us"] - arrived) if arrived else None,
+            # Start waits for the capture stream and encoder (opened before Start: the rest of
+            # that open, else all of it)
+            "capture_start": ms(ready - opened["open_us"]),
+            # after that, the capture's first frame arrives
+            "first_capture": ms(usable - ready) if arrived else None,
+            "gate": ms(f["release_us"] - usable) if arrived else None,
+            # the open that ran before Start, off the Start path (null when it ran after Start)
+            "ahead_open": ms(ahead[1] - ahead[0]) if None not in ahead else None,
+            # inside the open: shareable content, stream start, encoder session, first frame
+            "open_content": ms(steps.get("content_us")),
+            "open_stream": ms(steps.get("stream_us")),
+            "open_encoder": ms(steps.get("encoder_us")),
+            "open_first_frame": ms(steps.get("first_frame_us")),
             "encode": ms(f["encoded_us"] - f["release_us"]),
             "send": ms(f["sent_us"] - f["encoded_us"]),
             "down": ms(t["complete_ns"] / 1000.0 - (f["sent_us"] - off_us)),
@@ -1526,7 +1544,7 @@ class Orchestrator:
         # The first session after the rig starts can miss every key (the marker window is
         # not key yet), so warm-up attempts are logged but not counted.
         for n in range(1 - self.a.warmup, self.a.trials + 1):
-            origin = self.marker([])
+            origin = self.marker(["--tick", "--motion"] if self.a.key_motion else [])
             rec = self.cmux_attempt(origin, "key")
             timing = self.host_timing()
             if n < 1:
@@ -1771,8 +1789,9 @@ class Orchestrator:
         if self.ff_rows:
             summ["cmux_first_frame_breakdown"] = stage_table(
                 "cmux first-frame breakdown (ms, viewer clock; p50 / p95 / mean over trials)",
-                self.ff_rows, ["signal", "capture_start", "first_capture", "gate", "encode", "send",
-                               "down", "decode", "total"])
+                self.ff_rows, ["signal", "capture_start", "first_capture", "gate", "ahead_open",
+                               "open_content", "open_stream", "open_encoder", "open_first_frame",
+                               "encode", "send", "down", "decode", "total"])
         self.log({"summary": summ, "link": self.a.link, "rtt": clock})
 
 
@@ -1811,6 +1830,9 @@ def main():
                    "and noise translate; churn is new content every frame)")
     r.add_argument("--trials", type=int, default=10)
     r.add_argument("--warmup", type=int, default=1, help="uncounted key attempts first")
+    r.add_argument("--key-motion", action="store_true",
+                   help="run the key trials over the moving scene too, so the first frame is "
+                   "measured on a screen that changes every refresh, not a still one")
     r.add_argument("--fps-trials", type=int, default=3)
     r.add_argument("--samples", type=int, default=30)
     r.add_argument("--fps-seconds", type=int, default=10)

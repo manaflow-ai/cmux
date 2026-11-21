@@ -156,6 +156,67 @@ pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
     return crate::mac::open(cfg, cursor_metadata);
 }
 
+/// A Mac desktop opening on its own thread before the viewer's Start: ScreenCaptureKit's start
+/// and first frame (about 1 s, measured from Start before this) run while the link connects,
+/// so the session captures as soon as the viewer starts it. Nothing is sent before Start.
+#[cfg_attr(not(feature = "link"), allow(dead_code))]
+#[cfg(target_os = "macos")]
+pub struct Opening {
+    /// The opened halves, and when the open finished (protocol clock, µs).
+    thread: std::thread::JoinHandle<(Res<(crate::mac::MacDesktop, crate::mac::MacFrames)>, u64)>,
+    cursor_metadata: bool,
+    /// When the open started (protocol clock, µs).
+    started_us: u64,
+}
+
+/// Starts opening the display's desktop for `cfg` (as [`open`] would) on its own thread, or
+/// None for a synthetic source, which opens at once at Start.
+#[cfg_attr(not(feature = "link"), allow(dead_code))]
+#[cfg(target_os = "macos")]
+pub fn open_ahead(cfg: &SessionCfg, cursor_metadata: bool) -> Option<Opening> {
+    if synthetic_size().is_some() {
+        return None;
+    }
+    let cfg = cfg.clone();
+    let started_us = crate::clock::now_ns() / 1000;
+    let thread = std::thread::Builder::new()
+        .name("cmux-rd-open".into())
+        .spawn(move || {
+            let opened = crate::mac::open_halves(&cfg, cursor_metadata);
+            (opened, crate::clock::now_ns() / 1000)
+        })
+        .ok()?;
+    Some(Opening { thread, cursor_metadata, started_us })
+}
+
+#[cfg_attr(not(feature = "link"), allow(dead_code))]
+#[cfg(target_os = "macos")]
+impl Opening {
+    /// The opened desktop at the session's Start, set to the session's start bitrate (the
+    /// link's path picks it after the desktop opened), with when its open started and finished
+    /// (µs). None when the session negotiated the other cursor choice: the open is left to
+    /// finish and drop itself (its capture stops) and the caller opens one with [`open`].
+    pub fn finish(
+        self,
+        cursor_metadata: bool,
+        start_kbps: u32,
+    ) -> Option<Res<(Halves, (u64, u64))>> {
+        if cursor_metadata != self.cursor_metadata {
+            return None;
+        }
+        let (opened, ready_us) =
+            self.thread.join().unwrap_or_else(|_| (Err("opening the desktop panicked".into()), 0));
+        Some(opened.map(|(mut desktop, mut frames)| {
+            frames.set_bitrate(start_kbps);
+            // What changed before Start: the session's first frame covers the whole screen.
+            let _ = desktop.drain(&mut Vec::new());
+            let halves =
+                (Box::new(desktop) as Box<dyn Desktop>, Box::new(frames) as Box<dyn FrameSource>);
+            (halves, (self.started_us, ready_us))
+        }))
+    }
+}
+
 /// The size of the generated picture `--source synthetic` picked instead of the display (macOS
 /// bench builds; src/synthetic.rs), else None.
 #[cfg(target_os = "macos")]
