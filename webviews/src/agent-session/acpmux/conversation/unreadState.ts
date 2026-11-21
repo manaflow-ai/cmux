@@ -16,7 +16,17 @@ export type UnreadSide = "in" | "above" | "below";
 /// their own move (`sinceDone`, #40065): the banner has done its job for this mark.
 /// `read`: Mark read, or seen and then the latest message reached: the line fades (no row moves).
 /// `hidden`: the banner's ×/Mark read, until the next mark.
-export type UnreadView = { mark: string; side: UnreadSide; seen: boolean; read: boolean; hidden: boolean };
+/// `inPlace`: read because the reader focused the page, the pane or the composer while the line was
+/// drawn (readerFocus.ts): it fades and keeps its row, so nothing under the reader moves (Leo,
+/// 2026-11-21: "*without dramatic layout shift ideally...").
+export type UnreadView = {
+  mark: string;
+  side: UnreadSide;
+  seen: boolean;
+  read: boolean;
+  hidden: boolean;
+  inPlace?: true;
+};
 
 /// How the banner shows, the `agentPane.display.unreadBanner` setting (chatDisplay.ts): expanded
 /// (the count, the time, Jump and Mark read), collapsed (a small pill), or off.
@@ -28,6 +38,17 @@ export const isUnreadBannerMode = (value: unknown): value is UnreadBannerMode =>
 let view: UnreadView | undefined;
 const listeners = new Set<() => void>();
 
+/// Marks read on this page, newest last: the store holds one view, so a mark met again after
+/// another chat was on screen (acpmux keeps `lastReturn` on a chat while the person stays) starts
+/// read and draws no "New" line where the reader already dismissed it. Bounded: the oldest goes.
+const READ_MARKS_KEPT = 64;
+const readMarks = new Set<string>();
+function rememberRead(mark: string): void {
+  readMarks.delete(mark);
+  readMarks.add(mark);
+  if (readMarks.size > READ_MARKS_KEPT) readMarks.delete(readMarks.values().next().value as string);
+}
+
 function publish(next: UnreadView): void {
   const now = view;
   if (
@@ -35,16 +56,21 @@ function publish(next: UnreadView): void {
     now.side === next.side &&
     now.seen === next.seen &&
     now.read === next.read &&
-    now.hidden === next.hidden
+    now.hidden === next.hidden &&
+    now.inPlace === next.inPlace
   )
     return;
+  if (next.read) rememberRead(next.mark);
   view = next;
   for (const listener of listeners) listener();
 }
 
-/// The view for `mark`: a mark not met yet starts above (the chat opened at its latest message).
+/// The view for `mark`: a mark not met yet starts above (the chat opened at its latest message), and
+/// one read earlier on this page starts read (`readMarks`).
 function of(mark: string): UnreadView {
-  return view?.mark === mark ? view : { mark, side: "above", seen: false, read: false, hidden: false };
+  if (view?.mark === mark) return view;
+  const read = readMarks.has(mark);
+  return { mark, side: "above", seen: read, read, hidden: read };
 }
 
 export const subscribeUnread = (listener: () => void): (() => void) => {
@@ -79,6 +105,17 @@ export function markUnreadRead(mark: string): void {
   publish({ ...of(mark), seen: true, read: true, hidden: true });
 }
 
+/// The reader focused the app, its window, the workspace's pane, the chat or the composer while the
+/// line was drawn (readerFocus.ts; Leo, 2026-11-21: "if i click into the app or click into you for
+/// the workspace like focus anything the composer just the window the pane it should fade away"):
+/// read, the banner gone, and the line fades in place, keeping its row. A line read already keeps
+/// how it went.
+export function readUnreadOnFocus(mark: string): void {
+  const now = of(mark);
+  if (now.read) return;
+  publish({ ...now, seen: true, read: true, hidden: true, inPlace: true });
+}
+
 /// The banner's own dismiss without reading: it goes until the next mark, the line stays.
 export function hideUnreadBanner(mark: string): void {
   publish({ ...of(mark), hidden: true });
@@ -101,6 +138,10 @@ export function bannerShown(
 export const unreadRead = (mark: string, current: UnreadView | undefined): boolean =>
   current?.mark === mark && current.read;
 
+/// Whether the read line for `mark` keeps its row (read by focus, `readUnreadOnFocus`).
+export const unreadReadInPlace = (mark: string, current: UnreadView | undefined): boolean =>
+  current?.mark === mark && current.read && current.inPlace === true;
+
 /// Whether Jump up should take the reader to the line: there is one, and it is not read yet.
 export const unreadPending = (mark: string | undefined, current: UnreadView | undefined): boolean =>
   mark !== undefined && !(current?.mark === mark && current.read);
@@ -108,5 +149,6 @@ export const unreadPending = (mark: string | undefined, current: UnreadView | un
 /// Test seam: forget every mark.
 export function resetUnreadForTest(): void {
   view = undefined;
+  readMarks.clear();
   for (const listener of listeners) listener();
 }
