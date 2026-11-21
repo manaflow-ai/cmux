@@ -58,3 +58,35 @@ final class CmuxToastDivider: NSView {
         needsDisplay = true
     }
 }
+
+extension CmuxToastView {
+    /// The hairline between the message and the buttons (``CmuxToastButtonRow/divider``).
+    public var divider: NSView? { Self.firstDivider(in: self) }
+
+    private static func firstDivider(in view: NSView) -> NSView? {
+        for sub in view.subviews { if let found = sub as? CmuxToastDivider ?? firstDivider(in: sub) { return found } }
+        return nil
+    }
+
+    /// Sets the buttons apart from the message, as Debug Settings > Toasts > Buttons picks
+    /// (``CmuxToastTuning/buttonRow``): a hairline after the message, or a faint resting fill on the quiet
+    /// buttons. A toast with only close keeps it a gap after the message.
+    func separateButtons(in row: NSStackView, after text: NSView) {
+        guard secondaryButton != nil || actionButton != nil || neverShowButton != nil else { return }
+        switch tuning.buttonRow {
+        case .plain:
+            break
+        case .divider:
+            guard let index = row.arrangedSubviews.firstIndex(of: text) else { return }
+            let line = CmuxToastDivider(reduceTransparency: reduceTransparency)
+            row.insertArrangedSubview(line, at: index + 1)
+            // The same room on both sides of the line, to the message's last glyph and to the first title
+            // (a text button's title sits its padding in from its frame).
+            let gap = Metrics.space4
+            row.setCustomSpacing(gap, after: text)
+            row.setCustomSpacing(max(0, gap - CmuxToastButton.titlePadding), after: line)
+        case .chips:
+            for button in [secondaryButton, neverShowButton].compactMap({ $0 }) { button.restsOnFill = true }
+        }
+    }
+}
