@@ -1059,6 +1059,7 @@ fn the_linux_status_says_whether_cmux_rds_host_is_set_up() {
         ("not_installed", false),
         ("enable_failed", false),
         ("timed_out", false),
+        ("deferred", true),
     ] {
         let status = status_json(state, "d", rd, "https://hub.example");
         assert_eq!(status["schema"], "acpmux.share-host.status/1");
@@ -1100,5 +1101,56 @@ fn a_running_unit_is_the_joins_only_when_cmux_rd_records_that_join() {
     assert!(!rd_signed_in_for(&dir, &mark));
     write("m-a", 2);
     assert!(!rd_signed_in_for(&dir, &mark));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Review F1 of #49079: the enable for a new or replaced cmux-rd restarts the host unit, so with
+/// no live share it runs now, and under a live share it waits and runs once the share ends.
+#[test]
+fn a_new_cmux_rd_is_set_up_now_or_once_the_live_share_ends() {
+    use super::linux::{Identity, Step, next_step, unless_live};
+    let id = |inode| Identity { size: 1, mtime: 2, mtime_nsec: 3, inode };
+    let (a, b) = (id(1), id(2));
+    // What the watcher does: it records an enable as tried, never a deferral.
+    let tick = |attempted: &mut Option<Identity>, now, live: bool| {
+        let mut asked = false;
+        let step = unless_live(next_step(attempted.as_ref(), Some(now)), |_| {
+            asked = true;
+            live
+        });
+        if let Step::Enable(id) = step {
+            *attempted = Some(id);
+        }
+        (step, asked)
+    };
+    // No live share: the first build and a replaced one are set up at once.
+    let mut attempted = None;
+    assert_eq!(tick(&mut attempted, a, false), (Step::Enable(a), true));
+    assert_eq!(tick(&mut attempted, a, false), (Step::Wait, false));
+    // A replaced build under a live share waits, tick after tick, without being recorded...
+    assert_eq!(tick(&mut attempted, b, true), (Step::Defer(b), true));
+    assert_eq!(tick(&mut attempted, b, true), (Step::Defer(b), true));
+    assert_eq!(attempted, Some(a));
+    // ...and is set up at the first tick after the share ends, once.
+    assert_eq!(tick(&mut attempted, b, false), (Step::Enable(b), true));
+    assert_eq!(tick(&mut attempted, b, true), (Step::Wait, false));
+    // Nothing installed is never deferred: there is nothing to restart.
+    assert_eq!(unless_live(next_step(None, None), |_| true), Step::NotInstalled);
+}
+
+/// The daemon's look at a live share is the one cmux-rd's share holds for its life.
+#[test]
+fn a_share_is_live_while_cmux_rds_share_holds_its_file() {
+    use cmux_hub_host::host_process::{SHARE_FILE, hold_share, share_live};
+    let dir = std::env::temp_dir().join(format!("share-host-live-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    assert!(!share_live(&dir));
+    let sharing = hold_share(&dir).unwrap();
+    assert!(dir.join(SHARE_FILE).exists());
+    assert!(share_live(&dir));
+    drop(sharing);
+    // The file stays; only its holder says a share is live.
+    assert!(!share_live(&dir));
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -59,6 +59,49 @@ pub fn hold(dir: &Path) -> std::io::Result<Running> {
     Ok(Running { _held: held })
 }
 
+/// In the host's config directory: every share the host serves holds a shared lock on it for the
+/// share's whole life ([`hold_share`]), so whoever would restart the host (the acpmux daemon
+/// setting up a new cmux-rd build) sees a live share ([`share_live`]) and waits. The kernel lets
+/// go of the lock when the share's thread drops it or the process ends, however it ends.
+pub const SHARE_FILE: &str = "share.live";
+
+/// How long a share waits for [`share_live`]'s look to let go of the file.
+const SHARE_TAKE_WAIT: Duration = Duration::from_secs(1);
+
+/// Held by one live share while it lasts.
+#[derive(Debug)]
+pub struct Sharing {
+    _held: FileLock,
+}
+
+/// Taken by a share at its start, kept until it ends: [`share_live`] says true meanwhile. Shared,
+/// so a share that replaces another while that one stops takes it too.
+pub fn hold_share(dir: &Path) -> std::io::Result<Sharing> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(dir.join(SHARE_FILE))?;
+    let held = FileLock::take_within(file, Kind::Shared, SHARE_TAKE_WAIT, STEP)?;
+    Ok(Sharing { _held: held })
+}
+
+/// Whether a host of `dir` serves a live share now: one holds [`SHARE_FILE`] ([`hold_share`]).
+/// False without the file (no share since, or a host of a build older than it) or when it cannot
+/// be read. Never leaves a lock behind.
+pub fn share_live(dir: &Path) -> bool {
+    use std::os::unix::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(dir.join(SHARE_FILE))
+        .is_ok_and(|file| FileLock::held_elsewhere(&file, Kind::Exclusive).unwrap_or(false))
+}
+
 /// What a host of `dir` signs in with: while either is there, a host may serve from it.
 const SIGN_IN_FILES: [&str; 2] = ["device.json", "account.json"];
 
@@ -121,6 +164,26 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn a_share_is_live_exactly_while_one_holds_it() {
+        let dir = scratch("share");
+        // No share yet (or a host of an older build): none is live.
+        assert!(!share_live(&dir));
+        let first = hold_share(&dir).unwrap();
+        assert!(share_live(&dir));
+        // A share that replaces it while it stops takes it too.
+        let second = hold_share(&dir).unwrap();
+        drop(first);
+        assert!(share_live(&dir));
+        drop(second);
+        assert!(!share_live(&dir));
+        // The look left no lock: the next share takes it at once.
+        let again = hold_share(&dir).unwrap();
+        assert!(share_live(&dir));
+        drop(again);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A host of `dir` that never stops by itself: a process in a group of its own that holds

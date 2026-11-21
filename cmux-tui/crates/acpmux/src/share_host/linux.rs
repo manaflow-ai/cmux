@@ -20,13 +20,17 @@
 //!   installs or updates while the daemon runs is set up without a restart. One enable per
 //!   cmux-rd identity per daemon run: one that failed or timed out is tried again only when
 //!   cmux-rd changes or the daemon restarts, never in a loop.
+//! - The enable restarts the host unit, so it never runs under a live share (Leo: "if you have
+//!   indeed connected a machine, you should be able to just screen share onto it freely"): while
+//!   the host serves one (each share holds cmux-rd's `share.live` lock), the status says
+//!   `deferred` and the first check after the share ends runs it ([`unless_live`]).
 //! - It runs in the background, at most [`ENABLE_WAIT`] an attempt, and never fails the daemon:
 //!   one log line says how it went, and `acpmux share-host status` says it too. Without cmux-rd
 //!   the status says so, with the join line's reason when it could not install it
 //!   ([`INSTALL_FAILED`]).
 
 use super::NotRunning;
-use cmux_hub_host::identity;
+use cmux_hub_host::{host_process, identity};
 use serde_json::{Value, json};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -102,6 +106,9 @@ pub(crate) enum Step {
     Wait,
     /// A cmux-rd this daemon run has not tried: the enable.
     Enable(Identity),
+    /// A cmux-rd this daemon run has not tried, while the host serves a live share: the enable,
+    /// which restarts the host unit, waits until the share ends ([`unless_live`]).
+    Defer(Identity),
 }
 
 /// The tick's step, from the identity this daemon run last tried the enable with
@@ -112,6 +119,22 @@ pub(crate) fn next_step(last_attempted: Option<&Identity>, now: Option<Identity>
         Some(id) if last_attempted == Some(&id) => Step::Wait,
         Some(id) => Step::Enable(id),
     }
+}
+
+/// `step`, deferred when it is an enable and the host serves a live share now (`live`, asked only
+/// then): the enable restarts the host unit, which would cut the share. Nothing is recorded as
+/// tried, so the next tick after the share ends runs it.
+pub(crate) fn unless_live(step: Step, live: impl FnOnce(&Identity) -> bool) -> Step {
+    match step {
+        Step::Enable(id) if live(&id) => Step::Defer(id),
+        other => other,
+    }
+}
+
+/// Whether this machine's screen host serves a live share now: a share holds cmux-rd's
+/// [`host_process::SHARE_FILE`] for its life (one open and lock try, no process is read).
+pub(crate) fn share_is_live() -> bool {
+    identity::config_dir().is_ok_and(|dir| host_process::share_live(&dir))
 }
 
 /// The join line's reason it could not install cmux-rd ([`INSTALL_FAILED`] in `folder`): its
@@ -438,7 +461,7 @@ fn host_active(env: &[(&'static str, OsString)]) -> bool {
 pub(crate) fn status_json(state: &str, detail: &str, rd: &Path, hub: &str) -> Value {
     json!({
         "schema": super::state::SCHEMA,
-        "running": matches!(state, "set_up" | "already_set_up"),
+        "running": matches!(state, "set_up" | "already_set_up" | "deferred"),
         "state": state,
         "detail": detail,
         "host": "cmux-rd",
@@ -497,8 +520,29 @@ pub(crate) fn start(scope: &cmux_scope::Scope) {
             if attempted.as_ref().is_some_and(|(_, key)| *key != join_key) {
                 attempted = None;
             }
-            match next_step(attempted.as_ref().map(|(id, _)| id), identity_of(&rd)) {
+            // A host already set up for this join and build is left alone anyway; any other
+            // enable restarts the unit, so it waits while a share is live (review F1 of
+            // #49079).
+            let step = unless_live(
+                next_step(attempted.as_ref().map(|(id, _)| id), identity_of(&rd)),
+                |id| {
+                    let set_up = join
+                        .as_ref()
+                        .is_ok_and(|(credential, _)| marked(&folder, &mark_of(credential, id)));
+                    !set_up && share_is_live()
+                },
+            );
+            match step {
                 Step::Wait => {}
+                Step::Defer(_) => {
+                    let detail =
+                        "a share is live; cmux-rd's host is set up again once it ends".to_owned();
+                    if said.as_ref() != Some(&detail) {
+                        tracing::info!("{}: {detail}", super::LOG);
+                        super::state::linux(status_json("deferred", &detail, &rd, &hub));
+                        said = Some(detail);
+                    }
+                }
                 Step::NotInstalled => {
                     let detail = not_installed_detail(&rd, &folder);
                     if said.as_ref() != Some(&detail) {
