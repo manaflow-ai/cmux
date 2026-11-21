@@ -16,7 +16,7 @@ Scenarios (each repeated --runs times):
   reattach  DaemonTerminalSession.attach (CmuxMobileLive/DaemonTerminalSession.swift:690-870):
             (1) resolve-terminal {terminal_id}; (2) set-client-info + identify in one write;
             (3) attach-surface {surface, cols, rows, replay_history_rows: 0}. Complete = the
-            first `vt-state` event of the surface. Three round trips. The terminal's grid on
+            first `vt-state` event of the surface. Three round trips (one with attach-terminal-id-v1). The terminal's grid on
             the daemon is Mac-sized (160x50) and filled with --scrollback-lines numbered
             lines before the phone attaches at 46x42. Variants, each on its own fresh terminal:
               attach     the phone's first attach on a fresh connection (steps 1-3);
@@ -26,6 +26,11 @@ Scenarios (each repeated --runs times):
                          settle_hosted_viewer_size (server/cmd_attach.rs:518-526, up to 1 s)
                          has nothing to wait for. attach minus same_size is the time spent
                          in it (the daemon gives no finer signal).
+            A daemon whose identify (the phone remembers the one of its earlier attach) lists
+            attach-terminal-id-v1 is sent set-client-info, identify and attach-surface
+            {terminal_id, surface, ...} in ONE write, with no resolve-terminal: one round trip.
+            The harness learns the capabilities from a probe identify before the runs, as the phone
+            does from its earlier attach; an older daemon keeps the three round trips.
             A phone's very first attach of a terminal skips step 1 (it resolves only on a
             reattach or retry, DaemonTerminalSession.swift:704): subtract resolve_ms and one
             round trip.
@@ -59,6 +64,7 @@ SETUP_CAPABILITIES = ["conversation-tabs-v1", "agent-session-tabs-v1", "page-tab
 ATTACH_CAPABILITIES = ["size-lease-v2", "size-lease-v1", "shared-sizing-v1", "host-grid-view-v1"]
 REPLAY_HISTORY_ROWS_CAPABILITY = "attach-replay-history-rows-v1"
 INITIAL_SIZE_CAPABILITY = "attach-initial-size"
+ATTACH_TERMINAL_ID_CAPABILITY = "attach-terminal-id-v1"
 
 
 def fail(message):
@@ -288,12 +294,63 @@ def make_terminal(daemon, lines, index):
     return terminal_id, surface
 
 
-def attach_once(path, terminal_id, surface, size, with_resolve=True):
-    """The phone's reattach on a fresh connection; returns the sample and the open connection."""
+def attach_params(request_id, surface, size, capabilities):
+    """As the phone does: the size only when the daemon lists attach-initial-size, the history
+    allowance only when it lists attach-replay-history-rows-v1."""
+    params = {"id": request_id, "cmd": "attach-surface", "surface": surface}
+    sized = size is not None and INITIAL_SIZE_CAPABILITY in capabilities
+    if sized:
+        params["cols"], params["rows"] = size
+    tail = REPLAY_HISTORY_ROWS_CAPABILITY in capabilities
+    if tail:
+        params["replay_history_rows"] = 0
+    return params, sized, tail
+
+
+def probe_capabilities(path):
+    """The daemon's identify capabilities: what the phone remembers from an earlier attach."""
+    conn = Connection(path)
+    try:
+        return conn.call({"id": 1, "cmd": "identify"}).get("capabilities") or []
+    finally:
+        conn.close()
+
+
+def attach_pipelined(conn, terminal_id, surface, size, known, started):
+    """attach-terminal-id-v1: set-client-info, identify and attach-surface in one write."""
+    params, sized, tail = attach_params(4, surface, size, known)
+    params["terminal_id"] = terminal_id
+    before = conn.bytes
+    conn.write([
+        {"id": 2, "cmd": "set-client-info", "name": DEVICE_NAME, "kind": "ios", "device_kind": "iphone",
+         "device_name": DEVICE_NAME, "device_id": DEVICE_ID, "capabilities": ATTACH_CAPABILITIES},
+        {"id": 3, "cmd": "identify"},
+        params,
+    ])
+    vt_bytes = None
+    while vt_bytes is None:
+        message, size_of_line = conn.read()
+        if message.get("event") == "vt-state" and message.get("surface") == surface:
+            vt_bytes = size_of_line
+        elif message.get("id") in (2, 3, 4) and not message.get("ok"):
+            fail(f"pipelined reattach: request {message['id']} failed: {message.get('error')}")
+    total_ms = (time.monotonic() - started) * 1000
+    steps = {"resolve_ms": 0.0, "setup_ms": 0.0, "attach_ms": round(total_ms, 3)}
+    sample = {"wall_ms": round(total_ms, 3), "bytes": conn.bytes, "round_trips": 1, "steps": steps,
+              "attach_bytes": conn.bytes - before, "vt_state_bytes": vt_bytes,
+              "sized": sized, "replay_history_rows": 0 if tail else None}
+    return sample
+
+
+def attach_once(path, terminal_id, surface, size, with_resolve=True, known=None):
+    """The phone's reattach on a fresh connection; returns the sample and the open connection.
+    known: the capabilities of its earlier identify (None: unknown, the serial path)."""
     conn = Connection(path)
     steps = {}
     started = time.monotonic()
     rtts = 0
+    if known is not None and ATTACH_TERMINAL_ID_CAPABILITY in known:
+        return attach_pipelined(conn, terminal_id, surface, size, known, started), conn
     if with_resolve:
         reply = conn.call({"id": 1, "cmd": "resolve-terminal", "terminal_id": terminal_id})
         if reply.get("surface") != surface:
@@ -319,15 +376,7 @@ def attach_once(path, terminal_id, surface, size, with_resolve=True):
     steps["setup_ms"] = round((time.monotonic() - mark) * 1000, 3)
     rtts += 1
     capabilities = identify.get("capabilities") or []
-    # As the phone does: the size only when the daemon lists attach-initial-size, the history
-    # allowance only when it lists attach-replay-history-rows-v1.
-    params = {"id": 4, "cmd": "attach-surface", "surface": surface}
-    sized = size is not None and INITIAL_SIZE_CAPABILITY in capabilities
-    if sized:
-        params["cols"], params["rows"] = size
-    tail = REPLAY_HISTORY_ROWS_CAPABILITY in capabilities
-    if tail:
-        params["replay_history_rows"] = 0
+    params, sized, tail = attach_params(4, surface, size, capabilities)
     mark = time.monotonic()
     conn.write([params])
     vt_ms = None
@@ -354,27 +403,29 @@ def scenario_reattach(binary, runs, scales):
     rows = []
     try:
         index = 0
+        known = probe_capabilities(daemon.socket)
         for scale in scales:
             collected = {"attach": [], "reconnect": [], "same_size": []}
             for _ in range(runs):
                 # attach, then reconnect from a second connection while the first is detached.
                 index += 1
                 terminal_id, surface = make_terminal(daemon, scale, index)
-                first, conn = attach_once(daemon.socket, terminal_id, surface, (PHONE_COLS, PHONE_ROWS))
+                first, conn = attach_once(daemon.socket, terminal_id, surface, (PHONE_COLS, PHONE_ROWS), known=known)
                 conn.close()
-                second, conn = attach_once(daemon.socket, terminal_id, surface, (PHONE_COLS, PHONE_ROWS))
+                second, conn = attach_once(daemon.socket, terminal_id, surface, (PHONE_COLS, PHONE_ROWS), known=known)
                 conn.close()
                 collected["attach"].append(first)
                 collected["reconnect"].append(second)
                 # No size change: attach at the grid the terminal already has.
                 index += 1
                 terminal_id, surface = make_terminal(daemon, scale, index)
-                same, conn = attach_once(daemon.socket, terminal_id, surface, (MAC_COLS, MAC_ROWS))
+                same, conn = attach_once(daemon.socket, terminal_id, surface, (MAC_COLS, MAC_ROWS), known=known)
                 conn.close()
                 collected["same_size"].append(same)
             for variant, samples in collected.items():
                 rows.append({"scenario": "reattach", "variant": variant, "scale": scale,
-                             "scale_unit": "scrollback lines", "round_trips": 3, "runs": samples})
+                             "scale_unit": "scrollback lines",
+                             "round_trips": samples[0]["round_trips"], "runs": samples})
     finally:
         daemon.stop()
     return rows
