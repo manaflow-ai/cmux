@@ -74,7 +74,9 @@ public struct CodexLegacyRestoreCommand: Sendable {
             } else if character == "'" || character == "\"" {
                 quote = character
                 started = true
-            } else if character.isWhitespace {
+            } else if character == " " || character == "\t" {
+                // Only the separators a shell splits on; U+00A0 and other
+                // Unicode spaces are ordinary characters.
                 if started { words.append(word); word = ""; started = false }
             } else if ";&|<>(){}[]*?!~#".contains(character) {
                 return nil

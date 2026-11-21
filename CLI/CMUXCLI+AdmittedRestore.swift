@@ -46,6 +46,56 @@ extension CMUXCLI {
             if let mode = AgentRestoreRequestMode(rawValue: record.mode), mode != .resumeAgent {
                 return .legacy(command: command, environment: processEnvironment.merging(record.environment) { _, saved in saved })
             }
+            // A legacy Codex command that proves Subrouter carries a route to
+            // a per-process endpoint that no longer exists: resume it through
+            // the fixed `sr codex resume` route, never by replaying it. One
+            // that names a Subrouter provider unreadably is refused. Anything
+            // else (including a command that merely mentions subrouter in a
+            // path) keeps the existing legacy path below.
+            if record.mode == AgentRestoreRequestMode.resumeAgent.rawValue,
+               let session = record.checkpointID {
+                let decision = SubrouterCodexResumeRouting().legacyRestoreDecision(
+                    legacyCommand: command,
+                    sessionID: session,
+                    workingDirectory: workingDirectory,
+                    capturedLaunch: record.launchCommand,
+                    savedEnvironment: record.environment
+                )
+                switch decision {
+                case .fallThrough:
+                    break
+                case .refuse:
+                    throw loggedRestoreError(
+                        stage: "record.legacy-subrouter",
+                        detail: "kind=codex session=\(session)",
+                        message: String(
+                            localized: "cli.restore.error.incompleteData",
+                            defaultValue: "restore: this session's saved restore data is not compatible. Start the agent again in this terminal."
+                        )
+                    )
+                case .route(let launch):
+                // The decision already layered the saved environment under the
+                // command's inline account; don't let the saved value win again.
+                let environment = launch.environment ?? [:]
+                let request = AgentRestoreRequest(
+                    mode: .resumeAgent, kind: record.kind, checkpointID: session, source: record.source,
+                    workingDirectory: workingDirectory, environment: environment,
+                    launchCommand: launch, preparedArguments: nil, observedPermissionMode: record.permissionMode
+                )
+                if let invocation = AgentRestorePlanner(executableFileResolver: AgentRestoreExecutableFileResolver())
+                    .invocation(for: request, ambientEnvironment: processEnvironment) {
+                    return .invocation(invocation)
+                }
+                throw loggedRestoreError(
+                    stage: "record.legacy-subrouter",
+                    detail: "kind=codex session=\(session) plan=nil",
+                    message: String(
+                        localized: "cli.restore.error.incompleteData",
+                        defaultValue: "restore: this session's saved restore data is not compatible. Start the agent again in this terminal."
+                    )
+                )
+                }
+            }
             if record.mode == AgentRestoreRequestMode.resumeAgent.rawValue,
                let session = record.checkpointID,
                let legacy = CodexLegacyRestoreCommand(command: command, sessionID: session) {
