@@ -187,15 +187,19 @@ public final class OverflowButton: ClickableButton {
     }
 
     /// The disabled glyph's ink, not AppKit's faded glyph (over a see-through window it read 1.45:1, Nord Light;
-    /// NativeControlContrastAuditTests): the tertiary text, moved toward its pole until it reads at the disabled minimum
-    /// (``CmuxDialogButtonLook/disabledMinimumContrast``) on what the button sits on (``NSView/buttonGround(_:)``).
-    /// The tertiary text alone read 2.22:1 on a dark theme's popup surface. Runs inside `performWithTheme`.
+    /// NativeControlContrastAuditTests): the tertiary text, moved toward its pole until it reads at
+    /// ``disabledGlyphContrast`` on what the button sits on (``NSView/buttonGround(_:)``). Runs inside `performWithTheme`.
     private var disabledInk: NSColor {
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
         let ground = buttonGround(tokens)
         return CmuxDialogButtonLook.readable(tokens.textTertiary.composited(over: ground[0]), over: ground,
-                                             minimum: CmuxDialogButtonLook.disabledMinimumContrast).nsColor
+                                             minimum: Self.disabledGlyphContrast).nsColor
     }
+
+    /// The disabled ⋮'s ink contrast. Its dots are about two pixels across, so no pixel of them is full ink: an ink at
+    /// 3:1 showed at 2.39:1 on screen (Hot Dog Stand) and the tertiary text, 3.57:1, at 2.48:1 (a dark popup surface).
+    /// 4:1 keeps the dots at the 2.5:1 legible floor, still a step under the enabled glyph's secondary ink (4.5:1).
+    static let disabledGlyphContrast = 4.0
 
     private func changeHover(_ change: (inout ChromeHover.State) -> Void) {
         change(&hover.state)

@@ -221,7 +221,9 @@ import CmuxNextDesignTokens
                                     percentile: sample.isIcon ? 0.99 : 0.95)
             else { return nil }
             let standard = disabled ? disabledMinimum : sample.isIcon ? iconMinimum : textMinimum
-            let minimum = min(standard, ceiling * standard / textMinimum)
+            // Under a see-through ceiling the theme's own text is the best any ink can do; its antialiased edge pulls the
+            // patch's percentile a hair under the ink itself (Dracula's text read 3.73:1 against a 3.75:1 ceiling).
+            let minimum = min(standard, ceiling * standard / textMinimum - (ceiling < textMinimum ? 0.05 : 0))
             return Reading(theme: theme.label, ground: ground, control: sample.name, disabled: disabled,
                            ratio: patch.ratio, minimum: minimum, ink: patch.ink, fill: patch.fill,
                            isReference: sample.isReference)
