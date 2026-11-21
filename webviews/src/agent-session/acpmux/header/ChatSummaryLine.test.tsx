@@ -4,6 +4,7 @@
 // first summary.
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import { rollingSummaryOf } from "../direct";
 import { translate } from "../i18n";
 import { ChatSummaryLine } from "./ChatSummaryLine";
 
@@ -37,4 +38,15 @@ test("no summary, or a blank one, draws nothing", () => {
 test("the tab-row header's copy is the inline variant", () => {
   const out = html(<ChatSummaryLine summary={{ text: "Done." }} inline />);
   expect(out).toContain('class="acpmux-chat-summary acpmux-chat-summary--inline"');
+});
+
+test("the pane's summary keeps acpmux's rollingSummary, trimmed, and drops a blank one", () => {
+  expect(
+    rollingSummaryOf({ text: " Parser fixed. ", next: " Merge the PR ", source: "model", turn: 3, at: 1 }),
+  ).toEqual({
+    rollingSummary: { text: "Parser fixed.", next: "Merge the PR" },
+  });
+  expect(rollingSummaryOf({ text: "Done.", next: "  " })).toEqual({ rollingSummary: { text: "Done." } });
+  expect(rollingSummaryOf({ text: "  " })).toEqual({});
+  expect(rollingSummaryOf(undefined)).toEqual({});
 });
