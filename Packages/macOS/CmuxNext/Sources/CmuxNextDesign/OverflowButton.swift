@@ -28,7 +28,10 @@ public final class OverflowButton: ClickableButton {
         }
     }
     /// The ⋮ image the button draws: its own, or ``paneGlyphView``'s for the pane glyph.
-    public var drawnGlyph: NSImage? { drawsPaneGlyph ? paneGlyphViewIfMade?.glyph : image }
+    public var drawnGlyph: NSImage? { drawsInGlyphView ? paneGlyphViewIfMade?.glyph : image }
+    /// The glyph draws in ``paneGlyphView``: the pane glyph, and any glyph while disabled, which AppKit would fade in
+    /// the button's own image whatever its cell says (Hot Dog Stand's dark ⋮ read at half alpha, 2.39:1 on its red).
+    private var drawsInGlyphView: Bool { drawsPaneGlyph || !isEnabled }
     /// Made on first use, so the sidebar's and the cards' ⋮ get no extra view.
     private var paneGlyphViewIfMade: InkCenteredGlyphView?
     private var paneGlyphView: InkCenteredGlyphView {
@@ -104,9 +107,6 @@ public final class OverflowButton: ClickableButton {
         action = #selector(pressed)
         refusesFirstResponder = true
         focusRingType = .none
-        // A disabled ⋮ draws in its own ink (``disabledInk``), not AppKit's dimmed glyph: dimmed over a see-through
-        // window it read 1.45:1 (Nord Light, NativeControlContrastAuditTests).
-        (cell as? NSButtonCell)?.imageDimsWhenDisabled = false
         renderGlyph()
         // Hover follows the pointer and the button's frame (cx-3wu5).
         hover.followPointer(onChange: { [weak self] in self?.needsDisplay = true })
@@ -118,7 +118,13 @@ public final class OverflowButton: ClickableButton {
     override public var mouseDownCanMoveWindow: Bool { false }
 
     override public var isEnabled: Bool {
-        didSet { if isEnabled != oldValue { needsDisplay = true } }
+        didSet {
+            guard isEnabled != oldValue else { return }
+            renderedSize = 0
+            renderGlyph()
+            needsLayout = true
+            needsDisplay = true
+        }
     }
 
     @objc private func pressed() { onPress?() }
@@ -146,7 +152,7 @@ public final class OverflowButton: ClickableButton {
         renderedSize = size
         let image = NSImage.icon(drawsPaneGlyph ? Self.paneGlyph : Self.glyph, size: size)
         image.accessibilityDescription = label
-        if drawsPaneGlyph {
+        if drawsInGlyphView {
             self.image = nil
             paneGlyphView.glyph = image
             paneGlyphView.isHidden = false
@@ -159,7 +165,7 @@ public final class OverflowButton: ClickableButton {
     override public func layout() {
         super.layout()
         renderGlyph()
-        if drawsPaneGlyph { paneGlyphView.frame = bounds }
+        if drawsInGlyphView { paneGlyphView.frame = bounds }
     }
 
     nonisolated override public var wantsUpdateLayer: Bool { true }
@@ -175,12 +181,13 @@ public final class OverflowButton: ClickableButton {
             let pressedInk = hoverStyle == .glyph ? Palette.litGlyph : Palette.textPrimary
             contentTintColor = !isEnabled ? disabledInk
                 : tintOverride ?? (hover.state.pressed ? pressedInk : hover.state.hovering ? Palette.textPrimary : Palette.textSecondary)
-            if drawsPaneGlyph { paneGlyphView.contentTintColor = contentTintColor }
+            if drawsInGlyphView { paneGlyphView.contentTintColor = contentTintColor }
         }
         hover.refresh(animated: false)
     }
 
-    /// The disabled glyph's ink: the tertiary text, moved toward its pole until it reads at the disabled minimum
+    /// The disabled glyph's ink, not AppKit's faded glyph (over a see-through window it read 1.45:1, Nord Light;
+    /// NativeControlContrastAuditTests): the tertiary text, moved toward its pole until it reads at the disabled minimum
     /// (``CmuxDialogButtonLook/disabledMinimumContrast``) on what the button sits on (``NSView/buttonGround(_:)``).
     /// The tertiary text alone read 2.22:1 on a dark theme's popup surface. Runs inside `performWithTheme`.
     private var disabledInk: NSColor {
