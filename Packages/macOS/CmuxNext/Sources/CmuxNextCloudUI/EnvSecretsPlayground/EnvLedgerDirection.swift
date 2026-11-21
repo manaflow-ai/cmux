@@ -88,7 +88,7 @@ struct EnvLedgerDirection: View {
         }
     }
 
-    private func table<Detail: View>(_ rows: [EnvSecretsEntry], open: String, @ViewBuilder detail: (EnvSecretsEntry) -> Detail) -> some View {
+    private func table<Detail: View>(_ rows: [EnvSecretsEntry], open: String, @ViewBuilder detail: @escaping (EnvSecretsEntry) -> Detail) -> some View {
         VStack(spacing: 0) {
             columns
             Divider()

@@ -75,7 +75,7 @@ struct EnvSentencesDirection: View {
         Text(entry.sentence).font(.system(size: TypeScale.body)).foregroundStyle(EnvInk.text).fixedSize(horizontal: false, vertical: true)
     }
 
-    private func cards<Footer: View>(_ rows: [EnvSecretsEntry], @ViewBuilder footer: (EnvSecretsEntry) -> Footer) -> some View {
+    private func cards<Footer: View>(_ rows: [EnvSecretsEntry], @ViewBuilder footer: @escaping (EnvSecretsEntry) -> Footer) -> some View {
         VStack(spacing: 10) {
             ForEach(rows) { entry in
                 card(highlight: entry.name == "STRIPE_SECRET_KEY" ? Color.accentColor : nil) {
