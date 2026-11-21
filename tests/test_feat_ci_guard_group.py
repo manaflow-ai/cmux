@@ -263,12 +263,9 @@ class TheGuardGroupRunsOnItsMeasuredSize(unittest.TestCase):
         workflow = yaml.safe_load((WORKFLOWS / "cmux-next-guards.yml").read_text(encoding="utf-8"))
         return workflow["jobs"]["ci-guard-group"]
 
-    def test_the_job_runs_on_its_measured_size_and_follows_the_outage_switch(self):
-        # Linux only: fleet Linux, then Blacksmith at its measured size. On a mini 24 of its steps red (no
-        # python3.9 or node, temp-cwd scripts), so portable-placement never places it.
-        measured = entry("cmux-next-guards.yml", "ci-guard-group")
-        pool_route = (f"vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_{measured['failover']}"
-                      f" || fromJSON(vars.RUNNER_POOLS).linux_{measured['size']}")
+    def test_the_job_runs_on_the_persistent_pool(self):
+        # Linux only: a fork pull request on Blacksmith, every same-repository run on the persistent pool. On a
+        # mini 24 of its steps red (no python3.9 or node, temp-cwd scripts), so portable-placement never places it.
         # The window gate (base-coalesce.yml) and the 2-vCPU path route (fast_check_route.py): a pull request that
         # touches nothing a guard group reads skips it; an empty route (a push, a router failure) runs it.
         self.assertEqual(self.job()["needs"], ["coalesce", "fast-check-route"])
@@ -280,8 +277,7 @@ class TheGuardGroupRunsOnItsMeasuredSize(unittest.TestCase):
             workflow_jobs.single_runs_on(self.job()),
             "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request'"
             " && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404'"
-            " || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER"
-            " || " + pool_route + " }}",
+            " || 'cmux-linux' }}",
         )
 
     def test_each_guard_pass_uses_a_worker_per_core(self):

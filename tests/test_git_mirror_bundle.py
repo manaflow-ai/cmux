@@ -83,7 +83,7 @@ class Contract(unittest.TestCase):
         # remains on the larger runner and only starts when the probe says due.
         self.assertEqual(PROBE["permissions"], {})
         self.assertEqual(PROBE["outputs"]["due"], "${{ steps.due.outputs.due }}")
-        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_2", runs_on_text(PROBE, "probe"))
+        self.assertIn("'cmux-linux'", runs_on_text(PROBE, "probe"))
         self.assertNotIn("vars.LINUX_RUNNER", runs_on_text(PROBE, "probe"))
         self.assertIn("vars.LINUX_RUNNER", runs_on_text(JOB, "bundle"))
         self.assertNotIn("Fetch the mirrored branches", PROBE_STEPS)
