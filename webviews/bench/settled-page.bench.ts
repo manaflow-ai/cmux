@@ -213,7 +213,7 @@ function installFrameReader() {
     __settle?: {
       start(t0: number): void;
       peek(): { lastChange: number; now: number };
-      stop(): { t0: number; frames: Rec[]; lastChange: number };
+      stop(): { t0: number; frames: Rec[]; lastChange: number; marks: { t: number; what: string }[] };
     };
     __hidden?: boolean;
   };
@@ -225,6 +225,43 @@ function installFrameReader() {
     get: () => (w.__hidden ? "hidden" : "visible"),
   });
   Object.defineProperty(Document.prototype, "hidden", { configurable: true, get: () => !!w.__hidden });
+  // TRACE's timeline: each socket message out and in (its method, or the id it answers) and each long task.
+  const marks: { t: number; what: string }[] = [];
+  const mark = (what: string) => marks.push({ t: performance.now(), what });
+  const Native = window.WebSocket;
+  const asked = new Map<unknown, string>();
+  window.WebSocket = class extends Native {
+    constructor(url: string | URL, protocols?: string | string[]) {
+      super(url, protocols);
+      this.addEventListener("message", (event) => {
+        try {
+          const msg = JSON.parse(String(event.data)) as { id?: unknown; method?: string; params?: { kind?: string } };
+          const what = msg.method ?? `answer ${asked.get(msg.id) ?? msg.id}`;
+          mark(`in ${what}${msg.params?.kind ? ` ${msg.params.kind}` : ""} ${String(event.data).length}B`);
+        } catch {
+          mark("in ?");
+        }
+      });
+    }
+    send(data: string | ArrayBufferLike | Blob | ArrayBufferView) {
+      try {
+        const msg = JSON.parse(String(data)) as { id?: unknown; method?: string };
+        if (msg.method) asked.set(msg.id, msg.method);
+        mark(`out ${msg.method ?? "answer"}`);
+      } catch {
+        mark("out ?");
+      }
+      super.send(data);
+    }
+  } as typeof WebSocket;
+  try {
+    new PerformanceObserver((list) => {
+      for (const entry of list.getEntries())
+        marks.push({ t: entry.startTime, what: `longtask ${entry.duration.toFixed(0)}ms` });
+    }).observe({ type: "longtask", buffered: false });
+  } catch {
+    // no long task timing in this engine
+  }
   const raf = window.requestAnimationFrame.bind(window);
   let frames: Rec[] = [];
   let t0 = 0;
@@ -278,6 +315,7 @@ function installFrameReader() {
   w.__settle = {
     start(at: number) {
       frames = [];
+      marks.length = 0;
       t0 = at;
       lastKey = "";
       lastChange = at;
@@ -289,12 +327,12 @@ function installFrameReader() {
     },
     stop() {
       running = false;
-      return { t0, frames, lastChange };
+      return { t0, frames, lastChange, marks: marks.slice() };
     },
   };
 }
 
-type Read = { t0: number; frames: FrameRecord[]; lastChange: number };
+type Read = { t0: number; frames: FrameRecord[]; lastChange: number; marks: { t: number; what: string }[] };
 type Reader = { start(t0: number): void; peek(): { lastChange: number; now: number }; stop(): Read };
 /** Reads until the page painted `mark`, MIN_WATCH_MS passed and nothing changed for QUIET_MS (or MAX_WATCH_MS); returns
  * every frame read since the transition. */
@@ -329,17 +367,22 @@ function streamView(frame: FrameRecord): FrameRecord {
 /**
  * The stream arm's judge. The view follows the growing reply, so rows leave the top of the view and the reply's own
  * row grows and may change identity (the working row becomes the answer): none of that is a shift. A shift is a row
- * seen in two frames in a row (the bottom-most left out) whose content position changed, or a composer that moved.
+ * seen in two frames in a row (the bottom-most left out) that moved both in the view and in the content: following
+ * the reply moves rows in the view only, and a height read above that the scroll offset absorbs (the view held still)
+ * moves them in the content only, and neither is seen. A composer that moved is a shift too.
  * Settled: the first frame from which no such move happens again and the final bottom row is already shown.
  */
 function judgeStream(frames: FrameRecord[], t0: number): Judged {
   const views = frames.map(streamView);
   const moved = (a: FrameRecord, b: FrameRecord): string | null => {
     const before = new Map(a.rows.map((row) => [row.id, row.top]));
+    const offset = (frame: FrameRecord) => frame.scrollTop ?? 0;
     for (const row of b.rows) {
       const top = before.get(row.id);
-      if (top !== undefined && Math.abs(top - row.top) > MOVE_TOLERANCE_PX)
-        return `row ${row.id} ${top.toFixed(1)} -> ${row.top.toFixed(1)}`;
+      if (top === undefined || Math.abs(top - row.top) <= MOVE_TOLERANCE_PX) continue;
+      const [viewA, viewB] = [top - offset(a), row.top - offset(b)];
+      if (Math.abs(viewA - viewB) > MOVE_TOLERANCE_PX)
+        return `row ${row.id} view ${viewA.toFixed(1)} -> ${viewB.toFixed(1)}, content ${top.toFixed(1)} -> ${row.top.toFixed(1)}`;
     }
     const [ca, cb] = [a.composer, b.composer];
     if (
@@ -583,6 +626,21 @@ try {
       const read = await framesOf(page, markOf(target));
       stopStream();
       const judged = judge(read, arm, target);
+      if (TRACE) {
+        // The timeline to the settled frame: socket traffic, long tasks, and the first frame showing the target.
+        const first = read.frames.find(
+          (frame) => frame.t >= read.t0 && frame.rows.some((row) => rowOf(row.id, target)),
+        );
+        const lines = [
+          ...read.marks,
+          ...(first ? [{ t: first.t, what: "first frame showing the target" }] : []),
+          { t: read.t0 + judged.settledMs, what: "settled" },
+        ]
+          .filter((one) => one.t - read.t0 <= judged.settledMs + 50)
+          .sort((x, y) => x.t - y.t);
+        console.log(`  ${scenario}.${arm} timeline:`);
+        for (const one of lines) console.log(`    +${(one.t - read.t0).toFixed(1)}ms ${one.what}`);
+      }
       const copy = await settledCopy(page);
       const boundMs = await boundInPage(page, copy);
       return { ...judged, boundMs, ratio: judged.settledMs / Math.max(boundMs, 1) };
