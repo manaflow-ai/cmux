@@ -2,16 +2,25 @@
 //! A conversation identity or text is never person authority. The app supplies an existing
 //! ACP decision proof; acpmux alone verifies and spends it. No key lives here.
 
+#[cfg(unix)]
 use std::time::Duration;
 
-use cmux_conversation::{Question, QuestionAnswer, QuestionHarness, QuestionState};
+use cmux_conversation::{Question, QuestionAnswer};
+#[cfg(any(unix, test))]
+use cmux_conversation::{QuestionHarness, QuestionState};
+#[cfg(any(unix, test))]
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::Value;
+#[cfg(any(unix, test))]
+use serde_json::json;
+#[cfg(any(unix, test))]
 use sha2::{Digest, Sha256};
 
+#[cfg(unix)]
 use super::super::agent_session_attach::agent_session_link::AcpmuxLink;
 use crate::mux::Mux;
 
+#[cfg(unix)]
 const TIMEOUT: Duration = Duration::from_secs(3);
 
 /// Releases a per-message reservation on success, refusal or unwind. No background task.
@@ -33,6 +42,7 @@ impl Drop for Reservation<'_> {
 }
 
 /// Ephemeral only: never part of the persisted answer or idempotency fingerprint.
+#[cfg(any(unix, test))]
 #[derive(Deserialize)]
 struct Decision {
     question: Question,
@@ -58,6 +68,7 @@ fn refuse(reason: &'static str) -> anyhow::Error {
 }
 
 // Recursively sort keys, even in serde_json builds with preserve_order enabled.
+#[cfg(any(unix, test))]
 fn canonical(value: &Value) -> Value {
     match value {
         Value::Object(map) => {
@@ -68,13 +79,16 @@ fn canonical(value: &Value) -> Value {
         _ => value.clone(),
     }
 }
+#[cfg(any(unix, test))]
 fn digest(value: &Value) -> String {
     format!("{:x}", Sha256::digest(canonical(value).to_string().as_bytes()))
 }
+#[cfg(any(unix, test))]
 fn hex64(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
 }
 
+#[cfg(unix)]
 pub(super) fn deliver(
     mux: &Mux,
     question: &Question,
@@ -87,6 +101,7 @@ pub(super) fn deliver(
     let link = AcpmuxLink::connect(&socket, |_| {}).map_err(|_| refuse("question.agent_gone"))?;
     let result = deliver_with(question, answer, &decision, |method, params| {
         link.call(method, params, TIMEOUT).map_err(|error| {
+            #[cfg(unix)]
             use super::super::agent_session_attach::agent_session_link::LinkError;
             refuse(match error {
                 LinkError::Timeout => "question.delivery_unknown",
@@ -104,6 +119,18 @@ pub(super) fn deliver(
     result
 }
 
+/// ACP delivery uses a Unix socket. Other daemon builds refuse without recording an answer.
+#[cfg(not(unix))]
+pub(super) fn deliver(
+    _mux: &Mux,
+    _question: &Question,
+    _answer: &QuestionAnswer,
+    _decision: Option<&Value>,
+) -> anyhow::Result<()> {
+    Err(refuse("question.unsupported_platform"))
+}
+
+#[cfg(any(unix, test))]
 fn decode(question: &Question, value: Option<&Value>) -> anyhow::Result<Decision> {
     let value = value.ok_or_else(|| refuse("question.person_decision_required"))?;
     let decision: Decision =
@@ -151,6 +178,7 @@ fn decode(question: &Question, value: Option<&Value>) -> anyhow::Result<Decision
     Ok(decision)
 }
 
+#[cfg(any(unix, test))]
 fn deliver_with(
     question: &Question,
     answer: &QuestionAnswer,
@@ -207,6 +235,7 @@ fn deliver_with(
     Ok(())
 }
 
+#[cfg(any(unix, test))]
 fn encode_answers(question: &Question, answer: &QuestionAnswer) -> anyhow::Result<Value> {
     let mut answers = serde_json::Map::new();
     for item in &question.items {

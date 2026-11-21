@@ -30,6 +30,7 @@ use crate::conversation_store::{
 /// connections only.
 pub const LOCAL_CONVERSATIONS_CAPABILITY: &str = "local-conversations-v1";
 /// Question answers require person proof and reach ACP before the answer is recorded.
+#[cfg(unix)]
 pub const CONVERSATION_QUESTION_DELIVERY_CAPABILITY: &str = "conversation-question-delivery-v1";
 /// `conversation-search` on the local conversation owner.
 pub const CONVERSATION_SEARCH_CAPABILITY: &str = "conversation-search-v1";

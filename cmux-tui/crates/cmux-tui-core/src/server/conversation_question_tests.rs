@@ -220,3 +220,12 @@ fn original_request_context_has_no_extra_envelope_size_cap() {
     d["digest"] = json!(digest(&d["request"]));
     assert!(decode(&q, Some(&d)).is_ok());
 }
+
+#[cfg(not(unix))]
+#[test]
+fn unsupported_platform_refuses_without_an_agent_transport() {
+    let mux = Mux::new_for_test("question-unsupported-platform", crate::SurfaceOptions::default());
+    let error = super::deliver(&mux, &question(), &answer(), None).unwrap_err();
+    assert_eq!(error.to_string(), "question.unsupported_platform");
+    assert_eq!(super::super::error_code(&error).as_deref(), Some("conversation_rejected"));
+}

@@ -389,7 +389,6 @@ pub(super) fn advertised_capabilities(
         crate::feed_client::FEED_CLIENT_CAPABILITY,
         icon_assets::ICON_ASSETS_CAPABILITY,
         conversations::LOCAL_CONVERSATIONS_CAPABILITY,
-        conversations::CONVERSATION_QUESTION_DELIVERY_CAPABILITY,
         conversations::CONVERSATION_SEARCH_CAPABILITY,
         conversations::CONVERSATION_DRAFT_CAPABILITY,
         conversations::CONVERSATION_DRAFT_EVENTS_CAPABILITY,
@@ -512,6 +511,8 @@ pub(super) fn advertised_capabilities(
     }
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     capabilities.extend([crate::image_paste::CAPABILITY, crate::image_paste::FILE_CAPABILITY]);
+    #[cfg(unix)]
+    capabilities.push(conversations::CONVERSATION_QUESTION_DELIVERY_CAPABILITY);
     capabilities.extend(crate::apps::advertised_capabilities());
     capabilities.extend(crate::device_setup::advertised());
     #[cfg(unix)]
