@@ -58,10 +58,22 @@ fn now_ms() -> u64 {
         .map_or(0, |elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
 }
 
+/// Set (non-empty) on the cmux daemon's own children (a sandboxed Run's `cloud start-chat`): their
+/// chat is the daemon's, never the one a person's next command goes to (#39022 review, F3).
+const OFF: &str = "CMUX_LAST_CHAT_OFF";
+
+/// Whether a command run with `off` as [`OFF`]'s value records its chat.
+fn records(off: Option<&std::ffi::OsStr>) -> bool {
+    off.is_none_or(std::ffi::OsStr::is_empty)
+}
+
 /// Records `session` (on Cloud VM `vm`, if any) as this terminal's last chat.
 pub(super) fn remember(session: &str, vm: Option<&str>) {
     // Unit tests drive the starts with fake runners: they never write a person's state.
     if session.is_empty() || (cfg!(test) && std::env::var_os("CMUX_LAST_CHAT_FILE").is_none()) {
+        return;
+    }
+    if !records(std::env::var_os(OFF).as_deref()) {
         return;
     }
     let Some(path) = path() else { return };
@@ -130,35 +142,5 @@ pub(super) fn none_yet() -> Value {
 }
 
 #[cfg(test)]
-mod tests {
-    use serde_json::{Map, Value, json};
-
-    use super::{Last, pick, pruned};
-
-    fn book(entries: &[(&str, &str, Option<&str>, u64)]) -> Map<String, Value> {
-        entries
-            .iter()
-            .map(|(terminal, session, vm, at)| {
-                ((*terminal).to_owned(), json!({"session": session, "vm": vm, "at": at}))
-            })
-            .collect()
-    }
-
-    #[test]
-    fn this_terminals_chat_else_the_newest() {
-        let book = book(&[("term_1", "s-1", None, 10), ("term_2", "s-2", Some("vm_a"), 20)]);
-        assert_eq!(pick(&book, "term_1"), Some(Last { session: "s-1".into(), vm: None }));
-        assert_eq!(
-            pick(&book, "term_9"),
-            Some(Last { session: "s-2".into(), vm: Some("vm_a".into()) })
-        );
-        assert_eq!(pick(&Map::new(), "term_1"), None);
-    }
-
-    #[test]
-    fn only_the_newest_entries_stay() {
-        let book = book(&[("a", "1", None, 1), ("b", "2", None, 3), ("c", "3", None, 2)]);
-        let kept = pruned(book, 2);
-        assert_eq!(kept.keys().cloned().collect::<Vec<_>>(), ["b", "c"]);
-    }
-}
+#[path = "last_chat_tests.rs"]
+mod tests;

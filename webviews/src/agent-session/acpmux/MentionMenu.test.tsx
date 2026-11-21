@@ -21,6 +21,7 @@ import {
   type MentionItem,
 } from "./mentionItems";
 import type { AcpmuxSessionEntry } from "./sessionList";
+import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -46,6 +47,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -340,10 +342,12 @@ test("a chat whose title has the word lists first; a path-like word lists the fi
   expect(pathFirst.map((item) => item.kind)).toEqual(["file", "session"]);
 });
 
-test("while the files are on their way a chat is listed but not picked unasked", () => {
+test("while the files are on their way a file is preferred, but a listed row is always chosen", () => {
   const sessions: AcpmuxSessionEntry[] = [{ sessionId: "app-store", title: "App Store review notes" }];
   const before = mentionItems({ query: "app", files: [], sessions });
-  expect(mentionSelection(before, undefined, true)).toBe(-1);
+  // Only a chat listed: it is highlighted, so Return takes it and never sends (Leo, 2026-11-20).
+  expect(mentionSelection(before, undefined, true)).toBe(0);
+  expect(mentionSelection([], undefined, true)).toBe(-1);
   // Moving to it picks it; once the files land, the first row is the pick.
   expect(mentionSelection(before, "session:app-store", true)).toBe(0);
   const after = mentionItems({ query: "app", files: [{ path: "src/app.ts", matches: [4, 5, 6] }], sessions });

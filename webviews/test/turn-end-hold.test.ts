@@ -1,10 +1,22 @@
 // A turn's end leaves open the folds over rows the reader has in view (conversation/turnEndHold.ts;
 // Leo, 2026-11-03: "sometimes when an agent completes a message while im scrolled up the entire chat
-// kinda hitches/shifts a bit?").
-import { expect, test } from "bun:test";
+// kinda hitches/shifts a bit?"), except the turn's own Worked for, which always closes (Lucas,
+// 2026-11-11).
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { foldsToHold, oneKeyPerMessageRun, withHeldFolds } from "../src/agent-session/acpmux/conversation/turnEndHold";
+import { foldsToHold, withHeldFolds } from "../src/agent-session/acpmux/conversation/turnEndHold";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+
+// This file covers the `runs` arm of liveTurnWork.experiment.ts: a running turn keeps each finished
+// run in sight as its folded summary line. The `line` arm (one live line, as chatgpt.com draws a running
+// turn) is covered by live-turn-one-line.test.ts.
+const liveTurnArmsBefore = globalThis.cmuxExperiments;
+beforeAll(() => {
+  globalThis.cmuxExperiments = { ...liveTurnArmsBefore, "live-turn-work": "runs" };
+});
+afterAll(() => {
+  globalThis.cmuxExperiments = liveTurnArmsBefore;
+});
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -37,20 +49,37 @@ const ended = [
 const ids = (rows: AcpmuxRow[]) => rows.filter((each) => each.kind !== "date").map((each) => each.id);
 
 // The view while the turn ran: every row drawn.
-const running = turnView(ended.slice(0, -1), new Set(), { working: true });
+// Shaped on use, after beforeAll picks the `runs` arm.
+const runningView = () => turnView(ended.slice(0, -1), new Set(), { working: true });
 const hold = (inView: string[], open: ReadonlySet<string> = new Set()) =>
-  foldsToHold(ended, turnView(ended, open), running, undefined, inView, open);
+  foldsToHold(ended, turnView(ended, open), runningView(), undefined, inView, open);
 
-test("work in view stays open at the turn's end; the reader's place keeps its rows", () => {
+test("the turn's Worked for closes at its end, even over work in view (Lucas, 2026-11-11)", () => {
   const folded = turnView(ended, new Set());
   expect(ids(folded)).not.toContain("t1");
-  expect(ids(running)).toContain("t1");
-  // While it ran, every row drew as it came, the short notes between the runs too (cmux#38339): the
-  // reader saw the run "t1" and the reply.
+  expect(ids(runningView())).toContain("t1");
+  // The reader saw the run "t1" and the reply while the turn ran; at its end the Worked for still
+  // closes ("the Worked for should ALWAYS collapse when the turn has ended"), the reply in sight.
   const held = hold(["t1", "answer"]);
-  expect(held).toContain("worked-u");
-  const open = turnView(ended, withHeldFolds(new Set(), new Set(held)));
-  for (const id of ["t1", "answer"]) expect(ids(open)).toContain(id);
+  expect(held).not.toContain("worked-u");
+  const shown = turnView(ended, withHeldFolds(new Set(), new Set(held)));
+  expect(ids(shown)).not.toContain("t1");
+  expect(ids(shown)).toContain("answer");
+});
+
+test("over work in view, the Worked for to close is named for the pane to defer (cmux#24569)", () => {
+  // The pane keeps it open only until the view follows the latest row again (App.tsx `heldWorked`):
+  // a reader scrolled up into the run sees no row fold away under them.
+  const worked = new Set<string>();
+  const held = foldsToHold(ended, turnView(ended, new Set()), runningView(), undefined, ["t1"], new Set(), worked);
+  expect(held).toEqual([]);
+  expect([...worked]).toEqual(["worked-u"]);
+  const shown = turnView(ended, withHeldFolds(new Set(), worked));
+  expect(ids(shown)).toContain("t1");
+  // Only the prompt and the reply in view: nothing folds away under the reader, nothing deferred.
+  const none = new Set<string>();
+  foldsToHold(ended, turnView(ended, new Set()), runningView(), undefined, ["u", "answer"], new Set(), none);
+  expect([...none]).toEqual([]);
 });
 
 test("a reader in older turns, or only on the prompt and the reply, holds nothing open", () => {
@@ -70,10 +99,11 @@ test("rows in the unchanged prefix are not looked at", () => {
   expect(foldsToHold(ended, view, view, view.length, ["t1"], new Set())).toEqual([]);
 });
 
-// cmux#33300: a message run folds under the turn's "Worked for" at its end. A member the reader had
-// in view gave the hold its own run key besides the one the run's line toggles, so the run stayed
-// open on the first close and needed a second click. A running turn draws no message run
-// (cmux#38339): its line forms at the turn's end, over rows the reader has in view.
+// cmux#33300: a message run open while the turn ran folds under the turn's "Worked for" at its end.
+// A member the reader had in view gave the hold its own run key besides the one the run's line
+// toggles, so the run stayed open on the first close and needed a second click. The Worked for itself
+// closes at the end (2026-11-11); the run keeps one key, so once the reader opens the Worked for
+// again, one click closes the run.
 test("a message run held open at the turn's end closes on one click", () => {
   const tool = (id: string, extra: Record<string, unknown> = {}) => ({
     kind: "tool",
@@ -95,25 +125,37 @@ test("a message run held open at the turn's end closes on one click", () => {
   ];
   const done = [...turn, row("p-end", "turnSummary", { status: "completed", durationMs: 9_000 })];
   const codex = { agentFamily: "codex" } as const;
-  // While the turn ran, its rows drew as they came, with no message run's line over them.
-  const open = new Set<string>();
+  // While the turn ran, the reader opened its run of messages.
+  const closedLive = turnView(turn, new Set(), { ...codex, working: true });
+  const line = closedLive.find((each) => each.kind === "messageRun")!;
+  expect(line.messageRun?.rows).toEqual(expect.arrayContaining(["run-1", "report", "run-2"]));
+  const open = new Set([line.id]);
   const live = turnView(turn, open, { ...codex, working: true });
-  expect(live.some((each) => each.kind === "messageRun")).toBe(false);
-  for (const id of ["run-1", "report", "run-2"]) expect(ids(live)).toContain(id);
-  // The turn ends with two members of the run in view: the hold keeps the turn's fold open, and the
-  // run open by the one key its line toggles (App.tsx shapes the view with the held folds first).
-  const each = foldsToHold(done, turnView(done, open, codex), live, undefined, ["report", "run-2"], open);
-  const held = oneKeyPerMessageRun(each, turnView(done, new Set([...open, ...each]), codex));
-  expect(held).toContain("worked-p");
-  expect(held.filter((key) => key.startsWith("messageRun-"))).toHaveLength(1);
-  const expanded = new Set([...open, ...held]);
+  expect(ids(live)).toContain("run-2");
+  // The turn ends with a later member of the run in view: the Worked for closes all the same.
+  const held = foldsToHold(done, turnView(done, open, codex), live, undefined, ["report", "run-2"], open);
+  expect(held).not.toContain("worked-p");
+  // The reader opens the Worked for again: the run is open by its one key, and one click closes it.
+  const expanded = new Set([...open, ...held, "worked-p"]);
   const kept = turnView(done, expanded, codex);
   const keptLine = kept.find((each) => each.kind === "messageRun")!;
   expect(keptLine.foldOpen).toBe(true);
   expect(ids(kept)).toContain("run-2");
-  // One click on the run's line closes it.
   expanded.delete(keptLine.id);
   const closed = turnView(done, expanded, codex);
   expect(closed.find((each) => each.kind === "messageRun")?.foldOpen).toBe(false);
   expect(ids(closed)).not.toContain("run-2");
+});
+
+test("the last turn's Worked for keys are its opener's and each steer's, never an earlier turn's", async () => {
+  const { lastTurnWorkedKeys } = await import("../src/agent-session/acpmux/conversation/turnEndHold");
+  const steer = row("s", "user", { text: "Also the cap", continues: true } as Partial<AcpmuxRow>);
+  expect(lastTurnWorkedKeys([...ended, steer, row("s-end", "turnSummary", { status: "completed" })])).toEqual([
+    "worked-s",
+    "worked-u",
+  ]);
+  expect(lastTurnWorkedKeys([])).toEqual([]);
+  // A steer that failed to send opens no turn of its own here: the walk goes past it to the prompt.
+  const failed = row("f", "user", { text: "Also the cap", failed: true } as Partial<AcpmuxRow>);
+  expect(lastTurnWorkedKeys([...ended, failed]).at(-1)).toBe("worked-u");
 });

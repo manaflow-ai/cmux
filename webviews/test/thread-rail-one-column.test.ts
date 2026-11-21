@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { incomingPrompt } from "../src/agent-session/acpmux/conversation/incomingMessage";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -74,7 +75,35 @@ await requireBrowserLane("thread-rail-one-column.test.ts", async () => {
       (window as unknown as { __showRows(rows: unknown): void }).__showRows(shown);
     }, rows);
     await page.waitForSelector('[data-tick="7"][data-incoming]');
+    await atRest(page);
     return page;
+  }
+
+  /// Painted frames in a row with the tick's box unchanged before the rail counts as at rest.
+  const REST_FRAMES = 10;
+  /// The rail draws first from the transcript's guessed box and takes its place when the pane is
+  /// measured: tick 7 went from 8,130 to 16,240. A pointer sent to the first box was then off the
+  /// tick, so the card closed and the hover case timed out (2 of 12 opens in a CI run, with and
+  /// without the momentum hold). Every read of a tick's place comes after this.
+  async function atRest(page: Page): Promise<void> {
+    await installPaintedFrames(page);
+    await page.evaluate(
+      (frames) =>
+        new Promise<void>((resolve) => {
+          let last = "";
+          let same = 0;
+          window.cmuxAfterPaint(() => {
+            const rect = document.querySelector<HTMLElement>('[data-tick="7"]')?.getBoundingClientRect();
+            const now = rect ? `${rect.left},${rect.top},${rect.width},${rect.height}` : "";
+            same = now !== "" && now === last ? same + 1 : 0;
+            last = now;
+            if (same < frames) return true;
+            resolve();
+            return false;
+          });
+        }),
+      REST_FRAMES,
+    );
   }
 
   test("at rest every tick shares one left x and one width, other sessions' messages included", async () => {

@@ -8,6 +8,8 @@ import Foundation
 /// every connected machine. One observation per workspace (main-thread-scheduling.md section 3, O3):
 /// each workspace's marks are their own observation, and the watch's own stream reads only each
 /// machine's readiness and its workspace list, so a mark on one tab re-reads its workspace only.
+/// The work after that one mark follows the marked tabs (the list a person sees), never the session's size: the
+/// changed workspace's marks arrive as one change, and the list is joined from the workspaces that have a mark.
 /// Only a marked tab's titles are read, so a title change of any other tab wakes nothing; nothing polls.
 @MainActor
 public final class AttentionTabsWatch {
@@ -116,34 +118,76 @@ public final class AttentionTabsWatch {
         /// By machine and store: one observation per workspace of its marks.
         private var observed: [String: ObservedItems<WorkspaceModel, WorkspaceMarks>] = [:]
         private var headers: [String: Header] = [:]
+        /// By machine and store: what its workspaces' observations handed out last.
+        private var held: [String: Held] = [:]
         private var last: [Snapshot]?
         private var baseline = SnapshotBaseline()
+
+        /// One machine's marks: each listed workspace's (in list order), and the places of the workspaces with a marked tab.
+        private struct Held {
+            var all: [WorkspaceMarks]
+            var marked: SortedPositions
+        }
 
         init(tabs: AgentPaneAttentionTabs, onChange: @escaping @MainActor ([AgentPaneAttentionTabs.Item], Set<String>) -> Void) {
             self.tabs = tabs
             self.onChange = onChange
         }
 
-        /// The snapshots now. A machine whose header changed (a connect, a new session snapshot, readiness) reads every
-        /// workspace's marks again at once, untracked, so its header and marks come from one moment as the replay
-        /// baseline needs; otherwise only workspaces new to the list are read (their observations keep the rest).
+        private static func key(_ machine: String, _ store: DaemonStore) -> String { "\(machine)\t\(ObjectIdentifier(store))" }
+
+        /// A machine's readiness or its workspace list changed: the snapshots now. A machine whose header changed (a
+        /// connect, a new session snapshot, readiness) reads every workspace's marks again at once, untracked, so its
+        /// header and marks come from one moment as the replay baseline needs; otherwise only workspaces new to the list
+        /// are read (their observations keep the rest). Every listed workspace is visited, so this is never the path of
+        /// one workspace's mark (``itemChanged(_:machine:store:_:)``).
         func settle() {
-            var snapshots: [Snapshot] = []
             var kept: Set<String> = []
             for machine in listed {
-                let key = "\(machine.header.machine)\t\(ObjectIdentifier(machine.store))"
+                let key = Self.key(machine.header.machine, machine.store)
                 kept.insert(key)
                 let header = Header(machine: machine.header.machine, store: machine.store)
                 let items = observed[key] ?? start(key, machine: machine.header.machine, store: machine.store)
                 let refresh = headers[key] != header
                 headers[key] = header
-                snapshots.append(Snapshot(header: header, marks: items.items(for: machine.workspaces, id: { "\(ObjectIdentifier($0))" },
-                                                                             refresh: refresh)))
+                let all = items.items(for: machine.workspaces, id: { "\(ObjectIdentifier($0))" }, refresh: refresh)
+                var marked = SortedPositions()
+                for position in all.indices where !all[position].items.isEmpty { marked.insert(position) }
+                held[key] = Held(all: all, marked: marked)
             }
             for key in observed.keys where !kept.contains(key) {
                 observed.removeValue(forKey: key)?.cancelAll()
                 headers[key] = nil
+                held[key] = nil
             }
+            deliver()
+        }
+
+        /// One workspace's marks changed: its place gets them, and the list is joined again from the workspaces with a
+        /// mark. A machine whose header moved in the same turn takes ``settle()`` instead, so its header and marks still
+        /// come from one moment.
+        private func itemChanged(_ key: String, machine: String, store: DaemonStore?,
+                                 _ change: ObservedItems<WorkspaceModel, WorkspaceMarks>.Change) {
+            guard let store, headers[key] == Header(machine: machine, store: store),
+                  held[key]?.all.indices.contains(change.position) == true else { return settle() }
+            held[key]?.all[change.position] = change.new
+            if change.new.items.isEmpty { held[key]?.marked.remove(change.position) } else { held[key]?.marked.insert(change.position) }
+            deliver()
+        }
+
+        /// Delivers the snapshots of the listed machines when they changed. A snapshot is joined from the workspaces
+        /// with a marked tab only: a workspace with no mark has no item and no baseline request
+        /// (``AttentionTabsWatch/marks(of:machine:store:)``), so the result is that of a join of every workspace.
+        private func deliver() {
+            var snapshots: [Snapshot] = []
+            var joined = 0
+            for machine in listed {
+                let key = Self.key(machine.header.machine, machine.store)
+                guard let header = headers[key], let marks = held[key] else { continue }
+                joined += marks.marked.count
+                snapshots.append(Snapshot(header: header, marks: marks.marked.positions.map { marks.all[$0] }))
+            }
+            ObservationWork.visited(joined, "AttentionTabsWatch.join")
             guard snapshots != last else { return }
             last = snapshots
             let marked = snapshots.flatMap(\.items).sorted { $0.atMs > $1.atMs }
@@ -154,7 +198,8 @@ public final class AttentionTabsWatch {
         private func start(_ key: String, machine: String, store: DaemonStore) -> ObservedItems<WorkspaceModel, WorkspaceMarks> {
             let items = ObservedItems<WorkspaceModel, WorkspaceMarks>(
                 item: { [weak store] workspace in store.map { AttentionTabsWatch.marks(of: workspace, machine: machine, store: $0) } },
-                same: { $0 == $1 }, changed: { [weak self] in self?.settle() })
+                same: { $0 == $1 },
+                changedItem: { [weak self, weak store] change in self?.itemChanged(key, machine: machine, store: store, change) })
             observed[key] = items
             return items
         }
@@ -163,6 +208,7 @@ public final class AttentionTabsWatch {
             for items in observed.values { items.cancelAll() }
             observed = [:]
             headers = [:]
+            held = [:]
             listed = []
         }
     }

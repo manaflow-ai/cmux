@@ -1,0 +1,14 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/claude-code-composer",
+  "name": "Claude Code composer",
+  "description": "A charcoal prompt field with a one-point edge, 12 pt corners and a context-usage ring.",
+  "version": "1.0.0",
+  "screenshots": [
+    "screenshots/source.png"
+  ],
+  "cmuxProfile": 1,
+  "settings": {
+    "agentPane.composerRing": "context"
+  }
+}

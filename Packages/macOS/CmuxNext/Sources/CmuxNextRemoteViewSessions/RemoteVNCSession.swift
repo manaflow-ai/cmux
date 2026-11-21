@@ -178,7 +178,7 @@ public final class RemoteVNCSession {
         guard !prompting else { return }
         prompting = true
         let saved = store?.credentials(for: endpoint)
-        let spec = CmuxDialogSpec(
+        let spec = CmuxDialogSpec(usesTransientMaterial: true,
             title: RemoteVNCStrings.signInTitle(record.host),
             lines: [RemoteVNCStrings.signInMessage],
             fields: [

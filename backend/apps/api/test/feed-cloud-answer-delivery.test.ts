@@ -267,3 +267,38 @@ describe("an answer's wait ends with its own delivery, not with the drain", { ti
     })
   })
 })
+
+/**
+ * The delivered check reads the requested answer's own outbox row (review F2 of #40370 at 063e9942): it read only
+ * the channel's first 100 pending rows, so with 101 queued the last answer read as delivered while it was still queued,
+ * feed.answer returned at once, and the Mac retried before CloudDO had the answer.
+ */
+describe("the delivered check finds an answer behind 100 queued ones", { timeout: 120_000 }, () => {
+  it("with 101 answers queued on one team's CloudDO channel, the last one still reads as queued", async () => {
+    const u = user("cloudqueue101")
+    const team = "team_cloudqueue101"
+    await inDO(testEnv.FEED_DO.get(testEnv.FEED_DO.idFromName(u)), async (instance, state) => {
+      // CloudDO is down: every answer stays queued (the channel backs off), and feed.answer returns at its first failure.
+      instance.targetNamespace = (cls: string) => ({ idFromName: (n: string) => n, get: () => ({ systemDeliver: async () => { throw Object.assign(new Error(`${cls} down`), { retryable: true }) } }) })
+      const request = `apr_${crypto.randomUUID().replace(/-/g, "")}`
+      const prompt = { action: { type: "tool", tool: "cloud.machine.create", summary: "s", risk: "money", input: { approval: { team, request, digest: "sha256:abc" } } }, scopes: ["once"] }
+      const posted = await instance.integrationApproval(u, team, prompt, 3_600_000, `approval:${request}`, "cloud")
+      expect(posted.ok, JSON.stringify(posted)).toBe(true)
+      // 100 earlier answers already queued ahead of it on the same channel (posted over more than a minute: the feed
+      // takes at most 60 posts a minute per poster, so they are written straight into the outbox here).
+      const sql = state.storage.sql
+      const table = (sql.exec(`SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE '%outbox'`).toArray()[0] as { name: string }).name
+      const target = JSON.stringify({ class: "CloudDO", name: team })
+      for (let i = 0; i < 100; i++)
+        sql.exec(`INSERT INTO ${table} (seq, kind, entity, payload, created_at, target, channel) VALUES (?, ?, ?, ?, ?, ?, ?)`, 0, "integration.approval.answered", `approval:apr_earlier${i}`, JSON.stringify({ request: `apr_earlier${i}`, decision: "allow" }), Date.now(), target, `CloudDO:${team}`)
+      await instance.submit(u, session(u), { t: "op", op: "feed.answer", params: { item: posted.item, answer: { decision: "allow", scope: "once" } }, idempotency_key: `approve:${request}`, origin: "user" })
+      await state.storage.deleteAlarm()
+      const queued = (instance.boundEngine.outboxPending(1_000) as Array<{ entity: string }>).filter((r) => r.entity.startsWith("approval:"))
+      expect(queued).toHaveLength(101)
+      expect(queued.at(-1)!.entity).toBe(`approval:${request}`)
+      expect(instance.answerDelivered({ team, request }), "the 101st answer read as delivered while queued").toBe(false)
+      expect(instance.answerDelivered({ team, request: "apr_earlier0" })).toBe(false)
+      expect(instance.answerDelivered({ team, request: "apr_neverqueued" })).toBe(true)
+    })
+  })
+})

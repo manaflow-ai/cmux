@@ -12,6 +12,7 @@ import { JSDOM } from "jsdom";
 import { act, useState } from "react";
 import type { Root } from "react-dom/client";
 import type { ActivityEvent, ActivityFrame, ActivityState } from "../src/agent-activity/model";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -67,12 +68,8 @@ afterEach(() => {
   root = undefined;
 });
 
-afterAll(() => {
-  window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window, scope });
 });
 
 const model = await import("../src/agent-activity/model");

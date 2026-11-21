@@ -388,6 +388,17 @@ export default agentPaneEntry({
       snapshot: NESTED_MIXED,
       play: openChild("Test coverage"),
     },
+    "child-group": {
+      note: "Test coverage spawned Unit tests and Integration tests. Its children use a plain contiguous list with direct chat navigation.",
+      height: 760,
+      snapshot: NESTED_MIXED,
+      play: async (ctx) => {
+        await openChild("Test coverage")(ctx);
+        if (ctx.find({ selector: ".cv-subagents" }).getAttribute("aria-expanded") !== "true")
+          await ctx.click({ selector: ".cv-subagents" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-subagent").length === 2);
+      },
+    },
     "child-nested": {
       note: "A nested group in the child view opened, then its finished subagent: the pill names its parent.",
       height: 760,

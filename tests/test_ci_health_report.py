@@ -27,11 +27,11 @@ WORKFLOW = ROOT / ".github/workflows/ci-health-report.yml"
 DOC = ROOT / "docs/ci/health-report.md"
 FIXTURES = ROOT / "tests/fixtures/ci-health-report"
 
-SPEC = importlib.util.spec_from_file_location("ci_health_report", SCRIPT)
-report = importlib.util.module_from_spec(SPEC)
-assert SPEC.loader is not None
-sys.modules["ci_health_report"] = report
-SPEC.loader.exec_module(report)
+# Imported by name, never loaded by path: one module object per file, so a test that patches it
+# patches what every other test reads (tests/test_script_module_loads.py).
+if str(ROOT / "scripts/ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+import ci_health_report as report  # noqa: E402
 
 NOW = dt.datetime(2026, 9, 22, 18, 0, tzinfo=dt.timezone.utc)
 REPO = "manaflow-ai/cmux"

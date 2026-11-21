@@ -53,7 +53,18 @@ const refreshUIScale = (): void => {
   for (const listener of listeners) listener();
 };
 
-if (typeof window !== "undefined") window.addEventListener("cmux-ui-scale-change", refreshUIScale);
+let watched: Window | undefined;
+/// Listens for the page's scale changes on its window. A page keeps one window for its life; a test
+/// that installs its DOM after this module loaded has a new one, so the next subscriber moves the
+/// listener there and reads that window's scale.
+const watchUIScale = (): void => {
+  if (typeof window === "undefined" || watched === window) return;
+  watched?.removeEventListener("cmux-ui-scale-change", refreshUIScale);
+  watched = window;
+  window.addEventListener("cmux-ui-scale-change", refreshUIScale);
+  refreshUIScale();
+};
+watchUIScale();
 
 /// The column the user's Text Width or Full Width sets (`agentPane.display.*`, chatDisplay.ts),
 /// mirroring its `--cv-column`: the pane's whole width up to the cap, at least 720px or the cap.
@@ -68,6 +79,7 @@ export const chatColumnOf = (display: ChatDisplay = chatDisplay(), scale: number
 export const chatColumn = (): ChatColumn => chatColumnOf();
 
 const subscribe = (listener: () => void) => {
+  watchUIScale();
   listeners.add(listener);
   return () => void listeners.delete(listener);
 };

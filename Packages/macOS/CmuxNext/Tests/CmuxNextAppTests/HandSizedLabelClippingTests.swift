@@ -84,6 +84,18 @@ import Testing
         _ = window
     }
 
+    @Test func recipientChipAndToLabelAreWhole() {
+        let chip = HomeRecipientChip(token: HomeRecipientToken(text: "Lawrence Chen", recipient: nil))
+        let window = Self.host(chip, size: NSSize(width: chip.preferredWidth, height: HomeRecipientChip.height))
+        defer { window.closeAfterTest() }
+        #expect(Self.clipped(in: chip) == [])
+        let field = HomeRecipientField(frame: NSRect(x: 0, y: 0, width: 480, height: 44))
+        let fieldWindow = Self.host(field, size: NSSize(width: 480, height: 44))
+        defer { fieldWindow.closeAfterTest() }
+        #expect(Self.clipped(in: field) == [])
+        _ = (window, fieldWindow)
+    }
+
     @Test func linkDragGhostTitleIsWhole() throws {
         let ghost = LinkDragGhost(title: "Pull request: fix the omnibar")
         defer { ghost.close() }

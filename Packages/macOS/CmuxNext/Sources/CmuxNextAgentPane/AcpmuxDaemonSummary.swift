@@ -52,7 +52,7 @@ public nonisolated struct AcpmuxDaemonSummary: Sendable, Equatable {
 
     /// The row's title.
     public static var title: String {
-        String(localized: "agentPane.acpmuxDaemon.title", defaultValue: "acpmux daemon", bundle: .module)
+        String(localized: "agentPane.acpmuxDaemon.title", defaultValue: "cmux daemon", bundle: .module)
     }
 
     /// The row's value: "<build> (up to date)", "<build> (restarting…)", "<build> (not the app's

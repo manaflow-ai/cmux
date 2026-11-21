@@ -5,7 +5,7 @@ import { isTransientError } from "./projection.ts"
 import { projectRows } from "./projection-targets.ts"
 import { warmBrain } from "./mux-wake-delivery.ts"
 import { deliverSecurityMail, SECURITY_MAIL_CLASS } from "./security-mail.ts"
-import { approvalAnswerChannel } from "./domains/feed-approvals.ts"
+import { soloOutboxItem } from "./domains/feed-approvals.ts"
 
 /** Dead outbox items are replayed this long after they died (automatic replay tool). */
 export const DEAD_REPLAY_MS = 24 * 3600_000
@@ -98,9 +98,10 @@ export const drainOutboxChannels = async <S>(
       await locks.run(channel, async () => {
       // Read under the lock: a send that ran meanwhile has marked its rows, or failed and backed the channel off.
       if (!outbox.channelDue(channel, Date.now())) return
-      // A Cloud approval answer goes alone, too: CloudDO runs the approved create inside the send and a retryable
-      // failure throws the whole batch, so an answer sent beside it would go again after its run ended.
-      const rows = outbox.pending(channel, channel !== "" && (outbox.isolating(channel) || approvalAnswerChannel(channel)) ? 1 : 100)
+      const read = outbox.pending(channel, channel !== "" && outbox.isolating(channel) ? 1 : 100)
+      // A Cloud approval answer goes alone, and the batch before one stops at it (feed-approvals.ts soloOutboxItem).
+      const solo = channel === "" ? -1 : read.findIndex(soloOutboxItem)
+      const rows = solo === 0 ? read.slice(0, 1) : solo > 0 ? read.slice(0, solo) : read
       if (rows.length === 0) return
       try {
         if (channel === "") {

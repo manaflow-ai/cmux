@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use super::answer::{
     Prefetched, TicketCache, grant_vmk, key_text, parse_answer, read_reply, token_subject,
 };
-use super::client::{Marks, classify, pinned_daemon, resume_outcome};
+use super::client::{Marks, PARK_REDIAL, classify, park_until, pinned_daemon, resume_outcome};
 use super::contract::{
     Failure, Phase, PhaseTimes, PhasesOf, StdinLine, Step, Vmk, answer_line, connected_line,
     detail_code, failure_line, parse_deadline, phases_line, route_line, served_line, serving_line,
@@ -407,6 +407,17 @@ fn the_grant_vmk_claim_is_the_dial_s_ownership_answer() {
     value["grant"] = json!(grant(json!({"vmk": "owner"})));
     assert_eq!(parse_answer(&value).unwrap().vmk, Some(Vmk::Owner));
     assert_eq!(parse_answer(&answer_value()).unwrap().vmk, None);
+}
+
+/// A link parked past [`PARK_REDIAL`] is given up for a new one (its allocation times out, a
+/// retry at the park step) instead of holding the whole 180 s deadline; the deadline still bounds it.
+#[test]
+fn a_parked_link_is_redialed_long_before_the_deadline() {
+    let now = tokio::time::Instant::now();
+    let deadline = now + Duration::from_secs(180);
+    assert_eq!(park_until(deadline, now), now + PARK_REDIAL);
+    let nearly = now + Duration::from_secs(3);
+    assert_eq!(park_until(nearly, now), nearly);
 }
 
 #[test]

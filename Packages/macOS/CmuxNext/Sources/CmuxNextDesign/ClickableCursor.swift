@@ -27,6 +27,46 @@ open class ClickableButton: NSButton {
         }
     }
 
+    /// A layout asked for while this button did not show; it runs when the button shows.
+    private var owesLayout = false
+
+    /// A button that is hidden, or under a hidden view (a kept workspace), does no layout: it lays out one time when
+    /// it shows. AppKit sends `setNeedsLayout: true` to every button of a window at each key window change
+    /// (`-[NSButtonCell invalidateBezelConfigurationForDisplayOrLayout:]`), and a layout pass lays out hidden views
+    /// too, so each switch to a workspace that shows a web page (its Chromium child window takes the key) ran the cell
+    /// layout of every button of every kept workspace: 12.4 ms per switch with 32 kept. As in Chrome, a view that is
+    /// not shown does no layout work.
+    override open var needsLayout: Bool { // perf-hot: 0.01ms workspace-switch (a hidden button: one ancestor walk, no layout)
+        get { super.needsLayout }
+        set {
+            guard newValue, isHiddenOrHasHiddenAncestor else { return super.needsLayout = newValue }
+            owesLayout = true
+        }
+    }
+
+    override open func viewDidUnhide() {
+        super.viewDidUnhide()
+        layOutIfOwed()
+    }
+
+    /// The button itself moved out of a hidden view into one that shows.
+    override open func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        layOutIfOwed()
+    }
+
+    /// A view above the button moved to another window (a tab dragged to a new window), where it shows.
+    override open func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        layOutIfOwed()
+    }
+
+    private func layOutIfOwed() {
+        guard owesLayout, !isHiddenOrHasHiddenAncestor else { return }
+        owesLayout = false
+        super.needsLayout = true
+    }
+
     /// Where the pointer at `screenPoint` is in `window`'s coordinates, while `window` is the top
     /// window under it (`topWindowNumber`, `NSWindow.windowNumber(at:belowWindowWithWindowNumber:)`
     /// outside tests); nil while another window covers that point.

@@ -68,6 +68,8 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     public var imageFolder = AgentPaneImageCopies.defaultFolder()
     /// Where a video's private copies are read and played from (``AgentPaneVideoInfo/snapshot(_:in:into:)``).
     var videoFolder = AgentPaneImageCopies.defaultFolder().deletingLastPathComponent().appendingPathComponent("Agent Videos", isDirectory: true)
+    /// The copies of ``videoFolder`` a video's reads share (``AgentPaneVideoCopies``).
+    let videoCopies = AgentPaneVideoCopies()
     public var browsers: any AgentPaneBrowserApps = AgentPaneWorkspaceBrowsers()
     /// What the host already has about a pull request (`pr.inspect`), with the age of it; it never
     /// waits on GitHub, and a stale link's refresh runs in the background at most once a minute
@@ -124,7 +126,7 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
             guard consumeGesture() else { return AgentPaneModel.replyFailure(.gestureRequired) }
             browsers.open(url, withApplicationAt: app)
             return AgentPaneReply.success()
-        case .inspect, .openPath, .loadImage, .loadMedia, .videoInfo, .videoTranscript, .videoFrames, .quickLookVideo, .revealImage, .openImageInPane, .copyImage, .saveImage,
+        case .inspect, .openPath, .loadImage, .loadMedia, .videoInfo, .videoProbes, .videoTranscript, .videoFrames, .quickLookVideo, .revealImage, .openImageInPane, .copyImage, .saveImage,
              .quickLookImage, .dragImage, .dragFile, .previewPath, .copyComposer:
             return AgentPaneModel.replyFailure(.openFailed)
         }
@@ -220,6 +222,8 @@ extension AgentPaneModel {
             return await loadReplyMedia(src)
         case .videoInfo(let src):
             return await videoInfo(src)
+        case .videoProbes(let src):
+            return await videoProbes(src)
         case .videoTranscript(let src):
             return await videoTranscript(src)
         case .videoFrames(let src, let times):

@@ -1,8 +1,7 @@
 import CmuxNextWakeups
 
 /// After a terminal is shown again, checks once, ``limit`` later, whether its pane still shows nothing
-/// (the Nov 4 report: a shown pane stayed empty for minutes while its terminals ran), or shows frames at
-/// another scale than Ghostty draws at (the same report's tiny text). A pane that drew at its scale,
+/// (the Nov 4 report: a shown pane stayed empty for minutes while its terminals ran). A pane that drew,
 /// or was hidden again meanwhile (``cancel()``), reports nothing. One check per reveal; a new reveal
 /// replaces the pending one.
 @MainActor
@@ -21,21 +20,13 @@ final class TerminalBlankWatch {
     /// Whether a check waits.
     var isWatching: Bool { timer.isScheduled }
 
-    /// Checks `probe` after ``limit``: `onBlank` gets its report when it says the pane is still blank;
-    /// `onScaleMismatch` gets it when the pane drew and its scales still disagree
-    /// (``TerminalRevealReport/scalesAgree``: at the reveal itself a layer scale that waits for its first frame
-    /// is no mismatch, so this check is the one that sees a scale that never landed). `probe` returns nil once
-    /// the terminal is no longer shown (nothing to report).
+    /// Checks `probe` after ``limit``: `onBlank` gets its report when it says the pane is still blank. `probe`
+    /// returns nil once the terminal is no longer shown (nothing to report).
     func watch(probe: @escaping @MainActor @Sendable () -> TerminalRevealReport?,
-               onBlank: @escaping @MainActor @Sendable (TerminalRevealReport) -> Void,
-               onScaleMismatch: @escaping @MainActor @Sendable (TerminalRevealReport) -> Void = { _ in }) {
+               onBlank: @escaping @MainActor @Sendable (TerminalRevealReport) -> Void) {
         timer.schedule(after: Self.limit) { @MainActor in
-            guard let report = probe() else { return }
-            if report.isBlank {
-                onBlank(report)
-            } else if !report.scalesAgree {
-                onScaleMismatch(report)
-            }
+            guard let report = probe(), report.isBlank else { return }
+            onBlank(report)
         }
     }
 

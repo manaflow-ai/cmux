@@ -1,0 +1,19 @@
+[package]
+name = "cmux-fault"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The Remote and Cloud fault-injection harness (tests only): seeded runs, the fault trace, kill and SIGSTOP by recorded pid, a partitioning TCP proxy, a disk-full and slow-fsync switch, a ticket mint with a TTL that can go down, a jumpable wall clock, and the invariants every scenario checks"
+
+[lints]
+workspace = true
+
+[dependencies]
+cmux-scope.workspace = true
+libc.workspace = true
+tokio = { workspace = true, features = ["net", "io-util", "sync", "time", "rt", "macros"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

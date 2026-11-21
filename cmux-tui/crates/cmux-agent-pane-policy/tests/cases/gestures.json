@@ -13,7 +13,7 @@
   "needs": true
  },
  {
-  "name": "prompt always",
+  "name": "prompt needs none",
   "frame": {
    "jsonrpc": "2.0",
    "id": 1,
@@ -23,7 +23,7 @@
    }
   },
   "denies": [],
-  "needs": true
+  "needs": false
  },
  {
   "name": "set_mode always",
@@ -386,6 +386,22 @@
    "params": {
     "sessionId": "s",
     "held": true
+   }
+  },
+  "denies": [],
+  "needs": true
+ },
+ {
+  "name": "a preset approval always needs a gesture",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/presets",
+   "params": {
+    "name": "night",
+    "approveMode": true,
+    "approveDigest": "sha256:ab",
+    "sessionId": "s"
    }
   },
   "denies": [],

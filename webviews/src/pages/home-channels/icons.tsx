@@ -37,8 +37,7 @@ export type HomeIconName =
   | "download"
   | "video"
   | "expand"
-  | "chevronLeft"
-  | "sparkles";
+  | "chevronLeft";
 
 const PATHS: Record<HomeIconName, ReactNode> = {
   bold: <path d="M6 4h5a3 3 0 0 1 0 6H6zM6 10h6a3 3 0 0 1 0 6H6z" strokeWidth="2" />,
@@ -143,9 +142,6 @@ const PATHS: Record<HomeIconName, ReactNode> = {
   compose: <path d="M9.5 4.5H5.5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-4M13.5 3.5l3 3-6 6h-3v-3z" />,
   threads: <path d="M4 5h12M4 10h12M4 15h7" />,
   hash: <path d="M8 3.5 6.5 16.5M13.5 3.5 12 16.5M4 7.5h12.5M3.5 12.5H16" />,
-  sparkles: (
-    <path d="M8 3l1.4 4.1 4.1 1.4-4.1 1.4L8 14l-1.4-4.1-4.1-1.4 4.1-1.4zM14.5 11.5l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z" />
-  ),
   command: (
     <path d="M7.5 7.5h5v5h-5zM7.5 7.5V6a1.5 1.5 0 1 0-1.5 1.5zM12.5 7.5V6A1.5 1.5 0 1 1 14 7.5zM7.5 12.5V14A1.5 1.5 0 1 1 6 12.5zM12.5 12.5V14a1.5 1.5 0 1 0 1.5-1.5z" />
   ),

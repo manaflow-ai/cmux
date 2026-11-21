@@ -190,7 +190,10 @@ class Sources:
         """Add the crates that the scanned manifests name by `path = ...` but that live outside every
         --workspace (2026-10-13: the diff sidecar's `cmux-git = { path = "../../cmux-tui/crates/cmux-git" }`
         failed the nightly notices with "0 matching manifests"). Followed transitively; each such crate
-        is located with its own enclosing workspace, so `*.workspace = true` fields resolve."""
+        is located with its own enclosing workspace, so `*.workspace = true` fields resolve. A
+        dependency that a crate inherits (`name.workspace = true`) is followed too, when its entry
+        in the [workspace.dependencies] of that crate's workspace names a path (2026-11-13:
+        cmux-git's `cmux-file-lock.workspace = true` failed the same way)."""
         known = {d.resolve() for entries in self.path_packages.values() for d, _ in entries}
         queue = sorted(known)
         while queue:
@@ -203,12 +206,21 @@ class Sources:
             tables = [data.get(k, {}) for k in ("dependencies", "dev-dependencies", "build-dependencies")]
             tables += [t.get(k, {}) for t in data.get("target", {}).values() for k in ("dependencies", "build-dependencies")]
             tables.append(data.get("workspace", {}).get("dependencies", {}))
+            # Read at the crate's first inherited dependency: a crate that inherits none reads nothing.
+            inherited: dict[str, Path] | None = None
             for table in tables:
-                for spec in table.values():
-                    if not isinstance(spec, dict) or not isinstance(spec.get("path"), str):
+                for dep_name, spec in table.items():
+                    if not isinstance(spec, dict):
                         continue
-                    dep_dir = (crate_dir / spec["path"]).resolve()
-                    if dep_dir in known or not (dep_dir / "Cargo.toml").is_file():
+                    if isinstance(spec.get("path"), str):
+                        dep_dir = (crate_dir / spec["path"]).resolve()
+                    elif spec.get("workspace") is True:
+                        if inherited is None:
+                            inherited = self._inherited_path_crates(crate_dir)
+                        dep_dir = inherited.get(dep_name)
+                    else:
+                        dep_dir = None
+                    if dep_dir is None or dep_dir in known or not (dep_dir / "Cargo.toml").is_file():
                         continue
                     try:
                         name = tomllib.loads((dep_dir / "Cargo.toml").read_text(encoding="utf-8")).get("package", {}).get("name")
@@ -220,6 +232,20 @@ class Sources:
                         continue
                     root = self._enclosing_workspace(dep_dir) or dep_dir
                     self.path_packages.setdefault(name, []).append((dep_dir, root))
+
+    def _inherited_path_crates(self, crate_dir: Path) -> dict[str, Path]:
+        """The path crates that the crate in `crate_dir` can inherit: each entry with a `path` in the
+        [workspace.dependencies] of its enclosing workspace. Cargo reads that path from the
+        workspace's root, not from the crate."""
+        root = self._enclosing_workspace(crate_dir)
+        if root is None:
+            return {}
+        entries = self.workspace_tables.get(root, {}).get("dependencies", {})
+        return {
+            name: (root / spec["path"]).resolve()
+            for name, spec in entries.items()
+            if isinstance(spec, dict) and isinstance(spec.get("path"), str)
+        }
 
     def _enclosing_workspace(self, crate_dir: Path) -> Path | None:
         """The nearest ancestor (or the crate itself) whose Cargo.toml has a [workspace] table; it is

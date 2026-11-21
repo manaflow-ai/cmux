@@ -5,9 +5,8 @@ public import CoreGraphics
 ///
 /// Reported once per reveal (``TerminalSessionDelegate/terminalSession(_:revealed:)``) and, when the
 /// pane still shows no frame 500 ms later, again as a blank pane
-/// (``TerminalSessionDelegate/terminalSession(_:blankAfterReveal:)``), or, when it drew and its layer's
-/// scale is still not the one Ghostty draws at, as a second reveal report with ``framesSinceReveal`` above 0.
-/// It holds numbers only, never terminal text, so it may go to logs and crash telemetry as is.
+/// (``TerminalSessionDelegate/terminalSession(_:blankAfterReveal:)``). It holds numbers only, never
+/// terminal text, so it may go to logs and crash telemetry as is.
 ///
 /// ```swift
 /// let report = session.surfaceView.revealReport(saved: .kept)
@@ -63,16 +62,11 @@ public struct TerminalRevealReport: Sendable, Equatable {
         self.framesSinceReveal = framesSinceReveal
     }
 
-    /// Ghostty draws at the window's scale, and the layer shows its frame at the scale it was drawn at: text has its
-    /// true size. False is the tiny (or huge) text class: a frame drawn at one scale shown at another.
-    ///
-    /// The layer's scale is Ghostty's: a new one lands with the first frame drawn at it. So at the reveal itself
-    /// (``framesSinceReveal`` 0) the layer may still show its kept frame at that frame's own scale, which is no
-    /// mismatch; once a frame showed since the reveal, the layer's scale must be the one Ghostty draws at.
+    /// Ghostty draws at the scale the layer shows and the window has: text has its true size. False is the
+    /// tiny (or huge) text class: a frame drawn at one scale shown at another.
     public var scalesAgree: Bool {
         guard let contentScale, let layerScale, let windowScale else { return true }
-        guard abs(contentScale - windowScale) < 0.01 else { return false }
-        return framesSinceReveal == 0 || abs(contentScale - layerScale) < 0.01
+        return abs(contentScale - layerScale) < 0.01 && abs(layerScale - windowScale) < 0.01
     }
 
     /// Worth a warning: the scales disagree (tiny or huge text) or the kept frame was discarded (an empty pane until

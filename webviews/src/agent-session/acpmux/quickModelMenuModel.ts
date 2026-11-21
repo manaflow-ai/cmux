@@ -1,10 +1,12 @@
 import { type SessionAuth } from "./sessionAuth";
+import type { HarnessUpdates } from "./harnessUpdateList";
 import { useEffect, useRef, useState } from "react";
 import { agentBrand, hasAgentMark } from "../shared/AgentMark";
 import type { ChatAccountList, ChatAccounts } from "./chatAccounts";
 import { type Choice } from "./composerPickerModel";
 import { type ReasoningSliderStyle, type HarnessPlacement } from "./composerSettings";
 import { harnessIcon } from "../shared/harnessIcons";
+import type { ClaudeConnectRowProps } from "./claudeConnect";
 
 /// What the model button's menu lists (Leo 2026-10-20: every composer's one model control): the
 /// harness's top models, numbered, then Effort, More models and Account submenus, then Fast mode.
@@ -62,12 +64,17 @@ export type QuickMenu = {
   /// The chat's agent CLI has an update (hq#2569 #12): a quiet footer under the list starts it, apart
   /// from the model choices and their held height.
   update?: { text: string; run(): void };
+  /// Every agent CLI on this Mac with an update, the chat's own first (harnessUpdateList.ts): drawn
+  /// in `update`'s place as Harness updates available.
+  updates?: HarnessUpdates;
   /// Search (Lawrence 2026-10-22: "spacing + needs search"): the models a typed query finds, with
   /// the full picker's matching (ModelPicker's `searchModels`), and the pick of one, which lands
   /// the effort and fast mode the query named. Without it typing opens the full picker.
   search?: {
     find(query: string): QuickModel[];
-    pick(model: QuickModel): void;
+    /// Lands `model`; true when the pick instead sets its harness up (installs it or signs it in), whose
+    /// progress the columns menu shows, so it stays open (QuickModelColumns.tsx).
+    pick(model: QuickModel): boolean | void;
   };
   /// When the search field shows (gallery versions): `always` (the default), `typed` (only once
   /// a key is typed), or `long` (when the list holds more than LONG_LIST models, or once typed).
@@ -168,6 +175,9 @@ export type QuickFamily = {
   logIn?(): void;
   /// Sets up a harness this machine does not have (its Install… row).
   setUp?(): void;
+  /// The Claude Connect row that leads the tab (ClaudeConnectRow.tsx), while no Claude connection
+  /// serves Cloud.
+  connect?: ClaudeConnectRowProps;
   /// A distinctly named launch configuration; choosing it changes the harness.
   launch?: boolean;
   /// The harness's probe failed (its catalog entry is unavailable): its catalog rows are stale, so
@@ -175,6 +185,9 @@ export type QuickFamily = {
   unavailable?: boolean;
   /// The acpmux family an account added from this tab serves ("claude", "codex", "opencode").
   accountFamily?: string;
+  /// Its harness offers Claude Code's Ultracode on a model that runs Extra High (acpmux's own Claude
+  /// Code backend, CLAUDE_STDIO_KIND): the Effort column lists it before a chat runs the model.
+  ultracode?: boolean;
   /// The model family the entry runs ("claude", "openai"): entries of one family share one tab,
   /// and each is a route of it (its transport, login or launch setup) the Account row chooses
   /// (Leo 2026-10-31: "FUCKING HELL WHY DO YOU GUYS STILLLLLLLLLLLLLLLLLLLLLL SHOW THESE AS
@@ -232,7 +245,8 @@ export type QuickFamilies = {
   list: QuickFamily[];
   /// The chat's harness: its tab opens first, and only it shows Effort and Account.
   current?: string;
-  onPick(model: QuickModel): void;
+  /// Lands `model`; true when the pick instead sets its harness up, as `search.pick`.
+  onPick(model: QuickModel): boolean | void;
   /// Add harness…, the last item in the harness strip.
   onAddHarness?(): void;
   onLaunch?(id: string): void;

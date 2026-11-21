@@ -14,13 +14,7 @@ export interface HomeContact {
   id: string;
   name: string;
   source: ContactSource;
-  /** How the To: list tells a Chief apart (the host's HomeChiefRoster look): its tag and last activity. */
-  look?: RecipientLook;
 }
-
-/** The To: list's look of a recipient: a Chief's own (from the host), else none. */
-export const contactLook = (recipient: HomeRecipient): RecipientLook =>
-  recipient.kind === "contact" ? (recipient.contact.look ?? {}) : {};
 
 /** One recipient: someone the user reaches, or an address that gets an invite. */
 export type HomeRecipient = { kind: "contact"; contact: HomeContact } | { kind: "address"; address: ContactAddress };
@@ -138,13 +132,16 @@ export function suggestRecipients(draft: RecipientDraft, contacts: readonly Home
   const result: HomeRecipient[] = [];
   const address = parseAddress(text);
   if (address && !has(draft, addressRecipient(address))) result.push(addressRecipient(address));
+  // One pass: each name is folded once, and a contact goes to one list or the other (no search of the
+  // first list per contact).
   const folded = fold(text);
-  const wordStart = contacts.filter((contact) =>
-    fold(contact.name)
-      .split(/\s+/)
-      .some((word) => word.startsWith(folded)),
-  );
-  const inside = contacts.filter((contact) => fold(contact.name).includes(folded) && !wordStart.includes(contact));
+  const wordStart: HomeContact[] = [];
+  const inside: HomeContact[] = [];
+  for (const contact of contacts) {
+    const name = fold(contact.name);
+    if (name.split(/\s+/).some((word) => word.startsWith(folded))) wordStart.push(contact);
+    else if (name.includes(folded)) inside.push(contact);
+  }
   for (const contact of [...wordStart, ...inside])
     if (!has(draft, contactRecipient(contact))) result.push(contactRecipient(contact));
   return result.slice(0, limit);

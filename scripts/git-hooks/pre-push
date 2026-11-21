@@ -8,6 +8,11 @@
 #    copy is never feat-cmux-next's, and the gate warns on every push. Add one with
 #    `git config --add cmux.prePushExtra /abs/path/to/check` (it must be executable); remove them with
 #    `git config --unset-all cmux.prePushExtra`. A relative path is refused (it would run from the checkout).
+# 0a. Queue (always): at most CMUX_PREPUSH_SLOTS [2] hooks check at once on this Mac, whatever clone they push
+#    from; the rest wait their turn (a line names the wait). On 2026-11-10 about nine agents' hooks ran at once at
+#    load average 300-770: each `git worktree add` of a lint tree took 2-6 minutes, every gate ran past its limit
+#    and no push finished. The wait never refuses a push: past CMUX_PREPUSH_QUEUE_WAIT_SECONDS [1800] the hook
+#    runs anyway. A Mac that stays too loaded pushes through another one: scripts/cmux-next/push-from-host.sh.
 # 0b. Checks refresh (a push to feat-cmux-next): scripts/git-hooks/refresh_checks.py.
 # 1. Web lint (always): runs the web checks CI runs on what the push changes and
 #    refuses the push when they fail. Skip once with
@@ -23,8 +28,8 @@
 # total), then what a failure means: after a pass, a failure is git or GitHub (retry); a refusal names its phase.
 # Pushes took 34-98 s on 2026-11-09 and nothing said whether the hook, git's pack step or GitHub was slow.
 # A push whose every ref is a delete (`git push origin :refs/heads/x`) sends no commits: nothing above has
-# anything to check, so it passes before any step, the work-tree lookup included (a clone without a work tree,
-# a bare or core.bare one such as a shared clone root, deletes branches too). Any other ref runs every step.
+# anything to check, so it passes before any step. Any other ref runs every step, from a clone without a work tree
+# too (a bare wt mirror, a core.bare clone root): the checks read the pushed commits from git objects.
 set -euo pipefail
 
 # Every check reads git's pushed-refs lines; read them once. $1 is the pushed remote (a name, or the URL of a
@@ -59,7 +64,8 @@ finish() {
             "Retry it as AGENTS.md says (\"Retry a failed push\": git push -q, at most 3 retries, 30, 60, then 120 s apart)." >&2
     else
         echo "pre-push: refused in ${failed:-setup} (exit $status). A check that names a violation: fix it, do not retry" \
-            "unchanged. The gate's \"ran past its 600s limit\" only: retry as AGENTS.md says (\"Retry a failed push\")." >&2
+            "unchanged. The gate's \"ran past its ...s limit\" only: retry as AGENTS.md says (\"Retry a failed push\"), or push" \
+            "through an idle Mac: scripts/cmux-next/push-from-host.sh <branch>." >&2
     fi
 }
 trap finish EXIT
@@ -90,14 +96,124 @@ fi
 TIMED=1  # a push with commits to check: report the phase times (header)
 phase setup
 HOOK_DIR="$(cd "${BASH_SOURCE[0]%/*}" && pwd -P)"
+# The Python every check runs under, picked on this host (hook_python.sh says why): the one the install recorded
+# when it runs and imports yaml, else the first candidate that does, else the first that runs. Never one in the
+# checkout: the pushing work tree and its git dir are passed as roots no candidate may resolve into.
 PYTHON_PATH_FILE="$HOOK_DIR/python3-path"
-if [[ ! -r "$PYTHON_PATH_FILE" ]] || ! IFS= read -r PYTHON3_BIN < "$PYTHON_PATH_FILE" \
-    || [[ "$PYTHON3_BIN" != /* ]] || [[ ! -x "$PYTHON3_BIN" ]]; then
-    echo "pre-push: trusted Python interpreter metadata is missing; rerun scripts/install-git-hooks.sh." >&2
+RECORDED_PYTHON=""
+if [[ -r "$PYTHON_PATH_FILE" ]]; then
+    IFS= read -r RECORDED_PYTHON < "$PYTHON_PATH_FILE" || true
+fi
+if [[ ! -f "$HOOK_DIR/hook_python.sh" ]]; then
+    echo "pre-push: the hook's Python picker (hook_python.sh) is missing; rerun scripts/install-git-hooks.sh." >&2
     exit 1
 fi
+# shellcheck source=hook_python.sh
+source "$HOOK_DIR/hook_python.sh"
+PICK_ROOTS=("$(git rev-parse --absolute-git-dir 2>/dev/null || true)")
+if [[ "$(git rev-parse --is-inside-work-tree 2>/dev/null)" == true ]]; then
+    PICK_ROOTS+=("$(cd "$(git rev-parse --show-toplevel)" && pwd -P)")
+fi
+if ! hook_python_pick 1 "$RECORDED_PYTHON" "${PICK_ROOTS[@]}"; then
+    echo "pre-push: no Python 3.9+ on this host can run the checks. Tried: $HOOK_PYTHON_TRIED. Next: install one" \
+        "with PyYAML (macOS: brew install python pyyaml; Debian or Ubuntu: sudo apt-get install -y python3" \
+        "python3-yaml), then rerun scripts/install-git-hooks.sh." >&2
+    exit 1
+fi
+PYTHON3_BIN="$HOOK_PYTHON"
+# The gate's PyYAML refusal names these, so its fix is not for one interpreter alone.
+export CMUX_HOOK_PYTHON_TRIED="$HOOK_PYTHON_TRIED"
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
+# The queue (header, 0a). The hook runs again as the child of a python3 that holds one of the slot locks until
+# the child exits, as install-git-hooks.sh holds install.lock: only that parent has the lock file open (Python
+# opens it close-on-exec), so nothing a check starts can keep a slot after the hook ends. The locks are in /tmp,
+# not $TMPDIR: every agent has its own $TMPDIR, and the queue is for the whole Mac. The program is a -c argument
+# and free of single quotes (bash 5.1+ writes a here-document into a pipe first; see REFS_FILE above).
+if [[ -z "${CMUX_PREPUSH_QUEUE_HELD:-}" ]]; then
+    QUEUE_HOLDER='
+import fcntl
+import os
+import signal
+import subprocess
+import sys
+import time
+
+directory, command = sys.argv[1], sys.argv[2:]
+
+
+def number(name, default):
+    try:
+        return float(os.environ.get(name) or default)
+    except ValueError:
+        return float(default)
+
+
+slots = max(1, int(number("CMUX_PREPUSH_SLOTS", 2)))
+budget = number("CMUX_PREPUSH_QUEUE_WAIT_SECONDS", 1800)
+started = time.monotonic()
+held = None
+told = False
+while held is None:
+    for slot in range(slots):
+        path = os.path.join(directory, f"cmux-pre-push-queue.{os.getuid()}.{slot}.lock")
+        try:
+            lock = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)  # not inheritable (PEP 446)
+        except OSError:
+            continue
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            os.close(lock)
+            continue
+        held = lock
+        break
+    if held is not None:
+        break
+    waited = time.monotonic() - started
+    if waited >= budget:
+        print(f"pre-push: waited {waited:.0f}s for a turn (CMUX_PREPUSH_QUEUE_WAIT_SECONDS); checking now, beside "
+              "the other pushes.", file=sys.stderr, flush=True)
+        break
+    if not told:
+        told = True
+        print(f"pre-push: {slots} other push(es) on this Mac are being checked; waiting for a turn (up to "
+              f"{budget:g}s, CMUX_PREPUSH_SLOTS). Nothing is wrong with this push.", file=sys.stderr, flush=True)
+    time.sleep(0.2)  # a poll: flock has no wait over several files, and a slot frees when its holder exits
+waited = int(time.monotonic() - started)
+child = subprocess.Popen(command, env={**os.environ, "CMUX_PREPUSH_QUEUE_HELD": str(waited)})
+for signum in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+    signal.signal(signum, lambda number, frame: child.send_signal(number))
+code = child.wait()
+sys.exit(code if code >= 0 else 128 - code)
+'
+    exec 3< "$REFS_FILE"
+    rm -f "$REFS_FILE"
+    exec "$PYTHON3_BIN" -I -c "$QUEUE_HOLDER" "${CMUX_PREPUSH_QUEUE_DIR:-/tmp}" "${BASH_SOURCE[0]}" "$@" <&3
+fi
+if [[ "$CMUX_PREPUSH_QUEUE_HELD" =~ ^[0-9]+$ ]]; then
+    PHASE_TIMES="queue ${CMUX_PREPUSH_QUEUE_HELD}s"  # the wait for a turn, first in the hook-times line
+fi
+unset CMUX_PREPUSH_QUEUE_HELD  # a push a check starts (none does today) queues for itself
+if [[ -n "$HOOK_PYTHON_TRIED" ]]; then
+    echo "pre-push: checking with $PYTHON3_BIN; passed over: $HOOK_PYTHON_TRIED." \
+        "scripts/install-git-hooks.sh records the best one." >&2
+fi
+# One id per run of this hook (its refs file is unique while the run lasts): push_range.py's base-fetch stamp holds
+# for this run's checks only, so the same push tried again after the base moved fetches it again (cmux#41310 review).
+export CMUX_PREPUSH_RUN="$$:$REFS_FILE"
+
+# A clone with no work tree (a bare wt mirror, a core.bare clone root) is checked from its objects: every check
+# reads the pushed commits by sha (`git -C REPO ls-tree / cat-file / diff` on the refs above), never files of a
+# checkout, so REPO is the git dir there. 2026-11-15: repo_publish pushes from the bare mirror died here with
+# "fatal: this operation must be run in a work tree" (exit 128) before any check ran, which left agents whose local
+# commits were blocked no way to push.
+if [[ "$(git rev-parse --is-inside-work-tree 2>/dev/null)" == true ]]; then
+    REPO_ROOT="$(git rev-parse --show-toplevel)"
+    HAS_WORK_TREE=1
+else
+    REPO_ROOT="$(git rev-parse --absolute-git-dir)"
+    HAS_WORK_TREE=0
+fi
 cd "$REPO_ROOT"
 
 PUSHED_REMOTE="${1:-origin}"
@@ -185,6 +301,11 @@ if [[ ! -f "$SCANNER" || ! -f "$MASKER" ]]; then
     exit 0  # the namespace autofix is opt-in (install-git-hooks.sh --namespace-fix)
 fi
 
+if (( ! HAS_WORK_TREE )); then
+    # The autofix edits files of the checkout; a clone with no work tree has none to fix (CI's namespace lint judges).
+    echo "pre-push: namespace autofix skipped: this clone has no work tree." >&2
+    exit 0
+fi
 phase namespace-autofix
 before="$(git status --porcelain --untracked-files=normal)"
 enum_roots=()

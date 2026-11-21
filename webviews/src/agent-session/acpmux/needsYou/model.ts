@@ -9,8 +9,9 @@
 // The item is the shared shape (plans/cmux-next/needs-you.md): the header's pinned list draws it,
 // the Feed keys the same prompt `acpmux:<permissionId>` (its dedupe key), and an agent points at an
 // item with `cmux://needs-you/<permissionId>` (links.ts) instead of restating it.
+import { PrefixFlatCache } from "../conversation/prefixFlatMap";
 import type { AcpmuxAgentPair, AcpmuxPermission, AcpmuxRow, QueuedPrompt } from "../model";
-import { questionSummary, type AgentQuestion } from "../question/model";
+import { hasPreviews, questionSummary, type AgentQuestion } from "../question/model";
 import type { AcpmuxSessionEntry } from "../sessionList";
 import { sessionIndex } from "../sessionIndex";
 import type { AttentionTab } from "./attentionTabs";
@@ -220,18 +221,30 @@ function permissionAnswers(permission: AcpmuxPermission): NeedsYouAnswer[] {
   ];
 }
 
-function questionAnswers(question: AgentQuestion): NeedsYouAnswer[] {
+/// A one-pick question's choices, answered in place. A generic interactive ask (`acp`, whose answer
+/// is a permission option, not a question's reply) and a question with previews open the chat,
+/// where its card shows them.
+export function questionAnswers(question: AgentQuestion): NeedsYouAnswer[] {
   const [item, ...more] = question.items;
-  if (!item || more.length > 0 || item.multiSelect || item.options.length > QUICK_CHOICES) return [];
+  if (!answersInPlace(question) || !item || more.length > 0 || item.multiSelect || hasPreviews(item)) return [];
+  if (item.options.length > QUICK_CHOICES) return [];
   return item.options.map((option) => ({ id: option.id, label: option.label, tone: "choice" as const }));
 }
+
+/// Whether the host can send this question's reply for another chat (`chat.asks.answer` with
+/// `answers`): a question's reply, so not the generic interactive ask, whose answer is an option.
+export const answersInPlace = (question: AgentQuestion) => question.source.harness !== "acp";
+
+const NO_PAIRS: readonly AcpmuxAgentPair[] = [];
+const pairReads = new PrefixFlatCache<AcpmuxRow, AcpmuxAgentPair>((row) =>
+  row.kind === "agentPair" && row.agentPair ? [row.agentPair] : NO_PAIRS,
+);
 
 /// The open chat's agent pairs that still hold messages for the person to release.
 export function heldPairs(rows: readonly AcpmuxRow[]): AcpmuxAgentPair[] {
   const pairs = new Map<string, AcpmuxAgentPair>();
-  for (const row of rows) {
-    const pair = row.kind === "agentPair" ? row.agentPair : undefined;
-    if (!pair) continue;
+  // Only the rows a snapshot changed are read again (conversation/prefixFlatMap.ts).
+  for (const pair of pairReads.read(rows).items) {
     // A later row for the same peer replaces an earlier one (a re-pause takes over what it held).
     if (pair.resumed || pair.held.length === 0) pairs.delete(pair.peer);
     else pairs.set(pair.peer, pair);

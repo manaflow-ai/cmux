@@ -44,7 +44,7 @@ struct ChiefPetRoutes {
         guard let services else { return false }
         if case .chat(let chat, _) = target { return await services.chiefPetMini.send(text, to: chat) }
         guard case .notice(let notice) = target else {
-            guard let chief = HomeDefaultConversation.chief(services.home) else { return false }
+            guard let chief = TopHomePageView.chief(services.home) else { return false }
             return (try? await services.home.homeStore.send(conversation: ConversationID(chief), text: text, attachments: [])) != nil
         }
         return await services.notifications.typeChiefPetReply(text, to: notice)

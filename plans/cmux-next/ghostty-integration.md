@@ -36,8 +36,8 @@ upstream Ghostty.app built from the SAME upstream commit the ghostty-next pin is
 `c7f68a7f48c6`), in every metric below. "Worse" means: past the upstream arm's own run spread AND past the
 metric's floor. A pin change that makes any metric worse does not land.
 
-**No CI.** This is not a CI gate, job, step or perf-gate row (CLAUDE.md, Lawrence 2026-10-23). The pin
-author runs the bench on the fleet before the pin PR and pastes the parity table into the pin PR
+**No CI.** This is not a CI gate, job, step or perf-gate row (kept off CI under Lawrence's 2026-10-23 rule, since
+lifted). The pin author runs the bench on the fleet before the pin PR and pastes the parity table into the pin PR
 description, with job IDs, host, macOS version and refresh rate. A pin PR without the table is not done.
 Reviewers check the table, not a CI status.
 
@@ -388,8 +388,9 @@ move (step 4).
 
 Each step is one PR (a pin PR where the fork changes). Each step has, in its PR body: the parity table of sec. 1.2
 for the rows it touches, before (the feat tip) and after (the PR head), both against the same upstream Ghostty.app
-arm; and a red-first regression test, committed failing before the fix, red and green results named. No step adds a
-CI gate, job, step or perf-gate row. A step that makes any row worse than before beyond the spread does not land.
+arm; and a red-first regression test, committed failing before the fix, red and green results named. The plan
+was written under the 2026-10-23 no-new-CI rule, since lifted: a step may add a CI gate, job, step or perf-gate row,
+in addition to its own fleet runs. A step that makes any row worse than before beyond the spread does not land.
 
 | step | change | rows that must not get worse / must pass | red-first test |
 |---|---|---|---|
@@ -416,17 +417,17 @@ rows measured before it lands, or the lead must write why not in the PR.
 | 0 | none | not started | - |
 | 1 | #40055 (S-P3) | open | App side only: a watch that runs out keeps the commit owed. Step 4 deletes the presenter it changes. |
 | 2 | #40153 (GI PIN SYNC) | open | NOT the full sync: fork branch `release/cmux-gi-pin-sync-2`, pin `a0975fd8c` = the current pin + red-test commit `9ae6954e2` + `cherry-pick -x` of 5ce2325ec, 1b8b3f55b, 321a32a42, 96d379822, 15a443234. F13, F31, F48 and F50 stay until the full merge (sec. 3, sync strategy). The `endUpdate` cost test of the table is not written. |
-| 3 | #40169 (GI PRESENT CB) | open | Fork branch `release/cmux-gi-present-cb-1` at `a0e665d4f`; pin `c370b103a` on `release/cmux-gi-land-1` (it also has `a0975fd8c` of step 2). The API is `ghostty_surface_set_present_callback(surface, cb, userdata)` with `ghostty_surface_present_s { width_px, height_px, reason, seq, host_time }`: no `cols` / `rows`, and two reasons (`GHOSTTY_PRESENT_CONTENT`: same pixel size as the frame before; `GHOSTTY_PRESENT_RESIZE`: another size, or the first frame), not the four of 4.2. On the main thread the callback runs inside main's open transaction, before its commit; off main it runs after the commit (4.2 says "after the commit"). It deletes `TypingFrameProbe.swift` (P23). |
-| 4 | #40174 (GI RENDERER SYNC) | draft, stacked on #40169; held by the perf lead until its ported tests run green | Fork branch `release/cmux-gi-renderer-sync-1` at `c31377f1a` (on `a0e665d4f`); pin `0efdef967` on `release/cmux-gi-land-2` (it also has `c370b103a` of step 3, and P12: a new content scale goes to the layer with the first frame drawn at it, fork red `74b8bb04f`, fix `0efdef967`; cmux no longer sets `contentsScale`). `GHOSTTY_HOST_PRESENT_RENDERER_SYNCED = 2`; the bound is fixed in the fork (3 refreshes of 120 Hz): no `ghostty_surface_set_resize_hold` and no `resize-sync` config key. The bound counts from the size change and a `ghostty_surface_set_grid` restarts it (4.1 rule 3 starts it at the grid). The grid-report refresh tick moves from the presenter to a new per-window `TerminalGridReportRefreshes`. A frame of a NEW size still shows through the main thread, in main's Core Animation transaction with the view's bounds (4.1 rule 5 says "the thread that presents"); a frame at the shown size goes off main, except for one run loop pass after main changed the shown size. The presenter's draw-ahead (P9's presenter part) is deleted: the final size goes to Ghostty at the motion's start (4.3). It ports or maps the old presenter tests (`TerminalResizeProgramHoldTests`, `TerminalKeyResizeFrameTests`, `TerminalWindowFrameSyncTests`, `TerminalFrameOwnerMainThreadTests`) and deletes `TerminalScreenSwitchWatch` (P11). |
+| 3 | #40169 (GI PRESENT CB) | open | Fork branch `release/cmux-gi-present-cb-1`, pin `a0e665d4f`. The API is `ghostty_surface_set_present_callback(surface, cb, userdata)` with `ghostty_surface_present_s { width_px, height_px, reason, seq, host_time }`: no `cols` / `rows`, and two reasons (`GHOSTTY_PRESENT_CONTENT`: same pixel size as the frame before; `GHOSTTY_PRESENT_RESIZE`: another size, or the first frame), not the four of 4.2. On the main thread the callback runs inside main's open transaction, before its commit; off main it runs after the commit (4.2 says "after the commit"). It deletes `TypingFrameProbe.swift` (P23). |
+| 4 | #40174 (GI RENDERER SYNC) | draft, stacked on #40169; held by the perf lead until its ported tests run green | Fork branch `release/cmux-gi-renderer-sync-1`, pin `c31377f1a` (on `a0e665d4f`). `GHOSTTY_HOST_PRESENT_RENDERER_SYNCED = 2`; the bound is fixed in the fork (3 refreshes of 120 Hz): no `ghostty_surface_set_resize_hold` and no `resize-sync` config key. The bound counts from the size change and a `ghostty_surface_set_grid` restarts it (4.1 rule 3 starts it at the grid). The grid-report refresh tick moves from the presenter to a new per-window `TerminalGridReportRefreshes`. A frame of a NEW size still shows through the main thread, in main's Core Animation transaction with the view's bounds (4.1 rule 5 says "the thread that presents"); a frame at the shown size goes off main, except for one run loop pass after main changed the shown size. The presenter's draw-ahead (P9's presenter part) is deleted: the final size goes to Ghostty at the motion's start (4.3). It ports or maps the old presenter tests (`TerminalResizeProgramHoldTests`, `TerminalKeyResizeFrameTests`, `TerminalWindowFrameSyncTests`, `TerminalFrameOwnerMainThreadTests`) and deletes `TerminalScreenSwitchWatch` (P11). |
 | 5 | none | not started | - |
 | 6 | none | not started | The sync strategy of sec. 3 comes first. |
 | 7 | none | not started | - |
 
 Pins: the fork branches of #40153 (`a0975fd8c`) and of #40169 (`a0e665d4f`) both start at `b3a5ebfdf` and neither
-has the other's commits; `c31377f1a` (#40174) has #40169's commits and not #40153's. A pin PR must not drop what an
-earlier pin PR landed, so each later pin is a merge on a new fork branch: `c370b103a` (`release/cmux-gi-land-1`) =
-`a0975fd8c` + `a0e665d4f` for #40169, and `0efdef967` (`release/cmux-gi-land-2`) = `c370b103a` + `c31377f1a` + the
-P12 content-scale change for #40174. Both merges had no conflict.
+has the other's commits; `c31377f1a` (#40174) has #40169's commits and not #40153's. The second of them to land needs
+a fork branch that has both, and a new pin: a pin PR must not drop what an earlier pin PR landed. `b37a94dfe`
+(`release/cmux-gi-land-1-cell-guard`) = `c370b103a` + the two commits of fork PR #91 (a frame with no built cells runs
+no cell pass; cmux f14); it has no commit of #40174.
 
 ## 6. Baseline
 

@@ -33,6 +33,9 @@ final class IconPickerProvider: PageProvider {
 
     /// Whether a session waits for its outcome.
     var isOpen: Bool { onFinish != nil }
+    /// Whether the page's document ran and subscribed (it has drawn the picker); `onSubscribed` runs at each subscribe.
+    var isSubscribed: Bool { listener != nil }
+    var onSubscribed: (() -> Void)?
 
     /// Starts `session`: a session still open is cancelled first; the page resets to the new
     /// one now when it is loaded, else when it subscribes. `onFinish` runs once. With `assets`
@@ -100,6 +103,7 @@ final class IconPickerProvider: PageProvider {
         first.catalog = catalog
         first.maxEmojiVersion = maxEmojiVersion
         onEvent(first.event)
+        onSubscribed?()
         return PageSubscription { [weak self] in self?.listener = nil }
     }
 

@@ -160,6 +160,19 @@ impl Runner for SystemRunner {
 pub struct RecordingRunner {
     log: Mutex<Vec<Cmd>>,
     rules: Mutex<VecDeque<(String, Output)>>,
+    /// Answers that stay: used after the one-time rules.
+    always: Mutex<Vec<(String, Output)>>,
+    /// Code that runs when a matching command runs (a test's race).
+    hooks: Mutex<Vec<Hook>>,
+}
+
+/// [`RecordingRunner::on_run`]'s code, run before the command's answer.
+struct Hook(String, Box<dyn Fn() + Send + Sync>);
+
+impl std::fmt::Debug for Hook {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("Hook").field(&self.0).finish_non_exhaustive()
+    }
 }
 
 impl RecordingRunner {
@@ -176,6 +189,25 @@ impl RecordingRunner {
             .push_back((needle.to_owned(), output));
     }
 
+    /// Every command whose display contains `needle` gets `output`, unless a
+    /// one-time [`RecordingRunner::answer`] rule matches it first.
+    pub fn answer_always(&self, needle: &str, output: Output) {
+        self.always
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push((needle.to_owned(), output));
+    }
+
+    /// Runs `hook` each time a command whose display contains `needle`
+    /// runs, before its answer: what changes on the machine while that
+    /// command runs.
+    pub fn on_run(&self, needle: &str, hook: impl Fn() + Send + Sync + 'static) {
+        self.hooks
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(Hook(needle.to_owned(), Box::new(hook)));
+    }
+
     pub fn commands(&self) -> Vec<Cmd> {
         self.log.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
@@ -190,11 +222,22 @@ impl Runner for RecordingRunner {
     fn run(&self, cmd: &Cmd) -> std::io::Result<Output> {
         self.log.lock().unwrap_or_else(PoisonError::into_inner).push(cmd.clone());
         let line = cmd.display();
+        for Hook(needle, hook) in self.hooks.lock().unwrap_or_else(PoisonError::into_inner).iter() {
+            if line.contains(needle.as_str()) {
+                hook();
+            }
+        }
         let mut rules = self.rules.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(pos) = rules.iter().position(|(needle, _)| line.contains(needle.as_str()))
             && let Some((_, output)) = rules.remove(pos)
         {
             return Ok(output);
+        }
+        drop(rules);
+        let always = self.always.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some((_, output)) = always.iter().find(|(needle, _)| line.contains(needle.as_str()))
+        {
+            return Ok(output.clone());
         }
         Ok(Output { code: Some(0), ..Output::default() })
     }
