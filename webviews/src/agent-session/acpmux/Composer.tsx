@@ -19,10 +19,7 @@ import { createPortal } from "react-dom";
 import "../../theme/messages.css";
 import type { ConnectKind, OffloadKind, OffloadReasons } from "./environments";
 import type { RunModeRows } from "./sandboxRun";
-import { useEscapingList } from "../../ui/popupHost";
-import { Listbox } from "../../ui/Listbox";
 import { ComposerListLayer } from "./backdropLayer";
-import { useComposerListBox } from "./backdropLayerModel";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import {
   bindMarks,
@@ -33,6 +30,7 @@ import {
   type DroppedKind,
   type LinkItem,
 } from "./attachments";
+import { useReleasedPicks } from "./designSelection";
 import type { SendGesture } from "./heldPrompt";
 import { canResumeFromComposer } from "./composer/resumeControl";
 import { useTranscriptReadOnly } from "./conversation/readOnly";
@@ -88,7 +86,6 @@ import { customizeMessage } from "./customizeCommand";
 import {
   applyCommand,
   fastModeState,
-  isFastCommand,
   returnPicks,
   shownName,
   slashMatches,
@@ -98,12 +95,11 @@ import {
   withSkillDollars,
   withoutSkillDollars,
   type SlashCommand,
-  type SlashMatch,
   type SlashTrigger,
 } from "./slashCommands";
 import { commandWaitsForTurn } from "./cliOnlyCommands";
 import { localCommand, type LocalCommand } from "./localCommands";
-import { BoltIcon } from "./BoltIcon";
+import { SlashMenu } from "./SlashMenu";
 import {
   cachePersistedDraft,
   draftHistory,
@@ -134,7 +130,6 @@ import { useQueueing } from "./queueing";
 import { useMenuPressGuard } from "./menuPressGuard";
 import { setScrollToBottomOnSend, useComposerSettings } from "./composerSettings";
 import { useComposerLook } from "./composerLook";
-import { LookSwitch } from "./LookSwitch";
 import { useEscapeStop } from "./escapeStop";
 import { usePromptHistory, usePromptRecalled } from "./composer/promptHistory";
 import {
@@ -163,13 +158,6 @@ import { ComposerPlusMenu } from "./ComposerPlusMenu";
 import { loadRecentCommandNames, recentCommands, rememberRecentCommand } from "./recentCommands";
 import { openPicker } from "./pickerOpeners";
 import type { RepickMachine } from "./cloudRepick";
-import {
-  SLASH_MAX_VIEWPORT_PX,
-  SLASH_ROW_PX,
-  slashActiveAfterScroll,
-  slashScrollForActive,
-  slashViewport,
-} from "./slashViewport";
 import { compactingUsage } from "./usageStats";
 import { experimentArm } from "../../experiments/experiment";
 import { promptSuggestionLook } from "./promptSuggestionLook.experiment";
@@ -860,6 +848,8 @@ function ComposerFrame({
     },
   });
   const attachmentsRef = useRef(attachments);
+  // Browser picks that leave (their × or a send) leave the page too: its pins match the chips.
+  useReleasedPicks(attachments);
   const pendingRef = useRef(pending);
   // The latest of each, written as the render commits (every reader is a handler, an effect or the
   // handle): a write during render keeps the composer out of the React Compiler, and each key then
@@ -1257,11 +1247,13 @@ function ComposerFrame({
         if (sending.current) return "composer.sending";
         if (state.dictating) return "composer.dictation";
         if (state.reading) return "composer.attachment-reading";
-        if (shellRef.current.shell) return "composer.shell";
         // A new chat's prompt has no chat to keep it with yet.
-        if (!state.sessionId)
-          return (field.current?.value() ?? textRef.current).trim() || state.chips ? "composer.new-chat" : null;
-        if (hydratedSession.current !== state.sessionId) return "composer.draft-restoring";
+        if (!state.sessionId) {
+          if ((field.current?.value() ?? textRef.current).trim() || state.chips) return "composer.new-chat";
+        } else if (hydratedSession.current !== state.sessionId) return "composer.draft-restoring";
+        // Last: a hidden-chat release skips it (the wake state carries shell mode back, webSwap.ts
+        // WAKE_CARRIED_HOLDS), so it must not hide a hold the release keeps the page for.
+        if (shellRef.current.shell) return "composer.shell";
         return null;
       }),
     [],
@@ -1373,13 +1365,8 @@ function ComposerFrame({
   const open = typedSlash !== undefined && (typedSlash.leading || matches.length > 0);
   const slashNames = useSlashNames(commands);
 
-  // The row the arrows chose: Return picks it whatever was typed (returnPicks). A new word, a cleared
-  // draft or the list closing forgets it, so the same word typed again picks only by its spelling.
-  const [arrowed, setArrowed] = useState(false);
-  useLayoutEffect(() => {
-    setActive(0);
-    setArrowed(false);
-  }, [query, open]);
+  // A new word or the list opening highlights the first row again; Return takes it (returnPicks).
+  useLayoutEffect(() => setActive(0), [query, open]);
   // Typing @ at a word start lists other chats, then the chat's folders and files that match what
   // follows (cx-ncc.68, mentionItems.ts).
   const chatId = snapshot.summary?.sessionId;
@@ -1424,7 +1411,7 @@ function ComposerFrame({
   const mentionSelected = mentionSelection(mentions, mentionActive, mentionPending);
   useEffect(() => setMentionActive(undefined), [mentionWord]);
   // `:` and two letters at a word start list emoji by shortcode; a text emoticon (`:)`, `:DD`,
-  // `<3`) lists its face with no row chosen, so Return still sends it as typed (emojiShortcodes.ts).
+  // `<3`) lists its face; Return or Tab writes the highlighted row, Esc keeps the text (emojiShortcodes.ts).
   // The table loads in its own chunk at the first idle moment after the person first types in this
   // composer (`edit`), never while a chat opens: a `:` and two letters come well after that.
   const [emojiData, setEmojiData] = useState<EmojiShortcodes | undefined>();
@@ -1439,10 +1426,10 @@ function ComposerFrame({
     if (globalThis.requestIdleCallback) globalThis.requestIdleCallback(load, { timeout: 500 });
     else setTimeout(load, 0);
   };
-  // The row the arrows chose; until then no row is chosen, so Return still sends ("ok :D" ↩ sends it).
-  // Tab takes the chosen row or the first. A hovered row only lights up (emojiHover).
+  // The row the arrows or the pointer chose, else the first: a listed emoji is always highlighted, and
+  // Return or Tab writes it (Leo, 2026-11-20: "the thing should know (should highlihgt) that emoji").
+  // Esc, or typing on past the word, leaves the text as typed.
   const [emojiActive, setEmojiActive] = useState<string | undefined>();
-  const [emojiHover, setEmojiHover] = useState<number | undefined>();
   const [emojiDismissed, setEmojiDismissed] = useState<string | undefined>();
   const [emojiRecents, setEmojiRecents] = useState(loadRecentEmoji);
   const otherMenu = open || Boolean(mentionTyped) || recalling || shell;
@@ -1457,12 +1444,10 @@ function ComposerFrame({
   );
   const emojiAt = emojiRows.length > 0 ? emojiTyped : undefined;
   const emojiChosen = emojiActive === undefined ? -1 : emojiRows.findIndex((row) => row.key === emojiActive);
-  const emojiSelected = emojiChosen;
-  useEffect(() => {
-    setEmojiActive(undefined);
-    setEmojiHover(undefined);
-  }, [emojiKey]);
+  const emojiSelected = emojiRows.length === 0 ? -1 : Math.max(0, emojiChosen);
+  useEffect(() => setEmojiActive(undefined), [emojiKey]);
   const emojiLook = experimentArm(emojiShortcodeLook);
+  const listShown = open || Boolean(mentionAt) || Boolean(emojiAt);
   // A live command update can shrink the list under the selection.
   const selected = Math.min(active, Math.max(matches.length - 1, 0));
   useLayoutEffect(() => {
@@ -2383,10 +2368,10 @@ function ComposerFrame({
     // Send does what Return does: mid-turn it steers an agent that steers, else it queues.
     return send(false, steersAlways || returnSteers || steersUnseen);
   };
-  // Enter sends unless it picks a command (slashCommands.ts returnPicks): the highlighted row was
-  // chosen with the arrows, or the typed word begins its name and is not that name in full with no
-  // arguments to take. A path or a word that only resembles a command is never rewritten.
-  const returnSends = () => !open || !returnPicks(matches[selected], query ?? "", arrowed);
+  // Enter sends unless it picks a command (slashCommands.ts returnPicks): while the list shows, it
+  // takes the highlighted row, unless the typed word is that row's name in full with no arguments to
+  // take (Return runs it). Esc closes the list and keeps the word as typed.
+  const returnSends = () => !open || !returnPicks(matches[selected], query ?? "");
   const sendOnReturn = (event: { preventDefault(): void }) => {
     if (!returnSteers) return submit(event);
     event.preventDefault();
@@ -2397,7 +2382,7 @@ function ComposerFrame({
   // a line here (Shift-Return does): it sends, or picks the menu's command, as a Return key would.
   const returnInput = () => {
     if (shell) return;
-    if (mentionAt && mentions[mentionSelected]) return pickMention(mentions[mentionSelected]);
+    if (mentionAt) return mentions[mentionSelected] ? pickMention(mentions[mentionSelected]) : undefined;
     if (emojiAt && emojiRows[emojiSelected]) return pickEmoji(emojiRows[emojiSelected]);
     if (returnSends()) return void sendOnReturn({ preventDefault() {} });
     if (matches.length > 0) pick(matches[selected].command);
@@ -2479,9 +2464,14 @@ function ComposerFrame({
         pickMention(mentions[mentionSelected]);
         return;
       }
+      // The list shows with no row yet ("Searching…", "No files"): Return waits for one, never sends
+      // the `@word` under an open list. Esc closes it, and then Return sends.
+      if (event.key === "Enter" && plain) {
+        event.preventDefault();
+        return;
+      }
     }
-    // The emoji menu owns arrows (and Ctrl-N/P/J/K) and Esc; Return picks only a chosen row (an
-    // emoticon's menu opens with none, so Return sends), Tab the chosen or the first.
+    // The emoji menu owns arrows (and Ctrl-N/P/J/K), Return and Tab (the highlighted row), and Esc.
     if (emojiAt) {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -2498,11 +2488,10 @@ function ComposerFrame({
             : 0;
       if (step) {
         event.preventDefault();
-        const next = emojiSelected < 0 ? (step > 0 ? 0 : emojiRows.length - 1) : emojiSelected + step;
-        setEmojiActive(emojiRows[(next + emojiRows.length) % emojiRows.length]!.key);
+        setEmojiActive(emojiRows[(emojiSelected + step + emojiRows.length) % emojiRows.length]!.key);
         return;
       }
-      const row = emojiRows[emojiSelected] ?? (event.key === "Tab" ? emojiRows[0] : undefined);
+      const row = emojiRows[emojiSelected];
       if ((event.key === "Enter" || event.key === "Tab") && plain && row) {
         event.preventDefault();
         pickEmoji(row);
@@ -2612,7 +2601,6 @@ function ComposerFrame({
       event.preventDefault();
       const step = event.key === "ArrowDown" || event.key === "j" ? 1 : -1;
       setActive((selected + step + matches.length) % matches.length);
-      setArrowed(true);
     } else if ((event.key === "Enter" || event.key === "Tab") && plain) {
       event.preventDefault();
       pick(matches[selected].command);
@@ -2783,7 +2771,7 @@ function ComposerFrame({
       // but its own events changes its nodes (devkit/perfBudgets.ts `still-surface`).
       data-perf-still="composer"
       data-shell={shell ? "" : undefined}
-      // Codex's look (composerLook.ts, composerLocation.css); none is Claude's, the default.
+      // Gallery previews can stage the former Codex layout.
       data-composer-look={look === "codex" ? "codex" : undefined}
       // The box inside draws the compact grid in both looks (ComposerBox.tsx, composerLocation.css).
       data-composer-grid=""
@@ -2888,7 +2876,12 @@ function ComposerFrame({
                   : emojiAt && emojiSelected >= 0
                     ? `acpmux-emoji-${emojiSelected}`
                     : undefined,
-            spellcheck: String(spellChecking),
+            // While a list shows, it is the only completion: macOS's own (autocorrect's suggestion
+            // bubble, which rides on spelling, and inline predictions) drew a second one under the
+            // caret (Leo, 2026-11-20).
+            spellcheck: String(spellChecking && !listShown),
+            autocorrect: listShown ? "off" : undefined,
+            writingsuggestions: listShown ? "false" : undefined,
             // Attached files, or ones still being read, are a draft too: an ask's keys leave it alone
             // (composerTyped.ts).
             "data-draft-attachments": attachments.length + pending.length > 0 ? "" : undefined,
@@ -3006,9 +2999,9 @@ function ComposerFrame({
                   key={emojiAt.start}
                   look={emojiLook}
                   matches={emojiRows}
-                  active={emojiSelected >= 0 ? emojiSelected : (emojiHover ?? -1)}
+                  active={emojiSelected}
                   back={emojiAt.token.length}
-                  onHover={setEmojiHover}
+                  onHover={(index) => setEmojiActive(emojiRows[index]?.key)}
                   onPick={pickEmoji}
                 />
               </ComposerListLayer>
@@ -3117,182 +3110,9 @@ function ComposerFrame({
         accessory={accessory}
         trailing={quietActions ? undefined : sendControl}
         chromeItems={chrome.all}
-        // The look dots in the bottom area, on hover (LookSwitch.tsx); the Quick Composer has none.
-        {...(onOpenInWindow ? {} : { bottom: <LookSwitch onDone={focusPrompt} /> })}
       />
     </form>
   );
 }
 
 const MemoComposer = React.memo(ComposerFrame);
-
-/// One attachment above the prompt. An image draws a thumbnail in its own shape and opens in the chat's image
-/// viewer on a click; one the pane cannot draw falls back to its name, never an empty square.
-function SlashMenu({
-  matches,
-  active,
-  empty,
-  fast,
-  onHover,
-  onPick,
-}: {
-  matches: SlashMatch[];
-  active: number;
-  empty: string;
-  /// The chat's fast mode, which the /fast row's sentence follows (undefined: not reported).
-  fast?: "on" | "off";
-  onHover(index: number): void;
-  onPick(command: SlashCommand): void;
-}) {
-  const t = useT();
-  const list = useRef<HTMLDivElement>(null);
-  // Above the composer's box, or past the window's edge when the pane has no room there (cx-6k6cg).
-  // The list draws out of the box (backdropLayer.tsx): the box is what it stands beside.
-  const box = useComposerListBox();
-  // The full match list owns keyboard ranking. Only a bounded viewport gets DOM nodes.
-  const virtual = matches.length > 40;
-  const [scrollTop, setScrollTop] = useState(0);
-  const [viewportPx, setViewportPx] = useState(SLASH_MAX_VIEWPORT_PX);
-  const [rowPx, setRowPx] = useState(SLASH_ROW_PX);
-  const wantedTop = virtual ? slashScrollForActive(active, matches.length, scrollTop, viewportPx, rowPx) : 0;
-  const view = slashViewport(matches.length, wantedTop, viewportPx, rowPx);
-
-  // Above the composer, or past the window's edge when the pane has no room there (cx-6k6cg).
-  // The escape follows the glass shell; the rows' viewport (list) is what scrolls and fades.
-  const escape = useEscapingList("top", 6, undefined, box);
-  // The menu may be squeezed below its CSS 296px cap in a short pane.
-  useLayoutEffect(() => {
-    const node = list.current;
-    if (!node || !virtual) return;
-    const measure = () => {
-      if (node.clientHeight <= 0) return;
-      const css = node.ownerDocument.defaultView?.getComputedStyle(node);
-      const padding = (parseFloat(css?.paddingTop ?? "0") || 0) + (parseFloat(css?.paddingBottom ?? "0") || 0);
-      const height = Math.max(1, node.clientHeight - padding);
-      setViewportPx((old) => (old === height ? old : height));
-      const row = node.querySelector<HTMLElement>(".acpmux-slash-row");
-      const measuredRow = row?.getBoundingClientRect().height ?? 0;
-      if (measuredRow > 0 && Number.isFinite(measuredRow)) {
-        setRowPx((old) => (Math.abs(old - measuredRow) < 0.5 ? old : measuredRow));
-      }
-    };
-    measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(node);
-    const row = node.querySelector<HTMLElement>(".acpmux-slash-row");
-    if (row) observer.observe(row);
-    return () => observer.disconnect();
-  }, [virtual, matches.length]);
-
-  useLayoutEffect(() => {
-    const node = list.current;
-    if (!node) return;
-    if (virtual) {
-      if (Math.abs(node.scrollTop - view.scrollTop) > 0.5) node.scrollTop = view.scrollTop;
-      return;
-    }
-  }, [virtual, view.scrollTop]);
-
-  // A native select or datalist cannot hold the matched-name bolding and descriptions.
-  return (
-    <Listbox
-      listRef={list}
-      shellRef={escape}
-      items={matches}
-      getKey={(match) => `${match.command.source ?? "agent"}:${match.command.name}`}
-      textValue={(match) => shownName(match.command)}
-      label={t(COMPOSER_LABELS.commands)}
-      autoFocus={false}
-      activeIndex={active}
-      onActiveIndexChange={onHover}
-      onOpen={(match) => onPick(match.command)}
-      getItemId={(_, index) => `acpmux-slash-${index}`}
-      shellClassName="ui-popup ui-glass acpmux-slash-menu"
-      id="acpmux-slash-menu"
-      rowClassName="acpmux-slash-row"
-      empty={<div className="acpmux-slash-empty">{empty}</div>}
-      window={virtual ? view : undefined}
-      itemAttributes={(_, index) => ({
-        "aria-posinset": String(index + 1),
-        "aria-setsize": String(matches.length),
-      })}
-      onScroll={
-        virtual
-          ? (event) => {
-              const top = event.currentTarget.scrollTop;
-              setScrollTop(top);
-              const next = slashViewport(matches.length, top, viewportPx, rowPx);
-              const selected = slashActiveAfterScroll(active, matches.length, next);
-              if (selected !== active) onHover(selected);
-            }
-          : undefined
-      }
-      renderItem={(match) => {
-        // The harness's /fast reads as ChatGPT's Fast row: bolt, name, current mode.
-        const fastRow = isFastCommand(match.command);
-        const fastName = t("picker.tierFast");
-        return (
-          <>
-            {fastRow && (
-              <span className="acpmux-slash-icon">
-                <BoltIcon size={14} />
-              </span>
-            )}
-            <span className="acpmux-slash-name">
-              {fastRow ? (
-                // The typed letters stay bold where the shown name spells the command (English).
-                fastName.toLowerCase() === match.command.name.toLowerCase() ? (
-                  <Highlighted name={fastName} ranges={match.ranges} />
-                ) : (
-                  fastName
-                )
-              ) : (
-                <>
-                  /<Highlighted name={shownName(match.command)} ranges={match.ranges} />
-                </>
-              )}
-            </span>
-            {!fastRow && match.command.hint && <span className="acpmux-slash-hint">{match.command.hint}</span>}
-            {match.command.source && match.command.source !== "agent" && (
-              <span className="acpmux-slash-source">
-                {match.command.source === "skill"
-                  ? t("composer.slashSkill")
-                  : match.command.source === "prompt"
-                    ? t("composer.slashPrompt")
-                    : match.command.source === "extension"
-                      ? (match.command.extension ?? "cmux")
-                      : "cmux"}
-              </span>
-            )}
-            <span className="acpmux-slash-description">
-              {fastRow
-                ? t(
-                    fast === "on"
-                      ? "composer.slashFastOff"
-                      : fast === "off"
-                        ? "composer.slashFastOn"
-                        : "composer.slashFastToggle",
-                  )
-                : match.command.descriptionKey
-                  ? t(match.command.descriptionKey)
-                  : match.command.description}
-            </span>
-          </>
-        );
-      }}
-    />
-  );
-}
-
-function Highlighted({ name, ranges }: { name: string; ranges: [number, number][] }) {
-  const parts: React.ReactNode[] = [];
-  let at = 0;
-  for (const [start, end] of ranges) {
-    if (start > at) parts.push(name.slice(at, start));
-    parts.push(<mark key={start}>{name.slice(start, end)}</mark>);
-    at = end;
-  }
-  if (at < name.length) parts.push(name.slice(at));
-  return <>{parts}</>;
-}

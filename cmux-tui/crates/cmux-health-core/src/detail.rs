@@ -154,7 +154,12 @@ pub fn repairing(kind: Kind, why: Cause, action: RepairAction, attempt: u32, max
 
 /// A part whose repairs ran out.
 pub fn failed(kind: Kind, why: Cause, max: u32) -> String {
-    format!("{} Tried {max} repairs without luck; click to try again{}.", cause(why), kept(kind))
+    format!(
+        "{} Tried {max} repairs without luck; it tries again by itself within {}, or click to try now{}.",
+        cause(why),
+        duration(crate::policy::REPAIR_WINDOW_MS),
+        kept(kind)
+    )
 }
 
 /// The receipt of an attempt sent to the host.

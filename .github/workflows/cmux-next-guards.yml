@@ -5,8 +5,10 @@ name: cmux-next guards
 # tests there: tests/test_nightly_cmux_tui_resolve.py stayed red on the branch
 # unseen. nightly-next ships from feat-cmux-next, so run the release-notary
 # group (nightly, notarization, nightly-next guard and publication tests) for
-# its pull requests and pushes. There is no workflow path filter, so a base red
-# shows on the push that caused it.
+# its pull requests and pushes. Pushes have no path filter, so a base red shows
+# on the push that caused it; pull requests carry only the docs-only block
+# (scripts/ci/docs_only_paths.py): a pull request of prose nothing reads starts
+# no run (none of these jobs is a required check; tests/test_ci_docs_only_prs.py).
 #
 # A push runs the group in its release-notary job, judged at its tip, so a base red
 # still fails the push that caused it, and in the CI guard group, so the merge
@@ -26,6 +28,56 @@ name: cmux-next guards
 on:
   pull_request:
     branches: [feat-cmux-next]
+    # docs-only paths: BEGIN (scripts/ci/docs_only_paths.py --sync writes this block; edit DOCS_ONLY_PATHS there)
+    paths:
+      - "**"
+      - "!**/*.md"
+      - "!docs/**/*.png"
+      - "!docs/**/*.jpg"
+      - "!docs/**/*.gif"
+      - "!docs/**/*.webp"
+      - "!plans/**/*.png"
+      - "!plans/**/*.jpg"
+      - "!plans/**/*.gif"
+      - "!plans/**/*.webp"
+      - "**/AGENTS.md"
+      - "**/CLAUDE.md"
+      - "**/SKILL.md"
+      - ".github/**"
+      - "**/skills/**"
+      - "**/references/**"
+      - "**/templates/**"
+      - "**/Resources/**"
+      - "**/fixtures/**"
+      - "**/testdata/**"
+      - "**/test/**"
+      - "**/tests/**"
+      - "CHANGELOG.md"
+      - "THIRD_PARTY_LICENSES.md"
+      - "release-notes/**"
+      - "docs/agent-hooks.md"
+      - "docs/chief-setup-prompts.md"
+      - "docs/configuration.md"
+      - "docs/ci/node-product-cache-maintenance.md"
+      - "plans/cmux-next/actions.md"
+      - "docs/mdm/managed-preferences.md"
+      - "docs/ci/health-report.md"
+      - "docs/privacy.md"
+      - "**/notices/**"
+      - "vendor/stack-auth-swift-sdk-prerelease/README.cmux.md"
+      - "cmux-tui/README.md"
+      - "docs/remote-agents-and-cloud.md"
+      - "docs/cmux-next/customize-recipes.md"
+      - "cmux-tui/crates/acpmux/README.md"
+      - "cmux-tui/crates/acpmux/docs/**"
+      - "cmux-tui/crates/cmux-browser-host/js/guide.md"
+      - "cmux-tui/crates/cmux-extension-sdk/README.md"
+      - "cmux-tui/vendor/terminput-crossterm/README.md"
+      - "mux/packages/brain/conformance/README.md"
+    # docs-only paths: END
+  # docs-only-fallback.yml calls this in a pull request's own context when the docs-only `paths:` above could
+  # have skipped it wrongly (over 300 changed files, or a full-ci/dev-build label): scripts/ci/docs_only_paths.py.
+  workflow_call:
   push:
     branches: [feat-cmux-next]
 
@@ -46,6 +98,20 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # One run per 30-minute window on the feat-cmux-next tip (base-coalesce.yml): the first push of each window runs
+  # every job below, covering every push since the last run (each diffing step reads needs.coalesce.outputs.base
+  # where it read event.before); the other pushes' jobs report skipped, with no runner taken. 18,301 runner-minutes a
+  # day ran here on pushes alone (about 530 runs a day, ci-dash feed 2026-11-14/16/17); about 48 runs a day now.
+  # A red is seen within about 30 minutes plus the gap to the next push (median 1.3, max 73 minutes over
+  # 2026-11-13..21) plus the run, and base-red-watch bisects it over the covered range. Pull requests are unchanged
+  # (the coalesce job is skipped on them). vars.NEXT_GUARDS_COALESCE = '0' runs every push again.
+  coalesce:
+    uses: ./.github/workflows/base-coalesce.yml
+    with:
+      key: cmux-next-guards
+      hold_minutes: 30
+      no_coalesce: ${{ format('{0}', vars.NEXT_GUARDS_COALESCE) == '0' }}
+
   # A pin manifest is a publication contract: a source change that records a
   # missing artifact would otherwise fail much later on a cold pool VM.  This
   # uses the same read-only store credentials as the release path and a fresh
@@ -53,13 +119,39 @@ jobs:
   # Fork pull requests cannot receive the protected store key; their merge
   # push runs this check before any pool image or nightly can consume the pin.
   pinned-asset-store:
+    needs: coalesce
     name: pinned assets exist in store
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     permissions:
       contents: read
     steps:
+      # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
+      # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
+      - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        working-directory: ${{ github.workspace }}
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ -e "$GITHUB_WORKSPACE/.git" ] || exit 0
+          cd "$GITHUB_WORKSPACE"
+          why=""
+          if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
+            why="sparse"
+          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+            why="skip-worktree entries"
+          elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
+            why="HEAD does not resolve"
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+            why="a ref names a missing object"
+          else
+            exit 0
+          fi
+          echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -70,7 +162,7 @@ jobs:
         id: base
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
+          BEFORE: ${{ needs.coalesce.outputs.base != 'unknown' && needs.coalesce.outputs.base || github.event.before }}
         run: |
           set -euo pipefail
           base=""
@@ -96,7 +188,8 @@ jobs:
         run: scripts/cmux-next/check-pinned-assets.sh "${{ steps.base.outputs.base }}"
 
   nightly-guards:
-    if: ${{ !cancelled() }}
+    needs: coalesce
+    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' }}
     permissions:
       contents: read
       checks: read
@@ -122,13 +215,38 @@ jobs:
   # for the mini alone (no node, no Linux tools), where every step finished in 230 s.
   release-notary:
     name: release-notary guards at the tip
-    needs: [portable-placement]
-    if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+    needs: [coalesce, portable-placement]
+    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' && (github.event_name != 'pull_request') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' release-notary ') && needs.portable-placement.outputs.linux_runner || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 15
     permissions:
       contents: read
     steps:
+      # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
+      # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
+      - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        working-directory: ${{ github.workspace }}
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ -e "$GITHUB_WORKSPACE/.git" ] || exit 0
+          cd "$GITHUB_WORKSPACE"
+          why=""
+          if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
+            why="sparse"
+          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+            why="skip-worktree entries"
+          elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
+            why="HEAD does not resolve"
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+            why="a ref names a missing object"
+          else
+            exit 0
+          fi
+          echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -151,6 +269,8 @@ jobs:
   # (tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py rule 7). Unset falls back to a Blacksmith
   # literal and passes. This job's own runner is a literal, so a variable at a missing label still goes red.
   signing-runner-variables:
+    needs: coalesce
+    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' }}
     name: signing runner variables are ephemeral
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 2
@@ -177,11 +297,13 @@ jobs:
   # cant our minis just run them"). Every step fails open: no output keeps each job's Blacksmith route.
   # The placement code comes from the base branch, as macos-placement's does.
   portable-placement:
+    needs: coalesce
     name: portable job placement
-    if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) }}
+    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' && (github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.run_attempt == 1 || github.run_attempt == 2 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor))) }}
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_2 }}
-    timeout-minutes: 4
+    # Placement's 4 minutes and the hot-only route's (the merge commit's checkout and the router).
+    timeout-minutes: 8
     permissions:
       # The queue janitor's pool snapshot (nightly jobs waiting on a pool).
       actions: read
@@ -194,7 +316,34 @@ jobs:
       # A re-run of failed jobs carries this job's outputs from an earlier attempt; a job takes them
       # only in the attempt that placed it, so a stale reading never sends it to a busy mini.
       placed_attempt: ${{ github.run_attempt }}
+      # Whether this pull request is hot-only (the route steps below); empty when they did not run.
+      hot_only: ${{ steps.hot-route.outputs.hot_only }}
     steps:
+      # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
+      # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
+      - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        working-directory: ${{ github.workspace }}
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ -e "$GITHUB_WORKSPACE/.git" ] || exit 0
+          cd "$GITHUB_WORKSPACE"
+          why=""
+          if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
+            why="sparse"
+          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+            why="skip-worktree entries"
+          elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
+            why="HEAD does not resolve"
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+            why="a ref names a missing object"
+          else
+            exit 0
+          fi
+          echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
       - name: Check out the trusted placement
         timeout-minutes: 1
         continue-on-error: true
@@ -209,6 +358,43 @@ jobs:
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         continue-on-error: true
         run: if [ -x scripts/ci/reset-stale-submodules.sh ]; then scripts/ci/reset-stale-submodules.sh; fi
+
+      # Leo, 2026-11-15: "if it's only needing to swap out the app, isn't there like a more minimal set of CI that we
+      # can get it to do". Whether this pull request is hot-only: scripts/ci/cmux_next_route.py --hot-only on the merge
+      # commit's diff, the verdict cmux-next.yml skips its Mac app jobs by (every file a running app takes live through
+      # hot-apply.py, or one that reaches no app tier; no full-ci or dev-build label). A hot-only pull request runs
+      # tooling-tests on Linux, never on a mini. Any failure here reads as not hot: tooling-tests keeps its mini route.
+      # A step of this job since 2026-11-21, not a job of its own (cmuxterm-hq#16094: the hot-only route job had
+      # never been red, so it folds into the workflow's one router job). Only a same-repository pull request
+      # routes; the merge commit goes to hot-route/, beside the trusted placement checkout.
+      - name: Check out the merge commit and its base (hot-only route)
+        if: ${{ github.event_name == 'pull_request' }}
+        continue-on-error: true
+        timeout-minutes: 3
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: hot-route
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 2
+
+      - name: Route the pull request (cmux_next_route.py --hot-only)
+        id: hot-route
+        if: ${{ github.event_name == 'pull_request' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        working-directory: hot-route
+        env:
+          EVENT_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: |
+          set -uo pipefail
+          git diff --no-renames --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
+          if ! python3 scripts/ci/cmux_next_route.py --hot-only --event pull_request \
+              --changed-files "$RUNNER_TEMP/changed.txt" --labels "$EVENT_LABELS" --base-rev HEAD^1 \
+              --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"; then
+            echo "::warning title=hot-only route::cmux_next_route.py --hot-only failed; tooling-tests keeps its mini route."
+            echo "hot_only=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Mint the owned-pool routing token
         id: route-token
@@ -264,6 +450,7 @@ jobs:
   # ownership), and every routed group on a push. The main-only release-ios group never runs here; release-notary runs here
   # on a pull request that reaches its inputs (compared with its base) and on every push (here, and in the release-notary job).
   ci-guard-group:
+    needs: coalesce
     name: cmux-next CI guard group
     # 32 vCPU, a guard worker per core: the head and the base each run every routed group, on every pull request
     # and push (175-359 s on 4 vCPU with 8 workers). vars.LINUX_RUNNER names the 4 vCPU size, so it is read only
@@ -272,12 +459,37 @@ jobs:
     # Linux only: fleet Linux (vars.LINUX_RUNNER when it names our own runner), then Blacksmith. Not a portable
     # job: on a mini 24 of its steps red (no python3.9 or node, temp-cwd scripts),
     # so portable-placement does not place it.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 25
     permissions:
       contents: read
     steps:
+      # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
+      # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
+      - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        working-directory: ${{ github.workspace }}
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ -e "$GITHUB_WORKSPACE/.git" ] || exit 0
+          cd "$GITHUB_WORKSPACE"
+          why=""
+          if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
+            why="sparse"
+          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+            why="skip-worktree entries"
+          elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
+            why="HEAD does not resolve"
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+            why="a ref names a missing object"
+          else
+            exit 0
+          fi
+          echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -303,7 +515,7 @@ jobs:
         id: changes
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
+          BEFORE: ${{ needs.coalesce.outputs.base != 'unknown' && needs.coalesce.outputs.base || github.event.before }}
         run: |
           base=""
           if [[ "$EVENT_NAME" == pull_request ]]; then
@@ -349,6 +561,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       # setup-python installs 3.9 on Linux; a runner without it takes the one uv installs, if any.
       # The head and the base run on the same machine, so either way they compare like for like.
@@ -375,7 +588,16 @@ jobs:
             echo "::warning::no Python 3.9 on this runner; the nightly prune compatibility step reds on the head and the base alike"
             exit 0
           fi
-          ln -sf "$PYTHON39" "$RUNNER_TEMP/python39/python3.9"
+          # A wrapper, not a symlink: setup-python's 3.9 is a shared-library build that finds libpython3.9.so through
+          # LD_LIBRARY_PATH, which update-environment: false leaves unset (a persistent pool runner: "libpython3.9.so.1.0:
+          # cannot open shared object file", guards run 44762407859).
+          lib="$(cd "$(dirname "$PYTHON39")/../lib" 2>/dev/null && pwd || true)"
+          # shellcheck disable=SC2016 # $LD_LIBRARY_PATH and $@ are the wrapper's own, expanded when it runs
+          printf '#!/bin/sh\nLD_LIBRARY_PATH="%s${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" exec "%s" "$@"\n' "$lib" "$PYTHON39" \
+            > "$RUNNER_TEMP/python39/python3.9"
+          chmod 755 "$RUNNER_TEMP/python39/python3.9"
+          "$RUNNER_TEMP/python39/python3.9" -c 'import sys; assert sys.version_info[:2] == (3, 9)' \
+            || { echo "::warning::$PYTHON39 does not start as Python 3.9"; rm -f "$RUNNER_TEMP/python39/python3.9"; exit 0; }
           echo "$RUNNER_TEMP/python39" >> "$GITHUB_PATH"
 
       # The branch had 24 of the group's 134 steps red before this job ran there (2026-10-21), so the job fails
@@ -401,7 +623,7 @@ jobs:
           GUARDS_AT_TIP: ${{ steps.changes.outputs.tip }}
         run: |
           # The job ends at 25 minutes; the base pass gets what the head pass leaves of 23, so a slow base ends in a
-          # verdict (with unfinished base steps deferred to the merge gate) instead of a cancelled job that merge_hold waits on.
+          # verdict (with unfinished base steps deferred to the merge gate) instead of a cancelled job that land-judge waits on.
           # The head pass is bound too, to 15 minutes, so a slow head leaves 8 for the base's re-run and the verdict. Unbound,
           # a head pass still running 23 minutes into the step (442 steps, 4 workers) was cancelled by the job timeout with
           # no verdict. A cut head is red, never green: its unfinished steps have no result to compare.
@@ -409,15 +631,20 @@ jobs:
           # The base checkout is untracked in this workspace; the workload profile refuses a dirty checkout.
           echo "/.guard-base/" >> .git/info/exclude
           # The same call on a pull request and a push: a push has no changed-files list, so --feat-routes routes every group.
+          # A pull request runs, within those groups, only the steps its diff reaches (--affected,
+          # scripts/ci/guard_step_inputs.py): a step whose inputs it leaves as they were gives the base's verdict again.
+          # A push runs every step, so each step skipped here still has a verdict on the base.
+          affected=()
+          if [ -f "$RUNNER_TEMP/changed-files.txt" ] && [ -n "$CMUX_GUARDS_BASE_SHA" ]; then
+            affected=(--affected "$CMUX_GUARDS_BASE_SHA")
+          fi
           head_budget=$(( 15 * 60 ))
           head_status=0
           timeout --kill-after=10 "$head_budget" \
-            scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --feat-routes "$RUNNER_TEMP/changed-files.txt" --results "$RUNNER_TEMP/guards-head.json" || head_status=$?
-          head_cut=false
+            scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --feat-routes "$RUNNER_TEMP/changed-files.txt" "${affected[@]}" --results "$RUNNER_TEMP/guards-head.json" || head_status=$?
           if [ "$head_status" -eq 124 ] || [ "$head_status" -eq 137 ]; then
-            head_cut=true
             echo "::error title=ci guard group head pass cut::the head pass hit its ${head_budget}s bound (exit ${head_status}); its unfinished steps have no head result"
-            scripts/ci/guards-local.sh --list --feat-routes "$RUNNER_TEMP/changed-files.txt" 2>/dev/null \
+            scripts/ci/guards-local.sh --list --feat-routes "$RUNNER_TEMP/changed-files.txt" "${affected[@]}" 2>/dev/null \
               | sed -n 's/^  - //p; s/  (Linux only; skipped here)$//' | sort -u > "$RUNNER_TEMP/guards-plan.txt" || true
             # --results has one key per finished step; a step with no key was cut off.
             sed -n 's/^  "\(.*\)": \(true\|false\),\{0,1\}$/\1/p' "$RUNNER_TEMP/guards-head.json" | sort -u > "$RUNNER_TEMP/guards-done.txt" || true
@@ -475,6 +702,8 @@ jobs:
   # filter, so a catalog edit or a renamed setting is red where it lands. It runs last: it writes the generated
   # strings into the checkout.
   static-checks:
+    needs: coalesce
+    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' }}
     name: cmux-next static checks (vt-link-graph, nightly static capabilities, defaults snapshot, page strings)
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
@@ -483,6 +712,31 @@ jobs:
     # 25 and no step's stall can use up another's time. A step that times out fails and the next step still runs.
     timeout-minutes: 25
     steps:
+      # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
+      # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
+      - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        working-directory: ${{ github.workspace }}
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ -e "$GITHUB_WORKSPACE/.git" ] || exit 0
+          cd "$GITHUB_WORKSPACE"
+          why=""
+          if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
+            why="sparse"
+          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+            why="skip-worktree entries"
+          elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
+            why="HEAD does not resolve"
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+            why="a ref names a missing object"
+          else
+            exit 0
+          fi
+          echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
       - name: Checkout
         timeout-minutes: 5
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -563,10 +817,37 @@ jobs:
   # when a pull request or push changes a Rust manifest or the notices tooling,
   # so such a change is red at its own landing.
   rust-notices-tree:
+    needs: coalesce
+    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' }}
     name: cmux-next Rust notices generate
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 25
     steps:
+      # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
+      # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
+      - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        working-directory: ${{ github.workspace }}
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ -e "$GITHUB_WORKSPACE/.git" ] || exit 0
+          cd "$GITHUB_WORKSPACE"
+          why=""
+          if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
+            why="sparse"
+          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+            why="skip-worktree entries"
+          elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
+            why="HEAD does not resolve"
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+            why="a ref names a missing object"
+          else
+            exit 0
+          fi
+          echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -575,7 +856,7 @@ jobs:
       - name: Changed notice inputs
         id: inputs
         env:
-          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || needs.coalesce.outputs.base != 'unknown' && needs.coalesce.outputs.base || github.event.before }}
         run: |
           set -euo pipefail
           if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$BASE_SHA" =~ ^0+$ ]]; then
@@ -627,6 +908,8 @@ jobs:
   # baseline) from the base, so a change cannot loosen them for itself; a generated file the base already tracks
   # uncovered is a note, not this change's red.
   own-change-checks:
+    needs: coalesce
+    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' }}
     name: cmux-next size cap, crash ratchet, localization debt ratchet, no new generated files
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
@@ -637,6 +920,31 @@ jobs:
     # busy runner makes the guard slower, never red, and it always ends before the step's limit to print why.
     timeout-minutes: 38
     steps:
+      # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
+      # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
+      - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        working-directory: ${{ github.workspace }}
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ -e "$GITHUB_WORKSPACE/.git" ] || exit 0
+          cd "$GITHUB_WORKSPACE"
+          why=""
+          if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
+            why="sparse"
+          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+            why="skip-worktree entries"
+          elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
+            why="HEAD does not resolve"
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+            why="a ref names a missing object"
+          else
+            exit 0
+          fi
+          echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
       - name: Checkout
         timeout-minutes: 5
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -650,7 +958,7 @@ jobs:
         timeout-minutes: 5
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
+          BEFORE: ${{ needs.coalesce.outputs.base != 'unknown' && needs.coalesce.outputs.base || github.event.before }}
         run: |
           base=()
           if [[ "$EVENT_NAME" == pull_request ]]; then
@@ -676,7 +984,7 @@ jobs:
         timeout-minutes: 10
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
+          BEFORE: ${{ needs.coalesce.outputs.base != 'unknown' && needs.coalesce.outputs.base || github.event.before }}
         run: scripts/ci/crash-ratchet-against-base.sh
 
       # Every task and process has an owner (cmuxterm-hq#9096): no file gains a spawn with no
@@ -687,7 +995,7 @@ jobs:
         timeout-minutes: 5
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
+          BEFORE: ${{ needs.coalesce.outputs.base != 'unknown' && needs.coalesce.outputs.base || github.event.before }}
         run: |
           base=()
           if [[ "$EVENT_NAME" == pull_request ]]; then
@@ -702,7 +1010,7 @@ jobs:
         timeout-minutes: 5
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
+          BEFORE: ${{ needs.coalesce.outputs.base != 'unknown' && needs.coalesce.outputs.base || github.event.before }}
         run: |
           base_ref=""
           if [[ "$EVENT_NAME" == pull_request ]]; then
@@ -746,7 +1054,7 @@ jobs:
         timeout-minutes: 8
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
+          BEFORE: ${{ needs.coalesce.outputs.base != 'unknown' && needs.coalesce.outputs.base || github.event.before }}
         run: |
           base_ref=""
           if [[ "$EVENT_NAME" == pull_request ]]; then
@@ -776,42 +1084,6 @@ jobs:
     with:
       own_checks_green: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
 
-  # Leo, 2026-11-15: "if it's only needing to swap out the app, isn't there like a more minimal set of CI that we
-  # can get it to do". Whether this pull request is hot-only: scripts/ci/cmux_next_route.py --hot-only on the merge
-  # commit's diff, the verdict cmux-next.yml skips its Mac app jobs by (every file a running app takes live through
-  # hot-apply.py, or one that reaches no app tier; no full-ci or dev-build label). A hot-only pull request runs
-  # tooling-tests on Linux, never on a mini. Any failure here reads as not hot: tooling-tests keeps its mini route.
-  hot-route:
-    name: hot-only route
-    if: ${{ github.repository_owner == 'manaflow-ai' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    outputs:
-      hot_only: ${{ steps.route.outputs.hot_only }}
-    steps:
-      - name: Checkout the merge commit and its base
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          submodules: false
-          fetch-depth: 2
-
-      - name: Route the pull request (cmux_next_route.py --hot-only)
-        id: route
-        env:
-          EVENT_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
-        run: |
-          set -uo pipefail
-          git diff --no-renames --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
-          if ! python3 scripts/ci/cmux_next_route.py --hot-only --event pull_request \
-              --changed-files "$RUNNER_TEMP/changed.txt" --labels "$EVENT_LABELS" --base-rev HEAD^1 \
-              --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"; then
-            echo "::warning title=hot-only route::cmux_next_route.py --hot-only failed; tooling-tests keeps its mini route."
-            echo "hot_only=false" >> "$GITHUB_OUTPUT"
-          fi
-
   # The tests of feat-cmux-next's own CI tooling (nightly-next's App ID, the
   # cmux-tui republish path, the crash ratchet, the red-checks comment, the
   # backdrop art generator). Each is stdlib Python with fakes for the network
@@ -819,12 +1091,37 @@ jobs:
   tooling-tests:
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER. Others take fleet Linux, then a free
     # mini (portable-placement: stdlib Python with fakes, and bun), then Blacksmith. A hot-only pull request
-    # (hot-route) skips the mini: fleet Linux, else Blacksmith.
-    needs: [portable-placement, hot-route]
-    if: ${{ !cancelled() }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' tooling-tests ') && needs.portable-placement.outputs.linux_runner || needs.hot-route.outputs.hot_only != 'true' && needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' tooling-tests ') && needs.portable-placement.outputs.mini_runner || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    # (portable-placement's hot-only route) skips the mini: fleet Linux, else Blacksmith.
+    needs: [coalesce, portable-placement]
+    if: ${{ !cancelled() && needs.coalesce.outputs.run != 'false' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' tooling-tests ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.hot_only != 'true' && needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' tooling-tests ') && needs.portable-placement.outputs.mini_runner || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
     steps:
+      # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
+      # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
+      - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        working-directory: ${{ github.workspace }}
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ -e "$GITHUB_WORKSPACE/.git" ] || exit 0
+          cd "$GITHUB_WORKSPACE"
+          why=""
+          if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
+            why="sparse"
+          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+            why="skip-worktree entries"
+          elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
+            why="HEAD does not resolve"
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+            why="a ref names a missing object"
+          else
+            exit 0
+          fi
+          echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -971,6 +1268,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: The web lint pre-push hook
         run: python3 -m pytest -p no:cacheprovider -n 4 -v tests/test_web_lint_prepush.py
