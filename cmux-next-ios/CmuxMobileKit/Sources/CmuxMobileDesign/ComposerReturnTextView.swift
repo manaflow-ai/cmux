@@ -136,6 +136,16 @@ open class ComposerReturnTextView: UITextView {
         if contentOffset.y != top { contentOffset.y = top }
     }
 
+    #if DEBUG
+    /// A typed key to the frame that draws it (`InputLatencyTrace`: `<field id>_key_frame`).
+    override open func insertText(_ text: String) {
+        guard let trace = InputLatencyTrace.shared else { return super.insertText(text) }
+        let start = CACurrentMediaTime()
+        super.insertText(text)
+        trace.sampleAtNextFrame("\(accessibilityIdentifier ?? "composer")_key_frame", since: start)
+    }
+    #endif
+
     override open func layoutSubviews() {
         super.layoutSubviews()
         if !textOverflows { pinToTop() }
