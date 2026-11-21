@@ -218,6 +218,7 @@ pub(crate) async fn output(
 
 /// [`output`] (stdout), and the line `ls` writes to stderr when the rows it lists come from
 /// more than this machine ([`scope_line`]).
+#[cfg(test)]
 pub(crate) async fn scoped_output(
     args: LsArgs,
     json_out: bool,
