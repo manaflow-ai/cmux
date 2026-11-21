@@ -136,3 +136,51 @@ async fn a_stale_peer_qualified_id_never_picks_a_local_session_named_like_it() {
     let reply = call(&hub, method::MUX_INFO, json!({"sessionId": "hb/peer-gone-1"})).await;
     assert_ne!(reply["result"]["sessionId"], "local-d-1", "{reply}");
 }
+
+#[tokio::test]
+async fn spoken_handles_resolve_rename_and_send_through_the_socket() {
+    let hub = setup_with(&[("lane-a", "ci-fleet"), ("lane-b", "docs")]);
+    let info = call(&hub, method::MUX_INFO, json!({"sessionId": "lane-a"})).await;
+    let generated = info["result"]["handle"].as_str().expect("the old record has a handle");
+    let lookup = call(&hub, method::MUX_INFO, json!({"sessionId": generated})).await;
+    assert_eq!(lookup["result"]["sessionId"], "lane-a", "{lookup}");
+
+    let renamed =
+        call(&hub, method::MUX_RENAME, json!({"sessionId": generated, "newHandle": "Mango"})).await;
+    assert_eq!(renamed["result"]["handle"], "Mango", "{renamed}");
+    assert_eq!(renamed["result"]["name"], "ci-fleet", "{renamed}");
+    let found = call(&hub, method::MUX_RESOLVE, json!({"query": "local/mango"})).await;
+    assert_eq!(found["result"]["session"]["sessionId"], "lane-a", "{found}");
+    let link = "https://cmux.com/deeplink/agent?harness=fake&session=handle%3AMango";
+    let found = call(&hub, method::MUX_RESOLVE, json!({"query": link})).await;
+    assert_eq!(found["result"]["session"]["sessionId"], "lane-a", "{found}");
+    let id_link = "https://cmux.com/deeplink/agent?harness=fake&session=Mango";
+    let missing = call(&hub, method::MUX_RESOLVE, json!({"query": id_link})).await;
+    assert!(missing.get("error").is_some(), "{missing}");
+
+    let collision =
+        call(&hub, method::MUX_RENAME, json!({"sessionId": "lane-b", "newHandle": "mango"})).await;
+    assert_eq!(collision["error"]["data"]["reason"], "handle.taken", "{collision}");
+
+    let request = json!({"sessionId": "Mango", "prompt": [{"type": "text", "text": "hi"}]});
+    let sent = call(&hub, method::MUX_SEND_QUEUE, json!({"request": request})).await;
+    assert!(sent.get("result").is_some(), "{sent}");
+}
+
+#[tokio::test]
+async fn spoken_handles_refuse_a_duplicate_peer_handle() {
+    let hub = setup_with(&[("lane-a", "ci-fleet")]);
+    call(&hub, method::MUX_RENAME, json!({"sessionId": "lane-a", "newHandle": "Mango"})).await;
+    let mut rows = hub.remote_sessions.write();
+    let mut row = rows.get("hb/peer-review-1").unwrap().as_ref().clone();
+    let mut summary = row.summary.value();
+    summary["handle"] = json!("mango");
+    row.summary = summary.into();
+    rows.insert("hb/peer-review-1".into(), row);
+    drop(rows);
+
+    let refused = call(&hub, method::MUX_INFO, json!({"sessionId": "Mango"})).await;
+    assert_eq!(refused["error"]["data"]["reason"], "session_ambiguous", "{refused}");
+    let found = call(&hub, method::MUX_INFO, json!({"sessionId": "local/Mango"})).await;
+    assert_eq!(found["result"]["sessionId"], "lane-a", "{found}");
+}
