@@ -812,6 +812,18 @@ export interface OfferRespondParams {
   sessionId?: unknown;
 }
 
+/** The one thing a person does about an [`OfflineReason`] (`action`). */
+export type OfflineAction = ("reconnect" | "start-machine" | "sign-in" | "restart-daemon" | "free-disk");
+
+/**
+ * Why a down link is `offline` and what a person does about it (`reason`): a terminal named
+ * state, so a link that cannot heal on its own never reads as still connecting (design
+ * `remote-cloud-durability.md` 4.3, handbook `connection-state-with-no-action-or-bound`).
+ * Attempts go on behind it (`nextRetryAt`, hourly once parked); the reason only makes the
+ * reported state true. Each has one [`OfflineAction`].
+ */
+export type OfflineReason = ("credential-unavailable" | "machine-stopped" | "login-needed" | "restart-budget-exceeded" | "disk-full");
+
 /**
  * One person in a chat. The hub never marks the caller's own entry: a connection may carry
  * several people, so the client compares ids (a caller with no author is `owner`).
@@ -859,11 +871,13 @@ export interface PeerSnapshotParams {
 
 /**
  * `_acpmux/peer_state_changed`, to every watching connection (`_acpmux/watch`) when a peer's
- * link changes (`link`, `carrier`, `cause` or `nextRetryAt`), never twice for the same one: a
+ * link changes (`link`, `carrier`, `cause`, `reason` or `nextRetryAt`), never twice for the same one: a
  * peer that is added sends its first state, and one that is removed a last `offline` with
  * `error: "removed"`. Listed as the `peerStateEvents` feature.
  */
 export type PeerStateChanged = {
+  /** What a person does about `reason`; null when there is none. */
+  action: (OfflineAction | null);
   /** When the note was made, ms since the epoch. */
   at: number;
   /** The carrier the open link runs over; null while none is open. */
@@ -880,6 +894,11 @@ export type PeerStateChanged = {
   nextRetryAt: (number | null);
   /** The peer's name, as in `_acpmux/peers`. */
   peer: string;
+  /**
+   * Why a down link is `offline` (or `authFailed`) and will not heal by retrying alone;
+   * null otherwise. Attempts still go on (`nextRetryAt`).
+   */
+  reason: (OfflineReason | null);
   /** When `link` took its value, ms since the epoch. */
   since: number;
   /** `link` folded to the older five words, for an app that predates `link`. */
