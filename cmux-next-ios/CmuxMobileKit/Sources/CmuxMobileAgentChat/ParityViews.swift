@@ -204,8 +204,7 @@ struct SubagentsScreen: View {
         .contentMargins(.top, 8, for: .scrollContent)
         .overlay {
             if store.subagents.isEmpty {
-                ContentUnavailableView("No subagents", systemImage: "person.2.wave.2",
-                                       description: Text("Each subagent has its own transcript."))
+                ContentUnavailableView("No subagents", systemImage: "person.2.wave.2")
             }
         }
         .chatDemoReceiver(store: store, surface: surface)
@@ -385,16 +384,12 @@ struct CheckpointsScreen: View {
                                         .tint(Color(uiColor: .systemOrange))
                                 }
                         }
-                    } footer: {
-                        Text("Restore puts the files back; the current state is checkpointed first.")
-                            .cmuxMobileTextColumn(.fixed(CheckpointsScreen.column))
                     }
                 }
                 .listStyle(.insetGrouped)
                 .overlay {
                     if checkpoints.isEmpty {
-                        ContentUnavailableView("No checkpoints", systemImage: "clock.arrow.circlepath",
-                                               description: Text("A checkpoint is saved before and after file changes."))
+                        ContentUnavailableView("No checkpoints", systemImage: "clock.arrow.circlepath")
                     }
                 }
             }
@@ -538,9 +533,6 @@ struct HandoffScreen: View {
                         }
                     } header: {
                         Text("Continue in another agent").cmuxMobileTextColumn(.fixed(HandoffScreen.column))
-                    } footer: {
-                        Text("Review the summary before sending; the new chat starts on the same Mac and folder.")
-                            .cmuxMobileTextColumn(.fixed(HandoffScreen.column))
                     }
                 }
                 .listStyle(.insetGrouped)
@@ -628,8 +620,6 @@ struct HandoffReviewScreen: View {
                 if let receipt {
                     ContentUnavailableView {
                         Label("Continuing in \(receipt.targetName)", systemImage: "checkmark.circle.fill")
-                    } description: {
-                        Text("The new chat started on \(store.summary.macName) with your reviewed summary. This chat stays as it is.")
                     } actions: {
                         Button("Done") { surface.parityRoute = nil }
                             .buttonStyle(CmuxMobileCapsuleButtonStyle(.primary))
@@ -692,8 +682,6 @@ struct HandoffReviewScreen: View {
                     .toggleStyle(.cmuxMobileSwitch)
             } header: {
                 Text("Repository checkpoint")
-            } footer: {
-                Text("Save a repository checkpoint before continuing.")
             }
             Section {
                 TextEditor(text: $capsule)

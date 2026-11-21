@@ -135,8 +135,6 @@ struct PanesScreen: View {
             }
         } header: {
             Text("Resize Pane").textCase(nil)
-        } footer: {
-            Text("Each step moves the divider on \(source.macName) by 5%.")
         }
     }
 

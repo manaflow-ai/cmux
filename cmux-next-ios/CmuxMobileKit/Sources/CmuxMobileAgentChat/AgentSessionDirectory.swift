@@ -145,7 +145,7 @@ public struct AgentChatDestinationView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("agentChat.destination.loading")
         } else {
-            ContentUnavailableView("Tab closed", systemImage: "sparkle", description: Text("This agent tab is no longer open."))
+            ContentUnavailableView("Tab closed", systemImage: "sparkle")
         }
     }
 

@@ -804,8 +804,6 @@ struct QueuedPromptsView: View {
             }
             Button("Remove", role: .destructive) { store.removeQueued(item.id) }
             Button("Cancel", role: .cancel) {}
-        } message: { _ in
-            Text("Your draft stays in the composer.")
         }
     }
 

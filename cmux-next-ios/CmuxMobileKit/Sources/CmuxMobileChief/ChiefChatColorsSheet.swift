@@ -29,8 +29,6 @@ struct ChiefChatColorsSheet: View {
                     textRow(\.receivedText, colors: colors, id: "receivedText")
                 } header: {
                     Text(String(localized: "mobile.chief.colors.theirs", defaultValue: "Their Messages", bundle: .module))
-                } footer: {
-                    Text(String(localized: "mobile.chief.colors.footer", defaultValue: "Only this chat changes, on this iPhone.", bundle: .module))
                 }
             }
             .navigationTitle(String(localized: "mobile.chief.colors.title", defaultValue: "Chat Colors", bundle: .module))

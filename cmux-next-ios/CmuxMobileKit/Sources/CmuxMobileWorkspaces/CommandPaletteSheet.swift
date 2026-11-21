@@ -26,8 +26,7 @@ struct CommandPaletteSheet: View {
                 if rows.isEmpty {
                     if query.isEmpty {
                         if scope == .tabs {
-                            ContentUnavailableView("No tabs", systemImage: "square.on.square",
-                                                   description: Text("This team's Macs list no tabs."))
+                            ContentUnavailableView("No tabs", systemImage: "square.on.square")
                         }
                     } else {
                         ContentUnavailableView.search(text: query)
