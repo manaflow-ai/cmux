@@ -1287,6 +1287,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-agent-customize"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cmux-process",
+ "cmux-tui-hooks",
+ "cmux-tui-platform",
+ "indexmap",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "toml_edit 0.22.27",
+]
+
+[[package]]
 name = "cmux-agent-pane-policy"
 version = "0.1.0"
 dependencies = [
@@ -1667,6 +1683,7 @@ dependencies = [
 name = "cmux-conversation"
 version = "0.1.0"
 dependencies = [
+ "cmux-message-preview",
  "pulldown-cmark",
  "serde",
  "serde_json",
@@ -1810,6 +1827,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-files-host"
+version = "0.1.0"
+dependencies = [
+ "cmux-process",
+ "cmux-signed-bundle",
+ "libc",
+ "tempfile",
+]
+
+[[package]]
 name = "cmux-flow-trace"
 version = "0.1.0"
 dependencies = [
@@ -1885,8 +1912,10 @@ dependencies = [
  "cmux-file-lock",
  "cmux-json",
  "cmux-link",
+ "cmux-process",
  "cmux-server",
  "cmux-server-core",
+ "cmux-signed-envelope",
  "cmux-supervise-core",
  "cmux-unix-socket",
  "flate2",
@@ -2026,6 +2055,14 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "url",
+]
+
+[[package]]
+name = "cmux-message-preview"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2384,6 +2421,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-signed-envelope"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "cmux-source-scan"
 version = "1.0.0"
 dependencies = [
@@ -2532,6 +2580,7 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-action-catalog",
+ "cmux-agent-customize",
  "cmux-agent-pane-policy",
  "cmux-api-compat",
  "cmux-app-host",
@@ -2587,6 +2636,7 @@ dependencies = [
  "cmux-unix-socket",
  "cmux-usage-patterns",
  "cmux-vm",
+ "cmux-vm-pool",
  "cmux-vnc",
  "cmux-wg",
  "core-foundation 0.10.1",
@@ -2710,6 +2760,7 @@ dependencies = [
  "cmux-remote-protocol",
  "cmux-sdk",
  "cmux-signed-bundle",
+ "cmux-signed-envelope",
  "cmux-supervise-core",
  "cmux-tasks",
  "cmux-tasks-core",
@@ -2739,6 +2790,7 @@ dependencies = [
  "quick-xml",
  "regex",
  "reqwest",
+ "ring",
  "rusqlite",
  "rustls",
  "serde",
@@ -2934,6 +2986,18 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-vm-pool"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "reqwest",
+ "rustls",
+ "serde_json",
+ "tokio",
+ "url",
 ]
 
 [[package]]

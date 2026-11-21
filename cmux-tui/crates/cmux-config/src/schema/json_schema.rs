@@ -155,7 +155,7 @@ fn kind_schema(row: &Row) -> Value {
             let path = json!({ "type": "string", "pattern": "^((system|file):/|folder:/.)" });
             // `live:<id>` or `live:<extension>/<id>` (a live wallpaper).
             let live = json!({ "type": "string", "pattern": super::backdrop::LIVE_PATTERN });
-            return json!({ "anyOf": [choice(choices), path, youtube(), live] });
+            return json!({ "anyOf": [choice(choices), path, live, youtube()] });
         }
         Validation::Domain(DomainKind::BackdropPicture) => return picture(),
         Validation::Domain(DomainKind::BackdropSchedule) => {
@@ -167,6 +167,16 @@ fn kind_schema(row: &Row) -> Value {
         }
         Validation::Domain(DomainKind::BackdropLocation) => {
             return json!({ "type": "string", "pattern": super::backdrop::LOCATION_PATTERN });
+        }
+        Validation::Domain(DomainKind::BackdropMemory) => {
+            let folder = json!({ "type": "string", "pattern": "^folder:/." });
+            let rotate = json!({ "anyOf": [{ "const": "daily" }, folder] });
+            let off = json!({ "anyOf": [{ "const": "none" }, picture()] });
+            return json!({
+                "type": "object",
+                "properties": { "rotate": rotate, "folder": folder, "off": off },
+                "additionalProperties": false,
+            });
         }
         Validation::Domain(DomainKind::ChatRoots) => {
             return json!({ "type": "array", "items": { "type": "string", "pattern": "^/" } });
