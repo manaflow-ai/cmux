@@ -716,10 +716,19 @@ jobs:
       # A shard whose engines did not install skips its tests: the browser-lane files fail
       # without them, so the shard was red either way, only 15-25 min later, after the whole suite
       # ran (run 43337871244). The gate step below names the engine step as the red.
+      # A pull request's shard whose gate check already failed skips its tests too: the gate step fails the shard
+      # whatever the tests say, and react-apps-base-check (needs this job) is skipped with it, so the tests decide
+      # nothing. In 11-21 12:07-14:07Z, 50 of 52 pull request shard 1 jobs were red on 'Check PR-scoped webview rules'
+      # alone, then ran 40 min of tests (44 min a job). A push keeps every test: its verdicts are the base's history.
+      # The style gates (EAGER_JS_BUDGET, REACT_COMPILER) only warn on feat-cmux-next, so they are not read here.
       - name: Test webviews
         id: webview-tests
         continue-on-error: ${{ github.event_name == 'pull_request' }}
-        if: ${{ !cancelled() && steps.engines.outcome != 'failure' }}
+        if: >-
+          ${{ !cancelled() && steps.engines.outcome != 'failure' && !(github.event_name == 'pull_request' && (
+          steps.source-build.outcome == 'failure' || steps.bundles.outcome == 'failure' ||
+          steps.merge-driver.outcome == 'failure' || steps.post-edit-format.outcome == 'failure' ||
+          steps.webviews-check.outcome == 'failure' || steps.pr-scoped-rules.outcome == 'failure')) }}
         working-directory: webviews
         env:
           CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
