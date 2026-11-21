@@ -53,9 +53,9 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     public var projects: [String]
     /// The design to show; nil is the page's default (B).
     public var layout: AgentPaneNewTabLayout?
-    /// The template (`tabs.newTabTemplate`: "minimal", "cards", "default", "threads", "console",
-    /// "classic" or "terminal"); the legacy "composer" value is still forwarded so the web page
-    /// can migrate saved settings to Minimal. nil follows `layout`. The page validates it.
+    /// The template (`tabs.newTabTemplate`: "minimal", "classic" or "terminal"); the settings
+    /// snapshot already reads a retired value (composer, cards, default, threads, console) as
+    /// "minimal", and the web page maps one to Minimal too. nil follows `layout`. The page validates it.
     public var template: String?
     /// The extension that draws the whole page (`tabs.newTabApp`, an app id with `cmux.newtab/1`); nil
     /// draws cmux's own page. The page draws its own too when that app is missing, hidden or fails.
