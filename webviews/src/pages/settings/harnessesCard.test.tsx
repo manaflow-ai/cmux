@@ -188,7 +188,7 @@ test("a channel the update owner cannot run (a Homebrew cask) offers no Update o
   expect(manualCard.querySelector('[data-harness-action="updateCard"]')).toBeNull();
   expect(manualCard.querySelector("[data-harness-update-command]")!.textContent).toBe(cask.update.command);
   // Its auto-update choice stays: acpmux runs that itself.
-  expect(element.querySelector('[data-harness="claude"] input[data-harness-auto]')).not.toBeNull();
+  expect(element.querySelector('[data-harness="claude"] [role="switch"][data-harness-auto]')).not.toBeNull();
   page.unmount();
 });
 
@@ -329,8 +329,9 @@ test("Update Automatically turns auto-update on for one harness; a failed auto-u
   const element = card(page.container)!;
   // Only a harness whose update needs no sudo offers it.
   expect(element.querySelector('[data-harness="claude"] [data-harness-auto]')).toBeNull();
-  const box = element.querySelector<HTMLInputElement>('[data-harness="codex"] input[data-harness-auto]')!;
-  expect(box.checked).toBe(false);
+  // A switch, not a checkbox (Leo: "a toggle is nicer than a checkbox").
+  const box = element.querySelector<HTMLElement>('[data-harness="codex"] [role="switch"][data-harness-auto]')!;
+  expect(box.getAttribute("aria-checked")).toBe("false");
   await act(async () => box.click());
   await settle();
   expect(page.provider.harnessRuns.at(-1)).toEqual({ action: "autoUpdate", id: "codex", on: true });
@@ -358,7 +359,7 @@ test("Update Automatically turns auto-update on for one harness; a failed auto-u
   );
   await settle();
   const row = card(page.container)!.querySelector<HTMLElement>('[data-harness="codex"]')!;
-  expect(row.querySelector<HTMLInputElement>("input[data-harness-auto]")!.checked).toBe(true);
+  expect(row.querySelector('[role="switch"][data-harness-auto]')!.getAttribute("aria-checked")).toBe("true");
   expect(row.querySelector("[data-harness-auto-failed]")!.textContent).toContain("npm ERR! network timeout");
   page.unmount();
 });
@@ -379,5 +380,42 @@ test("an expired sign-in badges Agents and says so on its row, like a signed-out
   await settle();
   const codex = card(page.container)!.querySelector<HTMLElement>('[data-harness="codex"]')!;
   expect(codex.querySelector('[data-harness-auth="expired"]')?.textContent).toBe("Signed out");
+  page.unmount();
+});
+
+// Lawrence 2026-11-19 (msg 42278, "there are duplicates sometimes"): acpmux's `cmux` profile runs the
+// same ~/.local/bin/claude as `claude`, so Settings drew two update cards for one binary, one of them
+// titled "Update Cmux". The harness list keeps both profiles; the update cards are one per binary.
+test("two profiles that run one binary get one update card, named for that binary", async () => {
+  const page = await renderPage({ path: "/settings/agents" });
+  await settle();
+  const claude = (id: string) => ({
+    id,
+    name: null,
+    kind: "claude-stdio",
+    source: id === "claude" ? "path" : "config",
+    problem: null,
+    version: "2.1.325",
+    latest: "2.1.329",
+    outdated: true,
+    auth: "signedIn" as const,
+    update: { command: "/Users/me/.local/bin/claude update", elevated: false },
+    ownerUpdate: true,
+    path: "/Users/me/.local/bin/claude",
+    package: "@anthropic-ai/claude-code",
+  });
+  for (const harnesses of [
+    [claude("claude"), claude("cmux")],
+    [claude("cmux"), claude("claude")],
+  ]) {
+    await act(async () => page.provider.setHarnesses({ loading: false, problem: null, harnesses }));
+    await settle();
+    const element = card(page.container)!;
+    expect(ids(element)).toEqual(harnesses.map((row) => row.id));
+    const cards = [...element.querySelectorAll<HTMLElement>("[data-harness-update-card]")];
+    expect(cards.map((node) => node.dataset.harnessUpdateCard)).toEqual(["claude"]);
+    expect(cards[0]!.textContent).toContain("Claude Code");
+    expect(element.querySelector("[data-harness-update-cards]")!.textContent).not.toContain("Cmux");
+  }
   page.unmount();
 });
