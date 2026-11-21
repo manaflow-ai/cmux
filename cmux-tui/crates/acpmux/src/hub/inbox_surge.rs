@@ -142,6 +142,18 @@ impl Hub {
         Ok(json!({"sessionId":session.id,"hits":hits,"next":next}))
     }
 
+    /// Surge admission is a preview: Settings > Experimental > Labs > Show Preview Features
+    /// (`labs.previewFeatures`), off by default, read at each eligible message so the switch
+    /// applies to the next one. Off, every message takes the path it took before the surge inbox.
+    fn surge_inbox_on(&self) -> bool {
+        if let Some(on) = *self.surge_inbox.lock().unwrap_or_else(|e| e.into_inner()) {
+            return on;
+        }
+        use crate::user_settings::{self, Settings};
+        matches!(user_settings::read(), Settings::Parsed(doc)
+            if user_settings::value(&doc, "labs.previewFeatures") == Some(Value::Bool(true)))
+    }
+
     /// A surge receipt means the receiver journal already holds the entire original prompt.
     /// No turn, steer, ordinary inbox notice, or caller waiting on a nonexistent turn is created.
     pub(in crate::hub) fn hold_surge_message(
@@ -153,6 +165,9 @@ impl Hub {
         opts: &PromptOptions,
     ) -> Result<Option<Value>, RpcError> {
         let Some(from) = eligible(opts, blocks) else { return Ok(None) };
+        if !self.surge_inbox_on() {
+            return Ok(None);
+        }
         let now = now_ms();
         let period =
             session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner()).reply_period_ms(now);

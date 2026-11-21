@@ -433,6 +433,7 @@ async fn an_idle_chat_waits_for_its_cut_turns_continuation_before_its_inbox() {
         "createdAt": 1, "updatedAt": 2});
     store.save(&serde_json::from_value(meta).unwrap()).unwrap();
     let hub = Hub::new(cfg, store);
+    hub.set_surge_inbox(Some(true));
     hub.begin_startup(false);
     let session = hub.resolve("inbox-wait").unwrap();
     let due = now_ms().saturating_sub(FLUSH_MS + 1);
@@ -465,6 +466,7 @@ async fn a_turn_that_ends_with_no_continuation_lets_the_inbox_in_at_once() {
             "createdAt": 1, "updatedAt": 2});
         store.save(&serde_json::from_value(meta).unwrap()).unwrap();
         let hub = Hub::new(cfg, store);
+        hub.set_surge_inbox(Some(true));
         hub.begin_startup(false);
         let session = hub.resolve("inbox-ended").unwrap();
         let due = now_ms().saturating_sub(FLUSH_MS + 1);
@@ -505,9 +507,35 @@ fn hub_with_chat(id: &str) -> (Arc<Hub>, Arc<Session>) {
         "createdAt": 1, "updatedAt": 2});
     store.save(&serde_json::from_value(meta).unwrap()).unwrap();
     let hub = Hub::new(cfg, store);
+    hub.set_surge_inbox(Some(true));
     hub.begin_startup(false);
     let session = hub.resolve(id).unwrap();
     (hub, session)
+}
+
+#[tokio::test]
+/// Surge admission is a preview (`labs.previewFeatures`): off, the burst that would be held
+/// takes the path it took before the surge inbox, with nothing held or counted.
+#[tokio::test]
+async fn with_the_surge_preview_off_a_burst_is_not_held() {
+    for on in [false, true] {
+        let (hub, session) = hub_with_chat(if on { "preview-on" } else { "preview-off" });
+        hub.set_surge_inbox(Some(on));
+        let blocks = [json!({"type":"text","text":"Runner is still busy"})];
+        let opts = PromptOptions { agent: Some("runner".into()), ..Default::default() };
+        let held = ["first", "second", "third", "fourth"]
+            .iter()
+            .filter(|id| {
+                hub.hold_surge_message(&session, id, "cli", &blocks, &opts).unwrap().is_some()
+            })
+            .count();
+        if on {
+            assert!(held > 0, "preview on: a burst is held");
+        } else {
+            assert_eq!(held, 0, "preview off: nothing is held");
+            assert_eq!(hub.inbox_threads(&session)["surge"]["held"], 0);
+        }
+    }
 }
 
 #[tokio::test]
@@ -753,6 +781,7 @@ async fn a_notice_reader_has_tools_only_by_its_last_launch_and_its_next_spawn() 
             "modelRequest": "0"});
         store.save(&serde_json::from_value(meta).unwrap()).unwrap();
         let hub = Hub::new(cfg, store);
+        hub.set_surge_inbox(Some(true));
         hub.begin_startup(false);
         let session = hub.resolve("inbox-reader").unwrap();
         assert_eq!(hub.notice_reader_has_tools(&session).await, has, "{case}");
@@ -989,6 +1018,7 @@ async fn an_opened_thread_names_its_senders_plainly_for_the_transcript() {
         "createdAt": 1, "updatedAt": 2});
     store.save(&serde_json::from_value(meta).unwrap()).unwrap();
     let hub = Hub::new(cfg, store);
+    hub.set_surge_inbox(Some(true));
     hub.begin_startup(false);
     let session = hub.resolve("inbox-open").unwrap();
     let declared = crate::prompt_provenance::named_sender("dot", "inbox-open");
