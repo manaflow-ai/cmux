@@ -77,8 +77,9 @@ public final class OnboardingWindowPresenter {
     /// The Agents step's once flag; the Set Up cmux card (``FirstRunSetup``) sets it in its place.
     public static let agentsShownKey = "home.firstRun.agentsShown"
 
-    /// Bring your history's once flag (the App shows that page); unset, and no Set Up cmux card started, this Mac
-    /// never finished a first launch.
+    /// Set once this Mac finished its first launch: the first-run windows ran, or the Set Up cmux card ended. Unset,
+    /// and no Set Up cmux card started, this Mac never finished a first launch. The key keeps the name it had when
+    /// that last step was Bring your history (removed), so a Mac that finished one before is not asked again.
     public static let historyShownKey = "home.firstRun.historyImportShown"
 
     /// Whether this launch is the Mac's first, read before the first-run steps set their flags:
@@ -88,8 +89,8 @@ public final class OnboardingWindowPresenter {
     }
 
     /// The first-run steps, one at a time: Agents first (it gets a person to a working agent), then
-    /// cmux Tools (``askAgentToolsOnce(source:defaults:)``), then `next` (Bring your
-    /// history) once no tool window shows. Each keeps its own once flag.
+    /// cmux Tools (``askAgentToolsOnce(source:defaults:)``), then `next` (the first launch is finished) once
+    /// no tool window shows. Each keeps its own once flag.
     public func showFirstRunSteps(isFirstRun: Bool, source: (any AgentSignInSource)?, agentTools: (any AgentToolsSource)? = nil,
                                   defaults: UserDefaults = .standard, then next: @MainActor () -> Void) async {
         await showAgentsAtFirstRun(isFirstRun: isFirstRun, source: source, defaults: defaults)

@@ -101,6 +101,12 @@ TIP_EVERY_HOURS = 6
 # as not run ('no_tree'). 2026-11-17 07:13Z: none of the 10 commits since the last tip had a tree, so no tip started,
 # and the web-ui rows of new Linux benches (cmux#44534) waited on a prerequisite only the Mac parts have.
 TREE_WAIT_HOURS = 2
+# Judging whether the bisect can measure a commit (its parts, its split-spring.sh version, its cmux-tui tree) costs
+# about 30 git reads, some fetching a blob, and a tree lookup. A plan tick judges at most this many commits across
+# every range, and a range keeps its place (looked) so the next tick goes on from there: on 2026-11-19 sixteen culprit
+# ranges of 300 to 1,900 commits had no measurable commit near their middle, the bisect judged every one of them each
+# tick, and the plan job hit its 75 min timeout every tick, so no part ran for two days.
+BISECT_JUDGED_PER_TICK = 40
 # The plan's checkout is shallow (fetch-depth 300): a culprit range older than that is deepened this many commits at
 # a time, at most DEEPEN_ROUNDS times, before its commits are listed.
 DEEPEN_STEP = 500
@@ -172,6 +178,15 @@ PARTS = [
     {"name": "launch-dock", "args": [*MEASURE, "--suite=launch", "--profile", "empty", "--mode", "warm", "--runs", "5",
                                      "--timeout", "20", "--activation", "active", "--window-placement", "restore"],
      "artifact": "artifacts/split-spring/report.json", "kind": "launch", "needs": "launch-dock", "row_prefix": "launch.dock"},
+    # A cold launch as a Dock click opens it: no daemon (the app starts it), an empty home, and before every run the
+    # staged bundle deleted and copied again, so each launch is the first exec of new files (an update in place, the
+    # first launch after a build) and pays the system's check of a new copy before main. Rows launch.cold.<mark>,
+    # judged against LAUNCH_COLD_BUDGETS; the run also waits for Home on screen (reveal.home).
+    # One word per option (the controller's step takes at most 16 args).
+    {"name": "launch-cold", "args": [*MEASURE, "--suite=launch", "--profile=empty", "--mode=cold", "--runs=5", "--timeout=20",
+                                     "--activation=active", "--window-placement=restore", "--fresh-copy",
+                                     "--ready-mark=reveal.home"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "launch", "needs": "launch-cold"},
     # 400 workspaces, 6 scenarios: not timed against 900 s yet (perf-budgets' own per-bench cap is 900 s).
     {"name": "sidebar", "args": [*MEASURE, "--suite=budgets", "--only=sidebar"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "run_seconds": 1500},
@@ -212,6 +227,14 @@ PARTS = [
     # run_seconds: step 343b7e82 ran 2768 s with a cold build of 2522 s and its three rounds (2026-11-19), plus margin.
     {"name": "wake", "args": [*MEASURE, "--suite=wake"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "wake", "run_seconds": 3300},
+    # One chat at 1 MB, 100 MB, 1 GB and 4 GB (scripts/cmux-next/chat-size-ratio.py, goal infinite-chats in cmuxterm-hq's
+    # NOW): each size seeded by the app's own acpmux store, opened in the app --runs times; open to first content, fling
+    # frame p95, composer key to paint p95, renderer + GPU footprint and the daemon's footprint for the chat, each over
+    # the 1 MB chat's (chat_size.<size>.<axis>_ratio) and the worst of them (chat_size.ratio_max; missing when any size
+    # crashed, stalled or read nothing). The bench configuration, as memory-agents: one build serves both. Seeding the
+    # 4 GB chat and 12 launches are not timed on a fleet Mac yet, so it takes workspace-scaling's 60-minute cap.
+    {"name": "chat-size", "args": [*MEASURE, "--vdisplay-hold=3600", "--config=bench", "--suite=chat-size"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "chat-size", "run_seconds": 3600},
     # The diff-viewer budgets that left ci-web.yml (scripts/benchmark-diff-viewer.sh), on Linux.
     {"name": "diff-viewer", "where": "linux", "kind": "diff", "needs": "diff-viewer"},
     # The shared web UI perf harness (webviews/bench/web-ui-suite.ts): the web UI benches' PERF_ROW lines, on Linux.
@@ -252,6 +275,11 @@ PARTS = [
     # chat to 100k rows on simulated time against an empty chat; bytes per simulated hour and their ratio
     # (chat_disk.growth_ratio). About 30 s after the build, which runs first under its own cap.
     {"name": "chat-disk", "where": "linux", "kind": "webui", "needs": "chat-disk"},
+    # Terminal scroll integrity (scripts/measure/terminal-scroll-stress-linux.sh, goal terminal-scroll-integrity in
+    # cmuxterm-hq's NOW): blank rows, missing rows and viewport jumps while scrolled back, on a local daemon and over
+    # a loopback sshd, in the byte client's own mirror and in the daemon's render viewport. Counts, target 0. Its
+    # rows keep their own names (terminal.scroll.*), not webui.*.
+    {"name": "terminal-scroll", "where": "linux", "kind": "webui", "needs": "terminal-scroll", "row_prefix": ""},
     # The daemon's restart to a non-empty chat attach (scripts/measure/daemon-restart-linux.sh, goal restart-to-chat's
     # daemon half in cmuxterm-hq's NOW, row restart_chat_attach_daemon_ms, target 178 ms): god_daemon.rs's small and god
     # homes, up to three runs in 15 minutes after the build (the job's 40-minute cap holds setup, a cold build of about
@@ -266,8 +294,10 @@ ROW_PARTS = [
     (r"^(tab_switch|palette)\.", "switch"), (r"^perf_gate\.", "perf-gate"), (r"^(sidebar|workspace_switch)\.", "sidebar"),
     (r"^workspace_scaling\.", "workspace-scaling"),
     (r"^memory\.app_agents\.", "memory-agents"), (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.dock\.", "launch-dock"),
+    (r"^launch\.cold\.", "launch-cold"),
     (r"^launch\.relaunch\.", "relaunch"), (r"^launch\.wake_proxy\.", "wake"), (r"^launch\.", "launch"),
-    (r"^terminal\.throughput\.", "throughput"),
+    (r"^terminal\.throughput\.", "throughput"), (r"^terminal\.scroll\.", "terminal-scroll"),
+    (r"^chat_size\.", "chat-size"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"),
     (r"^webui\.state_growth\.", "web-ui-growth"),
     # chat-open-god's paired rows (chat-open.bench.ts PAIRED=1), the small chat's too: the part that ran them keeps them.
@@ -304,7 +334,19 @@ LAUNCH_BUDGETS = {"did_finish_launching_end": 800, "first_window_frame_committed
 # 719. Its target is launch-shell-first.md's "Dock bounce over", 250 ms: the icon rises once and stops. The other
 # rows keep the direct exec's budgets.
 LAUNCH_DOCK_BUDGETS = {"did_finish_launching_start": 250, "did_finish_launching_end": 800,
-                       "first_window_frame_committed": 1000, "sidebar_rows_shown": 1000}
+                       "first_window_frame_committed": 1000, "sidebar_rows_shown": 1000,
+                       # Before main on a relaunch of the same copy: launch-shell-first.md measured 117 to 166 ms through
+                       # LaunchServices on a quiet Mac (cmux16, 2026-11-16), the bound its 250 ms first frame assumes.
+                       # Chromium's code-sign clone makes XProtect rescan the executable first (about 600 ms, cmux#44204).
+                       "main_start": 166}
+# A cold launch's budget (launch-cold), ms from process start. Home on screen (reveal.home) within 600 ms is
+# cmuxterm-hq goals/next-launch-instant.md ("launch to Home at most 600 ms"); the first frame within 300 ms is
+# docs/design/launch-shell-first.md's cold row ("300 to the frame, 600 to Home"). That doc measured the cold first open
+# of a new copy (launch-fresh-install.sh, nightly, n=5, 2026-11-18) at 1495 ms to main and 2800 ms to the first frame.
+# main_start on a cold copy is the system's policy check and dyld (launch-shell-first.md: 1495 ms, nightly, n=5); its
+# budget is the same 166 ms as a relaunch's, since stage 0's 300 ms frame has no room for more.
+LAUNCH_COLD_BUDGETS = {"main_start": 166, "first_window_frame_committed": 300, "reveal.home": 600}
+LAUNCH_BUDGETS_BY_PART = {"launch-dock": LAUNCH_DOCK_BUDGETS, "launch-cold": LAUNCH_COLD_BUDGETS}
 
 
 def now_utc():
@@ -617,7 +659,7 @@ def rows_of_part(part, report, budgets_mod, budgets):
             out[f"perf_gate.{scenario}.failed_checks"] = {"p50": failed, "p95": failed, "unit": "checks", "budget": 0, "floor": 0.5}
     elif part["kind"] == "launch":
         prefix = part.get("row_prefix", "launch")
-        launch_budgets = LAUNCH_DOCK_BUDGETS if prefix == "launch.dock" else LAUNCH_BUDGETS
+        launch_budgets = LAUNCH_BUDGETS_BY_PART.get(part["name"], LAUNCH_BUDGETS)
         for _tag, modes in report.items():
             for mode, runs in (modes or {}).items() if isinstance(modes, dict) else []:
                 runs = runs if isinstance(runs, list) else []
@@ -667,7 +709,7 @@ def rows_of_part(part, report, budgets_mod, budgets):
     elif part["kind"] == "webui":
         # web-ui-suite.ts's rows (webviews/bench/perfRow.ts): its target is the row's budget, its floor the noise on
         # a shared runner (10 % of p95 when the bench names none: a change must pass both that and the 10 % rule).
-        out.update(webui_rows(report.get("rows")))
+        out.update(webui_rows(report.get("rows"), part.get("row_prefix", "webui.")))
         if part.get("name") == "web-ui-god":
             # The ordinary twins ran here only to pair at one commit on one runner; the web-ui part owns their rows.
             ratios = god_ratio_rows(out)
@@ -680,9 +722,10 @@ def rows_of_part(part, report, budgets_mod, budgets):
     return out
 
 
-def webui_rows(rows):
+def webui_rows(rows, prefix="webui."):
     """{webui.<name>: row} of a list of PERF_ROW objects (pure): a row's target is its budget, its floor the noise on
-    a shared runner (10 % of p95 when the bench names none: a change must pass both that and the 10 % rule)."""
+    a shared runner (10 % of p95 when the bench names none: a change must pass both that and the 10 % rule). A part
+    with its own row_prefix ("" for terminal-scroll) names its rows with that instead of webui."""
     out = {}
     for r in rows or []:
         name, p95 = r.get("name") if isinstance(r, dict) else None, r.get("p95") if isinstance(r, dict) else None
@@ -690,7 +733,7 @@ def webui_rows(rows):
             continue
         p50 = r.get("p50") if isinstance(r.get("p50"), (int, float)) else p95
         floor = r.get("floor") if isinstance(r.get("floor"), (int, float)) else max(round(0.1 * p95, 4), 0.0001)
-        out[f"webui.{name}"] = {"p50": p50, "p95": p95, "unit": r.get("unit") or "ms",
+        out[f"{prefix}{name}"] = {"p50": p50, "p95": p95, "unit": r.get("unit") or "ms",
                                 "budget": r.get("target") if isinstance(r.get("target"), (int, float)) else None,
                                 "floor": floor,
                                 "measure_version": r["version"] if isinstance(r.get("version"), int) else DIFF_LEGACY_VERSION}
@@ -1007,8 +1050,8 @@ def linux_bench_runs(root, part="diff-viewer"):
                           os.path.join(root, "webviews"), {})}
     if part == "web-ui-typing":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "composer-typing"], os.path.join(root, "webviews"), {})}
-    if part == "chat-disk":
-        script = os.path.join(root, CHAT_DISK)
+    if part == "chat-disk" or part == "terminal-scroll":
+        script = os.path.join(root, CHAT_DISK if part == "chat-disk" else TERMINAL_SCROLL)
         return {"build": (["bash", script, "build-only"], root or ".", {}), "suite": (["bash", script], root or ".", {})}
     if part == "daemon-restart":
         script = os.path.join(root, DAEMON_RESTART)
@@ -1344,8 +1387,16 @@ def tip_pin_host(state, t):
 
 
 def tip_due(state, t):
-    """A tip measurement may start: none finished (or was dropped) in the last TIP_EVERY_HOURS. Only consulted while
-    a bisect step is also possible."""
+    """A tip measurement may start: none finished (or was dropped) in the last TIP_EVERY_HOURS, or no complete tip
+    measurement finished within STALE_HOURS (stale_hours). Only consulted while a bisect step is also possible.
+
+    Stale first: only a tip measurement stores rows (a bisect step only narrows its range), and cmuxterm-hq's NOW
+    Benches reads those rows within 48 h. On 2026-11-21 the rows were 136.8 h old when a tip measurement that waited
+    for the fleet was abandoned; that abandon counted as a tip tried, so the next tick started a bisect step instead
+    (run 44846739082), and the rows could not refresh before the bisect finished. A bisect against a reference that
+    old also judges less than a fresh tip would."""
+    if stale_hours(state, t) > STALE_HOURS:
+        return True
     times = [(state.get("last_tried") or {}).get("at")]
     times += [h.get("at") for h in state.get("history") or [] if isinstance(h, dict) and h.get("kind") == "tip"]
     times = [parse_iso(x) for x in times if isinstance(x, str)]
@@ -1458,15 +1509,27 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
 def bisect_midpoint(commits, measurable, skip=()):
     """commits: first-parent commits strictly between good and bad, oldest first. The measurable one nearest
     the middle that is not in skip (commits a bisect step could not judge: `git bisect skip`), or None."""
-    commits = [c for c in commits if c not in set(skip)]
-    if not commits:
-        return None
+    return bisect_next(commits, measurable, skip)[0]
+
+
+def bisect_next(commits, measurable, skip=(), start=0, budget=None):
+    """bisect_midpoint from a place in its order, judging at most budget commits (None: no bound). The order is
+    every commit's, nearest the middle first, skip included, so a place stays valid when a step adds to skip; a
+    commit in skip costs nothing. start: how far earlier ticks got (the commits before it were not measurable).
+    Returns (the commit or None, the place after the last commit judged)."""
     mid = len(commits) // 2
     order = sorted(range(len(commits)), key=lambda i: (abs(i - mid), i))
-    for i in order:
-        if measurable(commits[i]):
-            return commits[i]
-    return None
+    skip, judged, place = set(skip), 0, start
+    for place in range(start, len(order)):
+        c = commits[order[place]]
+        if c in skip:
+            continue
+        if budget is not None and judged >= budget:
+            return None, place
+        judged += 1
+        if measurable(c):
+            return c, place
+    return None, len(order)
 
 
 def bisect_measurable(rows, mac_measurable, supported_parts):
@@ -1979,6 +2042,9 @@ def supported_parts_at(sha):
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{INFINITE_ITEMS}"], capture_output=True).returncode == 0
         elif need == "chat-disk":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{CHAT_DISK}"], capture_output=True).returncode == 0
+        elif need == "terminal-scroll":
+            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{TERMINAL_SCROLL}"],
+                                capture_output=True).returncode == 0
         elif need == "daemon-restart":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{DAEMON_RESTART}"], capture_output=True).returncode == 0
         elif need == "terminal-throughput":
@@ -1991,7 +2057,13 @@ def supported_parts_at(sha):
             bench = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/bench-startup.py"],
                                    capture_output=True, text=True).stdout
             ok = "--suite=launch" in text and '"--activation"' in bench
-        elif need in ("perf-gate", "launch", "memory-agents", "relaunch", "wake"):
+        elif need == "launch-cold":
+            text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
+                                  capture_output=True, text=True).stdout
+            bench = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/bench-startup.py"],
+                                   capture_output=True, text=True).stdout
+            ok = "--suite=launch" in text and '"--fresh-copy"' in bench and '"--ready-mark"' in bench
+        elif need in ("perf-gate", "launch", "memory-agents", "relaunch", "wake", "chat-size"):
             text = subprocess.run(["git", "-C", ROOT, "show", f"{sha}:scripts/cmux-next/split-spring-terminal.py"],
                                   capture_output=True, text=True).stdout
             ok = f"--suite={need}" in text
@@ -2037,6 +2109,7 @@ FLAT_100K_BENCH = "webviews/bench/chat-100k-flat.bench.ts"
 COMPOSER_TYPING_ROWS = "webviews/bench/composerTypingRows.ts"
 INFINITE_ITEMS = "scripts/measure/infinite-items-linux.sh"
 CHAT_DISK = "scripts/measure/chat-disk-growth-linux.sh"
+TERMINAL_SCROLL = "scripts/measure/terminal-scroll-stress-linux.sh"
 DAEMON_RESTART = "scripts/measure/daemon-restart-linux.sh"
 # The web-ui-god part: the benches that take FIXTURE=god (web-ui-suite.ts lists each as NAME and NAME-god) and the
 # shared fixture a commit needs for the part. A god row is webui.<prefix>.god.<rest>; its ordinary twin drops `.god`.
@@ -3178,9 +3251,14 @@ def plan(o):
             print(f"perf-cron: no commit since the last tip has a published cmux-tui tree; the tip is {newest[:12]}, "
                   f"its Mac parts wait for its tree (at most {TREE_WAIT_HOURS} h)")
     bisect = None
+    budget = BISECT_JUDGED_PER_TICK
     if not state.get("current") and not (candidate and tip_due(state, t)):
         for group in bisect_groups(state):
             rng = group["range"]
+            if budget <= 0:
+                print(f"perf-cron: the bisect judged {BISECT_JUDGED_PER_TICK} commits this tick; the range "
+                      f"{rng['good'][:12]}...{rng['bad'][:12]} and the rest wait for the next tick")
+                break
             if any(host_avoided(state, h, t) or host_gone(state, h, t) for h in {mac_host(n) for n in group["rows"]} - {None}):
                 # A gone host (the controller has no such worker) would answer every step with host_gone: its rows
                 # close at the next tip measurement elsewhere instead.
@@ -3195,9 +3273,16 @@ def plan(o):
                 if name_culprit(state, group, named, git("log", "-1", "--format=%s", rng["bad"]).strip(), t):
                     print(f"perf-cron: PERF_CULPRIT={json.dumps(state['culprits'][-1], sort_keys=True)}")
                 continue
-            ok = bisect_measurable(group["rows"], lambda c: fleet_runs(c, tip_version) and tree_published(c),
+            ok = bisect_measurable(group["rows"], lambda c: fleet_runs(c, tip_version) and tree_ready(c),
                                    supported_parts_at)
-            sha = bisect_midpoint(between, ok, rng.get("skip") or [])
+            judged = []
+            looked = rng.get("looked") if isinstance(rng.get("looked"), dict) else {}
+            start = looked.get("place", 0) if (looked.get("good"), looked.get("bad")) == (rng["good"], rng["bad"]) else 0
+            sha, place = bisect_next(between, lambda c: judged.append(c) or ok(c), rng.get("skip") or [],
+                                     start if isinstance(start, int) else 0, budget)
+            budget -= len(judged)
+            # Where this range's walk stopped, for the next tick; a narrowed range (new good or bad) starts over.
+            rng["looked"] = {"good": rng["good"], "bad": rng["bad"], "place": place}
             if sha:
                 bisect = {"sha": sha, "range": rng, "rows": group["rows"]}
                 break
