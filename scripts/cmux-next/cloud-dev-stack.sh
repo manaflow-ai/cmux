@@ -1,25 +1,34 @@
 #!/usr/bin/env bash
-# A per-tag cmux-next backend on the GCP dev VM: this worktree's unmerged API (backend/apps/api) under
-# `wrangler dev` (real workerd, local Durable Objects), reached over the tailnet. Zero Workers deployed.
+# A per-tag cmux-next backend on the GCP dev VM: this worktree's unmerged Workers under one `wrangler dev`
+# (real workerd, local Durable Objects), reached over the tailnet. Zero Workers deployed. The stack runs all
+# three Workers a dev build talks to: the cmux API (backend/apps/api), the mobile Worker
+# (cmux-next-ios/backend) and the device hub (workers/device-hub), on three consecutive ports of one host.
 #
 #   scripts/cmux-next/cloud-dev-stack.sh up --tag T [--platform-checkout DIR] [--db auto|shared|branch]
 #                                           [--idle-min N] [--journey [-- JOURNEY ARGS]]
 #   scripts/cmux-next/cloud-dev-stack.sh status [--tag T]
-#   scripts/cmux-next/cloud-dev-stack.sh url --tag T          # print the running stack's https origin (exit 3: none)
+#   scripts/cmux-next/cloud-dev-stack.sh url --tag T [--service api|mobile|hub]
+#                                           # print the running stack's https origin (exit 3: none)
 #   scripts/cmux-next/cloud-dev-stack.sh journey --tag T [-- JOURNEY ARGS]
 #   scripts/cmux-next/cloud-dev-stack.sh logs --tag T [-n LINES]
 #   scripts/cmux-next/cloud-dev-stack.sh touch --tag T        # count as activity (keeps an idle stack up)
 #   scripts/cmux-next/cloud-dev-stack.sh down --tag T         # stop, delete the stack, its credentials and branches
 #   scripts/cmux-next/cloud-dev-stack.sh gc                   # clean up after stacks the VM reaped
 #
-# up: syncs backend/, libs/, clients/ts/ and workers/cmux-vm/sdk/ of this worktree (tracked and untracked,
-# not ignored; uncommitted edits included) to the VM, `bun install`s there, starts `wrangler dev --env
-# development` on a free tailnet port and prints https://<vm>.<tailnet>.ts.net:<port>. Run it again after
-# an edit: same tag, same port and Durable Object state, new code. --platform-checkout DIR runs that
-# cmux-platform worktree in the same workerd session, as the API's PLATFORM service and CLOUD_DO.
+# up: syncs backend/, libs/, clients/ts/, workers/cmux-vm/sdk/, cmux-next-ios/backend/ and workers/device-hub/
+# of this worktree (tracked and untracked, not ignored; uncommitted edits included) to the VM, installs each
+# project's dependencies there, starts one `wrangler dev` of the three Workers (the API's env development, the
+# mobile Worker's and the hub's env dev) on three free consecutive tailnet ports and prints their origins:
+# https://<vm>.<tailnet>.ts.net:P (API), :P+1 (mobile), :P+2 (device hub). The API origin is the one a build
+# takes (review.sh --backend tag-stack): its /v1/client-config names the other two, and the iPhone app derives
+# them from it (the next two ports). Run it again after an edit: same tag, same ports and Durable Object state,
+# new code. --platform-checkout DIR runs that cmux-platform worktree in the same workerd session, as the API's
+# PLATFORM service and CLOUD_DO.
 # --journey runs scripts/cmux-next/cloud-journey.ts against the stack afterwards.
 #
-# Data: Durable Objects, R2 and workflows are local to the stack. Postgres and Vitess are PlanetScale:
+# Data: Durable Objects, R2 and workflows are local to the stack (the mobile Worker's team hubs and the device
+# hub's users and sessions too). Postgres and Vitess are PlanetScale (the mobile Worker's mobile_* tables are
+# Vitess, as on the shared dev deployment):
 # by default the shared `development` branches (as the shared dev Worker and previews use them), through
 # a credential made for this stack with a 14 h TTL. When this branch adds a migration (backend/db/migrations
 # or backend/db/drizzle-mysql changed since the merge-base with origin/feat-cmux-next; --db branch forces
@@ -47,12 +56,12 @@ MYSQL_DB="${CMUX_DEV_STACK_MYSQL_DB:-cmux-next-vitess}"
 PS_ORG=cmux
 DEV_BRANCH=development
 CRED_TTL=14h   # outlives the 12 h cap; an up keeps a credential only while it does (vm_stack.py cred_fresh)
-SYNC_PATHS=(backend libs clients/ts workers/cmux-vm/sdk)
+SYNC_PATHS=(backend libs clients/ts workers/cmux-vm/sdk cmux-next-ios/backend workers/device-hub)
 
-usage() { sed -n '2,40p' "$0"; }
+usage() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; }
 die() { echo "cloud-dev-stack: $*" >&2; exit 1; }
 cmd="${1:-}"; [ $# -gt 0 ] && shift
-tag="" platform="" db_mode=auto idle_min=0 journey=0 lines=80 creds=""
+tag="" platform="" db_mode=auto idle_min=0 journey=0 lines=80 creds="" service=api
 journey_args=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -63,6 +72,7 @@ while [ $# -gt 0 ]; do
     --idle-min) idle_min="$2"; shift 2 ;;
     --journey) journey=1; shift ;;
     --credentials) creds="$2"; shift 2 ;;
+    --service) service="$2"; shift 2 ;;
     -n) lines="$2"; shift 2 ;;
     --) shift; journey_args=("$@"); break ;;
     -h|--help) usage; exit 0 ;;
@@ -74,6 +84,7 @@ case "$tag" in *[!a-z0-9-]*|-*) die "--tag NAME: lowercase letters, digits and -
 case "$lines" in ""|*[!0-9]*) die "-n LINES: a number" ;; esac
 case "$idle_min" in ""|*[!0-9]*) die "--idle-min N: minutes" ;; esac
 case "$db_mode" in auto|shared|branch) ;; *) die "--db auto|shared|branch" ;; esac
+case "$service" in api|mobile|hub) ;; *) die "--service api|mobile|hub" ;; esac
 
 SSH=(ssh -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=30 "$VM_USER@$HOST")
 vm() { "${SSH[@]}" python3 "$BASE/bin/vm_stack.py" "$@"; }
@@ -254,12 +265,17 @@ case "$cmd" in
     fi
     sha="$(git -C "$root" rev-parse --short=12 HEAD)"
     dirty=(); [ -n "$(git -C "$root" status --porcelain -- "${SYNC_PATHS[@]}")" ] && dirty=(--dirty)
-    echo "== wrangler dev (bun install, build, boot)"
+    echo "== wrangler dev of the API, the mobile Worker and the device hub (install, build, boot)"
     out="$(vm start --tag "$tag" --commit "$sha" ${dirty[@]+"${dirty[@]}"} ${platform:+--platform} --idle "$((idle_min * 60))")"
     url="$(json "print(d['url'])" <<<"$out")"
-    curl -fsS -m 30 "$url/v1/health" >/dev/null || die "$url/v1/health does not answer from this Mac (tailnet?)"
+    read -r mobile_url hub_url < <(json "u=d.get('urls') or {}; print(u.get('mobile') or '-', u.get('hub') or '-')" <<<"$out")
+    for u in "$url" "$mobile_url" "$hub_url"; do
+      curl -fsS -m 30 "$u/v1/health" >/dev/null || die "$u/v1/health does not answer from this Mac (tailnet?)"
+    done
     echo "== up in $(( $(date +%s) - t0 )) s"
     echo "API:     $url   (commit $sha${dirty:+, with uncommitted changes})"
+    echo "Mobile:  $mobile_url   (cmux-next-ios/backend)"
+    echo "Hub:     $hub_url   (workers/device-hub)"
     if [ -n "$platform" ]; then echo "Platform: in the same workerd session, as the API's PLATFORM binding"; fi
     echo "Journey: scripts/cmux-next/cloud-dev-stack.sh journey --tag $tag"
     echo "Stop:    scripts/cmux-next/cloud-dev-stack.sh down --tag $tag   (else the VM stops it after $(( idle_min > 0 ? idle_min : 120 )) min without a request)"
@@ -281,7 +297,7 @@ for s in d['stacks']:
     run_journey "$url" "${journey_args[@]+"${journey_args[@]}"}"
     ;;
   url)
-    url="$(stack_entry | json "print(d['url'] if d.get('state') == 'running' and d.get('url') else '')")"
+    url="$(stack_entry | json "u=d.get('urls') or {'api': d.get('url')}; print(u.get('$service') or '' if d.get('state') == 'running' else '')")"
     [ -n "$url" ] || { echo "no running stack $tag (cloud-dev-stack.sh up --tag $tag first)" >&2; exit 3; }
     echo "$url"
     ;;

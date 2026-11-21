@@ -1,16 +1,24 @@
 #!/usr/bin/env python3
 """The VM side of scripts/cmux-next/cloud-dev-stack.sh: one `wrangler dev` (workerd, local Durable
-Objects) per tag on the dev-backend host, published on a tailnet-only HTTPS port.
+Objects) per tag on the dev-backend host, running the tag's three Workers (the cmux API, the mobile
+Worker and the device hub) behind a generated front Worker, published on three tailnet-only HTTPS ports.
 
 The Mac side copies this file to <base>/bin/vm_stack.py and runs it over SSH; it never runs on a Mac.
 Standard library only (the host has python3, and node/bun live in <base>/tools).
 
 Layout under <base> (default /srv/cmux-dev/wrangler, beside hq's classic Docker stacks in /srv/cmux-dev):
   registry/<tag>.json   the per-tag registry entry (port, url, state, database credentials' ids, never values)
-  stacks/<tag>/         src/ (the agent's backend tree), platform/ (optional), state/ (wrangler --persist-to),
-                        secrets/ (0700: jwt.jwk, pg.url, mysql.url), logs/wrangler.log, run.sh
+  stacks/<tag>/         src/ (the agent's backend tree), platform/ (optional), front/ (the generated front
+                        Worker), state/ (wrangler --persist-to), secrets/ (0700: jwt.jwk, hub.vars, pg.url,
+                        mysql.url), logs/wrangler.log, run.sh
   tools/                node and bun, one pinned version each
 Units: cmux-wdev@<tag>.service runs stacks/<tag>/run.sh; cmux-wdev-reaper.timer runs `reap` every 5 minutes.
+
+One stack, three origins: the API at https://<vm>:P, the mobile Worker (cmux-next-ios/backend) at P+1 and
+the device hub (workers/device-hub) at P+2, three consecutive ports of one stack. Tailscale Serve sends all
+three to wrangler's one local port P, where the front Worker (FRONT_JS) picks the Worker by the request's
+port and answers the API's /v1/client-config with the stack's own mobile and hub origins, so one API origin
+(the Mac's backend.json, the phone's CMUX_NEXT_CLOUD_BACKEND) drives all three with no rebuild.
 
 Coexistence with hq's classic stacks (skills/infra/dev-backend): this never writes /srv/cmux-dev/registry
 or touches a container. A port is taken from the same tailnet-reachable range (3800-4799) only when the
@@ -43,8 +51,9 @@ NODE_VERSION = "v24.22.3"
 NODE_SHA256 = "4f2b175a6d53a5c617a80dba2676238a0688cef28c6da4eba35c7d844e66fcfb"  # node-v24.22.3-linux-x64.tar.xz
 BUN_VERSION = "1.4.4"
 BUN_SHA256 = "bf8ccbfb2b0b80159e0f9a6d15c55317add8077534dbc6130a3edb52fccb395c"  # bun-v1.4.4/bun-linux-x64.zip
-# Memory and disk a stack that is preparing or starting will take once it runs (measured 1.5-1.9 GiB).
-PENDING_MEM_GIB = 2.0
+# Memory and disk a stack that is preparing or starting will take once it runs (measured 1.5-1.9 GiB for the
+# API alone; the mobile Worker and the device hub share its workerd).
+PENDING_MEM_GIB = 3.0
 PENDING_DISK_GIB = 2.0
 # Idle: no request reached the stack (wrangler's request log lines) and no `up`/`touch` for this long.
 IDLE_SECS_DEFAULT = int(os.environ.get("CMUX_WDEV_IDLE_SECS", str(2 * 3600)))
@@ -62,6 +71,9 @@ LOG_MAX_BYTES = 64 * 1024 * 1024
 TAG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
 REQUEST_LINE = re.compile(rb"\[wrangler:info\] (GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS) \S+ \d{3}")
 UNIT_PREFIX = "cmux-wdev"
+# A stack's Workers, in port order: the API at its base port P, the mobile Worker at P+1, the device hub at P+2.
+SERVICES = ("api", "mobile", "hub")
+DEVELOPMENT_API = "https://cmux-api-development.debussy.workers.dev"
 
 
 class Refused(Exception):
@@ -221,26 +233,39 @@ def classic_ports() -> set[int]:
     return ports
 
 
+def stack_ports(base: int) -> list[int]:
+    """The ports of one stack: its API at base, then one per other Worker (SERVICES)."""
+    return [base + i for i in range(len(SERVICES))]
+
+
 def pick_port(tag: str, previous: int | None, taken_by_us: set[int], classic: set[int], serve: dict[str, Any], listening: set[int]) -> int:
-    """Our previous port when it is still ours, else the highest port free on every account."""
-    own_target = lambda p: f"http://127.0.0.1:{p}"
-    if previous and previous not in classic and previous not in taken_by_us and serve_target(serve, previous) in (None, own_target(previous)):
+    """The stack's base port: its previous one when all its ports are still ours, else the highest base whose
+    ports are all free on every account. Every port of a stack Serve-proxies to wrangler on the base port."""
+    own_target = f"http://127.0.0.1:{previous}"
+    if previous and all(p not in classic and p not in taken_by_us and serve_target(serve, p) in (None, own_target) and PORT_MIN <= p <= PORT_MAX
+                        for p in stack_ports(previous)):
         return previous
     serve_ports = {int(k) for k in (serve.get("TCP") or {}).keys() if str(k).isdigit()}
-    for port in range(PORT_MAX, PORT_MIN - 1, -1):
-        if port in classic or port in serve_ports or port in listening or port in taken_by_us:
+    for base in range(PORT_MAX - len(SERVICES) + 1, PORT_MIN - 1, -1):
+        if any(p in classic or p in serve_ports or p in listening or p in taken_by_us for p in stack_ports(base)):
             continue
-        return port
-    raise Refused(f"no free port in {PORT_MIN}-{PORT_MAX}")
+        return base
+    raise Refused(f"no {len(SERVICES)} consecutive free ports in {PORT_MIN}-{PORT_MAX}")
 
 
 HOLDS_PORT = ("preparing", "starting", "running", "failed")
 
 
+def entry_ports(entry: dict[str, Any]) -> list[int]:
+    """The ports an entry holds: all of its stack's, or the one port of an entry from before the mobile
+    Worker and the hub joined the stack."""
+    return list(entry.get("ports") or ([entry["port"]] if entry.get("port") else []))
+
+
 def ports_held(except_tag: str) -> set[int]:
     """Ports of our other stacks that are not gone: a starting stack is not listening yet, a failed one
-    keeps its port for its next up."""
-    return {e["port"] for e in all_entries() if e["tag"] != except_tag and e.get("state") in HOLDS_PORT and e.get("port")}
+    keeps its ports for its next up."""
+    return {p for e in all_entries() if e["tag"] != except_tag and e.get("state") in HOLDS_PORT for p in entry_ports(e)}
 
 
 def unit(tag: str) -> str:
@@ -286,7 +311,7 @@ ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes
 RuntimeMaxSec={max_secs}
-MemoryMax=4G
+MemoryMax=6G
 MemorySwapMax=0
 CPUQuota=400%
 TasksMax=4096
@@ -429,6 +454,28 @@ def load_jsonc(path: Path) -> dict[str, Any]:
 
 API_DEV_NAME = "cmux-api-development"
 PLATFORM_DEV_NAME = "cmux-platform-development"
+FRONT_NAME = "cmux-wdev-front"
+# Keys an environment inherits from the top level (wrangler's "inheritable keys"); every other key (vars,
+# bindings, routes, triggers) is the environment's own, and a top-level one never applies to it.
+INHERITABLE = ("main", "compatibility_date", "compatibility_flags", "account_id", "rules", "build", "no_bundle", "minify",
+               "find_additional_modules", "preserve_file_names", "base_dir", "tsconfig", "alias", "jsx_factory",
+               "jsx_fragment", "upload_source_maps", "limits", "placement", "migrations", "observability", "assets", "node_compat")
+
+
+def flatten_env(cfg: dict[str, Any], env: str) -> dict[str, Any]:
+    """One environment of a wrangler config as a config of its own, as wrangler resolves it: the top level's
+    inheritable keys, then everything the environment sets. The stack runs every Worker with no --env (one
+    wrangler dev, several configs whose environments have different names: development, dev)."""
+    cfg = json.loads(json.dumps(cfg))
+    envs = cfg.get("env") or {}
+    if env not in envs:
+        raise Refused(f"wrangler config has no env.{env} (has: {', '.join(sorted(envs)) or 'none'})")
+    flat = {k: cfg[k] for k in INHERITABLE if k in cfg}
+    flat.update(envs[env])
+    flat.setdefault("name", f"{cfg.get('name', 'worker')}-{env}")
+    for key in ("routes", "route", "triggers"):  # never served by wrangler dev; keep the shared crons out of it
+        flat.pop(key, None)
+    return flat
 
 
 def render_api_config(cfg: dict[str, Any], tag: str, origin: str, with_platform: bool) -> dict[str, Any]:
@@ -436,24 +483,18 @@ def render_api_config(cfg: dict[str, Any], tag: str, origin: str, with_platform:
     Hyperdrive (local connection strings from run.sh). Bindings that only exist remotely go: the AI
     binding, and the platform service and its cross-script CLOUD_DO unless the platform runs in the
     same session (--platform-checkout), where the names resolve to it."""
-    cfg = json.loads(json.dumps(cfg))
-    dev = cfg["env"]["development"]
+    dev = flatten_env(cfg, "development")
     dev.pop("ai", None)
-    dev.pop("routes", None)
-    dev.pop("triggers", None)  # wrangler dev never runs crons; keep the shared dev schedule out of it
     vars_ = dev.setdefault("vars", {})
     vars_.update({"CLOUD_API_ORIGIN": origin, "WDEV_TAG": tag})
     if not with_platform:
         dev.pop("services", None)
         dev["durable_objects"]["bindings"] = [b for b in dev["durable_objects"]["bindings"] if b.get("script_name") != PLATFORM_DEV_NAME]
-    return cfg
+    return dev
 
 
 def render_platform_config(cfg: dict[str, Any], origin: str) -> dict[str, Any]:
-    cfg = json.loads(json.dumps(cfg))
-    dev = cfg["env"]["development"]
-    dev.pop("routes", None)
-    dev.pop("triggers", None)
+    dev = flatten_env(cfg, "development")
     vars_ = dev.setdefault("vars", {})
     # The local API is this session's cmux-api-development; its tokens are signed with the stack's own key.
     for key in ("API_ORIGIN", "CLOUD_API_ORIGIN"):
@@ -464,7 +505,164 @@ def render_platform_config(cfg: dict[str, Any], origin: str) -> dict[str, Any]:
     local = {API_DEV_NAME, PLATFORM_DEV_NAME}
     dev["services"] = [s for s in dev.get("services", []) if s.get("service") in local]
     dev["durable_objects"]["bindings"] = [b for b in dev["durable_objects"]["bindings"] if b.get("script_name") in (None, *local)]
-    return cfg
+    return dev
+
+
+def render_mobile_config(cfg: dict[str, Any]) -> dict[str, Any]:
+    """The mobile Worker (cmux-next-ios/backend) as its shared dev deployment runs it (env `dev`): its own
+    Durable Objects (local), PS_MYSQL through the stack's Vitess connection string (run.sh), no crons. Its
+    optional secrets (TURN, APNs, Stack server key, Slack) stay unset: no relay ICE or push from a stack."""
+    return flatten_env(cfg, "dev")
+
+
+def render_hub_config(cfg: dict[str, Any], hub_origin: str) -> dict[str, Any]:
+    """The device hub (workers/device-hub, a TOML config) as its dev deployment runs it (env `dev`), with its
+    signal URLs on the stack's own hub origin."""
+    dev = flatten_env(cfg, "dev")
+    dev.setdefault("vars", {})["PUBLIC_BASE_URL"] = hub_origin
+    return dev
+
+
+def stack_origins(host: str, base: int) -> dict[str, str]:
+    """The stack's public origins, one per Worker: https://<host>:<port> on the tailnet."""
+    return {svc: f"https://{host}:{port}" for svc, port in zip(SERVICES, stack_ports(base))}
+
+
+def front_routes(host: str, base: int) -> dict[str, str]:
+    """The front Worker's routes: the authority a request arrives with (Serve keeps the client's Host) to
+    the Worker that serves it. 127.0.0.1:<base> is the API, for checks on the VM itself."""
+    routes = {f"{host}:{port}".lower(): svc for svc, port in zip(SERVICES, stack_ports(base))}
+    routes[f"127.0.0.1:{base}"] = "api"
+    return routes
+
+
+# The front of one stack: the first Worker of its wrangler dev, so the only one on its port. It sends each
+# request to the Worker whose origin the request arrived on, rewritten to that origin (https, the stack's
+# host and port), and answers the API's GET /v1/client-config with the stack's own API, mobile and hub
+# origins over what the API (or its platform) says, or over the development deployment's when the API has
+# no platform to ask (it answers 404 then).
+FRONT_JS = r"""// Generated by scripts/cmux-next/cloud-dev-stack/vm_stack.py (FRONT_JS); rewritten on every up.
+const BINDINGS = { api: "API", mobile: "MOBILE", hub: "HUB" }
+
+export default {
+  async fetch(request, env) {
+    const routes = JSON.parse(env.WDEV_ROUTES)
+    const origins = JSON.parse(env.WDEV_ORIGINS)
+    const url = new URL(request.url)
+    const service = routes[url.host.toLowerCase()]
+    if (!service) return new Response(`no Worker of this stack answers on ${url.host}\n`, { status: 421 })
+    const forwarded = new Request(new URL(url.pathname + url.search, origins[service]), request)
+    if (service === "api" && url.pathname === "/v1/client-config" && request.method === "GET") {
+      return clientConfig(forwarded, env, origins)
+    }
+    return env[BINDINGS[service]].fetch(forwarded)
+  },
+}
+
+async function clientConfig(request, env, origins) {
+  let config
+  try {
+    const response = await env.API.fetch(request)
+    if (response.ok) {
+      const body = await response.json()
+      if (body && body.version === 1) config = body
+    }
+  } catch {}
+  config ??= JSON.parse(env.WDEV_CLIENT_CONFIG)
+  config.api_origin = origins.api
+  config.mobile_origin = origins.mobile
+  config.device_hub_origin = origins.hub
+  return Response.json(config, { headers: { "cache-control": "no-store" } })
+}
+"""
+
+
+# What the front answers for /v1/client-config when the development deployment cannot be read at start: its
+# shape and the development values (cmux-cloud-environment DEVELOPMENT_DEPLOYMENT), the stack's origins over it.
+FALLBACK_CLIENT_CONFIG = {
+    "version": 1, "name": "development", "api_origin": DEVELOPMENT_API,
+    "auth_web_origin": "https://cmux-staging.vercel.app", "vm_origin": "https://vm-staging.cmux.dev",
+    "platform_origin": "https://cmux-platform-development.debussy.workers.dev",
+    "mobile_origin": "https://cmux-mobile-api-dev.debussy.workers.dev",
+    "device_hub_origin": "https://cmux-device-hub-dev.debussy.workers.dev",
+    "share_room_origin": "https://cmux-platform-development.debussy.workers.dev", "share_api_origin": DEVELOPMENT_API,
+    "stack_origin": "https://api.stack-auth.com", "stack_project_id": "454ecd03-1db2-4050-845e-4ce5b0cd9895",
+    "stack_client_key": "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g", "image_channel": "development",
+    "capabilities": {},
+}
+
+
+def development_client_config() -> dict[str, Any]:
+    """The development deployment's public client-config (no credential), else FALLBACK_CLIENT_CONFIG."""
+    try:
+        # Cloudflare refuses urllib's default User-Agent (403).
+        req = urllib.request.Request(f"{DEVELOPMENT_API}/v1/client-config", headers={"User-Agent": "cmux-wdev/1 (scripts/cmux-next/cloud-dev-stack)"})
+        with urllib.request.urlopen(req, timeout=8) as r:
+            body = json.loads(r.read().decode())
+        if isinstance(body, dict) and body.get("version") == 1 and isinstance(body.get("capabilities"), dict):
+            return body
+    except Exception:  # noqa: BLE001 - offline or changed: the built-in copy
+        pass
+    return dict(FALLBACK_CLIENT_CONFIG)
+
+
+def render_front_config(names: dict[str, str], routes: dict[str, str], origins: dict[str, str], client_config: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "name": FRONT_NAME, "main": "index.js", "compatibility_date": "2026-08-20",
+        "services": [{"binding": binding, "service": names[svc]} for svc, binding in (("api", "API"), ("mobile", "MOBILE"), ("hub", "HUB"))],
+        "vars": {"WDEV_ROUTES": json.dumps(routes, sort_keys=True), "WDEV_ORIGINS": json.dumps(origins, sort_keys=True),
+                 "WDEV_CLIENT_CONFIG": json.dumps(client_config, sort_keys=True)},
+    }
+
+
+EXPORT_CLASS = re.compile(r"^export\s+(?:default\s+)?(?:abstract\s+)?class\s+([A-Za-z_$][\w$]*)", re.M)
+EXPORT_LIST = re.compile(r"^export\s*\{([^}]*)\}", re.M)
+CLASS_NAME = re.compile(r"^[A-Z][A-Za-z0-9]*[a-z][A-Za-z0-9]*$")
+
+
+def entry_exports(main_source: str, cfg: dict[str, Any]) -> list[str]:
+    """The named exports a Worker of the session keeps: its classes (Durable Objects, workflows,
+    entrypoints). workerd runs every named export of an auxiliary Worker's main module as an entrypoint and
+    refuses one that is not a class or handler (the mobile Worker exports constants such as
+    BUILD_SPACE_HEADER), so the stack runs each Worker from a wrapper that re-exports only these."""
+    names = set(EXPORT_CLASS.findall(main_source))
+    for group in EXPORT_LIST.findall(main_source):
+        for item in group.split(","):
+            item = item.strip()
+            if not item or item.startswith("type "):
+                continue
+            name = item.split(" as ")[-1].strip()
+            if CLASS_NAME.match(name):
+                names.add(name)
+    for b in (cfg.get("durable_objects") or {}).get("bindings") or []:
+        if not b.get("script_name") and b.get("class_name"):
+            names.add(b["class_name"])
+    for w in cfg.get("workflows") or []:
+        if not w.get("script_name") and w.get("class_name"):
+            names.add(w["class_name"])
+    names.discard("default")
+    return sorted(names)
+
+
+def write_entry_wrapper(project: Path, cfg: dict[str, Any]) -> dict[str, Any]:
+    """Point cfg at a generated main beside it (wdev-entry.generated.ts) that re-exports the real main's
+    default and its classes (entry_exports), nothing else."""
+    main = cfg["main"]
+    spec = "./" + main.lstrip("./") if not main.startswith("../") else main
+    names = entry_exports((project / main).read_text(), cfg)
+    lines = ["// Generated by scripts/cmux-next/cloud-dev-stack/vm_stack.py (write_entry_wrapper).",
+             f'export {{ default }} from "{spec}"']
+    if names:
+        lines.append(f'export {{ {", ".join(names)} }} from "{spec}"')
+    (project / "wdev-entry.generated.ts").write_text("\n".join(lines) + "\n")
+    return {**cfg, "main": "wdev-entry.generated.ts"}
+
+
+def load_wrangler_config(path: Path) -> dict[str, Any]:
+    if path.suffix == ".toml":
+        import tomllib
+        return tomllib.loads(path.read_text())
+    return load_jsonc(path)
 
 
 # ---------------------------------------------------------------- commands
@@ -530,6 +728,7 @@ def cmd_prepare(args) -> dict[str, Any]:
             entry = entry or {"tag": tag, "created_at": now}
             if state in ("down", "reaped", "releasing"):
                 entry.pop("port", None)
+                entry.pop("ports", None)
             entry.update({"state": "preparing", "last_up_at": now})
         entry.update({"up_token": token, "up_started": now})
         write_entry(entry)
@@ -701,18 +900,66 @@ def write_private(path: Path, body: str) -> None:
         f.write(body)
 
 
+# The device hub's two signing keys (workers/device-hub scripts/gen-dev-secrets.mjs: P-256 private JWKs).
+HUB_KEYS_JS = """const gen = async () => { const p = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+  const j = await crypto.subtle.exportKey("jwk", p.privateKey); return JSON.stringify({ kty: j.kty, crv: j.crv, x: j.x, y: j.y, d: j.d }) };
+process.stdout.write(`SESSION_KEY='${await gen()}'\\nTICKET_KEY='${await gen()}'\\n`)"""
+
+
+def ensure_hub_keys(d: Path, env: dict[str, str]) -> str:
+    """The stack's own device hub keys (SESSION_KEY, TICKET_KEY) as .dev.vars lines, made once per stack."""
+    path = d / "secrets" / "hub.vars"
+    if not path.exists():
+        body = subprocess.run(["node", "--input-type=module", "-e", HUB_KEYS_JS], env=env, capture_output=True, text=True, check=True).stdout
+        write_private(path, body)
+    return path.read_text()
+
+
+# Where each Worker of a stack lives in the synced tree, and how its dependencies are installed.
+PROJECTS = {
+    "api": ("src/backend/apps/api", "wrangler.jsonc"),
+    "mobile": ("src/cmux-next-ios/backend", "wrangler.jsonc"),
+    "hub": ("src/workers/device-hub", "wrangler.toml"),
+}
+
+
+def install_deps(d: Path, env: dict[str, str], with_platform: bool) -> None:
+    """Each project's dependencies at its own lockfile: bun for the backend workspace and the mobile Worker,
+    npm for the device hub (package-lock.json)."""
+    run_quiet(["bun", "install", "--frozen-lockfile"], d / "src/backend", env, "bun install (backend)")
+    run_quiet(["bun", "install", "--frozen-lockfile"], d / PROJECTS["mobile"][0], env, "bun install (mobile Worker)")
+    npm_env = {**env, "npm_config_cache": str(BASE / "cache/npm"), "npm_config_update_notifier": "false"}
+    run_quiet(["npm", "ci", "--no-audit", "--no-fund", "--loglevel=error"], d / PROJECTS["hub"][0], npm_env, "npm ci (device hub)")
+    if with_platform:
+        run_quiet(["bun", "install", "--frozen-lockfile"], d / "platform", env, "bun install (platform)")
+
+
+def newest_wrangler(projects: list[Path]) -> Path:
+    """One workerd runs every Worker of the stack, so it must know the newest compatibility date of them:
+    the newest wrangler any project installed."""
+    return max(projects, key=wrangler_version) / "node_modules/.bin/wrangler"
+
+
+def probe(port: int, authority: str, path: str = "/v1/health") -> tuple[bool, str]:
+    """GET path on wrangler's local port, as the Worker that answers `authority` (the front routes by it)."""
+    req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", headers={"Host": authority})
+    try:
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return r.status == 200, r.read().decode(errors="replace")[:400]
+    except Exception as e:  # noqa: BLE001 - still booting
+        return False, str(e)[:400]
+
+
 def cmd_start(args) -> dict[str, Any]:
     tag = check_tag(args.tag)
     d = stack_dir(tag)
     path = tool_path()
     env = {**os.environ, "PATH": path, "BUN_INSTALL_CACHE_DIR": str(BASE / "cache/bun")}
-    api_dir = d / "src/backend/apps/api"
-    if not (api_dir / "wrangler.jsonc").exists():
-        raise Refused(f"{api_dir}/wrangler.jsonc missing: sync the worktree first")
+    for svc, (rel, cfg_name) in PROJECTS.items():
+        if not (d / rel / cfg_name).exists():
+            raise Refused(f"{d / rel / cfg_name} missing: sync the worktree first (the stack runs the {svc} Worker from it)")
     with_platform = bool(args.platform)
-    run_quiet(["bun", "install", "--frozen-lockfile"], d / "src/backend", env, "bun install (backend)")
-    if with_platform:
-        run_quiet(["bun", "install", "--frozen-lockfile"], d / "platform", env, "bun install (platform)")
+    install_deps(d, env, with_platform)
 
     with registry_lock():
         entry = read_entry(tag) or {"tag": tag, "created_at": int(time.time())}
@@ -720,32 +967,45 @@ def cmd_start(args) -> dict[str, Any]:
             admit(tag)
         taken = ports_held(tag)
         with serve_lock():
-            port = pick_port(tag, entry.get("port"), taken, classic_ports(), serve_config(), listening_ports() - ({entry["port"]} if entry.get("port") and unit_active(tag) else set()))
+            port = pick_port(tag, entry.get("port"), taken, classic_ports(), serve_config(), listening_ports() - (set(entry_ports(entry)) if entry.get("port") and unit_active(tag) else set()))
         host = dns_name()
-        origin = f"https://{host}:{port}"
-        entry.update({"port": port, "url": origin, "state": "starting", "host": host, "platform": with_platform,
-                      "commit": args.commit, "dirty": bool(args.dirty), "idle_secs": args.idle or IDLE_SECS_DEFAULT,
+        origins = stack_origins(host, port)
+        entry.update({"port": port, "ports": stack_ports(port), "url": origins["api"], "urls": origins, "state": "starting", "host": host,
+                      "platform": with_platform, "commit": args.commit, "dirty": bool(args.dirty), "idle_secs": args.idle or IDLE_SECS_DEFAULT,
                       "max_secs": MAX_SECS, "last_up_at": int(time.time())})
         write_entry(entry)
 
-    api_cfg = render_api_config(load_jsonc(api_dir / "wrangler.jsonc"), tag, origin, with_platform)
-    (api_dir / "wrangler.wdev.generated.jsonc").write_text(json.dumps(api_cfg, indent=1))
-    configs = ["-c", str(api_dir / "wrangler.wdev.generated.jsonc")]
+    configs, names, projects = ["-c", str(d / "front/wrangler.wdev.generated.json")], {}, []
+    rendered = {
+        "api": lambda c: render_api_config(c, tag, origins["api"], with_platform),
+        "mobile": render_mobile_config,
+        "hub": lambda c: render_hub_config(c, origins["hub"]),
+    }
+    for svc, (rel, cfg_name) in PROJECTS.items():
+        project = d / rel
+        cfg = write_entry_wrapper(project, rendered[svc](load_wrangler_config(project / cfg_name)))
+        names[svc] = cfg["name"]
+        (project / "wrangler.wdev.generated.json").write_text(json.dumps(cfg, indent=1))
+        configs += ["-c", str(project / "wrangler.wdev.generated.json")]
+        projects.append(project)
     if with_platform:
-        pcfg = render_platform_config(load_jsonc(d / "platform/wrangler.jsonc"), origin)
-        (d / "platform/wrangler.wdev.generated.jsonc").write_text(json.dumps(pcfg, indent=1))
-        configs += ["-c", str(d / "platform/wrangler.wdev.generated.jsonc")]
+        pcfg = write_entry_wrapper(d / "platform", render_platform_config(load_jsonc(d / "platform/wrangler.jsonc"), origins["api"]))
+        (d / "platform/wrangler.wdev.generated.json").write_text(json.dumps(pcfg, indent=1))
+        configs += ["-c", str(d / "platform/wrangler.wdev.generated.json")]
+        projects.append(d / "platform")
+    (d / "front").mkdir(mode=0o700, exist_ok=True)
+    (d / "front/index.js").write_text(FRONT_JS)
+    front = render_front_config(names, front_routes(host, port), origins, development_client_config())
+    (d / "front/wrangler.wdev.generated.json").write_text(json.dumps(front, indent=1))
 
     jwk = ensure_jwk(d, tag, env)
     # dotenv: a single-quoted value is literal (the JWK's double quotes stay as they are).
     # The platform verifies the API's install tokens with the same key outside production (its
     # CallerAuth.ts), so each Worker of the session reads it from a .dev.vars beside its config.
-    for project in [api_dir] + ([d / "platform"] if with_platform else []):
+    for project in [d / PROJECTS["api"][0]] + ([d / "platform"] if with_platform else []):
         write_private(project / ".dev.vars", f"JWT_PRIVATE_JWK='{jwk}'\n")
-    wrangler = api_dir / "node_modules/.bin/wrangler"
-    if with_platform and wrangler_version(d / "platform") > wrangler_version(api_dir):
-        # One workerd runs both Workers, so it must know the newer compatibility date of the two.
-        wrangler = d / "platform/node_modules/.bin/wrangler"
+    write_private(d / PROJECTS["hub"][0] / ".dev.vars", ensure_hub_keys(d, env))
+    wrangler = newest_wrangler(projects)
     run_sh = render_run_sh(d, path, port, args.commit, wrangler, configs)
     write_private(d / "run.sh", run_sh)
     (d / "logs").mkdir(exist_ok=True)
@@ -759,8 +1019,10 @@ def cmd_start(args) -> dict[str, Any]:
     (d / "heartbeat").touch()
 
     deadline = time.time() + args.wait
-    ok, last = False, ""
-    while time.time() < deadline:
+    authorities = {svc: f"{host}:{p}" for svc, p in zip(SERVICES, stack_ports(port))}
+    healthy: dict[str, str] = {}
+    last = ""
+    while time.time() < deadline and len(healthy) < len(SERVICES):
         if not unit_active(tag):
             break
         if log.exists():  # wrangler keeps running after a failed build, waiting for a file change
@@ -769,58 +1031,61 @@ def cmd_start(args) -> dict[str, Any]:
                 if b"Build failed" in f.read():
                     last = "build failed"
                     break
-        try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{port}/v1/health", timeout=5) as r:
-                body = r.read().decode()
-                last = body[:400]
-                ok = r.status == 200
+        for svc in SERVICES:
+            if svc not in healthy:
+                ok, body = probe(port, authorities[svc])
                 if ok:
-                    break
-        except Exception as e:  # noqa: BLE001 - still booting
-            last = str(e)
-        time.sleep(2)
-    if not ok:
+                    healthy[svc] = body
+                else:
+                    last = f"{svc}: {body}"
+        if len(healthy) < len(SERVICES):
+            time.sleep(2)
+    if len(healthy) < len(SERVICES):
         tail = redact(log.read_text(errors="replace")[-4000:], d) if log.exists() else ""
         stop_stack(tag, keep_files=True)
         with registry_lock():
             entry = read_entry(tag) or entry
             entry["state"] = "failed"
             write_entry(entry)
-        raise Refused(f"wrangler dev did not answer /v1/health on 127.0.0.1:{port} ({last})\n--- log tail ---\n{tail}")
+        raise Refused(f"wrangler dev did not answer /v1/health for {', '.join(s for s in SERVICES if s not in healthy)} on 127.0.0.1:{port} ({last})\n--- log tail ---\n{tail}")
 
-    if not publish(port):
+    if not publish(stack_ports(port), port):
         # Outside the Serve lock: every path takes the registry lock before the Serve lock, never after.
         stop_stack(tag, keep_files=True, serve=False)
         with registry_lock():
             entry = read_entry(tag) or entry
-            entry.update({"state": "failed", "port": None})
+            entry.update({"state": "failed", "port": None, "ports": []})
             write_entry(entry)
-        raise Refused(f"port {port} was taken by a classic stack while this one booted; run up again for another port")
+        raise Refused(f"a port of {stack_ports(port)} was taken by a classic stack while this one booted; run up again for others")
     with registry_lock():
         entry = read_entry(tag) or entry
         entry.update({"state": "running", "started_at": int(time.time()), "log_offset": log.stat().st_size if log.exists() else 0,
                       "last_request_at": int(time.time())})
         entry.pop("reup_at", None)
         write_entry(entry)
-    try:
-        health = json.loads(body)
-    except ValueError:
-        health = last
-    return {"tag": tag, "url": origin, "port": port, "health": health}
+    health = {}
+    for svc, body in healthy.items():
+        try:
+            health[svc] = json.loads(body)
+        except ValueError:
+            health[svc] = body
+    return {"tag": tag, "url": origins["api"], "urls": origins, "port": port, "health": health}
 
 
-def publish(port: int) -> bool:
-    """Publish 127.0.0.1:port on the tailnet, under the classic daemon's Serve lock and holding nothing
-    else. False (nothing changed) when a classic stack took the port while this one booted."""
-    target = f"http://127.0.0.1:{port}"
+def publish(ports: list[int], target_port: int) -> bool:
+    """Publish 127.0.0.1:target_port on the tailnet at every port of the stack, under the classic daemon's
+    Serve lock and holding nothing else. False (nothing changed) when a classic stack took one of them
+    while this one booted."""
+    target = f"http://127.0.0.1:{target_port}"
     with serve_lock():
-        current = serve_target(serve_config(), port)
-        if port in classic_ports() or current not in (None, target):
+        cfg = serve_config()
+        if any(port in classic_ports() or serve_target(cfg, port) not in (None, target) for port in ports):
             return False
-        if current != target:
-            out = subprocess.run(["sudo", "-n", "tailscale", "serve", "--bg", "--yes", f"--https={port}", target], capture_output=True, text=True, timeout=60)
-            if out.returncode != 0:
-                raise Refused(f"tailscale serve --https={port} failed: {(out.stderr or out.stdout).strip()[-400:]}")
+        for port in ports:
+            if serve_target(cfg, port) != target:
+                out = subprocess.run(["sudo", "-n", "tailscale", "serve", "--bg", "--yes", f"--https={port}", target], capture_output=True, text=True, timeout=60)
+                if out.returncode != 0:
+                    raise Refused(f"tailscale serve --https={port} failed: {(out.stderr or out.stdout).strip()[-400:]}")
     return True
 
 
@@ -832,13 +1097,16 @@ def render_run_sh(d: Path, path: str, port: int, commit: str, wrangler: Path, co
              f"export PATH={path}", "export WRANGLER_SEND_METRICS=false CI=1 NO_COLOR=1 FORCE_COLOR=0",
              f"export WRANGLER_LOG_PATH={d}/logs/wrangler-debug", f"export HOME={d}/home"]
     # Hyperdrive in wrangler dev connects straight to the origin; miniflare's local proxy does the TLS
-    # upgrade PlanetScale requires when the string asks for it (sslmode=require, ssl-mode=REQUIRED).
+    # upgrade PlanetScale requires when the string asks for it (sslmode=require, ssl-mode=REQUIRED). A
+    # binding name applies to every Worker of the session that has it: the API's and the mobile Worker's
+    # PS_MYSQL are the same Vitess database, as on the shared dev deployment.
     for kind, bindings, tls in (("pg", ("HYPERDRIVE", "HYPERDRIVE_RO"), ""), ("mysql", ("PS_MYSQL", "PS_MYSQL_RO"), "?ssl-mode=REQUIRED")):
         if (d / "secrets" / f"{kind}.url").exists():
             for b in bindings:
                 lines.append(f'export CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_{b}="$(cat {d}/secrets/{kind}.url){tls}"')
     lines.append(f'echo "== wdev start $(date -u +%FT%TZ) port {port} commit {commit}"')
-    lines.append("exec " + " ".join([str(wrangler), "dev", *configs, "--env", "development",
+    # No --env: each config is already one environment (flatten_env), and their names differ.
+    lines.append("exec " + " ".join([str(wrangler), "dev", *configs,
                                      "--ip", "127.0.0.1", "--port", str(port), "--local-protocol", "http",
                                      "--persist-to", str(d / "state"),
                                      "--show-interactive-dev-session=false", "--inspector-port", "0"]))
@@ -878,11 +1146,14 @@ def stop_stack(tag: str, keep_files: bool, serve: bool = True) -> list[str]:
         actions.append("unit stopped")
     entry = read_entry(tag) or {}
     port = entry.get("port")
-    if serve and port and port not in ports_held(tag):
+    ports = [p for p in entry_ports(entry) if p not in ports_held(tag)]
+    if serve and port and ports:
         with serve_lock():
-            if serve_target(serve_config(), port) == f"http://127.0.0.1:{port}":  # ours only, never a classic stack's
-                subprocess.run(["sudo", "-n", "tailscale", "serve", f"--https={port}", "off"], capture_output=True, text=True, timeout=60)
-                actions.append(f"serve :{port} off")
+            cfg = serve_config()
+            for p in ports:
+                if serve_target(cfg, p) == f"http://127.0.0.1:{port}":  # ours only, never a classic stack's
+                    subprocess.run(["sudo", "-n", "tailscale", "serve", f"--https={p}", "off"], capture_output=True, text=True, timeout=60)
+                    actions.append(f"serve :{p} off")
     if not keep_files and stack_dir(tag).exists():
         shutil.rmtree(stack_dir(tag), ignore_errors=True)
         actions.append("stack dir removed")
@@ -996,7 +1267,7 @@ def reap_one(tag: str, now: int) -> dict[str, Any] | None:
                 return {"tag": tag, "action": "purged old entry"}
             if state == "failed" and not entry.get("cleaned") and now - entry.get("last_up_at", now) > 3600:
                 steps = stop_stack(tag, keep_files=False)
-                entry.update({"cleaned": True, "port": None})  # its port goes back to the pool
+                entry.update({"cleaned": True, "port": None, "ports": []})  # its ports go back to the pool
                 write_entry(entry)
                 return {"tag": tag, "action": "cleaned failed stack", "steps": steps}
             return None
@@ -1083,7 +1354,7 @@ def cmd_status(args) -> dict[str, Any]:
             continue
         hb = stack_dir(e["tag"]) / "heartbeat"
         last = max(e.get("last_request_at", 0), int(hb.stat().st_mtime) if hb.exists() else 0, e.get("started_at", 0))
-        rows.append({k: e.get(k) for k in ("tag", "state", "url", "port", "commit", "dirty", "platform", "reason", "last_up_at", "reup_at", "releasing_at")}
+        rows.append({k: e.get(k) for k in ("tag", "state", "url", "urls", "port", "ports", "commit", "dirty", "platform", "reason", "last_up_at", "reup_at", "releasing_at")}
                     | {"active": unit_active(e["tag"]) if e.get("state") == "running" else False,
                        "idle_min": (now - last) // 60 if last else None, "idle_limit_min": e.get("idle_secs", IDLE_SECS_DEFAULT) // 60,
                        "mem_mib": unit_memory_mib(e["tag"]) if e.get("state") == "running" else None,
