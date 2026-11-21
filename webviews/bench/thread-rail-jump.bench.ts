@@ -369,6 +369,8 @@ export async function measureUnloadedTickJumps(
             let frames = 0;
             let settledAt: number | undefined;
             const trace: unknown[] = [];
+            let lastScroll = 0;
+            let lastHeight = 0;
             window.cmuxAfterPaint(() => {
               frames++;
               const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
@@ -388,7 +390,13 @@ export async function measureUnloadedTickJumps(
                 if (stable === 0) settledAt = elapsed;
               }
               if (firstPaint !== undefined) lastTop = visible ? box!.top : undefined;
-              if (firstPaint !== undefined && trace.length < 40 && (trace.length < 3 || !visible || frames % 15 === 0))
+              if (
+                firstPaint !== undefined &&
+                trace.length < 40 &&
+                (trace.length < 3 ||
+                  Math.abs(scroller.scrollTop - lastScroll) > 1 ||
+                  scroller.scrollHeight !== lastHeight)
+              )
                 trace.push({
                   t: Math.round(elapsed),
                   top: box ? Math.round(box.top - view.top) : null,
@@ -396,6 +404,8 @@ export async function measureUnloadedTickJumps(
                   scrollHeight: scroller.scrollHeight,
                   bubbles: scroller.querySelectorAll(".cv-user__bubble").length,
                 });
+              lastScroll = scroller.scrollTop;
+              lastHeight = scroller.scrollHeight;
               if (stable >= 10 || elapsed > 10_000) {
                 probe.railJump = {
                   index,
@@ -405,6 +415,14 @@ export async function measureUnloadedTickJumps(
                   frames,
                   timeout: stable < 10,
                   trace,
+                  follow: (() => {
+                    try {
+                      const debug = (window as unknown as { cmuxAcpmuxDebug?: { chatState?: () => { follow?: unknown } | null } }).cmuxAcpmuxDebug;
+                      return debug?.chatState?.()?.follow ?? "none";
+                    } catch (error) {
+                      return String(error);
+                    }
+                  })(),
                 };
                 return false;
               }
