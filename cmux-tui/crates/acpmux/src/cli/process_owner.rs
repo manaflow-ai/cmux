@@ -397,7 +397,7 @@ async fn print_rows(rows: &[Owned], json_out: bool, key: &str) -> Result<()> {
     for o in rows {
         let id = o.marks.as_ref().and_then(|m| m.session_id.clone());
         let status = match id {
-            Some(id) => session_status(client.as_ref(), &id).await,
+            Some(id) => session_status(client.as_deref(), &id).await,
             None => None,
         };
         if json_out {
