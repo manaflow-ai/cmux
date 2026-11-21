@@ -57,7 +57,7 @@ extension AgentQuestion {
 }
 
 extension AgentQuestionAnswer {
-    /// The `answer` of a `question.answer` op: selections only; the owner
+    /// The `answer` of a `question.answer` op, with an optional ephemeral decision; the owner
     /// stamps the respondent and the time.
     public var conversationAnswer: AgentQuestionJSON {
         var selections: [String: AgentQuestionJSON] = [:]
@@ -66,6 +66,8 @@ extension AgentQuestionAnswer {
             if let other = selection.other { value["other"] = .string(other) }
             selections[item] = .object(value)
         }
-        return ["selections": .object(selections)]
+        var answer: [String: AgentQuestionJSON] = ["selections": .object(selections)]
+        if let decision { answer["decision"] = decision }
+        return .object(answer)
     }
 }
