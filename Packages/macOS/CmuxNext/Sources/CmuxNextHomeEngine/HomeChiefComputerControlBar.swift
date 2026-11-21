@@ -155,7 +155,7 @@ public final class HomeChiefComputerControlBar: NSStackView {
                     await self?.beforeGiveBack()
                     try await source.handBack()
                 }
-                if take { source.openInteractive?() }
+                if take, source.send == nil { source.openInteractive?() }
                 self?.failed = false
             } catch {
                 self?.failed = !Task.isCancelled

@@ -1631,7 +1631,9 @@ fn wait_turn(
             Pushed::Unavailable => {
                 answer.set("wait_route", json!("exec"));
             }
-            Pushed::TimedOut => return wait_timeout(request, machine_id, session, Some(baseline), answer),
+            Pushed::TimedOut => {
+                return wait_timeout(request, machine_id, session, Some(baseline), answer);
+            }
         }
     }
     // The reads in a row the Cloud API did not answer: a read only reads, so it is asked again.

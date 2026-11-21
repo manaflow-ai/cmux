@@ -15,6 +15,9 @@ public import Foundation
 /// Observers are held weakly by their token: dropping the token stops the calls.
 @MainActor
 public final class ChiefComputerControlStore {
+    /// The Cloud machine each Chief of this Mac uses as its computer, by conversation (its card's pick).
+    public var attachedMachines: [String: String] = [:]
+
     /// One computer: a Cloud machine by id, or a Cloud Chief's sandbox by its agent id.
     public enum Key: Hashable, Sendable {
         case machine(String)
@@ -85,7 +88,12 @@ public final class ChiefComputerControlStore {
         weak var observer: Observer?
     }
 
+    /// A machine reads as in use this long after an automated run's last action (a Chief thinks between steps, and the person gets time to click into it).
+    public nonisolated static let useWindowMs: Int64 = 60_000
+
     private var leases: [Key: Lease] = [:]
+    /// Each machine's last automated action, in ms since 1970.
+    private var automatedUseMs: [String: Int64] = [:]
     private var observers: [Key: [WeakObserver]] = [:]
     /// Whether the account may have a Chief computer, per agent, as the sandbox route last said.
     private var entitlement: [String: Bool] = [:]
@@ -158,6 +166,21 @@ public final class ChiefComputerControlStore {
     public func checkNotHeld(machine raw: String, byPerson: Bool) throws(Refusal) {
         guard !byPerson, let machine = Self.machineKey(raw), state(.machine(machine))?.holder == .human else { return }
         throw .humanHasControl
+    }
+
+    /// An automated run just acted on machine `raw` (the Chief's `cloud_computer` runs through exec).
+    /// The first after a quiet spell tells the observers, so the chat's preview comes up at once.
+    public func noteAutomatedUse(machine raw: String) {
+        guard let machine = Self.machineKey(raw) else { return }
+        let quiet = !isInUse(machine: machine)
+        automatedUseMs[machine] = now()
+        if quiet { notify(.machine(machine)) }
+    }
+
+    /// Whether an automated run acted on machine `raw` within ``useWindowMs``.
+    public func isInUse(machine raw: String) -> Bool {
+        guard let machine = Self.machineKey(raw), let last = automatedUseMs[machine] else { return false }
+        return now() - last < Self.useWindowMs
     }
 
     /// The person's input on machine `raw`'s desktop while they hold it: it stays theirs for

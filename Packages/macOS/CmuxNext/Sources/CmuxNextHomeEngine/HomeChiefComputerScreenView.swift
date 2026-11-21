@@ -31,7 +31,17 @@ final class HomeChiefComputerScreenView: NSView {
         didSet { layer?.contents = image }
     }
     /// The frame's size in pixels; nil before the first frame.
-    var imageSize: CGSize? { image.map { CGSize(width: $0.width, height: $0.height) } }
+    var imageSize: CGSize? { image.map { CGSize(width: $0.width, height: $0.height) } ?? liveSize }
+    /// The live stream's size, for a screen showing it before any still frame came.
+    var liveSize: CGSize?
+
+    /// The point showing the computer's pixel `pixel`, the inverse of ``pixel(at:in:image:)``; nil before a frame.
+    static func point(ofPixel pixel: CGPoint, in size: CGSize, image: CGSize) -> CGPoint? {
+        guard size.width > 0, size.height > 0, image.width > 0, image.height > 0 else { return nil }
+        let scale = min(size.width / image.width, size.height / image.height)
+        return CGPoint(x: (size.width - image.width * scale) / 2 + pixel.x * scale,
+                       y: (size.height - image.height * scale) / 2 + pixel.y * scale)
+    }
 
     /// The computer's pixel under `point` (top-left origin, in a view `size` showing a frame `image`
     /// aspect-fit); nil outside the frame.

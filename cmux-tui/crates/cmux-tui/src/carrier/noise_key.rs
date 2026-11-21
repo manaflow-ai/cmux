@@ -32,15 +32,59 @@ pub(super) fn lasting_identity() -> Result<StaticIdentity, String> {
 }
 
 /// The device's carrier identity.
+///
+/// A DEV build whose Keychain refuses the shared item (a locally built,
+/// ad-hoc signed `cmux` is a new app to the Keychain after each rebuild, and
+/// an unanswered prompt is `-128`) waits at most ``DEV_KEYCHAIN_WAIT`` for the
+/// Keychain and otherwise dials with a key made for this one dial,
+/// as a Linux dial does, instead of failing the handshake. The key is never
+/// written down. Release builds keep failing, so they never drift off their
+/// lasting device key.
 pub(super) fn device_identity() -> Result<StaticIdentity, String> {
     #[cfg(target_os = "macos")]
     {
-        keychain::load_or_create(SERVICE, ACCOUNT).map(StaticIdentity::from_private)
+        if !is_dev_build() {
+            return keychain::load_or_create(SERVICE, ACCOUNT).map(StaticIdentity::from_private);
+        }
+        // Never wait on a Keychain prompt: an unanswered one held `carrier serve` past its
+        // deadline, so the link failed before the person even saw the question. The read
+        // gets a short bound; a prompt left open is answered later or not at all.
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = sender.send(keychain::load_or_create(SERVICE, ACCOUNT));
+        });
+        let why = match receiver.recv_timeout(DEV_KEYCHAIN_WAIT) {
+            Ok(Ok(key)) => return Ok(StaticIdentity::from_private(key)),
+            Ok(Err(why)) => why,
+            Err(_) => {
+                "the Keychain did not answer for the carrier key (a prompt is open)".to_owned()
+            }
+        };
+        eprintln!("cmux carrier: {why}; this DEV build dials with a key made for this dial");
+        StaticIdentity::generate().map_err(|e| format!("no Noise key: {e}"))
     }
     #[cfg(not(target_os = "macos"))]
     {
         StaticIdentity::generate().map_err(|e| format!("no Noise key: {e}"))
     }
+}
+
+/// How long a DEV build waits for the Keychain before dialing with a per-dial key.
+#[cfg(target_os = "macos")]
+const DEV_KEYCHAIN_WAIT: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// Whether this process belongs to a DEV build (`com.cmuxterm.app.debug[.<tag>]`).
+#[cfg(target_os = "macos")]
+fn is_dev_build() -> bool {
+    // The bundle this binary ships in, not the environment: the app starts `carrier serve`
+    // with its tag and socket but no bundle id, which named no bundle at all.
+    let exe = std::env::current_exe().ok();
+    let own = crate::app_identity::AppIdentity::detect(|_| None, exe.as_deref());
+    let from_env =
+        || crate::app_identity::AppIdentity::detect(|key| std::env::var(key).ok(), exe.as_deref());
+    own.or_else(from_env)
+        .and_then(|identity| identity.build().bundle_id().map(str::to_owned))
+        .is_some_and(|id| crate::app_identity::is_debug_bundle(&id))
 }
 
 #[cfg(target_os = "macos")]

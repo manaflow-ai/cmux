@@ -134,6 +134,24 @@ import Testing
         return s.isEmpty ? 0 : s[min(s.count - 1, Int((Double(s.count - 1) * q).rounded()))]
     }
 
+    /// New senders change the rows but not the messages array: a later width pass (a panel opening) must not
+    /// bring back the rows from before them, as it brought the Chief's letter back over its picture.
+    @Test func aWidthPassKeepsAnAvatarThatCameAfterTheLastOne() throws {
+        var rig = Self.rig(messages: 20, width: 1200)
+        rig.store.dispatch(.cmuxSetSenders(rig.store.state.conversation.participants, group: true))
+        Self.resize(rig, to: 1000) // remembers these rows, with no picture yet
+        rig.frames.start()
+        let picture = "file:///Users/me/.cmux/chiefs/agent_chief/3f2a.png"
+        rig.store.dispatch(try #require(rig.core.setAvatars([Self.chief.rawValue: .image(picture)])))
+        Self.resize(rig, to: 900)
+        rig.frames.start()
+        let avatars = rig.view.model.rows.compactMap { row -> SenderAvatar? in
+            if case let .part(p) = row.spec.kind, !p.outgoing { p.cmuxAvatar } else { nil }
+        }
+        #expect(!avatars.isEmpty)
+        #expect(avatars.allSatisfy { $0 == .image(picture) })
+    }
+
     /// A slow frame (budget 0: every frame's first pass uses the whole budget) defers the frame's later
     /// width changes: a narrower one must still lay the rows out at once, so no bubble is cut off.
     @Test func aSlowFrameNeverShowsRowsWiderThanTheView() {

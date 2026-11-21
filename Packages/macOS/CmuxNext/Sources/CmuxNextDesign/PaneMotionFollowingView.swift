@@ -15,6 +15,9 @@ public import AppKit
 /// lays out at that size in the frame's layout pass.
 @MainActor
 open class PaneMotionFollowingView: NSView, PaneMotionHoldFollowing {
+    // Not an isolated deinit: subclasses release off main with their own `nonisolated deinit`.
+    nonisolated deinit {}
+
     /// Lays the view out again: the area gives it its bounds on every frame of `hold`, and its frame back when it ends.
     /// - Parameter hold: The hold's edges, or nil when the hold ended.
     /// - Parameter heldSize: The area's size when the hold began, or nil when it ended.

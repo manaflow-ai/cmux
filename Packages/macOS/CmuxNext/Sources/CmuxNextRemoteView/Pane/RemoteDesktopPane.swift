@@ -54,6 +54,13 @@ public final class RemoteDesktopPane {
         set { view.capture.controller.releaseChord = newValue }
     }
 
+    /// The session's state changed (an embedding view follows whether frames show).
+    public var onStateChange: (() -> Void)?
+    /// The remote pointer moved, in stream pixels.
+    public var onCursor: ((RemoteCursorState?) -> Void)?
+    /// A session is streaming and has shown a frame.
+    public var isShowingFrames: Bool { state.hasFrame && state.overlay == nil }
+
     /// Upstream media commands (the transport); nil when the source has none.
     public var upstreamControl: (any RemoteUpstreamControl)?
     /// The macOS permission prompts, asked only from a share button press.
@@ -129,7 +136,10 @@ public final class RemoteDesktopPane {
         })
         let cursors = source.cursorUpdates()
         tasks.append(Task { [weak self] in
-            for await cursor in cursors { self?.view.video.setRemoteCursor(cursor) }
+            for await cursor in cursors {
+                self?.view.video.setRemoteCursor(cursor)
+                self?.onCursor?(cursor)
+            }
         })
     }
 
@@ -162,6 +172,7 @@ public final class RemoteDesktopPane {
         guard next != state else { return }
         state = next
         view.render(state: state, settings: settings)
+        onStateChange?()
     }
 
     private func wireChrome() {

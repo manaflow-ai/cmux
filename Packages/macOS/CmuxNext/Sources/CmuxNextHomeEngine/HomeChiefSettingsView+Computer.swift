@@ -42,11 +42,12 @@ extension HomeChiefSettingsView {
         computerNote.preferredMaxLayoutWidth = Self.width - 2 * Self.inset
         computerRow.addArrangedSubview(computerNote)
         computerDesktop.setAccessibilityIdentifier("cmux.home.chief.computerDesktop")
-        computerRow.addArrangedSubview(computerDesktop)
         addFullWidth(computerRow)
         row.widthAnchor.constraint(equalTo: computerRow.widthAnchor).isActive = true
         gap(after: computerRow)
-        computerRow.isHidden = !source.isLocal
+        // The Chief has one computer, its own: another is a thing to ask it for, so the row stays off screen
+        // and only carries what the card reads (`attachedMachine`).
+        computerRow.isHidden = true
         showComputer(nil)
     }
 
@@ -73,10 +74,6 @@ extension HomeChiefSettingsView {
         computerPicker.menu = menu
         let index = computer.flatMap { target in menu.items.firstIndex { ($0.representedObject as? String) == target } } ?? 0
         computerPicker.selectItem(at: index)
-        // A Chief that moved off this Mac keeps the computer it took here: its row stays while one is
-        // set, so the owner can still detach it.
-        let hidden = !source.isLocal && computer == nil
-        if computerRow.isHidden != hidden { computerRow.isHidden = hidden }
         computerNote.stringValue = computer != nil ? HomeEngineStrings.computerCloudNote : HomeEngineStrings.computerMacNote
         // Show Desktop opens a Cloud machine's; the Chief's own computer shows in its profile's Computer tab.
         let machine = attachedMachine != nil

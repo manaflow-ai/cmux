@@ -3,6 +3,7 @@ import { callerOf, type Fail } from "../home-attachments.ts"
 import { sandboxesOf } from "../chief-brain-cc/sandbox.ts"
 import { ccConfigured } from "../chief-brain-cc/vm.ts"
 import { LOCAL_COMPUTER_CAP, localComputerKey, localRegistryOf } from "../chief-brain-cc/local-computer.ts"
+import { planRequiredDetails } from "@cmux/protocol"
 
 /**
  * The computer of a Chief that runs on its owner's Mac (chief-brain-cc/local-computer.ts), the same routes and answers
@@ -30,6 +31,7 @@ const fail = (f: Fail) => Response.json({ ok: false, error: { code: f.code, mess
 const ok = (value: unknown, status = 200) => Response.json({ ok: true, value }, { status, headers: NO_STORE })
 /** A server-side failure's text can name the provider: the person and the Chief read this sentence instead. */
 const neutral = (status: number, message: string | undefined): string => (status >= 500 ? "the computer did not answer" : message ?? "the computer did not answer")
+const planRefused = () => fail({ status: 403, code: "cloud.plan.required", message: "a Chief's computer needs cmux NEXT Plus, Pro or Max", extra: { details: planRequiredDetails() } })
 const ACT_OPS = new Set(["screenshot", "windows", "click", "move", "drag", "scroll", "type", "key", "open", "control", "request_human", "hand_back", "start"])
 
 export const handleLocalChiefComputer = async (request: Request, env: Env, chief: string, sub: string | undefined): Promise<Response> => {
@@ -44,6 +46,11 @@ export const handleLocalChiefComputer = async (request: Request, env: Env, chief
   const key = localComputerKey(user, chief)
   const sandboxes = sandboxesOf(env, key)
   if (sub === undefined) return ok(await sandboxes.ccComputerStatus(key, user))
+  // Seeing or driving the computer is for Plus, Pro and Max (sandbox-plan.ts COMPUTER_PLANS); handing it back, deleting
+  // it with its Chief and provisioning (which answers its own refusal) are not gated here.
+  const body0 = sub === "control" ? ((await request.clone().json().catch(() => null)) as Record<string, unknown> | null) : null
+  const ungated = sub === "control" && (body0?.action === "hand_back" || body0?.action === "delete" || body0?.action === "provision")
+  if (!ungated && !(await sandboxes.ccComputerEntitled(user))) return planRefused()
   if (sub === "screen") {
     const shot = await sandboxes.ccComputerScreen(key)
     if (shot.status !== 200) return fail({ status: shot.status, code: shot.status === 409 ? "computer.asleep" : shot.status === 404 ? "not_found" : "computer.unreachable", message: shot.error, ...(shot.state ? { extra: { state: shot.state } } : {}) })

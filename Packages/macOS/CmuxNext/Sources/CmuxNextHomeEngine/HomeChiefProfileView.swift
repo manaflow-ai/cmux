@@ -32,7 +32,7 @@ public final class HomeChiefProfileView: NSView {
     /// `setsUp` offers one (``localComputer``).
     public nonisolated static func gate(paid: Bool, cloudChief: Bool, hasComputer: Bool, machine: Bool = false, setsUp: Bool = false) -> Gate? {
         guard paid else { return .paywall }
-        guard cloudChief else { return machine ? .machine : hasComputer ? nil : setsUp ? .noComputer : .needsCloudChief }
+        guard cloudChief else { return hasComputer ? nil : machine ? .machine : setsUp ? .noComputer : .needsCloudChief }
         return hasComputer ? nil : .notSetUp
     }
 
@@ -94,6 +94,12 @@ public final class HomeChiefProfileView: NSView {
     /// ``onProvision`` gives the Chief its own computer under this id, and the card then picks it for Computer Use, so
     /// its `cloud_computer` tool drives it. Nil: no Set Up Computer for a Chief of this Mac.
     public var localComputer: () -> String? = { nil } { didSet { refresh() } }
+    /// Set Up Computer for a Chief of this Mac: makes a normal Cloud machine and answers its id; the card then
+    /// picks it for Computer Use (engine.json's `machine:<id>`), as a pick in the picker does.
+    public var makeMachine: (@MainActor () async throws -> String)? { didSet { refresh() } }
+    /// Whether the Cloud machine the card picked is gone (deleted, or not on the team the app now reads): the tab then
+    /// offers Set Up Computer again instead of waiting on a machine that will never answer.
+    public var machineGone: (String) -> Bool = { _ in false } { didSet { refresh() } }
     /// The Set Up Computer ask in flight, or the reason the last one failed.
     var provisionAsk: ProvisionAsk = .idle
     enum ProvisionAsk: Equatable { case idle, asking, failed, localLimit, unavailable }
@@ -281,7 +287,7 @@ public final class HomeChiefProfileView: NSView {
         computer.watchesScreen = tab == .computer
         // The app's plan read, or the Cloud service's own answer for this Chief (it holds before the app's read answers).
         let gate = Self.gate(paid: paid() || computer.entitled, cloudChief: cloudChief(), hasComputer: computer.shown != nil,
-                             machine: settings?.attachedMachine != nil, setsUp: setsUpLocally)
+                             machine: settings?.attachedMachine.map { !machineGone($0) } ?? false, setsUp: setsUpLocally)
         shownGate = gate
         gateBox.isHidden = gate == nil
         showGate(gate)

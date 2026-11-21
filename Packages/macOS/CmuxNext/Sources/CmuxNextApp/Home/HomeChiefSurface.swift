@@ -121,7 +121,9 @@ final class HomeChiefSurface {
                 let reread = renamed || isChief != self.isChief || participant != self.participant
                 (self.isChief, self.participant) = (isChief, participant)
                 isWorking = isChief && typing
-                if isWorking && cloud || computerPopup != nil { followComputerPopup(working: isWorking && cloud) }
+                // A Cloud Chief's own computer, or the Cloud machine a Chief of this Mac uses.
+                let usesComputer = cloud || ChiefComputerPageService.attachedMachine(control.services, id.rawValue) != nil
+                if isWorking && usesComputer || computerPopup != nil { followComputerPopup(working: isWorking && usesComputer) }
                 turnActions.update(control: control.turnControl, isChief: isChief, working: isWorking, sequence: lastSeq)
                 let engineMoved = cloud != showsCloud || (cloud && hosted != showsHosted)
                 (showsCloud, showsHosted) = (cloud, hosted)
@@ -245,8 +247,8 @@ final class HomeChiefSurface {
             try? services?.settingsWindow.show(section: nil, focus: true, route: "#/settings/chief")
         }
         view.checkHarness = { [weak services] id in (try? await services?.agentHarnesses.doctor(id: id))?["ok"]?.boolValue == true }
-        // Every harness this Mac's acpmux has (Settings > Agents' list), after the official engines.
-        view.listHarnesses = { [weak services] in (try? await services?.agentHarnesses.listed())?.sorted() ?? [] }
+        // Every harness this Mac's acpmux has that a Chief can run on, after the official engines.
+        view.listHarnesses = { [weak services] in (try? await services?.agentHarnesses.chiefEngines()) ?? [] }
         // One rename path for every Chief (HomeService.renameChief): every surface shows the new name at once.
         view.onRename = { [weak service] name in
             await service?.renameChief(conversation: conversation, to: name) ?? .noConnection
@@ -373,14 +375,32 @@ extension HomeChiefSurface {
         // The chat's popup hides while the popover shows the computer, and comes back as it goes.
         profile.onTab = { [weak self] in self?.computerPopup?.update() }
         popover.onClose = { [weak self] in self?.computerPopup?.update() }
+        // Chief's pointer on its screen, labelled with its name.
+        let chiefID = self.conversation
+        profile.computer.pointerPainter = ChiefComputerPageService.pointerPainter { [weak services] in
+            services?.home.chiefName(of: chiefID) ?? HomeStrings.chiefName
+        }
         profile.onExpand = { [weak services, weak popover] in
             popover?.close()
+            // A Cloud machine's Expand is its live desktop, the stream Show Desktop opens.
+            if let services, let machine = ChiefComputerPageService.attachedMachine(services, conversation) {
+                services.openChiefComputerDesktop(machine: machine)
+                return
+            }
             let arguments: [String: ActionValue] = ["conversation": .string(conversation), "open": .string("1")]
             _ = services?.registry.perform(ChiefComputerPageService.toggleActionID, invocation: ActionInvocation(arguments: arguments, origin: .user))
         }
         let shown = view.onComputerShown
-        view.onComputerShown = { [weak self] in
+        view.onComputerShown = { [weak self, weak view, weak profile, weak services] in
             shown()
+            // The Cloud machine picked for a Chief of this Mac is the one its chat preview and Take Over use.
+            if let view, let profile, let services {
+                let store = services.cloud.computerControl
+                if store.attachedMachines[conversation] != view.attachedMachine {
+                    store.attachedMachines[conversation] = view.attachedMachine
+                    if profile.computer.isOpen { profile.computer.open() }
+                }
+            }
             self?.followComputerControl()
         }
     }
@@ -392,6 +412,7 @@ extension HomeChiefSurface {
         let machine = services.home.cloudChiefs.chief(for: conversation) == nil ? made.view.attachedMachine : nil
         let agent = machine == nil ? ChiefComputerPageService.computerKey(services, conversation) : nil
         made.profile.follow(agent: agent, machine: machine) { [weak services] in services?.chiefComputerControlSource(agent: $0, machine: $1) }
+        computerPopup?.followControl(agent: agent, machine: machine) { [weak services] in services?.chiefComputerControlSource(agent: $0, machine: $1) }
     }
 
     /// A Chief turn started or ended (`working`: a Cloud Chief answers): the live view over the chat follows it.
@@ -413,6 +434,13 @@ extension HomeChiefSurface {
             return page.shows(conversation, in: self.owner?.window)
         }
         popup.onOpen = { [weak self] in _ = self?.openProfile(.computer) }
+        popup.inUse = { [weak services] in
+            guard let services, let machine = ChiefComputerPageService.attachedMachine(services, conversation) else { return false }
+            return services.cloud.computerControl.isInUse(machine: machine)
+        }
+        let chiefID = self.conversation
+        popup.chief = { [weak services] in services?.home.chiefName(of: chiefID) ?? HomeStrings.chiefName }
+        popup.section.pointerPainter = ChiefComputerPageService.pointerPainter(chief: popup.chief)
         owner.addSubview(popup)
         NSLayoutConstraint.activate([
             popup.topAnchor.constraint(equalTo: owner.topAnchor, constant: Self.computerPopupTop),

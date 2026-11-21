@@ -187,7 +187,11 @@ extension AppServices {
             return .sandbox(agent: agent, store: cloud.computerControl, client: ChiefComputerControlClient(send: home.hostedChief.brainRoute))
         }
         guard let machine, let id = ChiefComputerControlStore.machineKey(machine) else { return nil }
-        return .machine(id, store: cloud.computerControl, openInteractive: { [weak self] in self?.openChiefComputerDesktop(machine: machine) })
+        return .machine(id, store: cloud.computerControl, openInteractive: { [weak self] in self?.openChiefComputerDesktop(machine: machine) }, send: { [weak self] input in
+            guard let self, let command = HomeChiefComputerRoute.machineInputCommand(input) else { return }
+            let ran = try await cloud.machineAPI.exec(machine, command: command, timeoutMs: 20_000)
+            guard ran.exitCode == 0 else { throw ActionFailure(message: ran.stderr) }
+        })
     }
 
     /// What a Cloud machine's desktop viewer calls on the person's input: it keeps their hold on its computer.

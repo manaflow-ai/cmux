@@ -3,6 +3,23 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextWakeups
 
+/// A live video of the computer (the Cloud desktop's stream), shown in place of the polled stills once it has a frame.
+@MainActor
+public protocol HomeChiefComputerLiveFeed: AnyObject {
+    var view: NSView { get }
+    /// Frames are showing now.
+    var isLive: Bool { get }
+    /// The stream's size in pixels.
+    var pixels: CGSize { get }
+    /// The agent's pointer in stream pixels; nil while no agent acts.
+    var pointer: CGPoint? { get }
+    /// Its session's state, for diagnostics.
+    var debugStatus: String { get }
+    /// Its state or pointer changed.
+    var onChange: (() -> Void)? { get set }
+    func stop()
+}
+
 /// The Chief profile card's Computer tab (cmux issue 31488): the Chief's own computer's screen
 /// (16:10, view only) with "<name>'s screen" under it (Lawrence's reference, 2026-11-04). While the
 /// computer runs and the tab shows, its screen refreshes, so the person watches the Chief work on
@@ -20,17 +37,25 @@ public final class HomeChiefComputerSection: NSStackView {
         public var status: @MainActor @Sendable () async -> HomeChiefComputer.Status?
         /// The screen now (``HomeChiefComputerRoute/screen()``); nil while it sleeps or is not reached.
         public var screen: @MainActor @Sendable () async -> CGImage?
+        /// Where the agent's pointer is in the last frame's pixels; nil while no agent is acting.
+        public var pointer: @MainActor @Sendable () -> CGPoint?
+        /// Starts a live video of the computer; nil when it has none.
+        public var live: @MainActor @Sendable () -> (any HomeChiefComputerLiveFeed)?
         /// Paces the reads (a ``DemandTimer`` on it; tests pass a manual clock).
         public var clock: any Clock<Duration>
 
         public init(paid: @escaping @MainActor @Sendable () -> Bool, chief: @escaping @MainActor @Sendable () -> String,
                     status: @escaping @MainActor @Sendable () async -> HomeChiefComputer.Status?,
                     screen: @escaping @MainActor @Sendable () async -> CGImage?,
+                    pointer: @escaping @MainActor @Sendable () -> CGPoint? = { nil },
+                    live: @escaping @MainActor @Sendable () -> (any HomeChiefComputerLiveFeed)? = { nil },
                     clock: any Clock<Duration> = ContinuousClock()) {
             self.paid = paid
             self.chief = chief
             self.status = status
             self.screen = screen
+            self.pointer = pointer
+            self.live = live
             self.clock = clock
         }
 
@@ -54,7 +79,10 @@ public final class HomeChiefComputerSection: NSStackView {
     /// Whether the screen is on show (the Computer tab is selected). While false only the state is
     /// read, which is what says whether the tab exists at all; no frame is fetched for a hidden tab.
     public var watchesScreen = true {
-        didSet { if watchesScreen != oldValue, isOpen { open() } }
+        didSet {
+            if !watchesScreen { endFeed() }
+            if watchesScreen != oldValue, isOpen { open() }
+        }
     }
 
     /// Expand, on the screen's corner: opens the computer large; nil hides it.
@@ -63,6 +91,16 @@ public final class HomeChiefComputerSection: NSStackView {
     }
     private(set) lazy var expandButton = HomeChiefCardCloseButton(label: HomeEngineStrings.computerExpand, target: self, action: #selector(expand),
                                                                   size: 26, symbolSize: 11, symbol: "arrow.up.left.and.arrow.down.right")
+
+    /// Makes what draws the agent's cursor in a layer (the app's branded cursor: a screen capture has none);
+    /// it takes a point in that layer, nil to take the cursor away.
+    public var pointerPainter: ((CALayer) -> (CGPoint?) -> Void)?
+    private var paintPointer: ((CGPoint?) -> Void)?
+    /// Holds the cursor's layers over the frame; never takes a click.
+    private let pointerPlane = HomeChiefComputerPointerPlane()
+    /// Holds the live video over the last still, hidden until it has a frame.
+    private let livePlane = HomeChiefComputerPointerPlane()
+    private var feed: (any HomeChiefComputerLiveFeed)?
 
     /// Runs when the section shows or hides.
     public var onResize: () -> Void = {}
@@ -123,6 +161,13 @@ public final class HomeChiefComputerSection: NSStackView {
         screen.addSubview(note)
         expandButton.isHidden = true
         expandButton.setAccessibilityIdentifier("cmux.home.chief.computer.expand")
+        livePlane.wantsLayer = true
+        livePlane.isHidden = true
+        livePlane.translatesAutoresizingMaskIntoConstraints = false
+        screen.addSubview(livePlane)
+        pointerPlane.wantsLayer = true
+        pointerPlane.translatesAutoresizingMaskIntoConstraints = false
+        screen.addSubview(pointerPlane)
         screen.addSubview(expandButton)
         for view in [screen, caption] as [NSView] {
             addArrangedSubview(view)
@@ -130,6 +175,14 @@ public final class HomeChiefComputerSection: NSStackView {
         }
         NSLayoutConstraint.activate([
             screen.heightAnchor.constraint(equalTo: screen.widthAnchor, multiplier: 10.0 / 16.0),
+            livePlane.leadingAnchor.constraint(equalTo: screen.leadingAnchor),
+            livePlane.trailingAnchor.constraint(equalTo: screen.trailingAnchor),
+            livePlane.topAnchor.constraint(equalTo: screen.topAnchor),
+            livePlane.bottomAnchor.constraint(equalTo: screen.bottomAnchor),
+            pointerPlane.leadingAnchor.constraint(equalTo: screen.leadingAnchor),
+            pointerPlane.trailingAnchor.constraint(equalTo: screen.trailingAnchor),
+            pointerPlane.topAnchor.constraint(equalTo: screen.topAnchor),
+            pointerPlane.bottomAnchor.constraint(equalTo: screen.bottomAnchor),
             note.centerXAnchor.constraint(equalTo: screen.centerXAnchor),
             note.centerYAnchor.constraint(equalTo: screen.centerYAnchor),
             note.widthAnchor.constraint(lessThanOrEqualTo: screen.widthAnchor, constant: -2 * Metrics.space4),
@@ -160,6 +213,8 @@ public final class HomeChiefComputerSection: NSStackView {
     public func close() {
         isOpen = false
         stop()
+        endFeed()
+        paintPointer?(nil)
         frames = 0
         screen.image = nil
         redraw()
@@ -215,9 +270,18 @@ public final class HomeChiefComputerSection: NSStackView {
             guard let self else { return }
             var wait = Self.statusInterval
             if self.shown?.state == .live, self.watchesScreen {
-                let image = await source.screen()
-                guard self.isOpen, !Task.isCancelled else { return }
-                if self.shown?.state == .live { self.frame(image) }
+                self.startFeed(source)
+                if self.feed?.isLive == true {
+                    // The stream shows it all; re-placing keeps the cursor up while the agent pauses.
+                    self.drawPointer(self.feed?.pointer)
+                } else {
+                    let image = await source.screen()
+                    guard self.isOpen, !Task.isCancelled else { return }
+                    if self.shown?.state == .live, self.feed?.isLive != true {
+                        self.frame(image)
+                        self.drawPointer(source.pointer())
+                    }
+                }
                 self.onStatus()
                 guard !Task.isCancelled else { return }
                 wait = Self.frameInterval
@@ -241,7 +305,10 @@ public final class HomeChiefComputerSection: NSStackView {
     /// Shows `computer` (nil hides the section).
     func show(_ computer: HomeChiefComputer?) {
         let resized = (computer == nil) != isHidden
-        if computer?.state != .live || computer?.machineID != shown?.machineID { screen.image = nil }
+        if computer?.state != .live || computer?.machineID != shown?.machineID {
+            screen.image = nil
+            endFeed()
+        }
         shown = computer
         isHidden = computer == nil
         redraw()
@@ -258,12 +325,61 @@ public final class HomeChiefComputerSection: NSStackView {
         if first { redraw() }
     }
 
+    /// The live video is what shows (diagnostics).
+    var isStreaming: Bool { feed?.isLive == true }
+    var feedStatus: String { feed?.debugStatus ?? "none" }
+
+    private func startFeed(_ source: Source) {
+        guard feed == nil, let made = source.live() else { return }
+        feed = made
+        made.view.translatesAutoresizingMaskIntoConstraints = false
+        livePlane.addSubview(made.view)
+        NSLayoutConstraint.activate([
+            made.view.leadingAnchor.constraint(equalTo: livePlane.leadingAnchor),
+            made.view.trailingAnchor.constraint(equalTo: livePlane.trailingAnchor),
+            made.view.topAnchor.constraint(equalTo: livePlane.topAnchor),
+            made.view.bottomAnchor.constraint(equalTo: livePlane.bottomAnchor),
+        ])
+        made.onChange = { [weak self] in self?.feedChanged() }
+    }
+
+    private func feedChanged() {
+        guard let feed else { return }
+        if livePlane.isHidden == feed.isLive {
+            livePlane.isHidden = !feed.isLive
+            redraw()
+        }
+        guard feed.isLive else { return }
+        screen.liveSize = feed.pixels
+        drawPointer(feed.pointer, in: feed.pixels)
+    }
+
+    private func endFeed() {
+        guard let ended = feed else { return }
+        feed = nil
+        ended.onChange = nil
+        ended.stop()
+        ended.view.removeFromSuperview()
+        livePlane.isHidden = true
+        screen.liveSize = nil
+    }
+
+    /// The agent's cursor at `pixel` of the frame on show; nil takes it away.
+    private func drawPointer(_ pixel: CGPoint?, in size: CGSize? = nil) {
+        if paintPointer == nil, let layer = pointerPlane.layer { paintPointer = pointerPainter?(layer) }
+        guard let pixel, let image = size ?? (feed?.isLive == true ? feed?.pixels : nil) ?? screen.imageSize else {
+            paintPointer?(nil)
+            return
+        }
+        paintPointer?(HomeChiefComputerScreenView.point(ofPixel: pixel, in: screen.bounds.size, image: image))
+    }
+
     private func redraw() {
         applyScreenFill()
         guard let shown else { return }
         caption.stringValue = shown.title
         let note: String? = switch shown.state {
-        case .live: screen.image == nil ? HomeEngineStrings.computerConnecting : nil
+        case .live: screen.image == nil && feed?.isLive != true ? HomeEngineStrings.computerConnecting : nil
         case .unavailable: HomeEngineStrings.computerUnavailable
         case .asleep: HomeEngineStrings.computerAsleep
         case .waking: HomeEngineStrings.computerWaking
@@ -276,4 +392,10 @@ public final class HomeChiefComputerSection: NSStackView {
     }
 
     @objc private func expand() { onExpand?() }
+}
+
+/// The layer the agent's cursor is drawn in, y-down like the screen; clicks go through it.
+private final class HomeChiefComputerPointerPlane: NSView {
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }

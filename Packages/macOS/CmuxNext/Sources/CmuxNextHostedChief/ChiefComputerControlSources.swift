@@ -44,14 +44,20 @@ extension HomeChiefComputerControlSource {
     /// goes through the machine's interactive desktop (`openInteractive`), not `send`; that viewer
     /// reports it through `noteInput`, which keeps their hold.
     @MainActor
-    public static func machine(_ machine: String, store: ChiefComputerControlStore, openInteractive: @escaping () -> Void) -> HomeChiefComputerControlSource {
+    public static func machine(_ machine: String, store: ChiefComputerControlStore, openInteractive: @escaping () -> Void,
+                               send: ((HomeChiefComputerInput) async throws -> Void)? = nil) -> HomeChiefComputerControlSource {
         let key = ChiefComputerControlStore.Key.machine(machine)
         return HomeChiefComputerControlSource(
             state: { store.state(key) },
             observe: { onChange in store.observe(key, onChange) },
             takeOver: { _ = try store.perform(.takeOver, machine: machine, byPerson: true) },
             handBack: { _ = try store.perform(.handBack, machine: machine, byPerson: true) },
-            send: nil,
+            send: send.map { send in
+                { input in
+                    try await send(input)
+                    store.noteInput(machine: machine)
+                }
+            },
             openInteractive: openInteractive,
             noteInput: { store.noteInput(machine: machine) }
         )
