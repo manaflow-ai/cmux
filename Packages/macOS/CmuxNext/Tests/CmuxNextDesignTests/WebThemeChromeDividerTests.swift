@@ -79,6 +79,28 @@ import Testing
         }
     }
 
+    /// Settings' sidebar edge draws the native sidebar's resting line (cmux#48617): the page gets its width from
+    /// `sidebar.border` and `sidebar.borderWidth`, 0 when the edge shows a line only on hover or under borders none,
+    /// and a change repaints every page.
+    @Test func theSidebarsRestingLineWidthReachesPages() {
+        let design = DesignSettings.shared
+        let saved = (design.sidebarBorder, design.borders)
+        defer { (design.sidebarBorder, design.borders) = saved }
+        design.borders = .default
+        design.sidebarBorder = SidebarBorder(shows: true, width: 2)
+        // The flush corner picked in Debug Settings replaces the line natively; the page follows it either way.
+        let on = variables["--cmux-sidebar-border-width"]
+        #expect(on == SidebarCardMetrics.px(Metrics.sidebarBorderWidth / DesignSettings.shared.uiScale))
+        if !CornerFlush.isChosen, DesignSettings.shared.uiScale == 1, !DesignSettings.shared.interfaceScaleEnabled { #expect(on == "2px") }
+        let onInputs = WebTheme.pushInputs
+        design.sidebarBorder = SidebarBorder(shows: false)
+        #expect(variables["--cmux-sidebar-border-width"] == "0px")
+        if !CornerFlush.isChosen { #expect(WebTheme.pushInputs != onInputs, "turning the line off repaints pages") }
+        design.sidebarBorder = SidebarBorder(shows: true)
+        design.borders = .none
+        #expect(variables["--cmux-sidebar-border-width"] == "0px")
+    }
+
     /// A tone or strength change repaints every page (`AppServices.observeBorders` watches these inputs).
     @Test func theToneAndTheStrengthArePushInputs() {
         let one = with(tone: .oneColor) { WebTheme.pushInputs }

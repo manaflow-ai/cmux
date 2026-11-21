@@ -110,7 +110,8 @@ test("the refined look stacks a narrow pane too: no side border, strip-sized tab
   );
   expect(refined(".settings .section-link", "min-height", 480)).toBe("0");
   // The content pane paints no fill of its own (user, 2026-10-30: one background), so it needs no
-  // inset gap at any width; a wide pane has no divider beside the sidebar either.
+  // inset gap at any width. refined.css draws no divider beside a wide pane's sidebar: look.css draws the
+  // window sidebar's line there (cmux#48617, settings-sidebar-border-browser.test.ts).
   expect(refined(".settings > .content", "margin", 480)).toBe("0");
   expect(refined(".settings > .sidebar", "border-right", 1000)).toBe("0");
 });
