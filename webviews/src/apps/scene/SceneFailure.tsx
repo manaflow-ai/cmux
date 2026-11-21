@@ -1,12 +1,14 @@
 import { useState } from "react";
+import { Icon } from "../../agent-session/acpmux/icons/Icon";
 import { copyTextResult } from "../../agent-session/acpmux/conversation/clipboard";
 import { useT, type Translate } from "../../agent-session/acpmux/i18n";
 import type { SceneStatus } from "./store";
 
 /** What a failed mount says, in plain words: the native `AppFailureCopy`. The title says what
  * happened; `location` says where and why for a script error (`main.js · Line 2, column 12:
- * expecting ';'`); `detail` is the host's raw reason, whole, for Details and Copy Error. */
-export type SceneFailureCopy = { title: string; location?: string; detail: string };
+ * expecting ';'`); `place` is that place alone as the host wrote it (`main.js:2:12`), for the
+ * one-line reload marker; `detail` is the host's raw reason, whole, for Details and Copy Error. */
+export type SceneFailureCopy = { title: string; location?: string; place?: string; detail: string };
 
 const PHASE = /^(?:init|main|runtime|mount|render):\s*/;
 const NAMED = /^(?:[A-Z][A-Za-z]*)?(?:Error|Exception):\s*/;
@@ -36,7 +38,7 @@ export function sceneFailureCopy(reason: string, t: Translate): SceneFailureCopy
         : message
           ? format(t("apps.failure.scriptInAt"), [file ?? "", line, column, message])
           : format(t("apps.failure.scriptInAtOnly"), [file ?? "", line, column]);
-    return { title: t("apps.failure.script"), location, detail: reason };
+    return { title: t("apps.failure.script"), location, place: `${file}:${line}:${column}`, detail: reason };
   }
   if (named) return { title: t("apps.failure.script"), location: text.slice(named[0].length).trim(), detail: reason };
   return { title: t("apps.failure.generic"), detail: reason };
@@ -107,6 +109,28 @@ export function SceneFailure({
         </button>
       </span>
       {open ? <pre className="cmux-app-scene-failure-detail">{copy.detail}</pre> : null}
+    </div>
+  );
+}
+
+/** The line under a kept scene whose app's last save did not load (the native
+ * `AppSceneReloadMarkerView`): a small warning glyph, "Not reloaded" and the `file:line` the error
+ * names, in caption type. The scene above keeps drawing the script that last loaded; the whole
+ * reason is the tooltip and the accessible label, so the line stays one row high whatever it says. */
+export function SceneReloadMarker({ reason }: { reason: string }) {
+  const t = useT();
+  const copy = sceneFailureCopy(reason, t);
+  const label = t("apps.mount.reloadFailed");
+  const said = copy.location ?? copy.title;
+  return (
+    <div
+      className="cmux-app-scene-reload-marker"
+      title={said}
+      aria-label={[label, copy.place, said].filter(Boolean).join(", ")}
+    >
+      <Icon name="status.warning" size={12} className="cmux-app-scene-reload-marker-glyph" />
+      <span className="cmux-app-scene-reload-marker-label">{label}</span>
+      {copy.place ? <span className="cmux-app-scene-reload-marker-place">{copy.place}</span> : null}
     </div>
   );
 }

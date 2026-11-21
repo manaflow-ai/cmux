@@ -1,15 +1,18 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextApps
 import CmuxNextIcons
+import CmuxNextPages
 
 /// An app's own page (`cmux.pane/1`: a scene export, or a web page with `render: web`) as an
 /// internal page tab: page id `app:<app id>`, one tab per window, each tab's view from
-/// ``AppPaneViews`` (the app's scene mounted per tab through `apps-mount`, or its page on the
-/// shared page host). First-party apps open this way from their sidebar label item.
+/// ``AppScenePage`` for scene panes or ``AppPaneViews`` for web panes. First-party apps open
+/// this way from their sidebar label item.
 @MainActor
 final class AppPanePage: InternalPageProvider {
     let appID: String
     private unowned let apps: AppsService
+    private var pages: [String: PageWebView] = [:]
     private lazy var views = AppPaneViews(client: apps.client)
 
     init(appID: String, apps: AppsService) {
@@ -35,10 +38,19 @@ final class AppPanePage: InternalPageProvider {
     /// and menu presence (those callers check presence themselves).
     static func opens(_ app: AppRecord) -> Bool { app.isActive && (app.manifest.scenePane != nil || app.webPane != nil) }
 
+    /// An app that no longer opens shows the failure row (the host refuses its mount); no page resources, an empty view.
     func makeView(for key: String, in window: WindowController?) -> NSView {
         guard let app else { return NSView() }
+        if app.manifest.scenePane != nil {
+            guard let page = AppScenePage(client: apps.client).make(app: appID) else { return NSView() }
+            pages[key] = page
+            return page
+        }
         return views.makeView(app, key: key)
     }
 
-    func tabClosed(_ key: String) { views.close(key) }
+    func tabClosed(_ key: String) {
+        pages.removeValue(forKey: key)?.close()
+        views.close(key)
+    }
 }

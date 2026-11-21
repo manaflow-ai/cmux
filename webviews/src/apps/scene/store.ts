@@ -83,6 +83,17 @@ export class SceneStore {
   private readonly rootListeners = new Set<Listener>();
   private status: SceneStatus = SCENE_LOADING;
   private readonly statusListeners = new Set<Listener>();
+  private reloadFailure: string | undefined;
+  private readonly reloadFailureListeners = new Set<Listener>();
+  private readonly maxNodes: number;
+  private readonly types: ReadonlySet<string> | undefined;
+  /** The first limit a batch broke since the last reset; the scene keeps what it drew before. */
+  violation: SceneViolation | undefined;
+
+  constructor(limits: SceneLimits = {}) {
+    this.maxNodes = Math.min(MAX_NODES, limits.maxNodes ?? MAX_NODES);
+    this.types = limits.types;
+  }
 
   getNode(id: string): SceneNode | undefined {
     return this.nodes.get(id);
@@ -130,6 +141,23 @@ export class SceneStore {
     return () => this.statusListeners.delete(listener);
   };
 
+  /** Why the app's last saved script did not load while this scene kept drawing the one before
+   * (the host model's `reloadFailure`, `{reload_failure}` on the scene stream); undefined once a
+   * reset scene, from a script that loaded, replaces it. */
+  getReloadFailure = (): string | undefined => this.reloadFailure;
+  subscribeReloadFailure = (listener: Listener): (() => void) => {
+    this.reloadFailureListeners.add(listener);
+    return () => this.reloadFailureListeners.delete(listener);
+  };
+
+  /** Applies a host refused-save event: the reason, or none (`null`, or anything not a reason). */
+  setReloadFailure(reason: unknown): void {
+    const next = typeof reason === "string" && reason ? reason : undefined;
+    if (next === this.reloadFailure) return;
+    this.reloadFailure = next;
+    for (const listener of this.reloadFailureListeners) listener();
+  }
+
   /** Applies a host status event (`{status, reason?}` on the scene stream). */
   setStatus(status: unknown, reason?: unknown): void {
     this.reduceStatus({ type: "status", status, reason });
@@ -167,6 +195,8 @@ export class SceneStore {
     // A reset and its first root publish once: a failed mount whose new scene draws goes straight to ready.
     const status = reset ? sceneStatusReducer(this.status, { type: "reset" }) : this.status;
     this.publishStatus(sceneStatusReducer(status, { type: "scene", hasRoot: this.root !== undefined }));
+    // A new scene comes from a script that loaded: the refused save is behind it (as `reset()` on the host).
+    if (reset) this.setReloadFailure(undefined);
   }
 
   private write(node: SceneNode, changed: Set<string>): void {

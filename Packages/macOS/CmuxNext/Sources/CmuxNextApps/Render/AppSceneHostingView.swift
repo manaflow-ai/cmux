@@ -1,6 +1,6 @@
 public import AppKit
 
-/// The AppKit host of one mounted scene (a sidebar section, a Session Info section, an app pane): an
+/// The AppKit host of one mounted scene (a sidebar section, the hover card): an
 /// `NSView` plus a height for a width. The scene draws in AppKit (``AppSceneNativeView``, with the
 /// sidebar's own row tokens and the theme), whatever nodes it uses.
 public final class AppSceneHostingView: NSView {

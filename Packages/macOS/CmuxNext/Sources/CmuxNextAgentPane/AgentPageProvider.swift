@@ -14,8 +14,8 @@ public extension PageDescriptor {
     /// user's registry.js through evaluateJavaScript, which the CSP does not govern. It plays video
     /// and audio only from its own origin: the files the host granted (``AgentPaneMediaGrants``),
     /// served in byte ranges under `__media/` (``AgentPageMediaResource``), its app sections'
-    /// bundle images under `__appbundle/` (``AppsPanelsPageProvider``), and the chart and diagram
-    /// libraries (Ondine, Mermaid, Vega) under `__lib/` (``AgentPageResources``).
+    /// bundle images under `__appbundle/` and their scenes' SF Symbols under `__appsymbol/` (``AppsPanelsPageProvider``),
+    /// and the chart and diagram libraries (Ondine, Mermaid, Vega) under `__lib/` (``AgentPageResources``).
     static let agent = PageDescriptor(
         id: "cmux.agent", resource: "agent-pane", namespaces: [AgentPageOps.namespace, AppsPanelsPageProvider.namespace],
         csp: PageCSP(connect: ["'none'"],
@@ -23,7 +23,7 @@ public extension PageDescriptor {
                      media: ["'self'"],
                      script: ["'wasm-unsafe-eval'"], inlineScript: false),
         dynamicPrefixes: [AgentPageMediaResource.prefix, AgentPaneChatSnapshots.prefix, AppsPanelsPageProvider.bundlePrefix,
-                          MarkdownPageResource.library],
+                          AppsPanelsPageProvider.symbolPrefix, MarkdownPageResource.library],
         // Permission cards (Allow once, Allow for chat), tool cards, Push, Apply and Remove act on one click and
         // appear when the agent decides: a click meant only to bring the window forward must not answer them.
         acceptsFirstMouse: false)

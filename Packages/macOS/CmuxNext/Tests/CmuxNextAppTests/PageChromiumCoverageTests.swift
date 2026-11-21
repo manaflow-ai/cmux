@@ -28,6 +28,7 @@ import Testing
         (.changelog, .standard), (.coderouter, .standard), (.files, .standard), (.stats, .standard),
         (.chiefUsage, .standard), (.mobilePairing, .standard), (.agentActivity, .standard), (.github, .standard), (.bookmarks, .standard), (.taskManager, .standard),
         (.serverCards, ServerPanelPopover.engineOptions),
+        (.appScene, .standard),
     ]
 
     /// The pages that still show in WebKit, and why (webviews-chromium-AUDIT.md).
