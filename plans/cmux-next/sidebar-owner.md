@@ -71,7 +71,8 @@
   (`SidebarTransientItem.chiefAnchors`), and its menu has Show Idle Chief Subagents. A click runs Open Chief: the
   Chief's chat, at the full width (the conversation list folds behind a Chats button at the chat's top-left), or
   with Chief in Side Panel on, the side panel. No migration: a stored layout keeps its item; only its look changed.
-  Regression: `ChiefReplacesHomeTests` (CmuxNextAppTests).
+  Its title is the Home item's own name, Chief (`SidebarBuiltIn.home`), never the separate item's Chief Activity
+  (cmux#48416). Regression: `ChiefReplacesHomeTests` (CmuxNextAppTests).
 
 - 2026-11-19 (lane/needs-you-glow): Sidebar-Look: Leo, 2026-11-19, on eight new features: "all of them" and "some of
   them maybe just as customizations lol if it affects default looks". "Needs you" as motion, off by default: with
