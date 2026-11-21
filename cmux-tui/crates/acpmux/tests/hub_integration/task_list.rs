@@ -136,3 +136,32 @@ async fn a_bad_task_list_is_refused_and_a_secret_in_a_step_is_masked() {
     let list = hub.session_summary(&hub.resolve(&id).unwrap())["taskList"].clone();
     assert!(!list.to_string().contains(token), "{list:#}");
 }
+
+/// A connection that proved it runs in chat `id` (`hub/person.rs` (a)): its agent's tools.
+async fn agent_of(hub: &Arc<Hub>, id: &str) -> TestClient {
+    let (tx, in_rx) = tokio::sync::mpsc::channel(64);
+    let (out_tx, rx) = tokio::sync::mpsc::channel(4096);
+    tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
+    let mut c = TestClient { tx, rx, next: 0 };
+    let token = acpmux::hub::person::caller_token(id);
+    let caller = json!({"callerSession": {"sessionId": id, "token": token}});
+    c.request("initialize", json!({"protocolVersion": 1, "_meta": {"acpmux": caller}}))
+        .await
+        .unwrap();
+    c
+}
+
+#[tokio::test]
+async fn a_chat_keeps_its_own_list_and_never_another_chats() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let mine = new_session(&mut c, "mine").await;
+    let other = new_session(&mut c, "other").await;
+    let mut agent = agent_of(&hub, &mine).await;
+    let items = json!([{"content": "Step", "status": "in_progress"}]);
+    let own = agent.request(SET, json!({"sessionId": mine, "items": items})).await.unwrap();
+    assert_eq!(own["source"], "agent", "{own:#}");
+    let refused =
+        agent.request(SET, json!({"sessionId": other, "items": items})).await.unwrap_err();
+    assert!(refused.contains("task list"), "{refused}");
+    assert_eq!(hub.session_summary(&hub.resolve(&other).unwrap())["taskList"], Value::Null);
+}
