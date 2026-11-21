@@ -51,6 +51,19 @@ const ALLOWED: &[(&str, &str, usize, &str)] = &[
         "`acpmux ls`'s page fetcher: one `limit` page per call, its cursor followed",
     ),
     (
+        "cmux-tui/crates/acpmux/src/cli/run/board.rs",
+        "method::MUX_SESSIONS",
+        1,
+        "the board's v1 page fetcher for `ls_pages::read`: one `limit` page per call, its cursor \
+         followed",
+    ),
+    (
+        "cmux-tui/crates/coord-sim/src/drive/readers.rs",
+        "\"_acpmux/sessions\"",
+        1,
+        "the simulated pane's list: a `limit: 200` page per call, its `nextCursor` followed",
+    ),
+    (
         "cmux-tui/crates/cmux-tui-core/src/server/agent_session_link.rs",
         "\"_acpmux/sessions\"",
         1,
@@ -149,14 +162,9 @@ const V1_LIST_USES: &[(&str, &str, usize, &str)] = &[
     ("cli/run/ls.rs", "method::MUX_SESSIONS", 1, "`ls`'s fallback (`V1_PAGES`)"),
     ("cli/run/standard.rs", "method::MUX_SESSIONS", 1, "`pending`'s fallback"),
     ("cli/run/fanout.rs", "method::MUX_SESSIONS", 1, "`send --tag`'s fallback"),
+    ("cli/search_all.rs", "method::MUX_SESSIONS", 1, "search's fallback for the whole view"),
+    ("cli/run/board.rs", "method::MUX_SESSIONS", 1, "the board's fallback (`ls_pages::read`)"),
     ("acpmux_mcp.rs", "method::MUX_SESSIONS", 1, "MCP `ls`'s fallback"),
-    // v1 read kept: `cmux agent search` lists every chat (peers too) to fan its search out.
-    (
-        "cli/search_all.rs",
-        "method::MUX_SESSIONS",
-        1,
-        "v1 read kept: moves before the v1 list is deleted",
-    ),
     // v1 read kept: `ls --cursor C` reads one v1 page.
     (
         "cli/run/ls.rs",
