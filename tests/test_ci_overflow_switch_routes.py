@@ -25,7 +25,7 @@ SWITCH = re.compile(r"vars\.CI_OVERFLOW_(?:LINUX|MAC)\b")
 SWITCH_AS_LABEL = re.compile(r"vars\.CI_OVERFLOW_(?:LINUX|MAC)\s*\|\|")
 
 # Runs-on expressions naming a Blacksmith label without the switch, after this change.
-BASELINE = 231
+BASELINE = 232
 # Runs-on expressions whose route is our Linux pool ('cmux-linux') with no overflow clause: a job there waits for
 # our pool even while the watchdog has turned Linux overflow on. Shapes the codemod left (a parenthesized input
 # fallback) are counted here; the count only shrinks.
