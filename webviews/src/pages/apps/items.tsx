@@ -8,6 +8,7 @@ import { categoryLabel, isRemovable, itemState, TierLabel, type CardStyle } from
 import { AppIcon, Badge, Switch } from "./parts";
 import type { AppsStore } from "./store";
 import type { AppContribution, CatalogApp } from "./types";
+import { UseAsNewTab } from "./UseAsNewTab";
 
 type ItemProps = { app: CatalogApp; store: AppsStore; strings: Strings };
 
@@ -151,6 +152,7 @@ export function ItemCard({
             <button type="button" className="apps-button apps-button-subtle" onClick={() => void store.select(app.id)}>
               {t("store.detail.preview")}
             </button>
+            {app.installed && <UseAsNewTab app={app} strings={strings} />}
             <ItemAction app={app} store={store} strings={strings} />
           </span>
         </footer>

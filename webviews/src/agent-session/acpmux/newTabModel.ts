@@ -85,8 +85,8 @@ export type NewTabHost = {
   /// Which design (Debug Settings `newTab.layout`): "b" the one-input screen (default),
   /// "a" this Terminal | Browser | Agent page, kept until B passes dogfood (decision Q6).
   layout: "a" | "b";
-  /// The extension that draws the whole page (`tabs.newTabApp`: an app id with `cmux.newtab/1`,
-  /// newtab/NewTabAppPage.tsx); unset draws cmux's own page.
+  /// The extension that draws in the slot over the composer (`tabs.newTabApp`: an app id with `cmux.newtab/1`,
+  /// newtab/NewTabAppSlot.tsx); unset leaves the slot out. It never replaces the page.
   app?: string;
   /// The saved template (`tabs.newTabTemplate`); unset follows `layout` (newtab/templates.ts).
   template?: NewTabTemplate;
@@ -125,7 +125,7 @@ function readNewTabStart(value: unknown): NewTabStart | undefined {
   };
 }
 
-/// The app that draws this New Tab page (`tabs.newTabApp`): none on history, and none for the visit
+/// The app that draws in this New Tab page's slot (`tabs.newTabApp`): none on history, and none for the visit
 /// (`adoptions`, one per Cmd-T adopt) whose app page could not show (`goneAt`). The next adopt tries
 /// again, also on a parked spare that keeps its screen because its context did not change.
 export function pickedNewTabApp(host: NewTabHost | undefined, goneAt: number | undefined, adoptions: number) {
