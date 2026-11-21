@@ -27,7 +27,7 @@ pub(super) fn parse(rest: &[String]) -> Result<AppCommand, UsageError> {
     if rest.get(1).map(String::as_str) == Some("profile") {
         return parse_profile(rest);
     }
-    let options = Options::parse(&rest[1..], &["interval-ms"], &[])?;
+    let options = Options::parse(rest.get(1..).unwrap_or_default(), &["interval-ms"], &[])?;
     let mut params = Map::new();
     if let Some(value) = options.value("interval-ms") {
         // A bad value prints `cmux app`'s usage, which names `--interval-ms <n>`.
@@ -45,7 +45,7 @@ pub(super) fn parse(rest: &[String]) -> Result<AppCommand, UsageError> {
 /// profile file (`renderers.profile`, off unless the app's hidden defaults key
 /// `CMUXPageProfiler` is set).
 fn parse_profile(rest: &[String]) -> Result<AppCommand, UsageError> {
-    let options = Options::parse(&rest[2..], &["browser", "seconds"], &[])?;
+    let options = Options::parse(rest.get(2..).unwrap_or_default(), &["browser", "seconds"], &[])?;
     let messages = &crate::localization::catalog().app_control;
     let usage = || UsageError::new(messages.scope_usage.replace("{scope}", "app"));
     let mut params = Map::new();
