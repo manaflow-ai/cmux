@@ -23,7 +23,8 @@ import Testing
                                   selectedID: TabID("tab0"))
         let strip = TabStripView(model: model)
         strip.dragsWindowFromEmptySpace = false
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: TabStripView.preferredHeight), styleMask: [.borderless],
+        // 2x whatever the display: on a fleet runner's 1x display the icon box snaps a half point to whole points.
+        let window = TwoXWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: TabStripView.preferredHeight), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         defer { window.closeAfterTest() }
         window.contentView = strip

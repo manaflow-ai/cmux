@@ -51,6 +51,8 @@ pub(crate) struct MoveArgs {
     pub host: String,
     pub all_idle: bool,
     pub interrupt: bool,
+    /// `--after-turn`: a running turn ends on its own first; the chat moves at its end.
+    pub after_turn: bool,
     pub leave_dirty: bool,
     /// `--carry-changes`: the checkout's uncommitted work goes with the chat
     /// (`session_move_carry.rs`).
@@ -224,6 +226,7 @@ pub(crate) async fn move_off_interactive(src: &Client, id: &str) -> Result<Moved
         host: "auto".into(),
         all_idle: false,
         interrupt: false,
+        after_turn: false,
         leave_dirty: false,
         carry_changes: false,
         cwd: None,
@@ -315,7 +318,7 @@ async fn move_steps(
             info.get("peer").unwrap_or(&Value::Null)
         );
     }
-    if let Some(why) = plan::refusal(&info, args.interrupt) {
+    if let Some(why) = plan::refusal(&info, args.interrupt || args.after_turn) {
         bail!("{why}");
     }
     let cwd = PathBuf::from(info.get("cwd").and_then(Value::as_str).unwrap_or_default());
@@ -389,7 +392,8 @@ async fn move_steps(
         }
         Source::Peer { .. } => None,
     };
-    let begun = super::transfer::begin_move(src, &id, watch, args.interrupt).await?;
+    let begun =
+        super::transfer::begin_move(src, &id, watch, (args.interrupt, args.after_turn)).await?;
     let prepared = prepare(&cwd, &home, &target, &remote, args, source, o).await;
     let (record, forward, dst, dst_init) = match prepared {
         Ok(p) => p,
