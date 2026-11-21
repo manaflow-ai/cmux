@@ -14,6 +14,9 @@ final class RemoteTmuxControlPipeWriter {
     private let onFailure: @MainActor @Sendable () -> Void
     private var closed = false
     private var pendingBytes = 0
+    /// Runs after each write that reached the pipe, once its bytes no longer count against the
+    /// bound, so a caller holding back writes can send them as room appears.
+    var onRoomFreed: (@MainActor () -> Void)?
 
     init(
         handle: FileHandle,
@@ -25,6 +28,12 @@ final class RemoteTmuxControlPipeWriter {
         self.queue = DispatchQueue(label: label, qos: .userInitiated)
         self.maxPendingBytes = maxPendingBytes
         self.onFailure = onFailure
+    }
+
+    /// Whether a write that can wait should go out now. Such writes stop at half the bound, so
+    /// the other half stays free for writes that cannot wait, such as keystrokes.
+    var hasRoomForDeferrableWrite: Bool {
+        !closed && pendingBytes < maxPendingBytes / 2
     }
 
     func enqueue(_ data: Data) -> Bool {
@@ -51,8 +60,11 @@ final class RemoteTmuxControlPipeWriter {
 
     private func finishWrite(byteCount: Int, didFail: Bool) {
         pendingBytes = max(0, pendingBytes - byteCount)
-        if didFail, !closed {
+        guard !closed else { return }
+        if didFail {
             onFailure()
+        } else {
+            onRoomFreed?()
         }
     }
 
