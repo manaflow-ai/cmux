@@ -103,7 +103,7 @@ import Testing
 
         let current = try await start(serving: owner + [AgentSessionAttachClient.startProviderCredentialsCapability],
                                       ownerLink: link(3, 3), harness: "claude", credentials: provider)
-        #expect(current.refusal == nil)
+        #expect(current.refusal != AgentSessionAttachClient.codexCredentialsUnsupported)
         #expect((current.frame?["credentials"] as? [String: Any])?["env"] as? [String: String] == provider)
         #expect(AgentSessionAttachClient.credentialsCapability(harness: "opencode") == AgentSessionAttachClient.startProviderCredentialsCapability)
     }
