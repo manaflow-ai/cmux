@@ -103,6 +103,9 @@ public final class OverflowButton: ClickableButton {
         action = #selector(pressed)
         refusesFirstResponder = true
         focusRingType = .none
+        // A disabled ⋮ draws in the tertiary ink (updateLayer), not AppKit's dimmed glyph: dimmed over a see-through
+        // window it read 1.45:1 (Nord Light, NativeControlContrastAuditTests).
+        (cell as? NSButtonCell)?.imageDimsWhenDisabled = false
         renderGlyph()
         // Hover follows the pointer and the button's frame (cx-3wu5).
         hover.followPointer(onChange: { [weak self] in self?.needsDisplay = true })
@@ -112,6 +115,10 @@ public final class OverflowButton: ClickableButton {
     public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     override public var mouseDownCanMoveWindow: Bool { false }
+
+    override public var isEnabled: Bool {
+        didSet { if isEnabled != oldValue { needsDisplay = true } }
+    }
 
     @objc private func pressed() { onPress?() }
 
@@ -165,7 +172,8 @@ public final class OverflowButton: ClickableButton {
         performWithTheme {
             // Without a fill, a press or an open menu shows in the glyph's own ink, as the tab bar's + does.
             let pressedInk = hoverStyle == .glyph ? Palette.litGlyph : Palette.textPrimary
-            contentTintColor = tintOverride ?? (hover.state.pressed ? pressedInk : hover.state.hovering ? Palette.textPrimary : Palette.textSecondary)
+            contentTintColor = !isEnabled ? Palette.textTertiary
+                : tintOverride ?? (hover.state.pressed ? pressedInk : hover.state.hovering ? Palette.textPrimary : Palette.textSecondary)
             if drawsPaneGlyph { paneGlyphView.contentTintColor = contentTintColor }
         }
         hover.refresh(animated: false)
