@@ -14,12 +14,18 @@ import Foundation
 @MainActor
 public final class AppHealthPopover {
     private let health: AppHealth
+    /// Where each part is (the chat a page shows), for the card's words and its Show chat.
+    private let places: AppHealthPlaces
     /// The card's panel while it shows (tests).
     private(set) var panel: CmuxFloatingDialogPanel?
     private var token: UInt64?
 
-    public init(health: AppHealth) {
+    /// - Parameters:
+    ///   - health: The model the card follows.
+    ///   - places: Where each part is; the default names no chat.
+    public init(health: AppHealth, places: AppHealthPlaces = .none) {
         self.health = health
+        self.places = places
     }
 
     /// A snapshot the card shows instead of the model's (DEBUG captures, ``AppHealthFeeds/debugMethod()``).
@@ -51,12 +57,19 @@ public final class AppHealthPopover {
     }
 
     private func draw(_ snapshot: JSONValue) {
-        let spec = AppHealthCard.spec(snapshot)
+        let spec = AppHealthCard.spec(snapshot, places: places)
         guard let panel, panel.dialogView?.spec != spec else { return }
         panel.show(spec) { [weak self] id in self?.pressed(id) }
     }
 
     private func pressed(_ id: String) {
+        if id.hasPrefix(AppHealthCard.showPrefix) {
+            // The person goes to the chat: the card steps aside first, so the chat's window takes the keyboard.
+            let place = places(String(id.dropFirst(AppHealthCard.showPrefix.count)))
+            panel?.hide()
+            place?.reveal()
+            return
+        }
         if id.hasPrefix(AppHealthCard.repairPrefix) {
             // The person's click or Return: the repair starts, and the card follows it (Repairing…, then all clear).
             health.repairNow(id: String(id.dropFirst(AppHealthCard.repairPrefix.count)))
@@ -71,27 +84,38 @@ public final class AppHealthPopover {
     }
 }
 
-/// The card's words from a health snapshot (the shared health contract): the worst part's line as the title
-/// ("Agent chat needs a repair"), what is wrong, the other parts, the actions waiting for a link, the last
-/// repairs; Repair Now for a part the person may repair, and Done. A quiet snapshot reads "Everything is working",
-/// never an empty card.
+/// The card's words from a health snapshot (the shared health contract): the worst part's line as the title,
+/// named by the chat it shows ("“Fix the login bug” needs a repair"), where it is ("Agent chat in cmux-next"), what
+/// is wrong, the other parts, the actions waiting for a link, the last repairs; Show chat for a part with a place,
+/// Repair Now for a part the person may repair, and Done. A quiet snapshot reads "Everything is working", never an
+/// empty card.
 enum AppHealthCard {
     static let repairPrefix = "repair:"
+    static let showPrefix = "show:"
     static let shownReceipts = 3
 
-    static func spec(_ snapshot: JSONValue) -> CmuxDialogSpec {
-        let headline = AppHealth.headline(of: snapshot)
+    @MainActor static func spec(_ snapshot: JSONValue, places: AppHealthPlaces = .none) -> CmuxDialogSpec {
+        let headline = places.headline(AppHealth.headline(of: snapshot))
         let parts = (snapshot["parts"]?.arrayValue ?? []).filter { state(of: $0) > .healthy }
         let worst = headline?.partID.flatMap { id in parts.first { $0["id"]?.stringValue == id } }
+        let worstID = worst?["id"]?.stringValue
+        let place = worstID.flatMap { places($0) }
+        /// A part's name: its place's title, else the model's label.
+        func name(of part: JSONValue) -> String? {
+            part["id"]?.stringValue.flatMap(places.label(ofPart:)) ?? part["label"]?.stringValue
+        }
         var title = headline.flatMap(AppHealthStrings.line) ?? AppHealthStrings.allClear
-        if headline == nil, let part = parts.first, let label = part["label"]?.stringValue, let words = AppHealthStrings.state(state(of: part)) {
+        if headline == nil, let part = parts.first, let label = name(of: part), let words = AppHealthStrings.state(state(of: part)) {
             // Only a slow part: no footer line, but the card still names it.
             title = AppHealthStrings.partLine(label, words)
         }
         var lines: [String] = []
+        if let workspace = place?.workspace, let kind = worst?["label"]?.stringValue {
+            lines.append(AppHealthStrings.place(kind, workspace: workspace))
+        }
         if let detail = worst?["detail"]?.stringValue, !detail.isEmpty { lines.append(detail) }
-        for part in parts where part["id"]?.stringValue != worst?["id"]?.stringValue {
-            guard let label = part["label"]?.stringValue, let words = AppHealthStrings.state(state(of: part)) else { continue }
+        for part in parts where part["id"]?.stringValue != worstID {
+            guard let label = name(of: part), let words = AppHealthStrings.state(state(of: part)) else { continue }
             lines.append(AppHealthStrings.partLine(label, words))
         }
         let pending = snapshot["pending"]?.arrayValue ?? []
@@ -106,6 +130,9 @@ enum AppHealthCard {
         }
         if !receipts.isEmpty { lines.append(([AppHealthStrings.receipts] + receipts).joined(separator: "\n")) }
         var buttons = [CmuxDialogButton(id: "done", title: AppHealthStrings.done, role: .cancel)]
+        if place != nil, let worstID {
+            buttons.append(CmuxDialogButton(id: showPrefix + worstID, title: AppHealthStrings.showChat, role: .normal))
+        }
         if let worst, worst["canRepair"]?.boolValue == true, let id = worst["id"]?.stringValue {
             buttons.append(CmuxDialogButton(id: repairPrefix + id, title: AppHealthStrings.repairNow, role: .default))
         }
@@ -144,6 +171,18 @@ struct AppHealthStrings {
     static var allClear: String { String(localized: "appHealth.allClear", defaultValue: "Everything is working", table: "AppHealth", bundle: .module) }
     static var done: String { String(localized: "appHealth.done", defaultValue: "Done", table: "AppHealth", bundle: .module) }
     static var repairNow: String { String(localized: "appHealth.repairNow", defaultValue: "Repair now", table: "AppHealth", bundle: .module) }
+    static var showChat: String { String(localized: "appHealth.showChat", defaultValue: "Show chat", table: "AppHealth", bundle: .module) }
+
+    /// A part named by its place's title: "“Fix the login bug”".
+    static func titled(_ title: String) -> String {
+        String(format: String(localized: "appHealth.part.titled", defaultValue: "“%@”", table: "AppHealth", bundle: .module), title)
+    }
+
+    /// Where a part is: "Agent chat in cmux-next" (`kind` is the part's label, `workspace` the workspace's shown name).
+    static func place(_ kind: String, workspace: String) -> String {
+        String(format: String(localized: "appHealth.place", defaultValue: "%1$@ in %2$@", table: "AppHealth", bundle: .module), kind, workspace)
+    }
+
     static var receipts: String { String(localized: "appHealth.receipts", defaultValue: "Recent repairs", table: "AppHealth", bundle: .module) }
 
     /// "Agent chat: Slow".
