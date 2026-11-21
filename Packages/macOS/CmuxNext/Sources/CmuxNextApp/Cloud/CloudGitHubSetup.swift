@@ -77,7 +77,8 @@ nonisolated enum CloudGitHubSetup {
     static func reason(_ app: CloudGitHubApp) -> Fallback? {
         switch app {
         case .ready: nil
-        case .notConnected: .notConnected
+        // A suspended, uninstalled, pending or errored connection mints nothing either: no usable connection.
+        case .notConnected, .needsReauth, .linking, .error: .notConnected
         case .notConfigured: .notConfigured
         case .unknown: .unknown
         }

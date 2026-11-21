@@ -38,7 +38,7 @@ enum CloudGitHubHandlers {
             }
             CloudHandlers.runTracked("set up GitHub on Cloud machine", context) {
                 let identity = try CloudGitHubSetup.validated(await CloudGitHubSetup.localIdentity())
-                let checked = await cloud.gitHubApp(), connect = checked == .notConnected // the team's App first: Connect GitHub, never the machine's own sign-in
+                let checked = await cloud.gitHubApp(), connect = [.notConnected, .needsReauth, .linking, .error].contains(checked) // the team's App first: Connect GitHub, never the machine's own sign-in
                 let go = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
                     CloudPresenter.confirm(CloudStrings.gitHubConfirmTitle(session.machine.title), connect ? CloudStrings.gitHubConnectBody : confirmBody(identity, app: checked),
                                            button: connect ? CloudStrings.gitHubConnect : CloudStrings.gitHubSetUp, identifier: "cmux.dialog.cloud.setupGitHub",
@@ -70,6 +70,9 @@ enum CloudGitHubHandlers {
         let check: String = switch app {
         case .ready: "ready"
         case .notConnected: "notConnected"
+        case .needsReauth: "needsReauth"
+        case .linking: "linking"
+        case .error: "error"
         case .notConfigured: "notConfigured"
         case .unknown: "unknown"
         }
