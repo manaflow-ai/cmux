@@ -105,6 +105,7 @@ fn scoped_raw_commands(page: &str) -> &'static [&'static str] {
             "conversation-typing",
             "conversation-search",
             "conversation-link-resolve",
+            "conversation-question-decision",
             "conversation-runs",
             "conversation-run",
             "conversation-live",

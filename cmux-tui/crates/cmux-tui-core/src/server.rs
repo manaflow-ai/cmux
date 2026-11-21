@@ -209,6 +209,7 @@ use resource_trust::{
     trusted_local_resource_client,
 };
 mod api_revision_wire;
+mod conversation_question_decision;
 mod conversation_tabs_wire;
 mod conversations;
 mod detached_terminals;
@@ -2019,6 +2020,9 @@ enum Command {
     ConversationHistory(conversations::HistoryParams),
     ConversationThread(conversations::ThreadParams),
     ConversationLinkResolve(conversations::LinkResolveParams),
+    /// What Home's card has the person sign to answer a Chief question
+    /// (`conversation-question-decision-v1`, server/conversation_question_decision.rs).
+    ConversationQuestionDecision(conversation_question_decision::DecisionParams),
     ConversationInboxOp(conversations::InboxOpParams),
     /// The Home list rows (`home-inbox-v1`, server/conversations.rs).
     HomeInbox(conversations::HomeInboxParams),

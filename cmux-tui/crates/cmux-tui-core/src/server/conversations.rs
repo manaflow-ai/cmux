@@ -278,7 +278,7 @@ fn require_unix(mux: &Mux, client: u64) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn require_local(mux: &Mux, client: u64) -> anyhow::Result<()> {
+pub(super) fn require_local(mux: &Mux, client: u64) -> anyhow::Result<()> {
     anyhow::ensure!(
         mux.control_clients.is_owner_client(client),
         "local conversations require a trusted local connection"

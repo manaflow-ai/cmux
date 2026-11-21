@@ -155,6 +155,9 @@ fn always_identified() -> Vec<&'static str> {
     // Receipts can outlive the acpmux configuration that prepared them.
     #[cfg(unix)]
     capabilities.push(agent_cli_job::CAPABILITY);
+    // Home's Chief question answers, signed by the person (conversation_question_decision.rs).
+    #[cfg(unix)]
+    capabilities.push(conversation_question_decision::CAPABILITY);
     #[cfg(unix)]
     capabilities.push(agent_cli_job::RESOLVE_CAPABILITY);
     #[cfg(unix)]
