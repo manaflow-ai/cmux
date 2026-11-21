@@ -37,8 +37,12 @@ pub(super) struct AgentNotificationLevels {
 
 impl AgentNotificationLevels {
     pub(super) fn from_settings(root: &Value) -> Self {
-        let levels = &root["notifications"]["delivery"];
-        let request = |key: &str| match levels[key].as_str() {
+        let level = |key: &str| {
+            root.pointer("/notifications/delivery")
+                .and_then(|levels| levels.get(key))
+                .and_then(Value::as_str)
+        };
+        let request = |key: &str| match level(key) {
             Some("off") => Delivery::Off,
             Some("badge") => Delivery::Badge,
             _ => Delivery::Banner,
@@ -46,7 +50,7 @@ impl AgentNotificationLevels {
         Self {
             permission_request: request("permissionRequest"),
             question: request("question"),
-            task_complete: if levels["taskComplete"] == "off" {
+            task_complete: if level("taskComplete") == Some("off") {
                 Delivery::Off
             } else {
                 Delivery::Banner
