@@ -105,10 +105,21 @@ import Testing
     @Test func aPromptWithoutARunOrNonceIsNotAnsweredWithAReceipt() async throws {
         let (answerer, server) = try fixture()
         defer { server.stop() }
+        var info = server.info
+        info["pending"] = [["permissionId": "p1", "request": ["toolCall": ["title": "Bash", "rawInput": ["command": "ls", "n": 2]],
+                                                               "options": [["optionId": "once", "kind": "allow_once"]]]]]
+        server.info = info
         let pending = try #require(await answerer.pendingAsk(session: "local/s1", permission: "p1"))
         #expect(await answerer.answerOnceReceipted(pending.approval, allow: true, through: { bytes in bytes(); return true }) == nil)
         #expect(!server.methods.contains("_acpmux/permission_respond"))
         #expect(server.attempts.isEmpty)
+    }
+
+    /// Only a request whose canonical digest the app can write is receipted; a fractional number is not.
+    @Test func onlyAnIntegerOnlyRequestIsReceiptable() {
+        #expect(AcpmuxDeliveryReceipt.receiptable(#"{"toolCall":{"rawInput":{"n":9007199254740993,"s":"✓"}},"options":[]}"#))
+        #expect(!AcpmuxDeliveryReceipt.receiptable(#"{"toolCall":{"rawInput":{"timeout":1.5}},"options":[]}"#))
+        #expect(!AcpmuxDeliveryReceipt.receiptable("not json"))
     }
 
     /// A refused click sends no receipted answer either.

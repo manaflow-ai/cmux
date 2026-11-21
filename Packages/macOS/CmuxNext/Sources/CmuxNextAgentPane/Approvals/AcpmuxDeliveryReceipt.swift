@@ -13,6 +13,14 @@ public struct AcpmuxDeliveryReceipt: Sendable, Equatable {
         (self.id, self.instance, self.decisionNonce) = (id, instance, decisionNonce)
     }
 
+    /// Whether acpmux's exact request digest can be written for `requestJSON` here. The app's
+    /// canonical JSON takes integers only, so a request with a fractional number cannot be
+    /// receipted (it is answered once without a receipt and stays unrecorded).
+    public static func receiptable(_ requestJSON: String) -> Bool {
+        guard let request = (try? JSONSerialization.jsonObject(with: Data(requestJSON.utf8))) as? [String: Any] else { return false }
+        return AcpmuxSecretKey.canonicalDigest(request) != nil
+    }
+
     /// A new attempt for a tool permission's pending `entry`: a fresh id, the entry's
     /// `personInstance` and `decisionNonce`, the request's canonical digest, and empty answers and
     /// annotations digests (a tool permission sends neither). Nil: the entry has no run or nonce.

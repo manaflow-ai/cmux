@@ -61,7 +61,9 @@ import Foundation
             guard let pending = await answerer.pendingAsk(session: session, permission: request.permission) else { continue }
             guard pending.approval.digest == expected else { return .expired }
             guard allow ? pending.allowOnce != nil : pending.denyOnce != nil else { return .refused }
-            guard let stored else {
+            // A request acpmux's digest cannot be written for here (a fractional number) is answered
+            // as before, without a receipt: answered, and the owner leaves the card unrecorded.
+            guard let stored, AcpmuxDeliveryReceipt.receiptable(request.requestJSON) else {
                 return await answerer.answerOnce(pending.approval, allow: allow, through: gate) ? .answered(record: nil) : .refused
             }
             guard let receipt = await answerer.answerOnceReceipted(pending.approval, allow: allow, through: gate) else { return .refused }
