@@ -303,6 +303,7 @@ export function windowTitle(strings: Strings, state: OnboardingState | null): st
   if (state?.step === "importData") return strings.t("onboarding.import.title2");
   if (state?.step === "computerUse") return strings.t("onboarding.computerUse.title");
   if (state?.step === "agentTools") return strings.t("onboarding.agentTools.title");
+  if (state?.step === "makeItYours") return strings.t("onboarding.makeItYours.title");
   return strings.t("onboarding.agents.title");
 }
 

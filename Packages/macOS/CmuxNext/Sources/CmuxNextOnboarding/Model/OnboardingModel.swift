@@ -15,7 +15,8 @@ public final class OnboardingModel {
         // The app may host importData as Bring your history (web); the standalone browser
         // importer remains this model's native import tool.
         // agentTools asks whether cmux may add its MCP server to the person's coding agents.
-        case agents, importData, computerUse, agentTools
+        // makeItYours: a new person's one setup screen (how they work, density, background), cmux#48416.
+        case agents, importData, computerUse, agentTools, makeItYours
     }
 
     /// The tool this window shows; it never changes.
@@ -26,22 +27,24 @@ public final class OnboardingModel {
     public let computerUse: ComputerUseStepModel
     public let agents: AgentsStepModel
     public let agentTools: AgentToolsStepModel
+    public let makeItYours: MakeItYoursStepModel
     @ObservationIgnored public let services: any OnboardingServices
     /// Set once the window ended, so a second close does not report twice.
     public private(set) var ended = false
     /// The window asks to close (the controller observes this).
     public var onEnd: ((Bool) -> Void)?
 
-    /// `agentTools`: the cmux Tools source, else the services' own. `clock` times the Computer Use
-    /// done view's close (tests pass their own).
+    /// `agentTools`: the cmux Tools source, else the services' own; `choices`: Make cmux Yours' source, else the services' own.
+    /// `clock` times the Computer Use done view's close (tests pass their own).
     public init(services: any OnboardingServices, step: Step, agentTools tools: (any AgentToolsSource)? = nil,
-                clock: any Clock<Duration> = ContinuousClock()) {
+                choices: (any FirstRunChoicesSource)? = nil, clock: any Clock<Duration> = ContinuousClock()) {
         self.services = services
         self.step = step
         importer = ImportStepModel(services: services)
         computerUse = ComputerUseStepModel(source: services.computerUsePermissions, clock: clock)
         agents = AgentsStepModel(source: services.agentSignIns)
         agentTools = AgentToolsStepModel(source: tools ?? services.agentTools)
+        makeItYours = MakeItYoursStepModel(source: choices ?? services.firstRunChoices)
         // The done view's time is up: the window closes as Done.
         computerUse.onFinished = { [weak self] in self?.finish(completed: true) }
     }
@@ -55,7 +58,7 @@ public final class OnboardingModel {
         if step == .importData, importer.explainingAccess != nil { return OnboardingStrings.continueTitle }
         if step == .importData, importer.isConfirmingPasswords { return OnboardingStrings.beginImporting }
         if step == .importData, importer.canStart { return OnboardingStrings.importButton }
-        if step == .agents { return OnboardingStrings.continueTitle }
+        if step == .agents || step == .makeItYours { return OnboardingStrings.continueTitle }
         if step == .agentTools, !agentTools.answered { return OnboardingStrings.turnOnTools }
         return OnboardingStrings.done
     }
@@ -154,6 +157,7 @@ public final class OnboardingModel {
         case .computerUse: computerUse.start()
         case .agents: agents.start()
         case .agentTools: agentTools.start()
+        case .makeItYours: makeItYours.start()
         }
     }
 
@@ -171,6 +175,7 @@ public final class OnboardingModel {
         importer.stopDetecting()
         agents.stop()
         agentTools.stop()
+        makeItYours.stop()
     }
 
     public func finish(completed: Bool) {
@@ -180,6 +185,7 @@ public final class OnboardingModel {
         importer.stopDetecting()
         agents.stop()
         agentTools.stop()
+        makeItYours.stop()
         onEnd?(completed)
     }
 }

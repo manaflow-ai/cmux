@@ -15,6 +15,7 @@ export default componentEntry<OnboardingGalleryProps>({
     "pages/onboarding/ImportStep.tsx",
     "pages/onboarding/ComputerUseStep.tsx",
     "pages/onboarding/AgentToolsStep.tsx",
+    "pages/onboarding/MakeItYoursStep.tsx",
     "pages/onboarding/galleryFixture.tsx",
   ],
   load: async () => (await import("./galleryFixture")).OnboardingGallery,
@@ -24,6 +25,18 @@ export default componentEntry<OnboardingGalleryProps>({
     await import("./styles.css");
   },
   variants: {
+    // Make cmux Yours (cmux#48416), two looks (the variant switch): cards ships.
+    "make-it-yours-cards": {
+      note: "Recommended (default): Agents First and Terminal First as two cards with a line each (Agents First marked Recommended), density as three segments, backgrounds as named tiles.",
+      props: { step: "makeItYours", makeItYours: "fresh", makeLook: "cards" },
+    },
+    "make-it-yours-rows": {
+      note: "Quieter: the same three choices as settings rows, the work styles without their lines, the backgrounds as unnamed swatches.",
+      props: { step: "makeItYours", makeItYours: "fresh", makeLook: "rows" },
+    },
+    "make-it-yours-picked": { props: { step: "makeItYours", makeItYours: "picked" } },
+    "make-it-yours-terminal": { props: { step: "makeItYours", makeItYours: "terminal" } },
+    "make-it-yours-loading": { props: { step: "makeItYours", makeItYours: "loading" } },
     // The agents list, three looks (the variant switch): list ships.
     "agents-list": {
       note: "Recommended (default): one card, a row per agent, hairlines between, as Settings' lists. Quiet, scales to many agents in the fixed window.",
