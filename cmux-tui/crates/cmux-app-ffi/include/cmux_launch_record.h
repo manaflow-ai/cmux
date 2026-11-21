@@ -64,6 +64,15 @@ bool cmux_launch_record_write(const char *path,
                               const CmuxLaunchSidebarInput *sidebars,
                               uintptr_t sidebar_count,
                               const char *session_socket_path);
+// cmux_launch_record_write that also records the daemon registry id the
+// windows belong to (record v3); cmux_launch_record_write writes it empty.
+bool cmux_launch_record_write_registry(const char *path,
+                                       const CmuxLaunchWindowInput *windows,
+                                       uintptr_t window_count,
+                                       const CmuxLaunchSidebarInput *sidebars,
+                                       uintptr_t sidebar_count,
+                                       const char *session_socket_path,
+                                       const char *registry_id);
 // Returns the record's window count and fills the first min(count, cap)
 // entries, front window first; out may be null when cap is 0. Returns 0 when
 // the record or any window is unusable, zeroing the entries it wrote.
