@@ -40,8 +40,8 @@ import os
 ///   run never takes focus from the user's frontmost app. The startup of an update relaunch nobody
 ///   clicked refuses it too, for a few seconds (`InputVerificationService.endRelaunchBehind`).
 final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
-    private var handlingSendEvent = false
-    /// Set in `CmuxNextApp.shared.main` before `run()`; an update relaunch's startup turns it
+    private var handlingSendEvent = false, sawKeyDown = false
+    /// Set in `CmuxNextApp.main` before `run()`; an update relaunch's startup turns it
     /// off again when it ends (`InputVerificationService.endRelaunchBehind`).
     var refusesActivation = false
     /// Set once by `AppServices`. Gets the key-down and the window it goes
@@ -110,6 +110,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
         if event.type == .keyDown {
             let terminal = (keyWindow ?? event.window)?.firstResponder is TerminalSurfaceView
             KeyFrameSignpost().begin(target: terminal ? .terminal : .view, eventTimestamp: event.timestamp)
+            if !sawKeyDown { sawKeyDown = true; DebugTimings.markLaunch("first_key_down") } // startup-tti: the first key AppKit gave the app
         }
         let probesKey = event.type == .keyDown && TypingLatencyProbe.isEnabled
         if probesKey { TypingLatencyProbe.shared.keyDown(eventTimestamp: event.timestamp) }
@@ -118,8 +119,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
         currentEventIsSynthetic = !SyntheticInput.isUserInput(event)
         defer { currentEventIsSynthetic = previousSynthetic }
         BenchSpans.measure("app.inputObserver") { inputObserver?(event) }
-        let previous = handlingSendEvent
-        handlingSendEvent = true
+        let previous = handlingSendEvent; handlingSendEvent = true
         defer { handlingSendEvent = previous }
         // A key typed into one cmux window never reaches another (the key window changed since).
         if event.type == .keyDown, let crossWindowKeyGuard, crossWindowKeyGuard(event, keyWindow) { return }

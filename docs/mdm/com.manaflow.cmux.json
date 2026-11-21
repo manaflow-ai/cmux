@@ -248,6 +248,42 @@
       "title" : "Working Status Verbs",
       "type" : "string"
     },
+    "agentPane.display.thinking.jumpButton" : {
+      "default" : "arrow",
+      "description" : "What the Jump to latest button shows while the agent works.",
+      "enum" : [
+        "arrow",
+        "dots"
+      ],
+      "title" : "Jump to Latest While Working",
+      "type" : "string"
+    },
+    "agentPane.display.thinking.shimmer" : {
+      "default" : "cadenced",
+      "description" : "How the light band moves across the live status line.",
+      "enum" : [
+        "cadenced",
+        "continuous"
+      ],
+      "title" : "Thinking Shimmer",
+      "type" : "string"
+    },
+    "agentPane.display.thinking.shimmerBand" : {
+      "default" : 0,
+      "description" : "The width of the shimmer's light band. 0 uses half the line.",
+      "maximum" : 240,
+      "minimum" : 0,
+      "title" : "Shimmer Width",
+      "type" : "number"
+    },
+    "agentPane.display.thinking.shimmerPeriod" : {
+      "default" : 1250,
+      "description" : "How long one continuous pass of the shimmer takes.",
+      "maximum" : 4000,
+      "minimum" : 600,
+      "title" : "Shimmer Speed",
+      "type" : "number"
+    },
     "agentPane.display.transcriptView" : {
       "default" : "normal",
       "description" : "How much of each turn a chat shows. A chat's ··· menu sets its own.",
@@ -485,6 +521,17 @@
       "title" : "Session Recap",
       "type" : "boolean"
     },
+    "agents.cmuxMcp" : {
+      "default" : "ask",
+      "description" : "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. Until you choose, they get nothing. cmux never changes your agents’ own settings.",
+      "enum" : [
+        "ask",
+        "on",
+        "off"
+      ],
+      "title" : "cmux Tools for Agents in cmux",
+      "type" : "string"
+    },
     "agents.defaultPermissionMode" : {
       "default" : "fullAccess",
       "description" : "What a new chat may do without asking. A mode you pick in a chat applies to that chat only.",
@@ -518,6 +565,12 @@
       "default" : true,
       "description" : "Skills in ~/.config/cmux/skills (a folder with a SKILL.md each) reach every new chat.",
       "title" : "Your Skills in Every Chat",
+      "type" : "boolean"
+    },
+    "agents.mcpServers.enabled" : {
+      "default" : true,
+      "description" : "New chats can use the servers listed above.",
+      "title" : "Saved Servers in Agent Chats",
       "type" : "boolean"
     },
     "agents.modelRouter.model" : {
@@ -650,7 +703,7 @@
       "type" : "boolean"
     },
     "app.hideDockIconWithoutWindows" : {
-      "default" : true,
+      "default" : false,
       "description" : "cmux stays in the menu bar until a window opens.",
       "title" : "Hide Dock Icon When No Windows Are Open",
       "type" : "boolean"
@@ -720,6 +773,12 @@
       ],
       "title" : "Accent",
       "type" : "string"
+    },
+    "appearance.agentGlow" : {
+      "default" : false,
+      "description" : "Calm while agents are idle; a soft glow in the machine's color when an agent needs you.",
+      "title" : "React to Agents",
+      "type" : "boolean"
     },
     "appearance.appTheme" : {
       "default" : "followTerminal",
@@ -2045,6 +2104,17 @@
       "title" : "Theme File",
       "type" : "string"
     },
+    "appearance.themeFileExceptions" : {
+      "default" : [
+
+      ],
+      "description" : "Settings you changed while a theme file sets them. Your value applies over the file's; resetting the row returns to the file's. Choosing another theme file clears the list.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Changed Over Theme File",
+      "type" : "array"
+    },
     "appearance.titleAreaContrast" : {
       "default" : 1,
       "description" : "How much darker the title bar, tab bar and sidebar are. 1 is the default.",
@@ -2663,26 +2733,126 @@
       "title" : "Save a Checkpoint Before Each Cloud Chat Turn",
       "type" : "boolean"
     },
-    "computerUse.driver" : {
-      "default" : "upstream",
-      "description" : "Upstream is the new helper; macOS asks for its permissions again.",
+    "computerUse.allowForeground" : {
+      "default" : false,
+      "description" : "Advanced. Agents may bring an app to the front and move your pointer when it takes no background input.",
+      "title" : "Allow Foreground Input",
+      "type" : "boolean"
+    },
+    "computerUse.allowOwnMachines" : {
+      "default" : true,
+      "description" : "Agents on your other machines, signed in to the same account, may use this Mac's apps.",
+      "title" : "Allow My Other Machines",
+      "type" : "boolean"
+    },
+    "computerUse.cursorTag" : {
+      "default" : "hover",
+      "description" : "Each agent cursor can carry a tag: the agent's workspace name, or a tag the agent sets. Show it when your pointer is over the cursor, always, or never.",
       "enum" : [
-        "legacy",
-        "upstream"
+        "hover",
+        "always",
+        "never"
       ],
-      "title" : "Computer Use Driver",
+      "title" : "Agent Cursor Tag",
       "type" : "string"
     },
-    "computerUse.enabled" : {
-      "default" : false,
-      "description" : "Agents can see and use your apps. macOS asks for Accessibility and Screen Recording.",
-      "title" : "Computer Use",
-      "type" : "boolean"
+    "computerUse.deniedApps" : {
+      "default" : [
+        "com.apple.keychainaccess",
+        "com.apple.Passwords",
+        "com.1password.*",
+        "com.agilebits.onepassword*",
+        "com.bitwarden.*",
+        "com.dashlane.*",
+        "com.lastpass.*",
+        "com.nordpass.*",
+        "me.proton.pass",
+        "org.keepassxc.keepassxc",
+        "com.markmcguill.strongbox",
+        "in.sinew.enpass*",
+        "com.keepersecurity.*",
+        "1password.exe",
+        "bitwarden.exe",
+        "keepass.exe",
+        "keepassxc.exe",
+        "org.keepassxc.KeePassXC",
+        "1password",
+        "bitwarden",
+        "com.apple.systempreferences",
+        "com.apple.Terminal",
+        "com.googlecode.iterm2",
+        "com.mitchellh.ghostty",
+        "net.kovidgoyal.kitty",
+        "com.github.wez.wezterm",
+        "org.alacritty",
+        "dev.warp.*",
+        "windowsterminal.exe",
+        "cmd.exe",
+        "powershell.exe",
+        "pwsh.exe",
+        "org.gnome.Terminal",
+        "org.gnome.Ptyxis",
+        "org.kde.konsole",
+        "com.cmuxterm.app",
+        "com.cmuxterm.app.*"
+      ],
+      "description" : "Apps no agent may use, in any mode: an app ID, an ID prefix ending in *, or name: and the app's name.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Denied Apps",
+      "type" : "array"
     },
     "computerUse.livePreview" : {
       "default" : true,
       "description" : "A small live view of the app an agent uses. Click it for Agent Activity.",
       "title" : "Live Preview in Chat",
+      "type" : "boolean"
+    },
+    "computerUse.menus" : {
+      "default" : "open",
+      "description" : "Agents may open pop-up and context menus of apps in the background to choose an item. Menu bar menus never open in the background.",
+      "enum" : [
+        "open",
+        "refuse"
+      ],
+      "title" : "Menus in Background Apps",
+      "type" : "string"
+    },
+    "computerUse.mode" : {
+      "default" : "fullAccess",
+      "description" : "What agents may do with the apps on this Mac. Denied apps are never used, in any mode.",
+      "enum" : [
+        "fullAccess",
+        "approvedApps",
+        "askEveryTime",
+        "lookOnly",
+        "off"
+      ],
+      "title" : "Computer Use",
+      "type" : "string"
+    },
+    "computerUse.pauseOnTakeover" : {
+      "default" : true,
+      "description" : "While you use the mouse or keyboard, agents wait before their next click or key press.",
+      "title" : "Pause When I Use the Mouse or Keyboard",
+      "type" : "boolean"
+    },
+    "computerUse.settle" : {
+      "default" : "adaptive",
+      "description" : "What an agent waits for after each click or key press before it looks again: the screen to stop changing, a fixed 2 seconds, or nothing.",
+      "enum" : [
+        "adaptive",
+        "anthropic",
+        "openai"
+      ],
+      "title" : "After Each Action",
+      "type" : "string"
+    },
+    "computerUse.showCursor" : {
+      "default" : true,
+      "description" : "A blue cursor shows wherever an agent clicks or types.",
+      "title" : "Show Agent Cursor",
       "type" : "boolean"
     },
     "ComputerUseActsAsPerson" : {
@@ -2694,6 +2864,12 @@
       "default" : true,
       "description" : "Adds Customize Menu… to the end of every right-click menu.",
       "title" : "Show Customize Menu…",
+      "type" : "boolean"
+    },
+    "customize.fromTheApp" : {
+      "default" : false,
+      "description" : "Hold Option over a part of the window to see what changes it, and right-click it for Customize…. Turn this off to hide both.",
+      "title" : "Customize From the Window",
       "type" : "boolean"
     },
     "developerTools.appPages" : {
@@ -3401,7 +3577,7 @@
       "type" : "string"
     },
     "home.chiefDock.openBeside" : {
-      "default" : true,
+      "default" : false,
       "description" : "Links in the Chief open their workspace with the Chief over it. Esc hides it.",
       "title" : "Show Chief When Opening Workspaces",
       "type" : "boolean"
@@ -3416,12 +3592,6 @@
       ],
       "title" : "Engine",
       "type" : "string"
-    },
-    "home.chiefPanel.seesScreen" : {
-      "default" : true,
-      "description" : "The floating Chief takes one look at your screen when it opens. The eye turns it off.",
-      "title" : "Chief Sees Your Screen When It Opens",
-      "type" : "boolean"
     },
     "home.chiefPanel.style" : {
       "default" : "composeBar",
@@ -3496,6 +3666,12 @@
       "title" : "Connect iMessage",
       "type" : "boolean"
     },
+    "labs.agentCustomization" : {
+      "default" : false,
+      "description" : "Show and edit the MCP servers Claude Code and Codex use, in their own config files.",
+      "title" : "Claude Code and Codex Customization",
+      "type" : "boolean"
+    },
     "labs.liveCode" : {
       "default" : false,
       "description" : "Swift changes you compile apply to the running app. Takes effect after cmux restarts.",
@@ -3510,7 +3686,7 @@
     },
     "labs.previewFeatures" : {
       "default" : false,
-      "description" : "Unfinished surfaces, such as the agent session's coverage label and Pull requests view.",
+      "description" : "Unfinished surfaces, such as the App Store and the agent session's coverage label and Pull requests view.",
       "title" : "Show Preview Features",
       "type" : "boolean"
     },
@@ -3768,6 +3944,12 @@
       "title" : "Relay Only",
       "type" : "boolean"
     },
+    "macScreen.shareWithoutAsking" : {
+      "default" : false,
+      "description" : "Your own cmux CLI, agents and devices turn sharing on with no sheet. Each device's access still applies.",
+      "title" : "Share This Mac Without Asking",
+      "type" : "boolean"
+    },
     "macScreen.systemShortcuts" : {
       "default" : false,
       "description" : "Shortcuts like ⌘Tab and ⌘Space go to the other Mac. Needs Accessibility.",
@@ -3999,6 +4181,16 @@
       "description" : "notifications.attention.flashOnTyping",
       "title" : "Flash When Typing Reads It",
       "type" : "boolean"
+    },
+    "notifications.attention.mark" : {
+      "default" : "badge",
+      "description" : "How a tab and a sidebar row that wait for you show it: the badge, or a gentle glow until you look at them.",
+      "enum" : [
+        "badge",
+        "glow"
+      ],
+      "title" : "Needs You Look",
+      "type" : "string"
     },
     "notifications.attention.moveToTop" : {
       "default" : true,
@@ -4964,7 +5156,7 @@
       "type" : "boolean"
     },
     "sidebar.showSpaces" : {
-      "default" : true,
+      "default" : false,
       "description" : "sidebar.showSpaces",
       "title" : "Show Spaces",
       "type" : "boolean"
@@ -5905,6 +6097,20 @@
       "title" : "Install Updates When Quitting",
       "type" : "boolean"
     },
+    "updates.installWhenIdle" : {
+      "default" : false,
+      "description" : "Installs a downloaded update after cmux has been idle for the time below, never while an agent is working or a message is unsent. Agents keep running.",
+      "title" : "Update When Idle",
+      "type" : "boolean"
+    },
+    "updates.installWhenIdleMinutes" : {
+      "default" : 15,
+      "description" : "How long cmux must be idle before Update When Idle installs.",
+      "maximum" : 240,
+      "minimum" : 1,
+      "title" : "Idle Time Before Updating",
+      "type" : "number"
+    },
     "updates.keepPreviousVersions" : {
       "default" : 1,
       "description" : "Earlier builds kept so you can roll back. Uses almost no disk until files change.",
@@ -6040,7 +6246,7 @@
       "type" : "boolean"
     },
     "workspaces.freeing.enabled" : {
-      "default" : false,
+      "default" : true,
       "description" : "Ends idle shells of long-unused workspaces; they restart in the same folder.",
       "title" : "Free Idle Terminals",
       "type" : "boolean"
