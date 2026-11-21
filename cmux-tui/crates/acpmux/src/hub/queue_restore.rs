@@ -15,14 +15,11 @@ impl Hub {
         // Other agents' messages are in its inbox, apart from the queue (`inbox.rs`); a closed
         // chat's threads stay readable. A log load reads it apart (`Session::inbox`); an import
         // or a move takes what this log has that it does not hold now.
-        let mut pct = super::transfer_out::transfer_precopy::Pct::new("rq");
         if only.is_none() {
             self.restore_inbox(session);
             session.inbox_loaded.store(true, Ordering::Release);
         }
-        pct.at("inbox");
         self.restore_queue_after(session, only, None);
-        pct.at("after");
     }
 
     /// [`Self::restore_queue`] of the records past a restore point's seq, from what the point

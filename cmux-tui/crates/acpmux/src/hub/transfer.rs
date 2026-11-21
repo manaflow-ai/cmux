@@ -284,7 +284,6 @@ impl Hub {
         // Copy events verbatim, preserving seq. A partial transcript is not
         // a valid import: any unreadable file or record rolls it back.
         let control = guarded.map(|g| g.guard.control);
-        let mut pct = super::transfer_out::transfer_precopy::Pct::new("import");
         let last = match self.copy_bundle_events(bundle, &meta.id, control, staged) {
             Ok(last) => last,
             Err(e) => {
@@ -292,7 +291,6 @@ impl Hub {
                 return Err(RpcError::invalid_params(format!("import events: {e}")));
             }
         };
-        pct.at("copy_events");
         if let Err(e) = self.restore_harness_state(bundle, &meta, replace_durable) {
             self.drop_failed_import(&meta);
             return Err(RpcError::invalid_params(format!("import durable journal: {e}")));
@@ -319,7 +317,6 @@ impl Hub {
         if let Err(e) = crate::native::import_opencode(bundle, &meta) {
             tracing::warn!(session = %meta.id, "opencode session not imported: {e:#}");
         }
-        pct.at("harness+native");
         // Made once nothing can fail: a failed import leaves nothing in the child index.
         let session = self.make_session(meta.clone());
         // Its copied log may hold the source's move: unknown until its own `imported` receipt
@@ -332,13 +329,11 @@ impl Hub {
             // The copied log may end in transcript records: say it may have.
             meta.transcript_seq = last;
         }
-        pct.at("make_session");
         if live {
             self.restore_queue(&session);
             // The source's subagent retries stayed there: their prompts do not wait here.
             self.drop_unsent_subagent_retries(&session);
         }
-        pct.at("restore_queue");
         // Published frozen: it is not this daemon's chat until its own receipt is logged (a
         // failed one removes it), so no prompt starts before that. Its log's `transfer_out` is
         // the source's move, not one of this daemon's.
@@ -353,7 +348,6 @@ impl Hub {
         // Indexed again once published: a lookup before that found no session and dropped it.
         self.child_tags.note(&session);
         self.offers.forget(&meta.id);
-        pct.at("publish");
         let (_, logged) = self.append_at(
             &session,
             "mux",
@@ -369,7 +363,6 @@ impl Hub {
             let _ = self.kill(&session, true).await;
             return Err(RpcError::internal("import: could not durably record imported"));
         }
-        pct.at("imported");
         // Its queued prompts run now (`end_move` follows its policy, then wakes the queue).
         self.end_move(&session);
         self.save_meta(&session);
@@ -378,7 +371,6 @@ impl Hub {
             let _ = self.kill(&session, true).await;
             return Err(RpcError::internal(error.to_string()));
         }
-        pct.at("end+finalize");
         Ok(session)
     }
 

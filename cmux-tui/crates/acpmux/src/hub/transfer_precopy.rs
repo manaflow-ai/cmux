@@ -167,7 +167,9 @@ impl Hub {
     }
 
     fn base_note(&self, id: &str) -> Option<PathBuf> {
-        self.store.session_dir(id).map(|dir| dir.join(BASE_FILE))
+        // The path only: `session_dir` waits for the journal to sync the chat's metadata, which
+        // under load took seconds of a finish's freeze.
+        self.store.session_path(id).map(|dir| dir.join(BASE_FILE))
     }
 
     /// At a commit: this folder's copy of the chat is what move `transfer_id` shipped.
@@ -185,14 +187,11 @@ impl Hub {
     /// that is not is refused at a later stage by its digest: the source's record there differs.
     pub(in crate::hub) fn note_received(&self, session: &Session, transfer_id: &Value, seq: u64) {
         let Some(note) = self.base_note(&session.id) else { return };
-        let mut pct = Pct::new("note");
-        let stamp = self.store.log_stamp(&session.id);
-        pct.at("stamp");
-        let digest = self.digest_at(&session.id, seq);
-        pct.at("digest");
-        let (Some(transfer_id), Ok(stamp), Ok(Some(digest))) =
-            (transfer_id.as_str(), stamp, digest)
-        else {
+        let (Some(transfer_id), Ok(stamp), Ok(Some(digest))) = (
+            transfer_id.as_str(),
+            self.store.log_stamp(&session.id),
+            self.digest_at(&session.id, seq),
+        ) else {
             let _ = crate::home_fs::remove_file(&note);
             return;
         };
@@ -450,8 +449,7 @@ impl Hub {
             Some(base) => Some(self.check_base(chat, base)?),
             None => None,
         };
-        let written = crate::home_fs::create_dirs(staged.join("events"))
-            .map_err(anyhow::Error::from)
+        let written = private_stage(&dir, &staged.join("events"))
             .and_then(|()| self.write_staged(&bundle.join("events"), &segment, chat, base));
         let (records, last) = written.map_err(|e| transfer_error("stage", format!("{e:#}")))?;
         if last != after_seq {
@@ -689,6 +687,25 @@ fn index_staged(root: &Path, chat: &str) {
     }
 }
 
+/// Makes the staged chat's `events` folder, owner-only down from `transfers/`: a store refuses a
+/// folder under a group-writable one (umask 002), and with it the staged segment's kind index,
+/// so the finish's queue and inbox reads parsed the whole log inside the freeze.
+fn private_stage(stage: &Path, events: &Path) -> anyhow::Result<()> {
+    #[cfg(unix)]
+    for dir in [transfers_dir(), stage.to_path_buf()] {
+        use std::os::unix::fs::PermissionsExt as _;
+        let mode = std::fs::symlink_metadata(&dir)?.permissions().mode();
+        if mode & 0o077 != 0 {
+            crate::home_fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
+        }
+    }
+    if let Err(error) = crate::config::private_state_dir(events) {
+        tracing::debug!("staged prefix kept unindexed: {error:#}");
+        crate::home_fs::create_dirs(events)?;
+    }
+    Ok(())
+}
+
 /// Links the kind index made beside the staged segment `file` into the chat's folder `dir`.
 fn adopt_index(file: &Path, dir: &Path) {
     let Some(staged) = file.parent().and_then(Path::parent) else { return };
@@ -700,24 +717,4 @@ fn adopt_index(file: &Path, dir: &Path) {
     let target = to.join("000000.ndjson");
     let _ = crate::home_fs::remove_file(&target);
     let _ = crate::home_fs::hard_link(&copy, &target);
-}
-// PCT-TEMP
-pub(crate) struct Pct(std::time::Instant, &'static str);
-impl Pct {
-    pub(crate) fn new(what: &'static str) -> Self {
-        Self(std::time::Instant::now(), what)
-    }
-    pub(crate) fn at(&mut self, label: &str) {
-        pct_log(format!("PCT {} {} {}", self.1, label, self.0.elapsed().as_micros()));
-        self.0 = std::time::Instant::now();
-    }
-}
-
-pub(crate) fn pct_log(line: String) {
-    if let Some(p) = std::env::var_os("ACPMUX_PCT") {
-        use std::io::Write;
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(p) {
-            let _ = writeln!(f, "{line}");
-        }
-    }
 }
