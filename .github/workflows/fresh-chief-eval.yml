@@ -1,7 +1,5 @@
 name: fresh-chief-eval
 on:
-  schedule:
-    - cron: "17 */6 * * *"
   workflow_dispatch:
   push:
     branches: [feat-cmux-next]

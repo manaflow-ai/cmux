@@ -80,10 +80,25 @@ jobs:
           key: webviews-test-durations-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: webviews-test-durations-
 
+      # The base's webview test history from the Actions cache (webviews-test-history saves it there beside its
+      # artifact): no REST request. The artifact list below answered 403 on 25 of 33 sampled pull request runs
+      # (2026-11-21 07:21-08:55Z, the repository's shared token quota), and each then retried every red file
+      # alone: 17 of a shard's 51 min of tests. Unique keys a push, so the prefix restores the newest.
+      - name: Restore the base's webview test history
+        id: base-history-cache
+        if: ${{ steps.scope.outputs.react_apps == 'true' && github.event_name == 'pull_request' }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .webviews-test-history-cache/history.json
+          key: webviews-test-history-${{ github.base_ref }}-${{ github.run_id }}
+          restore-keys: webviews-test-history-${{ github.base_ref }}-
+
       # A pull request's shards also get the names red on the base's newest recorded push (base-reds.json): a head
       # file whose every first-run red is one of them skips its alone retry (run-webviews-tests.sh,
       # CMUX_WEB_TEST_BASE_REDS) and react-apps-base-check judges it as before. Read once here for the whole run (the
-      # history's list and download, two requests), and best effort: without the file every red file is retried.
+      # cached history above, else the artifact's list and download, two requests), and best effort: without the file
+      # every red file is retried.
       - name: Hand the duration manifest to the shards
         if: ${{ steps.scope.outputs.react_apps == 'true' }}
         env:
@@ -96,7 +111,9 @@ jobs:
           echo "duration manifest: $(grep -c '": ' "$manifest" || true) files"
           if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
             history="$RUNNER_TEMP/webviews-base-history.json"
-            { timeout 90 python3 scripts/ci/webviews_test_history.py fetch "$history" --repo "$GITHUB_REPOSITORY" --branch "$BASE_REF" --need-read &&
+            cached=.webviews-test-history-cache/history.json
+            { if [ -s "$cached" ]; then cp "$cached" "$history" && echo "webview test history: the Actions cache's copy"
+              else timeout 90 python3 scripts/ci/webviews_test_history.py fetch "$history" --repo "$GITHUB_REPOSITORY" --branch "$BASE_REF" --need-read; fi &&
               python3 scripts/ci/webviews_test_history.py known-reds "$history" --before "$(git log -1 --format=%ct HEAD^1)" \
                 --out "$RUNNER_TEMP/webviews-durations/base-reds.json"; } ||
               { rm -f "$RUNNER_TEMP/webviews-durations/base-reds.json"; echo "the base's webview reds are unread: every red file is retried"; }
@@ -121,7 +138,8 @@ jobs:
         run: |
           picked=""
           if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ "$FULL_CI" != true ]; then
-            picked="$(timeout 150 python3 scripts/ci/webviews_pr_shards.py --base HEAD^1 --head HEAD --count "$REACT_APPS_SHARDS")" || picked=""
+            picked="$(timeout 150 python3 scripts/ci/webviews_pr_shards.py --base HEAD^1 --head HEAD --count "$REACT_APPS_SHARDS" \
+              --direct-out "$RUNNER_TEMP/webviews-durations/pr-shard-direct.json")" || { picked=""; rm -f "$RUNNER_TEMP/webviews-durations/pr-shard-direct.json"; }
           fi
           [ -n "$picked" ] || picked="$(python3 scripts/ci/webviews_pr_shards.py --all --count "$REACT_APPS_SHARDS")"
           echo "react-apps-check shards: $picked"
@@ -148,6 +166,7 @@ jobs:
             ${{ runner.temp }}/webviews-durations/manifest.json
             ${{ runner.temp }}/webviews-durations/base-reds.json
             ${{ runner.temp }}/webviews-durations/pr-shard-files
+            ${{ runner.temp }}/webviews-durations/pr-shard-direct.json
           if-no-files-found: error
           # A same-run handoff: the cache keeps the manifest between runs.
           retention-days: 1
@@ -483,7 +502,7 @@ jobs:
     # pool writer marked 8, 16 and 32 vCPU dead and linux_16 held 2 vCPU, where these shards and
     # react-apps-base-early queued over an hour (run 44304196887 attempt 2) while 4 vCPU started them.
     # The widths and minutes below fit whatever size the pool holds.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'push' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || ((github.event_name == 'push' || github.event.inputs.tick == 'true') || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # The 10-minute siblings in this workflow, plus the browser engines and the
     # browser-lane suites they run. The full suite grew to 22 min in one process.
     # Deterministic file shards keep per-file isolation. Each shard warms one
@@ -774,6 +793,16 @@ jobs:
           # or an unmapped path); empty output runs every file. A feat-cmux-next push and full-ci run all.
           if [ -n "$BASE_REF" ] && [ "$FULL_CI" != true ]; then
             CMUX_WEB_TEST_FILES="$(python3 ../scripts/ci/webviews_affected.py --base "$BASE_REF" --head HEAD)" || CMUX_WEB_TEST_FILES=""
+            # The one shard past 1 a pull request picks carries every touched test outside shard 1
+            # (webviews_pr_shards.py --direct-out): it runs just those, as one unsplit list, not its share of the
+            # closure above. No entry (an every-shard pick, a failed pick, no file) keeps the closure share.
+            own="$(python3 -c 'import json,sys; print("\n".join(json.load(open(sys.argv[1])).get(sys.argv[2], [])))' \
+              "$RUNNER_TEMP/webviews-durations/pr-shard-direct.json" "$CMUX_WEB_TEST_SHARD" 2>/dev/null)" || own=""
+            if [ "$CMUX_WEB_TEST_SHARD" != 1 ] && [ -n "$own" ]; then
+              CMUX_WEB_TEST_FILES="$own"
+              export CMUX_WEB_TEST_SHARD=1 CMUX_WEB_TEST_SHARD_COUNT=1 CMUX_WEB_TEST_SHARD_HEAD_START=""
+              echo "shard ${{ matrix.shard }} runs its $(printf '%s\n' "$own" | wc -l) touched tests"
+            fi
             export CMUX_WEB_TEST_FILES
           fi
           ../scripts/ci/webviews-tests-new-reds.sh "$BASE_REF"
@@ -795,7 +824,7 @@ jobs:
       # Optional upkeep, like the durations below: it never fails the shard.
       - name: Upload this push's webview results
         id: history-upload
-        if: ${{ !cancelled() && github.event_name == 'push' }}
+        if: ${{ !cancelled() && (github.event_name == 'push' || github.event.inputs.tick == 'true') }}
         continue-on-error: true
         timeout-minutes: 2
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -902,10 +931,14 @@ jobs:
   react-apps-base-early:
     needs: web-subarea-scope
     if: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci') && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'push' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || ((github.event_name == 'push' || github.event.inputs.tick == 'true') || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     continue-on-error: true
-    # Under the head shards' 40: a stuck early shard must not hold the base check past what its own replay costs.
-    timeout-minutes: 25
+    # A stuck early shard must not hold the base check past what its own replay costs. Over 11-20..21 (24 h feed,
+    # 1,507 runs of these two shards) 615 successes had a median of 85 s and a p97 of 200 s; 811 runs ended
+    # "cancelled", 349 of them at the old 25 minutes. 8 minutes
+    # holds 98% of successes; a hang now costs 8 minutes, not 25 (a killed shard only loses the early verdict, the
+    # base check replays the reds itself).
+    timeout-minutes: 8
     name: react-apps-base-early (${{ matrix.shard }})
     strategy:
       fail-fast: false
@@ -916,6 +949,10 @@ jobs:
           - shard: 2
             shard_count: 2
     steps:
+      # Run the base reds stops starting files a minute before the 8 minutes end, counted from here.
+      - name: Record the job start
+        run: echo "CMUX_WEB_TEST_JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
+
       - name: Checkout the merge commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -1020,6 +1057,13 @@ jobs:
           SHARD: ${{ matrix.shard }}
         run: |
           early="$RUNNER_TEMP/base-early"
+          # These files are red on the base, and the slow ones fail at their 450-900 s limits one at a time while each
+          # Vite config warms: 41 of 73 runs (11-21 09:30-16:50Z) were cancelled at the job limit still testing, with no
+          # verdict. No file starts, and none runs, past 60 s before the job's 8 minutes end (the upload's margin); a
+          # file it did not finish has no result, and react-apps-base-check replays it.
+          started="${CMUX_WEB_TEST_JOB_STARTED:-}"
+          [[ "$started" =~ ^[0-9]+$ ]] || started=$(( $(date +%s) - 180 ))
+          export CMUX_WEB_TEST_STOP_AT=$(( started + 8 * 60 - 60 ))
           CMUX_WEB_TEST_FILES="$(cat "$early/files")" \
             CMUX_WEB_TEST_RESULTS="$early/results.json" \
             env -u CMUX_WEB_TEST_SHARD -u CMUX_WEB_TEST_SHARD_COUNT -u CMUX_PR_CHANGED_FILES \
@@ -1053,7 +1097,7 @@ jobs:
   react-apps-base-check:
     needs: [web-subarea-scope, react-apps-check-shard]
     if: ${{ github.event_name == 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'push' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || ((github.event_name == 'push' || github.event.inputs.tick == 'true') || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # 55: the base replay and the head re-run of up to 25 files each (13 files took about 6 minutes alone). The base's
     # replays after the first share what is left of it (the compare step's JOB_TIMEOUT_MINUTES and REPLAY_RESERVE).
     timeout-minutes: 55
@@ -1413,7 +1457,8 @@ jobs:
   # A feat-cmux-next push only. This scan reports and never fails on a finding
   # (`--fail-on none`); on a pull request `React Doctor (changed React projects)`
   # (cmux-next-react-doctor.yml) scans the same webviews project with the same
-  # pinned tool and gates it: a new error or a failed scan is red there. Running
+  # pinned tool and reports a new error or a failed scan as a warning (lint never
+  # stops a merge, Leo 2026-11-20). Running
   # it here too was 786 runs and about 178 hours of 16 vCPU a day (p50 13.6 min,
   # 2026-11-16T08:27Z..11-17T08:27Z) for a verdict nobody read, and its timeouts
   # held PRs (#44127).
@@ -1464,7 +1509,7 @@ jobs:
   react-apps-check:
     needs: [web-subarea-scope, react-apps-check-shard, react-apps-base-check, react-doctor]
     if: ${{ always() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || (github.event_name == 'push' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || ((github.event_name == 'push' || github.event.inputs.tick == 'true') || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     steps:
       - name: Check webview test shards
@@ -1569,7 +1614,7 @@ jobs:
   # finishing together may drop one of their runs, which costs one data point.
   webviews-test-history:
     needs: [web-subarea-scope, react-apps-check-shard]
-    if: ${{ !cancelled() && github.event_name == 'push' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && needs.react-apps-check-shard.result != 'skipped' }}
+    if: ${{ !cancelled() && (github.event_name == 'push' || github.event.inputs.tick == 'true') && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && needs.react-apps-check-shard.result != 'skipped' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     permissions:
@@ -1596,8 +1641,20 @@ jobs:
           pattern: webviews-test-history-shard*
           path: ${{ runner.temp }}/history-results
 
+      # The cached copy (Save the history to the cache, below): the history when the artifact list answers no.
+      - name: Restore the cached history
+        id: history-cache
+        if: ${{ steps.history-download.outcome == 'success' }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .webviews-test-history-cache/history.json
+          key: webviews-test-history-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: webviews-test-history-${{ github.ref_name }}-
+
       # A history it cannot read (a missing one is fine) fails this step, and the push saves none: saving its own run
-      # alone would replace the whole accumulated history with one run.
+      # alone would replace the whole accumulated history with one run. The artifact first; when its list or download
+      # answers no (a 403 from the repository's spent token quota), the cached copy.
       - name: Restore the history
         id: history-restore
         if: ${{ steps.history-download.outcome == 'success' }}
@@ -1607,8 +1664,10 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           BRANCH: ${{ github.ref_name }}
         run: |
-          python3 scripts/ci/webviews_test_history.py fetch "$RUNNER_TEMP/webviews-test-history/history.json" \
-            --repo "$GITHUB_REPOSITORY" --branch "$BRANCH" --need-read
+          history="$RUNNER_TEMP/webviews-test-history/history.json"
+          cached=.webviews-test-history-cache/history.json
+          python3 scripts/ci/webviews_test_history.py fetch "$history" --repo "$GITHUB_REPOSITORY" --branch "$BRANCH" --need-read ||
+            { [ -s "$cached" ] && cp "$cached" "$history" && echo "webview test history: the Actions cache's copy"; }
 
       - name: Add this push to the history
         id: history-record
@@ -1637,6 +1696,25 @@ jobs:
           path: ${{ runner.temp }}/webviews-test-history/history.json
           if-no-files-found: ignore
           retention-days: 3
+
+      # The same history in the Actions cache, which a pull request's web-subarea-scope restores with no REST
+      # request. A key a run: a cache entry is immutable, so one fixed key was never replaced (2026-11-08), and the
+      # restore-keys prefix takes the newest. A path relative to the workspace in every save and restore: the cache
+      # version hashes the path as written, and runner.temp differs between a VM's runners (runner, runner2).
+      - name: Stage the history for the cache
+        id: history-stage
+        if: ${{ steps.history-record.outcome == 'success' }}
+        continue-on-error: true
+        run: mkdir -p .webviews-test-history-cache && cp "$RUNNER_TEMP/webviews-test-history/history.json" .webviews-test-history-cache/history.json
+
+      - name: Save the history to the cache
+        if: ${{ steps.history-stage.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .webviews-test-history-cache/history.json
+          key: webviews-test-history-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       # A base red is excused on every pull request, so nothing made it anyone's: react-apps-check was red on every
       # completed push run from 2026-11-11 16:59 UTC to 2026-11-13 and model-picker-scaling on 62 recorded pushes in

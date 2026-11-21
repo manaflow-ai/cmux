@@ -131,7 +131,8 @@ def overlapped_in_order(lines: list[str], first: str, second: str) -> bool:
 class SettingsExportCatalogTests(unittest.TestCase):
     """Exercise both export commands against a warm SwiftPM resource bundle."""
 
-    def run_export(self, root: pathlib.Path, entrypoint: str, *, fail_compile: bool = False):
+    def run_export(self, root: pathlib.Path, entrypoint: str, *, fail_compile: bool = False,
+                   env_overrides: dict[str, str | None] | None = None):
         package = root / "Packages/macOS/CmuxNext"
         bundle = package / ".build/debug/Settings.bundle"
         bundle.mkdir(parents=True)
@@ -146,6 +147,9 @@ class SettingsExportCatalogTests(unittest.TestCase):
             "import os, pathlib, sys\n"
             "args = sys.argv[1:]\n"
             "bundle = pathlib.Path(os.environ['EXPORT_TEST_BUNDLE'])\n"
+            "if os.environ.get('EXPORT_TEST_DEVELOPER_DIRS'):\n"
+            "    with open(os.environ['EXPORT_TEST_DEVELOPER_DIRS'], 'a') as record:\n"
+            "        record.write(os.environ.get('DEVELOPER_DIR', '<unset>') + '\\n')\n"
             "if '--show-bin-path' in args:\n"
             "    print(bundle.parent)\n"
             "    sys.exit(0)\n"
@@ -184,17 +188,24 @@ class SettingsExportCatalogTests(unittest.TestCase):
         command = [str(ROOT / entrypoint)]
         if entrypoint == "scripts/ci/run-swift-testing-suites.sh":
             command.append(str(package))
+        env = {
+            **os.environ,
+            "PATH": f"{bin_dir}:{os.environ['PATH']}",
+            "DEVELOPER_DIR": str(root / "Xcode"),
+            "CMUX_CI_REQUIRED_MACOS_SDK_MAJOR": "export-settings",
+            "EXPORT_TEST_BUNDLE": str(bundle),
+            "EXPORT_TEST_FAIL_COMPILE": "1" if fail_compile else "0",
+        }
+        env.pop("CMUX_CI_STEP_KEY", None)
+        for name, value in (env_overrides or {}).items():
+            if value is None:
+                env.pop(name, None)
+            else:
+                env[name] = value
         return subprocess.run(
             command,
             cwd=root,
-            env={
-                **os.environ,
-                "PATH": f"{bin_dir}:{os.environ['PATH']}",
-                "DEVELOPER_DIR": str(root / "Xcode"),
-                "CMUX_CI_REQUIRED_MACOS_SDK_MAJOR": "export-settings",
-                "EXPORT_TEST_BUNDLE": str(bundle),
-                "EXPORT_TEST_FAIL_COMPILE": "1" if fail_compile else "0",
-            },
+            env=env,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -228,6 +239,65 @@ class SettingsExportCatalogTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0, result.stdout)
                 self.assertNotIn("BEGIN_ARTIFACT:", result.stdout)
                 self.assertFalse((root / "docs/mdm/com.manaflow.cmux.json").exists())
+
+
+class FleetStepXcodeTests(unittest.TestCase):
+    """A fleet step builds with its pool's pinned Xcode, never the host's default.
+
+    On 2026-11-21 aws-m4pro-2 and aws-m4pro-4 had xcode-select on Xcode 26.3 (Swift 6.2.4)
+    while scripts/ci/xcode-pins.txt pins 26.6 for their macOS 27 pool. Under 26.3 the
+    generated Bundle.module takes CmuxNext's MainActor default isolation, so
+    FileGridStrings.swift failed to compile there; the same commit built on aws-m4pro-7
+    (default 26.6).
+    """
+
+    def pinned_selector(self, root: pathlib.Path, pinned: pathlib.Path) -> pathlib.Path:
+        selector = root / "select-ci-xcode.sh"
+        selector.write_text(
+            "#!/bin/sh\n"
+            "# Never move the host-global xcode-select default from a shared fleet step.\n"
+            '[ "$CMUX_CI_SKIP_XCODE_SELECT" = 1 ] || exit 3\n'
+            f'echo "DEVELOPER_DIR={pinned}" >> "$GITHUB_ENV"\n'
+            'echo "Pool pin (DEVELOPER_DIR): selected"\n',
+            encoding="utf-8",
+        )
+        selector.chmod(0o755)
+        return selector
+
+    def test_a_fleet_step_without_developer_dir_builds_with_the_pinned_xcode(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            pinned = root / "Xcode_26.6.app/Contents/Developer"
+            record = root / "developer-dirs.txt"
+            result = SettingsExportCatalogTests.run_export(
+                SettingsExportCatalogTests(), root, "scripts/ci/run-swift-testing-suites.sh",
+                env_overrides={
+                    "DEVELOPER_DIR": None,
+                    "CMUX_CI_STEP_KEY": "step-1",
+                    "CMUX_SELECT_CI_XCODE": str(self.pinned_selector(root, pinned)),
+                    "EXPORT_TEST_DEVELOPER_DIRS": str(record),
+                },
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            seen = record.read_text().splitlines()
+            self.assertTrue(seen, "swift never ran")
+            self.assertEqual(set(seen), {str(pinned)}, result.stdout + result.stderr)
+
+    def test_a_developer_dir_the_caller_chose_is_kept(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp)
+            chosen = root / "Xcode"
+            record = root / "developer-dirs.txt"
+            result = SettingsExportCatalogTests.run_export(
+                SettingsExportCatalogTests(), root, "scripts/ci/run-swift-testing-suites.sh",
+                env_overrides={
+                    "CMUX_CI_STEP_KEY": "step-1",
+                    "CMUX_SELECT_CI_XCODE": str(self.pinned_selector(root, root / "Pinned")),
+                    "EXPORT_TEST_DEVELOPER_DIRS": str(record),
+                },
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(set(record.read_text().splitlines()), {str(chosen)})
 
 
 class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
