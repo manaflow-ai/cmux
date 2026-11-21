@@ -304,7 +304,7 @@ pub(super) fn agent_of_call(dir: &Path, tool: &str) -> Option<String> {
             Some((modified, entry.path(), agent))
         })
         .collect();
-    files.sort_by(|a, b| b.0.cmp(&a.0));
+    files.sort_by_key(|f| std::cmp::Reverse(f.0));
     files.into_iter().find(|(_, path, _)| tail_has(path, needle.as_bytes())).map(|(_, _, a)| a)
 }
 
