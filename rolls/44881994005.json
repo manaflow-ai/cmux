@@ -1,0 +1,180 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44881994005",
+  "recorded_at": "2026-11-21T07:56:28Z",
+  "reason": "cmux-tui 6790e9eeb3d8 changes the image's cmux-tui (pinned dc6f7a40fec6)",
+  "dry_run": false,
+  "cmux_tui": "6790e9eeb3d888d43e011ed339006b8f156cf26e",
+  "fixes": [
+    {
+      "sha": "6790e9eeb3d888d43e011ed339006b8f156cf26e",
+      "mergedAt": "2026-11-21T07:22:35Z",
+      "subject": "acpmux MCP: read argument synonyms against each tool's schema; run_wait with a bg- id reads the task (#48418)"
+    },
+    {
+      "sha": "f207933392561a60669321d3121b95f82de148a7",
+      "mergedAt": "2026-11-20T23:22:02-08:00",
+      "subject": "Add default-off live tree status experiment (#48507)"
+    },
+    {
+      "sha": "4c2c0db676dce7a3ef66dc7c118961d09ba7a170",
+      "mergedAt": "2026-11-21T07:19:43Z",
+      "subject": "ci guards: fix cmux-next guards base reds (guard group, release-notary, fixit tooling) (#48394)"
+    },
+    {
+      "sha": "3e5b286da8e78e65446f9280422033a1dd666063",
+      "mergedAt": "2026-11-20T22:52:10-08:00",
+      "subject": "cmux NEXT: Home is Chief, a short first-run setup, and a first chat (#48416) (#48514)"
+    },
+    {
+      "sha": "fbe4fbeaaac0da586c24213d835795e9aaec4a1c",
+      "mergedAt": "2026-11-20T22:47:04-08:00",
+      "subject": "acpmux: move-sessions takes --machine like session move (HOST not provided) (#48562)"
+    },
+    {
+      "sha": "46063eedef3670e6e6e8b58960c4074730128a58",
+      "mergedAt": "2026-11-21T06:45:20Z",
+      "subject": "acpmux MCP: wrap_up trims long fields instead of refusing; bg_list answers a bounded page (#48426)"
+    },
+    {
+      "sha": "4202ee621cf4a743b459ea968ec4b6022860fdef",
+      "mergedAt": "2026-11-21T06:41:38Z",
+      "subject": "Settings: background modes keep their folder and picture across a restart (appearance.backgroundMemory) (#47728)"
+    },
+    {
+      "sha": "a9ba942dfb40470a616871be1cb5e1ac78346c78",
+      "mergedAt": "2026-11-20T22:38:22-08:00",
+      "subject": "test(acpmux): require end_turn after queued prompt resend (#38815)"
+    },
+    {
+      "sha": "e4c461e17363b5aa89808c319a0adaeee7678b92",
+      "mergedAt": "2026-11-21T06:36:12Z",
+      "subject": "acpmux: a peer costs its live chats and its 64 newest closed ones, not its whole history (successor of #47483) (#48399)"
+    },
+    {
+      "sha": "484806a40e1894228465340cb37f326a844032df",
+      "mergedAt": "2026-11-21T06:33:41Z",
+      "subject": "Chat plan lifecycle: expire stale lists, clear finished ones, prompt agents to clear (#48529)"
+    },
+    {
+      "sha": "83c7e97f8a7ceedccc07378ab369afc9ae77f5b7",
+      "mergedAt": "2026-11-21T06:31:21Z",
+      "subject": "Store packages cmux signed list as Verified (stacks on #45083) (#45304)"
+    },
+    {
+      "sha": "aaec41ca06d3f90bccaf6517fd8f1014a9f4eb52",
+      "mergedAt": "2026-11-21T06:29:21Z",
+      "subject": "App Store packages are build output: build-web-bundles.sh writes AppPlatform/store (first-party STORE apps) (#45083)"
+    },
+    {
+      "sha": "75d22c950b68f4e6c56a6e02b26cb592cd5367ec",
+      "mergedAt": "2026-11-20T22:17:04-08:00",
+      "subject": "Settings: one settings area (Personalization folds into Appearance, a short sidebar with More)"
+    },
+    {
+      "sha": "3a27f80588af744b6bf0a63e69b4d374ca55ab03",
+      "mergedAt": "2026-11-20T22:04:52-08:00",
+      "subject": "Cloud command automations: every step ends within 100 s, under the provider's cut of an exec at about 120 s"
+    },
+    {
+      "sha": "087a9487e16967889b9f07b09f239c9acb3b0027",
+      "mergedAt": "2026-11-20T21:58:22-08:00",
+      "subject": "copy: name the right-click Chief row and the no-pane refusal in words a new user reads"
+    },
+    {
+      "sha": "b54ef4b92fc5b79dae5f04cd7387db74b45f5e1d",
+      "mergedAt": "2026-11-20T21:57:50-08:00",
+      "subject": "fix(acpmux): keep capped remote turn openers across restart (#33580)"
+    },
+    {
+      "sha": "cdbf736be7cbc26c0130a75f3d86482f14e43ef0",
+      "mergedAt": "2026-11-20T21:56:33-08:00",
+      "subject": "acpmux: session_pool: after a take, check only that the taken record left the pool"
+    },
+    {
+      "sha": "4669a51e1a7795bd6d42c142313800319a24a20d",
+      "mergedAt": "2026-11-20T21:56:33-08:00",
+      "subject": "acpmux: reload the harness catalog only when the profile sources changed"
+    },
+    {
+      "sha": "5c18024c70c417c16eebd5d0166cdf1201c03579",
+      "mergedAt": "2026-11-20T21:56:32-08:00",
+      "subject": "acpmux: red test: a folder on the way to a profile source must not reload the catalog"
+    },
+    {
+      "sha": "e44335d1f6ca21dc7c2b51812def468de5f46d67",
+      "mergedAt": "2026-11-20T21:49:52-08:00",
+      "subject": "Sidebar: Studio's settled chats, behind sidebar.settleFinished (Rust rule, native fold, Archive Settled Chats) (#46872)"
+    },
+    {
+      "sha": "230fdd89a6d0b1f1a1d6c18537ad34a83152eee9",
+      "mergedAt": "2026-11-21T05:49:18Z",
+      "subject": "Docs and cmux setup: one prompt to paste into an agent for cmux Cloud (#47759)"
+    },
+    {
+      "sha": "ff8ba53d1f74157497df367c78f78e943f831e5f",
+      "mergedAt": "2026-11-21T05:38:47Z",
+      "subject": "Home diagnostics: masked screenshots name their areas, no false Home blank pane, Chief step follows the owner (#44515)"
+    },
+    {
+      "sha": "7c41dd94ef565eae9c0cd3937c771429fc92a9f5",
+      "mergedAt": "2026-11-21T05:24:22Z",
+      "subject": "acpmux: a Codex chat's log keeps a resumed thread's answer without its history (#47457)"
+    },
+    {
+      "sha": "1dc60914a28f2d8b1e11d1f05cbee07e5f89bd49",
+      "mergedAt": "2026-11-21T05:22:14Z",
+      "subject": "cmux-tui: inline unit test modules move to their own _tests.rs files (#48016)"
+    },
+    {
+      "sha": "c106cb8c9e77e671a2376a261ac6ee170814d07b",
+      "mergedAt": "2026-11-21T05:17:42Z",
+      "subject": "cmux ext add / share / search: anyone makes, shares and installs extensions (supersedes #41914) (#42068)"
+    },
+    {
+      "sha": "08c6988c943ec13ed84f09dc182fe84358aecbd8",
+      "mergedAt": "2026-11-21T05:16:52Z",
+      "subject": "cmux-process: spawned children die with their parent (ChildGroup, spawn_owned) (#40971)"
+    },
+    {
+      "sha": "94dd43d0fc017b89c6ecbb98357b23125131a928",
+      "mergedAt": "2026-11-20T21:04:26-08:00",
+      "subject": "acpmux: a resumed Codex chat runs on the provider codex is configured for now (cmux#48354) (#48524)"
+    },
+    {
+      "sha": "f02f3067fad110dd5689af2f2cb9358feafb0a65",
+      "mergedAt": "2026-11-20T20:55:47-08:00",
+      "subject": "safe-push train: merge 1cc8c18a331f (feat-cmux-next-oss-brains-land)"
+    },
+    {
+      "sha": "cc128ef8d8cd60202afafa857a9afbec03453635",
+      "mergedAt": "2026-11-20T20:41:15-08:00",
+      "subject": "cloud: Environment Secrets Playground, three directions of the env variables and secrets page (DEV only)"
+    },
+    {
+      "sha": "8d68fefabc9dece1af52aa6796fcf3e052532ef2",
+      "mergedAt": "2026-11-20T20:40:17-08:00",
+      "subject": "acpmux: one acpmux MCP process per chat (5 -> 1), the rest served by the daemon; a test holds the budget (#48374)"
+    },
+    {
+      "sha": "d19e222f2bde5cdf2dbdf1fa00f5e9250a1d44ba",
+      "mergedAt": "2026-11-20T20:40:05-08:00",
+      "subject": "fix(cmux-tui): an owner no client reached for a day stops, so its terminal hosts can end (#48370)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-21T07:56:28Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
