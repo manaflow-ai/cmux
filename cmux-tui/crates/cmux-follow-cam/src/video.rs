@@ -171,17 +171,22 @@ pub fn crop_plane(
     ow: usize,
     oh: usize,
 ) {
-    if sw == 0 || sh == 0 || src.len() < sw * sh || out.len() < ow * oh {
+    if sw == 0 || sh == 0 || ow == 0 || oh == 0 || src.len() < sw * sh || out.len() < ow * oh {
         return;
     }
     let xs = taps(rect.x, rect.w, ow, sw);
     let ys = taps(rect.y, rect.h, oh, sh);
-    for (oy, &(ya, yb, fy)) in ys.iter().enumerate() {
-        let (ra, rb) = (&src[ya * sw..ya * sw + sw], &src[yb * sw..yb * sw + sw]);
-        let row = &mut out[oy * ow..oy * ow + ow];
+    let rows: Vec<&[u8]> = src.chunks_exact(sw).take(sh).collect();
+    // The taps stay inside the plane, so a missing pixel never happens; it
+    // reads as black rather than a panic.
+    let px = |row: &[u8], i: usize| f32::from(row.get(i).copied().unwrap_or(0));
+    for (&(ya, yb, fy), row) in ys.iter().zip(out.chunks_exact_mut(ow)) {
+        let (Some(&ra), Some(&rb)) = (rows.get(ya), rows.get(yb)) else {
+            continue;
+        };
         for (o, &(xa, xb, fx)) in row.iter_mut().zip(&xs) {
-            let top = f32::from(ra[xa]) + (f32::from(ra[xb]) - f32::from(ra[xa])) * fx;
-            let bottom = f32::from(rb[xa]) + (f32::from(rb[xb]) - f32::from(rb[xa])) * fx;
+            let top = px(ra, xa) + (px(ra, xb) - px(ra, xa)) * fx;
+            let bottom = px(rb, xa) + (px(rb, xb) - px(rb, xa)) * fx;
             *o = (top + (bottom - top) * fy).round().clamp(0.0, 255.0) as u8;
         }
     }

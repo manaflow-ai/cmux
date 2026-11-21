@@ -49,7 +49,7 @@ impl FrameDiff {
     /// source's pixels (x, y). A frame of the wrong size says nothing and
     /// starts the comparison over.
     pub fn push(&mut self, gray: &[u8], scale: (f64, f64)) -> Vec<Signal> {
-        if gray.len() != self.w * self.h {
+        if self.w == 0 || self.h == 0 || gray.len() != self.w * self.h {
             self.prev = None;
             return Vec::new();
         }
@@ -60,12 +60,14 @@ impl FrameDiff {
         let block = self.config.block;
         let (bw, bh) = (self.w.div_ceil(block), self.h.div_ceil(block));
         let mut counts = vec![0usize; bw * bh];
-        for y in 0..self.h {
-            let row = y * self.w;
+        let rows = gray.chunks_exact(self.w).zip(prev.chunks_exact(self.w));
+        for (y, (row, prev_row)) in rows.enumerate() {
             let brow = (y / block) * bw;
-            for x in 0..self.w {
-                if gray[row + x].abs_diff(prev[row + x]) > self.config.pixel_threshold {
-                    counts[brow + x / block] += 1;
+            for (x, (&now, &before)) in row.iter().zip(prev_row).enumerate() {
+                if now.abs_diff(before) > self.config.pixel_threshold
+                    && let Some(count) = counts.get_mut(brow + x / block)
+                {
+                    *count += 1;
                 }
             }
         }
@@ -83,10 +85,9 @@ impl FrameDiff {
         let mut signals = Vec::new();
         let mut stack = Vec::new();
         for start in 0..changed.len() {
-            if !changed[start] {
+            if !changed.get_mut(start).is_some_and(std::mem::take) {
                 continue;
             }
-            changed[start] = false;
             stack.push(start);
             let (mut x0, mut y0, mut x1, mut y1) = (usize::MAX, usize::MAX, 0, 0);
             while let Some(i) = stack.pop() {
@@ -95,8 +96,7 @@ impl FrameDiff {
                 for ny in by.saturating_sub(1)..=(by + 1).min(bh - 1) {
                     for nx in bx.saturating_sub(1)..=(bx + 1).min(bw - 1) {
                         let n = ny * bw + nx;
-                        if changed[n] {
-                            changed[n] = false;
+                        if changed.get_mut(n).is_some_and(std::mem::take) {
                             stack.push(n);
                         }
                     }
@@ -140,7 +140,8 @@ pub fn thumbnail(luma: &[u8], w: usize, h: usize, out_w: usize) -> (Vec<u8>, usi
         for &(xa, xb) in &columns {
             let mut sum = 0u64;
             for y in ya..yb {
-                sum += luma[y * w + xa..y * w + xb].iter().map(|&v| u64::from(v)).sum::<u64>();
+                let row = luma.get(y * w + xa..y * w + xb).unwrap_or_default();
+                sum += row.iter().map(|&v| u64::from(v)).sum::<u64>();
             }
             let n = ((yb - ya) * (xb - xa)) as u64;
             out.push(((sum + n / 2) / n) as u8);

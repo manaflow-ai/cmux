@@ -128,6 +128,9 @@ fn run(args: &Args) -> Result<(), String> {
         return Err(format!("expected 4:4:4 frames from ffmpeg, got {}", header.chroma));
     }
     let (w, h) = (header.w, header.h);
+    if w == 0 || h == 0 {
+        return Err(format!("ffmpeg gave {w}x{h} frames"));
+    }
     let frame_bytes = header.frame_bytes()?;
     let (ow, oh) = args.aspect.output_size(args.width);
     let (ow, oh) = (ow as usize, oh as usize);
@@ -195,7 +198,8 @@ fn run(args: &Args) -> Result<(), String> {
             camera.push(*event);
         }
         if args.damage {
-            let (gray, _) = thumbnail(&frame[..w * h], w, h, THUMB_W);
+            let luma = frame.get(..w * h).unwrap_or_default();
+            let (gray, _) = thumbnail(luma, w, h, THUMB_W);
             for signal in diff.push(&gray, scale) {
                 match signal {
                     cmux_follow_cam::Signal::Cut => cuts += 1,
@@ -206,16 +210,8 @@ fn run(args: &Args) -> Result<(), String> {
         }
         let rect = camera.advance(t_us);
         path.push(Frame { t_us, rect });
-        for plane in 0..3 {
-            crop_plane(
-                &frame[plane * w * h..(plane + 1) * w * h],
-                w,
-                h,
-                rect,
-                &mut out[plane * ow * oh..(plane + 1) * ow * oh],
-                ow,
-                oh,
-            );
+        for (src, dst) in frame.chunks_exact(w * h).zip(out.chunks_exact_mut(ow * oh)) {
+            crop_plane(src, w, h, rect, dst, ow, oh);
         }
         frames_out
             .write_all(b"FRAME\n")
