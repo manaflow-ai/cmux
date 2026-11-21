@@ -234,6 +234,10 @@ pub(super) async fn route(
         "_acpmux/chats_watch" => {
             let on = params.get("enabled").and_then(Value::as_bool).unwrap_or(true);
             let query = ChatQuery::from_params(&params).map_err(RpcError::invalid_params)?;
+            // A chats watch hears every chat's activity (`push_activity`), attached or not.
+            if on {
+                conn.interest.hear_activity();
+            }
             if let Some(service) = &service {
                 if !on {
                     service.watch_off(&conn.id);
