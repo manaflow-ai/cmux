@@ -3149,11 +3149,21 @@ def plan(o):
         state["current"].setdefault("measure_version", tip_version)
     if measurement_id(state.get("current")) != loaded_id:
         clear_parts(o.dir)  # a dropped or replaced measurement's part files must never be read as the new one's
-    for requested in (d.get("part"), d.get("linux_part")):
+    linux_request = ""
+    if d.get("linux_part") and state.get("current"):
+        route = linux_route(state["current"], d["linux_part"], t, bool(getattr(o, "linux_controller", False)),
+                            commit_has(d["sha"], LINUX_SCRIPT))
+        if route != "runner":
+            linux_request = d["linux_part"] if route == "request" else ""
+            print(f"perf-cron: Linux part {d['linux_part']}: "
+                  + ("asked of the build controller" if linux_request else "its request to the build controller waits for an answer"))
+            d["linux_part"] = ""
+    for requested in (d.get("part"), d.get("linux_part"), linux_request):
         if requested and state.get("current"):
             # What this file asks the part to measure with: its rows carry it (a later tick may run a newer file).
             state["current"].setdefault("configs", {})[requested] = part_config(requested)
     out = {"action": d["action"], "sha": d.get("sha", ""), "part": d.get("part", ""), "linux_part": d.get("linux_part", ""),
+           "linux_request": linux_request,
            "worker": d.get("worker", ""), "reason": d["reason"], "stale_hours": round(stale_hours(state, t), 1),
            "not_measuring": state.get("not_measuring") or ""}
     if d.get("linux_part"):
@@ -3683,6 +3693,8 @@ def record_part(cur, part, result, run_url, t=None):
     failure: the next part builds the app itself (split-spring.sh --app-cache builds on a cache miss)."""
     if t is not None and not is_linux_part(part):
         end_yield(cur, t)
+    if is_linux_part(part) and isinstance(cur.get("linux_requests"), dict):
+        cur["linux_requests"].pop(part, None)  # answered (any result): the next ask starts a new count
     if not is_linux_part(part) and (not cur.get("host") or result.get("worker") in (None, cur.get("host"))):
         cur.pop("host_asked_since", None)  # the host answered (any result): give_up_host's wait starts again
     entry = dict(cur["parts"].get(part) or {"yields": 0})
@@ -4044,6 +4056,74 @@ def next_now(state, fleet_done):
     return bool(bisect_groups(state))
 
 
+# The Linux parts on the build controller (Leo, 2026-11-19, on Blacksmith: "stop ... relying on it"; Blacksmith stays
+# only as an overflow fallback). With vars.CMUX_NEXT_PERF_CRON_LINUX_CONTROLLER=1 the plan asks for the Linux part with
+# the job `perf cron request <sha> <part>` (the Mac parts' route, cmuxterm-hq perf_cron.go perfCronLinuxParts): the
+# controller runs LINUX_SCRIPT on an idle Linux pool worker of one machine type, which calls run-linux-part unchanged
+# and returns its report and result as LINUX_STEP_ARTIFACT. The rows carry LINUX_FLEET_CLASS, never the VM's name
+# (each pool VM is new, so its rows would never have a reference). A request with no answer within
+# linux_answer_minutes is unanswered; after LINUX_REQUESTS_MAX of them the part runs on the runner job once, and
+# then the controller is asked again.
+LINUX_SCRIPT = "scripts/measure/perf-cron-linux.sh"
+LINUX_STEP_ARTIFACT = "artifacts/perf-cron-linux/step.json"
+LINUX_FLEET_CLASS = "fleet-linux-c4d-32"
+LINUX_REQUESTS_MAX = 2
+# Past the part's own cap: the controller keeps a request until a worker is idle (perfCronWaitFor), and the result
+# reaches the state through a result run or replay-results.
+LINUX_ANSWER_SLACK_MINUTES = 60
+
+
+def linux_answer_minutes(part):
+    """How long a Linux part's request may go unanswered before it counts as such (pure)."""
+    return linux_job_minutes(part) + LINUX_ANSWER_SLACK_MINUTES
+
+
+def linux_route(cur, part, t, controller, has_script):
+    """Where this tick runs Linux part PART: 'request' (ask the build controller), 'wait' (a request is in its answer
+    window: nothing else runs it) or 'runner' (the linux job). Keeps cur['linux_requests'][part]; record_part clears
+    it. Without the controller route, or at a commit without LINUX_SCRIPT, always 'runner'."""
+    if not controller or not has_script:
+        return "runner"
+    asks = cur.setdefault("linux_requests", {})
+    ask = asks.get(part) if isinstance(asks.get(part), dict) else None
+    if ask is None:
+        asks[part] = {"asked_at": iso(t), "unanswered": 0}
+        return "request"
+    asked = parse_started(ask.get("asked_at"))
+    if asked and (t - asked).total_seconds() < linux_answer_minutes(part) * 60:
+        return "wait"
+    if ask.get("fell_back_at"):
+        # The runner had its window too: back to the controller, a new count.
+        asks[part] = {"asked_at": iso(t), "unanswered": 0}
+        return "request"
+    ask["unanswered"] = int(ask.get("unanswered") or 0) + 1
+    ask["asked_at"] = iso(t)
+    if ask["unanswered"] >= LINUX_REQUESTS_MAX:
+        ask["fell_back_at"] = iso(t)
+        return "runner"
+    return "request"
+
+
+def commit_has(sha, path):
+    """Whether commit SHA has PATH (the clone the plan runs in)."""
+    return bool(sha) and subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{path}"],
+                                        capture_output=True).returncode == 0
+
+
+def linux_step_files(artifact, result):
+    """(report, result) of a Linux part's controller step from its LINUX_STEP_ARTIFACT (pure): run-linux-part's own
+    report and result, the result's worker the fleet class. An artifact without both is a failed part, no report."""
+    inner = artifact.get("result") if isinstance(artifact, dict) else None
+    report = artifact.get("report") if isinstance(artifact, dict) else None
+    if not isinstance(inner, dict) or not isinstance(report, dict):
+        return None, {**result, "state": "failed", "tail": [*result.get("tail", []), "the Linux step's artifact has no report and result"]}
+    worker = inner.get("worker") if isinstance(inner.get("worker"), str) and HOST_RE.match(inner["worker"]) else LINUX_FLEET_CLASS
+    state = inner.get("state") if inner.get("state") in ("done", "failed") else "failed"
+    tail = [str(x) for x in inner.get("tail") or []][-40:]
+    return report, {**result, "state": state, "worker": worker, "seconds": inner.get("seconds", result.get("seconds")),
+                    "tail": [*result.get("tail", []), *tail]}
+
+
 # The controller route (cmuxterm-hq build-fleet/cmd/controller/perf_cron.go, CMUX_CI_PERF_CRON=1): the plan's job
 # `perf cron request <sha> <part>[ on <worker>]` asks the controller for the part; it queues the background step on an
 # idle measure worker (the named one, else cmux20-bench first, then the others), and dispatches this workflow with
@@ -4059,7 +4139,7 @@ def controller_result(raw):
         return None
     # A field of the wrong type (a feed entry's "part": []) is no result, not a TypeError (review of cmux#47673).
     if not isinstance(value, dict) or not is_sha(str(value.get("sha") or "")) or not isinstance(value.get("part"), str) \
-            or value.get("part") not in PART_BY_NAME or is_linux_part(value.get("part")) \
+            or value.get("part") not in PART_BY_NAME \
             or not isinstance(value.get("state"), str) or value.get("state") not in RESULT_STATES \
             or not isinstance(value.get("step_id"), (str, int, type(None))):
         return None
@@ -4108,7 +4188,8 @@ def result_files(value):
     parts (build_failed), a step past its cap is timed out, a pre-empted or unstarted one yielded."""
     tail = [line for line in (value.get("error"),) if line]
     return {"state": value["state"], "step_id": value.get("step_id"), "seconds": value.get("seconds"),
-            "exit": value.get("exit_code"), "yielded_to": value.get("preempted_by"), "worker": value.get("worker"),
+            "exit": value.get("exit_code"), "yielded_to": value.get("preempted_by"),
+            "worker": LINUX_FLEET_CLASS if is_linux_part(value.get("part")) else value.get("worker"),
             "timed_out": bool(value.get("timed_out")), "tail": tail, "host_gone": bool(value.get("host_gone")),
             "build_failed": value.get("part") == "build" and value["state"] == "failed" and not value.get("timed_out")}
 
@@ -4129,8 +4210,11 @@ def cmd_fetch_result(o):
                 raise ValueError("no https artifact URL")
             with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "cmux-perf-cron"}), timeout=120) as r:
                 report = json.load(r)
-            with open(os.path.join(o.out, "report.json"), "w") as f:
-                json.dump(report, f)
+            if is_linux_part(value["part"]):
+                report, result = linux_step_files(report, result)
+            if report is not None:
+                with open(os.path.join(o.out, "report.json"), "w") as f:
+                    json.dump(report, f)
         except (OSError, ValueError, urllib.error.URLError) as error:
             result.update(state="failed", tail=result["tail"] + [f"artifact not read: {error!r}"])
     with open(os.path.join(o.out, "result.json"), "w") as f:
@@ -4237,6 +4321,8 @@ def main(argv=None):
     s.add_argument("--tip", default="HEAD")
     s.add_argument("--yield-mode", default="queued", choices=["queued", "running"])
     s.add_argument("--no-mac", action="store_true", help="no route for the Mac parts: plan only the Linux part")
+    s.add_argument("--linux-controller", action="store_true",
+                   help="ask the build controller for the Linux part first (vars.CMUX_NEXT_PERF_CRON_LINUX_CONTROLLER=1)")
     s.add_argument("--controller", action="store_true",
                    help="the Mac parts go through the build controller's request route: a request has no answer until "
                         "its result run, so that wait is a yield, not active time")
