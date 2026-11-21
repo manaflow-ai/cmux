@@ -9561,6 +9561,7 @@ Params:
 | `surface` | `Id` | required unless identity pair supplied | Must identify a live PTY or negotiated browser surface |
 | `expected_generation` | `string` | default null | `attach-identity-v1`; paired with `expected_terminal_id` |
 | `expected_terminal_id` | `string` | default null | Public terminal ID, validated against the live surface |
+| `terminal_id` | `string` | default null | `attach-terminal-id-v1`; the durable terminal, resolved as `resolve-terminal` does: its current surface is attached (`surface` is only a hint) and named in the reply's `surface`; refusals are `terminal_not_found`, `terminal_exited [exit_code=N]`, `terminal_not_on_surface` |
 | `mode` | `string` | default `"bytes"` | Protocol 7: `"bytes"` or `"render"` |
 | `cols` | `uint16` | default null | `attach-initial-size` capability; paired with `rows`, clamped to at least 1 |
 | `rows` | `uint16` | default null | `attach-initial-size` capability; paired with `cols`, clamped to at least 1 |

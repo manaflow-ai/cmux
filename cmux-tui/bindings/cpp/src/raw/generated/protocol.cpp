@@ -17561,6 +17561,11 @@ Result<Json> Codec<AttachSurfaceRequest>::encode(const AttachSurfaceRequest& val
         if (!encoded) return std::move(encoded).error();
         object.emplace("surface", std::move(encoded).value());
     }
+    if (!value.terminal_id.is_absent()) {
+        auto encoded = encode_value(value.terminal_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("terminal_id", std::move(encoded).value());
+    }
     if (!value.viewer_backlog_bytes.is_absent()) {
         auto encoded = encode_value(value.viewer_backlog_bytes);
         if (!encoded) return std::move(encoded).error();
@@ -17713,6 +17718,16 @@ Result<AttachSurfaceRequest> Codec<AttachSurfaceRequest>::decode(const Json& val
             auto decoded = decode_value<Id>(*field_surface);
             if (!decoded) return std::move(decoded).error();
             result.surface = Field<Id>(std::move(decoded).value());
+        }
+    }
+    const Json* field_terminal_id = value.find("terminal_id");
+    if (field_terminal_id) {
+        if (field_terminal_id->is_null()) {
+            result.terminal_id = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_terminal_id);
+            if (!decoded) return std::move(decoded).error();
+            result.terminal_id = Field<std::string>(std::move(decoded).value());
         }
     }
     const Json* field_viewer_backlog_bytes = value.find("viewer_backlog_bytes");
@@ -47327,7 +47342,7 @@ Result<Event> Codec<Event>::decode(const Json& value) {
 }
 
 namespace {
-constexpr std::array<CommandFieldRequirement, 15> kCommand4FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 16> kCommand4FieldRequirements{{
     {"cols", 0U, "attach-initial-size"},
     {"expected_generation", 0U, "attach-identity-v1"},
     {"expected_terminal_id", 0U, "attach-identity-v1"},
@@ -47342,6 +47357,7 @@ constexpr std::array<CommandFieldRequirement, 15> kCommand4FieldRequirements{{
     {"snapshot_images", 0U, "terminal-snapshot-images-v1"},
     {"snapshot_local_history", 0U, "terminal-snapshot-local-history-v1"},
     {"snapshot_version", 0U, "terminal-snapshot-v1"},
+    {"terminal_id", 0U, "attach-terminal-id-v1"},
     {"viewer_backlog_bytes", 0U, "terminal-snapshot-v1"},
 }};
 constexpr std::array<CommandFieldRequirement, 1> kCommand23FieldRequirements{{

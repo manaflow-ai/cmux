@@ -1289,6 +1289,62 @@ fn replay_history_rows_capability_is_advertised() {
     mux.shutdown();
 }
 
+// ---- attach-terminal-id-v1 --------------------------------------------
+
+#[test]
+fn attach_terminal_id_is_advertised_and_resolves_the_terminal_in_the_attach() {
+    let mux = Mux::new_for_test("attach-terminal-id", SurfaceOptions::default());
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let terminal = surface.terminal_public_id().unwrap().to_string();
+    let (writer, outbound) = captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let identity =
+        handle_command(&mux, client, command(json!({"cmd": "identify"})), &writer).unwrap();
+    assert!(
+        identity["capabilities"].as_array().unwrap().iter().any(|v| v == "attach-terminal-id-v1"),
+        "{identity}"
+    );
+
+    // A stale surface number: the terminal's own surface is attached and named in the reply.
+    let reply = handle_command(
+        &mux,
+        client,
+        command(json!({"cmd": "attach-surface", "terminal_id": terminal, "surface": 9_999,
+                       "cols": 80, "rows": 24})),
+        &writer,
+    )
+    .unwrap();
+    assert_eq!(reply["surface"], json!(surface.id), "{reply}");
+    let first = next_event(&outbound, Duration::from_secs(5)).expect("vt-state");
+    assert_eq!(first["event"], "vt-state", "{first}");
+    assert_eq!(first["surface"], json!(surface.id), "{first}");
+    disconnect_client(&mux, client, false);
+
+    // Unknown, and closed (no surface, exit known): the answers resolve-terminal gives.
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let unknown = format!("term_{}", "0".repeat(32));
+    let error = handle_command(
+        &mux,
+        client,
+        command(json!({"cmd": "attach-surface", "terminal_id": unknown, "surface": surface.id})),
+        &writer,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("terminal_not_found"), "{error:#}");
+    let incarnation = mux.resolve_terminal(&terminal).unwrap().unwrap().terminal.incarnation;
+    mux.close_terminal(&terminal, incarnation.as_deref().unwrap_or_default()).unwrap();
+    let error = handle_command(
+        &mux,
+        client,
+        command(json!({"cmd": "attach-surface", "terminal_id": terminal, "surface": surface.id})),
+        &writer,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("terminal_exited"), "{error:#}");
+    disconnect_client(&mux, client, false);
+    mux.shutdown();
+}
+
 /// Latest screen first (cmuxterm-hq#7231): a bytes attach with
 /// `replay_history_rows` gets a `vt-state` that rebuilds the screen and only
 /// that many of the newest history rows, and names how many older rows it
