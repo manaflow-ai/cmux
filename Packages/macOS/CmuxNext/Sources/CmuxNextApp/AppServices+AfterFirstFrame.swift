@@ -50,12 +50,18 @@ extension AppServices {
         DebugTimings.markLaunch("launch.non_paint_services")
     }
 
-    /// Warm-ups for later tabs (WebKit for agent pages, Chromium, the New Tab spare, page hosts)
+    /// Warm-ups for later tabs (WebKit for agent pages, Chromium)
     /// and the agent tab import. Each reads current state when it starts, so nothing the window build did is missed.
     func startLaterTabWarmups() {
         AgentPaneView.startWarmup()
         DebugTimings.markLaunch("launch.agent_page_warmup")
         if !crashRecovery.recovery.isSafeRestart { startChromiumWarmup() }
+        AgentTabImport.start(self)
+        DebugTimings.markLaunch("launch.post_window_warmups")
+    }
+
+    /// The New Tab spare page and the page host pool's spare, once the open workspace is live (`LaunchBackgroundHold`).
+    func startHiddenPageSpares() {
         newTabSpares.start()
         pageHostPool.start(
             isMainWindow: { [weak self] window in
@@ -65,7 +71,5 @@ extension AppServices {
                 self?.windows.controllers.compactMap(\.window).first { $0 !== window && $0.isVisible }
             })
         pageHostPool.noteLikely()
-        AgentTabImport.start(self)
-        DebugTimings.markLaunch("launch.post_window_warmups")
     }
 }
