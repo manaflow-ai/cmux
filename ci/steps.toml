@@ -292,6 +292,58 @@ python3 -I scripts/ci/check-swift-acpmux-protocol.py || rc=1
 exit "$rc"
 '''
 
+# Python-only checks whose pull request runs each took a Linux job of their own (agent-brands.yml's
+# drift job, terminal-hang-diagnostics.yml's release-gate job, repair-nightly-appcast-content-types.yml's
+# test job). Those workflows keep their push, dispatch and macOS runs; a pull request runs these here.
+# `inputs` is each workflow's former pull_request path filter, less the workflow file.
+[step.agent-brands-drift]
+job = "linux"
+timeout = 300
+title = "Agent brand icons are generated from design/agent-icons"
+about = "the generated agent brand catalog (Swift, TS, Rust) matches design/agent-icons and every SVG keeps the rules and size budget; agent-brands.yml keeps the Swift tests on macOS"
+inputs = [
+  "design/agent-icons/**",
+  "scripts/agent-icons/**",
+  "scripts/icons/build_pack.py",
+  "Packages/Shared/CmuxAgentBrands/**",
+  "webviews/src/agent-session/shared/agentBrands.generated.ts",
+  "agent-chat/src/agentBrands.generated.ts",
+  "cmux-tui/crates/acpmux/src/chats/brand/table.rs",
+  "scripts/select-ci-xcode.sh",
+  "scripts/ci/xcode-pins.txt",
+  ".xcode-version",
+]
+run = "python3 scripts/agent-icons/generate.py --check --sizes"
+
+[step.terminal-hang-release-gate]
+job = "linux"
+timeout = 300
+title = "Terminal hang release gate"
+about = "the terminal hang release gate (scripts/terminal-hang-release-gate.py) passes its tests; terminal-hang-diagnostics.yml keeps phase attribution on macOS"
+inputs = [
+  "Packages/Shared/CMUXMobileCore/**",
+  "Packages/Shared/CmuxSentryTelemetry/**",
+  "cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+  "scripts/select-ci-xcode.sh",
+  "scripts/ci/xcode-pins.txt",
+  ".xcode-version",
+  "scripts/terminal-hang-release-gate.py",
+  "tests/test_terminal_hang_release_gate.py",
+]
+run = "python3 tests/test_terminal_hang_release_gate.py"
+
+[step.repair-nightly-appcast]
+job = "linux"
+timeout = 300
+title = "Nightly appcast Content-Type repair tests"
+about = "the nightly appcast Content-Type repair (scripts/ci/repair-nightly-appcast-content-types.py) passes its tests; the repair itself stays a dispatch of repair-nightly-appcast-content-types.yml"
+inputs = [
+  "scripts/ci/repair-nightly-appcast-content-types.py",
+  "scripts/ci/upload-r2-object.py",
+  "tests/test_repair_nightly_appcast_content_types.py",
+]
+run = "python3 tests/test_repair_nightly_appcast_content_types.py"
+
 # The description lints from pr-body-checks.yml. They judge the description, not the code, and only
 # ever warned (Leo, 2026-11-01: "keep only what catches real breakage"; cmuxterm-hq#5745).
 [step.design-spec]
