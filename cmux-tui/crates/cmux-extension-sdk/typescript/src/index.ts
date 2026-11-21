@@ -156,6 +156,12 @@ export interface ComposerCommand {
   insert: string
 }
 
+/** Data-only `options` of `cmux.composer.model.picker/1`. */
+export interface ComposerModelPickerOptions {
+  modelMenu: 'search'
+  reasoningMenu: 'column' | 'separate'
+}
+
 /** The `options` of `cmux.composer.command/1`. */
 export interface ComposerCommandOptions {
   commands: ComposerCommand[]

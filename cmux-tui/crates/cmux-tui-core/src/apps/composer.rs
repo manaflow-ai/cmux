@@ -153,7 +153,13 @@ impl Supervisor {
                 })
             })
             .collect();
-        json!({ "commands": commands, "mentions": mentions })
+        let mut result = json!({ "commands": commands, "mentions": mentions });
+        if let Some((_, _, options)) =
+            places(&inner, "cmux.composer.model.picker/1").into_iter().next()
+        {
+            result["modelPicker"] = options.clone();
+        }
+        result
     }
 
     /// `apps.composer.mentions {query, prefix?, limit?}`: the items that
