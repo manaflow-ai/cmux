@@ -258,6 +258,28 @@ status=0; out=$(run CMUX_CI_STEP_KEY=k 2>&1) || status=$?
 printf '{"devEngines": {"packageManager": {"name": "bun", "version": "1.4.4"}}}\n' >"$W/webviews/package.json"
 ARGS=(web extra)
 run CMUX_CI_STEP_KEY=k >/dev/null && fail "web accepted an argument"
+# clippy-changed BASE builds cmux-tailnet, whose build.rs needs the Go in cmux-tui/crates/cmux-tailnet/go-version
+# (cmux#45480, cmux#46734 on the Linux pool: no Go 1.27.1 on the image). The step sets it up itself
+# (tailnet-go.sh, GOTOOLCHAIN=auto) before any cargo runs; with no Go to be had it ends as a setup fault
+# (exit 3, no verdict), never as the change's clippy red.
+base_sha=$(git -C "$W" rev-parse HEAD)
+mkdir -p "$W/scripts/ci"
+printf '#!/usr/bin/env python3\nimport os, shutil\nopen("%s", "a").write("clippy-changed GOTOOLCHAIN=%%s go=%%s\\n" %% (os.environ.get("GOTOOLCHAIN", "unset"), shutil.which("go")))\n' "$TMP/calls" >"$W/.github/scripts/cmux-tui-clippy-changed.py"
+: >"$W/.github/scripts/cmux-tui-fmt-changed.py"
+ARGS=(clippy-changed "$base_sha")
+: >"$TMP/calls"
+status=0; out=$(run CMUX_CI_STEP_KEY=k) || status=$?
+[[ "$status" == 3 ]] || fail "clippy-changed with no Go to be had must exit 3 (setup), got $status: $out"
+grep -q 'no pinned Go for' <<<"$out" || fail "clippy-changed did not say why it has no Go: $out"
+grep -q '^clippy-changed' "$TMP/calls" && fail "clippy ran with no Go for cmux-tailnet: $(calls)"
+printf '#!/bin/bash\n[[ "$1" == version ]] && echo "go version go1.24.9 linux/amd64"\n' >"$TMP/bin/go"
+chmod +x "$TMP/bin/go"
+: >"$TMP/calls"
+out=$(run CMUX_CI_STEP_KEY=k) || true
+grep -q "^clippy-changed GOTOOLCHAIN=auto go=$TMP/bin/go$" "$TMP/calls" || fail "clippy did not run with the host Go and GOTOOLCHAIN=auto: $(calls) $out"
+rm -f "$TMP/bin/go" "$W/.github/scripts/cmux-tui-clippy-changed.py" "$W/.github/scripts/cmux-tui-fmt-changed.py"
+rm -rf "$W/.build"
+: >"$TMP/calls"
 ARGS=(deploy)
 run CMUX_CI_STEP_KEY=k >/dev/null && fail "accepted an unknown mode"
 [[ -z "$(calls)" ]] || fail "tools ran for a refused request: $(calls)"
