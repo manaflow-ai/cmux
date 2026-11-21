@@ -5,9 +5,9 @@ import CmuxNextTestSupport
 import Foundation
 import Testing
 
-/// Classic cmux shows browser focus mode as a toolbar chip ("Focus Mode", then "Esc again to
-/// exit" after the first Escape) that leaves focus mode on click. cmux-next showed only a 2 pt
-/// outline, so nothing said how to get out (Lawrence 2026-10-20).
+/// cmux mode (the browser focus mode flag, CMUX-641) shows as a toolbar chip, "cmux Mode", that leaves the mode
+/// on click, as classic cmux's focus mode chip did. cmux-next showed only a 2 pt outline, so nothing said how to
+/// get out (Lawrence 2026-10-20).
 @MainActor @Suite(.serialized, .closesItsWindows) struct FocusModeBadgeTests {
     private func chrome() -> (BrowserChromeView, NSWindow) {
         let engine = MockBrowserEngine()
@@ -22,18 +22,36 @@ import Testing
         return (chrome, window)
     }
 
-    @Test func badgeFollowsFocusModeAndExitArm() {
+    @Test func badgeFollowsCmuxMode() {
         let (chrome, window) = chrome()
         defer { window.close() }
         #expect(!chrome.addressBar.showsFocusModeBadge)
         chrome.showsFocusModeIndicator = true
         #expect(chrome.addressBar.showsFocusModeBadge)
-        #expect(chrome.addressBar.focusModeBadgeText == Strings.focusModeActive)
-        chrome.focusModeExitArmed = true
-        #expect(chrome.addressBar.focusModeBadgeText == Strings.focusModeArmed)
+        #expect(chrome.addressBar.focusModeBadgeText == "cmux mode")
         chrome.showsFocusModeIndicator = false
         #expect(!chrome.addressBar.showsFocusModeBadge)
-        #expect(!chrome.focusModeExitArmed)
+    }
+
+    /// The notice names the key the page got and the cmux mode toggle, Command first (Lucas 2026-11-19).
+    @Test func noticeNamesTheKeyAndTheToggleCommandFirst() {
+        let message = BrowserCmuxModeNotice(key: "⌘K", toggle: "⌥⌘↩").message
+        #expect(message.contains("⌘K"))
+        #expect(message.contains("⌘⌥↩"))
+        #expect(BrowserCmuxModeNotice.commandFirst("⌥⌘↩") == "⌘⌥↩")
+        #expect(BrowserCmuxModeNotice.commandFirst("⌘K") == "⌘K")
+        #expect(BrowserCmuxModeNotice.commandFirst("⌃⌥") == "⌃⌥")
+    }
+
+    /// The tooltip says how to leave, as macOS says it for full screen, with the toggle's keys Command first.
+    @Test func tooltipNamesTheToggle() {
+        let (chrome, window) = chrome()
+        defer { window.close() }
+        chrome.cmuxModeKeys = "⌥⌘↩"
+        chrome.showsFocusModeIndicator = true
+        #expect(chrome.addressBar.focusModeBadgeView.themedToolTip == "Press ⌘⌥↩ to exit cmux mode")
+        chrome.cmuxModeKeys = nil
+        #expect(chrome.addressBar.focusModeBadgeView.themedToolTip == "Click to exit cmux mode")
     }
 
     @Test func clickingBadgeAsksHostToLeave() {

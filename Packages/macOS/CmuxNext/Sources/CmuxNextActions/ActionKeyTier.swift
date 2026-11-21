@@ -3,12 +3,11 @@ public import AppKit
 /// Where an action's shortcut sits in the key routing order
 /// (plans/cmux-next/focus.md section 5). Lower tiers run first.
 public nonisolated enum ActionKeyTier: Int, Comparable, CaseIterable, Sendable {
-    /// App and window control. Always runs: no content or text field can
-    /// capture it. Browser focus mode gives these keys to the page too,
-    /// except its own toggle and Quit (the key router's rule).
+    /// App and window control. Always runs: no content, page or text field
+    /// can capture it.
     case system = 0
-    /// Navigation and layout. Beats terminal keybinds, page shortcuts and
-    /// text fields; yields to browser focus mode.
+    /// Navigation and layout. Beats terminal keybinds and text fields; a
+    /// Chromium page gets it first outside cmux mode (`PageShortcutRoute`).
     case navigation = 1
     /// Acts on the focused content. Runs only when that content has the
     /// keyboard, never while a text field does.
@@ -34,8 +33,7 @@ public nonisolated enum ActionKeyTier: Int, Comparable, CaseIterable, Sendable {
         }
     }
 
-    /// Actions that must always work, even in a text field. In browser
-    /// focus mode only the exit chord and Quit keep their keys.
+    /// Actions that must always work, even in a text field or a web page.
     static let systemActions: Set<ActionID> = [
         "quit", "closeTab", "closeWorkspace", "closeWindow", "newWindow", "newIncognitoWindow", "commandPalette",
         "toggleBrowserFocusMode", "openSettings", "showHideAllWindows", "toggleFullScreen",

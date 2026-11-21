@@ -18,6 +18,7 @@ struct BrowserChromeTabHooks {
         chrome.pageInfoCommandRouter = state.pageInfoCommandRouter
         chrome.extensionMenuHandler = state.extensionMenuHandler
         chrome.onFocusModeBadgePress = state.onFocusModeBadgePress
+        chrome.cmuxModeKeys = state.cmuxModeKeys
         let bar = chrome.addressBar
         if let engine = state.suggestionEngine, engine !== bar.suggestionEngine { bar.suggestionEngine = engine }
         bar.tabKey = state.tabKey
@@ -35,7 +36,6 @@ struct BrowserChromeTabHooks {
         // toolbar next (`toolbarButtons.bind(_:modes:)`), which observes and renders them once.
         buttons.batchSources(rendering: false) { state.configureToolbar?(buttons) }
         chrome.showsFocusModeIndicator = state.showsFocusModeIndicator
-        chrome.focusModeExitArmed = state.focusModeExitArmed
         if chrome.accessoryView !== state.accessory?.view {
             chrome.setAccessoryView(state.accessory?.view, height: state.accessory?.height ?? 0)
         }

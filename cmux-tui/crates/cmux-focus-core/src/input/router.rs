@@ -557,8 +557,7 @@ impl InputRouter {
                 Some(class) => (class, false),
                 None => (Class::of(&focus.derived.resolved), key.terminal_copy_mode),
             };
-            let focus_mode = focus.derived.browser_focus_mode_active;
-            if !goes_to_view(binding, class, copy_mode) && allows(binding, class, focus_mode) {
+            if !goes_to_view(binding, class, copy_mode) && allows(binding, class) {
                 if dialog.is_none()
                     && let Some(page) = self.offer_target(binding, key, focus, aim.sink.as_ref())
                 {

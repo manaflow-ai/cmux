@@ -205,7 +205,7 @@ public nonisolated struct FocusState: Hashable, Sendable, Codable {
     /// The registry context bits: the sidebar, other text fields, sheets and
     /// rename prompts clear them; the palette keeps the bits of what is below.
     public var context = Context()
-    /// The focused page is in browser focus mode.
+    /// The focused page is in browser focus mode, shown as cmux mode (CMUX-641): cmux shortcuts win over its own.
     public var isBrowserFocusModeActive = false
     /// The tab a key typed now is for: the tab the focus is on its way to (a creation's new tab,
     /// shown and focused in the key's frame), else the focused terminal's tab. A creation hold binds
