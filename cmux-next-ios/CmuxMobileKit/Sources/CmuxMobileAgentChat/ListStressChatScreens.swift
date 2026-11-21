@@ -122,7 +122,7 @@ enum ListStressChatScreens {
             }
             if giant, index == 1 {
                 store.apply(.subagentUpdate(subagentID: transcriptID,
-                                            .agentMessageChunk(text: ListStressSettings.giantPrompt(index), messageId: "rig-giant")))
+                                            .agentMessageChunk(text: MockStressContent.giantPrompt(index), messageId: "rig-giant")))
                 continue
             }
             store.apply(.subagentUpdate(subagentID: transcriptID, item(index)))
