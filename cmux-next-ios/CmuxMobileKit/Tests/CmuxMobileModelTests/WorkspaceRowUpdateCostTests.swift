@@ -75,4 +75,15 @@ import Testing
         #expect(store.workspaces[1].title == "Workspace 1")
         #expect(store.workspaces[3].title == "on m2")
     }
+
+    /// The Workspaces page asks whether the active space has a workspace on every pass: the
+    /// answer matches the filtered list's, and moves with the active space.
+    @Test func hasActiveWorkspacesMatchesTheFilteredList() {
+        let store = AppStore.mock()
+        #expect(store.hasActiveWorkspaces == !store.activeWorkspaces.isEmpty)
+        let others = store.workspaces.filter { ws in !(store.activeTeam?.macs.contains { $0.id == ws.macID } ?? false) }
+        store.workspaces = others
+        #expect(store.hasActiveWorkspaces == !store.activeWorkspaces.isEmpty)
+        #expect(!store.hasActiveWorkspaces || !store.activeWorkspaces.isEmpty)
+    }
 }

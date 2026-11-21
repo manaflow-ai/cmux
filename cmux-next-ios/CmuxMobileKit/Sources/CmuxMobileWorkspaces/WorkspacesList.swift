@@ -173,7 +173,7 @@ public struct WorkspacesList: View {
     /// The page's one state for the team's data (CMUX-49): first load, the list, no Mac, or failed.
     private var launchState: WorkspacesLaunchState {
         WorkspacesLaunchState.resolve(team: store.teamDataState, hasMacs: !macs.isEmpty,
-                                      hasWorkspaces: !store.activeWorkspaces.isEmpty, isOffline: store.isOffline)
+                                      hasWorkspaces: store.hasActiveWorkspaces, isOffline: store.isOffline)
     }
 
     /// The list's own placeholder rows fill the page (Macs known, no rows yet).

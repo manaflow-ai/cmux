@@ -349,6 +349,13 @@ public final class AppStore {
     }
 
     /// Workspaces on the active team's Macs.
+    /// Whether the active space has a workspace: stops at the first one (the Workspaces page asks
+    /// on every pass; `activeWorkspaces` copied every row it kept).
+    public var hasActiveWorkspaces: Bool {
+        let macIDs = Set(activeTeam?.macs.map(\.id) ?? [])
+        return workspaces.contains { macIDs.contains($0.macID) }
+    }
+
     public var activeWorkspaces: [Workspace] {
         let macIDs = Set(activeTeam?.macs.map(\.id) ?? [])
         return workspaces.filter { macIDs.contains($0.macID) }
