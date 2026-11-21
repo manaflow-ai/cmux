@@ -833,7 +833,9 @@ impl Hub {
         list
     }
 
-    pub(super) fn apply_peer_notice(
+    /// [`Self::apply_peer_notice`]'s work, without the closed-row bound's check
+    /// (`peer_closed_bound.rs`).
+    pub(super) fn apply_peer_notice_rows(
         &self,
         peer: &str,
         generation: u64,
@@ -904,6 +906,9 @@ impl Hub {
                     // Read the old summaries once writers settled, then do all JSON projection and
                     // comparison work without it. The single-consumer notice loop keeps another
                     // notice for this peer from changing the baseline while this one is built.
+                    // Its closed rows past the bound are not taken, and go if held
+                    // (`peer_closed_bound.rs`).
+                    let past = super::peer_closed_bound::listed_past_bound(&list);
                     let (changed, gone) = loop {
                         let (mut old, live, epoch, purged) = {
                             let Some(current) =
@@ -941,7 +946,10 @@ impl Hub {
                         // object is skipped.
                         let mut listed = Vec::new();
                         let mut changed = Vec::new();
-                        for text in &list {
+                        for (n, text) in list.iter().enumerate() {
+                            if past.contains(&n) {
+                                continue;
+                            }
                             let Ok(s) = serde_json::from_str::<Value>(text) else { continue };
                             let summary = Self::remote_summary(&peer, s);
                             let Some(receipt) = session_receipt(&summary) else { continue };
@@ -1147,6 +1155,10 @@ impl Hub {
                     // The rest of its live asks that came before the session was listed, after
                     // the row.
                     self.release_held_peer_asks(&peer, generation);
+                    // A row that closed can put the peer's closed rows past the bound.
+                    if summary.get("status").and_then(Value::as_str) == Some("closed") {
+                        self.trim_closed_peer_rows(&peer, generation);
+                    }
                 }
                 // A prompt this daemon forwarded was taken (`outbox.rs` `PeerAccepts`).
                 PeerNotice::Notification { method: m, params, .. }
@@ -1572,6 +1584,21 @@ impl Hub {
             (if matches.len() == 1 { matches.pop().map(row) } else { None }, short)
         };
         drop(map);
+        // No peer's session has it as its name: one that had it before a rename
+        // (`former_names.rs`), only when no session here has or had it either.
+        let hit = match hit {
+            Some(hit) => Some(hit),
+            None => {
+                let route = self.former_remote_route(key)?.ok()?;
+                if self.local_match_counts(key) != [0, 0, 0]
+                    || self.resolve_former_here(key).is_some()
+                {
+                    return None;
+                }
+                let map = self.remote_sessions.read();
+                map.get(&route).map(|r| row(r))
+            }
+        };
         let (peer_name, id, summary) = hit?;
         // A bare short name gives way to any session here `key` names by id, name or prefix, to
         // a live one here with the short name, and, when this one is closed, to a closed one
@@ -1867,7 +1894,9 @@ pub(super) fn listed_remote_text(
 /// or `PEER/NAME`.
 pub(super) fn names_remote(id: &str, r: &RemoteSession, key: &str) -> bool {
     let name = r.summary.name().unwrap_or("");
+    let alias = r.summary.alias();
     name == key
+        || alias == Some(key)
         || r.receipt.mux_session_id.starts_with(key)
         || id.starts_with(key)
         || name.strip_prefix(&format!("{}/", r.peer)) == Some(key)

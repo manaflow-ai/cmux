@@ -18,7 +18,11 @@ public final class ThemedTableRowView: NSTableRowView {
 }
 
 /// A button whose bezel is a theme color instead of the system accent (cx-wqn5), re-resolved in
-/// its view's scope when it moves into a window and on every theme change.
+/// its view's scope when it moves into a window and on every theme change. Its title draws in the
+/// theme's ink, never AppKit's: primary text, which holds 4.5:1 on the selection fill in every theme
+/// (AppKit's own pick over a tinted bezel fell to 2.8:1 on Hot Dog Stand), and the tertiary text
+/// while disabled, which holds the legible floor where AppKit's faded label fell under 2:1
+/// (NativeControlContrastAuditTests).
 public class ThemedBezelButton: ClickableButton {
     /// The bezel; runs inside `performWithTheme`. theme-scoped
     var themeBezel: NSColor { Palette.selectionFill }
@@ -45,7 +49,6 @@ public class ThemedBezelButton: ClickableButton {
     /// as in every cmux dialog and bound as the button's key equivalent: Return, Escape or
     /// Command plus a character. nil shows and binds none.
     public var keyHint: CmuxDialogKeyHint? {
-        willSet { if keyHint == nil { plainTitle = super.title } }
         didSet {
             keyEquivalent = keyHint?.keyEquivalent ?? ""
             keyEquivalentModifierMask = keyHint?.modifierMask ?? []
@@ -54,11 +57,11 @@ public class ThemedBezelButton: ClickableButton {
         }
     }
 
-    /// The title without the keycap while a ``keyHint`` shows (what callers set and read).
+    /// The title without the keycap (what callers set and read).
     private var plainTitle = ""
 
     public override var title: String {
-        get { keyHint == nil ? super.title : plainTitle }
+        get { plainTitle }
         set {
             plainTitle = newValue
             applyTitle()
@@ -66,19 +69,25 @@ public class ThemedBezelButton: ClickableButton {
     }
 
     public override var isEnabled: Bool {
-        didSet { if keyHint != nil { applyTitle() } }
+        didSet { applyTitle() }
+    }
+
+    public override var font: NSFont? {
+        didSet { applyTitle() }
     }
 
     private func applyTheme() {
         bezelColor = performWithTheme { themeBezel }
-        if keyHint != nil { applyTitle() }
+        applyTitle()
     }
 
     private func applyTitle() {
-        guard let keyHint else { return super.title = plainTitle }
+        guard !plainTitle.isEmpty || keyHint != nil else { return super.title = plainTitle }
         let font = self.font ?? Typography.body
         attributedTitle = performWithTheme {
-            keyHint.attributedTitle(plainTitle, font: font, color: isEnabled ? Palette.textPrimary : Palette.textTertiary)
+            let ink = isEnabled ? Palette.textPrimary : Palette.textTertiary
+            return keyHint?.attributedTitle(plainTitle, font: font, color: ink)
+                ?? NSAttributedString(string: plainTitle, attributes: [.foregroundColor: ink, .font: font])
         }
         setAccessibilityLabel(plainTitle)
     }
