@@ -1232,7 +1232,7 @@ fn handle_push(
         Some("session.ticket") if push["role"].as_str() == Some("host") => {
             match on_ticket(push, |scope| admit(dir, scope, applies_input)) {
                 OnTicket::Serve(ticket, view_only) => {
-                    start_session(hub, ticket, view_only, serve_args, current);
+                    start_session(hub, ticket, view_only, serve_args, current, dir);
                 }
                 OnTicket::End(id, reason, why) => {
                     eprintln!("linux-host: {why}; ended");
@@ -1261,6 +1261,7 @@ fn start_session(
     view_only: bool,
     serve_args: &ServeCommand,
     current: &Current,
+    dir: &std::path::Path,
 ) {
     let stop = Arc::new(AtomicBool::new(false));
     {
@@ -1279,7 +1280,13 @@ fn start_session(
         });
     }
     let (hub, args, current) = (hub.clone(), serve_args.clone(), current.clone());
+    let dir = dir.to_owned();
     let spawned = std::thread::Builder::new().name("linux-host-session".into()).spawn(move || {
+        // Held for the share's life: the acpmux daemon does not restart this host for a new
+        // cmux-rd build while it is (review F1 of #49079).
+        let _sharing = cmux_hub_host::host_process::hold_share(&dir)
+            .map_err(|e| eprintln!("linux-host: the live share is not recorded: {e}"))
+            .ok();
         eprintln!(
             "linux-host: serving a {} session for {}",
             if view_only { "view" } else { "control" },
