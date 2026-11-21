@@ -32,38 +32,7 @@ struct CloudStartSession {
     let services: AppServices
 
     /// What the run asks for, checked before anything starts.
-    struct Request: Equatable {
-        var machineID: String?
-        /// Without a machine id: the machine with this name, created when none has it.
-        var name: String?
-        var agent: String
-        /// A folder on the machine; nil starts in the workspace's folder there.
-        var cwd: String?
-        /// A folder on this Mac (`--from-folder`) the session starts in a copy of, never with ``cwd``; and `--model`, the agent's model there (nil: its harness default).
-        var fromFolder: String?, model: String? // nil unless given: a struct's optional var defaults to nil in its memberwise init (lint forbids `= nil`)
-        /// The local Cloud model connection selected for this launch, independent of the account scope.
-        var connection: String?
-
-        init(machineID: String?, name: String?, agent: String, cwd: String?, fromFolder: String? = nil, model: String? = nil, connection: String? = nil) {
-            (self.machineID, self.name, self.agent, self.cwd, self.fromFolder, self.model, self.connection) =
-                (machineID, name, agent, cwd, fromFolder, model, connection)
-        }
-
-        /// The command that asks for this again, every word as the shell reads it back.
-        var command: String {
-            var words = ["cmux cloud start-session"]
-            if let machineID { words.append("--target machine:" + CloudStartCore.shellQuoted(machineID)) } else { words.append("--name " + CloudStartCore.shellQuoted(name ?? "")) }
-            words.append("--agent " + agent + (model.map { " --model " + CloudStartCore.shellQuoted($0) } ?? ""))
-            if let cwd { words.append("--cwd " + CloudStartCore.shellQuoted(cwd)) }
-            if let fromFolder { words.append("--from-folder " + CloudStartCore.shellQuoted(fromFolder)) }
-            if let connection { words.append("--connection " + CloudStartCore.shellQuoted(connection)) }
-            return words.joined(separator: " ")
-        }
-
-        func asked(machine: String) -> CloudStartSessionStrings.Asked {
-            CloudStartSessionStrings.Asked(machine: machine, agent: agent, command: command)
-        }
-    }
+    typealias Request = CloudStartSessionRequest
 
     static func bind(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
         let services = context.services
@@ -447,4 +416,10 @@ struct CloudStartSession {
 
     /// How long a machine has to come up (Move to Cloud's own wait).
     static let connectWait: Duration = .seconds(180)
+}
+
+extension CloudStartSessionRequest {
+    func asked(machine: String) -> CloudStartSessionStrings.Asked {
+        CloudStartSessionStrings.Asked(machine: machine, agent: agent, command: command)
+    }
 }
