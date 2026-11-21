@@ -22,9 +22,11 @@ import { useT } from "../i18n";
 import { Quote } from "./icons";
 import {
   quoteInReply,
+  sameReplyTarget,
   selectionReplyPlace,
   selectionReplyTarget,
   transcriptClip,
+  transcriptRoot,
   transcriptTextProbe,
   useSelectionReplyLook,
   type SelectionReplyPlace,
@@ -51,6 +53,27 @@ export function RowReplyButton({ text }: { text: string }) {
 }
 
 /// The chip over the selection's end. Mounted once per pane (App.tsx), on the document's body.
+/// Calls `place` whenever the transcript under `root` or one of its rows changes size, rows the
+/// transcript mounts later included; the returned function stops watching.
+function watchTranscriptRows(view: Window & typeof globalThis, root: Element, place: () => void): () => void {
+  const sizes = new view.ResizeObserver(place);
+  const watched = new WeakSet<Element>();
+  const watchRows = () => {
+    for (const element of [root, ...Array.from(root.querySelectorAll("[data-row-id]"))]) {
+      if (watched.has(element)) continue;
+      watched.add(element);
+      sizes.observe(element);
+    }
+  };
+  watchRows();
+  const mounts = view.MutationObserver ? new view.MutationObserver(watchRows) : undefined;
+  mounts?.observe(root.querySelector(".acpmux-thread") ?? root, { childList: true });
+  return () => {
+    sizes.disconnect();
+    mounts?.disconnect();
+  };
+}
+
 export function SelectionReplyChip({ doc = document }: { doc?: Document }) {
   const t = useT();
   const current = useSelectionReplyLook();
@@ -95,6 +118,29 @@ export function SelectionReplyChip({ doc = document }: { doc?: Document }) {
       view?.removeEventListener("resize", scrolled);
     };
   }, [doc, enabled]);
+
+  // While the chip shows, a row of the transcript changing size (a row opening or closing above the
+  // selection, a reply streaming in) moves the selected words, so the chip is placed again and
+  // follows them: placed once on pointerup, it stayed while the click that followed opened a row
+  // and the words moved under it (Leo's 2026-11-21 05:30Z video). The rows themselves are watched,
+  // not the scroller's spacer, which keeps its size in a short chat or a fold kept at the end;
+  // rows the transcript mounts later are watched as they come. Nothing is observed while no chip
+  // shows; the chip itself is on the body, outside what is observed.
+  const showing = target !== undefined;
+  useEffect(() => {
+    if (!enabled || !showing) return;
+    const view = doc.defaultView as (Window & typeof globalThis) | null;
+    const selection = doc.getSelection();
+    const range = selection?.rangeCount ? selection.getRangeAt(0) : undefined;
+    const root = transcriptRoot(doc, range?.endContainer ?? null);
+    if (!view?.ResizeObserver || !root) return;
+    const place = () =>
+      setTarget((previous) => {
+        const next = selectionReplyTarget(doc);
+        return previous && next && sameReplyTarget(previous, next) ? previous : next;
+      });
+    return watchTranscriptRows(view, root, place);
+  }, [doc, enabled, showing]);
 
   // Where no transcript text is under it (selectionReplyPlace), read once per shown selection.
   useLayoutEffect(() => {

@@ -143,7 +143,7 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
             return light == dark ? light.attribution : "\(light.attribution) / \(dark.attribution)"
         case .file(let path):
             return String(localized: "backdrop.file.attribution", defaultValue: "Your image · %@", bundle: .module)
-                .replacingOccurrences(of: "%@", with: URL(fileURLWithPath: path).lastPathComponent)
+                .replacingOccurrences(of: "%@", with: (path as NSString).lastPathComponent)
         case .desktop:
             return String(localized: "backdrop.desktop.attribution", defaultValue: "Your current macOS desktop picture", bundle: .module)
         case .live(let id):
