@@ -61,20 +61,20 @@ pub(super) fn mark_closed_read(
 
 /// A running terminal record (`terminal.get`) with no tab: its tabs were closed.
 fn shows_in_no_tab(terminal: &Value) -> bool {
-    terminal["lifecycle"] != "exited"
-        && terminal["tab_ids"].as_array().is_some_and(Vec::is_empty)
-        && terminal["tab_id"].is_null()
+    terminal.get("lifecycle").and_then(Value::as_str) != Some("exited")
+        && terminal.get("tab_ids").and_then(Value::as_array).is_some_and(Vec::is_empty)
+        && terminal.get("tab_id").is_none_or(Value::is_null)
 }
 
 /// Rewrites a `selector.not_found` error for an id: closed (in the closed history) names the
 /// reopen, otherwise the list command of its kind.
 pub(super) fn annotate_not_found(plan: &RequestPlan, reader: &mut Reader, error: &mut Value) {
-    if error["code"] != "selector.not_found" {
+    if error.get("code").and_then(Value::as_str) != Some("selector.not_found") {
         return;
     }
-    let (Some(kind), Some(selector)) =
-        (error["details"]["scope"].as_str(), error["details"]["selector"].as_str())
-    else {
+    let details = error.get("details");
+    let field = |name: &str| details.and_then(|d| d.get(name)).and_then(Value::as_str);
+    let (Some(kind), Some(selector)) = (field("scope"), field("selector")) else {
         return;
     };
     if !CLOSABLE.contains(&kind) || !is_id_of(kind, selector) {
@@ -98,7 +98,7 @@ pub(super) fn annotate_not_found(plan: &RequestPlan, reader: &mut Reader, error:
 pub(in crate::cli) fn not_found_message(kind: &str, selector: &str, closed: &[Value]) -> String {
     match closed.iter().find(|item| mentions(item, selector)) {
         Some(item) => {
-            let group = item["id"].as_str().unwrap_or("<id>");
+            let group = item.get("id").and_then(Value::as_str).unwrap_or("<id>");
             format!(
                 "{kind} {selector} was closed: `cmux closed {group} reopen` brings it back \
                  (`cmux closed list` shows what was closed)"

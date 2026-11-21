@@ -335,7 +335,9 @@ fn closed_terminal_hint<B: Daemon + ?Sized>(
     target: &str,
     mut failure: SendFailure,
 ) -> SendFailure {
-    if failure.failure.error["code"] != "selector.not_found" || !target.starts_with("term_") {
+    if failure.failure.error.get("code").and_then(Value::as_str) != Some("selector.not_found")
+        || !target.starts_with("term_")
+    {
         return failure;
     }
     let Ok(closed) = plan(&["closed", "list"]).and_then(|plan| Ok(backend.request(session, plan)?))
