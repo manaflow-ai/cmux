@@ -10,9 +10,10 @@
   gap: var(--ds-space-1);
 }
 .acpmux-hat-rail:is([data-side="right-rail"], [data-side="left-rail"]) {
+  /* Marks touch, as the hat header's do, so the rail stands as little over the composer as it can. */
   flex-direction: column;
   align-self: flex-end;
-  padding: var(--ds-space-1) 0;
+  gap: 0;
 }
 .acpmux-hat-rail[data-side="bottom-line"] {
   flex-direction: row;
@@ -65,9 +66,6 @@
 }
 .acpmux-hat-rail__list[aria-expanded="true"] > * {
   transform: none;
-}
-.acpmux-hat-rail:is([data-side="right-rail"], [data-side="left-rail"]) .acpmux-hat-rail__list {
-  margin-top: var(--ds-space-1);
 }
 .acpmux-hat-rail[data-side="bottom-line"] .acpmux-hat-rail__list {
   margin-left: calc(-1 * var(--ds-space-1));
