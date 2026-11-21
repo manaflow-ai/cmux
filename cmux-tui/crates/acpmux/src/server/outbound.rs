@@ -34,7 +34,7 @@
 use super::*;
 use std::collections::VecDeque;
 use std::sync::atomic::AtomicUsize;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tokio::sync::{Notify, watch};
 
 /// The bytes of the bulk lane the transport's channel may hold: what a read answered now waits
