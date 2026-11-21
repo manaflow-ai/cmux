@@ -1047,6 +1047,7 @@ try {
         return {
           frames: w.__firstLoad.frames,
           layoutShift: w.__firstLoad.layoutShift,
+          layoutShifts: w.__firstLoad.shifts,
           live: w.__firstLoad.liveLatestAt,
         };
       });
@@ -1077,6 +1078,10 @@ try {
         frames,
         liveLatestMs: got.live > start.at ? got.live - start.at : null,
         layoutShift: got.layoutShift - start.shift,
+        // Only the entries from the adopt event on, timed from it like the frames.
+        layoutShifts: got.layoutShifts
+          .filter((shift) => shift.at >= start.at)
+          .map((shift) => ({ ...shift, at: shift.at - start.at })),
         copyShownMs: null,
         swapMs: null,
         copyMiss: "none: the spare draws the carried tail",
