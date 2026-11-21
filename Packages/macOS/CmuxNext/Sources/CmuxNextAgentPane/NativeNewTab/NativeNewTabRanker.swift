@@ -3,7 +3,7 @@
 /// Pure and synchronous: it reads only the page's omnibar lists, so a keystroke
 /// costs one pass over them and no I/O. Empty text lists where you can go (open
 /// tabs, then workspaces). Typed text leads with what Return does for the selected
-/// kind, then the open tabs, workspaces, visited pages and Commands palette actions
+/// kind, then the open tabs, workspaces, visited pages, bookmarks and Commands palette actions
 /// that match, best match first.
 ///
 /// ```swift

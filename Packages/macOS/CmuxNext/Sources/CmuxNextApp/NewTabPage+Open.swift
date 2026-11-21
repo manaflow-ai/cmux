@@ -300,7 +300,10 @@ extension NewTabPage {
         }
         let list = NativeNewTabList(services.newTabActions)
         let actions = nativeActions(key, cwd: page.cwd, pane: pane, list: list)
-        let faviconRevision: NativeNewTabModel.FaviconRevision = { [weak services] in services?.favicons.revision ?? 0 }
+        let faviconRevision: NativeNewTabModel.FaviconRevision = { [weak services] in
+            guard let services else { return 0 }
+            return services.favicons.revision &+ services.bookmarks.generation
+        }
         let faviconPage: NativeNewTabModel.FaviconPage = { [weak services] current in
             guard let services else { return current }
             var refreshed = current
