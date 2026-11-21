@@ -109,14 +109,13 @@ fn edit_ranges(update: &Value, path: &str, cwd: &std::path::Path) -> Vec<Option<
                 let Some(raw) = location.get("path").and_then(Value::as_str) else { continue };
                 let Some(abs) = canonical_path(raw, Some(cwd)) else { continue };
                 let (_, candidate) = tf::key_of(&abs);
-                if candidate == path {
-                    if let Some(line) = location
+                if candidate == path
+                    && let Some(line) = location
                         .get("line")
                         .or_else(|| location.get("startLine"))
                         .and_then(Value::as_u64)
-                    {
-                        return Some(line);
-                    }
+                {
+                    return Some(line);
                 }
             }
             None
