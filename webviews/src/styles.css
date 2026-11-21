@@ -1299,30 +1299,6 @@ body[data-status-only="true"] #status-text {
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
-/* Icon badge: only for the friendly empty state, not errors or while loading. */
-#status-icon {
-  display: none;
-}
-body[data-status-only="true"] #status:not([data-error="true"]):not([data-pending="true"]) #status-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 56px;
-  height: 56px;
-  border-radius: 16px;
-  background: color-mix(in lab, var(--cmux-diff-fg) 5%, transparent);
-  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
-}
-body[data-status-only="true"] #status:not([data-error="true"]):not([data-pending="true"]) #status-icon::before {
-  content: "";
-  display: block;
-  width: 26px;
-  height: 26px;
-  background-color: currentcolor;
-  opacity: 0.8;
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'/%3E%3Cpath d='M14 2v6h6'/%3E%3Cpath d='M9 13h6'/%3E%3Cpath d='M9 17h4'/%3E%3C/svg%3E") center / contain no-repeat;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'/%3E%3Cpath d='M14 2v6h6'/%3E%3Cpath d='M9 13h6'/%3E%3Cpath d='M9 17h4'/%3E%3C/svg%3E") center / contain no-repeat;
-}
 #status[data-pending="true"]::before,
 body[data-loading="true"] #status::before {
   content: "";
