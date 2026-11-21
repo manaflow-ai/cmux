@@ -112,9 +112,9 @@ const CODEX_APP: &[(&str, &str)] = &[
     ("agent-pane/theme.css", include_str!("../recipes/apps/codex-app/agent-pane.css")),
 ];
 
-const T3_CODE_APP: &[(&str, &str)] = &[
-    ("themes/t3-code-app.json", include_str!("../recipes/apps/t3-code-app/theme.json")),
-    ("agent-pane/theme.css", include_str!("../recipes/apps/t3-code-app/agent-pane.css")),
+const VIOLET_APP: &[(&str, &str)] = &[
+    ("themes/violet-app.json", include_str!("../recipes/apps/violet-app/theme.json")),
+    ("agent-pane/theme.css", include_str!("../recipes/apps/violet-app/agent-pane.css")),
 ];
 
 /// Every recipe, in the order a guide lists them.
@@ -352,12 +352,12 @@ pub const RECIPES: &[Recipe] = &[
         includes: CODEX_APP,
     },
     Recipe {
-        name: "t3-code-app",
-        title: "Like T3 Code",
+        name: "violet-app",
+        title: "A violet coding app",
         group: Group::Apps,
-        ask: "make cmux look like T3 Code",
-        profile: include_str!("../recipes/t3-code-app.json"),
-        includes: T3_CODE_APP,
+        ask: "make cmux look like a violet desktop coding app",
+        profile: include_str!("../recipes/violet-app.json"),
+        includes: VIOLET_APP,
     },
 ];
 
