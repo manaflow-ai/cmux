@@ -829,6 +829,46 @@ mod encode_off_loop_tests {
         }
     }
 
+    fn strict_rate(session: &MediaSession) -> Option<u64> {
+        match session.pacer.as_ref()?.policy() {
+            cmux_rd_core::pacer::PacerPolicy::Strict(budget) => Some(budget.rate_bps),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn the_ultra_pacer_follows_the_controller_wire_rate() {
+        let seen = Arc::new(Seen::default());
+        let (_release_tx, release_rx) = mpsc::channel();
+        let desktop =
+            FakeDesktop { seen: seen.clone(), quiet: UnixStream::pair().expect("socket pair") };
+        let encoder = BlockingEncoder { seen: seen.clone(), release: release_rx, first: true };
+        let cfg =
+            SessionCfg { encode_profile: cmux_rd_core::profile::EncodeProfile::Ultra, ..cfg() };
+        let mut session = MediaSession::with_desktop(
+            Box::new(desktop),
+            Box::new(encoder),
+            &cfg,
+            1200,
+            &[],
+            Box::new(crate::upstream::NoSink),
+        )
+        .expect("session");
+        assert_eq!(strict_rate(&session), Some(session.engine.target_bps()));
+
+        // A rate the controller has since moved away from (a probe raised it or a
+        // standing queue cut it): the next drain paces at the controller's rate again.
+        session.pacer.as_mut().expect("pacing on").set_rate_bps(1);
+        let mut carrier = FakeCarrier {
+            seen,
+            release: None,
+            sent_input: false,
+            ready: UnixStream::pair().expect("socket pair"),
+        };
+        session.send_paced(&mut carrier).expect("drain");
+        assert_eq!(strict_rate(&session), Some(session.engine.target_bps()));
+    }
+
     #[test]
     fn viewer_input_is_injected_while_a_frame_encodes() {
         let seen = Arc::new(Seen::default());
