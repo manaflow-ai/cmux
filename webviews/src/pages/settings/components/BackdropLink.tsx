@@ -5,18 +5,8 @@ import { useState } from "react";
 import { Button } from "../../../ui/Button";
 import { Input } from "../../../ui/Input";
 import { useStore } from "../context";
+import { linkRefusal } from "../backdropRefusal";
 import { t } from "../strings";
-
-const REFUSALS: Record<string, string> = {
-  "cmux.settings.backdrop.not_https": "settingsWindow.backdropPicker.notHttps",
-  "cmux.settings.backdrop.not_media": "settingsWindow.backdropPicker.notMedia",
-  "cmux.settings.backdrop.too_large": "settingsWindow.backdropPicker.tooLarge",
-};
-
-/** Why a link could not be used, in the page's words. */
-export function linkRefusal(code: string): string {
-  return t(REFUSALS[code] ?? "settingsWindow.backdropPicker.downloadFailed");
-}
 
 export function BackdropLink({ onClose }: { onClose: () => void }) {
   const store = useStore();
