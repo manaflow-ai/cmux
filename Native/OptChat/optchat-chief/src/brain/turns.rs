@@ -91,9 +91,6 @@ impl Brain {
         // The turn that starts now takes the cut turn's resume note: its
         // hold (a backoff, or a network cut's wait) is over.
         self.resume_at = None;
-        // What the shared screen showed since the last turn joins the log
-        // first, so this turn's delta carries it (screen_share.rs).
-        self.ingest_screen_share();
         if self.state.stopped_reply.take().is_some() {
             self.save();
         }
@@ -1609,6 +1606,25 @@ impl Brain {
                 "turn {key} ended by the Chief's stop: nothing more posted"
             ));
         }
+        // A refused turn names the person's last message it answers and how many refused in a row.
+        let refused_post = outcome.refused && !(quiet || tool_stopped || unstarted);
+        self.refused_in_row = if refused_post {
+            self.refused_in_row.saturating_add(1)
+        } else {
+            0
+        };
+        let asked = self
+            .state
+            .turn
+            .as_ref()
+            .filter(|t| t.key == key && refused_post)
+            .and_then(|t| {
+                t.answers
+                    .iter()
+                    .rev()
+                    .find_map(|id| self.state.awaiting.iter().find(|a| &a.id == id))
+            })
+            .map(|a| a.preview.clone());
         let text = if ((stalled && !held) || hung_after_run) && !(quiet || tool_stopped) {
             UNSTARTED_TEXT.to_owned()
         } else {
@@ -1616,7 +1632,9 @@ impl Brain {
                 outcome.reply,
                 outcome.error,
                 quiet || tool_stopped || unstarted,
-                outcome.refused,
+                outcome
+                    .refused
+                    .then_some((asked.as_deref(), self.refused_in_row)),
                 &failed,
             )
         };
@@ -2337,16 +2355,18 @@ fn ended_turn_text(
     reply: Option<String>,
     error: Option<String>,
     quiet: bool,
-    refused: bool,
+    refused: Option<(Option<&str>, u32)>,
     failed: &str,
 ) -> String {
-    match (reply, error) {
+    match (reply, error, refused) {
         _ if quiet => String::new(),
-        (None, Some(error)) if refused => format!("(turn {error})"),
-        (Some(reply), Some(error)) => format!("{reply}\n\n({failed}: {error})"),
-        (Some(reply), None) => reply,
-        (None, Some(error)) => format!("({failed}: {error})"),
-        (None, None) => String::new(),
+        (None, Some(error), Some((asked, in_row))) => {
+            crate::harness_gate::refused_reply(&error, asked, in_row)
+        }
+        (Some(reply), Some(error), _) => format!("{reply}\n\n({failed}: {error})"),
+        (Some(reply), None, _) => reply,
+        (None, Some(error), None) => format!("({failed}: {error})"),
+        (None, None, _) => String::new(),
     }
 }
 
@@ -2386,7 +2406,7 @@ mod ended_turn_text_tests {
     #[test]
     fn owner_stopped_turn_posts_nothing() {
         for reply in [None, Some("Let me check.".to_owned())] {
-            let text = ended_turn_text(reply, Some("cancelled".into()), true, false, "turn failed");
+            let text = ended_turn_text(reply, Some("cancelled".into()), true, None, "turn failed");
             assert_eq!(text, "");
             assert!(!text.contains("turn stopped"));
         }
@@ -2395,11 +2415,11 @@ mod ended_turn_text_tests {
     #[test]
     fn failures_and_replies_still_post() {
         assert_eq!(
-            ended_turn_text(Some("hi".into()), None, false, false, "turn failed"),
+            ended_turn_text(Some("hi".into()), None, false, None, "turn failed"),
             "hi"
         );
         assert_eq!(
-            ended_turn_text(None, Some("boom".into()), false, false, "turn failed"),
+            ended_turn_text(None, Some("boom".into()), false, None, "turn failed"),
             "(turn failed: boom)"
         );
         assert_eq!(
@@ -2407,14 +2427,20 @@ mod ended_turn_text_tests {
                 Some("a".into()),
                 Some("boom".into()),
                 false,
-                false,
+                None,
                 "turn failed"
             ),
             "a\n\n(turn failed: boom)"
         );
         assert_eq!(
-            ended_turn_text(None, Some("refused".into()), false, true, "x"),
-            "(turn refused)"
+            ended_turn_text(
+                None,
+                Some("refused: Chief couldn't start this reply. Send again.".into()),
+                false,
+                Some((Some("hello?"), 2)),
+                "x"
+            ),
+            "Still can't answer “hello?” (2 in a row). Send again."
         );
     }
 }
