@@ -19,6 +19,11 @@
 //! [`ORPHAN_RECHECK`] (the daemon's idle-close reaper uses the same kind of
 //! bounded interval).
 //!
+//! The hour counts the time the Mac slept (see [`Moment`]), and no wait is
+//! longer than [`ORPHAN_RECHECK`]: the wait runs on the awake clock, which
+//! stops during sleep, so a sleep past the hour is seen within one recheck of
+//! waking.
+//!
 //! Test seams, debug builds only: `CMUX_TUI_TEST_DEV_ORPHAN_OWNER=1` makes a
 //! `cmux-app-<tag>` owner count as DEV without a DEV bundle;
 //! `CMUX_TUI_TEST_DEV_ORPHAN_DELAY_MS` and `CMUX_TUI_TEST_DEV_ORPHAN_RECHECK_MS`
@@ -26,7 +31,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 /// How long an owner must have had no client before it may stop.
 pub(crate) const ORPHAN_EXIT_DELAY: Duration = Duration::from_secs(60 * 60);
@@ -118,28 +123,47 @@ pub(crate) enum Decision {
     Exit,
 }
 
+/// A moment by two clocks. `Instant` is the awake clock on a Mac
+/// (`CLOCK_UPTIME_RAW`): it stops while the Mac sleeps, so on a laptop that
+/// sleeps every night [`ORPHAN_EXIT_DELAY`] counted on it alone took far
+/// longer than an hour of real time (the same bug kept abandoned terminal
+/// hosts 8 to 16 days on Leo's Mac, cmux#48608). The wall clock counts sleep;
+/// a wall clock set back counts nothing, and the awake time still does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Moment {
+    pub(crate) awake: Instant,
+    pub(crate) wall: SystemTime,
+}
+
+impl Moment {
+    /// The longer of the awake and the wall time from `earlier` to `self`.
+    pub(crate) fn since(self, earlier: Self) -> Duration {
+        let awake = self.awake.saturating_duration_since(earlier.awake);
+        awake.max(self.wall.duration_since(earlier.wall).unwrap_or_default())
+    }
+}
+
 /// The policy. `idle_since` is when the owner last had no client (start, or
 /// the last client's departure); `None` while one is connected.
 #[cfg(test)]
-pub(crate) fn decide(
-    idle_since: Option<Instant>,
-    now: Instant,
-    facts: &dyn OrphanFacts,
-) -> Decision {
+pub(crate) fn decide(idle_since: Option<Moment>, now: Moment, facts: &dyn OrphanFacts) -> Decision {
     decide_with(idle_since, now, facts, Timing::STANDARD)
 }
 
 /// The policy with explicit intervals (`decide` uses the standard ones).
+/// Idle time counts the Mac's sleep (see [`Moment`]). A wait is at most
+/// `timing.recheck`: the watcher waits on the awake clock, so a wait to the
+/// full deadline would not notice a long sleep.
 pub(crate) fn decide_with(
-    idle_since: Option<Instant>,
-    now: Instant,
+    idle_since: Option<Moment>,
+    now: Moment,
     facts: &dyn OrphanFacts,
     timing: Timing,
 ) -> Decision {
     let Some(since) = idle_since else { return Decision::Serve };
-    let idle = now.saturating_duration_since(since);
+    let idle = now.since(since);
     if idle < timing.delay {
-        return Decision::Wait(timing.delay - idle);
+        return Decision::Wait((timing.delay - idle).min(timing.recheck));
     }
     if orphaned(facts) { Decision::Exit } else { Decision::Wait(timing.recheck) }
 }
@@ -152,10 +176,21 @@ pub(crate) fn orphaned(facts: &dyn OrphanFacts) -> bool {
 
 /// The watcher's time source. Tests inject a fake.
 pub(crate) trait OrphanClock: Send + Sync {
+    /// The awake clock (stops while the Mac sleeps).
     fn now(&self) -> Instant;
+
+    /// The wall clock (counts sleep; may be set back).
+    fn wall(&self) -> SystemTime;
+
+    /// Both clocks, read together.
+    fn moment(&self) -> Moment {
+        Moment { awake: self.now(), wall: self.wall() }
+    }
 
     /// Waits on `changed` until it is notified or `timeout` passes on this
     /// clock (a spurious wake is fine: the caller checks again).
+    /// `timeout` is on the awake clock; the policy keeps it at most one
+    /// recheck so a sleep is noticed soon after waking.
     fn wait_timeout<'a>(
         &self,
         changed: &Condvar,
@@ -171,6 +206,10 @@ impl OrphanClock for SystemClock {
         Instant::now()
     }
 
+    fn wall(&self) -> SystemTime {
+        SystemTime::now()
+    }
+
     fn wait_timeout<'a>(
         &self,
         changed: &Condvar,
@@ -183,7 +222,7 @@ impl OrphanClock for SystemClock {
 
 #[derive(Debug, Default)]
 pub(crate) struct WatchState {
-    idle_since: Option<Instant>,
+    idle_since: Option<Moment>,
     stopped: bool,
 }
 
@@ -231,7 +270,7 @@ impl OrphanWatch {
         if self.facts.clients() > 0 {
             state.idle_since = None;
         } else if state.idle_since.is_none() {
-            state.idle_since = Some(self.clock.now());
+            state.idle_since = Some(self.clock.moment());
         }
         drop(state);
         self.changed.notify_all();
@@ -254,7 +293,8 @@ impl OrphanWatch {
             let since = state.idle_since;
             // The facts may take locks of their own: read them unlocked.
             drop(state);
-            let decision = decide_with(since, self.clock.now(), self.facts.as_ref(), self.timing);
+            let decision =
+                decide_with(since, self.clock.moment(), self.facts.as_ref(), self.timing);
             state = self.lock();
             if state.stopped {
                 return false;

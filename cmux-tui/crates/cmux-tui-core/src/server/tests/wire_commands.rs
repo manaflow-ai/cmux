@@ -697,18 +697,21 @@ fn idle_close_policy_reaps_only_unattached_terminals_past_their_deadline() {
 
     // An attached view keeps the terminal alive regardless of elapsed time.
     let start = Instant::now();
+    // The wall clock moves with the awake clock here (no sleep).
+    let wall = std::time::SystemTime::now();
+    let reap = |now: Instant| mux.reap_idle_terminals(now, wall + (now - start));
     let writer = test_writer();
     let viewer = mux.control_clients.register(ClientTransport::Unix, writer.clone());
     let stream = writer.start_stream(&attach_overflow_json(idle)).unwrap();
     mux.control_clients.attach_surface(viewer, idle, stream).unwrap();
-    assert!(mux.reap_idle_terminals(start).is_empty());
-    assert!(mux.reap_idle_terminals(start + 10 * HOUR).is_empty());
+    assert!(reap(start).is_empty());
+    assert!(reap(start + 10 * HOUR).is_empty());
 
     // The clock starts when the last view detaches.
     mux.control_clients.remove(viewer);
     let detached = start + 11 * HOUR;
-    assert!(mux.reap_idle_terminals(detached).is_empty());
-    assert!(mux.reap_idle_terminals(detached + HOUR - Duration::from_secs(1)).is_empty());
+    assert!(reap(detached).is_empty());
+    assert!(reap(detached + HOUR - Duration::from_secs(1)).is_empty());
 
     // A reattach between two ticks resets the clock.
     let writer = test_writer();
@@ -717,17 +720,17 @@ fn idle_close_policy_reaps_only_unattached_terminals_past_their_deadline() {
     mux.control_clients.attach_surface(viewer, idle, stream).unwrap();
     mux.control_clients.remove(viewer);
     let reattached = detached + HOUR;
-    assert!(mux.reap_idle_terminals(reattached).is_empty());
-    assert!(mux.reap_idle_terminals(reattached + HOUR / 2).is_empty());
+    assert!(reap(reattached).is_empty());
+    assert!(reap(reattached + HOUR / 2).is_empty());
 
-    assert_eq!(mux.reap_idle_terminals(reattached + HOUR), vec![IDLE.to_string()]);
+    assert_eq!(reap(reattached + HOUR), vec![IDLE.to_string()]);
     let closed = mux.resolve_terminal(IDLE).unwrap().unwrap().terminal.lifecycle;
     assert_eq!(closed, TerminalLifecycle::Tombstoned);
     assert!(mux.surface(idle).is_none());
 
     // The terminal whose policy was cleared is never reaped, and the
     // closed terminal's policy is pruned.
-    assert!(mux.reap_idle_terminals(reattached + 1_000 * HOUR).is_empty());
+    assert!(reap(reattached + 1_000 * HOUR).is_empty());
     assert_eq!(mux.terminal_idle_policy(IDLE).unwrap(), None);
     let never = mux.resolve_terminal(NEVER).unwrap().unwrap().terminal.lifecycle;
     assert_eq!(never, TerminalLifecycle::Running);
