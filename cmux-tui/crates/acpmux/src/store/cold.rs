@@ -371,6 +371,13 @@ impl LocalStore {
         if !crate::home_fs::try_exists_nofollow(&archive)? || !self.held_has_segment(id)? {
             return Ok(());
         }
+        #[cfg(test)]
+        eprintln!(
+            "DIAG settle {id} with a segment beside the archive: {:?}\n{}",
+            crate::home_fs::read_dir(dir.join("events"))
+                .map(|e| e.iter().map(|e| e.name.clone()).collect::<Vec<_>>()),
+            std::backtrace::Backtrace::force_capture()
+        );
         remove_dir_if_there(&dir.join(THAW_DIR))?;
         remove_dir_if_there(&dir.join(DROP_DIR))?;
         let events = dir.join("events");
@@ -494,6 +501,12 @@ impl LocalStore {
         if !crate::home_fs::try_exists_nofollow(&archive)? {
             return Ok(false);
         }
+        #[cfg(test)]
+        eprintln!(
+            "DIAG rehydrate {id} segments={:?}\n{}",
+            self.segment_files(id).map(|s| s.len()),
+            std::backtrace::Backtrace::force_capture()
+        );
         #[cfg(test)]
         super::log_sync::note(&NOTE_BEFORE_COLD_LOCK, "rehydrate");
         let cold = self.cold.lock_or_recover();
