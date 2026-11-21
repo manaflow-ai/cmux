@@ -35,7 +35,8 @@ installed plugin; can be turned on and off, not removed). --project defaults to 
 Claude Code turns user and local servers on and off per folder. Env and header values are written to
 the agent's file and never printed. Every write keeps the file before it as <file>.cmux-backup.
 
-Skills and slash commands: `cmux agent-config skills --help`.
+Skills and slash commands: `cmux agent-config skills --help`. Settings (model, permission or approval
+mode, sandbox, env): `cmux agent-config settings --help`.
 ";
 
 /// Takes `--json` out of `args`, only before `--`: after it, every word is the server's command.
