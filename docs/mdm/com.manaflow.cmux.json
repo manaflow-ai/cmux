@@ -936,7 +936,25 @@
         "dore-paradise-lost-book-vi",
         "dore-moses-tables",
         "dore-empyrean",
-        "dore-raven"
+        "dore-raven",
+        "hokusai-red-fuji",
+        "hokusai-storm-below-fuji",
+        "hokusai-kajikazawa",
+        "hiroshige-sudden-shower",
+        "hiroshige-kanbara-snow",
+        "hiroshige-plum-garden",
+        "hiroshige-moon-pine",
+        "korin-irises",
+        "tohaku-pine-trees",
+        "jakuchu-mandarin-ducks",
+        "fan-kuan-travelers",
+        "guo-xi-early-spring",
+        "ma-yuan-clouds-green-sea",
+        "zhang-zeduan-qingming",
+        "wang-ximeng-thousand-li",
+        "jeong-seon-inwang",
+        "jeong-seon-geumgang",
+        "kim-hong-do-samgong"
       ],
       "title" : "Backdrop Art",
       "type" : "string"
@@ -1095,6 +1113,24 @@
         "dore-moses-tables",
         "dore-empyrean",
         "dore-raven",
+        "hokusai-red-fuji",
+        "hokusai-storm-below-fuji",
+        "hokusai-kajikazawa",
+        "hiroshige-sudden-shower",
+        "hiroshige-kanbara-snow",
+        "hiroshige-plum-garden",
+        "hiroshige-moon-pine",
+        "korin-irises",
+        "tohaku-pine-trees",
+        "jakuchu-mandarin-ducks",
+        "fan-kuan-travelers",
+        "guo-xi-early-spring",
+        "ma-yuan-clouds-green-sea",
+        "zhang-zeduan-qingming",
+        "wang-ximeng-thousand-li",
+        "jeong-seon-inwang",
+        "jeong-seon-geumgang",
+        "kim-hong-do-samgong",
         "desktop"
       ],
       "title" : "Background",
@@ -1260,6 +1296,24 @@
         "dore-moses-tables",
         "dore-empyrean",
         "dore-raven",
+        "hokusai-red-fuji",
+        "hokusai-storm-below-fuji",
+        "hokusai-kajikazawa",
+        "hiroshige-sudden-shower",
+        "hiroshige-kanbara-snow",
+        "hiroshige-plum-garden",
+        "hiroshige-moon-pine",
+        "korin-irises",
+        "tohaku-pine-trees",
+        "jakuchu-mandarin-ducks",
+        "fan-kuan-travelers",
+        "guo-xi-early-spring",
+        "ma-yuan-clouds-green-sea",
+        "zhang-zeduan-qingming",
+        "wang-ximeng-thousand-li",
+        "jeong-seon-inwang",
+        "jeong-seon-geumgang",
+        "kim-hong-do-samgong",
         "desktop"
       ],
       "title" : "Dark Picture",
@@ -1424,6 +1478,24 @@
         "dore-moses-tables",
         "dore-empyrean",
         "dore-raven",
+        "hokusai-red-fuji",
+        "hokusai-storm-below-fuji",
+        "hokusai-kajikazawa",
+        "hiroshige-sudden-shower",
+        "hiroshige-kanbara-snow",
+        "hiroshige-plum-garden",
+        "hiroshige-moon-pine",
+        "korin-irises",
+        "tohaku-pine-trees",
+        "jakuchu-mandarin-ducks",
+        "fan-kuan-travelers",
+        "guo-xi-early-spring",
+        "ma-yuan-clouds-green-sea",
+        "zhang-zeduan-qingming",
+        "wang-ximeng-thousand-li",
+        "jeong-seon-inwang",
+        "jeong-seon-geumgang",
+        "kim-hong-do-samgong",
         "desktop"
       ],
       "title" : "Light Picture",
@@ -1831,6 +1903,12 @@
       ],
       "title" : "Pane Backgrounds",
       "type" : "string"
+    },
+    "appearance.previousGlass" : {
+      "default" : false,
+      "description" : "Draws menus, popovers, the composer and cards with the glass from before November 2026.",
+      "title" : "Previous Glass Look",
+      "type" : "boolean"
     },
     "appearance.rotateFavoriteThemes" : {
       "default" : "off",
@@ -3387,6 +3465,18 @@
       "title" : "EnrollmentToken",
       "type" : "string"
     },
+    "experiments.composerV2" : {
+      "default" : false,
+      "description" : "A glass composer with mode chips, mention chips and a round send button. Still being shaped.",
+      "title" : "Composer Refresh",
+      "type" : "boolean"
+    },
+    "experiments.glassToolbarGroups" : {
+      "default" : false,
+      "description" : "The chat header's buttons become round glass buttons, with related actions sharing one glass capsule, a search chip and shortcut keycaps.",
+      "title" : "Glass Toolbar Groups",
+      "type" : "boolean"
+    },
     "feed.agentPermissionPrompts" : {
       "default" : false,
       "description" : "Each request's tool and command summary goes to your own cmux feed, so your iPhone can answer it.",
@@ -3590,6 +3680,12 @@
       "title" : "Show Chief When Opening Workspaces",
       "type" : "boolean"
     },
+    "home.chiefDock.sidePanel" : {
+      "default" : false,
+      "description" : "Keeps the Chief docked beside every workspace. Cmd-I hides or shows it.",
+      "title" : "Chief in Side Panel",
+      "type" : "boolean"
+    },
     "home.chiefEngine" : {
       "default" : "auto",
       "description" : "Auto uses this Mac's Chief while it runs, else the Hosted Chief.",
@@ -3676,7 +3772,7 @@
     },
     "labs.agentCustomization" : {
       "default" : false,
-      "description" : "Show and edit the MCP servers Claude Code and Codex use, in their own config files.",
+      "description" : "Show and edit the MCP servers, skills and commands Claude Code and Codex use, in their own config files.",
       "title" : "Claude Code and Codex Customization",
       "type" : "boolean"
     },
@@ -4872,9 +4968,10 @@
       "type" : "string"
     },
     "sidebar.groupHeader.background" : {
-      "default" : "auto",
-      "description" : "How a group's background draws. Sections shows plain headings instead.",
+      "default" : "folder",
+      "description" : "How a group draws. Folders shows plain folders; Sections shows plain headings.",
       "enum" : [
+        "folder",
         "auto",
         "glass",
         "solid",
