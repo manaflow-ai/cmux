@@ -332,6 +332,87 @@ def test_pin_refs_are_refused_before_claim_or_build() -> None:
     assert '"workflow_dispatch" and .head_branch == "feat-cmux-next"' in request
 
 
+def test_tree_request_proves_branch_ancestry_with_local_git_history() -> None:
+    request = workflow("cmux-tui-tree-request.yml")
+    job = workflow_job(request, "request")
+    check = job.split("      - name: Check the commit is on feat-cmux-next", 1)[1].split(
+        "      - name: Dispatch one publisher when the tree is missing", 1
+    )[0]
+
+    assert "ref: ${{ github.ref }}" in job
+    assert "fetch-depth: 0" in job
+    assert "filter: blob:none" in job
+    assert "sparse-checkout: scripts/ci" in job
+    assert 'git merge-base --is-ancestor "$COMMIT" "$TIP"' in check
+    assert 'git checkout --quiet --detach "$COMMIT"' in check
+    assert "compare/$COMMIT...$TIP" not in check
+    assert "gh api" not in check
+
+
+def test_tree_request_keys_each_revision_in_its_blobless_sparse_checkout() -> None:
+    """The request job's checkout is blobless and sparse (scripts/ci) and the key script never fetches lazily, so a
+    revision's inputs list (scripts/cmux-next/) was never local: every key failed and every request errored
+    (review of #48450). The step's own prefetch must make both the requested commit's and an older candidate's
+    keys equal the keys a full checkout computes."""
+    request = workflow("cmux-tui-tree-request.yml")
+    step = workflow_job(request, "request").split("      - name: Dispatch one publisher when the tree is missing", 1)[1]
+    prefetch = re.search(r"^ *(prefetch_key_inputs\(\) \{.*\})$", step, re.MULTILINE)
+    assert prefetch, "the request step defines prefetch_key_inputs"
+    assert step.index('prefetch_key_inputs "$COMMIT"') < step.index('key="$(python3 scripts/ci/cmux_tui_tree_key.py')
+    candidate_key = step.index('cmux_tui_tree_key.py --version v2 "$candidate"')
+    assert step.index('prefetch_key_inputs "$candidate"') < candidate_key
+    assert "--depth=1" not in step, "a shallow URL fetch downloads every blob and writes .git/shallow"
+    assert "--filter=blob:none origin" in step
+
+    def git(*arguments: str, cwd: Path) -> str:
+        return subprocess.run(("git", *arguments), cwd=cwd, check=True, text=True,
+                              capture_output=True).stdout.strip()
+
+    def key(checkout: Path, revision: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(("python3", "-I", "scripts/ci/cmux_tui_tree_key.py", "--version", "v2", revision),
+                              cwd=checkout, check=False, text=True, capture_output=True)
+
+    with tempfile.TemporaryDirectory(prefix="cmux-tree-request-key-") as raw:
+        temporary = Path(raw)
+        source = git_fixture_env.init_repo(temporary / "source", "-b", "feat-cmux-next")
+        git("config", "user.name", "cmux tree test", cwd=source)
+        git("config", "user.email", "tree-test@cmux.dev", cwd=source)
+        git("config", "uploadpack.allowFilter", "true", cwd=source)
+        git("config", "uploadpack.allowAnySHA1InWant", "true", cwd=source)
+        (source / "scripts" / "ci").mkdir(parents=True)
+        (source / "scripts" / "cmux-next").mkdir(parents=True)
+        (source / "cmux-tui").mkdir()
+        (source / "scripts" / "ci" / "cmux_tui_tree_key.py").write_text(
+            (ROOT / "scripts" / "ci" / "cmux_tui_tree_key.py").read_text())
+        (source / "scripts" / "cmux-next" / "build-layout-reducer-ffi.sh").write_text("#!/bin/sh\n")
+        (source / "cmux-tui" / "Cargo.toml").write_text("[workspace]\n")
+        inputs = source / "scripts" / "cmux-next" / "cmux-tui-tree-inputs.txt"
+        inputs.write_text("tree cmux-tui\nblob scripts/cmux-next/build-layout-reducer-ffi.sh\n")
+        git("add", "-A", cwd=source)
+        git("commit", "-q", "-m", "older candidate", cwd=source)
+        older = git("rev-parse", "HEAD", cwd=source)
+        (source / "scripts" / "ci" / "extra.sh").write_text("#!/bin/sh\n")
+        inputs.write_text(inputs.read_text() + "blob scripts/ci/extra.sh\n")
+        git("add", "-A", cwd=source)
+        git("commit", "-q", "-m", "requested commit", cwd=source)
+        requested = git("rev-parse", "HEAD", cwd=source)
+        expected = {revision: key(source, revision) for revision in (older, requested)}
+        assert all(result.returncode == 0 for result in expected.values()), expected
+        assert expected[older].stdout != expected[requested].stdout, "each revision keys by its own inputs list"
+
+        checkout = git_fixture_env.clone_repo(source.as_uri(), temporary / "checkout", "--filter=blob:none",
+                                              "--no-checkout", "--branch", "feat-cmux-next")
+        git("sparse-checkout", "set", "--cone", "scripts/ci", cwd=checkout)
+        git("checkout", "-q", "--detach", requested, cwd=checkout)
+        assert key(checkout, older).returncode != 0, "without the prefetch the older inputs list is not local"
+
+        subprocess.run(("bash", "-c", f'set -euo pipefail\n{prefetch.group(1)}\n'
+                        f'prefetch_key_inputs {requested}\nprefetch_key_inputs {older}\n'),
+                       cwd=checkout, check=True, text=True, capture_output=True)
+        for revision, result in expected.items():
+            assert key(checkout, revision).stdout == result.stdout, revision
+
+
 def test_ci_never_suggests_pushing_a_pr_merge_commit_to_a_pin_branch() -> None:
     """A PR merge commit must not be turned into a privileged pin push."""
     unsafe = re.compile(r"git\s+push\s+origin\b[^\n]*(?:cmux-tui-pin|refs/heads/cmux-tui-pin)", re.IGNORECASE)

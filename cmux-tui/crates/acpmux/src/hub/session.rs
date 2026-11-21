@@ -519,6 +519,11 @@ pub struct Session {
     /// What asked for the agent the next wake starts (`idle.rs` `wake_cause`): `typing`, `prompt`,
     /// else a request that needs the agent.
     pub(super) wake_cause: StdMutex<Option<&'static str>>,
+    /// Whom the agent's next start is for (`host_level.rs` `for_a_person`): 0 not known (the
+    /// chat's creator decides), 1 a person (their prompt, typing or open), 2 no person (another
+    /// agent's message or acpmux's own prompt). A start for no person asks Claude Code for no
+    /// next-prompt suggestions.
+    pub(super) start_for: std::sync::atomic::AtomicU8,
     /// The last start refused because its harness cannot keep the chat's policy, while nothing it
     /// depends on changed (`policy_mode.rs` `RefusalLatch`): no wake or request starts it again.
     pub(super) policy_refusal: super::policy_mode::RefusalLatch,
