@@ -101,10 +101,12 @@ extension AcpmuxHub {
         // reconnect binds the next channel).
         guard connection === stale || connection == nil, let onStall else { return }
         // A read that is only slow behind a prompt or mutation on a healthy channel is left to its
-        // own deadline: replacing the channel would cut that work off. A closed channel has
-        // nothing left to lose.
-        if why == "stalled", await stale.hasWritesInFlight {
-            log.info("acpmux read \(method, privacy: .public) slow behind a write: not recovering")
+        // own deadline: replacing the channel would cut that work off. The channel is asked a
+        // cheap read first: answered, it is alive (busy, not stalled); unanswered, it is dead and
+        // its write is lost with it, so it is recovered. A closed channel has nothing left to lose.
+        // "stalled" and "timeout" are both a channel that is still open and has not answered.
+        if why == "stalled" || why == "timeout", await stale.hasWritesInFlight, await Self.answers(stale, within: stallAfter) {
+            log.info("acpmux read \(method, privacy: .public) slow behind a write on a live channel: not recovering")
             return
         }
         // Asked again: another read may have started a recovery while this one waited above.
@@ -119,5 +121,10 @@ extension AcpmuxHub {
         recovering = task
         await task.value
         if recovering == task { recovering = nil }
+    }
+
+    /// Whether `channel` still answers: a cheap idempotent read (the harness list), bounded.
+    static func answers(_ channel: AcpmuxConnection, within bound: Duration) async -> Bool {
+        (try? await channel.request("_acpmux/harnesses", .object([:]), timeout: bound)) != nil
     }
 }
