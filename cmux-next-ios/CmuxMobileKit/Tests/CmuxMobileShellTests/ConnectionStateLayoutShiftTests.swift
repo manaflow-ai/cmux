@@ -36,8 +36,23 @@ import UIKit
     struct Page: View {
         let state: ConnectionBannerState?
         let frames: Frames
+        /// Draws the banner the way feat-cmux-next did before this check (a top safe-area
+        /// inset, 8 pt above and below): the before number, and proof the check catches it.
+        var legacy = false
 
         var body: some View {
+            if legacy {
+                page.safeAreaInset(edge: .top, spacing: 0) {
+                    if let state {
+                        ConnectionBanner(state, retry: {}).padding(.vertical, 8).frame(maxWidth: .infinity)
+                    }
+                }
+            } else {
+                page.cmuxMobileBanner(state, retry: {})
+            }
+        }
+
+        private var page: some View {
             NavigationStack {
                 ScrollView {
                     VStack(spacing: 0) {
@@ -51,7 +66,6 @@ import UIKit
                 }
                 .navigationTitle("Workspaces")
                 .navigationBarTitleDisplayMode(.inline)
-                .cmuxMobileBanner(state, retry: {})
             }
         }
     }
@@ -66,9 +80,9 @@ import UIKit
 
         /// Lays `state`'s page out for a few display frames (its enter transition included) and
         /// returns the rows' frames.
-        func measure(_ state: ConnectionBannerState?) async -> Frames {
+        func measure(_ state: ConnectionBannerState?, legacy: Bool = false) async -> Frames {
             let frames = Frames()
-            host.rootView = AnyView(Page(state: state, frames: frames))
+            host.rootView = AnyView(Page(state: state, frames: frames, legacy: legacy))
             for _ in 0 ..< 30 {
                 try? await Task.sleep(for: .milliseconds(16)) // test: one display frame of layout
                 host.view.layoutIfNeeded()
@@ -99,7 +113,22 @@ import UIKit
             let back = await harness.measure(nil)
             #expect(Self.shift(back, from: base) == 0, "\(name): the rows moved when it left")
         }
-        print("ConnectionStateLayoutShift: " + report.joined(separator: ", "))
+        print("ConnectionStateLayoutShift after: " + report.joined(separator: ", "))
+    }
+
+    /// The check catches the placement it replaced: a banner in a top safe-area inset pushes
+    /// the rows down by its height. Prints the before numbers from the same harness.
+    @Test func theOldInsetPlacementFails() async {
+        let harness = Harness()
+        let base = await harness.measure(nil, legacy: true)
+        var report: [String] = []
+        for (name, state) in Self.states.dropFirst() {
+            let shown = await harness.measure(state, legacy: true)
+            let points = Self.shift(shown, from: base)
+            report.append("\(name): \(points) pt")
+            #expect(points > 0, "\(name): the inset banner moved nothing, so the check would miss it")
+        }
+        print("ConnectionStateLayoutShift before: " + report.joined(separator: ", "))
     }
 
     /// A link state is a chip a few words wide, never a sentence across the screen.
