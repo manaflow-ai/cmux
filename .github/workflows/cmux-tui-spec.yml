@@ -31,6 +31,8 @@ on:
       - "scripts/ci/affected_jobs_replay.py"
       - "scripts/ci/tree_result.py"
       - ".github/actions/tree-result/**"
+      - ".github/actions/cache-restore/**"
+      - ".github/actions/cache-save/**"
       - "tests/test_ci_tree_result.py"
       - "tests/test_ci_affected_jobs.py"
       # Files outside cmux-tui that acpmux or its path dependencies include_str!
