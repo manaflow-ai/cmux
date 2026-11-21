@@ -11,7 +11,8 @@ once a user message reached it, and `--resume` of one that does not exist
 fails the first prompt with Claude's own "No conversation found" line.
 FAKE_CLAUDE_DIE=1 dies on the first prompt before anything is stored (a
 launcher whose proxy is down); FAKE_CLAUDE_DIE_IF=<path> does so while that
-file exists. With CLAUDE_CONFIG_DIR set (and no FAKE_CLAUDE_STORE), the store
+file exists. FAKE_CLAUDE_503_IF=<path>, while that file exists, fails each prompt with the model
+gateway's 503 and stores nothing, the process staying up. With CLAUDE_CONFIG_DIR set (and no FAKE_CLAUDE_STORE), the store
 is Claude Code's own layout: <CLAUDE_CONFIG_DIR>/projects/p/<id>.jsonl, with
 a user and an assistant line per prompt; "history-probe" replies with the
 prompts the conversation holds (a resumed or forked transcript's included).
@@ -923,6 +924,12 @@ while True:
             sys.stderr.write(("Not logged in" if os.environ.get("FAKE_CLAUDE_AUTH_FAIL") == "1" else "proxy down") + "\n")
             sys.stderr.flush()
             sys.exit(1)
+        gateway_down = os.environ.get("FAKE_CLAUDE_503_IF")
+        if gateway_down and os.path.exists(gateway_down):
+            said = 'API Error: 503 {"type":"error","error":{"type":"api_error","message":"upstream unavailable"}}'
+            send({"type": "result", "subtype": "success", "is_error": True, "result": said, "num_turns": 1,
+                  "duration_api_ms": 0, "usage": {"input_tokens": 0, "output_tokens": 0}})
+            continue
         if STORE and RESUME and not os.path.exists(stored(RESUME)):
             sys.stderr.write("No conversation found with session ID: %s\n" % RESUME)
             sys.stderr.flush()

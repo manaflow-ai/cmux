@@ -19,8 +19,8 @@ async fn chat() -> (Arc<Hub>, Arc<Session>) {
     (hub, session)
 }
 
-/// A ready chat with nothing going on is idle; an agent request waiting on its answer, a
-/// sub-session at work, a stored-less Claude chat with turns, and a queued prompt each keep it.
+/// A ready chat with nothing going on is idle, a stored-less Claude chat with turns too; an agent
+/// request waiting on its answer, a sub-session at work, and a queued prompt each keep it.
 #[tokio::test]
 async fn each_gate_keeps_a_session_awake() {
     let (hub, session) = chat().await;
@@ -38,7 +38,9 @@ async fn each_gate_keeps_a_session_awake() {
         m.claude_unstored = true;
         m.turn_count = 1;
     }
-    assert!(!hub.idle_eligible(&session), "a Claude chat whose turns are not stored");
+    // Its wake restores the transcript into a fresh conversation (`lifecycle.rs` `cold_start`):
+    // an idle chat holds nothing, so it hibernates like any other.
+    assert!(hub.idle_eligible(&session), "a Claude chat whose turns are not stored");
     session.meta.lock().unwrap().claude_unstored = false;
     session.queued.fetch_add(1, Ordering::SeqCst);
     assert!(!hub.idle_eligible(&session), "a queued prompt");

@@ -99,9 +99,9 @@ impl Hub {
             && session.agent_requests.load(Ordering::SeqCst) == 0
             // Nor one whose cut turn's automatic continuation waits or starts (`auto_resume.rs`).
             && !self.continuation_pending(session)
-            // A Claude chat with turns but none stored would wake as a fresh conversation with
-            // its transcript restored into the prompt (`claude_resume_refusal`): kept awake.
-            && !(session.meta().claude_unstored && session.meta().turn_count > 0)
+        // A Claude chat whose every turn failed (a gateway 503: Claude stored no conversation)
+        // hibernates too: an idle chat holds nothing. Its wake starts a fresh conversation with
+        // the chat's transcript restored into the next prompt (`lifecycle.rs` `cold_start`).
     }
 
     /// What a host this daemon starts does once no daemon controls it (`agent_host::OrphanExit`;
