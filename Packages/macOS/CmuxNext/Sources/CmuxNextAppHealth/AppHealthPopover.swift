@@ -14,12 +14,18 @@ import Foundation
 @MainActor
 public final class AppHealthPopover {
     private let health: AppHealth
+    /// Where each part is (the chat a page shows), for the card's words and its Show chat.
+    private let places: AppHealthPlaces
     /// The card's panel while it shows (tests).
     private(set) var panel: CmuxFloatingDialogPanel?
     private var token: UInt64?
 
-    public init(health: AppHealth) {
+    /// - Parameters:
+    ///   - health: The model the card follows.
+    ///   - places: Where each part is; the default names no chat.
+    public init(health: AppHealth, places: AppHealthPlaces = .none) {
         self.health = health
+        self.places = places
     }
 
     /// A snapshot the card shows instead of the model's (DEBUG captures, ``AppHealthFeeds/debugMethod()``).
@@ -79,7 +85,7 @@ enum AppHealthCard {
     static let repairPrefix = "repair:"
     static let shownReceipts = 3
 
-    static func spec(_ snapshot: JSONValue) -> CmuxDialogSpec {
+    @MainActor static func spec(_ snapshot: JSONValue, places: AppHealthPlaces = .none) -> CmuxDialogSpec {
         let headline = AppHealth.headline(of: snapshot)
         let parts = (snapshot["parts"]?.arrayValue ?? []).filter { state(of: $0) > .healthy }
         let worst = headline?.partID.flatMap { id in parts.first { $0["id"]?.stringValue == id } }
