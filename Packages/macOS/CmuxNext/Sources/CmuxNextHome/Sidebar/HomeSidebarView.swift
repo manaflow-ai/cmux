@@ -485,6 +485,11 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
         }
     }
 
+    /// The search capsule's tint over Home's fill (red-test stub: no tint yet).
+    static func searchCapsuleTintInScope() -> NSColor? { // theme-scoped
+        nil
+    }
+
     @objc func toggleUnread() { unreadOnly.toggle() }
 
     #if DEBUG || CMUX_BENCH_HOOKS
