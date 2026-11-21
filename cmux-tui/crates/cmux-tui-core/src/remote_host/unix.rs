@@ -304,7 +304,7 @@ impl RemoteHostSupervisor {
             // Nothing turned on (Computer Use off or Legacy, and signed out of Screen Sharing):
             // no host starts for a request, so an off switch never runs cmux Remote.
             if !lock(&self.inner.config).wanted() {
-                return Err(off_reason(bundled()).into());
+                return Err(OFF.into());
             }
             // `cmux remote-host restart` is the person's explicit start. Any other request
             // (an agent's, the app's hourly anchor) never starts a host the person quit.
@@ -1018,16 +1018,9 @@ fn write_private_checked(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     std::fs::rename(&temporary, path)
 }
 
-/// Why a request found cmux Remote off. A build without it (Release, NIGHTLY) never sends the
-/// switches, so its saved Computer Use reads off while the app's own Computer Use (the `cu_*`
-/// tools) works: saying "turn on Computer Use" there blamed a setting that is on.
-fn off_reason(bundled: bool) -> &'static str {
-    if bundled {
-        "cmux Remote is off: Computer Use is off in cmux (Settings > Computer Use: pick a mode other than Off, or a managed setting turned it off), and Screen Sharing needs a sign-in"
-    } else {
-        "this cmux build has no cmux Remote; Computer Use runs in the cmux app itself (the cu_* tools), and its setting is not off"
-    }
-}
+/// Why a request found nothing turned on (Computer Use off, and signed out of Screen Sharing).
+/// Callers read "is off" in it as the off state.
+const OFF: &str = "Computer Use is off. Turn it on in Settings > Computer Use.";
 
 /// Whether this cmux build embeds cmux Remote (`CMUX_REMOTE_APP`, or the app
 /// bundle that holds this daemon). Never starts or stages it.
@@ -1052,9 +1045,16 @@ impl crate::mux::Mux {
     /// Lets this daemon run cmux Remote (macOS): the host for the daemon on
     /// `daemon_socket`, with durable state beside the daemon's own.
     pub fn configure_remote_host(self: &Arc<Self>, daemon_socket: &Path) {
-        // Linux runs Computer Use in the daemon's own worker, not cmux Remote.
+        // Linux runs Computer Use in the daemon's own worker, not cmux Remote. So does a Mac
+        // whose cmux build embeds no cmux Remote (Release and NIGHTLY): its worker runs in the
+        // Screen Sharing helper (computer_use_host/macos.rs). cmux Remote stays configured for
+        // its status and app permissions either way.
         #[cfg(target_os = "linux")]
         self.configure_computer_use(daemon_socket);
+        #[cfg(target_os = "macos")]
+        if !bundled() {
+            self.configure_computer_use(daemon_socket);
+        }
         let Some(state_root) = crate::platform::workspace_state_dir()
             .and_then(|sessions| sessions.parent().map(Path::to_path_buf))
         else {

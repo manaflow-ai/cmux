@@ -72,6 +72,18 @@ fn app_permissions_show_in_status_and_never_reach_config_or_the_switches() {
 }
 
 #[test]
+fn nothing_turned_on_says_computer_use_is_off_never_cmux_remote() {
+    // A Mac without cmux Remote (NIGHTLY) showed "cmux Remote is off: turn on Computer Use
+    // (Upstream driver) ...": a product it does not carry, and a driver setting that is gone.
+    let supervisor = super::RemoteHostSupervisor::default();
+    let reason = supervisor.call("computer_use.endpoint", json!({})).unwrap_err();
+    assert_eq!(reason, "Computer Use is off. Turn it on in Settings > Computer Use.");
+    // computer_use_command.rs reads "is off" as the off state.
+    assert!(reason.contains("is off"));
+    assert!(!reason.contains("cmux Remote") && !reason.contains("Upstream"));
+}
+
+#[test]
 fn screen_identity_rejects_missing_malformed_and_wrong_shape_values() {
     for status in [
         json!({}),
@@ -362,11 +374,4 @@ fn saved_switches_read_back_and_a_bad_file_reads_as_the_defaults() {
     std::fs::write(&path, b"{not json").unwrap();
     assert_eq!(super::read_config(&path), super::RemoteConfig::default(), "corrupt");
     let _ = std::fs::remove_dir_all(&root);
-}
-
-#[test]
-fn a_build_without_cmux_remote_never_blames_the_computer_use_setting() {
-    let unbundled = super::off_reason(false);
-    assert!(unbundled.contains("no cmux Remote") && !unbundled.contains("turn on"), "{unbundled}");
-    assert!(super::off_reason(true).contains("Settings > Computer Use"));
 }
