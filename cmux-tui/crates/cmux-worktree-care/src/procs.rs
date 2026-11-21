@@ -4,7 +4,10 @@
 //! registry, `<config dir>/sessions/<pid>.json` with the session's pid and
 //! folder, one per running Claude Code (an agent in a terminal outside
 //! acpmux included). A record whose pid no longer runs is stale. A reused
-//! pid reads as running, which keeps a worktree: the safe side.
+//! pid reads as running, which keeps a worktree: the safe side. A record
+//! also names its session, so a worktree whose owner record
+//! (`inventory::Owner`) names a running session stays wherever that
+//! session's folder is.
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -17,6 +20,8 @@ use serde::Deserialize;
 pub struct Process {
     pub pid: u32,
     pub cwd: PathBuf,
+    /// The session it runs, when its registry names one.
+    pub session_id: Option<String>,
 }
 
 /// Where a pass learns what works where, read up front and again right
@@ -24,9 +29,12 @@ pub struct Process {
 pub type Uses = dyn Fn() -> Result<Vec<Process>, String> + Send + Sync;
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ClaudeSession {
     pid: u32,
     cwd: PathBuf,
+    #[serde(default)]
+    session_id: Option<String>,
 }
 
 /// The running Claude Code sessions registered under each of `config_dirs`
@@ -54,7 +62,11 @@ pub fn claude_sessions(config_dirs: &[PathBuf]) -> Result<Vec<Process>, String> 
             let Ok(session) = serde_json::from_slice::<ClaudeSession>(&bytes) else { continue };
             read += 1;
             if runs(session.pid) {
-                found.push(Process { pid: session.pid, cwd: session.cwd });
+                found.push(Process {
+                    pid: session.pid,
+                    cwd: session.cwd,
+                    session_id: session.session_id,
+                });
             }
         }
         // None of several records reads: the format changed, and every
@@ -86,6 +98,38 @@ fn runs(pid: u32) -> bool {
 #[cfg(not(unix))]
 fn runs(_pid: u32) -> bool {
     true
+}
+
+/// Whether a recorded owner's `pid` runs. Its recorded start time is not
+/// compared (that reads the process table, which cmux-next never does): a
+/// reused pid keeps the worktree, the safe side, as for the registry.
+pub fn owner_runs(pid: u32) -> bool {
+    runs(pid)
+}
+
+/// Whether `host` names this machine, by its short name (before the
+/// first dot), as `wt` compares hosts.
+pub fn is_this_host(host: &str) -> bool {
+    let short = |name: &str| name.split('.').next().unwrap_or_default().to_ascii_lowercase();
+    hostname().is_none_or(|here| short(&here) == short(host))
+}
+
+#[cfg(unix)]
+fn hostname() -> Option<String> {
+    let mut buffer = [0u8; 256];
+    // SAFETY: the buffer outlives the call and its length is passed.
+    let result = unsafe { libc::gethostname(buffer.as_mut_ptr().cast(), buffer.len()) };
+    if result != 0 {
+        return None;
+    }
+    let end = buffer.iter().position(|b| *b == 0).unwrap_or(buffer.len());
+    Some(String::from_utf8_lossy(&buffer[..end]).into_owned())
+}
+
+/// Elsewhere this machine's name is not read: every host is this one.
+#[cfg(not(unix))]
+fn hostname() -> Option<String> {
+    None
 }
 
 /// The first program working in `folder` or below it, other than this one.
@@ -185,8 +229,8 @@ mod care_tests {
     #[test]
     fn a_process_in_a_subfolder_is_inside_but_a_sibling_prefix_is_not() {
         let processes = vec![
-            Process { pid: 1, cwd: PathBuf::from("/w/a-2/src") },
-            Process { pid: 2, cwd: PathBuf::from("/w/a/src") },
+            Process { pid: 1, cwd: PathBuf::from("/w/a-2/src"), session_id: None },
+            Process { pid: 2, cwd: PathBuf::from("/w/a/src"), session_id: None },
         ];
         assert_eq!(inside(&processes, Path::new("/w/a")).map(|p| p.pid), Some(2));
         assert_eq!(inside(&processes, Path::new("/w/b")), None);
@@ -200,14 +244,17 @@ mod care_tests {
         let me = std::process::id();
         std::fs::write(
             sessions.join("1.json"),
-            format!(r#"{{"pid":{me},"cwd":"/w/a","kind":"interactive"}}"#),
+            format!(r#"{{"pid":{me},"sessionId":"s-1","cwd":"/w/a","kind":"interactive"}}"#),
         )
         .unwrap();
         // Far above any pid_max: never running.
         std::fs::write(sessions.join("2.json"), r#"{"pid":2000000000,"cwd":"/w/b"}"#).unwrap();
         std::fs::write(sessions.join("3.json"), "{not json").unwrap();
         let found = claude_sessions(&[dir.clone(), dir.join("absent")]).unwrap();
-        assert_eq!(found, vec![Process { pid: me, cwd: PathBuf::from("/w/a") }]);
+        assert_eq!(
+            found,
+            vec![Process { pid: me, cwd: PathBuf::from("/w/a"), session_id: Some("s-1".into()) }]
+        );
         // A format change: no record reads, so the pass must not act.
         for name in ["1.json", "2.json"] {
             std::fs::write(sessions.join(name), r#"{"processId":1,"folder":"/w/a"}"#).unwrap();
