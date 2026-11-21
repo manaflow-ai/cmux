@@ -827,7 +827,11 @@ public final class ConversationViewController: UIViewController {
         // Reduce Motion keeps this: it only ever rides the system keyboard's
         // own animation (remaining > 0), which Reduce Motion doesn't remove;
         // landing early would part the composer from the keyboard.
-        UIView.animate(withDuration: remaining, delay: 0, options: [.beginFromCurrentState]) {
+        // Interruptible: without `.allowUserInteraction` UIKit drops every
+        // touch on the views this pass moves until the keyboard settles, so a
+        // tap on the field or the transcript inside the keyboard's animation
+        // did nothing (`MobileKeyboardDock.follow`, the terminal's dock).
+        UIView.animate(withDuration: remaining, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
             self.view.layoutIfNeeded()
         }
     }
