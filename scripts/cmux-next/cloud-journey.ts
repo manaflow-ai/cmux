@@ -3624,7 +3624,7 @@ export async function deleteJourneyMachines(ids: string[], scopes: MachineScope[
 }
 
 /** The Stack password sign-in the journey uses: the agent test account's access token. */
-async function passwordSignIn(stack: (typeof STACK)[StackName], email: string, password: string): Promise<{ access: string; refresh: string }> {
+export async function passwordSignIn(stack: (typeof STACK)[StackName], email: string, password: string): Promise<{ access: string; refresh: string }> {
   const r = await http("POST", `${STACK_API}/api/v1/auth/password/sign-in`, { email, password }, {
     "x-stack-access-type": "client",
     "x-stack-project-id": stack.project,
