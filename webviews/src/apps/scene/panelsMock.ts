@@ -68,6 +68,10 @@ export function mockPanelScene(panel: AppPanel, context?: MountContext): SceneOp
 export class MockAppPanelsClient implements PageClient {
   panels: readonly AppPanel[] = MOCK_APP_PANELS;
   composerCommands: readonly unknown[] = MOCK_COMPOSER_COMMANDS;
+  /** The composer footer controls (`cmux.composer.control/1`) the mock daemon lists; none by default. */
+  composerControls: readonly unknown[] = [];
+  /** Each `cmux.apps.panels.composer.control` click, as sent. */
+  readonly controlRuns: unknown[] = [];
   readonly dispatches: unknown[] = [];
   readonly reloads: string[] = [];
   readonly layouts: { mount_id: string; height: number }[] = [];
@@ -85,7 +89,11 @@ export class MockAppPanelsClient implements PageClient {
         result = { panels: this.panels };
         break;
       case "cmux.apps.panels.composer":
-        result = { commands: this.composerCommands, mentions: [] };
+        result = { commands: this.composerCommands, mentions: [], controls: this.composerControls };
+        break;
+      case "cmux.apps.panels.composer.control":
+        this.controlRuns.push(params);
+        result = { ran: "mock" };
         break;
       case "cmux.apps.panels.mount": {
         const panel = this.panels.find((entry) => entry.app === params.app && entry.section === params.section);
