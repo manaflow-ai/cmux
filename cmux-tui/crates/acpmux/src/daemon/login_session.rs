@@ -199,9 +199,17 @@ pub(crate) fn start_in_login_session(
     bootstrap_job(home, log, argv, &domain, domain_print.as_deref())
 }
 
-/// Set in a login-session job this module bootstrapped for a lowered `daemon run`
-/// ([`leave_lowered_run`]): that job's daemon never moves again, whatever its priority reads.
-const UNLOWERED_ENV: &str = "ACPMUX_DAEMON_UNLOWERED";
+/// Whether this process runs as a launchd job: this home's login-session job (or its older
+/// label), or the `acpmux daemon service` LaunchAgent. launchd names the job in
+/// `XPC_SERVICE_NAME`. Such a daemon never moves: launchd placed it, and the service's
+/// `KeepAlive` would start one that left again at once, forever (review of #48376).
+fn launchd_job(home: &Path) -> bool {
+    let Some(name) = std::env::var_os("XPC_SERVICE_NAME") else { return false };
+    let name = name.to_string_lossy();
+    name == crate::cli::daemon_service::LAUNCHD_LABEL
+        || name == super::login_placement::job_label(home)
+        || name == super::login_placement::legacy_job_label(home)
+}
 
 /// A `daemon run` whose own process runs below the daemon's CPU tier, with no descriptor to carry
 /// (`--ready-fd`, `--person-key-fd`: those starts come from the app or a command, which place the
@@ -216,10 +224,10 @@ const UNLOWERED_ENV: &str = "ACPMUX_DAEMON_UNLOWERED";
 pub(crate) async fn leave_lowered_run(home: &Path, log: &Path, wait: std::time::Duration) -> bool {
     use super::login_placement::own_home;
     let Some(priority) = crate::qos::lowered_priority() else { return false };
-    if std::env::var_os(UNLOWERED_ENV).is_some() {
+    if launchd_job(home) {
         tracing::warn!(
             priority,
-            "this daemon runs below its CPU tier although launchd started it as a login-session job"
+            "this daemon runs below its CPU tier although launchd started it as its job"
         );
         return false;
     }
@@ -235,16 +243,15 @@ pub(crate) async fn leave_lowered_run(home: &Path, log: &Path, wait: std::time::
         let exe = std::env::current_exe().ok()?;
         let mut argv = vec![exe.to_string_lossy().into_owned()];
         argv.extend(std::env::args_os().skip(1).map(|a| a.to_string_lossy().into_owned()));
-        bootstrap_job_with(&home, &log, argv, &domain, Some(&print), &[(UNLOWERED_ENV, "1")]).ok()
+        bootstrap_job(&home, &log, argv, &domain, Some(&print)).ok()
     })
     .await
     .ok()
     .flatten();
     let target = match placed {
         Some(Started::Job(target)) => target,
-        // This home's job runs already: that start is the daemon's, this one ends as a second
-        // start does.
-        Some(Started::Running) => return true,
+        // This home's job runs already (it serves the home, or is starting): this process starts
+        // in place as before, and the daemon lock or the hand-over decides between them.
         _ => {
             tracing::warn!(
                 priority,
@@ -276,18 +283,6 @@ fn bootstrap_job(
     argv: Vec<String>,
     domain: &str,
     domain_print: Option<&str>,
-) -> Result<Started> {
-    bootstrap_job_with(home, log, argv, domain, domain_print, &[])
-}
-
-/// [`bootstrap_job`] with `extra` set in the job's environment.
-fn bootstrap_job_with(
-    home: &Path,
-    log: &Path,
-    argv: Vec<String>,
-    domain: &str,
-    domain_print: Option<&str>,
-    extra: &[(&str, &str)],
 ) -> Result<Started> {
     // One start per home at a time, from the check below through the bootstrap: a
     // second command waits here, then finds the first one's job and waits for it.
@@ -330,7 +325,6 @@ fn bootstrap_job_with(
             env.push((key.to_owned(), v));
         }
     }
-    env.extend(extra.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())));
     let plist = home.join("daemon-login-session.plist");
     {
         use std::io::Write;
