@@ -486,9 +486,9 @@ pub fn settings(art: &Art, entry: &str) -> Vec<(String, Value)> {
 /// nested and dotted members.
 fn sets(root: &serde_json::Map<String, Value>, parts: &[&str]) -> bool {
     (1..=parts.len()).any(|split| {
-        root.get(&parts[..split].join(".")).is_some_and(|value| {
-            split == parts.len()
-                || value.as_object().is_some_and(|inner| sets(inner, &parts[split..]))
+        let (head, rest) = parts.split_at(split);
+        root.get(&head.join(".")).is_some_and(|value| {
+            rest.is_empty() || value.as_object().is_some_and(|inner| sets(inner, rest))
         })
     })
 }
