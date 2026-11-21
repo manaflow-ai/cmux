@@ -187,19 +187,11 @@
     {
       "name": "compact-density",
       "entry": "pages.diff",
-      "variant": "small-split",
+      "variant": "density-compact",
       "width": 1000,
       "height": 640,
       "widthName": "normal",
-      "deviceScaleFactor": 2,
-      "arms": {
-        "now": ""
-      },
-      "armQuery": {
-        "now": {
-          "density": "compact"
-        }
-      }
+      "deviceScaleFactor": 2
     },
     {
       "name": "cloud-offline",

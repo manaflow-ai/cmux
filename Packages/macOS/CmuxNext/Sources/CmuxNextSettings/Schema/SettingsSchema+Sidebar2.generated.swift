@@ -133,6 +133,7 @@ extension SidebarSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.sidebar.showSpaces", "Show Spaces"),
+                help: SettingsText.keyed("settings.sidebar.showSpaces.help", "Spaces show once you have more than one. New Space is in the command palette."),
                 kind: .toggle,
                 default: .bool(SidebarSectionsSetting.showSpacesDefault),
                 keywords: ["sidebar", "spaces", "dots", "profiles", "footer", "hide", "show"]

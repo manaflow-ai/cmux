@@ -1897,9 +1897,10 @@ class Excusing(unittest.TestCase):
                 self.judge()
 
     def test_a_failure_with_nothing_to_compare_blocks(self):
-        # No test names and no error lines: the same step name alone proves nothing.
+        # No test names and no error lines, while the base names its failure: the same step name alone proves
+        # nothing (step_only_verdict excuses only a base that names nothing either).
         self.gh.logs[1] = log(SWIFT, TEST_STEP, "##[error]Process completed with exit code 1.")
-        with self.assertRaisesRegex(excuse.Refused, "nothing to compare"):
+        with self.assertRaisesRegex(excuse.Refused, "names no failing test or error line"):
             self.judge()
 
     def test_a_red_run_with_no_failed_job_listed_blocks(self):
@@ -3253,6 +3254,161 @@ def web_job(job_id, run_id, sha, name, conclusion="failure"):
                 *({"name": step, "status": "completed", "conclusion": conclusion} for step in steps)]}
 
 
+BATCH_JOB = "seven-language live conformance"
+BATCH_SUITES = {"drill": {"workflow": "post-merge-drill.yml", "paths": [], "jobs": {"drill": "drill"}},
+                "sdks": {"workflow": "cmux-tui-sdks.yml", "paths": [], "jobs": {"conformance": BATCH_JOB}}}
+
+
+def batch_manifest(case, suites=None):
+    """Point base_red_excuse at a post-merge batch manifest of SUITES (BATCH_SUITES) for CASE's test."""
+    folder = tempfile.mkdtemp()
+    case.addCleanup(shutil.rmtree, folder, True)
+    path = Path(folder) / "post-merge-batch.json"
+    path.write_text(json.dumps({"suites": BATCH_SUITES if suites is None else suites}))
+    patch = unittest.mock.patch.object(excuse, "POST_MERGE_MANIFEST_FILE", path)
+    patch.start()
+    case.addCleanup(patch.stop)
+
+
+class BatchSuiteBaseGitHub(FakeGitHub):
+    """A suite moved onto the post-merge batch tier (2026-11-21): the head's run 10 of cmux-tui-sdks.yml (workflow 7)
+    failed BATCH_JOB. That workflow no longer runs on feat-cmux-next pushes: its one base run, 20, is an old push at
+    BASE_SHA, behind the PR's merge-base NEW_BASE_SHA. cmux-next-post-merge.yml calls it as suite `sdks`, so the base's
+    check is 'sdks / <job>': batch run 50, the newest, skipped the suite (its paths did not change); batch run 49 at
+    PUSHED_BASE_SHA ran it and failed the same way; probe run 51 (a bisect testing one job of an older commit) passed
+    it and is no base verdict."""
+
+    def __init__(self, base_conclusion="failure"):
+        super().__init__()
+        self.jobs[1]["name"] = self.jobs[2]["name"] = BATCH_JOB
+        self.jobs[2]["conclusion"] = "success"
+        check = f"sdks / {BATCH_JOB}"
+        self.jobs[4] = dict(failed_job(4, 49, PUSHED_BASE_SHA, check), conclusion=base_conclusion)
+        if base_conclusion != "failure":
+            self.jobs[4]["steps"] = [{"name": TEST_STEP, "status": "completed", "conclusion": base_conclusion}]
+        self.logs[4] = self.logs[2]
+        self.jobs[5] = dict(failed_job(5, 50, PUSHED_BASE_SHA, check), conclusion="skipped", steps=[])
+        self.jobs[6] = dict(failed_job(6, 51, PUSHED_BASE_SHA, check), conclusion="success",
+                            steps=[{"name": TEST_STEP, "status": "completed", "conclusion": "success"}])
+        self.base_runs = [{"id": 20, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+                           "conclusion": "success", "head_sha": BASE_SHA, "created_at": "2026-11-20T10:00:00Z"}]
+        batch = {"event": "workflow_dispatch", "head_branch": "feat-cmux-next", "status": "completed",
+                 "head_sha": PUSHED_BASE_SHA, "path": f".github/workflows/{excuse.POST_MERGE_WORKFLOW}"}
+        self.batch_runs = [
+            dict(batch, id=51, conclusion="success", display_title=f"probe sdks conformance at {BASE_SHA}",
+                 created_at="2026-11-21T13:00:00Z"),
+            dict(batch, id=50, conclusion="success", display_title="batch tick", created_at="2026-11-21T12:00:00Z"),
+            dict(batch, id=49, conclusion="failure", display_title="batch tick", created_at="2026-11-21T10:00:00Z")]
+
+    def json(self, route, *, paginate=False):
+        self.routes.append(route)
+        if f"/compare/feat-cmux-next...{HEAD}" in route:
+            return {"merge_base_commit": {"sha": NEW_BASE_SHA}, "files": []}
+        if f"/compare/{NEW_BASE_SHA}...{BASE_SHA}" in route:
+            return {"status": "behind"}
+        if f"/compare/{NEW_BASE_SHA}...{PUSHED_BASE_SHA}" in route:
+            return {"status": "ahead"}
+        if f"/actions/workflows/{excuse.POST_MERGE_WORKFLOW}/runs?" in route:
+            assert "branch=feat-cmux-next" in route and "status=" not in route, route
+            return {"workflow_runs": copy.deepcopy(self.batch_runs)}
+        if route.endswith("/actions/runs/10"):
+            return {"id": 10, "workflow_id": 7, "name": "cmux-tui SDKs", "path": ".github/workflows/cmux-tui-sdks.yml"}
+        self.routes.pop()
+        return super().json(route, paginate=paginate)
+
+
+class BatchSuiteBaseVerdict(unittest.TestCase):
+    """A red job of a workflow that runs on the base only inside a post-merge batch suite is judged against the newest
+    batch runs where the suite ran it, under the batch's '<suite> / <job>' check name, driven by the manifest alone."""
+
+    def setUp(self):
+        batch_manifest(self)
+
+    def judge(self, gh, base="feat-cmux-next"):
+        return "\n".join(excuse.judge(REPO, base, HEAD, [10], gh))
+
+    def test_a_batch_suite_base_red_excuses_the_same_red(self):
+        text = self.judge(BatchSuiteBaseGitHub())
+        self.assertIn(f"excused '{BATCH_JOB}'", text)
+        self.assertIn("run 49", text)
+
+    def test_a_batch_suite_base_green_leaves_the_red_the_prs_own(self):
+        with self.assertRaisesRegex(excuse.Refused, "is not red on feat-cmux-next run 49"):
+            self.judge(BatchSuiteBaseGitHub(base_conclusion="success"))
+
+    def test_a_suite_skipped_in_the_newest_batch_run_reads_the_previous_one_where_it_ran(self):
+        gh = BatchSuiteBaseGitHub()
+        text = self.judge(gh)
+        self.assertIn("run 49", text)
+        self.assertNotIn("run 50", text)
+        # Run 50's jobs were read and its skipped check passed over, not taken as a verdict.
+        self.assertTrue([route for route in gh.routes if "/actions/runs/50/jobs" in route], gh.routes)
+
+    def test_a_probe_run_is_no_base_verdict(self):
+        gh = BatchSuiteBaseGitHub()
+        text = self.judge(gh)
+        self.assertNotIn("run 51", text)
+        self.assertFalse([route for route in gh.routes if "/actions/runs/51/" in route], gh.routes)
+        self.assertTrue(excuse.post_merge_probe(gh.batch_runs[0]))
+        self.assertFalse(excuse.post_merge_probe(gh.batch_runs[1]))
+
+    def test_a_job_no_suite_runs_reads_only_its_own_workflow(self):
+        batch_manifest(self, {"drill": BATCH_SUITES["drill"]})
+        gh = BatchSuiteBaseGitHub()
+        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next verdict at or after this PR's merge-base yet"):
+            self.judge(gh)
+        self.assertFalse([route for route in gh.routes if excuse.POST_MERGE_WORKFLOW in route], gh.routes)
+
+    def test_a_pr_into_main_never_reads_the_batch_runs(self):
+        self.assertIsNone(excuse.base_caller(REPO, "main", {"path": ".github/workflows/cmux-tui-sdks.yml"}, BATCH_JOB))
+        self.assertIsNone(excuse.base_caller("manaflow-ai/cmuxterm-hq", "feat-cmux-next",
+                                             {"path": ".github/workflows/cmux-tui-sdks.yml"}, BATCH_JOB))
+
+    def test_a_pull_request_caller_of_a_suite_workflow_maps_to_the_suites_check(self):
+        # ci.yml's `web` job calls ci-web.yml on pull requests; the batch calls it as suite `web` (cmux#48846), so the
+        # check names match; under another suite key the check is renamed to it.
+        ci = {"path": ".github/workflows/ci.yml"}
+        for key in ("web", "web-batch"):
+            batch_manifest(self, {key: {"workflow": "ci-web.yml", "paths": [], "jobs": {}}})
+            self.assertEqual(excuse.base_caller(REPO, "feat-cmux-next", ci, WEB_SHARD),
+                             (excuse.POST_MERGE_WORKFLOW, WEB_SHARD.replace("web / ", f"{key} / ", 1)))
+        # A ci.yml job outside the caller job is not the suite's.
+        self.assertIsNone(excuse.base_caller(REPO, "feat-cmux-next", ci, SWIFT))
+
+    def test_with_no_web_suite_yet_a_web_shard_reads_the_push_caller(self):
+        ci = {"path": ".github/workflows/ci.yml"}
+        batch_manifest(self, {"drill": BATCH_SUITES["drill"]})
+        self.assertEqual(excuse.base_caller(REPO, "feat-cmux-next", ci, WEB_SHARD),
+                         (excuse.BASE_WORKFLOW_FOR[("feat-cmux-next", "ci.yml", "web")], WEB_SHARD))
+
+    def test_a_web_shard_reads_the_web_suites_batch_runs_once_its_entry_lands(self):
+        # cmux#48846's web suite: ci.yml's 'web / ...' shard is judged against the batch runs' 'web / ...' checks,
+        # as it was against cmux-next-web.yml's push runs (the same fixture, served as batch runs).
+        batch_manifest(self, {"web": {"workflow": "ci-web.yml", "paths": [], "jobs": {}}})
+        gh = WebShardBaseGitHub()
+        json_of = gh.json
+        gh.json = lambda route, **kw: json_of(route.replace(f"/{excuse.POST_MERGE_WORKFLOW}/", "/cmux-next-web.yml/"),
+                                              **kw)
+        text = self.judge(gh)
+        self.assertIn(f"excused '{WEB_SHARD}'", text)
+        self.assertIn("run 40", text)
+        self.assertIn(f"/actions/workflows/cmux-next-web.yml/runs?branch=feat-cmux-next", "".join(gh.routes))
+
+
+class CheckedInBatchManifest(unittest.TestCase):
+    def test_every_suite_of_the_checked_in_manifest_is_covered_by_its_entry(self):
+        # No code names a suite: each entry of .github/post-merge-batch.json maps its workflow's jobs to the batch's
+        # '<suite> / <job>' checks, and cmux-next-post-merge.yml has the caller job named by the suite key.
+        manifest = json.loads((excuse.WORKFLOWS.parent / "post-merge-batch.json").read_text())["suites"]
+        batch = excuse.yaml_module().safe_load((excuse.WORKFLOWS / excuse.POST_MERGE_WORKFLOW).read_text())["jobs"]
+        self.assertTrue(manifest)
+        for key, suite in manifest.items():
+            self.assertEqual(batch[key]["uses"], f"./.github/workflows/{suite['workflow']}", key)
+            run = {"path": f".github/workflows/{suite['workflow']}"}
+            for display in suite["jobs"].values():
+                self.assertEqual(excuse.base_caller(REPO, "feat-cmux-next", run, display),
+                                 (excuse.POST_MERGE_WORKFLOW, f"{key} / {display}"), key)
+
 class WebReplayGitHub(WebShardBaseGitHub):
     """cmux#34111 at 64617d70 (2026-11-08): the head's ci.yml run 10 failed REPLAY, its merge-parent replay, which
     charged CAPSULES > CAPSULE_TEST to the change; its head shard (4), job 3, passed and printed the test's error. No
@@ -3776,6 +3932,21 @@ class RollupsFromNeeds(unittest.TestCase):
         for why, (files, said) in cases.items():
             with self.subTest(why), self.assertRaisesRegex(excuse.Refused, said):
                 self.derive(**files)
+
+    def test_a_matrix_name_over_a_computed_include_matches_its_rendered_names_by_prefix(self):
+        # ci-web.yml react-apps-check-shard (#48561): a pull request runs only the shards its tests reach, so
+        # the include is computed. Actions still names each job 'react-apps-check (<shard>)'.
+        job = {"name": "react-apps-check (${{ matrix.shard }})", "runs-on": "x", "steps": [],
+               "strategy": {"matrix": {"include": "${{ fromJSON(needs.scope.outputs.react_shards) }}"}}}
+        self.assertEqual(excuse._check_matcher("react-apps-check-shard", job, "ci-web.yml"),
+                         {"exact": [], "prefixes": ["react-apps-check ("]})
+        for why, bad in {
+            "a called workflow": dict(job, uses="./.github/workflows/x.yml"),
+            "a computed matrix that is not an include": dict(job, strategy={"matrix": "${{ fromJSON(x) }}"}),
+            "an include of fixed rows without the key": dict(job, strategy={"matrix": {"include": [{"part": 1}]}}),
+        }.items():
+            with self.subTest(why), self.assertRaisesRegex(excuse.Refused, "not one matrix key over fixed values"):
+                excuse._check_matcher("react-apps-check-shard", bad, "ci-web.yml")
 
     def test_a_missing_or_malformed_contract_refuses_every_rollup(self):
         for text in (None, "{", "[]", '{"run": {}, "routed": {}}',
@@ -12396,9 +12567,22 @@ class UnplacedLogsAreComparedWhole(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "error lines are not .*more on this head: .*New.swift"):
             self.judge(UnplacedGitHub(UNPLACED_CHECKS, UNPLACED_CHECKS_STEP, base + [negative], base))
 
-    def test_a_red_that_names_nothing_is_refused(self):
+    def test_48480_a_red_that_names_nothing_is_excused_by_the_same_failed_step_on_base(self):
+        # cmux#48480: 'seven-language live conformance' failed at 'Select JDK 17' on the head and on feat-cmux-next,
+        # and neither log names a test or error line; refused three times as "nothing to compare". Nothing printed
+        # before the runner's exit annotation either, so there are no last words (last_words): only the step is left.
+        said = self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, [], []))
+        self.assertIn("only its failed steps identify it", said)
+        self.assertIn("swift test (macOS) (failure)", said)
+
+    def test_a_red_that_names_nothing_is_refused_by_another_step_or_a_base_that_names_its_failure(self):
+        other = UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, [], [])
+        other.jobs[2]["steps"][2]["name"] = "xcodebuild test (iOS simulator)"
         with self.assertRaisesRegex(excuse.Refused, "names no failing test or error line"):
-            self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, ["just output"], ["just output"]))
+            self.judge(other)
+        named = ["✘ Test reconnectsAfterSleep() failed after 2.100 seconds with 1 issue."]
+        with self.assertRaisesRegex(excuse.Refused, "names no failing test or error line"):
+            self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, [], named))
 
     def test_the_scripts_echo_is_never_a_red(self):
         # The runner echoes each step's script: a `::error::` the script could print is not one it did.
@@ -12408,6 +12592,58 @@ class UnplacedLogsAreComparedWhole(unittest.TestCase):
         red = ["##[error]red check: Scrollbars thin, one style"]
         said = self.judge(UnplacedGitHub(UNPLACED_CHECKS, UNPLACED_CHECKS_STEP, echo + red, red))
         self.assertIn("compared whole", said)
+
+
+class ShellStepLastWordsAreItsErrorLine(unittest.TestCase):
+    """2026-11-20, cmuxterm-hq#15467 at 4aa7a17c (cmuxterm-hq#15575): 'Fleet tests' (job 136408981140) failed
+    "Validate the fleet client install and the tag policy" on the same plain line as main's Skills tests run
+    44769654200 (job 136405799814), `Bundled fleet client is stale. Run scripts/sync-fleet-skill-client.py.` then the
+    runner's exit annotation. Its log is unplaced and names no failing test or error line, so it was refused as having
+    nothing to compare. Recorded from both jobs' logs: the line before each exit annotation is that step's error line,
+    on both sides, so the same red is excused and a new or different one is still the PR's own."""
+
+    JOB = "Fleet tests"
+    STEP = "Validate the fleet client install and the tag policy"
+    STALE = "Bundled fleet client is stale. Run scripts/sync-fleet-skill-client.py."
+    # The step's own header and the runner's echo of its script, as both logs print them, then its last words.
+    RED = ("##[group]Run python3 scripts/sync-fleet-skill-client.py --check",
+           "\x1b[36;1mpython3 scripts/sync-fleet-skill-client.py --check\x1b[0m",
+           "\x1b[36;1mpython3 -m unittest discover -s build-fleet -p 'client_install_test.py'\x1b[0m",
+           "shell: /usr/bin/bash -e {0}", "##[endgroup]", STALE)
+
+    def judge(self, github):
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
+
+    def github(self, head=RED, base=RED):
+        return UnplacedGitHub(self.JOB, self.STEP, head, base)
+
+    def test_15467_the_same_failed_step_and_last_words_as_the_base_are_excused(self):
+        said = self.judge(self.github())
+        self.assertIn("excused 'Fleet tests'", said)
+        self.assertIn(f"last words before exit 1: {self.STALE}", said)
+
+    def test_other_last_words_are_the_prs_own(self):
+        other = (*self.RED[:-1], "Tag policy: lane/foo is not an allowed tag.")
+        with self.assertRaisesRegex(excuse.Refused, "error lines are not .*more on this head: .*Tag policy"):
+            self.judge(self.github(head=other))
+
+    def test_a_step_that_fails_besides_is_the_prs_own(self):
+        github = self.github()
+        github.jobs[1]["steps"].append({"name": "Run the fleet policy tests", "status": "completed",
+                                        "conclusion": "failure"})
+        with self.assertRaisesRegex(excuse.Refused, r"its failed steps \(.*Run the fleet policy tests"):
+            self.judge(github)
+
+    def test_a_second_exit_on_the_head_is_the_prs_own(self):
+        with self.assertRaisesRegex(excuse.Refused, "error lines are not"):
+            self.judge(self.github(head=(*self.RED, "##[error]Process completed with exit code 1.", self.STALE)))
+
+    def test_a_named_error_line_keeps_last_words_out(self):
+        # A log that names an error line is compared by it alone, as before: last words are only for a log that
+        # names nothing.
+        mine = excuse.unplaced_signature(failed_job(1, 10, HEAD, self.JOB, self.STEP),
+                                         unplaced_log(self.JOB, self.STEP, "##[error]red check: x", self.STALE))
+        self.assertFalse([error for error in mine.errors if error.startswith(excuse.LAST_WORDS)])
 
 
 class FailedViewIsTheOnlyReader(unittest.TestCase):
@@ -15690,7 +15926,10 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             # Calls ci.yml, cmux-next-guards.yml and the other docs-only-filtered workflows when their filter can
             # be wrong (scripts/ci/docs_only_paths.py FALLBACK); a called guard job's check name carries the
             # caller's prefix, so no guard job declaration matches it and its red is judged as any job's.
-            "docs-only-fallback.yml"),
+            "docs-only-fallback.yml",
+            # One router per push (RFD 0023): its route job lists changed files; it calls the routed workflows
+            # (scripts/ci/pr_router.json), whose check names carry the `pr router / ` prefix, as the fallback's do.
+            "pr-router.yml"),
         "bots, labels, receipts, comments and policy reads of the pull request or GitHub, not of the tree": (
             "cla-policy-guard.yml", "cla.yml", "classic-frozen-guard.yml", "contributor-welcome.yml", "labels-sync.yml",
             "merge-freeze.yml", "merge-receipt.yml", "namespace-autofix.yml", "pr-body-checks.yml", "risk-tier.yml",
