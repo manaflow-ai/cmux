@@ -327,9 +327,10 @@ export function fileTreeUnsafeCSS(): string {
     [data-item-section='decoration'] svg {
       display: block;
     }
-    /* An added file's name and icon are green, a deleted one's red (the counts' colors), a modified
-       or renamed one's blue (file-tree-stats \`nameColoredGitStatus\`). The row's square says the
-       change, so the tree's status letters and folder dots are hidden. */
+    /* An added file's name and icon are green, a deleted one's red (the counts' colors); a modified
+       or renamed one keeps a file's own color (only its icon takes the modified blue), as most of
+       a review is edits and a list of blue names read as noise (file-tree-stats \`nameColoredGitStatus\`). The row's square says the change,
+       so the tree's status letters and folder dots are hidden. */
     [data-item-section='git'] {
       display: none;
     }
@@ -347,7 +348,8 @@ export function fileTreeUnsafeCSS(): string {
        backdrop, so it is mixed toward the text color there (--cmux-diff-tree-name-strength,
        styles.css): the same hue, brighter in a dark theme, darker in a light one. Elsewhere the
        strength is 100%, the status color itself. */
-    [data-item-git-status] > [data-item-section='content'] {
+    [data-item-git-status='added'] > [data-item-section='content'],
+    [data-item-git-status='deleted'] > [data-item-section='content'] {
       color: color-mix(
         in oklab,
         var(--trees-item-git-status-color) var(--cmux-diff-tree-name-strength, 100%),

@@ -2484,8 +2484,8 @@ button.file-header-open:focus-visible {
   font-size: calc(var(--cmux-diff-ui-font-size) * 0.85);
   white-space: nowrap;
 }
-/* "+N -N" then a five-block bar of the added share (FileHeader.tsx DiffStatBar), in tabular figures
-   so the counts of stacked headers line up. */
+/* "+N -N", only the counts that are not zero, in tabular figures so the counts of stacked headers
+   line up. */
 .file-header-stats {
   flex: 0 0 auto;
   display: inline-flex;
@@ -2493,23 +2493,6 @@ button.file-header-open:focus-visible {
   gap: 5px;
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
-}
-.file-header-bar {
-  display: inline-flex;
-  gap: 1.5px;
-  margin-left: 2px;
-}
-.file-header-bar > span {
-  width: 6px;
-  height: 6px;
-  border-radius: 1.5px;
-  background: var(--cmux-diff-muted-bg);
-}
-.file-header-bar > span[data-kind="added"] {
-  background: var(--cmux-diff-count-added);
-}
-.file-header-bar > span[data-kind="deleted"] {
-  background: var(--cmux-diff-count-deleted);
 }
 .file-header-additions {
   color: var(--cmux-diff-count-added);
