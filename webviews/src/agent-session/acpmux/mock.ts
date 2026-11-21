@@ -1413,6 +1413,8 @@ export class MockAcpmuxSocket {
   private watching = true;
   /// The watch off with `attachedRows`: the attached chat's row still comes (`watch-attached-rows-v1`).
   private watchingAttached = false;
+  /// `session_changed` notices told the page (bench/session-scale-scroll.bench.ts reads it).
+  told = 0;
 
   private tellChanged(params: { kind: string; session?: Record<string, any> }): void {
     const sessionId = params.session?.sessionId;
@@ -1420,8 +1422,10 @@ export class MockAcpmuxSocket {
     this.listSeq += 1;
     if (params.kind === "purged") this.goneRows.push({ sessionId, at: this.listSeq });
     else this.rowSeq.set(sessionId, this.listSeq);
-    if (this.watching || (this.watchingAttached && sessionId === this.attached))
+    if (this.watching || (this.watchingAttached && sessionId === this.attached)) {
+      this.told += 1;
       this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { ...params, listSeq: this.listSeq } });
+    }
   }
 
   /// `_acpmux/watch`: `enabled: false` stops the notices (`attachedRows`: but the attached chat's);

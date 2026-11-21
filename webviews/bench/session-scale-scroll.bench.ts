@@ -156,6 +156,8 @@ async function installDriver({ size, rate, pad }: { size: number; rate: number; 
       timer = undefined;
       return round;
     },
+    /// `session_changed` notices this page's daemon sent it so far (a parked watch hears its own chat's only).
+    told: () => daemon.told,
   };
 }
 
@@ -283,6 +285,9 @@ try {
         }
         const started = await scrolled.evaluate(() => (window as any).cmuxAcpmuxDebug.tickWatch());
         if ((started as Record<string, unknown>).error) throw new Error(`tickWatch: ${JSON.stringify(started)}`);
+        const toldAt = () =>
+          Promise.all(pages.map((page) => page.evaluate(() => (window as any).__scale.told() as number)));
+        const toldBefore = await toldAt();
         const rendererBefore = await rendererCpuMs(browserCdp);
         const wallBefore = performance.now();
         // fixed-wait: --idle measures a window of the change stream alone, with nobody at the page.
@@ -302,6 +307,7 @@ try {
         const wall = performance.now() - wallBefore;
         const rendererMs = (await rendererCpuMs(browserCdp)) - rendererBefore;
         const busy = (await taskMs(cdp)) - busyBefore;
+        const told = (await toldAt()).map((count, index) => count - toldBefore[index]!);
         if (PROFILE)
           printProfile(((await cdp.send("Profiler.stop")) as { profile: Profile }).profile, `n=${size} ${mode}`, wall);
         const until = await scrolled.evaluate(() => performance.now());
@@ -339,6 +345,8 @@ try {
           shown_renders: renderCount(renders[0] ?? {}),
           hidden_renders: renders.slice(1).map(renderCount),
           hidden_pane_renders: renders.slice(1).map((counts) => counts.pane ?? 0),
+          shown_told: told[0],
+          hidden_told: told.slice(1),
           changes: changes.reduce((sum, value) => sum + value, 0),
         };
         results.push(row);
@@ -346,7 +354,8 @@ try {
           `n=${size} hidden pages report ${mode}, pages=${PAGES} (${NEWTABS} new tab) rate=${rateFor(size)}/s cpu=${CPU}x:` +
             `frames ${row.frames} p50 ${row.frame_p50} p95 ${row.frame_p95} max ${row.frame_max} ms, dropped ${row.dropped}, ` +
             `main thread busy ${row.busy_pct} %, renderer CPU ${row.renderer_cpu_pct} % of a core${IDLE ? " (idle)" : ""}${PARK ? "" : " (no park)"}, long tasks ${row.long_tasks} (longest ${row.longest_task_ms} ms), ` +
-            `hidden pages' renders ${JSON.stringify(row.hidden_renders)} (pane ${JSON.stringify(row.hidden_pane_renders)})`,
+            `hidden pages' renders ${JSON.stringify(row.hidden_renders)} (pane ${JSON.stringify(row.hidden_pane_renders)}), ` +
+            `notices heard: shown ${row.shown_told}, hidden ${JSON.stringify(row.hidden_told)}`,
         );
         perfRow({
           name: `session_scale_${IDLE ? "idle" : "scroll"}${PARK ? "" : "_nopark"}.frame.n${size}.${mode}`,
