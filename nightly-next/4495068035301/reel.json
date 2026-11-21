@@ -1,0 +1,187 @@
+{
+  "version": 1,
+  "build": "4495068035301",
+  "notes": "notes/4495068035301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 49243,
+      "title": "ci: the PR pipeline as one step table, slice 2 (four more checks become steps)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49209,
+      "title": "perf-bench: suite=tabs measures idle RAM, CPU and GPU at 1, 10 and 50 tabs against Microsoft Edge",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48449,
+      "title": "ci: abort stalled SwiftPM artifact downloads",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48896,
+      "title": "ci(cloud-journey-prod): the real leg takes the journey's own Claude login before the shared one (feat twin)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28729,
+      "title": "cmux link sync push: a file deleted here but changed on the machine stays a conflict",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48839,
+      "title": "Settings: a cmux-next.json that does not parse is told by line and column, not an error dump",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49251,
+      "title": "ci(cmux-tui): a no-input feat-cmux-next dispatch claims its tree key and skips a ready tree",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49210,
+      "title": "ci(web): react-apps-base-early times out at 8 minutes, not 25",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49000,
+      "title": "cmux-tui artifacts: a branch push's build cancels its branch's older build",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49173,
+      "title": "ci: cmux-next web coalescer holds no runner while it waits",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48816,
+      "title": "Package five Claude Code customizations for individual install and preview",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49282,
+      "title": "docs: no-new-CI follow-ups from cmux#46980 reviews (perf decision, quote, rewraps)",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49228,
+      "title": "ci(cmux-next): run the generated files job only when a generator input changed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49223,
+      "title": "Extensions: third-party js and external app servers, run only with the person's approval",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49040,
+      "title": "cmux agent ls: a session's alias is the name it shows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47032,
+      "title": "cmux NEXT DEV: the Files pane asks for Downloads once for every DEV build",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49197,
+      "title": "launch-ready: a fresh window's own regions readied before Home are not its first surface",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48810,
+      "title": "measure: dev-loop swift_inject stages and floors",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49238,
+      "title": "ci(next): generated-files, daemon-test and action-exports take a per-run scheduler grant",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49214,
+      "title": "ci: guard group passes end by minute 22 of the job, counted from its start",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49116,
+      "title": "Agent pane: trust question folds out, full command grows, web video holds its box",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/49116/hv-2a9eab0fa4c9-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 49167,
+      "title": "acpmux: a peer's forward of an agent's message goes to the inbox, not a turn of its own",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48277,
+      "title": "Agent chat: scrolling back to the end after rows arrive no longer cuts the room under the reader",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47741,
+      "title": "Agent chat: a new tool call redraws only its row (render-counts tool scenario)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49239,
+      "title": "Composer: list extension @ mentions (cmux.composer.mention/1) in the @ menu",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 44576,
+      "title": "cmux-fault: the Remote and Cloud fault harness and its first scenarios (ticket-expire, mint-down, disk-full)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/44576/hv-2dc2a72b368c-video.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 48978,
+      "title": "bin/cmux links with -no_exported_symbols: drop its 6.8 MB dead export trie",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 49115,
+      "title": "acpmux: Send now stops the step beside background helpers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 46980,
+      "title": "Lift the no-new-CI rule: agents may add CI checks",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    }
+  ]
+}
