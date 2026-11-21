@@ -77,13 +77,14 @@ struct HomeHeaderPanelsTests {
     }
 
     /// Share Screen with Chief is gone (user 2026-11-20, "remove share screen with chief"): no header
-    /// toggle, and none of its actions in the palette, the CLI or MCP.
+    /// toggle, with the cluster on or off. Its actions left the Rust catalog
+    /// (cmux-action-catalog's chief_screen_share_removed test); the app has them no more once the
+    /// app FFI re-pin carries that.
     @Test func shareScreenWithChiefIsGone() throws {
         let h = try Self.harness()
         defer { h.close() }
-        #expect(!HomeHeaderPanels.items(h.context(isChief: true), enabled: true).contains { $0.id == "screenShare" })
-        for id: ActionID in ["chief.screenShare.toggle", "chief.screenShare.start", "chief.screenShare.stop", "chief.screenShare.look"] {
-            #expect(h.services.registry.descriptor(for: id) == nil, "\(id) is still registered")
+        for enabled in [true, false] {
+            #expect(!HomeHeaderPanels.items(h.context(isChief: true), enabled: enabled).contains { $0.id == "screenShare" })
         }
     }
 
