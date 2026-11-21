@@ -1909,6 +1909,29 @@ svg[data-icon-fill] {
   fill: currentcolor;
   stroke: none;
 }
+/* A file's bar shows its path and its counts; its buttons show while the pointer is on the bar or
+   the keyboard is in it (a1315's cuts, 2026-11-20). A viewed file keeps its eye (it says the file is
+   done) and an open menu keeps its button. Opacity, not display, so nothing moves and Tab still
+   reaches each button. */
+.file-header
+  :is(
+    .file-review-viewed[aria-pressed="false"],
+    .file-header-menu-button:not([aria-expanded="true"]),
+    .file-review-stage,
+    .file-review-revert
+  ) {
+  opacity: 0;
+  transition: opacity 150ms ease-out;
+}
+.file-header:is(:hover, :focus-within)
+  :is(.file-review-viewed, .file-header-menu-button, .file-review-stage, .file-review-revert) {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .file-header :is(.file-review-viewed, .file-header-menu-button, .file-review-stage, .file-review-revert) {
+    transition: none;
+  }
+}
 /* The page is as wide as its pane. In a narrow pane the file name keeps
    priority: the deferral badge and the "Viewed" word hide, and both stay
    reachable as tooltips on "Load diff" and the checkbox. */
