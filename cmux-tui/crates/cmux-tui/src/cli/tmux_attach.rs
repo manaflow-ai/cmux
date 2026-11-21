@@ -28,9 +28,13 @@
 //! the raw control stream.
 
 use std::io::{BufRead, BufReader, Write};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::ChildStdin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
+use std::thread::Scope;
+
+use cmux_process::{Child, Command, Stdio};
 
 use serde_json::json;
 
@@ -302,7 +306,8 @@ impl DetachKey {
     }
 }
 
-/// A `tmux -C` client and the events its stream carries.
+/// A `tmux -C` client and the events its stream carries. Its reader runs in
+/// the caller's scope and ends when the client does.
 struct Gateway {
     child: Child,
     input: Arc<Mutex<ChildStdin>>,
@@ -310,7 +315,11 @@ struct Gateway {
 }
 
 impl Gateway {
-    fn start(tmux: &Tmux, session: &str) -> Result<Self, String> {
+    fn start<'scope>(
+        scope: &'scope Scope<'scope, '_>,
+        tmux: &Tmux,
+        session: &str,
+    ) -> Result<Self, String> {
         let mut child = tmux
             .command()
             .args(["-C", "attach-session", "-t", session])
@@ -322,7 +331,7 @@ impl Gateway {
         let input = child.stdin.take().ok_or("tmux -C has no stdin")?;
         let output = child.stdout.take().ok_or("tmux -C has no stdout")?;
         let (sender, events) = channel();
-        std::thread::spawn(move || read_stream(BufReader::new(output), &sender));
+        scope.spawn(move || read_stream(BufReader::new(output), &sender));
         Ok(Self { child, input: Arc::new(Mutex::new(input)), events })
     }
 
@@ -373,7 +382,28 @@ fn attach(tmux: &Tmux, target: Option<&str>) -> Result<(), String> {
         return Err("cmux tmux attach needs a terminal".into());
     }
     let pane = resolve(tmux, target)?;
-    let gateway = Gateway::start(tmux, &pane.session)?;
+    // Every thread of the attach is joined before it returns: the reader ends
+    // with the gateway, the key and size watchers with `stop`.
+    let stop = AtomicBool::new(false);
+    std::thread::scope(|scope| {
+        let gateway = Gateway::start(scope, tmux, &pane.session)?;
+        let result = stream(scope, tmux, &pane, &gateway, fd, &stop);
+        stop.store(true, Ordering::Relaxed);
+        gateway.close();
+        result
+    })
+}
+
+/// Snapshot, then the pane's live output until detach or until the pane,
+/// its session or the server goes away.
+fn stream<'scope>(
+    scope: &'scope Scope<'scope, '_>,
+    tmux: &Tmux,
+    pane: &Pane,
+    gateway: &Gateway,
+    fd: i32,
+    stop: &'scope AtomicBool,
+) -> Result<(), String> {
     let (cols, rows) = terminal_size(fd).unwrap_or((80, 24));
     gateway.send(&format!("refresh-client -C {cols}x{rows}\n"));
     // Output that arrives before the capture is in the capture; drop it.
@@ -385,8 +415,9 @@ fn attach(tmux: &Tmux, target: Option<&str>) -> Result<(), String> {
     let _ = stdout.flush();
 
     let (typed_sender, typed) = channel::<Typed>();
-    spawn_keys(fd, typed_sender.clone());
-    spawn_resizes(fd, (cols, rows), typed_sender);
+    let keys_sender = typed_sender.clone();
+    scope.spawn(move || watch_keys(fd, stop, &keys_sender));
+    scope.spawn(move || watch_size(fd, (cols, rows), stop, &typed_sender));
     let mut detach = DetachKey::default();
     loop {
         // Typed bytes and resizes are rare next to output; a short wait keeps both live.
@@ -399,7 +430,6 @@ fn attach(tmux: &Tmux, target: Option<&str>) -> Result<(), String> {
                     }
                     if detached {
                         drop(raw);
-                        gateway.close();
                         return Ok(());
                     }
                 }
@@ -408,7 +438,6 @@ fn attach(tmux: &Tmux, target: Option<&str>) -> Result<(), String> {
                 }
                 Typed::Closed => {
                     drop(raw);
-                    gateway.close();
                     return Ok(());
                 }
             }
@@ -428,7 +457,6 @@ fn attach(tmux: &Tmux, target: Option<&str>) -> Result<(), String> {
         }
     }
     drop(raw);
-    gateway.close();
     Ok(())
 }
 
@@ -455,37 +483,39 @@ enum Typed {
     Closed,
 }
 
-fn spawn_keys(fd: i32, typed: Sender<Typed>) {
-    std::thread::spawn(move || {
-        let mut buffer = [0u8; 4096];
-        loop {
-            let read = unsafe { libc::read(fd, buffer.as_mut_ptr().cast(), buffer.len()) };
-            if read <= 0 {
-                let _ = typed.send(Typed::Closed);
-                return;
-            }
-            let bytes = buffer[..read as usize].to_vec();
-            if typed.send(Typed::Bytes(bytes)).is_err() {
-                return;
-            }
+/// Reads the terminal's keys until the attach ends. A `poll` with a short
+/// timeout instead of a blocking read lets `stop` end it.
+fn watch_keys(fd: i32, stop: &AtomicBool, typed: &Sender<Typed>) {
+    let mut buffer = [0u8; 4096];
+    while !stop.load(Ordering::Relaxed) {
+        let mut ready = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
+        if unsafe { libc::poll(&mut ready, 1, 50) } <= 0 {
+            continue;
         }
-    });
+        let read = unsafe { libc::read(fd, buffer.as_mut_ptr().cast(), buffer.len()) };
+        if read <= 0 {
+            let _ = typed.send(Typed::Closed);
+            return;
+        }
+        let bytes = buffer[..read as usize].to_vec();
+        if typed.send(Typed::Bytes(bytes)).is_err() {
+            return;
+        }
+    }
 }
 
 /// Watches the terminal's size (an ioctl, no process) until the attach ends.
-fn spawn_resizes(fd: i32, mut size: (u16, u16), typed: Sender<Typed>) {
-    std::thread::spawn(move || {
-        loop {
-            std::thread::sleep(std::time::Duration::from_millis(200));
-            let Some(now) = terminal_size(fd) else { continue };
-            if now != size {
-                size = now;
-                if typed.send(Typed::Size(now.0, now.1)).is_err() {
-                    return;
-                }
+fn watch_size(fd: i32, mut size: (u16, u16), stop: &AtomicBool, typed: &Sender<Typed>) {
+    while !stop.load(Ordering::Relaxed) {
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        let Some(now) = terminal_size(fd) else { continue };
+        if now != size {
+            size = now;
+            if typed.send(Typed::Size(now.0, now.1)).is_err() {
+                return;
             }
         }
-    });
+    }
 }
 
 fn terminal_size(fd: i32) -> Option<(u16, u16)> {
@@ -639,23 +669,25 @@ mod tests {
         }
         assert!(history.contains("first line"), "{history:?}");
 
-        let gateway = Gateway::start(&tmux, &pane.session).expect("gateway");
-        assert!(gateway.send("refresh-client -C 80x24\n"));
-        assert!(gateway.send(&send_keys(&pane.id, b"typed\r")));
-        let mut seen = Vec::new();
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-        while std::time::Instant::now() < deadline
-            && !String::from_utf8_lossy(&seen).contains("typed")
-        {
-            if let Ok(Event::Output { pane: id, bytes }) =
-                gateway.events.recv_timeout(std::time::Duration::from_millis(100))
+        std::thread::scope(|scope| {
+            let gateway = Gateway::start(scope, &tmux, &pane.session).expect("gateway");
+            assert!(gateway.send("refresh-client -C 80x24\n"));
+            assert!(gateway.send(&send_keys(&pane.id, b"typed\r")));
+            let mut seen = Vec::new();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while std::time::Instant::now() < deadline
+                && !String::from_utf8_lossy(&seen).contains("typed")
             {
-                assert_eq!(id, pane.id);
-                seen.extend(bytes);
+                if let Ok(Event::Output { pane: id, bytes }) =
+                    gateway.events.recv_timeout(std::time::Duration::from_millis(100))
+                {
+                    assert_eq!(id, pane.id);
+                    seen.extend(bytes);
+                }
             }
-        }
-        assert!(String::from_utf8_lossy(&seen).contains("typed"), "{seen:?}");
-        gateway.close();
+            assert!(String::from_utf8_lossy(&seen).contains("typed"), "{seen:?}");
+            gateway.close();
+        });
         assert!(pane_alive(&tmux, &pane.id), "detaching left the pane running");
         drop(cleanup);
     }
