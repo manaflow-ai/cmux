@@ -13,12 +13,11 @@ import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { PAGE_COMMAND, type PageCommand } from "../shared/pageStreams";
-import { createStrings, type StringTable, type Strings } from "../shared/i18n";
+import { createStrings, type Strings, type StringTable } from "../shared/i18n";
 import type { DaemonSocket } from "../shared/daemonSocket";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
 import "./paneStrings";
 import { APP_ACTION_RUN, HomeChannelsPage, RESTART_SERVER } from "./HomeChannelsPage";
-import { MockHomeProvider } from "./mockProvider";
 import { HomeChannelsStore, PendingCarry } from "./store";
 import { DaemonGate, type DaemonSource, type HostCredential } from "./DaemonGate";
 import { DaemonHomeClient } from "./daemonHome";
@@ -44,10 +43,7 @@ const table: StringTable = globalThis.__cmuxStrings?.en
   ? globalThis.__cmuxStrings
   : ((await import("./generated/strings.json")).default as StringTable);
 
-export function mountHomeChannelsPage(
-  root: HTMLElement,
-  client: PageClient | null = defaultClient(),
-): HomeChannelsStore {
+export function mountHomeChannelsPage(root: HTMLElement, client: PageClient | null): HomeChannelsStore {
   const store = new HomeChannelsStore(client);
   const strings = createStrings(table);
   document.title = strings.t("page.title");
@@ -57,11 +53,6 @@ export function mountHomeChannelsPage(
     </UiProvider>,
   );
   return store;
-}
-
-function defaultClient(): PageClient | null {
-  const query = new URLSearchParams(location.search);
-  return createPageClient(query.has("mock") ? () => new MockHomeProvider() : undefined);
 }
 
 /** The page on a cmux instance's daemon: connect (credential or pairing), then the real Home. */
@@ -154,5 +145,8 @@ if (root && document.documentElement.dataset.cmuxPage === "home-channels") {
     // In the app: the host hands the endpoint and its daemon's credential on every (re)connect.
     const load = () => bridge.call<HostCredential>("cmux.host.credential.load", {});
     mountDaemonHomeChannelsPage(root, { kind: "host", load }, bridge);
-  } else mountHomeChannelsPage(root);
+  } else if (query.has("mock"))
+    // The mock provider and its fixtures load only here, never in the app's first load.
+    void import("./mockProvider").then(({ MockHomeProvider }) => mountHomeChannelsPage(root, new MockHomeProvider()));
+  else mountHomeChannelsPage(root, null);
 }

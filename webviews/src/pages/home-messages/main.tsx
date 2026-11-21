@@ -14,7 +14,8 @@ import { createStrings, type Strings } from "../shared/i18n";
 import type { DaemonSocket } from "../shared/daemonSocket";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
 import { appPopupHost } from "../shared/pagePopupHost";
-import { MockHomeProvider } from "../home-channels/mockProvider";
+// Type only: the mock provider and its fixtures load with `import()`, only where no app hosts the page.
+import type { MockHomeProvider } from "../home-channels/mockProvider";
 import { HomeChannelsStore, PendingCarry } from "../home-channels/store";
 import { DaemonGate, type DaemonSource, type HostCredential } from "../home-channels/DaemonGate";
 import { DaemonHomeClient } from "../home-channels/daemonHome";
@@ -28,8 +29,12 @@ import "./styles.css";
 import "./list/list.css";
 
 /** The page on an in-memory provider (the gallery, `?mock`). */
-export function mountMockMessagesPage(root: HTMLElement, detail?: MessagesDetail): HomeChannelsStore {
-  const store = new HomeChannelsStore(new MockHomeProvider());
+export function mountMockMessagesPage(
+  root: HTMLElement,
+  provider: MockHomeProvider,
+  detail?: MessagesDetail,
+): HomeChannelsStore {
+  const store = new HomeChannelsStore(provider);
   const strings = createStrings(table);
   document.title = strings.t("home.title");
   createRoot(root).render(
@@ -131,5 +136,8 @@ if (root && document.documentElement.dataset.cmuxPage === "home-messages") {
     // In the app: the host hands the endpoint and its daemon's credential on every (re)connect.
     const load = () => bridge.call<HostCredential>("cmux.host.credential.load", {});
     mountMessagesPage(root, { kind: "host", load }, bridge);
-  } else mountMockMessagesPage(root);
+  } else
+    void import("../home-channels/mockProvider").then(({ MockHomeProvider }) =>
+      mountMockMessagesPage(root, new MockHomeProvider()),
+    );
 }

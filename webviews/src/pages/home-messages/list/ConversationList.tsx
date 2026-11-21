@@ -24,11 +24,10 @@ import {
 } from "react";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { DrivenList, DrivenRow } from "../../../ui/DrivenList";
-import { IllustratedEmpty } from "../../../ui/EmptyState/IllustratedEmpty";
-// Imported, not `new URL(...)`: the page's CSP allows `img-src data:` only, and bundle.mjs inlines it.
-import mascotOrb from "../../../agent-session/acpmux/mascots/ChiefMascotOrb.png";
+import { IllustratedEmpty, type IllustratedEmptyProps } from "../../../ui/EmptyState/IllustratedEmpty";
 import { HomeIcon } from "../../home-channels/icons";
 import type { Strings } from "../../shared/i18n";
+import { lazyArt, NO_ART } from "../../shared/lazyArt";
 import type { HostMenuItem } from "../types";
 import { headerLayout, listMetrics, ROW, type Rect } from "./layout";
 import { ListRow, PinnedTile, type ItemEvents, type Modifiers } from "./ListItems";
@@ -78,6 +77,10 @@ export interface ConversationListProps {
 
 /** The draft row's id (the New Message page's). */
 export const DRAFT_ROW = "home.newMessage";
+// The no-results state's orb. Imported, not `new URL(...)`: the page's CSP allows `img-src data:` only,
+// and bundle.mjs inlines it; behind `import()` its base64 is out of the page's first load (lazyArt.ts).
+const orbArt = lazyArt(() => import("../../../agent-session/acpmux/mascots/ChiefMascotOrb.png").then((m) => m.default));
+
 const DRAG_THRESHOLD = 4;
 const OVERSCAN = 600;
 const SCROLL_QUANTUM = 64;
@@ -518,8 +521,7 @@ export function ConversationList(props: ConversationListProps) {
                   </button>
                 </>
               ) : (
-                <IllustratedEmpty
-                  art={mascotOrb}
+                <NoResults
                   line={t("sidebar.noResults")}
                   action={{ label: t("sidebar.clearSearch"), onClick: () => props.onQuery("") }}
                 />
@@ -584,6 +586,12 @@ export function rowMenu(
     });
   }
   return items;
+}
+
+/** The no-results state with its orb. Its own component, so the orb's subscription lives only while it
+ * shows, never in the list's own hooks. */
+function NoResults(props: Omit<IllustratedEmptyProps, "art">) {
+  return <IllustratedEmpty {...props} art={orbArt.use() ?? NO_ART} />;
 }
 
 function box(rect: Rect) {
