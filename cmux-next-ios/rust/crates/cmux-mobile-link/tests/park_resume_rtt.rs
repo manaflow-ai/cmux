@@ -91,7 +91,7 @@ impl Bench {
             LinkConfig::default(),
         )
         .await
-        .expect("the phone links up");
+        .unwrap_or_else(|error| panic!("the phone links up: {error:?}"));
         let mut channel = connected.link.open("echo", json!({})).await.expect("channel");
         echo(&mut channel, b"before").await;
         (connected.link, connected.session_id, channel)
