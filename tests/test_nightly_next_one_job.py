@@ -220,7 +220,10 @@ class NightlyNextOneJobTests(unittest.TestCase):
 
     # Build-time code and the app's own code share this job with the signing and publication secrets, so each set
     # of secrets is fenced by a stray-process check, and nothing from the bundle runs while signing secrets exist.
-    STRAY_CHECKS = ("Refuse stray processes before secrets", "Refuse stray processes before secrets (publication)")
+    # The Sparkle key's step runs after the bundle's checks (they run beside the keyless deltas), behind its own check.
+    STRAY_CHECKS = ("Refuse stray processes before secrets", "Refuse stray processes before secrets (publication)",
+                    "Refuse stray processes before the Sparkle key")
+    SPARKLE_SECRET = re.compile(r"secrets\.(SPARKLE_|NIGHTLY_SPARKLE_)")
     SIGNING_SECRET = re.compile(r"secrets\.(APPLE_|ASC_API_|SPARKLE_|NIGHTLY_SPARKLE_)")
     PUBLICATION_SECRET = re.compile(r"secrets\.(CMUX_RELEASE_APP_|NIGHTLY_NEXT_R2_)|steps\.writer-token\.")
     # The steps that execute the built app or a binary from its bundle (verify-signed-nightly's and
@@ -236,8 +239,8 @@ class NightlyNextOneJobTests(unittest.TestCase):
         steps = self.job.get("steps") or []
         names = [s.get("name") for s in steps]
         blobs = [yaml.safe_dump(s) for s in steps]
-        first, second = (names.index(n) for n in self.STRAY_CHECKS)
-        for index in (first, second):
+        first, second, sparkle = (names.index(n) for n in self.STRAY_CHECKS)
+        for index in (first, second, sparkle):
             self.assertIn("refuse_stray_processes.py", steps[index].get("run", ""))
             self.assertNotIn("secrets.", blobs[index])
         signing = [i for i, b in enumerate(blobs) if self.SIGNING_SECRET.search(b)]
@@ -264,12 +267,37 @@ class NightlyNextOneJobTests(unittest.TestCase):
                       one_line(steps[names.index("Build the nightly-next deltas after the feed")].get("if")))
 
         runners = [names.index(n) for n in self.BUNDLE_RUNNERS]
-        signing = [i for i in signing if i < second]
+        before = [i for i in signing if i < sparkle]
+        after = [i for i in signing if i > sparkle]
+        # Past the Sparkle check only the Sparkle key: the one secret whose step follows the bundle's checks
+        # (the pre-feed appcast and, after its own check, the post-feed delta build).
+        self.assertTrue(after)
+        for index in after:
+            self.assertRegex(blobs[index], self.SPARKLE_SECRET, names[index])
+            self.assertIsNone(re.search(r"secrets\.(APPLE_|ASC_API_)", blobs[index]), names[index])
+        self.assertGreater(sparkle, max(runners), "the Sparkle check comes after the last step that runs the bundle")
+        # Nothing from the bundle runs between the deltas' start and the Sparkle check holds any secret.
+        start = names.index("Start the nearest deltas and the notes fetch (no key, no token)")
+        for index in range(start, sparkle):
+            self.assertIsNone(re.search(r"secrets\.|steps\.[a-z-]*token", blobs[index]), names[index])
         for index in runners:
             # Nothing from the bundle runs while the signing secrets are in the job, and the publication check
             # comes after the last of them, so nothing such a step left behind meets the publication secrets.
-            self.assertGreater(index, max(signing), names[index])
+            self.assertGreater(index, max(before), names[index])
+            self.assertLess(index, sparkle, names[index])
             self.assertLess(index, second, names[index])
+
+    def test_the_feed_waits_on_no_delta_when_the_deltas_follow_it(self) -> None:
+        # The item is written full-only then, so the wait before the Sparkle key stops an unfinished prebuild
+        # instead of waiting for it (one-job.sh deltas-join), with the same switch. Why: note-31
+        steps = self.job.get("steps") or []
+        names = [s.get("name") for s in steps]
+        wait = steps[names.index("Wait for the nearest deltas and the notes fetch")]
+        generate = steps[names.index("Generate Sparkle appcasts (nightly)")]
+        switch = (generate.get("env") or {}).get("NIGHTLY_NEXT_DELTAS_AFTER_FEED")
+        self.assertTrue(switch)
+        self.assertEqual((wait.get("env") or {}).get("NIGHTLY_NEXT_DELTAS_AFTER_FEED"), switch)
+        self.assertIn("deltas-join", wait.get("run", ""))
 
     def test_a_warm_mac_skips_the_zig_package_restore_and_installs_zig_once(self) -> None:
         # "Cache Zig packages" restored 647 MB over the Mac's kept ~/.cache/zig in 69-81 s (runs 43390156751,

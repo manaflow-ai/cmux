@@ -7397,7 +7397,15 @@ jobs:
       - *x68
       - *x69
       - *x70
-      - *x71
+      # The keyless deltas and the notes fetch run beside the bundle's checks; the key comes after a stray check.
+      # With the deltas after the feed, the wait below holds the feed for the notes only. Why: docs/ci/nightly-workflow-notes.md#note-31
+      - name: Start the nearest deltas and the notes fetch (no key, no token)
+        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && steps.notarize-nightly.outputs.submission_pending != 'true' && needs.decide.outputs.notary_test != 'true' && !env.LEFT_SLOT
+        env:
+          SHOULD_PUBLISH: ${{ needs.decide.outputs.should_publish }}
+          NOTES_HEAD: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          PUBLISHED_SHA: ${{ needs.decide.outputs.published_sha }}
+        run: bash "$PUBLISH_TOOLING/ci/nightly-steps/one-job.sh" deltas-start
       - name: Point the verify steps at the restored signed app
         if: ${{ !env.LEFT_SLOT }}
         env:
@@ -7413,7 +7421,7 @@ jobs:
       - *x79
       - name: Verify final DMG artifact
         if: ${{ !env.LEFT_SLOT }}
-        run: bash "$PUBLISH_TOOLING/ci/nightly-steps/one-job.sh" final && bash "$PUBLISH_TOOLING/ci/nightly-steps/verify-final-dmg.sh"
+        run: bash "$PUBLISH_TOOLING/ci/nightly-steps/one-job.sh" final-dmg && bash "$PUBLISH_TOOLING/ci/nightly-steps/verify-final-dmg.sh"
       - name: Launch smoke from a fresh home
         if: ${{ !env.LEFT_SLOT }}
         timeout-minutes: 12
@@ -7425,6 +7433,18 @@ jobs:
         env:
           BUDGET_VARIANT: ${{ vars.CMUX_NEXT_CEF_ON_DEMAND == '1' && 'arm64-cef-on-demand' || 'arm64' }}
         run: bash .publish-tooling/scripts/ci/nightly-steps/verify-final-dmg-bundle-size-budget.sh
+      - name: Wait for the nearest deltas and the notes fetch
+        if: ${{ !env.LEFT_SLOT }}
+        env:
+          NIGHTLY_NEXT_DELTAS_AFTER_FEED: ${{ needs.decide.outputs.one_job == 'true' && needs.decide.outputs.track == 'nightly-next' && 'true' || '' }}
+        run: bash "$PUBLISH_TOOLING/ci/nightly-steps/one-job.sh" deltas-join
+      - name: Refuse stray processes before the Sparkle key
+        if: ${{ !env.LEFT_SLOT }}
+        run: python3 "$PUBLISH_TOOLING/ci/refuse_stray_processes.py"
+      - *x71
+      - name: Put this build's appcast and deltas beside the final DMG
+        if: ${{ !env.LEFT_SLOT }}
+        run: bash "$PUBLISH_TOOLING/ci/nightly-steps/one-job.sh" final-feed
       - name: Wait for the build commit's tree-commit marker
         if: needs.resolve-nightly-cmux-tui-client.outputs.tree_pending == 'true' && !env.LEFT_SLOT
         env:
@@ -7537,6 +7557,7 @@ jobs:
       - *x72
       # The deltas follow the feed in this job, off the critical path to it (the item above was written full-only),
       # and never fail the build: every step here continues on error, and each one's `if` names what it needs.
+      # The delta build signs what the keyless prebuild made when it finished beside the checks, else builds them.
       # The signing key reaches only the delta build, after a third stray-process check; nothing from the bundle runs
       # in these steps (tests/test_nightly_next_one_job.py). Why: docs/ci/nightly-workflow-notes.md#note-31
       - name: Refuse stray processes before secrets (deltas)
