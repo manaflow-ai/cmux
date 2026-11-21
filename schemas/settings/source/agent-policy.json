@@ -288,6 +288,7 @@
         "appearance.fontSmoothing",
         "appearance.interfaceScale",
         "appearance.borders",
+        "appearance.previousGlass",
         "appearance.sidebarSurface",
         "appearance.chromeStyle",
         "appearance.titleAreaTone",
