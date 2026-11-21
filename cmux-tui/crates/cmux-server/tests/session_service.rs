@@ -40,6 +40,9 @@ impl Env {
                 ..Output::default()
             },
         );
+        // launchd has no com.cmux.server loaded here.
+        env.runner
+            .answer_always("launchctl print", Output { code: Some(113), ..Output::default() });
         env
     }
 
