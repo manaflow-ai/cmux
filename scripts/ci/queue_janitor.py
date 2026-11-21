@@ -303,15 +303,22 @@ def linux_orphan_reads(
     pass reads their jobs), in flight, older than MIN_AGE, not protected, oldest first, at most BUDGET. A younger one
     cannot hold an orphan; a protected one would only be reported. A queued run past GHOST_QUEUED_RUN_AGE is never
     read (find_orphans takes it from the listing alone), and the band below that age goes first: dry run 44288789127
-    spent its 30 reads on runs up to 27 days old holding nothing queued, every sweep the same ones."""
+    spent its 30 reads on runs up to 27 days old holding nothing queued, every sweep the same ones. Known
+    Linux-only paths take priority over the old-only fallback within each age band, so a flood of unknown old
+    workflows cannot consume the whole budget before the runs known to have Linux demand are inspected."""
     picked = []
     for run in runs:
         created = parse_time(run.get("created_at"))
         if ((run.get("path") in linux_only_paths or run["id"] in also) and run.get("status") in IN_FLIGHT_RUN_STATUSES
                 and created is not None and now - created >= min_age and orphan_protected_reason(run) is None
                 and not (run.get("status") == "queued" and now - created >= GHOST_QUEUED_RUN_AGE)):
-            picked.append((now - created >= GHOST_QUEUED_RUN_AGE, created, run["id"], run))
-    return [item[-1] for item in sorted(picked, key=lambda item: item[:3])[:budget]]
+            # `also` is a deliberately broad fallback for workflows whose path is
+            # no longer present in the checked-out workflow set. Prefer the
+            # known Linux-only paths first so those runs cannot be starved by a
+            # large set of unknown old workflows competing for this cap.
+            fallback = run.get("path") not in linux_only_paths
+            picked.append((now - created >= GHOST_QUEUED_RUN_AGE, fallback, created, run["id"], run))
+    return [item[-1] for item in sorted(picked, key=lambda item: item[:4])[:budget]]
 
 
 def linux_protected_runs(runs: Sequence[Mapping[str, Any]], linux_only_paths: frozenset[str],
