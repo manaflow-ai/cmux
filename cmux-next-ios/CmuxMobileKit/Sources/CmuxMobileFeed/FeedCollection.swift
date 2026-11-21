@@ -59,6 +59,13 @@ struct FeedCollection: UIViewControllerRepresentable {
 
     func updateUIViewController(_ controller: FeedCollectionController, context: Context) {
         context.coordinator.update(items: items, header: header, signature: headerSignature, headerContent: headerContent)
+        // Room under the last row for the New Task button that floats over the list's bottom.
+        let bottomRoom = context.environment.cmuxMobileFloatingBottomRoom
+        let list = controller.collection
+        if list.contentInset.bottom != bottomRoom {
+            list.contentInset.bottom = bottomRoom
+            list.verticalScrollIndicatorInsets.bottom = bottomRoom
+        }
     }
 }
 

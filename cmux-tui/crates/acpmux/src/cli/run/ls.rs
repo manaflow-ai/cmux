@@ -26,7 +26,7 @@ use crate::rpc::method;
 /// `acpmux ls`'s flags (`cli/command.rs` `Command::Ls`).
 #[derive(clap::Args, Debug, Clone)]
 pub struct LsArgs {
-    /// Only sessions whose name matches one of these (a glob: `*`, `?`; `host/glob` for one
+    /// Only sessions whose handle, ID, or name matches (a name glob: `*`, `?`; `host/glob` for one
     /// peer's), or with this session id (bare, or a peer's `host/id`).
     #[arg(value_name = "PATTERN")]
     patterns: Vec<String>,
@@ -373,6 +373,35 @@ pub(crate) async fn scoped_output(
             })
             .collect();
         merged = crate::cli::send_relay::merge_rows(&mut sessions, far);
+        // A down `ssh://` peer's rows are the ones its link left: read again over ssh, at most
+        // `ls_ssh::LS_DEADLINE`, and put in their place (`cli/ls_ssh.rs`).
+        // Each peer's url and link state (`_acpmux/peers`, the read `machine ls` makes).
+        let known = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            client.request("_acpmux/peers", json!({})),
+        )
+        .await
+        .ok()
+        .and_then(Result::ok);
+        let peers = known
+            .as_ref()
+            .and_then(|s| s.get("peers"))
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let (hosts, far) = crate::cli::ls_ssh::rows(&peers, false).await;
+        if !hosts.is_empty() {
+            let far: Vec<Value> = far
+                .into_iter()
+                .filter(|s| {
+                    keeps(s)
+                        && cutoff.is_none_or(|at| {
+                            s.get("updatedAt").and_then(Value::as_u64).unwrap_or(0) >= at
+                        })
+                })
+                .collect();
+            merged += crate::cli::ls_ssh::replace_rows(&mut sessions, &hosts, far).max(1);
+        }
     }
     if leads {
         sessions = super::ls_leads::leaders(&sessions);
@@ -490,7 +519,10 @@ pub(crate) fn scope_line(rows: &[Value]) -> Option<String> {
 fn outbox_line(status: &Value) -> Option<String> {
     let n = status.get("outboxPending").and_then(Value::as_u64).filter(|n| *n > 0)?;
     let s = if n == 1 { "" } else { "s" };
-    Some(format!("{n} message{s} queued here, not delivered yet (acpmux send --status)"))
+    Some(format!(
+        "{n} message{s} queued here, not delivered yet ({} send --status)",
+        crate::cli::entry::program()
+    ))
 }
 
 #[cfg(test)]

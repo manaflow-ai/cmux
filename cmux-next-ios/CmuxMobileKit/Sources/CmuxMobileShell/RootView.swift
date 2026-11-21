@@ -16,6 +16,7 @@ import CmuxMobileOnboarding
 import CmuxMobileScreenSharing
 import CmuxMobileSettings
 import CmuxMobileVoice
+import CmuxMobileWorkspaces
 import CmuxMobileSupport
 import CmuxMobileTerminal
 import SwiftUI
@@ -903,12 +904,16 @@ struct ShellTabs: View {
             }
             Tab("Workspaces", systemImage: "square.stack.3d.up", value: RootTab.workspaces) {
                 WorkspacesScreen(shell: shell)
+                    .newTaskButton(creator: shell.creator, store: shell.store, atRoot: shell.workspacesPath.isEmpty,
+                                   started: { shell.startedTask($0) })
                     .modifier(TabBarVisibility(shell: shell, tab: .workspaces))
                     .modifier(TabBarProbeHost())
             }
             .badge(shell.store.attentionCount)
             Tab("Feed", systemImage: "bubble.left.and.text.bubble.right", value: RootTab.feed) {
                 FeedTabContent(shell: shell)
+                    .newTaskButton(creator: shell.creator, store: shell.store, atRoot: shell.feedPath.isEmpty,
+                                   started: { shell.startedTask($0) })
                     .modifier(TabBarVisibility(shell: shell, tab: .feed))
                     .modifier(TabBarProbeHost())
             }
