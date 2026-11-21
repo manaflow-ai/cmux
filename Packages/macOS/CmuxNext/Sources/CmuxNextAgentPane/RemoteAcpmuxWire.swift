@@ -688,11 +688,13 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
 
     // MARK: Pushes
 
-    private func pushed(_ event: AgentSessionRemoteEvent) {
+    /// One push from the attachment, sent on to the page. Not private: the milestone test pushes records as the daemon sends them.
+    func pushed(_ event: AgentSessionRemoteEvent) {
         switch event {
         case .record(let data):
             guard let record = try? JSONSerialization.jsonObject(with: data) else { return }
             notify("_acpmux/event", record)
+            if milestone != nil, Self.isFirstToken(record) { tell("first token") }
         case .permission(let data):
             guard let request = try? JSONSerialization.jsonObject(with: data) else { return }
             notify("_acpmux/permission_pending", request)
@@ -842,7 +844,6 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         guard let text else { return }
         let onFrame = state.withLock { $0.closed ? nil : $0.onFrame }
         onFrame?(text)
-        if milestone != nil, Self.isFirstToken(text) { tell("first token") }
     }
 
     /// Tells ``milestone`` `step` once.
@@ -852,10 +853,11 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     }
 
     /// An agent's text or thinking on its way to the page: the model's first token, once the chat's first prompt went out
-    /// (the person's own words echoed back are a `user_message_chunk`, never this).
-    static func isFirstToken(_ frame: String) -> Bool {
-        frame.utf8Contains(#""session/update""#)
-            && frame.utf8ContainsAny([#""agent_message_chunk""#, #""agent_thought_chunk""#])
+    /// (the person's own words echoed back are a `user_message_chunk`, never this). Read from the record's `kind`, as
+    /// the page reads it, never from the frame's text: the frame is written with `session\/update`, its slash escaped.
+    static func isFirstToken(_ record: Any) -> Bool {
+        guard let kind = (record as? [String: Any])?["kind"] as? String else { return false }
+        return kind == "agent_message_chunk" || kind == "agent_thought_chunk"
     }
 
     /// A JSON-RPC id as its JSON text (number or string), so the reply carries the same id.
