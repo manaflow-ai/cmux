@@ -13,6 +13,9 @@ on:
       - "cmux-tui/crates/cmux-rd-core/**"
       - "cmux-tui/crates/cmux-rd-proto/**"
       - ".github/workflows/cmux-rd-windows.yml"
+      # A README or notes file alone starts nothing here (tests/test_ci_docs_only_prs.py); no build reads them.
+      - "!**/README.md"
+      - "!**/COORDINATION.md"
   pull_request:
     branches: [feat-cmux-next]
     paths:
@@ -21,6 +24,9 @@ on:
       - "cmux-tui/crates/cmux-rd-core/**"
       - "cmux-tui/crates/cmux-rd-proto/**"
       - ".github/workflows/cmux-rd-windows.yml"
+      # A README or notes file alone starts nothing here (tests/test_ci_docs_only_prs.py); no build reads them.
+      - "!**/README.md"
+      - "!**/COORDINATION.md"
   workflow_dispatch:
 
 permissions:
