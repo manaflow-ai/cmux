@@ -6388,6 +6388,12 @@
           "command": null
         },
         {
+          "id": "palette.addHarness",
+          "title": "Add Agent…",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "agentPane.addProjectFiles",
           "title": "Add Project Files…",
           "shortcut": null,
@@ -6538,6 +6544,12 @@
           "command": null
         },
         {
+          "id": "agentChat.copyHarnessConfigFile",
+          "title": "Copy Agent Config File",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "agentChat.copyIdentifier",
           "title": "Copy Agent Identifier",
           "shortcut": null,
@@ -6546,6 +6558,18 @@
         {
           "id": "agentChat.copyName",
           "title": "Copy Agent Name",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "agentChat.copyHarnessSessionID",
+          "title": "Copy Agent Session ID",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "agentChat.copyHarnessSettingsFile",
+          "title": "Copy Agent Settings File",
           "shortcut": null,
           "command": null
         },
@@ -6564,24 +6588,6 @@
         {
           "id": "agentChat.copyConversation",
           "title": "Copy Conversation as Markdown",
-          "shortcut": null,
-          "command": null
-        },
-        {
-          "id": "agentChat.copyHarnessConfigFile",
-          "title": "Copy Harness Config File",
-          "shortcut": null,
-          "command": null
-        },
-        {
-          "id": "agentChat.copyHarnessSessionID",
-          "title": "Copy Harness Session ID",
-          "shortcut": null,
-          "command": null
-        },
-        {
-          "id": "agentChat.copyHarnessSettingsFile",
-          "title": "Copy Harness Settings File",
           "shortcut": null,
           "command": null
         },
@@ -6732,12 +6738,6 @@
         {
           "id": "palette.computerUse.screenRecording",
           "title": "Grant Screen Recording Access",
-          "shortcut": null,
-          "command": null
-        },
-        {
-          "id": "palette.addHarness",
-          "title": "Integrate a Harness with an Agent…",
           "shortcut": null,
           "command": null
         },
