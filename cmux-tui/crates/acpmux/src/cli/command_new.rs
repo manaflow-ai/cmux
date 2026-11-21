@@ -167,3 +167,35 @@ impl NewArgs {
         notices
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[derive(Parser)]
+    struct New {
+        #[command(flatten)]
+        args: NewArgs,
+    }
+
+    #[test]
+    fn compatibility_spellings_keep_the_name_and_wait_on_local() {
+        let mut args = New::try_parse_from([
+            "new",
+            "codex-nightly-check",
+            "--harness",
+            "codex",
+            "--stay",
+            "--wait",
+        ])
+        .unwrap()
+        .args;
+        let notices = args.apply_compat();
+        assert_eq!(args.name.as_deref(), Some("codex-nightly-check"));
+        assert!(args.prompt.is_empty());
+        assert_eq!(args.host.as_deref(), Some("local"));
+        assert!(!args.detach);
+        assert_eq!(notices.len(), 3);
+    }
+}

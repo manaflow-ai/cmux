@@ -428,6 +428,9 @@ fn stopped(machine: &Value) -> Option<String> {
 /// Both its `connected` flag and its live `state` must say up (`degraded` is slow, not gone), so
 /// a flag left set while the link reconnects never makes it one. `None`: it is a candidate.
 pub fn peer_down(row: &Value) -> Option<String> {
+    if row.get("outdated").and_then(Value::as_bool) == Some(true) {
+        return Some("outdated peer build (stale disk copy)".into());
+    }
     let state = row.get("state").and_then(Value::as_str);
     let flag = row.get("connected").and_then(Value::as_bool) == Some(true);
     let up = flag && state.is_none_or(|s| matches!(s, "connected" | "degraded"));

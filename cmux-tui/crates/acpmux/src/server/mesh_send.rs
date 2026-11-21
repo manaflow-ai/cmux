@@ -390,4 +390,15 @@ mod tests {
         assert!(valid_team_address("@member/reviewer:backend"));
         assert!(!valid_team_address("@team"));
     }
+
+    #[test]
+    fn a_class_is_marked_for_warning_and_dropped_by_mesh_transport() {
+        let request = json!({
+            "prompt": [{"type": "text", "text": "hello"}],
+            "_meta": {"acpmux": {"class": "block"}}
+        });
+        let carried = carried(&request, "remote").unwrap();
+        assert!(carried.class_dropped);
+        assert_eq!(carried.body, "hello");
+    }
 }
