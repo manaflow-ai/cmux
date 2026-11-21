@@ -86,6 +86,8 @@ class InAppPathTests(unittest.TestCase):
     def test_no_grant_types_in_the_app_and_a_grant_posts(self):
         self.assertEqual("in_app", tti.input_path(False))
         self.assertEqual("posted", tti.input_path(True))
+        self.assertEqual("in_app", tti.input_path(True, "in_app"))
+        self.assertEqual("posted", tti.input_path(False, "posted"))
         env = tti.launch_env({"HOME": "/h"}, Path("/p.csv"), "in_app")
         self.assertEqual("1", env[tti.TYPE_PROBE_VARIABLE])
         self.assertEqual("/p.csv", env["CMUX_NEXT_TYPING_PROBE"])

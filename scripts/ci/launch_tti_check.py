@@ -193,8 +193,11 @@ def terminal_reading(rows: list[dict], start_ns: int | None) -> dict:
     return out
 
 
-def input_path(post_access: bool) -> str:
-    """`posted` when this process may post keys (the harness types), else `in_app` (the app's LaunchTypeProbe types)."""
+def input_path(post_access: bool, chosen: str = "auto") -> str:
+    """`posted` when this process may post keys (the harness types), else `in_app` (the app's LaunchTypeProbe types);
+    --input posted or in_app picks one whatever the grant (posted without it fails every round, as before)."""
+    if chosen in ("posted", "in_app"):
+        return chosen
     return "posted" if post_access else "in_app"
 
 
@@ -393,7 +396,7 @@ def prerun(inst: rr.Instance, app: Path, env: dict, out: Path, seconds: float) -
 def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: Path, pristine: Path, env: dict,
                made: dict, keys: Keys, args, out: Path):
     """One quit and measured launch; returns (row, the new process)."""
-    path = input_path(keys.access)
+    path = input_path(keys.access, args.input)
     row: dict = {"round": n, "kind": kind, "front": which, "workspaces": made.get("list", {}).get("workspaces"),
                  "post_access": keys.access, "input": path}
     failures = row.setdefault("failures", [])
@@ -548,7 +551,7 @@ def check(args) -> int:
     measured = [r for r in result["rounds"] if isinstance(r.get("input_ms"), (int, float)) or r.get("no_mark")]
     passed = status == 0 and len(result["rounds"]) == len(args.plan) and len(measured) == len(args.plan)
     result.update(summary, verdict="pass" if passed else "fail", post_access=keys.access,
-                  input=input_path(keys.access))
+                  input=input_path(keys.access, args.input))
     if args.out:
         with open(Path(args.out) / "tti.json", "w") as handle:
             json.dump(result, handle, indent=2, default=str)
@@ -581,6 +584,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--plan", default=DEFAULT_PLAN, help="KIND:FRONT rounds in order; KIND cold_install, "
                                                              "cold_after_update, warm or warm60, FRONT chat or terminal")
     parser.add_argument("--settle", type=float, default=30.0, help="seconds a launch may take to take a key")
+    parser.add_argument("--input", choices=("auto", "posted", "in_app"), default="auto",
+                        help="who types: posted (CGEventPostToPid, needs the PostEvent grant), in_app (the app's "
+                             "LaunchTypeProbe at its first frame), auto (posted when the grant is held)")
     parser.add_argument("--fake-agent", default=str(rr.DEFAULT_FAKE_AGENT))
     parser.add_argument("--out")
     args = parser.parse_args(argv)
