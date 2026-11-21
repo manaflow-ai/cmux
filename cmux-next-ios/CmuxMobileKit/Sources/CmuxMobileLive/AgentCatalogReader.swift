@@ -81,8 +81,7 @@ extension AgentCatalog {
                 startEffort: entry["start"]?["effort"]?.stringValue,
                 reportedModes: modes,
                 effortOption: options.first(where: \.isEffort),
-                configOptions: options.filter { settable.contains($0.id) && Self.isOwnOption($0, family: family, hasModes: !modes.isEmpty) },
-                isInstalled: Self.launcherReason(entry["unavailable"]) == nil
+                configOptions: options.filter { settable.contains($0.id) && Self.isOwnOption($0, family: family, hasModes: !modes.isEmpty) }
             ))
         }
         // The Mac's default first, then by name (the catalog is keyed, so unordered).

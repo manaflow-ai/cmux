@@ -139,8 +139,8 @@ enum KeyBarKey: Hashable, Sendable {
         }
     }
 
-    /// The scrolling keys of the default layout with the default launchers.
-    static var row: [KeyBarKey] { KeyBarLayout.standard.scroller(launchers: KeyBarLauncher.defaults) }
+    /// The scrolling keys of the default layout.
+    static var row: [KeyBarKey] { KeyBarLayout.standard.scroller }
 
     /// The arrow keys, in classic cmux iOS's order.
     static let arrows: [KeyBarKey] = [.up, .down, .left, .right]
@@ -183,10 +183,23 @@ public enum KeyBarLayout: String, CaseIterable, Sendable {
         }
     }
 
-    /// The scrolling keys, ending in Hide Toolbar, with one launcher per
-    /// agent in `launchers`.
-    func scroller(launchers: [KeyBarLauncher]) -> [KeyBarKey] {
-        let agents = launchers.map(KeyBarKey.launcher)
+    /// The scrolling keys, ending in Hide Toolbar. Built once per layout: the
+    /// same array every time lets SwiftUI skip the scroller's keys on a
+    /// scroll frame (a new array each body would rebuild them all).
+    var scroller: [KeyBarKey] {
+        switch self {
+        case .arrowsBeforeAgents: Self.arrowsBeforeAgentsRow
+        case .arrowsAfterEscape: Self.arrowsAfterEscapeRow
+        case .agentsLast: Self.agentsLastRow
+        }
+    }
+
+    private static let arrowsBeforeAgentsRow = KeyBarLayout.arrowsBeforeAgents.makeScroller()
+    private static let arrowsAfterEscapeRow = KeyBarLayout.arrowsAfterEscape.makeScroller()
+    private static let agentsLastRow = KeyBarLayout.agentsLast.makeScroller()
+
+    private func makeScroller() -> [KeyBarKey] {
+        let agents: [KeyBarKey] = [.launcher(.claude), .launcher(.codex), .launcher(.ollama)]
         let modifiers: [KeyBarKey] = [.control, .alternate, .command, .shift, .paste, .tab, .escape]
         let chords: [KeyBarKey] = [.returnKey, .chord("c"), .chord("d")]
         let tail: [KeyBarKey] = [
@@ -204,35 +217,27 @@ public enum KeyBarLayout: String, CaseIterable, Sendable {
     }
 }
 
-/// The key row's agent launchers (classic cmux iOS): each types its command
-/// line. The row shows only the agents the Mac has installed
-/// (`KeyBarLauncher.shown(installedFamilies:)`). Classic also had Ollama
-/// (#7907); Leo, 2026-11-21: "why do we have ollama!?", so it is gone.
-public enum KeyBarLauncher: String, CaseIterable, Hashable, Sendable {
-    case claude, codex
-
-    /// Shown when the Mac's agents are not known (no agent link yet, an older Mac).
-    public static let defaults: [KeyBarLauncher] = allCases
-
-    /// The launchers for a Mac's installed agent families (acpmux harness
-    /// families, `AgentHarnessChoice.family`); nil (unknown) keeps the defaults.
-    public static func shown(installedFamilies: Set<String>?) -> [KeyBarLauncher] {
-        guard let installedFamilies else { return defaults }
-        return allCases.filter { installedFamilies.contains($0.rawValue) }
-    }
+/// The key row's agent launchers (classic cmux iOS): each types its command line.
+enum KeyBarLauncher: String, Hashable, Sendable {
+    case claude, codex, ollama
 
     var title: String {
         switch self {
         case .claude: "Claude"
         case .codex: "Codex"
+        case .ollama: "Ollama"
         }
     }
 
-    /// What the key types; both run at once (the key presses Return).
+    /// What the key types. Claude and Codex run at once; Ollama waits for the
+    /// model name, so it has no Return.
     var command: String {
         switch self {
         case .claude: "claude --dangerously-skip-permissions"
         case .codex: "codex --yolo -c model_reasoning_effort=xhigh --search"
+        case .ollama: "ollama run "
         }
     }
+
+    var pressesReturn: Bool { self != .ollama }
 }

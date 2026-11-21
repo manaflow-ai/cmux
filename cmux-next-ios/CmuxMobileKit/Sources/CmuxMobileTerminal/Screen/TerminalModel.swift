@@ -117,17 +117,6 @@ public final class TerminalModel {
 
     let joystickEngine = JoystickEngine()
 
-    /// The key row's agent launchers: the defaults until the Mac says which
-    /// agents it has installed (`showAgentLaunchers(installedFamilies:)`).
-    private(set) var agentLaunchers: [KeyBarLauncher] = KeyBarLauncher.defaults
-
-    /// The Mac's installed agent families (acpmux harness families); nil
-    /// when unknown, which keeps the default launchers.
-    public func showAgentLaunchers(installedFamilies: Set<String>?) {
-        let shown = KeyBarLauncher.shown(installedFamilies: installedFamilies)
-        if shown != agentLaunchers { agentLaunchers = shown }
-    }
-
     /// Embedded (workspace tab): the page as last seen, for the tab grid card.
     public internal(set) var snapshot: UIImage?
 
@@ -751,7 +740,7 @@ public final class TerminalModel {
         case .launcher(let launcher):
             // Typed with its Return in one go, as classic sent its bytes.
             surface.perform([.text(launcher.command)])
-            surface.sendKey(usage: TerminalHIDUsage.enter)
+            if launcher.pressesReturn { surface.sendKey(usage: TerminalHIDUsage.enter) }
         case .paste: surface.paste(nil)
         case .zoomOut, .zoomIn: zoom(larger: key == .zoomIn)
         case .composer: composeKeyTapped()

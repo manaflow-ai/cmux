@@ -141,9 +141,9 @@ import Testing
 @Suite struct TerminalKeyRowTests {
     @Test func theRowIsClassicsOrderWithTheArrowsBeforeTheAgents() {
         // Leo, 2026-11-21: arrows "left of the weird claude/codex/ollama ... buttons".
-        #expect(Array(KeyBarKey.row.prefix(16)) == [
+        #expect(Array(KeyBarKey.row.prefix(17)) == [
             .control, .alternate, .command, .shift, .paste, .tab, .escape, .returnKey, .chord("c"), .chord("d"),
-            .up, .down, .left, .right, .launcher(.claude), .launcher(.codex),
+            .up, .down, .left, .right, .launcher(.claude), .launcher(.codex), .launcher(.ollama),
         ])
         #expect(Array(KeyBarKey.row.suffix(3)) == [.zoomOut, .zoomIn, .hideChrome])
         #expect(Set(KeyBarKey.row).count == KeyBarKey.row.count)
@@ -154,9 +154,9 @@ import Testing
     }
 
     @Test func everyLayoutHasEveryKeyOnceAndTheArrowsBeforeTheAgents() {
-        let reference = Set(KeyBarLayout.standard.scroller(launchers: KeyBarLauncher.defaults))
+        let reference = Set(KeyBarLayout.standard.scroller)
         for layout in KeyBarLayout.allCases {
-            let row = layout.scroller(launchers: KeyBarLauncher.defaults)
+            let row = layout.scroller
             #expect(Set(row) == reference, "\(layout)")
             #expect(row.count == reference.count, "\(layout)")
             #expect(row.last == .hideChrome)
@@ -167,21 +167,13 @@ import Testing
         #expect(KeyBarLayout.standard == .arrowsBeforeAgents)
     }
 
-    @Test func launchersFollowTheMacsInstalledAgents() {
-        // No Ollama (Leo: "why do we have ollama!?").
-        #expect(KeyBarLauncher.allCases == [.claude, .codex])
-        // Unknown: the defaults.
-        #expect(KeyBarLauncher.shown(installedFamilies: nil) == [.claude, .codex])
-        #expect(KeyBarLauncher.shown(installedFamilies: ["claude", "opencode"]) == [.claude])
-        #expect(KeyBarLauncher.shown(installedFamilies: []) == [])
-        let row = KeyBarLayout.standard.scroller(launchers: [.codex])
-        #expect(!row.contains(.launcher(.claude)))
-        #expect(row.contains(.launcher(.codex)))
-    }
-
     @Test func launchersTypeClassicsCommands() {
         #expect(KeyBarLauncher.claude.command == "claude --dangerously-skip-permissions")
-        #expect(KeyBarLauncher.codex.command == "codex --yolo -c model_reasoning_effort=xhigh --search")
+        #expect(KeyBarLauncher.claude.pressesReturn)
+        #expect(KeyBarLauncher.codex.pressesReturn)
+        // Ollama waits for the model name.
+        #expect(KeyBarLauncher.ollama.command == "ollama run ")
+        #expect(!KeyBarLauncher.ollama.pressesReturn)
     }
 
     @Test func keysFadeAtThePinnedKeysOnlyOnceScrolled() {

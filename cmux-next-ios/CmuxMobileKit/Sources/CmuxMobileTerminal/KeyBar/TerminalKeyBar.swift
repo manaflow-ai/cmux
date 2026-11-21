@@ -84,7 +84,7 @@ struct TerminalKeyBar: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("More keys")
         .accessibilityActions {
-            ForEach(layout.scroller(launchers: model.agentLaunchers).filter { clipped.keys.contains($0) }, id: \.self) { key in
+            ForEach(layout.scroller.filter { clipped.keys.contains($0) }, id: \.self) { key in
                 Button(key.accessibilityLabel) { model.keyBar(key) }
             }
         }
@@ -104,8 +104,7 @@ final class KeyBarClippedKeys {
     }
 }
 
-/// The scroller's keys (`KeyBarLayout`), ending in Hide Toolbar: one
-/// launcher per agent the Mac has installed.
+/// The scroller's keys (`KeyBarLayout`), ending in Hide Toolbar.
 struct KeyBarScrollerKeys: View {
     let model: TerminalModel
     let layout: KeyBarLayout
@@ -114,7 +113,7 @@ struct KeyBarScrollerKeys: View {
     var body: some View {
         GlassEffectContainer(spacing: 0) {
             HStack(spacing: TerminalDockMetrics.keySpacing) {
-                ForEach(layout.scroller(launchers: model.agentLaunchers), id: \.self) { key in
+                ForEach(layout.scroller, id: \.self) { key in
                     KeyBarScrollerKey(key: key, model: model, clipped: clipped)
                 }
             }
