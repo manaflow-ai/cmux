@@ -46,15 +46,11 @@ export function useCloudEnvironmentControl(
   repo: string | undefined,
   held?: CloudEnvironmentPick,
 ): CloudEnvironmentControl | undefined {
-  const [environments, setEnvironmentList] = useState<readonly CloudEnvironment[]>(() => cachedEnvironments);
-  const setEnvironments = useCallback(
-    (next: readonly CloudEnvironment[] | ((list: readonly CloudEnvironment[]) => readonly CloudEnvironment[])) =>
-      setEnvironmentList((list) => {
-        cachedEnvironments = typeof next === "function" ? next(list) : next;
-        return cachedEnvironments;
-      }),
-    [],
-  );
+  const [environments, setEnvironments] = useState<readonly CloudEnvironment[]>(() => cachedEnvironments);
+  // The page's cache follows the list after each change; the state updaters stay pure.
+  useEffect(() => {
+    cachedEnvironments = environments;
+  }, [environments]);
   const [own, setOwn] = useState(AUTO_ENVIRONMENT);
   const current = held?.current ?? own;
   const setPick = held?.onPick ?? setOwn;
