@@ -23,14 +23,16 @@
    (--acpmux-menu-hover) is a clear text wash, never a mix into the base: the menus sit on host glass
    (design/surface-materials.md), where an opaque row drew a solid slab, and on an opaque menu the 14%
    wash reads as the row did before. */
-.acpmux-shell,.ui-positioner{--acpmux-base:var(--agent-accent-text,Canvas);--acpmux-composer-bg:color-mix(in srgb,var(--agent-text) 13%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-composer-edge:color-mix(in srgb,var(--agent-text) 18%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-composer-placeholder:color-mix(in srgb,var(--agent-text) 34%,var(--acpmux-base));--acpmux-composer-dim:color-mix(in srgb,var(--agent-text) 56%,var(--acpmux-base));--acpmux-menu-bg:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));--acpmux-menu-hover:color-mix(in srgb,var(--agent-text) 14%,transparent);--acpmux-composer-hover:color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-pill-fill:var(--ds-surface-inset);--acpmux-pill-hover:color-mix(in srgb,var(--agent-text) 11%,transparent);--acpmux-pill-open:color-mix(in srgb,var(--agent-text) 16%,transparent);--acpmux-pill-press:color-mix(in srgb,var(--agent-text) 22%,transparent);--acpmux-pill-edge:color-mix(in srgb,var(--agent-text) 24%,transparent);--acpmux-composer-tray:color-mix(in srgb,var(--agent-text) 9%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-warning:var(--agent-status-warning);--acpmux-send-off-fg:color-mix(in srgb,var(--agent-text) 45%,transparent)}
+.acpmux-shell,.ui-positioner{--acpmux-base:var(--agent-accent-text,Canvas);--acpmux-composer-bg:color-mix(in srgb,var(--agent-text) 13%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-composer-edge:color-mix(in srgb,var(--agent-text) 22%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-composer-placeholder:color-mix(in srgb,var(--agent-text) 34%,var(--acpmux-base));--acpmux-composer-dim:var(--cmux-text-secondary,color-mix(in srgb,var(--agent-text) 56%,var(--acpmux-base)));--acpmux-menu-bg:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));--acpmux-menu-hover:color-mix(in srgb,var(--agent-text) 14%,transparent);--acpmux-composer-hover:color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-pill-fill:var(--ds-surface-inset);--acpmux-pill-hover:color-mix(in srgb,var(--agent-text) 11%,transparent);--acpmux-pill-open:color-mix(in srgb,var(--agent-text) 16%,transparent);--acpmux-pill-press:color-mix(in srgb,var(--agent-text) 22%,transparent);--acpmux-pill-edge:color-mix(in srgb,var(--agent-text) 24%,transparent);--acpmux-composer-tray:color-mix(in srgb,var(--agent-text) 9%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-warning:var(--agent-status-warning);--acpmux-send-off-fg:color-mix(in srgb,var(--agent-text) 45%,transparent);--agent-border-strong:var(--acpmux-composer-edge);--ui-popup-edge:var(--acpmux-composer-edge)}
+/* One edge color in the pane (user 2026-11-20: "ensure all border colors are the same"): a card's, a tool row's, a file chip's and a menu's edge is the composer's, --acpmux-composer-edge, not a step of its own (the strong border was the text at 22% over clear, the popup edge at 12%). The aliases resolve here, at the pane's edge; a part inside the composer stack reads --acpmux-composer-edge itself, so it lifts with the stack on focus (composerStates.css). Dividers inside a card or a menu keep --agent-border. test/composer-one-edge.test.ts. */
 /* The shared popup surface (ui/popupSurface.css) takes the pane's ink; every popup, nested submenus included, is the liquid glass (.ui-glass), whose plain and Reduce Transparency fill is the popup surface (--surface-popup, the host's --cmux-popup-surface, else the pane's menu color). */
 .acpmux-shell,.ui-positioner{--surface-popup:var(--cmux-popup-surface,var(--acpmux-menu-bg))}
 /* A menu row's highlight is the native themed menus' (Palette.menuHighlight, NSMenu.themeRows): the theme's accent (ThemeTokens.accent, --agent-accent) as a 20% wash, so labels keep their ink and a neutral theme gets a gray wash; never the system's saturated selection blue (test/pane-menu-highlight.test.ts). It sits on :root, where the theme sets --agent-accent, because ui/ContextMenu.tsx portals its menu into document.body, outside .acpmux-shell and .ui-positioner. */
 :root{--acpmux-menu-highlight:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 20%,transparent)}
 .ui-positioner{--ui-popup-fg:var(--agent-text);--ui-row:var(--acpmux-menu-highlight)}
 /* One elevation for every menu and popover in the pane (Leo 10-13, coherence pass): the glass's rim and the shared popup drop (ui/popupSurface.css .ui-popup), whose own hairline is the only edge, and no border of their own. A second composer-edge hairline here drew two edges (test/popup-one-hairline.test.ts). --acpmux-popup-elevation stays the solid look for the pane's floating cards that are not popups. */
-:root{--acpmux-popup-elevation:var(--ui-popup-shadow)}
+:root{--acpmux-popup-elevation:var(--ui-popup-shadow);--ui-popup-edge:color-mix(in srgb,var(--agent-text) 22%,var(--agent-page-bg,var(--agent-accent-text,Canvas)))}
+/* The pane's context menus portal into the body, outside .acpmux-shell and .ui-positioner: their one hairline takes the composer's edge here, the same mix (appearance.borders none and Increase Contrast win, ui/popupSurface.css and desktop.css). */
 :where(.ui-positioner)>.ui-popup{border-radius:var(--ui-popup-radius)}
 /* The point-anchored context menu (ui/ContextMenu.tsx; New Tab All chats rows, cx-j4sd): the pane does not load ui.css, so it draws the menu in its own menu look. */
 .ui-popup.ui-context-menu{box-sizing:border-box;padding:var(--ui-popup-padding);border-radius:var(--ui-popup-radius);color:var(--agent-text);font-family:var(--font-ui);font-size:var(--text-control);line-height:18px;outline:none;letter-spacing:var(--text-control--letter-spacing)}
@@ -42,7 +44,7 @@
 .ui-context-menu .ui-menu-label{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .ui-context-menu .ui-separator{height:.5px;margin:4px 8px;border:0;background:var(--agent-border)}
 /* appearance.borders none (data-borders on the root, applyAgentTheme): the composer, menu and tray edges draw clear in place; their fills keep them apart. */
-:root[data-borders=none] .acpmux-shell{--acpmux-composer-edge:transparent}
+:root[data-borders=none] :is(.acpmux-shell,.ui-positioner){--acpmux-composer-edge:transparent}
 /* One height policy for chat, New Tab and Cmd-I composers: a dozen readable lines, then scroll. */
 .acpmux-shell{--acpmux-composer-max-lines:12}
 .acpmux-composer{position:relative;padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 16px;padding-right:var(--cv-inset-end,var(--cv-inset));font-family:var(--font-ui);-webkit-font-smoothing:antialiased}
@@ -106,7 +108,10 @@
 .acpmux-context{flex:none}
 .acpmux-context-ring{flex:none;display:grid;place-items:center;width:22px;height:22px;padding:0;border:0;border-radius:50%;background:none;color:var(--agent-muted)}
 .acpmux-context-ring svg{width:12px;height:12px}
-.acpmux-context-ring:disabled,.acpmux-context-ring[aria-disabled="true"]{background:none;color:var(--agent-muted);opacity:.5}
+/* Disabled ("Context window · Not reported"): the bare track, whole, in the tertiary tier at full opacity, as every page's disabled controls (pageBase.css), and in the secondary tier over art, where pageBase lifts the tertiary one. The muted ink at half opacity, its track at 30%, read 1.3:1 to 1.8:1 (control-contrast audit). */
+.acpmux-context-ring:disabled,.acpmux-context-ring[aria-disabled="true"]{background:none;color:var(--cmux-text-tertiary,var(--agent-muted));opacity:1}
+.acpmux-context-ring:is(:disabled,[aria-disabled="true"]) .acpmux-context-track{stroke-opacity:1}
+:root[data-cmux-see-through]:not([data-reduce-transparency]) .acpmux-context-ring:is(:disabled,[aria-disabled="true"]){color:var(--cmux-text-secondary,var(--agent-muted))}
 .acpmux-context-ring:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 /* The `percent` look of the context ring (experiment context-ring-look, not shipped): the percent used as a caption beside the ring. */
 .acpmux-context:has(.acpmux-context-caption){display:inline-flex;align-items:center}
@@ -232,15 +237,20 @@
 /* The `/` and `@` lists' layer (backdropLayer.tsx): out of the composer box's glass, on the box's place and size, so the list's own rules below place it as inside the box. Only the list takes presses. */
 .acpmux-composer-list-layer{position:absolute;pointer-events:none}
 .acpmux-composer-list-layer>*{pointer-events:auto}
-.acpmux-slash-menu{--popup-scroll-cap:296px;position:absolute;bottom:calc(100% + 6px);left:0;right:0;z-index:3;max-height:min(296px,50vh);overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border-radius:var(--ui-popup-radius);font-size:13px;transform-origin:bottom}
+/* In its layer a list takes the box's corner (--composer-list-radius), padded so its rows' corners are concentric with it, and no more height than the room on its side of the box (--composer-list-room); below the box when only that side has room (data-side, listPlacement.ts). David Beyer 2026-11-20: New Tab's / list ran over the screen's edge in 8 px corners on a 20 px box. */
+.acpmux-composer-list-layer>.acpmux-slash-menu{--composer-list-gap:6px;--composer-list-r:var(--composer-list-radius,var(--ui-popup-radius));--ui-popup-padding:max(4px,calc(var(--composer-list-r) * 6 / 20),calc(var(--composer-list-r) - var(--ui-row-height) / 2));--ui-row-radius:max(4px,min(calc(var(--composer-list-r) - var(--ui-popup-padding)),calc(var(--ui-row-height) / 2)));border-radius:var(--composer-list-r);max-height:min(var(--popup-scroll-cap),var(--composer-list-room,50vh))}
+.acpmux-composer-list-layer[data-side="below"]>.acpmux-slash-menu{bottom:auto;top:calc(100% + var(--composer-list-gap));transform-origin:top}
+.acpmux-slash-menu{--popup-scroll-cap:296px;position:absolute;bottom:calc(100% + 6px);left:0;right:0;z-index:3;max-height:min(296px,50vh);overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border-radius:var(--ui-popup-radius);font-size:var(--text-control);letter-spacing:var(--text-control--letter-spacing,normal);-webkit-font-smoothing:antialiased;transform-origin:bottom}
 .acpmux-slash-row{display:flex;align-items:center;gap:var(--cmux-menu-icon-gap);min-height:var(--ui-row-height);height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);border-radius:var(--ui-row-radius);white-space:nowrap}
 .acpmux-slash-active{background:var(--acpmux-menu-hover)}
 .acpmux-slash-menu .ui-listbox-row[aria-selected="true"]{background:var(--acpmux-menu-hover)}
-.acpmux-slash-name{flex:none;color:var(--agent-text)}
+.acpmux-slash-name{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--agent-text)}
 .acpmux-slash-name mark{background:none;color:inherit;font-weight:600}
-.acpmux-slash-hint{flex:none;color:var(--acpmux-composer-dim);font-style:italic}
-.acpmux-slash-source{flex:none;color:var(--acpmux-composer-dim);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
-.acpmux-slash-description{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim)}
+.acpmux-slash-hint{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim)}
+/* Where a row comes from (cmux, Skill, Prompt, an extension) closes the row, quiet, in plain case. */
+.acpmux-slash-source{flex:none;order:1;margin-left:auto;padding-left:var(--ds-space-2,8px);color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing,normal)}
+/* No base width: what a command does takes only the room its name and arguments leave, so it is cut first. */
+.acpmux-slash-description{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim)}
 /* The @ picker's rows (MentionMenu.tsx): the kind's icon, then a long chat title gives way to its place last. */
 .acpmux-mention-row{width:100%;box-sizing:border-box;margin:0;border:0;background:none;color:inherit;font:inherit;text-align:left;-webkit-appearance:none;appearance:none}
 .acpmux-mention-row.acpmux-slash-active{background:var(--acpmux-menu-hover)}
@@ -262,7 +272,7 @@
 .acpmux-emoji-menu.is-strip .acpmux-emoji-row{width:var(--ds-control-primary);height:var(--ds-control-primary);padding:0;justify-content:center}
 .acpmux-emoji-menu.is-strip .acpmux-emoji-glyph{width:auto;font-size:var(--text-heading)}
 .acpmux-emoji-strip-code{height:var(--ds-control-compact);padding:0 var(--ds-space-2);display:flex;align-items:center;color:var(--acpmux-composer-dim);font-size:var(--text-caption);white-space:nowrap}
-.acpmux-slash-empty{padding:0 14px;height:40px;display:flex;align-items:center;color:var(--acpmux-composer-dim);border-radius:8px}
+.acpmux-slash-empty{padding:0 var(--ui-row-padding-inline);height:var(--ui-row-height);display:flex;align-items:center;color:var(--acpmux-composer-dim);border-radius:var(--ui-row-radius)}
 .acpmux-import-input{display:none}
 /* New tab page (NewTabPage.tsx, #16620): one field with a Terminal | Browser | Agent switch
    that Tab cycles, each option with its shortcut, over the recent sessions. Same surfaces
@@ -335,7 +345,7 @@
 .acpmux-omni-row{display:flex;align-items:center;gap:var(--ds-space-2);height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);border-radius:var(--ui-row-radius);color:var(--agent-soft);font-size:var(--text-control);letter-spacing:var(--text-control--letter-spacing)}
 .acpmux-omni-row>.acpmux-icon{flex:none;color:var(--acpmux-composer-dim)}
 .acpmux-omni-row.is-selected{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 8%,transparent);color:var(--agent-text)}
-.acpmux-omni-row:not(.is-selected):hover{background:var(--ds-color-hover);color:var(--agent-text)}
+.acpmux-omni-row:not(.is-selected):hover{background:var(--ds-surface-hover);color:var(--agent-text)}
 .acpmux-omni-row.is-selected>.acpmux-icon{color:var(--agent-text)}
 .acpmux-favicon{width:var(--grid-icon-box);height:var(--grid-icon-box);object-fit:contain;border-radius:4px}
 .acpmux-omni-text{flex:1;min-width:0;display:flex;align-items:baseline;gap:var(--ds-space-2);overflow:hidden;white-space:nowrap}
@@ -358,7 +368,7 @@
    compatibility alias falls back to 0.08 s before the host theme arrives. Under Reduce Motion the
    fills change at once. Fills only, never size, so nothing shifts. */
 @media (prefers-reduced-motion:no-preference){.acpmux-newtab-kind,.acpmux-newtab-all,.acpmux-omni-row,.acpmux-newtab .acpmux-send{transition:background-color var(--acpmux-motion-hover) ease-out,color var(--acpmux-motion-hover) ease-out,box-shadow var(--acpmux-motion-hover) ease-out}.acpmux-omni-action{transition:opacity var(--acpmux-motion-hover) ease-out}}
-.acpmux-newtab-kind:not(.is-selected):hover{background:var(--ds-color-hover)}
+.acpmux-newtab-kind:not(.is-selected):hover{background:var(--ds-surface-hover)}
 .acpmux-newtab-kind:not(.is-selected):active{background:var(--ds-color-pressed)}
 .acpmux-newtab-kind.is-selected:active{background:color-mix(in srgb,var(--agent-text) 4%,var(--acpmux-composer-bg))}
 .acpmux-omni-row:active{background:var(--ds-color-pressed)}
@@ -445,7 +455,7 @@
 .acpmux-unavailable-detail{margin:0;max-width:420px;color:var(--agent-muted);font-size:var(--text-body);line-height:var(--text-body--line-height);overflow-wrap:anywhere;letter-spacing:var(--text-body--letter-spacing)}
 .acpmux-unavailable-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-top:6px}
 .acpmux-unavailable-action{height:28px;padding:0 12px;border:0;border-radius:8px;background:var(--ds-surface-inset);color:var(--agent-text);font:inherit;font-size:var(--text-body);letter-spacing:var(--text-body--letter-spacing)}
-.acpmux-unavailable-action:hover{background:var(--ds-color-hover)}
+.acpmux-unavailable-action:hover{background-image:var(--ds-surface-hover-layer)}
 .acpmux-unavailable-action:active{background:color-mix(in srgb,var(--agent-text) 18%,transparent)}
 .acpmux-unavailable-action:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
 @media (prefers-reduced-motion:no-preference){.acpmux-unavailable-action{transition:background-color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}}
@@ -515,7 +525,7 @@
 .acpmux-project-menu .acpmux-project-search-field::placeholder{color:var(--acpmux-composer-dim)}
 .acpmux-project-empty{padding:6px 8px;color:var(--acpmux-composer-dim)}
 .acpmux-project-browse{display:block;width:100%;margin-top:4px;padding:7px 8px;border:0;border-top:.5px solid var(--acpmux-composer-edge);background:none;color:var(--agent-text);font:inherit;text-align:left;cursor:default}
-.acpmux-project-browse:hover{background:var(--ds-color-hover)}
+.acpmux-project-browse:hover{background:var(--ds-surface-hover)}
 /* The new chat's hero picker (cx-9g0w): the project's name in the question, underlined, with a small
    chevron; with no project, a quiet Choose project under the question. */
 .acpmux-project-inline{display:inline-flex;vertical-align:baseline;max-width:100%}
@@ -633,7 +643,7 @@
 :root[data-borders=none]{--acpmux-pill-edge:transparent}
 .acpmux-diff-tool{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:0;border-radius:6px;background:none;color:var(--agent-muted);cursor:default}
 .acpmux-diff-tool:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 10%,transparent));color:var(--agent-text)}
-.acpmux-diff-tool[aria-pressed=true]{background:var(--ds-color-pressed);color:var(--agent-text)}
+.acpmux-diff-tool[aria-pressed=true]{background:var(--ds-color-selection);color:var(--agent-text)}
 .acpmux-diff-back:focus-visible,.acpmux-diff-tool:focus-visible,.acpmux-fh-name:focus-visible,.acpmux-fh-btn:focus-visible,.acpmux-review-changes:focus-visible,.acpmux-edited-file:focus-visible,.acpmux-edited-more:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
 .acpmux-diff-tree{flex:0 0 250px;min-width:0;display:flex;flex-direction:column;border-left:1px solid var(--agent-border);overflow:hidden}
 .acpmux-diff-tree-host{display:block;flex:1;min-height:0}
@@ -676,19 +686,19 @@
 .acpmux-edited-title .acpmux-diff-counts{font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-edited-outside{color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-review-changes{flex:none;height:var(--ds-control-row);padding:0 var(--ds-space-3);border:0;border-radius:var(--ds-radius-control);background:transparent;box-shadow:inset 0 0 0 1px var(--ds-surface-control-line);color:var(--agent-text);font:inherit;font-size:var(--text-detail);cursor:default;letter-spacing:var(--text-detail--letter-spacing)}
-.acpmux-review-changes:hover{background:var(--ds-color-hover)}
+.acpmux-review-changes:hover{background:var(--ds-surface-hover)}
 .acpmux-edited-undo{flex:none;display:inline-flex;align-items:center;gap:var(--ds-space-1);height:var(--ds-control-row);padding:0 var(--ds-space-2);border:0;border-radius:var(--ds-radius-control);background:transparent;color:var(--agent-text);font:inherit;font-size:var(--text-detail);cursor:default;letter-spacing:var(--text-detail--letter-spacing)}
-.acpmux-edited-undo:hover:not(:disabled){background:var(--ds-color-hover);color:var(--agent-text)}
+.acpmux-edited-undo:hover:not(:disabled){background:var(--ds-surface-hover);color:var(--agent-text)}
 .acpmux-edited-undo:disabled{color:var(--agent-muted);cursor:default}
 .acpmux-edited-undo:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
 .acpmux-edited-file{display:flex;align-items:center;gap:var(--ds-space-3);width:100%;height:calc(9 * var(--grid-base));box-sizing:border-box;padding:0 var(--ds-space-3);border:0;background:none;color:var(--agent-text);font:inherit;font-size:var(--text-detail);line-height:16px;text-align:left;letter-spacing:var(--text-detail--letter-spacing)}
 button.acpmux-edited-file{cursor:default}
-button.acpmux-edited-file:hover{background:var(--ds-color-hover)}
+button.acpmux-edited-file:hover{background:var(--ds-surface-hover)}
 .acpmux-edited-path{flex:1;min-width:0;display:flex;white-space:nowrap;overflow:hidden}
 .acpmux-edited-dir{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--agent-muted)}
 .acpmux-edited-base{flex:none}
 .acpmux-edited-more{display:flex;align-items:center;gap:var(--ds-space-1);width:100%;height:calc(9 * var(--grid-base));box-sizing:border-box;padding:0 var(--ds-space-3);border:0;background:var(--ds-surface-card);color:var(--agent-text);font:inherit;font-size:var(--text-detail);cursor:default;letter-spacing:var(--text-detail--letter-spacing)}
-.acpmux-edited-more:hover{background:var(--ds-color-hover)}
+.acpmux-edited-more:hover{background-image:var(--ds-surface-hover-layer)}
 
 .acpmux-permission-panel{display:flex;flex-direction:column;gap:var(--acp-row-gap,8px);flex-shrink:0;min-height:0;max-height:45vh;overflow:auto;padding-bottom:0;font-size:var(--acp-font-size,13px);line-height:var(--acp-line-height,1.5)}
 .acpmux-asks-stack>.acpmux-permission-panel{padding-left:0;padding-right:0}
@@ -751,7 +761,7 @@ button.acpmux-edited-file:hover{background:var(--ds-color-hover)}
 .acpmux-chief-dock-rail{display:flex;align-items:center;justify-content:center;gap:0;min-height:46px;padding:3px;border:1px solid color-mix(in srgb,var(--agent-text) 28%,transparent);border-radius:24px;background:color-mix(in srgb,var(--agent-text) 8%,var(--chief-glass-fill));box-shadow:inset 0 1px 0 color-mix(in srgb,var(--agent-text) 30%,transparent),inset 0 -1px 0 color-mix(in srgb,var(--acpmux-base,var(--agent-page-bg)) 22%,transparent),var(--elevation-1);-webkit-backdrop-filter:var(--surface-blur);backdrop-filter:var(--surface-blur)}
 .acpmux-chief-dock-tool{position:relative;display:inline-flex;align-items:center;justify-content:center;width:72px;height:42px;border:0;border-radius:20px;background:transparent;color:var(--agent-text);cursor:default}.acpmux-chief-dock-tool>svg{flex:none;width:20px;height:20px}
 .acpmux-chief-dock-tool+.acpmux-chief-dock-tool{border-left:1px solid color-mix(in srgb,var(--agent-text) 15%,transparent);border-radius:0}
-.acpmux-chief-dock-tool:hover{background:var(--ds-color-hover)}
+.acpmux-chief-dock-tool:hover{background:var(--ds-surface-hover)}
 .acpmux-chief-dock-tool:focus-visible{outline:1px solid color-mix(in srgb,var(--agent-accent,var(--agent-text)) 72%,transparent);outline-offset:-2px}
 .acpmux-chief-dock-collapse-mark{transform:rotate(-90deg);transition:transform var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}
 .acpmux-chief-dock[data-expanded=true] .acpmux-chief-dock-collapse-mark{transform:rotate(90deg)}
@@ -780,7 +790,7 @@ button.acpmux-edited-file:hover{background:var(--ds-color-hover)}
 .acpmux-chief-card[data-selected=true] .acpmux-chief-card-main{background:color-mix(in srgb,var(--chief-selection) 12%,transparent)}
 .acpmux-chief-card[data-selected=true]{border-color:color-mix(in srgb,var(--chief-selection) 60%,transparent)}
 .acpmux-chief-card-main{display:flex;align-items:center;gap:12px;min-width:0;flex:1;width:100%;height:max(var(--ui-row-height,28px),calc(96px * var(--cmux-interface-scale,1)));box-sizing:border-box;padding:14px 76px 14px 28px;border:0;border-radius:inherit;background:transparent;color:inherit;text-align:left;cursor:default}
-.acpmux-chief-card-main:hover{background:var(--ds-color-hover)}
+.acpmux-chief-card-main:hover{background:var(--ds-surface-hover)}
 .acpmux-chief-card-main:active{background:var(--ds-color-pressed)}
 .acpmux-chief-card-actions{position:absolute;right:14px;top:50%;display:flex;gap:8px;transform:translateY(-50%) scale(.96);opacity:0;pointer-events:none;transition:opacity var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out),transform var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}
 .acpmux-chief-card:focus-within .acpmux-chief-card-actions{opacity:1;transform:translateY(-50%) scale(1);pointer-events:auto}
@@ -842,7 +852,8 @@ button.acpmux-edited-file:hover{background:var(--ds-color-hover)}
 .acpmux-start-failure-details:not([open]),.acpmux-start-failure-details:not([open])>summary{display:inline}
 /* Agent question card (question/QuestionCard.tsx), after the Claude app's (Leo 2026-10-19; restyled 2026-11-05 after "kind of ugly"): a "Needs your input" small-radius rect (no capsule: agent-pane-no-capsules) tinted with the mark, holding the Needs you dot over a rounded card whose header strip is the question in regular weight; radio (or checkbox) rows with a regular label and a muted description; Other types inline in a quiet field; Skip and Submit with outlined keycaps (esc, ⌘ ↩) at the bottom right, as the permission card's. The app's gray language otherwise: the highlighted row is a soft fill, Submit is the text color inverted. Previews sit beside the list and wrap under it when narrow. appearance.borders none drops the edge (--acpmux-question-edge). */
 /* Needs your input: one mark for a chat that waits on the user, on every surface (the question card's pill, the Needs you dot, badge and pill, the sidebar and Chief dock marks, the status lines). It is the theme's attention colour, which the app sends as --agent-warning (AgentPaneTheme.swift, tokens.attention), the same Palette.attention the native sidebar, tabs and priority rows draw; never the accent, which a grey-accent theme turns into the idle grey. test/needs-input-mark-color.test.ts reads every surface. */
-:root,.acpmux-shell,.ui-positioner{--acpmux-needs-you-mark:var(--agent-warning,var(--agent-accent,var(--agent-text)))}
+/* The needs-you mark holds 3:1 (a mark's tier); words in it lean 35% toward the text ink, the strongest ink on every ground, so they read as text (test/control-contrast-N.test.ts: the pill's words read 2.7:1). */
+:root,.acpmux-shell,.ui-positioner{--acpmux-needs-you-mark:var(--agent-warning,var(--agent-accent,var(--agent-text)));--acpmux-needs-you-ink:color-mix(in srgb,var(--acpmux-needs-you-mark) 65%,var(--agent-text))}
 .acpmux-shell,.ui-positioner{--acpmux-question-bg:color-mix(in srgb,var(--agent-text) 5%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-question-strip:color-mix(in srgb,var(--agent-text) 8%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-question-edge:color-mix(in srgb,var(--agent-text) 12%,transparent);--acpmux-question-hover:color-mix(in srgb,var(--agent-text) 5%,transparent);--acpmux-question-highlight:color-mix(in srgb,var(--agent-text) 8%,transparent);--acpmux-question-input:var(--acpmux-needs-you-mark)}
 :root[data-borders=none] .acpmux-shell{--acpmux-question-edge:transparent}
 .acpmux-question-ask{display:flex;flex-direction:column;align-items:flex-start;gap:var(--ds-space-2);min-width:0}
@@ -1071,9 +1082,9 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-display-row output { min-width: 44px; text-align: end; font-variant-numeric: tabular-nums; color: var(--agent-muted); }
 .acpmux-display-row input[type="range"] { width: 100%; margin: 0; accent-color: var(--agent-muted); }
 .acpmux-display-row select, .acpmux-display-row input[type="text"] { grid-column: 2 / -1; min-width: 0; font: inherit; color: inherit; background: var(--agent-input-bg, transparent); border: 1px solid var(--agent-border, transparent); border-radius: 6px; padding: 3px 6px; }
-.acpmux-display-check { grid-template-columns: auto 1fr; }
+.acpmux-display-check { grid-template-columns: minmax(0, 1fr) auto; }
 .acpmux-display-reset { justify-self: end; font: inherit; color: var(--agent-muted); background: none; border: 0; padding: 2px 4px; border-radius: 6px; }
-.acpmux-display-reset:hover { background: var(--ds-color-hover); }
+.acpmux-display-reset:hover { background: var(--ds-surface-hover); }
 .acpmux-trust-ask[data-asking]{color:var(--agent-text);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--agent-accent) 45%,transparent)}.acpmux-trust-ask-action.acpmux-trust-ask-primary{background:color-mix(in srgb,var(--agent-accent) 14%,transparent);font-weight:500}.acpmux-trust-ask-action.acpmux-trust-ask-primary:hover{background:color-mix(in srgb,var(--agent-accent) 22%,transparent)}
 .acpmux-trust-ask[data-asking],.acpmux-trust-ask[data-recovery]{flex-wrap:wrap;row-gap:6px;padding-top:7px;padding-bottom:7px}.acpmux-trust-ask-body{flex:1 1 240px;min-width:0;display:flex;flex-direction:column;gap:2px}.acpmux-trust-ask-body .acpmux-trust-ask-text{white-space:normal;overflow-wrap:anywhere;font-weight:500}.acpmux-trust-ask-detail{color:var(--acpmux-composer-dim);font-size:var(--text-detail);line-height:1.35;overflow-wrap:anywhere;letter-spacing:var(--text-detail--letter-spacing)}.acpmux-trust-ask-actions{display:flex;flex-wrap:wrap;gap:4px;margin-left:auto}
 

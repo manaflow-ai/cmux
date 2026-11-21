@@ -27,6 +27,8 @@ parser.add_argument("--app", required=True)
 parser.add_argument("--out", required=True)
 parser.add_argument("--settle", type=float, default=20)
 parser.add_argument("--deadline", type=float, default=180, help="seconds for the Chief's reply after the send")
+parser.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
+                    help="an environment variable for the app (repeatable), e.g. CMUX_NEXT_CHIEF_START=visible")
 opts = parser.parse_args()
 bundle = os.path.realpath(opts.app)
 MUX = "agent_mux"
@@ -91,12 +93,14 @@ def main():
     model = {name: os.environ[name] for name in ("MUX_HARNESS", "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN",
                                                  "ANTHROPIC_API_KEY", "SUBROUTER_URL") if os.environ.get(name)}
     result["model_env"] = sorted(model)
+    app_env = dict(item.split("=", 1) for item in opts.env)
+    result["app_env"] = app_env
     # The Chief's own home, fresh for this launch (ChiefHome rule 1): the app's Chief home otherwise follows the
     # account's real home, not the scratch HOME, and is shared with the arm's other launches. Short, under /tmp:
     # its daemon sockets must fit a Unix socket address.
     chief_home = tempfile.mkdtemp(prefix="cs-", dir="/tmp")
     try:
-        pid, socket_path, scratch = bench_memory.launch(bundle, {}, {**model, "CMUX_NEXT_CHIEF_HOME": chief_home})
+        pid, socket_path, scratch = bench_memory.launch(bundle, {}, {**model, **app_env, "CMUX_NEXT_CHIEF_HOME": chief_home})
     except BaseException:
         shutil.rmtree(chief_home, ignore_errors=True)
         raise
