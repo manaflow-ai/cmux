@@ -29,7 +29,7 @@ cmux setup install github.com/manaflow-ai/cmux/examples/looks/aurora@feat-cmux-n
 cmux setup remove manaflow-ai/aurora-look
 ```
 
-The goo corner (the selected tab flowing into the content card) is a Debug Settings choice a setup
-cannot make; Aurora keeps the stock chrome so the plain flush corner draws.
+Aurora leaves `appearance.cornerFlush` at your own value, so the plain flush corner draws by
+default; set it to `flush-goo` for the goo corner (the selected tab flowing into the content card).
 
 How looks like this one are written: [docs/cmux-next/look-addons.md](../../../docs/cmux-next/look-addons.md).

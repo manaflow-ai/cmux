@@ -1733,6 +1733,7 @@ fn daemon_finalizes_lifecycle_when_ready_receiver_disappears() {
         }
     };
     assert!(error.to_string().contains("did not become ready"), "{error:#}");
+    assert!(error.to_string().contains("--connect-timeout-seconds"), "{error:#}");
     pause.resume();
 
     let runtime_path = state_dir.join("runtime.json");

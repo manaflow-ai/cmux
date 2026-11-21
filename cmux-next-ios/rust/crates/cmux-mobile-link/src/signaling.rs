@@ -393,12 +393,24 @@ fn connect_error(error: tokio_tungstenite::tungstenite::Error) -> SignalingError
 }
 
 impl SignalingClient {
-    /// Connect with `Authorization: Bearer <token>`.
+    /// Connect with `Authorization: Bearer <token>` and no build space.
     pub async fn connect(
         base_url: &str,
         token: &str,
         team_id: &str,
         device_id: &str,
+    ) -> Result<Self, SignalingError> {
+        Self::connect_in(base_url, token, team_id, device_id, None).await
+    }
+
+    /// [`Self::connect`] whose upgrade also carries `build_space` (a dev
+    /// build's `x-cmux-build-space: dev:<slug>`); `None` sends no header.
+    pub async fn connect_in(
+        base_url: &str,
+        token: &str,
+        team_id: &str,
+        device_id: &str,
+        build_space: Option<&crate::build_space::BuildSpace>,
     ) -> Result<Self, SignalingError> {
         crate::install_crypto_provider();
         let url = signal_url(base_url, team_id, device_id)?;
@@ -409,6 +421,15 @@ impl SignalingClient {
                 .parse()
                 .map_err(|_| SignalingError::BadUrl("token is not a header value".into()))?,
         );
+        if let Some(space) = build_space {
+            request.headers_mut().insert(
+                crate::build_space::HEADER,
+                space
+                    .as_str()
+                    .parse()
+                    .map_err(|_| SignalingError::BadUrl("build space is not a header value".into()))?,
+            );
+        }
         let (socket, _) = tokio_tungstenite::connect_async(request).await.map_err(connect_error)?;
         let (sink, mut source) = socket.split();
         let out = Arc::new(SendQueue::default());

@@ -225,6 +225,15 @@ extension DaemonLauncher {
         return await requestHandoff(identity: identity, using: connection)
     }
 
+    /// The running owner works in another cloud build space than this app's (an older build of
+    /// this tag started it without `CMUX_BUILD_SPACE`, so its cloud calls reach nightly's data): hand
+    /// it off once per launcher, the same way, so the next `ensure` starts it with this app's space.
+    /// False when the daemon refused.
+    public func handOffForBuildSpace(identity: DaemonIdentity, using connection: DaemonConnection) async -> Bool {
+        guard handoff.begin(bundled: "build-space", pid: identity.pid) else { return false }
+        return await requestHandoff(identity: identity, using: connection)
+    }
+
     /// The person confirmed "Restart cmux-tui" (a server update, plans/cmux-next/server-updates-DESIGN.md):
     /// hand the running daemon off so the next `ensure` starts the bundled build. Terminals keep
     /// running, as in every handoff. Once per daemon process; false for an external binary (it

@@ -897,3 +897,39 @@ fn launch_snapshot_verdict_names_another_sessions_snapshot_stale() {
     assert_eq!(call_json(c"window_launch_snapshot_verdict", &own).1, json!({"verdict": "current"}));
     assert_eq!(call(c"window_launch_snapshot_verdict", b"[").0, ERR_INVALID);
 }
+
+/// Leo ask-b7aac8d3f9: a relaunch lands on the last workspace and tab, a first launch on Home.
+#[test]
+fn launch_landing_reopens_the_last_workspace_and_tab() {
+    let kept = json!({"last": {"kind": "workspace", "workspace": "w2", "pane": "p1", "tab": "t3"},
+                      "workspaceLive": true, "tab": "ended"});
+    assert_eq!(
+        call_json(c"window_launch_landing", &kept),
+        (OK, json!({"kind": "workspace", "workspace": "w2", "pane": "p1", "tab": "t3"}))
+    );
+    assert_eq!(
+        call_json(c"window_launch_landing", &json!({})).1,
+        json!({"kind": "home", "why": "firstLaunch"})
+    );
+    assert_eq!(
+        call_json(c"window_launch_landing", &json!({"last": {"kind": "home"}})).1,
+        json!({"kind": "home", "why": "lastWasHome"})
+    );
+    assert_eq!(call(c"window_launch_landing", b"[").0, ERR_INVALID);
+}
+
+/// Leo ask-b7aac8d3f9: a fresh launch lands on Home, a New Tab workspace when no saved window is open, and waits
+/// while Home is not ensured yet.
+#[test]
+fn launch_fresh_landing_answers_home_new_tab_or_wait() {
+    let empty = json!({"emptyTree": true, "homeEnsured": true});
+    assert_eq!(call_json(c"window_launch_fresh_landing", &empty), (OK, json!({"kind": "home"})));
+    let none_open = json!({"noSavedWindowOpen": true, "homeEnsured": true});
+    assert_eq!(call_json(c"window_launch_fresh_landing", &none_open).1, json!({"kind": "newTab"}));
+    let waiting = json!({"emptyTree": true, "homeNotEnsuredYet": true});
+    assert_eq!(
+        call_json(c"window_launch_fresh_landing", &waiting).1,
+        json!({"kind": "waitForHome"})
+    );
+    assert_eq!(call(c"window_launch_fresh_landing", b"[").0, ERR_INVALID);
+}

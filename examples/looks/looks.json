@@ -29,7 +29,7 @@
       "id": "gel",
       "addon": "gel",
       "builtIn": null,
-      "pending": "An outside-only look on the flush corner (its goo value is a Debug Settings choice a setup cannot set yet): there is no built-in twin."
+      "pending": "An outside-only look on the flush corner with goo fillets: there is no built-in twin."
     },
     {
       "id": "claude",

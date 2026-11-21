@@ -20,12 +20,11 @@ cmux setup install github.com/manaflow-ai/cmux/examples/looks/gel@feat-cmux-next
 cmux setup remove manaflow-ai/gel-look
 ```
 
-## Turn on the goo
+## The goo
 
-The fillets where the selected tab meets the card are a Debug Settings choice that a setup cannot
-set yet: open Debug Settings, Corner flush, and pick "Flush, goo". Without it, Gel keeps the flush
-corner (the selected tab runs straight into the card) with no fillets. On a chat tab the fillets do
-not show yet either: see DESIGN.md, "Open: the goo against an opaque chat".
+The setup sets `appearance.cornerFlush` to `flush-goo`: the selected tab meets the card through
+concave fillets. Remove the look and your own corner comes back. On a chat tab the fillets do not
+show yet: see DESIGN.md, "Open: the goo against an opaque chat".
 
 ## The hover card
 

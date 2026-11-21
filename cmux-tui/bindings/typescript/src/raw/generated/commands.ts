@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR e36fafb2ce1a616e5734761cd2e6761fc809fb67e42d9cd6d9f8ee0829e4a6a7. */
+/* cmux-tui mux protocol 12, IR 9e23695456a61db1d4ae9aa726f4287919ff5a51a8c001cf11da3b30c1555dd2. */
 
 
 import type * as T from "./types.js";
@@ -673,6 +673,28 @@ export interface CloudSessionStatusRequest extends CmuxRequestBase {
   cmd: "cloud-session-status";
 }
 export type CloudSessionStatusResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface ComputerUseApprovalsRequest extends CmuxRequestBase {
+  cmd: "computer-use-approvals";
+  "action": string;
+  "answer"?: (string) | null;
+  "app_id"?: (string) | null;
+}
+export type ComputerUseApprovalsResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface ComputerUseConfigRequest extends CmuxRequestBase {
+  cmd: "computer-use-config";
+  "config": (T.JsonValue) | null;
+}
+export type ComputerUseConfigResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface ComputerUseEndpointRequest extends CmuxRequestBase {
+  cmd: "computer-use-endpoint";
+}
+export type ComputerUseEndpointResult = T.JsonValue;
 
 /** Protocol v12; authority: local-admin. */
 export interface ConversationAgentTokenRequest extends CmuxRequestBase {
@@ -2070,6 +2092,18 @@ export interface PutSessionRequest extends CmuxRequestBase {
 }
 export type PutSessionResult = T.JsonValue;
 
+/** Protocol v12; authority: control. */
+export interface QuickTerminalRequest extends CmuxRequestBase {
+  cmd: "quick-terminal";
+  "h"?: (number) | null;
+  "mode"?: (string) | null;
+  "screen": T.Id;
+  "w"?: (number) | null;
+  "x"?: (number) | null;
+  "y"?: (number) | null;
+}
+export type QuickTerminalResult = T.JsonValue;
+
 /** Protocol v5; authority: control. */
 export interface ReadScreenRequest extends CmuxRequestBase {
   cmd: "read-screen";
@@ -2377,6 +2411,7 @@ export interface SendRequest extends CmuxRequestBase {
   "expect_agent"?: (T.SendExpectAgent) | null;
   "expect_foreground"?: (string) | null;
   "flow"?: (bigint) | null;
+  "key"?: (string) | null;
   "paste"?: boolean;
   "submit"?: boolean;
   "surface"?: (T.Id) | null;
@@ -3149,6 +3184,9 @@ export type CmuxRequest =
   | CloudSessionClearRequest
   | CloudSessionSetRequest
   | CloudSessionStatusRequest
+  | ComputerUseApprovalsRequest
+  | ComputerUseConfigRequest
+  | ComputerUseEndpointRequest
   | ConversationAgentTokenRequest
   | ConversationAttachmentLinkRequest
   | ConversationAttachmentReadRequest
@@ -3277,6 +3315,7 @@ export type CmuxRequest =
   | PutBlobRequest
   | PutFrontendProjectionRequest
   | PutSessionRequest
+  | QuickTerminalRequest
   | ReadScreenRequest
   | ReadScrollbackRequest
   | ReattachViewRequest
@@ -3916,6 +3955,30 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "cloud-conversations-v1";
+    stream: null;
+  };
+  "computer-use-approvals": {
+    request: ComputerUseApprovalsRequest;
+    result: ComputerUseApprovalsResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "computer-use-v1";
+    stream: null;
+  };
+  "computer-use-config": {
+    request: ComputerUseConfigRequest;
+    result: ComputerUseConfigResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "computer-use-v1";
+    stream: null;
+  };
+  "computer-use-endpoint": {
+    request: ComputerUseEndpointRequest;
+    result: ComputerUseEndpointResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "computer-use-v1";
     stream: null;
   };
   "conversation-agent-token": {
@@ -4940,6 +5003,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "profiles-v1";
+    stream: null;
+  };
+  "quick-terminal": {
+    request: QuickTerminalRequest;
+    result: QuickTerminalResult;
+    authority: "control";
+    since: 12;
+    capability: "quick-terminal-v1";
     stream: null;
   };
   "read-screen": {

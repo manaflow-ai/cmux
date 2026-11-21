@@ -19,6 +19,7 @@
     "sidebar.workspaceRow.icon": true,
     "sidebar.workspaceRow.branch": true,
     "sidebar.workspaceRow.lastActivity": false,
-    "focus.inactiveTabStyle": "tonal"
+    "focus.inactiveTabStyle": "tonal",
+    "appearance.cornerFlush": "flush-goo"
   }
 }

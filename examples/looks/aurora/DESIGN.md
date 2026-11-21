@@ -157,11 +157,9 @@ showing through.
 
 ## What a setup cannot set
 
-- The goo corner (the selected tab flowing into the content card through concave fillets) is
-  `chrome.cornerFlush: flush-goo`, a Debug Settings tunable that DEV and NIGHTLY builds read from
-  their own override file. It is not a setting, so a setup or theme file cannot choose it. Aurora
-  keeps the stock chrome so the default flush corner (no fillets) draws, and the goo corner is one
-  Debug Settings choice away.
+The goo corner is no longer on this list: `appearance.cornerFlush` (#46367) is a setting. Aurora
+leaves it at the person's own value, so the default flush corner (no fillets) draws.
+
 - A link color per appearance: the chat stylesheet's tokens are single values (above).
 - The composer's look, as for every look (docs/cmux-next/look-addons.md).
 

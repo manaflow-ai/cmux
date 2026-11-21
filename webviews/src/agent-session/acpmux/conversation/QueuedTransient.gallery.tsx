@@ -12,8 +12,10 @@
 // every entry and fades it in and out: the short one reads as a blink, and the queue moves on each.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
+import type { Play } from "../../../gallery/play";
 import type { AcpmuxSnapshot } from "../model";
 import { TRANSIENT_SHOW_MS } from "../afterDelay";
+import { MOTION_MS } from "../../../motion/scale.generated";
 import { useShownQueue } from "./queuedMessages";
 
 type Variant = "hold-200" | "hold-150-fade" | "fade-only";
@@ -39,7 +41,7 @@ const STEPS: [number, Queue][] = [
 
 const HOLD_MS: Record<Variant, number> = { "hold-200": TRANSIENT_SHOW_MS, "hold-150-fade": 150, "fade-only": 0 };
 /// How long a leaving row fades out (`fade-only`), the host's fade-in token.
-const LEAVE_MS = 120;
+const LEAVE_MS = MOTION_MS.micro;
 
 /// The queue as drawn, with leaving rows kept for their fade-out when `fadeOut`.
 function useWithLeaving(queue: Queue, fadeOut: boolean): { entry: Queue[number]; leaving: boolean }[] {
@@ -50,6 +52,7 @@ function useWithLeaving(queue: Queue, fadeOut: boolean): { entry: Queue[number];
     last.current = queue;
     if (!fadeOut || gone.length === 0) return;
     setLeaving((now) => [...now, ...gone]);
+    // gallery-capture: `settled` waits for the leaving rows to go (`data-queued-transient-settled`).
     const timer = window.setTimeout(() => setLeaving((now) => now.filter((entry) => !gone.includes(entry))), LEAVE_MS);
     return () => window.clearTimeout(timer);
   }, [queue, fadeOut]);
@@ -67,8 +70,15 @@ function useWithLeaving(queue: Queue, fadeOut: boolean): { entry: Queue[number];
 function Timeline({ variant }: { variant: Variant }) {
   const [queue, setQueue] = useState<Queue>([]);
   const [paints, setPaints] = useState<string[]>([]);
+  const [ran, setRan] = useState(0);
   useEffect(() => {
-    const timers = STEPS.map(([at, next]) => window.setTimeout(() => setQueue(next), at));
+    // gallery-capture: `settled` waits for the last step (`data-queued-transient-settled`).
+    const timers = STEPS.map(([at, next]) =>
+      window.setTimeout(() => {
+        setQueue(next);
+        setRan((count) => count + 1);
+      }, at),
+    );
     return () => timers.forEach((timer) => window.clearTimeout(timer));
   }, []);
   const shown = useShownQueue(queue, `queued-transient-${variant}`, HOLD_MS[variant]);
@@ -79,7 +89,11 @@ function Timeline({ variant }: { variant: Variant }) {
   const fades = variant !== "hold-200";
   return (
     <>
-      <ul className="queued-transient__queue" aria-label="Queued messages">
+      <ul
+        className="queued-transient__queue"
+        aria-label="Queued messages"
+        data-queued-transient-settled={ran === STEPS.length && rows.length === 0 ? "" : undefined}
+      >
         {rows.map(({ entry, leaving }) => (
           <li
             key={entry.id}
@@ -109,6 +123,7 @@ function QueuedTransientGallery({ variant }: { variant: Variant }) {
       <header className="queued-transient-gallery__header">
         <div>
           <h1>A Queued entry at a turn's end</h1>
+          {/* motion-allow: how long the first message sits in the queue, not a motion */}
           <p>A message queued for 180 ms, then one that waits 1.2 s.</p>
         </div>
         <button type="button" className="ui-button" onClick={() => setRun((value) => value + 1)}>
@@ -119,6 +134,10 @@ function QueuedTransientGallery({ variant }: { variant: Variant }) {
     </main>
   );
 }
+
+/// The still is the timeline's end: every step run and every row gone, the "Painted" line naming what drew.
+const settled: Play = (ctx) =>
+  ctx.waitFor(() => ctx.document.querySelector("[data-queued-transient-settled]"), { capMs: 10_000 });
 
 export default componentEntry<{ variant: Variant }>({
   id: "agent-pane.queued-transient",
@@ -143,14 +162,20 @@ export default componentEntry<{ variant: Variant }>({
   variants: {
     "hold-200": {
       props: { variant: "hold-200" },
+      play: settled,
+      // motion-allow: prose naming the queued message's 180 ms dwell and the fade the variant plays
       note: "Picked: an entry shows only once it has stayed 200 ms, with no fade. The 180 ms message never paints; the one that waits shows 200 ms after it came and goes at once when it runs.",
     },
     "hold-150-fade": {
       props: { variant: "hold-150-fade" },
+      play: settled,
+      // motion-allow: prose naming the queued message's 180 ms dwell and the fade the variant plays
       note: "Held 150 ms, then a 120 ms fade-in: the 180 ms message still paints for 30 ms, faint. A softer flash, still a flash.",
     },
     "fade-only": {
       props: { variant: "fade-only" },
+      play: settled,
+      // motion-allow: prose naming the queued message's 180 ms dwell and the fade the variant plays
       note: "No hold: every entry fades in and out over 120 ms. The 180 ms message reads as a blink, and the queue moves on each.",
     },
   },

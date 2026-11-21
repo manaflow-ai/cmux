@@ -136,9 +136,9 @@ appearances, and the theme file's contrast guard has nothing to correct.
 
 ## What a setup could not set
 
-- `tunable.chrome.cornerFlush` (`flush-goo`, the selected tab flowing into the card): a tunable,
-  not a schema setting, so a setup's settings refuse it ("not one this cmux has"). Grove leaves the
-  corner at the person's own value.
+The corner is no longer on this list: `appearance.cornerFlush` (#46367) is a setting. Grove leaves it
+at the person's own value.
+
 - An image of its own: a setup holds text files; the wallpaper is a catalog id instead.
 
 - The sidebar hover card: on the current app a `cmux.hovercard/1` card draws only after the

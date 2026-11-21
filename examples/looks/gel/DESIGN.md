@@ -69,10 +69,8 @@ Seed `#2f8fa3` (sea glass), the reference library's default tonal scheme, light 
    (compact density turns it back into a pill). Unfocused panes' tabs tone down by tone
    (`focus.inactiveTabStyle: tonal`), not by fading.
 7. **Motion: surface tension, from cmux's own gated motion only.**
-   - The goo: `tunable.chrome.cornerFlush = flush-goo` draws the selected tab meeting the card
-     through concave fillets, the way two drops merge. It is a Debug Settings choice, not a
-     setting, so a setup cannot turn it on (below). Without it Gel still gets the flush corner
-     (`flush`, the default under `flat` chrome), the same shape without the fillets.
+   - The goo: `appearance.cornerFlush: flush-goo` draws the selected tab meeting the card
+     through concave fillets, the way two drops merge. The setup sets it.
    - A tab's hover card grows out of its tab on the settle spring (the default entrance).
    - A sidebar hover card shows in the frame it opens in, with no fade or rise.
    - Gel sets no motion key: every animation runs through cmux's motion gates and obeys
@@ -83,14 +81,12 @@ Seed `#2f8fa3` (sea glass), the reference library's default tonal scheme, light 
 
 | Wanted | Key | Why not | Today |
 | --- | --- | --- | --- |
-| The goo fillets | `tunable.chrome.cornerFlush: flush-goo` | A Debug Settings tunable kept in the app's own `debug-tunables.json`, not a row of the settings schema, so `cmux setup install` refuses it ("not one this cmux has") and a theme file cannot carry it | Debug Settings > Corner flush > "Flush, goo"; the look falls back to the flush corner without fillets |
 | A seed taken from the wallpaper | none | cmux derives no palette from a picture | a fixed seed |
 | A larger content-card radius | `layout.paneCornerRadius` | Setting it turns the flush corner's default off (it draws only over stock pane chrome) | the flush corner's radius |
 | The custom hover card on first hover | none | A workspace's hover card opens collapsed (its tabs only); the `cmux.hovercard/1` card draws after Show details | hover a row, then Show details |
 
-**Gel needs the goo.** It is designed with `flush-goo` on: set Debug Settings > Corner flush >
-"Flush, goo" once. Everything else installs with the setup. Once `appearance.cornerFlush` is a
-setting (#46367), the setup carries `"appearance.cornerFlush": "flush-goo"` and this step goes away.
+**Gel needs the goo.** It is designed with `flush-goo` on, and the setup carries
+`"appearance.cornerFlush": "flush-goo"` (the setting #46367 added), so it installs with everything else.
 
 **Open: the goo against an opaque chat.** The folder tab, and its fillets, paint what the window
 paints: clear over a see-through window, so the tab shows the same glass as the content below it.
