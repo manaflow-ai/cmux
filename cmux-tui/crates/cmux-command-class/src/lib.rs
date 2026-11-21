@@ -145,7 +145,7 @@ impl Classifier {
         I: IntoIterator<Item = S>,
         S: Into<String>,
     {
-        Self { home_tools: tools.into_iter().map(Into::into).collect() }
+        Self { home_tools: tools.into_iter().map(|tool| Into::into(tool)).collect() }
     }
 
     /// Classifies one shell command string.
