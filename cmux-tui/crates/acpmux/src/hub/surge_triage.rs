@@ -130,6 +130,8 @@ pub(crate) struct Journal {
     pub(super) cursor: u64,
     /// Held messages no record decided yet, oldest first.
     pub(super) held: Vec<triage::Held>,
+    /// Prompt ids a triage record decided: their inbox record, read again, holds nothing.
+    pub(super) triaged: BTreeSet<String>,
     /// The recipient's own grants of its threads to owner sessions.
     pub(super) grants: Owners,
     /// Undelivered digests: their items by prompt id.
@@ -147,6 +149,7 @@ impl Journal {
         match kind {
             "inbox" => {
                 if let Some(h) = triage::held_from_inbox(msg)
+                    && !self.triaged.contains(&h.prompt_id)
                     && !self.held.iter().any(|x| x.prompt_id == h.prompt_id)
                 {
                     self.held.push(h);
@@ -157,6 +160,7 @@ impl Journal {
                 let done: BTreeSet<String> = triage::triaged_ids(msg).collect();
                 if !done.is_empty() {
                     self.held.retain(|h| !done.contains(&h.prompt_id));
+                    self.triaged.extend(done);
                 }
                 if let Some(d) = msg.get("digestDelivered").and_then(Value::as_str) {
                     self.owed.remove(d);

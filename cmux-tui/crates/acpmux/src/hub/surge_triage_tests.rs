@@ -597,3 +597,16 @@ async fn a_grant_revoked_before_delivery_sends_the_item_to_the_chat_not_the_old_
     assert_eq!(marker.unwrap()["redirected"][0]["promptId"], "m1");
     assert_eq!(hub.surge_open_topics(&s, &mut hub.surge_journal(&s).unwrap()), 1);
 }
+
+#[test]
+fn an_inbox_record_read_again_after_its_triage_holds_nothing() {
+    let inbox =
+        json!({"surgeHeld": true, "promptId": "p1", "threadId": "t", "from": "a", "text": "x"});
+    let mut j = Journal::default();
+    j.read("inbox", &inbox, 1);
+    assert_eq!(j.held.len(), 1);
+    j.read(triage::RECORD_KIND, &json!({"items": [{"promptId": "p1"}]}), 2);
+    assert!(j.held.is_empty());
+    j.read("inbox", &inbox, 3);
+    assert!(j.held.is_empty(), "a triaged message is never held again");
+}
