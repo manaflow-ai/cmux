@@ -80,13 +80,16 @@ HOSTED = "ubuntu-24.04"
 # The one job with its own override: the Darwin cross-compile shadow.
 DARWIN_CROSS_JOB = "macos-cross-shadow"
 DARWIN_CROSS = "darwin-cross-pool"
-# The owned GCP runners the nightly path's attempt 1 takes first (cmux-tui-artifacts.yml's jobs: comment).
+# The owned GCP build-lane runners: a feat-cmux-next push's build legs (cmux-tui-build-package.yml) and daemon
+# tests take these first on attempt 1 (cmux-tui-artifacts.yml's jobs: comment).
 OWNED = "cmux-gcp-lane-build-x64"
-# The nightly-only runners: a nightly-next push and a tree request (dispatch) take these first, so the
-# nightly's tree never queues behind lane builds on OWNED (tree request 44427450458 sat 2 h there, 2026-11-19).
+# The nightly-only runners: NIGHTLY_TREE_JOBS take these first on every nightly-path run (feat-cmux-next and
+# nightly-next pushes, dispatches), so the nightly's tree never queues behind lane builds on OWNED (tree request
+# 44427450458 sat 2 h there, 2026-11-19; feat-cmux-next tree preflight 136522327595 sat 3 h+ there, 2026-11-20).
 NIGHTLY = "cmux-gcp-nightly-x64"
-# The JIT-only nightly label (#47764, #47905): one job per VM; a feat-cmux-next push's control jobs start there on
-# attempt 1, ahead of PR CI (tests/test_cmux_next_push_roots_on_nightly_jit.py).
+# The JIT-only nightly label (#47905): one job per VM, holding the nightly's App keys; it serves nightly runs only,
+# so no job of this workflow takes it (#48109; cmux-next.yml's push control jobs left it too:
+# tests/test_cmux_next_push_roots_on_nightly_jit.py).
 NIGHTLY_JIT = "cmux-gcp-nightly-jit-x64"
 # Every x64 pool leads with our own one-job fleet label (#47803); its Blacksmith members follow in size order.
 FLEET = "cmux-fleet-linux-x64"
@@ -174,13 +177,17 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
             # A non-Blacksmith LINUX_RUNNER wins; a job that does not read it (the daemon
             # tests) never takes it. The nightly path's attempt 1 takes the owned pool.
             allowed = (blacksmith_set(name) | ({linux_runner} if linux_runner in (POOL, HOSTED) else set())
-                       | ({OWNED, NIGHTLY} if name in NIGHTLY_TREE_JOBS + OWNED_FIRST_OWN_ROUTE_JOBS else set())
-                       | {NIGHTLY_JIT})
+                       | ({OWNED, NIGHTLY} if name in NIGHTLY_TREE_JOBS + OWNED_FIRST_OWN_ROUTE_JOBS else set()))
             with self.subTest(job=name, linux_runner=linux_runner, overflow=bool(overflow), trusted=trusted):
                 self.assertTrue(labels <= allowed, labels - allowed)
+                self.assertNotIn(NIGHTLY_JIT, labels)
 
     def test_the_overflow_switch_moves_every_linux_job_to_the_other_size(self) -> None:
         for name, runs_on in linux_routes():
+            # A write-token job reads only the ephemeral_only linux_4 pool, whose own next member is its overflow
+            # (tests/test_ci_ephemeral_pool_readers.py); the switch does not move it.
+            if "CI_CLOUD_OVERFLOW_SAVED" not in runs_on and runs_on.rstrip().endswith("fromJSON(vars.RUNNER_POOLS).linux_4 }}"):
+                continue
             for linux_runner in ("", "blacksmith-4vcpu-ubuntu-2404", SMALL):
                 with self.subTest(job=name, linux_runner=linux_runner):
                     size = size_label(WORKFLOW.name, name)
@@ -221,16 +228,20 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
         self.assertGreaterEqual(len(routes), len(NIGHTLY_TREE_JOBS) + 3)
         nightly = {"event": "'push'", "ref": "'refs/heads/feat-cmux-next'", "attempt": "1"}
         cases = (
-            ("feat-cmux-next push", nightly, OWNED),
+            # This workflow's tree jobs take NIGHTLY; the build package's legs keep OWNED (feat_push below).
+            ("feat-cmux-next push", nightly, "feat_push"),
             ("nightly-next push", {**nightly, "ref": "'refs/heads/nightly-next'"}, NIGHTLY),
             ("dispatch", {**nightly, "event": "'workflow_dispatch'", "ref": "'refs/heads/feat-cmux-next'"}, NIGHTLY),
             ("re-run", {**nightly, "attempt": "2"}, None),
             ("lane push", {**nightly, "ref": "'refs/heads/lane/x'"}, None),
         )
+        feat_push = {WORKFLOW.name: NIGHTLY, "cmux-tui-build-package.yml": OWNED}
         for workflow, name, runs_on in routes:
             for case, values, owned in cases:
                 if workflow == "cmux-tui-tree-request.yml" and case in ("lane push", "feat-cmux-next push"):
                     continue  # it runs only as a feat-cmux-next dispatch
+                if owned == "feat_push":
+                    owned = feat_push[workflow]
                 text = runs_on.replace("github.run_attempt", values["attempt"])
                 text = text.replace("github.event_name", values["event"])
                 text = re.sub(r"\bgithub\.ref\b", values["ref"], text)

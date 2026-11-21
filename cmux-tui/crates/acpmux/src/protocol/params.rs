@@ -123,6 +123,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "parent",
     "peer",
     "peerHops",
+    "peerRowBatches",
     "personDecision",
     "personKey",
     "personStop",
@@ -250,7 +251,7 @@ keyed! {
     /// `_acpmux/process/kill`.
     ProcessKillParams: ["sessionId", "processId", "signal"];
     /// `_acpmux/process/list`.
-    ProcessListParams: ["sessionId", "cursor", "limit"];
+    ProcessListParams: ["sessionId", "cursor", "limit", "recent"];
     /// `_acpmux/process/tail`.
     ProcessTailParams: ["sessionId", "processId", "fromByte", "maxBytes"];
     /// `_acpmux/queue_approve`.
