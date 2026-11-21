@@ -89,12 +89,14 @@ where
     if !autostart {
         return Err(anyhow!("no acpmux daemon at {} (run `acpmux daemon`)", path.display()));
     }
-    // Before the managed unit too: starting it would make a removed home again.
-    if !EXPLICIT_START.load(std::sync::atomic::Ordering::Relaxed) {
-        check_autostart(path)?;
-    }
     if let Some(value) = managed_unit_connect_with(systemctl, current_home, path, &connect).await? {
         return Ok(value);
+    }
+    // A detached daemon must pass the home and socket safety checks. A managed
+    // unit has already proved that its own canonical home and socket match the
+    // request, so it can serve a symlinked default home safely.
+    if !EXPLICIT_START.load(std::sync::atomic::Ordering::Relaxed) {
+        check_autostart(path)?;
     }
     start_and_connect(path, connect).await
 }
