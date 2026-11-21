@@ -253,7 +253,7 @@ struct CatalogRequestStrings {
     }
 
     static var noPane: String {
-        String(localized: "catalogRequest.noPane", defaultValue: "No pane is focused.", table: "CatalogRequests", bundle: .module)
+        String(localized: "catalogRequest.noPane", defaultValue: "Click a tab first, then try again.", table: "CatalogRequests", bundle: .module)
     }
 
     static var destructiveBody: String {
