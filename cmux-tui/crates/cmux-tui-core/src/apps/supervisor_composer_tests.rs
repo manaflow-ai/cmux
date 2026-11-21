@@ -182,3 +182,149 @@ fn mention_completions_are_ranked_by_the_daemon() {
         "the label when no insert"
     );
 }
+
+/// Gives the app in `dir` the composer footer controls `controls` and the
+/// `actions:run` scope, so its action controls may run.
+fn save_controls(dir: &Path, controls: Value) {
+    let path = dir.join("cmux-app.json");
+    let mut manifest: Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    manifest["implements"]["cmux.composer.control/1"] =
+        json!({ "options": { "controls": controls } });
+    manifest["scopes"]["actions:run"] = json!("Run the footer's actions");
+    std::fs::write(&path, manifest.to_string()).unwrap();
+}
+
+fn control_run(
+    f: &Fixture,
+    args: Value,
+    origin: Origin,
+) -> Result<Value, super::super::supervisor::ApiError> {
+    f.supervisor.store_call(CLIENT, "apps.composer.control.run", args, origin)
+}
+
+/// An installed app's footer controls are listed left then right, each side
+/// by order; an action the catalog refuses apps, or a menu left with no
+/// item, is not listed, so the footer never shows a control that cannot run.
+#[test]
+fn an_installed_extensions_footer_controls_are_listed_in_place_order() {
+    let f = fixture();
+    save_controls(
+        &spy_dir(&f),
+        json!([
+            { "id": "send-later", "kind": "button", "label": "Later", "placement": "right", "insert": "Remind me later." },
+            { "id": "window", "kind": "button", "label": "New window", "symbol": "macwindow", "action": "newWindow", "order": 5 },
+            { "id": "quit", "kind": "button", "label": "Quit", "action": "quit" },
+            { "id": "dead", "kind": "menu", "label": "Dead", "items": [{ "id": "q", "label": "Quit", "action": "quit" }] },
+            { "id": "mode", "kind": "menu", "label": "Mode", "order": -1, "items": [
+                { "id": "plan", "label": "Plan", "description": "Plan first", "insert": "Plan this first." },
+                { "id": "quit", "label": "Quit", "action": "quit" }
+            ] }
+        ]),
+    );
+    f.supervisor.reload_local_apps(&Default::default());
+    assert_eq!(list(&f)["controls"], json!([]), "not installed yet");
+
+    f.install("local/spy");
+    assert_eq!(
+        list(&f)["controls"],
+        json!([
+            {
+                "app": "local/spy", "extension": "Demo", "id": "mode", "kind": "menu", "label": "Mode",
+                "placement": "left", "order": -1,
+                "items": [{ "id": "plan", "label": "Plan", "description": "Plan first", "insert": "Plan this first." }]
+            },
+            {
+                "app": "local/spy", "extension": "Demo", "id": "window", "kind": "button", "label": "New window",
+                "symbol": "macwindow", "placement": "left", "order": 5, "action": "newWindow"
+            },
+            {
+                "app": "local/spy", "extension": "Demo", "id": "send-later", "kind": "button", "label": "Later",
+                "placement": "right", "order": 0, "insert": "Remind me later."
+            }
+        ])
+    );
+
+    f.set("hide", "local/spy", Origin::User, |o| o.hidden = Some(true)).unwrap();
+    assert_eq!(list(&f)["controls"], json!([]), "a hidden extension adds nothing");
+}
+
+/// A click on a footer control runs only with the person's origin: an
+/// insert answers its text, an action goes to the cmux app as the control's
+/// app's `action.run` with the person's origin and an app-namespaced key,
+/// and a refused action or an unknown control is an error.
+#[test]
+fn a_persons_click_runs_a_footer_control_as_its_app() {
+    let f = fixture();
+    save_controls(
+        &spy_dir(&f),
+        json!([
+            { "id": "window", "kind": "button", "label": "New window", "action": "newWindow", "args": { "x": 1 } },
+            { "id": "quit", "kind": "button", "label": "Quit", "action": "quit" },
+            { "id": "mode", "kind": "menu", "label": "Mode", "items": [{ "id": "plan", "label": "Plan", "insert": "Plan this first." }] }
+        ]),
+    );
+    f.supervisor.reload_local_apps(&Default::default());
+    f.install("local/spy");
+
+    let plan = json!({ "app": "local/spy", "control": "mode", "item": "plan" });
+    assert_eq!(
+        control_run(&f, plan.clone(), Origin::User).unwrap(),
+        json!({ "insert": "Plan this first." })
+    );
+    assert_eq!(control_run(&f, plan, Origin::Script).unwrap_err().code, "gesture.required");
+    assert_eq!(
+        control_run(&f, json!({ "app": "local/spy", "control": "nope" }), Origin::User)
+            .unwrap_err()
+            .code,
+        "apps.composer.control.unknown"
+    );
+    assert_eq!(
+        control_run(&f, json!({ "app": "local/spy", "control": "quit" }), Origin::User)
+            .unwrap_err()
+            .code,
+        "scope.missing"
+    );
+    let window = json!({ "app": "local/spy", "control": "window" });
+    assert_eq!(
+        control_run(&f, window.clone(), Origin::User).unwrap_err().code,
+        "provider.unavailable",
+        "no cmux app connected"
+    );
+
+    let (tx, rx) = channel();
+    let tx = Mutex::new(tx);
+    f.supervisor
+        .register_client(9, Arc::new(move |v: &Value| tx.lock().unwrap().send(v.clone()).is_ok()));
+    f.supervisor
+        .register_provider(
+            9,
+            super::super::provider::ProviderClaim { agent: false, verified_app: true },
+            vec!["action".to_string()],
+        )
+        .unwrap();
+    assert_eq!(control_run(&f, window, Origin::User).unwrap(), json!({ "ran": "newWindow" }));
+    let request = loop {
+        let event = rx.recv_timeout(Duration::from_secs(10)).expect("provider request");
+        if event["event"] == "apps-provider-request" {
+            break event;
+        }
+    };
+    assert_eq!(
+        (
+            request["app"].clone(),
+            request["op"].clone(),
+            request["origin"].clone(),
+            request["params"].clone()
+        ),
+        (
+            json!("local/spy"),
+            json!("action.run"),
+            json!("user"),
+            json!({ "id": "newWindow", "args": { "x": 1 } })
+        )
+    );
+    assert!(request["idempotency_key"].as_str().is_some_and(|k| k.starts_with("app:local/spy:")));
+    let id = request["request_id"].as_u64().unwrap();
+    f.supervisor.provider_result(9, id, true, json!({})).unwrap();
+}

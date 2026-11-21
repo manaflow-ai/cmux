@@ -258,6 +258,14 @@ impl Manifest {
         me
     }
 
+    /// A footer control in the agent chat composer (`cmux.composer.control/1`), as its JSON
+    /// object: a `button` with `action` (an action catalog id, with optional `args`) or
+    /// `insert`, or a `menu` with `items`; `placement` `left` or `right` and an `order`. Data
+    /// only: cmux lists it from the manifest, and a click runs it as this extension.
+    pub fn composer_control(self, control: Value) -> Self {
+        self.append_data("cmux.composer.control/1", "controls", control)
+    }
+
     /// A chat widget (`cmux.chat.widget/1`) drawn by the script's `export`: a card in the agent
     /// chat under each tool call whose name matches one of `tools` (`*` matches any run of
     /// characters), and for widget parts that name this extension. With no `tools` it draws only

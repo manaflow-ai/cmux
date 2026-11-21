@@ -93,6 +93,14 @@ public final class AppsClient {
         catch { throw .refused(error) }
     }
 
+    /// The person's click on an app's composer footer control (`apps.composer.control.run
+    /// {app, control, item?}`), sent with the user origin: the daemon runs the control as its app.
+    public func composerControl(_ args: AppJSON) async throws(AppsClientError) -> AppJSON {
+        if case .unavailable(let reason) = availability { throw .unavailable(reason) }
+        do throws(AppsTransportError) { return try await transport.storeCall("apps.composer.control.run", args: args, origin: .user) }
+        catch { throw .refused(error) }
+    }
+
     /// Adds bundled package directories (loaded once off the main actor at
     /// launch); a directory already known for an app stays.
     public func useBundledDirectories(_ directories: [String: URL]) {
