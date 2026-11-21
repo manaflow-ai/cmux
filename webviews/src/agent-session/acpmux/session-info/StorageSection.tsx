@@ -283,7 +283,8 @@ export function StorageSection({
   const language = usePaneLanguage();
   const measuring = useAfterDelay(view.loading, measuringDelay);
   const [showKept, setShowKept] = useState(false);
-  const keptFold = useFoldMotion<HTMLDivElement>(showKept, () => 0);
+  // Destructured so the compiler sees `drawn` as a value, not a ref read during render.
+  const { ref: keptRef, drawn: keptDrawn, toggle: keptToggle } = useFoldMotion<HTMLDivElement>(showKept, () => 0);
   const preview = storagePreview(view.stale, view.selected);
   const label = previewLabel(preview, language);
   const size = label.size
@@ -458,12 +459,12 @@ export function StorageSection({
       )}
       {view.kept.length > 0 && (
         <>
-          <SessionInfoFold open={showKept} onToggle={() => keptFold.toggle(!showKept, setShowKept)}>
+          <SessionInfoFold open={showKept} onToggle={() => keptToggle(!showKept, setShowKept)}>
             <Icon name="disclosure.collapsed" size={12} />
             {t("sessionInfo.storage.kept", { n: view.kept.length })}
           </SessionInfoFold>
-          {keptFold.drawn && (
-            <div ref={keptFold.ref} className="acpmux-session-info-fold-box">
+          {keptDrawn && (
+            <div ref={keptRef} className="acpmux-session-info-fold-box">
               <ul className="acpmux-session-info-list" data-storage-kept="">
                 <WindowedRows
                   items={view.kept}
