@@ -555,6 +555,11 @@ lane = "macos-shell-fish"
 requirements = ["fish"]
 
 [[test]]
+path = "tests/test_fish_startup_spawn_budget.py"
+lane = "macos-shell-fish"
+requirements = ["fish"]
+
+[[test]]
 path = "tests/test_app_host_test_products.py"
 lane = "linux-guard"
 
