@@ -83,6 +83,7 @@ import { sentMessageLook } from "../agent-session/acpmux/conversation/sentMessag
 import { readingLook } from "../agent-session/acpmux/readingLook.experiment";
 import { highContrastLook } from "../agent-session/acpmux/highContrastLook.experiment";
 import { contextRingLook } from "../agent-session/acpmux/contextRingLook.experiment";
+import { glassToolbarLook } from "../agent-session/acpmux/header/glassToolbar.experiment";
 import { contextRingMotion } from "../agent-session/acpmux/contextRingMotion.experiment";
 import { planUsageLook } from "../agent-session/acpmux/planUsageLook.experiment";
 import { emojiShortcodeLook } from "../agent-session/acpmux/emojiShortcodeLook.experiment";
@@ -96,6 +97,7 @@ import { fieldGrowthMotion } from "../agent-session/acpmux/composer/fieldGrowth.
 import { composerDockMotion } from "../agent-session/acpmux/composer/dockMotion.experiment";
 import { teamAudit } from "../agent-session/acpmux/teamAudit/teamAudit.experiment";
 import { jumpPairLook } from "../agent-session/acpmux/jumpPair.experiment";
+import { composerV2Look } from "../agent-session/acpmux/composerV2.experiment";
 import { composerShellLook } from "../agent-session/acpmux/composer/shellLook.experiment";
 import { composerFooterControls } from "../agent-session/acpmux/composer/footerControls.experiment";
 import { composerEmptyHeight } from "../agent-session/acpmux/composer/emptyHeight.experiment";
@@ -202,6 +204,8 @@ export const EXPERIMENTS: readonly Experiment[] = [
   composerDockMotion,
   teamAudit,
   jumpPairLook,
+  glassToolbarLook,
+  composerV2Look,
   composerShellLook,
   composerFooterControls,
   composerEmptyHeight,
