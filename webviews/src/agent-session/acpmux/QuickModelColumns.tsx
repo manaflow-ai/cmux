@@ -387,6 +387,34 @@ function Columns({
     sizeHold.current = observer;
   }, []);
   const modelsList = useRef<HTMLDivElement | null>(null);
+  // A search or a tab removes rows: the rows that stay would jump up to their new slots in one frame.
+  // Each keeps its old place for the frame it lands and glides to the new one on one clock (a CSS
+  // keyframe, see quickModelColumns.css), so a keystroke is one continuous move, not a jump.
+  const flipSlots = useRef<Map<string, number>>(new Map());
+  useLayoutEffect(() => {
+    const list = modelsList.current;
+    if (!list) {
+      flipSlots.current = new Map();
+      return;
+    }
+    const top = list.getBoundingClientRect().top - list.scrollTop;
+    const slots = new Map<string, number>();
+    const reduced = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    for (const row of list.querySelectorAll<HTMLElement>("[data-flip]")) {
+      const key = row.dataset.flip ?? "";
+      const slot = row.getBoundingClientRect().top - top;
+      slots.set(key, slot);
+      const was = flipSlots.current.get(key);
+      // A move on this render only: a row already gliding keeps its own animation's end state.
+      if (was === undefined || reduced || Math.abs(was - slot) < 0.5) continue;
+      row.style.setProperty("--flip-dy", `${was - slot}px`);
+      row.removeAttribute("data-flipping");
+      void row.offsetWidth;
+      row.setAttribute("data-flipping", "");
+      row.addEventListener("animationend", () => row.removeAttribute("data-flipping"), { once: true });
+    }
+    flipSlots.current = slots;
+  });
   // The list as state too: the popup draws it after `open` turns true, so an effect keyed on `open`
   // alone ran before it existed and never watched its width (the star sat on the check in a narrowed
   // menu, Lucas 2026-11-11).
@@ -1287,6 +1315,7 @@ function Columns({
     return (
       <DrivenRow
         key={`${model.family}\u0000${model.id}`}
+        data-flip={`${model.family}\u0000${model.id}`}
         id={`acpmux-cols-model-${index}`}
         kind="option"
         aria-selected={running}
@@ -1348,7 +1377,7 @@ function Columns({
         before += group.rows.length;
         return (
           <Fragment key={group.id}>
-            <div className="acpmux-cols-group">
+            <div className="acpmux-cols-group" data-flip={`group\u0000${group.id}`}>
               <AgentMark agent={list.find((family) => family.id === group.rows[0]?.family)?.mark} size={12} />
               {group.name}
               {group.note && <span className="acpmux-cols-group-note">{group.note}</span>}

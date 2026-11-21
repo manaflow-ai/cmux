@@ -442,6 +442,12 @@
   font-weight: 600;
 }
 .acpmux-cols-group:first-child { padding-top: var(--ds-space-1); }
+/* A row that stays through a search or a tab glides from its old slot to its new one (QuickModelColumns
+   flipSlots): one keyframe on one clock, instead of the one-frame jump when rows above it leave. */
+@keyframes acpmux-cols-flip { from { transform: translateY(var(--flip-dy, 0)); } to { transform: none; } }
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-cols-list [data-flipping] { animation: acpmux-cols-flip 140ms ease-out both; }
+}
 /* A heading's "Not installed" / "Signed out": a pick of its models sets the harness up first. */
 .acpmux-cols-group-note { margin-inline-start: auto; font-weight: 400; }
 
