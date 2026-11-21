@@ -12,6 +12,7 @@ pub(super) async fn read(cwd: &Path) -> Value {
     let root = std::env::var_os("LIVETREE_ROOT")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| "/work/livetree".into());
+    // timeout: one local status-file read; a slow one answers {"available": false}, never blocks a request.
     let result = tokio::time::timeout(Duration::from_secs(2), read_at(&root, cwd)).await;
     match result {
         Ok(Ok(value)) => value,

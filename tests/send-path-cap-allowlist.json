@@ -50,6 +50,9 @@
     "exclude": []
   },
   "files": {
+    "backend/apps/api/src/providers/freestyle/background.ts": {"count": 1, "reason": "safe: only the size of the provider's 202 acknowledgement read for a request id; a user's prompt or file is never held to it"},
+    "cmux-tui/crates/acpmux/src/server/requests/info/live_tree.rs": {"count": 1, "reason": "safe: the size of the live-tree daemon's status file read for a lane projection; no message or file the person sends"},
+    "workers/cmux-vm/src/upstream/live-background.ts": {"count": 1, "reason": "safe: only the size of the provider's 202 acknowledgement read for a request id; a user's prompt or file is never held to it"},
     "Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/MobileTerminalInputSender.swift": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Attachments/AttachmentPolicy.swift": {"count": 1, "reason": "safe: the Worker streaming threshold; a larger original goes by presigned upload, nothing is refused (tests/test_attachment_caps_guard.py records the same)"},
     "Packages/Shared/CmuxVNCWebRTC/Sources/CmuxVNCWebRTC/ScreenImagePaste.swift": {"count": 1, "reason": "safe: the screen-sharing paste's largest image (20 MiB) over the data channel; the phone's photo picker (CmuxScreenKitUI PastedImage) scales and re-encodes any photo until it fits, so a picked photo is never refused"},
