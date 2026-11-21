@@ -16,7 +16,7 @@ import { componentEntry } from "../../../gallery/format";
 import type { LibraryListing } from "../ops";
 import type { LibraryLayout } from "./CustomizeLibraryCard";
 
-type State = "few" | "empty" | "fifty" | "conflict" | "refused";
+type State = "few" | "empty" | "fifty" | "conflict" | "refused" | "experiments";
 type Props = { layout: LibraryLayout; state: State };
 
 const REFUSAL =
@@ -27,12 +27,17 @@ async function load() {
   installCatalog((await import("../generated/strings.json")).default);
   const { CustomizeLibraryView } = await import("./CustomizeLibraryCard");
   const { mockEmptyLibrary, mockLibrary, mockLongLibrary, runLibrary } = await import("../mockLibrary");
+  const experiments = mockLibrary();
+  experiments.entries = experiments.entries.map((entry) =>
+    entry.name === "pr-widget" ? { ...entry, source: "branch", words: ["branch lane/pr-widget"] } : entry,
+  );
   const listings: Record<State, LibraryListing> = {
     few: runLibrary(mockLibrary(), { verb: "off", name: "roomy" })!,
     empty: mockEmptyLibrary(),
     fifty: mockLongLibrary(50),
     conflict: mockLibrary(),
     refused: mockLibrary(),
+    experiments,
   };
   const actions = { onToggle: () => {}, onMove: () => {}, onRemove: () => {} };
   return function CustomizeLibraryLayouts({ layout, state }: Props) {
@@ -41,6 +46,7 @@ async function load() {
         <CustomizeLibraryView
           listing={listings[state]}
           layout={layout}
+          showCodeExperiments={state === "experiments"}
           refusal={state === "refused" ? REFUSAL : null}
           actions={actions}
           onConfirmRemove={() => {}}
@@ -62,6 +68,7 @@ const STATES: Record<State, string> = {
   fifty: "fifty entries",
   conflict: "night and roomy are on and both set the sidebar width: roomy says night wins",
   refused: "a toggle refused while a preview is open: the CLI's words under the list",
+  experiments: "Preview Features on: a code-backed branch is marked, ordinary customizations are not",
 };
 
 const variants: Record<string, { note: string; props: Props }> = {};
