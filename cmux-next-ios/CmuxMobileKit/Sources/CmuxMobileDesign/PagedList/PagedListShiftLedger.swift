@@ -7,6 +7,8 @@ import CoreGraphics
 struct PagedListShiftLedger {
     /// Offset moves since the last sample that the scroll explains.
     private(set) var explained: CGFloat = 0
+    /// The same since the last committed frame (the committed-frame measure's interval).
+    private(set) var committedExplained: CGFloat = 0
     /// Corrections the layout or UIKit asked for and has yet to apply.
     private(set) var pending: CGFloat = 0
     /// The corrections owed for rows that sized above the reader, by row: the layout may ask for
@@ -19,6 +21,24 @@ struct PagedListShiftLedger {
     /// An offset move the scroll explains: the finger, a fling, the list's own deliberate move.
     mutating func explain(_ delta: CGFloat) {
         explained += delta
+        committedExplained += delta
+    }
+
+    /// A committed frame was sampled: its interval starts empty.
+    mutating func resetCommitted() {
+        committedExplained = 0
+    }
+
+    /// What a frame drew of the row being read, from how far each of its edges moved on screen
+    /// (each with what the scroll explains already taken out). A row that changes height in place
+    /// moves one edge and keeps the other, and which one depends on whether the layout corrects the
+    /// offset for it: the up-*-flood rows grew at their top under the bars (bottom kept, steps
+    /// 6d8bcee4 and f902d4d6), the down-*-edits rows shrank at their bottom (top kept, step
+    /// d20b5519). Nothing the reader sees moved in either. A drawn shift moves the whole row, both
+    /// edges the same way; the part both edges share is the shift.
+    static func drawnShift(top: CGFloat, bottom: CGFloat) -> CGFloat {
+        guard top * bottom > 0 else { return 0 }
+        return abs(top) < abs(bottom) ? top : bottom
     }
 
     /// The layout asked to move the offset by `delta` to keep the rows below a row that changed

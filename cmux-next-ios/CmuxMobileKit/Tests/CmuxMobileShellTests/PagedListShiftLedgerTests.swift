@@ -86,4 +86,34 @@ struct PagedListShiftLedgerTests {
         #expect(ledger.explained == 0)
         #expect(ledger.pending == 0)
     }
+
+    /// A row that changes height in place moves one edge: no shift, whichever edge it is
+    /// (up-*-flood kept the bottom, step 6d8bcee4; down-*-edits kept the top, step d20b5519).
+    @Test func aRowChangingHeightInPlaceDrawsNoShift() {
+        #expect(PagedListShiftLedger.drawnShift(top: -22, bottom: 0) == 0)
+        #expect(PagedListShiftLedger.drawnShift(top: 0, bottom: -22) == 0)
+        #expect(PagedListShiftLedger.drawnShift(top: -11, bottom: 11) == 0)
+    }
+
+    /// A move of the whole row counts in full, and a move that comes with a size change counts the
+    /// part both edges share (the move), not the size change.
+    @Test func aMoveOfTheWholeRowCountsWhatBothEdgesShare() {
+        #expect(PagedListShiftLedger.drawnShift(top: 10, bottom: 10) == 10)
+        #expect(PagedListShiftLedger.drawnShift(top: -10, bottom: -10) == -10)
+        #expect(PagedListShiftLedger.drawnShift(top: 10, bottom: 32) == 10)
+        #expect(PagedListShiftLedger.drawnShift(top: -410, bottom: -414.7) == -410)
+    }
+
+    /// The rule's limit, by choice: a jump in the same frame as a resize of the row being read.
+    /// A resize the same way as the jump leaves the jump in full; a resize the other way hides as much
+    /// of the jump as the resize's size, down to nothing (a 10 pt jump down while the row shrinks
+    /// 22 pt at its bottom reports 0; with a 5 pt shrink it reports 5). A one-frame jump still counts
+    /// on its way back, which comes with no resize; a jump that stays, landing in the very frame the
+    /// row being read resizes the other way, is not seen.
+    @Test func aJumpWithAnOppositeResizeOfTheRowBeingReadCountsLessByTheResize() {
+        #expect(PagedListShiftLedger.drawnShift(top: 10, bottom: 10 + 22) == 10)
+        #expect(PagedListShiftLedger.drawnShift(top: 10, bottom: 10 - 5) == 5)
+        #expect(PagedListShiftLedger.drawnShift(top: 10, bottom: 10 - 22) == 0)
+        #expect(PagedListShiftLedger.drawnShift(top: -10 + 22, bottom: -10) == 0)
+    }
 }

@@ -59,8 +59,11 @@ import UIKit
             guard let list = window.firstSubview(of: UICollectionView.self), !list.indexPathsForVisibleItems.isEmpty else { return nil }
             return list
         }))
+        // Home's list (the shared PagedList, cmux#47121) selects no row: a tap reaches only the
+        // button under the finger, never every link in a row.
+        #expect(!list.allowsSelection, "Home's list selects whole rows")
         let pinsRow = IndexPath(item: 0, section: 0)
-        if list.delegate?.collectionView?(list, shouldSelectItemAt: pinsRow) ?? true {
+        if list.allowsSelection, list.delegate?.collectionView?(list, shouldSelectItemAt: pinsRow) ?? true {
             list.selectItem(at: pinsRow, animated: false, scrollPosition: [])
             list.delegate?.collectionView?(list, didSelectItemAt: pinsRow)
         }
