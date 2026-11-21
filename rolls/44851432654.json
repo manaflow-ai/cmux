@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44851432654",
+  "recorded_at": "2026-11-21T01:45:54Z",
+  "reason": "image inputs changed in c9e9984be401539d7fa1f98e93600f789bb1b08e..219ba2d42cf4f19d57696591ea5fa4f2eb122e8d",
+  "dry_run": false,
+  "cmux_tui": "325ccecb4faf286dfca9eed992f28a97fe07b27e",
+  "fixes": [
+    {
+      "sha": "219ba2d42cf4f19d57696591ea5fa4f2eb122e8d",
+      "mergedAt": "2026-11-20T17:39:06-08:00",
+      "subject": "web: agent-tools-probe's computerUseChecks under React Doctor's complexity cap (base red) (#48326)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "skipped",
+    "done_at": "2026-11-21T01:45:54Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "cancelled",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
