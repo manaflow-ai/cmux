@@ -217,10 +217,14 @@ pub(crate) async fn serve(servers: Vec<Served>) -> Result<()> {
             }
             "tools/list" => json!({"tools": served.tools}),
             _ => {
+                // An argument under another name than the schema's (`session` for `name`) is
+                // read as the schema's, and the result says so (`mcp_args.rs`).
+                let renamed = crate::mcp_args::normalize(&served.tools, &mut params);
                 // A card waits on the person: the next request is read meanwhile.
                 let (tx, call) = (tx.clone(), (served.call)(served.session.clone(), params));
                 tasks.spawn_until_cancelled("tools-mcp-call", async move {
-                    let result = call.await;
+                    let mut result = call.await;
+                    crate::mcp_args::tell(&mut result, &renamed);
                     let _ = tx.send(response(&id, result)).await;
                 });
                 continue;

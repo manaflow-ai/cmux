@@ -169,6 +169,7 @@ pub mod machine_tunnel;
 pub mod machine_wake;
 pub mod mailbox;
 pub mod managed_codex;
+pub mod mcp_args;
 pub mod mcp_hint;
 pub mod mesh;
 pub mod mesh_control;
