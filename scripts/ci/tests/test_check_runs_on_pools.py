@@ -29,10 +29,12 @@ class LiteralLabelsTests(unittest.TestCase):
         text = f"${{{{ {FORK_REPO} || {FORK_PR} || fromJSON(vars.RUNNER_POOLS).linux }}}}"
         self.assertEqual(module.literal_labels(text), [])
 
-    def test_trusted_fallback_is_a_hit(self):
+    def test_trusted_fallback_is_not_a_hit(self):
+        # The selector's one-job Blacksmith fallback is ephemeral by design (f1effe9077c); a trusted job never reads
+        # RUNNER_POOLS, whose x64 pools lead with the persistent pool.
         text = (f"${{{{ {FORK_REPO} || contains(fromJSON('[\"blacksmith-2vcpu-ubuntu-2404\"]'), "
                 "vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}")
-        self.assertEqual(module.literal_labels(text), ["blacksmith-4vcpu-ubuntu-2404"])
+        self.assertEqual(module.literal_labels(text), [])
 
     def test_both_sides_of_a_conditional_are_hits(self):
         text = (f"${{{{ {FORK_REPO} || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' "

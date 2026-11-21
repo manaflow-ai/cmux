@@ -12397,8 +12397,10 @@ class UnplacedLogsAreComparedWhole(unittest.TestCase):
             self.judge(UnplacedGitHub(UNPLACED_CHECKS, UNPLACED_CHECKS_STEP, base + [negative], base))
 
     def test_a_red_that_names_nothing_is_refused(self):
+        # Nothing printed before the runner's exit annotation (the line above it is the runner's own `##[endgroup]`):
+        # no last words either (last_words), so nothing to compare.
         with self.assertRaisesRegex(excuse.Refused, "names no failing test or error line"):
-            self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, ["just output"], ["just output"]))
+            self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, [], []))
 
     def test_the_scripts_echo_is_never_a_red(self):
         # The runner echoes each step's script: a `::error::` the script could print is not one it did.
@@ -12408,6 +12410,58 @@ class UnplacedLogsAreComparedWhole(unittest.TestCase):
         red = ["##[error]red check: Scrollbars thin, one style"]
         said = self.judge(UnplacedGitHub(UNPLACED_CHECKS, UNPLACED_CHECKS_STEP, echo + red, red))
         self.assertIn("compared whole", said)
+
+
+class ShellStepLastWordsAreItsErrorLine(unittest.TestCase):
+    """2026-11-20, cmuxterm-hq#15467 at 4aa7a17c (cmuxterm-hq#15575): 'Fleet tests' (job 136408981140) failed
+    "Validate the fleet client install and the tag policy" on the same plain line as main's Skills tests run
+    44769654200 (job 136405799814), `Bundled fleet client is stale. Run scripts/sync-fleet-skill-client.py.` then the
+    runner's exit annotation. Its log is unplaced and names no failing test or error line, so it was refused as having
+    nothing to compare. Recorded from both jobs' logs: the line before each exit annotation is that step's error line,
+    on both sides, so the same red is excused and a new or different one is still the PR's own."""
+
+    JOB = "Fleet tests"
+    STEP = "Validate the fleet client install and the tag policy"
+    STALE = "Bundled fleet client is stale. Run scripts/sync-fleet-skill-client.py."
+    # The step's own header and the runner's echo of its script, as both logs print them, then its last words.
+    RED = ("##[group]Run python3 scripts/sync-fleet-skill-client.py --check",
+           "\x1b[36;1mpython3 scripts/sync-fleet-skill-client.py --check\x1b[0m",
+           "\x1b[36;1mpython3 -m unittest discover -s build-fleet -p 'client_install_test.py'\x1b[0m",
+           "shell: /usr/bin/bash -e {0}", "##[endgroup]", STALE)
+
+    def judge(self, github):
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
+
+    def github(self, head=RED, base=RED):
+        return UnplacedGitHub(self.JOB, self.STEP, head, base)
+
+    def test_15467_the_same_failed_step_and_last_words_as_the_base_are_excused(self):
+        said = self.judge(self.github())
+        self.assertIn("excused 'Fleet tests'", said)
+        self.assertIn(f"last words before exit 1: {self.STALE}", said)
+
+    def test_other_last_words_are_the_prs_own(self):
+        other = (*self.RED[:-1], "Tag policy: lane/foo is not an allowed tag.")
+        with self.assertRaisesRegex(excuse.Refused, "error lines are not .*more on this head: .*Tag policy"):
+            self.judge(self.github(head=other))
+
+    def test_a_step_that_fails_besides_is_the_prs_own(self):
+        github = self.github()
+        github.jobs[1]["steps"].append({"name": "Run the fleet policy tests", "status": "completed",
+                                        "conclusion": "failure"})
+        with self.assertRaisesRegex(excuse.Refused, r"its failed steps \(.*Run the fleet policy tests"):
+            self.judge(github)
+
+    def test_a_second_exit_on_the_head_is_the_prs_own(self):
+        with self.assertRaisesRegex(excuse.Refused, "error lines are not"):
+            self.judge(self.github(head=(*self.RED, "##[error]Process completed with exit code 1.", self.STALE)))
+
+    def test_a_named_error_line_keeps_last_words_out(self):
+        # A log that names an error line is compared by it alone, as before: last words are only for a log that
+        # names nothing.
+        mine = excuse.unplaced_signature(failed_job(1, 10, HEAD, self.JOB, self.STEP),
+                                         unplaced_log(self.JOB, self.STEP, "##[error]red check: x", self.STALE))
+        self.assertFalse([error for error in mine.errors if error.startswith(excuse.LAST_WORDS)])
 
 
 class FailedViewIsTheOnlyReader(unittest.TestCase):

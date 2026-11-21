@@ -4,6 +4,8 @@
 extension SettingsSchema {
     /// Keys an agent may not set or reset, with the reason.
     public static let agentRefusedKeys: [String: AgentRefusal] = [
+        // The live-tree preview changes how the person's shared editing workflow is presented; only the person turns it on.
+        "labs.liveTree": .userOnly,
         // On, opening the floating Chief gives it a look at the person's screen; only the person turns it on.
         "home.chiefPanel.seesScreen": .userOnly,
         // What leaves the machine: a device proof to the Cloud service (cx-ds09i).
