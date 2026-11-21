@@ -159,16 +159,16 @@
    "what": "app CPU while 15 agents tick (15 busy spinners)"
   },
   "many_chats\\.main_thread_pct": {
-   "p95": 0,
+   "p95": 10.0,
    "unit": "%",
    "floor": 2.0,
-   "what": "PLACEHOLDER"
+   "what": "many-chats (bench_power.py: 200 agent chat tabs, 10 streaming, 13 Chromium tabs, the New Tab page shown): the app's main-thread CPU % over the 60 s window; placeholder until the after run of the main-thread fix sets it"
   },
   "many_chats\\.hangs_over_(100|250)ms": {
    "p95": 0,
    "unit": "stalls",
    "floor": 1.0,
-   "what": "PLACEHOLDER"
+   "what": "many-chats: main-thread stalls (debug.hangs) over 100 / 250 ms in the 60 s window; none is the target"
   },
   "many_chats\\.hang_max_ms": {
    "p95": 250,
