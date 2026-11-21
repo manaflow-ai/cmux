@@ -12,7 +12,9 @@
 #                 removed, and the phone's kept override cleared
 #   tag-stack     this tag's own `wrangler dev` stack on the dev VM, over the tailnet: its origin from
 #                 scripts/cmux-next/cloud-dev-stack.sh url --tag <tag> (CNX_CLOUD_DEV_STACK names
-#                 another command)
+#                 another command). The stack runs the tag's API, mobile Worker and device hub; both
+#                 apps use all three from the one origin (the Mac from its client-config, the phone
+#                 from the next two ports), and the phone's receipt must name the stack's mobile Worker.
 #   <origin>      https://<host>.<tailnet>.ts.net[:port], `preview-N`, or the dev Workers API origin.
 #                 Anything else is refused before any build (review_mac.py backend-check; the apps
 #                 refuse it too, and Release builds ignore every override).
@@ -103,6 +105,8 @@ TAG="" SLUG="" DEVICE_ID="" TARGET_WORKER="" WORKSPACE=""
 # --backend: what was asked for, the origin it names ("" = the shared dev Workers, no override) and the
 # report's words for it; the Mac app's own answer lands in REPORT_BACKEND_MAC.
 BACKEND_ARG="" BACKEND_URL="" BACKEND_REPORT="shared dev Workers (default, no override)" REPORT_BACKEND_MAC="not checked"
+# A tag stack's own mobile Worker (cloud-dev-stack.sh url --service mobile): the phone's receipt must name it.
+BACKEND_MOBILE_URL=""
 # What the phone gets (default `paired`, the hand-off every dev build must reach):
 #   paired   signed in with the personal account and paired with the same-tag Mac by its code
 #   manual   --manual-pairing: signed in, no pairing code; the person pairs by hand
@@ -184,7 +188,10 @@ review_resolve_backend() {
       out="$("$stack" url --tag "$SLUG" 2>&1)" || die "--backend tag-stack: $stack url --tag $SLUG failed: ${out##*$'\n'}"
       out="$(printf '%s\n' "$out" | awk 'NF { line = $0 } END { print line }')"
       BACKEND_URL="$(mac_py backend-check "$out")" || die "--backend tag-stack: the stack's URL $out is not a tailnet origin"
-      BACKEND_REPORT="$BACKEND_URL (this tag's stack)" ;;
+      # The stack's mobile Worker and device hub: its client-config names them for the Mac, and the phone
+      # derives them from BACKEND_URL; the receipt must show the phone's mobile service is the stack's.
+      BACKEND_MOBILE_URL="$("$stack" url --tag "$SLUG" --service mobile 2>/dev/null | awk 'NF { line = $0 } END { print line }')" || BACKEND_MOBILE_URL=""
+      BACKEND_REPORT="$BACKEND_URL (this tag's stack: API, mobile Worker and device hub)" ;;
     *)
       BACKEND_URL="$(mac_py backend-check "$BACKEND_ARG")" || exit 2
       BACKEND_REPORT="$BACKEND_URL (--backend)" ;;
@@ -565,6 +572,7 @@ phone_launch_and_check() {
       verdict="$(/usr/bin/python3 -I "$SCRIPT_DIR/handoff_receipt.py" check "$receipt" --nonce "$nonce" \
         --client-id "$client" --bundle-id "$BUNDLE_ID" --account "$PERSONAL_ACCOUNT" --session "$session" \
         --mac-id "$mac_id" --git-sha "$SHA" --dev-tag "$SLUG" --cloud-backend "${BACKEND_URL:-default}" \
+        ${BACKEND_MOBILE_URL:+--mobile-api "$BACKEND_MOBILE_URL"} \
         ${MAC_BUILD_SPACE:+--build-space "$MAC_BUILD_SPACE"})" || rc=$?
       [[ $rc -eq 1 ]] || break
     else
