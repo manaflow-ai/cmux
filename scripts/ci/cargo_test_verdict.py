@@ -323,7 +323,7 @@ def _source_names(tree, index: "_Index", crate: str, source: str) -> tuple[froze
     return index.named[key]
 
 
-def tested_crate_inputs(tree, crate_dir: str, features=(), references: bool = True) -> list[str]:
+def tested_crate_inputs(tree, crate_dir: str, features=(), references: bool = True, binaries: bool = False) -> list[str]:
     """Every path whose change can change a `cargo test -p CRATE` (FEATURES: its `--features`) at TREE's commit, as
     paths and directories of the repository; scripts/ci/affected_jobs.py routes pull-request jobs by them. What cargo
     builds, and so what is read, as precisely as the manifests say and never less:
@@ -338,6 +338,9 @@ def tested_crate_inputs(tree, crate_dir: str, features=(), references: bool = Tr
       files their include_str!/include_bytes! name;
     - the workspace root package (cmux-tui-source-watch, a build dependency of cmux-build-identity) as its targets
       only (_root_package_dirs), never all of cmux-tui/.
+
+    BINARIES: the job uses only the crate's built library and binaries (cmux-next.yml's daemon-test runs the published
+    binaries): CRATE_DIR is read like a dependency (no tests/, benches/, examples/, dev-dependencies or fixtures).
 
     Raises git_tree.Unreadable as crate_inputs does."""
     shared = tomllib.loads(tree.text(f"{WORKSPACE}/Cargo.toml")).get("workspace", {}).get("dependencies", {})
@@ -362,7 +365,7 @@ def tested_crate_inputs(tree, crate_dir: str, features=(), references: bool = Tr
         if had is not None and now == (had, had_default):
             continue
         built[crate] = now
-        queue += _dependency_edges(manifests[crate], crate, WORKSPACE, shared, *now, dev=crate == root)
+        queue += _dependency_edges(manifests[crate], crate, WORKSPACE, shared, *now, dev=crate == root and not binaries)
     if root not in built:
         raise git_tree.Unreadable(f"{tree.ref}: {crate_dir} has no Cargo.toml")
     index = _index(tree)
@@ -374,7 +377,7 @@ def tested_crate_inputs(tree, crate_dir: str, features=(), references: bool = Tr
             inputs |= set(owned)
             scanned += [(crate, source, references and crate == root) for d in owned for source in index.rust_under(d)]
             continue
-        if crate == root:
+        if crate == root and not binaries:
             inputs.add(crate)
             scanned += [(crate, source, references) for source in index.rust_under(crate)]
             continue

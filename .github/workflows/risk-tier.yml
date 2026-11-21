@@ -20,6 +20,11 @@ on:
 permissions:
   contents: read
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh). It
+  # switches itself off at 2026-11-22 00:00 UTC. These runs (about 800 an hour each) had no attribution.
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   evidence:
     # Every event grades, with no job-level `if`: a skipped `risk evidence` run would be the newest
@@ -30,7 +35,7 @@ jobs:
     concurrency:
       group: risk-evidence-${{ github.event.pull_request.number }}
       cancel-in-progress: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || fromJSON(vars.RUNNER_POOLS).linux }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks the Blacksmith size
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks the Blacksmith size
     timeout-minutes: 8
     permissions:
       contents: read
@@ -42,7 +47,9 @@ jobs:
         with:
           ref: ${{ github.workflow_sha }}
           persist-credentials: false
-          sparse-checkout: scripts/ci/risk_tier.py
+          sparse-checkout: |
+            scripts/ci/risk_tier.py
+            scripts/ci/api_call_log
           sparse-checkout-cone-mode: false
       # The base's last 9 days of history, for the check that flags taking back a change another
       # pull request merged recently (a stale base). A fresh repository with full blobs, not the
@@ -57,7 +64,9 @@ jobs:
         run: |
           history="$RUNNER_TEMP/base-history"
           git init -q "$history"
-          if timeout 120 git -C "$history" fetch -q --no-tags --shallow-since="9 days ago" "https://github.com/$REPO.git" \
+          # Blobless: commits and trees only (16 MB in 5 s, against 681 MB in 115 s with blobs, 11-21); risk_tier.py
+          # fetches the versions of the files it blames in one round trip (prefetch_blobs).
+          if timeout 120 git -C "$history" fetch -q --no-tags --filter=blob:none --shallow-since="9 days ago" "https://github.com/$REPO.git" \
               "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"; then
             echo "BASE_HISTORY=$history" >> "$GITHUB_ENV"
           else
@@ -80,6 +89,9 @@ jobs:
           REPO: ${{ github.repository }}
           NUMBER: ${{ github.event.pull_request.number }}
           LABEL: ${{ steps.grade.outputs.label }}
+          # The labels as this event delivered them (after the change on a labeled or unlabeled event): no read of
+          # them from the API, about 283 runs an hour (tests/test_ci_risk_label_from_event.py).
+          LABELS_JSON: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: |
           # The tier labels exist: they are created only when adding one fails (a fork, a deleted
           # label). Creating all four on every run cost four refused REST calls, about 400 an hour.
@@ -91,7 +103,7 @@ jobs:
             gh label create "risk:human-ok" --repo "$REPO" --color 5319E7 \
               --description "A maintainer looked at this high-risk PR (agents never add it)" 2>/dev/null || true
           }
-          current=$(gh pr view "$NUMBER" --repo "$REPO" --json labels --jq '.labels[].name')
+          current=$(printf '%s' "$LABELS_JSON" | jq -r '.[]')
           # risk:medium is the old name for risk:normal.
           for old in $(grep -E '^risk:(low|medium|normal|high)$' <<<"$current" || true); do
             [ "$old" = "$LABEL" ] || gh pr edit "$NUMBER" --repo "$REPO" --remove-label "$old"
