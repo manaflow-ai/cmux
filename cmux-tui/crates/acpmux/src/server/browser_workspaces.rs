@@ -242,8 +242,8 @@ fn project(tree: &Value, source: &Source) -> Value {
         workspaces.push(row);
     }
     let mut shown = json!({"available": true, "registryId": source.host, "workspaces": workspaces});
-    if truncated {
-        shown["truncated"] = json!(true);
+    if truncated && let Some(fields) = shown.as_object_mut() {
+        fields.insert("truncated".to_owned(), json!(true));
     }
     shown
 }
@@ -273,7 +273,7 @@ fn workspace(row: &Value, source: &Source) -> Option<Value> {
         if chats.len() >= MAX_CHATS {
             break;
         }
-        if !chats.iter().any(|seen| seen["tabId"] == chat["tabId"]) {
+        if !chats.iter().any(|seen| seen.get("tabId") == chat.get("tabId")) {
             chats.push(chat);
         }
     }

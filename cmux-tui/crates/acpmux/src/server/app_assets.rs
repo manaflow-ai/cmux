@@ -58,10 +58,14 @@ pub(super) async fn serve(path: &str) -> Response {
 }
 
 fn shipped(relative: &str, kind: &'static str) -> Response {
-    let Ok(index) = SHIPPED.binary_search_by_key(&relative, |(name, _)| *name) else {
+    let Some((_, packed)) = SHIPPED
+        .binary_search_by_key(&relative, |(name, _)| *name)
+        .ok()
+        .and_then(|index| SHIPPED.get(index))
+    else {
         return missing();
     };
-    let mut body = SHIPPED[index].1.inflate();
+    let mut body = packed.inflate();
     if relative == "index.html" {
         body = body.replace("connect-src 'none'", "connect-src 'self'");
     }

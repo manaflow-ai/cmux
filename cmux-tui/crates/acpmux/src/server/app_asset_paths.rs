@@ -20,11 +20,15 @@ pub(crate) fn asset(path: &str) -> Option<(&str, &'static str)> {
             if !matches!(directory, "chunks" | "locales")
                 || name.starts_with('.')
                 || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
-                || !name.ends_with(".js")
             {
                 return None;
             }
-            "text/javascript; charset=utf-8"
+            // The split bundle also writes a stylesheet beside a chunk that imports one.
+            match name.rsplit_once('.') {
+                Some((_, "js")) => "text/javascript; charset=utf-8",
+                Some((_, "css")) if directory == "chunks" => "text/css; charset=utf-8",
+                _ => return None,
+            }
         }
     };
     Some((relative, kind))
