@@ -139,8 +139,14 @@ pub(super) async fn move_chat(
 ) -> Result<Value> {
     // Pre-copied when both daemons can: the freeze then costs only what changed since. A target
     // that lost its stage refuses the bundle, and the move is made again in full.
+    let t = std::time::Instant::now();
     let staged = precopy(src, dst, dst_init, id).await;
+    pct_log(format!("PCTC precopy {}", t.elapsed().as_micros()));
+    let t = std::time::Instant::now();
     let begun = begin_staged(src, id, watch.clone(), interrupt, staged.as_ref()).await?;
+    pct_log(format!("PCTC begin {}", t.elapsed().as_micros()));
+    let t = std::time::Instant::now();
+    let _t = PctDrop(t);
     if begun.stage_id.is_some() {
         let (cwd, name, meta) = (cwd.clone(), name.clone(), to_meta.clone());
         match finish_move(src, dst, dst_init, id, &begun, cwd, name, meta).await {
@@ -152,6 +158,20 @@ pub(super) async fn move_chat(
     }
     let begun = begin_move(src, id, watch, interrupt).await?;
     finish_move(src, dst, dst_init, id, &begun, cwd, name, to_meta).await
+}
+
+struct PctDrop(std::time::Instant);
+impl Drop for PctDrop {
+    fn drop(&mut self) {
+        pct_log(format!("PCTC finish {}", self.0.elapsed().as_micros()));
+    }
+}
+
+struct PctDrop2(std::time::Instant);
+impl Drop for PctDrop2 {
+    fn drop(&mut self) {
+        pct_log(format!("PCTC f.commit {}", self.0.elapsed().as_micros()));
+    }
 }
 
 fn refused_as(e: &anyhow::Error, code: &str) -> bool {
@@ -179,12 +199,18 @@ pub(super) async fn precopy(
     if !lists_precopy(&status, "/capabilities") {
         return None;
     }
+    let t = std::time::Instant::now();
     let prepared = src.request("_acpmux/transfer_prepare", json!({"sessionId": id})).await.ok()?;
+    pct_log(format!("PCTC prepare {}", t.elapsed().as_micros()));
+    let t = std::time::Instant::now();
     let stage = dst.request("_acpmux/transfer_stage", json!({"manifest": prepared})).await.ok()?;
     let stage_id = stage["stageId"].as_str()?.to_owned();
     let receive_id = json!(stage_id);
     page_files(src, dst, &prepared, &prepared["prepareId"], &receive_id, None).await.ok()?;
+    pct_log(format!("PCTC stage+pages {}", t.elapsed().as_micros()));
+    let t = std::time::Instant::now();
     dst.request("_acpmux/transfer_stage_finish", json!({"stageId": stage_id})).await.ok()?;
+    pct_log(format!("PCTC stage_finish {}", t.elapsed().as_micros()));
     Some(Staged {
         prepare_id: prepared["prepareId"].as_str()?.to_owned(),
         after_seq: prepared["afterSeq"].as_u64()?,
@@ -237,6 +263,7 @@ pub(super) async fn finish_move(
     if let Some(stage_id) = &begun.stage_id {
         receive_params.set("stageId", json!(stage_id));
     }
+    let t = std::time::Instant::now();
     let receive = match dst.request("_acpmux/transfer_receive", receive_params).await {
         Ok(receive) => receive,
         Err(e) => {
@@ -244,6 +271,8 @@ pub(super) async fn finish_move(
             return Err(e);
         }
     };
+    pct_log(format!("PCTC f.receive {}", t.elapsed().as_micros()));
+    let t = std::time::Instant::now();
     let moved = match copy(
         src,
         dst,
@@ -272,6 +301,9 @@ pub(super) async fn finish_move(
             }
         },
     };
+    pct_log(format!("PCTC f.copy+finish {}", t.elapsed().as_micros()));
+    let t = std::time::Instant::now();
+    let _t2 = PctDrop2(t);
     let mut to_meta = to_meta;
     to_meta.set("sessionId", moved.get("sessionId").cloned().unwrap_or(Value::Null));
     src.request(
@@ -374,4 +406,13 @@ pub(super) async fn connect_target(
     let init = json!({"protocolVersion": 1, "clientInfo": {"name": "acpmux-move"}});
     let dst_init = dst.request(method::INITIALIZE, init).await?;
     Ok((forward, dst, dst_init))
+}
+
+pub(crate) fn pct_log(line: String) {
+    if let Some(p) = std::env::var_os("ACPMUX_PCT") {
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(p) {
+            let _ = writeln!(f, "{line}");
+        }
+    }
 }

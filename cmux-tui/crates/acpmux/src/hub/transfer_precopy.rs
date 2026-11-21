@@ -28,6 +28,18 @@
 //!
 //! A manifest with a `prefix` is never imported without its staged prefix: a delta alone would
 //! lose the history.
+//!
+//! **A chat that comes back sends only what it did away.** Each chat folder notes its last move
+//! in `transfer-base.json`: the source, at commit, that its copy is what move T shipped
+//! (`shipped`); the target, at an unguarded finish, that its log through seq S is what move T
+//! shipped, with the digest of its record at S (`received`). Before a prepare the client asks the
+//! target `_acpmux/transfer_base {sessionId}`: a target that holds the chat's moved-away copy
+//! answers `{base: {transferId}}`. A source whose note is the `received` of that move, whose log
+//! still holds that record at S and was not rewritten since, prepares only the records past S and
+//! names `base: {transferId, seq, digest}`. The target checks its own copy (its note is the
+//! `shipped` of that move, unrewritten, and its record at S has that digest) or refuses the stage
+//! `transfer.unbased`, and the client prepares again in full; its segment `000000` is its own
+//! lines through S, as written, then the staged records.
 
 use super::*;
 use crate::hub::transfer_out::{MAX_FILES, bundle_files, inside, transfers_dir};
@@ -59,6 +71,16 @@ fn record_digest(record: &EventRecord) -> Result<String, RpcError> {
     Ok(crate::sha256::sha256_hex(&line))
 }
 
+/// The chat folder's note of its last move ([module docs](self)).
+const BASE_FILE: &str = "transfer-base.json";
+
+/// A base the source holds: the move it came by, the last seq it took, that record's digest.
+struct Base {
+    transfer_id: String,
+    seq: u64,
+    digest: String,
+}
+
 fn read_json(path: &Path) -> Option<Value> {
     serde_json::from_slice(&std::fs::read(path).ok()?).ok()
 }
@@ -82,6 +104,7 @@ impl Hub {
     pub(in crate::hub) fn transfer_prepare(
         &self,
         session: &Arc<Session>,
+        base: Option<&Value>,
     ) -> Result<Value, RpcError> {
         if let Some(to) = session.meta().moved_to {
             return Err(super::moved_error(&to));
@@ -96,10 +119,11 @@ impl Hub {
         if let Err(error) = warmed {
             tracing::debug!(session = %session.id, "kind index not made before a move: {error:#}");
         }
+        let base = base.and_then(|b| self.held_base(session, b));
         let prepare_id = format!("pre-{}", uuid::Uuid::now_v7());
         let root = transfers_dir().join(&prepare_id);
         let events = root.join(&session.id).join("events");
-        let made = self.write_prefix(session, &events);
+        let made = self.write_prefix(session, &events, base.as_ref());
         let (after_seq, digest, stamp) = match made {
             Ok(made) => made,
             Err(error) => {
@@ -116,8 +140,154 @@ impl Hub {
         super::super::transfer_watch::note_activity(&root, None);
         let files: Vec<Value> =
             files.into_iter().map(|(path, size)| json!({"path": path, "size": size})).collect();
-        Ok(json!({"schema": PREFIX_SCHEMA, "prepareId": prepare_id, "sessionId": session.id,
-                  "afterSeq": after_seq, "token": token, "files": files}))
+        let mut answer = json!({"schema": PREFIX_SCHEMA, "prepareId": prepare_id,
+                  "sessionId": session.id, "afterSeq": after_seq, "token": token, "files": files});
+        if let Some(b) = base {
+            answer.set(
+                "base",
+                json!({"transferId": b.transfer_id, "seq": b.seq, "digest": b.digest}),
+            );
+        }
+        Ok(answer)
+    }
+
+    /// The digest of chat `id`'s record at `seq`, read back from the records before `seq + 1`.
+    fn digest_at(&self, id: &str, seq: u64) -> Result<Option<String>, RpcError> {
+        if seq == 0 {
+            return Ok(None);
+        }
+        let mut found = None;
+        self.store
+            .scan_back(id, seq - 1, seq + 1, &|_, _| false, &mut |rec| {
+                found = Some(rec);
+                false
+            })
+            .map_err(|e| RpcError::internal(e.to_string()))?;
+        found.filter(|r| r.seq == seq).map(|r| record_digest(&r)).transpose()
+    }
+
+    fn base_note(&self, id: &str) -> Option<PathBuf> {
+        self.store.session_dir(id).map(|dir| dir.join(BASE_FILE))
+    }
+
+    /// At a commit: this folder's copy of the chat is what move `transfer_id` shipped.
+    pub(in crate::hub) fn note_shipped(&self, session: &Session, transfer_id: &str) {
+        let Some(note) = self.base_note(&session.id) else { return };
+        let Ok(stamp) = self.store.log_stamp(&session.id) else { return };
+        let note_it = json!({"role": "shipped", "transferId": transfer_id, "stamp": stamp});
+        if let Err(error) = crate::home_fs::write(note, note_it.to_string()) {
+            tracing::debug!(session = %session.id, "move not noted for a later pre-copy: {error}");
+        }
+    }
+
+    /// At an unguarded finish: the chat's log through the import's last seq is what move
+    /// `transfer_id` shipped. The seq is the import's (`import_into` leaves it as the chat's
+    /// `transcript_seq`); one read later than that is refused by its digest, the source's record
+    /// at that seq being another.
+    pub(in crate::hub) fn note_received(&self, session: &Session, transfer_id: &Value) {
+        let Some(note) = self.base_note(&session.id) else { return };
+        let seq = session.meta().transcript_seq;
+        let (Some(transfer_id), Ok(stamp), Ok(Some(digest))) = (
+            transfer_id.as_str(),
+            self.store.log_stamp(&session.id),
+            self.digest_at(&session.id, seq),
+        ) else {
+            let _ = crate::home_fs::remove_file(&note);
+            return;
+        };
+        let note_it = json!({"role": "received", "transferId": transfer_id, "seq": seq,
+                             "digest": digest, "stamp": stamp});
+        if let Err(error) = crate::home_fs::write(note, note_it.to_string()) {
+            tracing::debug!(session = %session.id, "move not noted for a later pre-copy: {error}");
+        }
+    }
+
+    /// `_acpmux/transfer_base {sessionId}`: the move that took a chat away from here, when this
+    /// daemon still holds the copy it shipped unrewritten; `{base: null}` otherwise.
+    pub(in crate::hub) fn transfer_base(&self, params: &Value) -> Result<Value, RpcError> {
+        let id = params.get("sessionId").and_then(Value::as_str).unwrap_or("");
+        Ok(
+            json!({"sessionId": id, "base": self.shipped_base(id).map(|t| json!({"transferId": t}))}),
+        )
+    }
+
+    /// The move this daemon's moved-away copy of chat `id` was shipped by, while unrewritten.
+    fn shipped_base(&self, id: &str) -> Option<String> {
+        let session = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned()?;
+        if !self.moved_away(&session) {
+            return None;
+        }
+        let note = read_json(&self.base_note(id)?)?;
+        let stamp = self.store.log_stamp(id).ok()?;
+        (note["role"] == "shipped" && note["stamp"].as_u64() == Some(stamp))
+            .then(|| note["transferId"].as_str().map(str::to_owned))
+            .flatten()
+    }
+
+    /// The base a source may prepare from: its note is the `received` of the target's move, and
+    /// its log still holds that record at that seq, unrewritten.
+    fn held_base(&self, session: &Session, base: &Value) -> Option<Base> {
+        let transfer_id = base.get("transferId").and_then(Value::as_str)?;
+        let note = read_json(&self.base_note(&session.id)?)?;
+        let seq = note["seq"].as_u64().filter(|s| *s > 0)?;
+        let digest = note["digest"].as_str()?.to_owned();
+        let stamp = self.store.log_stamp(&session.id).ok()?;
+        let held = note["role"] == "received"
+            && note["transferId"] == transfer_id
+            && note["stamp"].as_u64() == Some(stamp)
+            && seq <= session.seq.load(Ordering::SeqCst)
+            && self.digest_at(&session.id, seq).ok().flatten().as_deref() == Some(digest.as_str());
+        held.then(|| Base { transfer_id: transfer_id.to_owned(), seq, digest })
+    }
+
+    /// At a stage of a prefix that names a base: this daemon's copy of the chat holds it.
+    fn check_base(&self, id: &str, base: &Value) -> Result<u64, RpcError> {
+        let unbased = |why: &str| {
+            transfer_error("unbased", format!("{why}; prepare it in full"))
+                .with_data(json!({"base": base}))
+        };
+        let seq = base.get("seq").and_then(Value::as_u64).filter(|s| *s > 0);
+        let (Some(seq), Some(transfer_id)) = (seq, base.get("transferId").and_then(Value::as_str))
+        else {
+            return Err(RpcError::invalid_params("transfer: a base needs transferId and seq"));
+        };
+        if self.shipped_base(id).as_deref() != Some(transfer_id) {
+            return Err(unbased("this daemon holds no copy that move shipped"));
+        }
+        if self.digest_at(id, seq)?.as_deref() != base.get("digest").and_then(Value::as_str) {
+            return Err(unbased("this daemon's copy does not hold that record"));
+        }
+        Ok(seq)
+    }
+
+    /// Chat `id`'s own lines through `through`, as written, into `out`; returns how many.
+    fn copy_own_lines(
+        &self,
+        id: &str,
+        through: u64,
+        out: &mut dyn std::io::Write,
+    ) -> anyhow::Result<u64> {
+        self.store.flush_session(id)?;
+        let stamp = self.store.log_stamp(id)?;
+        let filter = crate::store::LogFilter { through, kinds: None };
+        let mut marks = crate::store::LogMarks::default();
+        let (mut from, mut count, mut last) = (1, 0u64, 0u64);
+        loop {
+            let mut bytes = Vec::new();
+            let chunk = self.store.read_log(id, from, filter, stamp, &mut marks, &mut bytes)?;
+            out.write_all(&bytes)?;
+            count += bytes.iter().filter(|b| **b == b'\n').count() as u64;
+            if chunk.next > from {
+                last = chunk.next - 1;
+            }
+            if chunk.at_end || chunk.next <= from || last >= through {
+                break;
+            }
+            from = chunk.next;
+        }
+        anyhow::ensure!(self.store.log_stamp(id)? == stamp, "chat {id}'s log changed while read");
+        anyhow::ensure!(last == through, "chat {id}'s own log ends at {last}, not {through}");
+        Ok(count)
     }
 
     /// Writes the log through its current last seq into `events/000001.ndjson`; returns that
@@ -126,6 +296,7 @@ impl Hub {
         &self,
         session: &Arc<Session>,
         events: &Path,
+        base: Option<&Base>,
     ) -> Result<(u64, String, u64), RpcError> {
         use std::io::Write as _;
         let fail =
@@ -137,9 +308,13 @@ impl Hub {
         let file =
             crate::home_fs::create_file(events.join("000001.ndjson")).map_err(|e| fail(&e))?;
         let mut out = std::io::BufWriter::new(file);
-        let (mut last, mut digest, mut failed) = (0, String::new(), None);
+        let (mut last, mut digest, mut failed) = match base {
+            Some(b) => (b.seq, b.digest.clone(), None),
+            None => (0, String::new(), None),
+        };
+        let after = base.map_or(0, |b| b.seq);
         self.store
-            .scan(&session.id, 0, &mut |mut e: EventRecord| {
+            .scan(&session.id, after, &mut |mut e: EventRecord| {
                 if e.seq > through {
                     return false;
                 }
@@ -234,6 +409,9 @@ impl Hub {
                 return Err(RpcError::invalid_params("transfer: a stage takes only events"));
             }
         }
+        if let Some(base) = manifest.get("base").filter(|b| !b.is_null()) {
+            self.check_base(id, base)?;
+        }
         self.sweep();
         let stage_id = uuid::Uuid::now_v7().to_string();
         let dir = transfers_dir().join(format!("in-{stage_id}"));
@@ -267,9 +445,13 @@ impl Hub {
         let chat = manifest["sessionId"].as_str().unwrap_or_default();
         let staged = dir.join("store").join(chat);
         let segment = staged.join("events").join("000000.ndjson");
+        let base = match manifest.get("base").filter(|b| !b.is_null()) {
+            Some(base) => Some(self.check_base(chat, base)?),
+            None => None,
+        };
         let written = crate::home_fs::create_dirs(staged.join("events"))
             .map_err(anyhow::Error::from)
-            .and_then(|()| write_staged(&bundle.join("events"), &segment));
+            .and_then(|()| self.write_staged(&bundle.join("events"), &segment, chat, base));
         let (records, last) = written.map_err(|e| transfer_error("stage", format!("{e:#}")))?;
         if last != after_seq {
             let _ = crate::home_fs::remove_dir_all(dir.join("store"));
@@ -448,36 +630,49 @@ impl Hub {
     }
 }
 
-/// Reads every record of the prefix's `events/*.ndjson`, in order and each past the one before,
-/// and writes them to `out` as the store writes a line, synced. Returns the count and last seq.
-fn write_staged(events: &Path, out: &Path) -> anyhow::Result<(u64, u64)> {
-    use std::io::{BufRead as _, Write as _};
-    let mut files: Vec<PathBuf> = std::fs::read_dir(events)
-        .map(|entries| entries.flatten().map(|e| e.path()).collect())
-        .unwrap_or_default();
-    files.retain(|p| p.extension().is_some_and(|e| e == "ndjson"));
-    files.sort();
-    let tmp = out.with_extension("ndjson.tmp");
-    let mut writer = std::io::BufWriter::new(crate::home_fs::create_file(&tmp)?);
-    let (mut count, mut last) = (0u64, 0u64);
-    for f in files {
-        for (n, line) in std::io::BufReader::new(std::fs::File::open(&f)?).lines().enumerate() {
-            let line = line?;
-            if line.trim().is_empty() {
-                continue;
-            }
-            let rec: EventRecord = serde_json::from_str(&line)
-                .map_err(|e| anyhow::anyhow!("{} line {}: {e}", f.display(), n + 1))?;
-            anyhow::ensure!(rec.seq > last || count == 0, "seq {} follows {last}", rec.seq);
-            serde_json::to_writer(&mut writer, &rec)?;
-            writer.write_all(b"\n")?;
-            (count, last) = (count + 1, rec.seq);
+impl Hub {
+    /// Reads every record of the prefix's `events/*.ndjson`, in order and each past the one before,
+    /// and writes them to `out` as the store writes a line, synced, after this daemon's own lines of
+    /// chat `chat` through `base` when the prefix follows them. Returns the count and last seq.
+    fn write_staged(
+        &self,
+        events: &Path,
+        out: &Path,
+        chat: &str,
+        base: Option<u64>,
+    ) -> anyhow::Result<(u64, u64)> {
+        use std::io::{BufRead as _, Write as _};
+        let mut files: Vec<PathBuf> = std::fs::read_dir(events)
+            .map(|entries| entries.flatten().map(|e| e.path()).collect())
+            .unwrap_or_default();
+        files.retain(|p| p.extension().is_some_and(|e| e == "ndjson"));
+        files.sort();
+        let tmp = out.with_extension("ndjson.tmp");
+        let mut writer = std::io::BufWriter::new(crate::home_fs::create_file(&tmp)?);
+        let (mut count, mut last) = (0u64, 0u64);
+        if let Some(base) = base {
+            count = self.copy_own_lines(chat, base, &mut writer)?;
+            last = base;
         }
+        for f in files {
+            for (n, line) in std::io::BufReader::new(std::fs::File::open(&f)?).lines().enumerate() {
+                let line = line?;
+                if line.trim().is_empty() {
+                    continue;
+                }
+                let rec: EventRecord = serde_json::from_str(&line)
+                    .map_err(|e| anyhow::anyhow!("{} line {}: {e}", f.display(), n + 1))?;
+                anyhow::ensure!(rec.seq > last || count == 0, "seq {} follows {last}", rec.seq);
+                serde_json::to_writer(&mut writer, &rec)?;
+                writer.write_all(b"\n")?;
+                (count, last) = (count + 1, rec.seq);
+            }
+        }
+        let file = writer.into_inner().map_err(|e| anyhow::anyhow!("{e}"))?;
+        file.sync_all()?;
+        crate::home_fs::rename(&tmp, out)?;
+        Ok((count, last))
     }
-    let file = writer.into_inner().map_err(|e| anyhow::anyhow!("{e}"))?;
-    file.sync_all()?;
-    crate::home_fs::rename(&tmp, out)?;
-    Ok((count, last))
 }
 
 /// The staged segment's kind index (`store/kind_index.rs`), made by a store of the stage's own
@@ -504,4 +699,25 @@ fn adopt_index(file: &Path, dir: &Path) {
     let target = to.join("000000.ndjson");
     let _ = crate::home_fs::remove_file(&target);
     let _ = crate::home_fs::hard_link(&copy, &target);
+}
+
+// PCT-TEMP
+pub(crate) struct Pct(std::time::Instant, &'static str);
+impl Pct {
+    pub(crate) fn new(what: &'static str) -> Self {
+        Self(std::time::Instant::now(), what)
+    }
+    pub(crate) fn at(&mut self, label: &str) {
+        pct_log(format!("PCT {} {} {}", self.1, label, self.0.elapsed().as_micros()));
+        self.0 = std::time::Instant::now();
+    }
+}
+
+pub(crate) fn pct_log(line: String) {
+    if let Some(p) = std::env::var_os("ACPMUX_PCT") {
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(p) {
+            let _ = writeln!(f, "{line}");
+        }
+    }
 }
