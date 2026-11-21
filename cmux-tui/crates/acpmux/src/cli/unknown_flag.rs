@@ -68,7 +68,8 @@ pub(crate) fn explain(
         let flag = format!("--{long}");
         let try_command = format!("{program} {name} --help");
         let message = format!(
-            "{name} takes no {flag}, and no command does.              {try_command} lists the flags {name} takes. Try: {try_command}"
+            "{name} takes no {flag}, and no command does. `{try_command}` lists the flags \
+             {name} takes. Try: {try_command}"
         );
         let data = json!({
             "reason": "usage.unknown_flag",
