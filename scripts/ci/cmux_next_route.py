@@ -18,7 +18,8 @@ runs the tiers its changed files reach (docs/ci/cmux-next-tiers.md):
   swift       the CmuxNext test targets the change can affect, from the SwiftPM
               target graph (Packages/macOS/CmuxNext/ci-target-graph.json)
   daemon      the daemon, Rust core, FFI or control paths: the same-tree
-              cmux-tui fetch and the live-daemon suites
+              cmux-tui fetch and the live-daemon suites, routed from the crate
+              graph of the binaries it fetches (scripts/ci/affected-jobs.json)
   fast_tier   the Mac half of the PR fast tier (scripts/cmux-next/fast-tier.json
               `swift` entries): one `swift build --build-tests` of the CmuxNext
               package and a few of its suites. Only a change to what that build
@@ -67,6 +68,7 @@ import functools
 import importlib.util
 import json
 import re
+import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -115,23 +117,30 @@ VENDORED_PINS = (
 LIVE_DAEMON_SUBJECTS = ("CmuxNextDaemon", "CmuxNextMobile")
 # Control forwards CLI verbs to cmux-tui: its own sources reach the daemon.
 DAEMON_DIRECT_TARGETS = ("CmuxNextControl", "CmuxNextDaemonTests", "CmuxNextMobileTests", "CmuxNextControlTests")
-DAEMON_PATHS = (
-    "plans/cmux-next/daemon-capabilities.json",
-    "scripts/cmux-next/pin-cmux-tui.sh",
-    "scripts/cmux-next/check-daemon-capabilities.sh",
-    "scripts/cmux-next/cmux-tui.pin",
-    PACKAGE + "Tests/CmuxNextAppTests/FirstLaunchTests.swift",
-    PACKAGE + "Tests/CmuxNextAppTests/MarkdownPageFindTests.swift",
-    PACKAGE + "Tests/CmuxNextAppTests/FileSourceSwitchTests.swift",
-    # The classic import and migration suites start the live daemon too.
-    PACKAGE + "Tests/CmuxNextAppTests/ClassicImportTests.swift",
-    PACKAGE + "Tests/CmuxNextAppTests/ClassicMigrationTests.swift",
-    PACKAGE + "Tests/CmuxNextAppTests/ClassicUpgradeSimulationTests.swift",
-    PACKAGE + "Tests/CmuxNextAppTests/ClassicUpgradeHugeSimulationTests.swift",
-    PACKAGE + "Tests/CmuxNextAppTests/ClassicUpgradeSimulator.swift",
-    PACKAGE + "Sources/CmuxNextApp/Onboarding/AppOnboardingServices+ClassicSessions.swift",
-    PACKAGE + "Sources/CmuxNextApp/Onboarding/AppOnboardingServices+ClassicMigration.swift",
-)
+# The daemon tier is cmux-next.yml's daemon-test job, routed from the crate graph through the map the cmux-tui jobs
+# share (scripts/ci/affected-jobs.json, scripts/ci/affected_jobs.py): the crates of the binaries it fetches
+# (`pin-cmux-tui.sh fetch`) and every crate and file they reach, the tree build's recipe, and its own scripts and
+# suites. `affected_jobs.py check` fails when the job runs a script, or the tree key holds an input, that is not one
+# of them, or when this workflow's paths miss one.
+AFFECTED_JOBS_MAP = "scripts/ci/affected-jobs.json"
+DAEMON_JOB = "daemon-test"
+
+
+def _daemon_map_inputs(root: Path) -> tuple[str, ...]:
+    """The map's daemon-test inputs, read from ROOT; beside this file when ROOT lacks it (the routing replay copies
+    the base's router and map out of git into one directory: cmux_next_route_replay.py load_router)."""
+    path = root / AFFECTED_JOBS_MAP
+    if not path.is_file():
+        path = Path(__file__).resolve().parent / Path(AFFECTED_JOBS_MAP).name
+    data = json.loads(path.read_text(encoding="utf-8"))
+    for entry in data["workflows"].values():
+        if DAEMON_JOB in entry["jobs"]:
+            return tuple(entry.get("inputs", [])) + tuple(entry["jobs"][DAEMON_JOB].get("inputs", []))
+    raise SystemExit(f"cmux_next_route: {AFFECTED_JOBS_MAP} lists no {DAEMON_JOB}")
+
+
+# The daemon-test job's own files (its scripts, the suites its filter names): the map's, read once.
+DAEMON_PATHS = tuple(path for path in _daemon_map_inputs(ROOT) if not path.endswith("/"))
 
 # The Mac fast tier's own registry and runner (fast-tier.py reads fast-tier.json and quarantine.json).
 NO_FAST_TIER_REASON = "(no Mac fast tier)"
@@ -358,6 +367,9 @@ NATIVE_SCRIPT_INPUTS = (
     # The acpmux build reload.sh runs for the dev app's bundled acpmux: its shipping feature list and the
     # Go toolchain it sources.
     "scripts/ci/acpmux-build-features.sh", "scripts/ci/tailnet-go.sh",
+    # The Screen Sharing helper identity check sign-cmux-bundle.sh runs, and the stall bound
+    # ensure-cef.sh wraps its CEF download in.
+    "scripts/ci/check-screen-share-identity.sh", "scripts/ci/timeout.sh",
 )
 # The CI files that route themselves (the router reads them; the replay checks them).
 CI_SELF = (".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py", "scripts/ci/select_package_tests.py")
@@ -561,6 +573,44 @@ class Route:
         the Mac Release compile sees, or an input of every tier. A pure app FFI re-pin runs only handler coverage."""
         return (self.ffi_repin or self.full or self.package_build or self.fast_reads or self.fast_package or self.mac_release
                 or self.swift_canary or self.fast_registry)
+
+
+@dataclass
+class DaemonGraph:
+    """What the daemon tier reads, from the crate graph at ROOT's HEAD (affected_jobs.placement)."""
+    inputs: list[str]
+    placement: object  # affected_jobs.Placement
+    present: frozenset[str] = frozenset()  # every path in ROOT's HEAD tree
+
+    def reason(self, path: str) -> str | None:
+        if self.placement.unknown(path):
+            return f"{path} is under cmux-tui/ in no Cargo package and no job's input: the daemon tier runs"
+        # An entry is a file, or a directory with or without its "/" (a gitlink: the submodule's path itself).
+        hit = next((entry for entry in self.inputs
+                    if path == entry.rstrip("/") or path.startswith(entry.rstrip("/") + "/")), None)
+        if hit is None:
+            return None
+        return f"{path} reaches the daemon ({hit} is an input of {AFFECTED_JOBS_MAP} {DAEMON_JOB})"
+
+
+def daemon_graph(root: Path) -> DaemonGraph | None:
+    """The daemon tier's inputs at ROOT's HEAD, read once per commit. None when the graph cannot be read (no tomllib
+    before Python 3.11, a partial clone, a manifest it cannot parse): the daemon tier then routes by the tree key's
+    inputs, every file the published binaries' key holds."""
+    try:
+        import affected_jobs  # noqa: PLC0415 - cargo_test_verdict needs tomllib (Python 3.11)
+        import git_tree  # noqa: PLC0415
+        head = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], capture_output=True, text=True,
+                              check=True).stdout.strip()
+        key = ("daemon", str(root.resolve()), head)
+        if key not in _READ:
+            with git_tree.GitTree(root, head) as tree:
+                found = affected_jobs.placement(DAEMON_JOB, tree, root)
+                present = frozenset(tree.entries())
+            _READ[key] = DaemonGraph(found.inputs, found, present)
+        return _READ[key]
+    except Exception:  # noqa: BLE001 - unreadable: never fewer daemon runs than the tree key gives
+        return None
 
 
 def load_graph(root: Path) -> dict:
@@ -1289,6 +1339,9 @@ def path_route(root: Path, event: str, changed: list[str] | None, labels: set[st
         return result
     packages = package_inputs(root, graph)
     tree_inputs = tree_input_paths(root)
+    daemon = daemon_graph(root)
+    if daemon is None:
+        result.reasons.append("the crate graph could not be read: the daemon tier routes by the tree key's inputs")
     daemon_closure = closure(graph, set(LIVE_DAEMON_SUBJECTS))
     # Targets whose sources (or local packages) changed: the package build itself can change. A web
     # bundle input is none of them: it changes only the resources the bundle targets copy (BUNDLE_INPUTS).
@@ -1340,9 +1393,20 @@ def path_route(root: Path, event: str, changed: list[str] | None, labels: set[st
         if path in FULL_INPUTS:
             result.everything(f"{path} is an input of every package test")
             continue
-        if any(matches(path, prefix) for prefix in tree_inputs) or path in DAEMON_PATHS:
+        tree_key_hit = any(matches(path, prefix) for prefix in tree_inputs) or path in DAEMON_PATHS
+        if daemon is not None:
+            why = daemon.reason(path)
+            # The head's graph cannot name a file the change deletes (the false skip #45420 fixed for the cmux-tui
+            # jobs): a deleted path routes by the tree key's inputs, as before the graph.
+            if why is None and tree_key_hit and path not in daemon.present:
+                why = f"{path} is deleted at HEAD and is a tree key input: the daemon tier runs"
+        elif tree_key_hit:
+            why = f"{path} reaches the daemon (a tree key input)"
+        else:
+            why = None
+        if why:
             result.daemon = True
-            result.reasons.append(f"{path} reaches the daemon")
+            result.reasons.append(why)
         if any(matches(path, prefix) for prefix in SWIFT_JOB_INPUTS):
             result.swift = True
             result.reasons.append(f"{path} is a swift test job script")

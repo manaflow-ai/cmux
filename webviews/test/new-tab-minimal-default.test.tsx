@@ -106,10 +106,10 @@ const parts = () => ({
   strip: host.querySelectorAll(".acpmux-composer-strip").length,
 });
 
-test("Minimal is the default layout and the first dot; no other layout is gone", () => {
+test("Minimal is the default layout and the first dot; Classic is the other shipped one", () => {
   expect(DEFAULT_NEW_TAB_TEMPLATE).toBe("minimal");
   expect(shownTemplate({ layout: "b" })).toBe("minimal");
-  expect(PAGE_STYLES).toEqual(["minimal", "cards", "default", "threads", "console", "classic"]);
+  expect(PAGE_STYLES).toEqual(["minimal", "classic"]);
 });
 
 test("by default Minimal shows the composer without fixed create buttons", async () => {

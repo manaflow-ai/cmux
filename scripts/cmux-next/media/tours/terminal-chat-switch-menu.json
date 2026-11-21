@@ -1,6 +1,5 @@
 {
   "title": "Switch to Chat / Switch to Terminal in the ⋮ menus (user 2026-11-20): a terminal running a Claude Code session, its pane's ⋮, the chat it switches to, the chat's ⋮, and back; light then dark. Needs --whole-host for the menu shots",
-  "wholeHost": true,
   "harnessFixture": {
     "harnesses": {
       "claude": {

@@ -96,6 +96,21 @@ public nonisolated struct CmuxDialogButtonLook: Equatable, Sendable {
         return [glass.composited(over: scrimmed), tokens.opaqueOverlayFill(lift: lift), scrimmed]
     }
 
+    /// The card a button on a floating menu or popover sits on (``Glass/makeMenuPanel(content:cornerRadius:interactive:)``,
+    /// the omnibar's bookmark bubble): the menu glass (the theme's glass tint at the menu level, then the theme veil,
+    /// ``GlassMenuMaterial/veil``) over the theme's own window, the opaque popup surface (Reduce Transparency), and the
+    /// glass over the brightest and the darkest page. No scrim dims what is behind a popover as one dims a dialog's
+    /// window, so a button's inks are fit over any page that can show through (a1273: the bubble's More… and Remove).
+    /// The third surface is the theme's window again: the focus ring's gap sits on the glass the card really shows.
+    public static func menuCardSurfaces(_ tokens: ThemeTokens, lift: Double = 0.14) -> [ThemeRGB] {
+        let tint = tokens.glassTint.withAlpha(min(1, tokens.glassTint.alpha * GlassLevel.menu.tintStrength))
+        let veil = tokens.surfaceBackground.withAlpha(Double(GlassMenuMaterial.veil))
+        func glass(over page: ThemeRGB) -> ThemeRGB { veil.composited(over: tint.composited(over: page)) }
+        let own = glass(over: tokens.windowBackground.withAlpha(1))
+        // glass-opaque-allow: a contrast reference only (the card under Reduce Transparency); nothing paints it here
+        return [own, tokens.opaqueOverlayFill(lift: lift), own, glass(over: white), glass(over: black)]
+    }
+
     static let white = ThemeRGB(red: 1, green: 1, blue: 1)
     static let black = ThemeRGB(red: 0, green: 0, blue: 0)
 
