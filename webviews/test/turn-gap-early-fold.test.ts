@@ -24,6 +24,11 @@ afterEach(() => {
   globalThis.cmuxExperiments = undefined;
 });
 
+/// Array.prototype.findLastIndex is past the webviews lib target (es2022).
+const lastIndex = <T>(list: readonly T[], match: (item: T) => boolean) => {
+  for (let at = list.length - 1; at >= 0; at -= 1) if (match(list[at]!)) return at;
+  return -1;
+};
 const update = (u: Record<string, unknown>) => ({ method: "session/update", params: { update: u } });
 const say = (text: string): Step => [
   "in",
@@ -169,7 +174,7 @@ for (const kind of ["message", "notice"] as const)
     expect(started.gap(live.id)).toBe(TRANSCRIPT_RUN_GAP);
     // The first thought: "Working for" heads the turn there, with the same gap (the rule above).
     const thought = await after(steps, 7, true);
-    const at = thought.view.findLastIndex((row) => row.kind === "user");
+    const at = lastIndex(thought.view, (row) => row.kind === "user");
     expect(thought.gap(thought.view[at + 1]!.id)).toBe(TRANSCRIPT_RUN_GAP);
   });
 
@@ -205,7 +210,7 @@ test("turn_result (ended on work) > user_message(turnId, notice) > turn_started:
   ];
   for (const count of [6, 7]) {
     const { view, gap } = await after(steps, count, count === 7);
-    const at = view.findLastIndex((row) => row.kind === "user");
+    const at = lastIndex(view, (row) => row.kind === "user");
     const notice = view[at]!;
     expect(notice.incoming).toBeDefined();
     expect(view.slice(0, at).some((row) => row.kind === "worked")).toBe(true);

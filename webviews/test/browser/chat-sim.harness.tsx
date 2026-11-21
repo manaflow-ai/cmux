@@ -8,7 +8,7 @@
 //
 // The page's motion is off (`data-agent-motion=off`), so a box is where its row rests, not a frame of a
 // move. `?width=` sets the pane's width (default 720).
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { VirtualTranscript } from "../../src/agent-session/acpmux/App";
@@ -40,7 +40,10 @@ const expanded = new Set<string>();
 
 function Pane() {
   const [state, setState] = useState<PaneState>({ rows: [], working: false, sends: 0 });
-  show = setState;
+  // Hand the setter out after mount, not during render (React Compiler: no outside writes in render).
+  useEffect(() => {
+    show = setState;
+  }, []);
   return (
     <div className="acpmux-shell">
       <div className="acpmux-main" data-dock="float">

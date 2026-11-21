@@ -8,13 +8,10 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
+import { TRANSCRIPT_ROW } from "../src/agent-session/acpmux/transcriptSelectors";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 import { playTurn, randomTurn, type GapEvent, type Step } from "./support/thinkingGapScenes";
-
-const PAGE = "/test/browser/thinking-gap.html";
-/// The largest gap the grid puts over the live line (a card or another row's block gap), plus rounding.
-const MAX_GAP = 24.5;
 
 type Frame = {
   step: string;
@@ -28,6 +25,9 @@ type Frame = {
 };
 
 await requireBrowserLane("thinking-gap-browser.test.ts", async () => {
+  const PAGE = "/test/browser/thinking-gap.html";
+  /// The largest gap the grid puts over the live line (a card or another row's block gap), plus rounding.
+  const MAX_GAP = 24.5;
   setDefaultTimeout(240_000);
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -65,7 +65,7 @@ await requireBrowserLane("thinking-gap-browser.test.ts", async () => {
       await page.waitForFunction(() => "__gap" in window);
       await page.evaluate(() => (window as unknown as { __gap: { loadStrings(): Promise<void> } }).__gap.loadStrings());
       return await page.evaluate(
-        ({ steps, framesPerStep }) =>
+        ({ steps, framesPerStep, ROW }) =>
           new Promise<Frame[]>((done) => {
             type Gap = { show(rows: unknown[], options?: { working?: boolean; width?: number }): void };
             const gap = (window as unknown as { __gap: Gap }).__gap;
@@ -76,12 +76,12 @@ await requireBrowserLane("thinking-gap-browser.test.ts", async () => {
             window.cmuxAfterPaint(
               () => {
                 const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
-                const line = document.querySelector<HTMLElement>('.acpmux-row[data-row-id="thinking-live"]');
+                const line = document.querySelector<HTMLElement>(`${ROW.slice(0, -1)}="thinking-live"]`);
                 if (scroller && line && step >= 0) {
                   const box = line.getBoundingClientRect();
                   let above: HTMLElement | undefined;
                   let aboveBottom = -Infinity;
-                  const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")];
+                  const rows = [...scroller.querySelectorAll<HTMLElement>(ROW)];
                   for (const row of rows) {
                     if (row === line) continue;
                     const r = row.getBoundingClientRect();
@@ -138,7 +138,7 @@ await requireBrowserLane("thinking-gap-browser.test.ts", async () => {
               },
             );
           }),
-        { steps, framesPerStep },
+        { steps, framesPerStep, ROW: TRANSCRIPT_ROW },
       );
     } finally {
       await page.close();

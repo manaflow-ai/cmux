@@ -34,7 +34,7 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/transcriptGrid.ts#transcriptGap"],
   variants: {
     shipped: variant(
-      "Shipped: the run gap (16) \"Worked for\" stands under any one-line row (#48591, agent-pane.chat-row-spacing), between the message and the turn's Working for line. It stays when the line becomes Worked for.",
+      'Shipped: the run gap (16) "Worked for" stands under any one-line row (#48591, agent-pane.chat-row-spacing), between the message and the turn\'s Working for line. It stays when the line becomes Worked for.',
     ),
     block: variant("Alternative: a block gap (24), as between any two blocks.", "block"),
     flush: variant("Before: flush (0); the line reads as the message's own tail.", "flush"),

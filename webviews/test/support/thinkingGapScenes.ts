@@ -96,7 +96,8 @@ export function playTurn(events: readonly GapEvent[], start = Date.now() - 60_00
         for (let at = turn.length - 1; at >= 0; at -= 1) {
           const row = turn[at]!;
           const items = row.items ?? [];
-          const open = items.findLastIndex((item) => item.tool?.status === "pending");
+          let open = items.length - 1;
+          while (open >= 0 && items[open]!.tool?.status !== "pending") open -= 1;
           if (row.kind !== "activity" || open < 0) continue;
           const done = items.map((item, i) =>
             i === open ? { ...item, tool: { ...item.tool!, status: "completed", endedAt: Date.now() } } : item,

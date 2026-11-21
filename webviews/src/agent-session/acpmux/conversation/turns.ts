@@ -52,7 +52,7 @@ import { startedTasks, startsTask, TASK_LINE } from "./taskLines";
 import { isWaitingMessage } from "./pendingMessages";
 import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
-import { turnCopyParts, turnCallParts } from "./turnCopy";
+import { turnCallParts, turnCopyParts } from "./turnCopy";
 import { turnEndActions } from "./turnEndActions.experiment";
 import { turnWork } from "./waterfallSpans";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
@@ -62,12 +62,12 @@ import { SILENT_MS } from "./thinkingModel";
 import {
   BACKGROUND_TURN,
   backgroundTurnRowId,
+  endsDrawingRows,
   foldBackgroundTurns,
   foldedBackgroundIds,
   foldsBackground,
   hiddenInBackground,
   openBackgroundTurns,
-  endsDrawingRows,
 } from "./backgroundTurns";
 import {
   foldMessageRuns,
