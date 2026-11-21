@@ -21,13 +21,6 @@ fn to_value<T: serde::Serialize>(value: T) -> Result<Value, i32> {
     serde_json::to_value(value).map_err(|_| ERR_INVALID)
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Account {
-    #[serde(default)]
-    account: Vec<Option<String>>,
-}
-
 pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> {
     let answer = match operation {
         // The CLIs: the arguments of a call, and what its output means.
@@ -422,17 +415,8 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             let request: Request = read(request)?;
             json!({ "person": wait::starts_as_person(request.by_person, request.delegated) })
         }
-        b"cloud_move_copies_through_store" => {
-            #[derive(Deserialize)]
-            #[serde(rename_all = "camelCase")]
-            struct Request {
-                #[serde(flatten)]
-                account: Account,
-                production_auth: bool,
-            }
-            let request: Request = read(request)?;
-            json!({ "store": wait::copies_through_store(&request.account.account, request.production_auth) })
-        }
+        // The app still sends its account and sign-in; every send copies through the store now.
+        b"cloud_move_copies_through_store" => json!({ "store": wait::copies_through_store() }),
         b"cloud_move_shell_quoted" => {
             #[derive(Deserialize)]
             struct Request {

@@ -12,7 +12,7 @@ use std::net::TcpListener;
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -34,6 +34,16 @@ struct Store {
     blobs: Mutex<HashMap<String, Vec<u8>>>,
     uploaded: AtomicU64,
     served: AtomicU64,
+    /// PUTs by blob hash, refused or not.
+    puts: Mutex<HashMap<String, u32>>,
+    /// Each `POST /v1/sync/roots` the store took: the pair and the tree's hash.
+    roots: Mutex<Vec<(String, String)>>,
+    /// Full: a PUT of a new blob answers 507 `sync.quota_exceeded`.
+    full: AtomicBool,
+    /// Every `POST /v1/sync/roots` answers 500.
+    roots_refused: AtomicBool,
+    /// Not served: every `/v1/sync` path answers 404 `sync.not_found`.
+    off: AtomicBool,
 }
 
 fn serve_store() -> (String, Arc<Store>) {
@@ -78,7 +88,26 @@ fn answer_http(mut connection: std::net::TcpStream, store: &Store) {
     let (method, path) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
     let person = bearer == CREDENTIAL;
     let (status, reply): (&str, Vec<u8>) = match (method, path) {
+        _ if store.off.load(Ordering::SeqCst) => (
+            "404 Not Found",
+            json!({"_tag": "SyncNotFound", "code": "sync.not_found"}).to_string().into_bytes(),
+        ),
         _ if !(person || (method == "GET" && bearer == GRANT)) => ("401 Unauthorized", vec![]),
+        ("POST", "/v1/sync/roots") => {
+            let asked: Value = serde_json::from_slice(&body).unwrap();
+            let (pair, tree) = (asked["pair"].as_str().unwrap(), asked["tree"].as_str().unwrap());
+            let blobs = store.blobs.lock().unwrap();
+            if store.roots_refused.load(Ordering::SeqCst) {
+                ("500 Internal Server Error", b"{}".to_vec())
+            } else if !blobs.contains_key(tree) {
+                ("404 Not Found", json!({"code": "sync.blob_not_found"}).to_string().into_bytes())
+            } else if !blobs[tree].starts_with(b"cmux-sync-tree 1\n") {
+                ("400 Bad Request", json!({"code": "sync.bad_tree"}).to_string().into_bytes())
+            } else {
+                store.roots.lock().unwrap().push((pair.to_string(), tree.to_string()));
+                ("200 OK", json!({"pair": pair, "tree": tree, "roots": 1}).to_string().into_bytes())
+            }
+        }
         ("POST", "/v1/sync/blobs/missing") => {
             let asked: Value = serde_json::from_slice(&body).unwrap();
             let blobs = store.blobs.lock().unwrap();
@@ -97,8 +126,19 @@ fn answer_http(mut connection: std::net::TcpStream, store: &Store) {
         ),
         ("PUT", path) => {
             let hash = path.trim_start_matches("/v1/sync/blobs/");
+            *store.puts.lock().unwrap().entry(hash.to_string()).or_default() += 1;
             if sha(&body) != hash {
                 ("400 Bad Request", vec![])
+            } else if store.full.load(Ordering::SeqCst)
+                && !store.blobs.lock().unwrap().contains_key(hash)
+            {
+                (
+                    "507 Insufficient Storage",
+                    json!({"_tag": "SyncQuotaExceeded", "code": "sync.quota_exceeded",
+                           "message": "full", "usedBytes": 900, "limitBytes": 1000})
+                    .to_string()
+                    .into_bytes(),
+                )
             } else {
                 store.uploaded.fetch_add(body.len() as u64, Ordering::SeqCst);
                 store.blobs.lock().unwrap().insert(hash.to_string(), body);
@@ -572,4 +612,179 @@ fn a_push_whose_fetch_a_newer_push_cancelled_stops_without_a_link_copy() {
     // Nothing of the 3 MiB file crossed the link.
     let link = machine.sent.load(Ordering::SeqCst) - before;
     assert!(link < 1024 * 1024, "{link} bytes went over the link");
+}
+
+/// A small folder outside git: a few small files and one large one (chunked through the store).
+fn repo_with_large_file(root: &Path, seed: u64) -> PathBuf {
+    let repo = root.join("app");
+    std::fs::create_dir_all(repo.join("src")).unwrap();
+    std::fs::create_dir_all(repo.join("assets")).unwrap();
+    for index in 0..8u64 {
+        std::fs::write(repo.join(format!("src/f{index}.rs")), noise(seed + index, 200 * 1024))
+            .unwrap();
+    }
+    std::fs::write(repo.join("assets/model.bin"), noise(seed + 100, 24 * 1024 * 1024)).unwrap();
+    repo
+}
+
+/// The pair a push of `repo` to `machine` registers: the SHA-256 of the base record's key.
+fn pair_of(repo: &Path, machine: &Machine) -> String {
+    let mut key = Sha256::new();
+    key.update(repo.as_os_str().as_encoded_bytes());
+    key.update([0]);
+    key.update(machine.home.join("work/app").to_str().unwrap().as_bytes());
+    let key: String = key.finalize().iter().map(|b| format!("{b:02x}")).collect();
+    sha(key.as_bytes())
+}
+
+/// The SHA-256 of every file under `dir`, `.git` included.
+fn file_hashes(dir: &Path) -> std::collections::HashSet<String> {
+    let mut hashes = std::collections::HashSet::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(folder) = stack.pop() {
+        for entry in std::fs::read_dir(&folder).unwrap() {
+            let entry = entry.unwrap();
+            let kind = entry.file_type().unwrap();
+            if kind.is_dir() {
+                stack.push(entry.path());
+            } else if kind.is_file() {
+                hashes.insert(sha(&std::fs::read(entry.path()).unwrap()));
+            }
+        }
+    }
+    hashes
+}
+
+/// The hashes the tree blob `tree` (by its hash) names, after checking its form.
+fn tree_hashes(store: &Store, tree: &str) -> Vec<String> {
+    let blob = store.blobs.lock().unwrap()[tree].clone();
+    let text = String::from_utf8(blob).unwrap();
+    let body = text.strip_prefix("cmux-sync-tree 1\n").expect("the tree's header");
+    assert!(body.is_empty() || body.ends_with('\n'), "{text}");
+    let hashes: Vec<String> = body.lines().map(str::to_owned).collect();
+    let mut sorted = hashes.clone();
+    sorted.sort();
+    sorted.dedup();
+    assert_eq!(hashes, sorted, "sorted and unique");
+    for hash in &hashes {
+        assert!(
+            hash.len() == 64
+                && hash.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+        );
+    }
+    hashes
+}
+
+#[test]
+fn a_store_push_registers_its_folders_root_naming_the_manifest_and_history() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let repo = repo_with_large_file(&root, 40);
+    let (origin, store) = serve_store();
+    let machine = machine(&root, "roots");
+    let first = push(&machine, &repo, Some(&origin), &store);
+    assert_eq!(first.summary["store"]["used"], true, "{}", first.summary);
+    let (pair, tree) = store.roots.lock().unwrap().last().cloned().expect("a root");
+    assert_eq!(pair, pair_of(&repo, &machine));
+    let first_tree = tree_hashes(&store, &tree);
+    let small: Vec<String> = (0..8u64)
+        .map(|index| sha(&std::fs::read(repo.join(format!("src/f{index}.rs"))).unwrap()))
+        .collect();
+    let large = sha(&std::fs::read(repo.join("assets/model.bin")).unwrap());
+    for hash in &small {
+        assert!(first_tree.contains(hash), "a small file is its own blob");
+    }
+    // The large file is its chunks, never its own hash; every name is a stored blob.
+    assert!(!first_tree.contains(&large));
+    // The names that are no file's own hash are the large file's chunks.
+    let whole = file_hashes(&repo);
+    let chunks: Vec<&String> = first_tree.iter().filter(|hash| !whole.contains(*hash)).collect();
+    assert!(chunks.len() >= 5, "{} chunks of the 24 MiB file", chunks.len());
+    for chunk in &chunks {
+        assert!(store.blobs.lock().unwrap().contains_key(*chunk), "{chunk} is not stored");
+    }
+
+    // A small edit goes over the link, and the root still names the large file's chunks (from
+    // this Mac's chunk cache: nothing chunked it this time) and both versions of the edited file
+    // (the current manifest and the earlier snapshot).
+    let edited = repo.join("src/f3.rs");
+    let before = small[3].clone();
+    std::fs::write(&edited, b"edited\n").unwrap();
+    let after = sha(b"edited\n");
+    let second = push(&machine, &repo, Some(&origin), &store);
+    assert_eq!(second.summary["store"]["reason"], "small", "{}", second.summary);
+    let roots = store.roots.lock().unwrap().clone();
+    assert_eq!(roots.len(), 2, "{roots:?}");
+    let (pair, tree) = roots.last().cloned().unwrap();
+    assert_eq!(pair, pair_of(&repo, &machine));
+    let second_tree = tree_hashes(&store, &tree);
+    assert!(second_tree.contains(&before) && second_tree.contains(&after));
+    for chunk in chunks {
+        assert!(second_tree.contains(chunk), "the cached chunk {chunk} is named");
+    }
+    assert!(!second_tree.contains(&large));
+}
+
+#[test]
+fn a_root_the_store_refuses_never_fails_the_push() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let repo = repo_with_large_file(&root, 50);
+    let (origin, store) = serve_store();
+    store.roots_refused.store(true, Ordering::SeqCst);
+    let machine = machine(&root, "refused-root");
+    let output = run_push(&machine, &repo, Some(&origin));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    let summary: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(summary["store"]["used"], true, "{summary}");
+    assert_eq!(stderr.matches(r#""root":false"#).count(), 1, "{stderr}");
+    assert!(store.roots.lock().unwrap().is_empty());
+    same_tree(&repo, &machine.home.join("work/app"));
+}
+
+#[test]
+fn a_full_store_is_not_retried_and_the_link_copies_it_all() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let repo = repo_with_large_file(&root, 60);
+    let (origin, store) = serve_store();
+    store.full.store(true, Ordering::SeqCst);
+    let machine = machine(&root, "full");
+    let started = Instant::now();
+    let output = run_push(&machine, &repo, Some(&origin));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    let summary: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(summary["store"]["used"], false, "{summary}");
+    assert_eq!(summary["store"]["code"], "sync.quota_exceeded", "{summary}");
+    // One clear line, and no blob asked for twice.
+    assert_eq!(stderr.matches("sync.quota_exceeded").count(), 1, "{stderr}");
+    assert!(stderr.contains("the Cloud store is full (900 of 1000 bytes used)"), "{stderr}");
+    let puts = store.puts.lock().unwrap().clone();
+    assert!(!puts.is_empty());
+    assert!(puts.values().all(|count| *count == 1), "a 507 was retried: {puts:?}");
+    // The direct copy landed everything, and no root names a push that did not use the store.
+    same_tree(&repo, &machine.home.join("work/app"));
+    assert!(store.roots.lock().unwrap().is_empty());
+    assert!(started.elapsed() < Duration::from_secs(60));
+}
+
+#[test]
+fn a_store_that_is_not_served_leaves_the_copy_to_the_link() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let repo = repo_with_large_file(&root, 70);
+    let (origin, store) = serve_store();
+    store.off.store(true, Ordering::SeqCst);
+    let machine = machine(&root, "off");
+    let pushed = push(&machine, &repo, Some(&origin), &store);
+    assert_eq!(pushed.summary["store"]["used"], false, "{}", pushed.summary);
+    assert!(
+        pushed.summary["store"]["error"].as_str().unwrap().contains("404"),
+        "{}",
+        pushed.summary
+    );
+    same_tree(&repo, &machine.home.join("work/app"));
+    assert!(store.roots.lock().unwrap().is_empty());
 }

@@ -115,15 +115,11 @@ fn a_start_is_the_persons_when_they_asked_or_let_agents_start_without_asking() {
     assert!(!starts_as_person(false, false));
 }
 
-/// Only a personal send on a non-production sign-in copies through the content-addressed store (#34604).
+/// Every send copies through the content-addressed store, Personal and team, on every sign-in.
+/// Before, only a personal send on a non-production sign-in did (#34604).
 #[test]
-fn only_a_personal_send_on_a_non_production_sign_in_copies_through_the_store() {
-    let user = |team: Option<&str>| vec![Some("user".to_owned()), team.map(str::to_owned)];
-    assert!(copies_through_store(&[], false));
-    assert!(copies_through_store(&user(None), false));
-    assert!(!copies_through_store(&user(None), true));
-    assert!(!copies_through_store(&user(Some("team")), false));
-    assert!(!copies_through_store(&user(Some("team")), true));
+fn every_send_copies_through_the_store() {
+    assert!(copies_through_store());
 }
 
 #[test]

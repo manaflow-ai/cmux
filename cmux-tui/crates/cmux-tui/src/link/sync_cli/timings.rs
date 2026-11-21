@@ -3,7 +3,8 @@
 //! `list` (the folder read and filtered here), `prepare` (each file's hash, and the machine's
 //! folders read and made, one request at a time), `hash` (that hashing alone), `small` (the
 //! store's fetch and the small files' writes), `large` (the big files, one at a time) and
-//! `finish` (links, the manifest and this Mac's record), each in ms.
+//! `finish` (links, the manifest and this Mac's record) and, after a push through the store,
+//! `roots` (its GC root's registration, [`super::roots`]), each in ms.
 
 use std::time::{Duration, Instant};
 
