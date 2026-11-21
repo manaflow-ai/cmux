@@ -183,10 +183,10 @@ pub(super) async fn precopy(
     // what came after it. A base either side refuses falls back to a full prefix.
     let base = dst.request("_acpmux/transfer_base", json!({"sessionId": id})).await.ok();
     let base = base.map(|b| b["base"].clone()).filter(|b| !b.is_null());
-    if let Some(base) = base {
-        if let Some(staged) = stage_prefix(src, dst, id, Some(base)).await {
-            return Some(staged);
-        }
+    if let Some(base) = base
+        && let Some(staged) = stage_prefix(src, dst, id, Some(base)).await
+    {
+        return Some(staged);
     }
     stage_prefix(src, dst, id, None).await
 }

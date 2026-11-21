@@ -232,6 +232,7 @@ export interface AcpmuxRequests {
   "_acpmux/chats_window": { params: unknown; result: unknown };
   "_acpmux/chats_window_close": { params: unknown; result: unknown };
   "_acpmux/transfer_abort": { params: unknown; result: unknown };
+  "_acpmux/transfer_base": { params: unknown; result: unknown };
   "_acpmux/transfer_begin": { params: unknown; result: unknown };
   "_acpmux/transfer_commit": { params: unknown; result: unknown };
   "_acpmux/transfer_finish": { params: unknown; result: unknown };
@@ -623,6 +624,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/chats_window_close", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chats_window_changed", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/transfer_abort", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/transfer_base", kind: "request", acp: false, typed: false },
   { name: "_acpmux/transfer_begin", kind: "request", acp: false, typed: false },
   { name: "_acpmux/transfer_commit", kind: "request", acp: false, typed: false },
   { name: "_acpmux/transfer_finish", kind: "request", acp: false, typed: false },
