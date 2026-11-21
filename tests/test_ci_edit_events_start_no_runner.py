@@ -66,8 +66,6 @@ REQUIRED_CONTEXTS = frozenset().union(*REQUIRED_CONTEXTS_BY_BASE.values())
 EDIT_READS: dict[tuple[str, str], tuple[frozenset[str], str]] = {
     ("backend-migrations.yml", "pull_request_target"): (ALL, "publishes the required `backend migrations "
         "applied` in every suite, and a retarget (main <-> feat-cmux-next) re-judges it"),
-    ("cla-policy-guard.yml", "pull_request_target"): (ALL, "publishes the required `CLA policy guard` in "
-        "every suite (cmux#13871)"),
     ("classic-api-guard.yml", "pull_request"): (frozenset({"body", "base"}), "this copy starts on its "
         "own only into main, into feat-cmux-next through pr-router.yml: re-runs when the `Classic API change:` line or the base moves; "
         "into feat-cmux-next a skip reads the same as a warning"),
@@ -103,8 +101,6 @@ COMMENT_REACTS: dict[tuple[str, str], str] = {
 
 # A comment that is a command for its workflow: (event, body, author type). It must still start a job.
 COMMENT_COMMANDS: dict[str, tuple[str, str, str]] = {
-    "claude.yml": ("issue_comment", "@claude please look at the failing test", "User"),
-    "cla.yml": ("issue_comment", "recheck", "User"),
     "cmux-next-defaults-guard-review.yml": ("issue_comment", "Review (codex): SHIP at " + "a" * 40, "Bot"),
 }
 

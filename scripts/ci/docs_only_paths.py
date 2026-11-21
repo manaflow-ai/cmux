@@ -105,6 +105,20 @@ BEGIN = "# docs-only paths: BEGIN (scripts/ci/docs_only_paths.py --sync writes t
 END = "# docs-only paths: END"
 
 
+TRIGGER_PATHS = "scripts/ci/pr-trigger-paths.json"
+
+
+def block_workflows(root: Path) -> list[str]:
+    """WORKFLOWS that carry the block. A workflow whose trigger `paths:` scripts/ci/pr_trigger_paths.py derives from
+    its own decider (TRIGGER_PATHS `derived`) starts on its inputs alone, already fewer paths than the block; it
+    keeps those, and FALLBACK still calls it."""
+    try:
+        derived = set(json.loads((root / TRIGGER_PATHS).read_text(encoding="utf-8")).get("derived", {}))
+    except FileNotFoundError:
+        derived = set()
+    return [name for name in WORKFLOWS if name not in derived]
+
+
 def is_docs(path: str) -> bool:
     """Whether a change to `path` alone starts none of WORKFLOWS on a pull request."""
     return not filters.admits("paths", list(DOCS_ONLY_PATHS), path)
@@ -392,7 +406,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"rewrote {FALLBACK}")
         else:
             drifted.append(FALLBACK)
-    for name in WORKFLOWS:
+    for name in block_workflows(args.root):
         path = args.root / name
         text = path.read_text()
         try:

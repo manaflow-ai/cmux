@@ -191,7 +191,7 @@ if [ ! -f scripts/ci/ui_review_advisory.py ]; then
 fi
 paths="$RUNNER_TEMP/ui-review-paths.txt"
 files="$RUNNER_TEMP/ui-review-files.json"
-body="$RUNNER_TEMP/ui-review-body.md"
+body_file="$RUNNER_TEMP/ui-review-body.md"
 listed() {
   if timeout 120 git fetch --no-tags --quiet --depth=2 --filter=blob:none origin "$MERGE_SHA" \
     && [ "$(git rev-parse "$MERGE_SHA^2")" = "$HEAD_SHA" ] \
@@ -207,8 +207,8 @@ if ! listed || ! python3 -c 'import json, sys; json.dump([{"filename": l} for l 
   echo "::warning title=UI review::could not check out the advisory or read changed files; review the UI section manually"
   exit 0
 fi
-printf '%s' "$BODY" > "$body"
-python3 scripts/ci/ui_review_advisory.py --body-file "$body" --files-json "$files" \
+printf '%s' "$BODY" > "$body_file"
+python3 scripts/ci/ui_review_advisory.py --body-file "$body_file" --files-json "$files" \
   || echo "::warning title=UI review::the advisory script could not run; review the UI section manually"
 '''
 
