@@ -1,4 +1,5 @@
 import { composerHealthHarness } from "./composerPickerEntries";
+import { Spinner } from "./conversation/icons";
 import { forkMenuRows } from "./header/forkMenu";
 import { useFold } from "./conversation/fold";
 import { openFork, openInOwnTab } from "./conversation/openFork";
@@ -13838,7 +13839,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         data-solo-tab={soloTab ? "" : undefined}
         aria-busy="true"
         style={inTabRow ? tabRowStyle(tabRow) : undefined}
-      />
+      >
+        {/* The host's loading state covers this until the page paints; a page it gave up on shows here
+            still connecting, so it shows the same mark, never a blank pane (cmux#48605). */}
+        <div className="acpmux-pane-loading" role="progressbar" aria-label={t("transcript.loading")}>
+          <Spinner size={18} loading />
+        </div>
+      </section>
     </ShortcutsContext.Provider>
   ) : (
     <ShortcutsContext.Provider value={shortcuts}>

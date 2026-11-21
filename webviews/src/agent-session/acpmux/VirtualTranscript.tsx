@@ -171,7 +171,7 @@ import {
 import { ChatFindBar } from "./conversation/ChatFindBar";
 import { LIVE_THINKING, THINKING, WORKED, foldCovers, turnFooterFrom, retryTargetIn } from "./conversation/turns";
 import { createLiveLinePulse, LiveLinePulseContext } from "./conversation/liveLinePulse";
-import { ArrowDown } from "./conversation/icons";
+import { ArrowDown, Spinner } from "./conversation/icons";
 import { Slot } from "../../slots/Slot";
 import { jumpToBottomSlot } from "../../slots/jumpToBottom";
 import { installWheelGlide } from "./wheelGlide";
@@ -1026,6 +1026,9 @@ function drawRowFrames(cache: RowFrameCache, sources: RowFrameSources, view: Row
 /// The thread's top padding (styles.css `.acpmux-thread`): rows draw this far below their places
 /// (each row's `top` adds it), so the transcript ends this far past their total height.
 const THREAD_TOP = 16;
+/// The box of the spinner over the loaded rows while older ones load (`.acpmux-older-loading`): it
+/// shows only where the room held for them has this much space above the first loaded row.
+const OLDER_SPINNER_BOX = 32;
 
 /// Where a scroller sits, read while its content still matches `totalHeight`.
 const scrollPosition = (node: HTMLElement, totalHeight: number) => ({
@@ -7402,6 +7405,25 @@ function TranscriptView({
                   width: lane > 0 ? `calc(100% + ${lane}px)` : undefined,
                 }}
               >
+                {/* A chat still reading its rows with none to show yet: a spinner, never an empty pane
+                    (cmux#48605). The spacer is at least the view's height, so it sits in the view's middle. */}
+                {loading && rows.length === 0 && (
+                  <div className="acpmux-transcript-loading" role="progressbar" aria-label={t("transcript.loading")}>
+                    <Spinner size={18} loading />
+                  </div>
+                )}
+                {/* Older history still to load: a spinner just above the first loaded row, in the room held
+                    for that history, so a reader who scrolls up to the loaded top sees the next page is coming. */}
+                {canLoadOlder && rows.length > 0 && (layout.origin ?? 0) >= OLDER_SPINNER_BOX && (
+                  <div
+                    className="acpmux-older-loading"
+                    role="progressbar"
+                    aria-label={t("transcript.loadingOlder")}
+                    style={{ top: lift + topInset + THREAD_TOP + (layout.origin ?? 0) - OLDER_SPINNER_BOX }}
+                  >
+                    <Spinner size={16} loading />
+                  </div>
+                )}
                 <div
                   ref={thread}
                   className="acpmux-thread"
