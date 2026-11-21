@@ -6950,6 +6950,7 @@ extension BrowserPanel {
     /// Stop loading
     func stopLoading() {
         cloudAccess.didCancel()
+        navigationDelegate?.cancelLoopbackAutoRetryIfPending()
         cancelAppSessionBootstrap()
         // Fail closed: a reveal must never blank-shell-heal over an explicit Stop.
         userStoppedLoadSinceWebViewReplacement = true
