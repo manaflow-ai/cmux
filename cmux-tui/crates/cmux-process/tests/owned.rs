@@ -33,7 +33,10 @@ mod owned_child {
             std::mem::forget(child);
             pid
         } else {
-            let child = command.process_group(0).spawn().unwrap();
+            let mut child = command.process_group(0).spawn().unwrap();
+            // A dropped handle ends its group; the plain fixture's child must
+            // run on past this branch, as a std child would.
+            child.detach("test fixture: the plain child must outlive its handle");
             child.id()
         };
         // On a line of its own: libtest prints the test's name before it.
