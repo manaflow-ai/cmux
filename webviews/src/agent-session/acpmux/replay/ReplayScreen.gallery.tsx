@@ -25,18 +25,21 @@ export default componentEntry<Props>({
     Promise.all([import("./ReplayScreen"), import("../App"), import("../conversation/turns")]).then(
       ([{ ReplayScreen }, { VirtualTranscript }, { turnView }]) =>
         function GalleryReplay(props: Props) {
+          // The pane's .acpmux-main is a flex column that gives the replay its height; so is this.
           return (
-            <ReplayScreen
-              {...props}
-              transcript={(replayed) => (
-                <VirtualTranscript
-                  rows={turnView(replayed.rows, new Set(), { working: replayed.isWorking })}
-                  sessionId="replay"
-                  expanded={new Set()}
-                  onToggleActivity={() => undefined}
-                />
-              )}
-            />
+            <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+              <ReplayScreen
+                {...props}
+                transcript={(replayed) => (
+                  <VirtualTranscript
+                    rows={turnView(replayed.rows, new Set(), { working: replayed.isWorking })}
+                    sessionId="replay"
+                    expanded={new Set()}
+                    onToggleActivity={() => undefined}
+                  />
+                )}
+              />
+            </div>
           );
         },
     ),
