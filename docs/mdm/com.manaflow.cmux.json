@@ -284,6 +284,26 @@
       "title" : "Shimmer Speed",
       "type" : "number"
     },
+    "agentPane.display.transcriptLook" : {
+      "default" : "cmux",
+      "description" : "How messages, cards and spacing look.",
+      "enum" : [
+        "cmux",
+        "claude",
+        "codex",
+        "studio"
+      ],
+      "title" : "Transcript Look",
+      "type" : "string"
+    },
+    "agentPane.display.transcriptTokens" : {
+      "default" : {
+
+      },
+      "description" : "Token values that override the transcript look.",
+      "title" : "Transcript Look Tokens",
+      "type" : "string"
+    },
     "agentPane.display.transcriptView" : {
       "default" : "normal",
       "description" : "How much of each turn a chat shows. A chat's ··· menu sets its own.",
@@ -3387,6 +3407,12 @@
       "title" : "EnrollmentToken",
       "type" : "string"
     },
+    "experiments.glassToolbarGroups" : {
+      "default" : false,
+      "description" : "The chat header's buttons become round glass buttons, with related actions sharing one glass capsule, a search chip and shortcut keycaps.",
+      "title" : "Glass Toolbar Groups",
+      "type" : "boolean"
+    },
     "feed.agentPermissionPrompts" : {
       "default" : false,
       "description" : "Each request's tool and command summary goes to your own cmux feed, so your iPhone can answer it.",
@@ -3590,6 +3616,12 @@
       "title" : "Show Chief When Opening Workspaces",
       "type" : "boolean"
     },
+    "home.chiefDock.sidePanel" : {
+      "default" : false,
+      "description" : "Keeps the Chief docked beside every workspace. Cmd-I hides or shows it.",
+      "title" : "Chief in Side Panel",
+      "type" : "boolean"
+    },
     "home.chiefEngine" : {
       "default" : "auto",
       "description" : "Auto uses this Mac's Chief while it runs, else the Hosted Chief.",
@@ -3676,7 +3708,7 @@
     },
     "labs.agentCustomization" : {
       "default" : false,
-      "description" : "Show and edit the MCP servers Claude Code and Codex use, in their own config files.",
+      "description" : "Show and edit the MCP servers, skills and commands Claude Code and Codex use, in their own config files.",
       "title" : "Claude Code and Codex Customization",
       "type" : "boolean"
     },
@@ -4872,9 +4904,10 @@
       "type" : "string"
     },
     "sidebar.groupHeader.background" : {
-      "default" : "auto",
-      "description" : "How a group's background draws. Sections shows plain headings instead.",
+      "default" : "folder",
+      "description" : "How a group draws. Folders shows plain folders; Sections shows plain headings.",
       "enum" : [
+        "folder",
         "auto",
         "glass",
         "solid",
