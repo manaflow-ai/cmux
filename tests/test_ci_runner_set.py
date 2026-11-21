@@ -124,11 +124,10 @@ class RunnerSetTests(unittest.TestCase):
     def test_pr_checks_advisory_takes_a_one_job_vm(self) -> None:
         # pr-checks.yml's six jobs became one (CI v2 step 6) that writes the status comment lines, so it never
         # reads RUNNER_POOLS (whose x64 pools lead with persistent machines) and never a shared persistent label:
-        # a same-repo attempt 1 takes the PR control JIT label, a fork Blacksmith, a re-run CI_TRUSTED_RUNNER.
+        # a fork takes Blacksmith, any other run CI_TRUSTED_RUNNER; not the PR control JIT label, which backed up.
         job = yaml.safe_load((WORKFLOWS / "pr-checks.yml").read_text(encoding="utf-8"))["jobs"]["advisory"]
         runs_on = runs_on_text(job, "pr-checks.yml#advisory")
-        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository && "
-                      "github.run_attempt == 1 && 'cmux-gcp-pr-control-jit-x64'", runs_on)
+        self.assertNotIn("cmux-gcp-pr-control-jit-x64", runs_on)
         self.assertIn("github.event.pull_request.head.repo.full_name != github.repository && "
                       "'blacksmith-4vcpu-ubuntu-2404'", runs_on)
         self.assertTrue(runs_on.endswith("vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || "

@@ -111,11 +111,11 @@ jobs:
     # `Verdict:` line (all PR size and UI review read) on a pull request that is not a draft, outside a
     # CI_QUOTA_HOLD: any other edit starts no runner (tests/test_ci_edit_events_start_no_runner.py).
     if: ${{ contains(fromJSON('["opened","synchronize","reopened","ready_for_review"]'), github.event.action) || github.event.action == 'edited' && github.event.changes.body && (contains(github.event.pull_request.body, 'Size:') || contains(github.event.changes.body.from, 'Size:') || contains(github.event.pull_request.body, 'UI review') || contains(github.event.changes.body.from, 'UI review') || contains(github.event.pull_request.body, 'Verdict:') || contains(github.event.changes.body.from, 'Verdict:')) && vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft }}
-    # It holds a pull-requests write token (the status comment lines), so a one-job VM only: a same-repo pull
-    # request's attempt 1 takes the cmux-gcp-pr-control-jit-x64 JIT label (cmuxterm-hq gha-runners, kept warm
-    # for pull request control hops, as cmux-next.yml's), a fork pull request Blacksmith, and a re-run the
-    # CI_TRUSTED_RUNNER selector, never RUNNER_POOLS (its x64 pools lead with persistent machines).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.run_attempt == 1 && 'cmux-gcp-pr-control-jit-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; a one-job JIT VM on attempt 1, CI_TRUSTED_RUNNER picks the Blacksmith size after
+    # It holds a pull-requests write token (the status comment lines), so a one-job VM only: a fork pull request
+    # Blacksmith, any other run the CI_TRUSTED_RUNNER selector (as the old ui-review and swift-logic jobs), never
+    # RUNNER_POOLS (its x64 pools lead with persistent machines). Not cmux-gcp-pr-control-jit-x64: on 2026-11-21 that
+    # label queued 1,860 jobs and this job waited on it 10+ min (cmux-next.yml's control jobs left it the same day).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks the Blacksmith size
     timeout-minutes: 15
     permissions:
       contents: read

@@ -391,8 +391,15 @@ fetch() { timeout 180 git -C "$repo" fetch -q --no-tags --no-recurse-submodules 
 fetch --shallow-since="14 days ago" origin "$BASE_SHA" "$HEAD_SHA" \
   || fetch --shallow-since="14 days ago" origin "+refs/pull/$PR/head:refs/remotes/pr/head" "+refs/heads/$BASE_REF:refs/remotes/origin/base" \
   || true
-if ! git -C "$repo" merge-base "$BASE_SHA" "$HEAD_SHA" > /dev/null 2>&1; then
-  echo "No merge base in the last 14 days; fetching the whole history of the two commits."
+# A merge base found while the window cut history between it and the head (an old branch that merged the
+# base since; a cut commit lists in .git/shallow) skews commits= and files=: deepen for it as for none.
+mb=$(git -C "$repo" merge-base "$BASE_SHA" "$HEAD_SHA" 2>/dev/null || true)
+cut=""
+if [ -n "$mb" ] && [ -f "$repo/.git/shallow" ]; then
+  cut=$({ echo "$mb"; git -C "$repo" rev-list "$mb..$HEAD_SHA"; } | grep -Fxf "$repo/.git/shallow" | head -1 || true)
+fi
+if [ -z "$mb" ] || [ -n "$cut" ]; then
+  echo "No merge base in the last 14 days, or history cut inside the pull request; fetching the whole history of the two commits."
   # --unshallow deepens what the window fetched; a window that fetched nothing left no shallow file.
   deepen=()
   if [ -f "$repo/.git/shallow" ]; then deepen=(--unshallow); fi

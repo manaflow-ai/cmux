@@ -19,6 +19,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -531,6 +532,53 @@ class PrChecksAdvisoryJobTest(unittest.TestCase):
 
     def test_split_plan_deepens_when_the_merge_base_is_older_than_its_window(self) -> None:
         self.measure(old=True)
+
+    def test_split_plan_deepens_when_the_window_cut_history_inside_the_pull_request(self) -> None:
+        # The head merges a recent commit whose parent is older than the window: the merge base is found inside
+        # the window, but the old commit under it is cut off, so commits= would miss it without deepening
+        # (review F1 on cmux#49211).
+        def git(repo: Path, *args: str, old: bool = False) -> str:
+            dated = {"GIT_AUTHOR_DATE": "2000-01-01T00:00:00Z", "GIT_COMMITTER_DATE": "2000-01-01T00:00:00Z"}
+            return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True,
+                                  env={**os.environ, **(dated if old else {})}).stdout.strip()
+
+        def commit(repo: Path, name: str, old: bool = False) -> None:
+            Path(repo, "webviews", f"{name}.tsx").write_text(f"{name}\n")
+            git(repo, "add", "-A")
+            git(repo, "commit", "-qm", name, old=old)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp, "src")
+            Path(src, "webviews").mkdir(parents=True)
+            git(src, "init", "-q", "-b", "feat-cmux-next")
+            for key, value in (("user.email", "t@example.com"), ("user.name", "t"),
+                               ("uploadpack.allowFilter", "true"), ("uploadpack.allowAnySHA1InWant", "true")):
+                git(src, "config", key, value)
+            commit(src, "root", old=True)
+            git(src, "checkout", "-qb", "topic")
+            commit(src, "topic-old", old=True)
+            commit(src, "topic-new")
+            git(src, "checkout", "-q", "feat-cmux-next")
+            commit(src, "base-new")
+            base = git(src, "rev-parse", "HEAD")
+            git(src, "checkout", "-qb", "pr")
+            commit(src, "pr-new")
+            git(src, "merge", "-q", "--no-edit", "topic")
+            head = git(src, "rev-parse", "HEAD")
+            whole = subprocess.run([sys.executable, str(ROOT / "scripts/cmux-next/check-pr-split.py"), "--repo",
+                                    str(src), "--base", base, "--head", head, "--mode", "advisory"],
+                                   cwd=ROOT, capture_output=True, text=True, timeout=120)
+            counts = re.search(r"merge-base=\S+ head=\S+ files=\d+ commits=\d+", whole.stdout)
+            self.assertIsNotNone(counts, whole.stdout + whole.stderr)
+            temp = Path(tmp, "temp")
+            temp.mkdir()
+            env = {**os.environ, "RUNNER_TEMP": str(temp), "URL": f"file://{src}", "PR": "7",
+                   "BASE_SHA": base, "HEAD_SHA": head, "BASE_REF": "feat-cmux-next"}
+            run = subprocess.run(["bash", "-euo", "pipefail", "-c", self.table.steps["split-plan"].run],
+                                 cwd=ROOT, env=env, capture_output=True, text=True, timeout=120)
+            self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+            self.assertIn("history cut inside the pull request", run.stdout)
+            self.assertIn(counts.group(0), run.stdout)
 
     def measure(self, old: bool) -> None:
         def git(repo: Path, *args: str) -> str:
