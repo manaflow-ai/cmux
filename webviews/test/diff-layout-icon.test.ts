@@ -6,7 +6,7 @@ import { toolbarPillButtons } from "../src/toolbar-model";
 
 const layoutButton = (layout: "split" | "unified" | "auto") =>
   toolbarPillButtons({
-    options: { collapsed: false, layout, wordWrap: false },
+    options: { layout },
     filesVisible: true,
     optionsOpen: false,
     findOpen: false,

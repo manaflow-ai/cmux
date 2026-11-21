@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import tomllib
 import unittest
 import urllib.error
@@ -7885,6 +7886,138 @@ class WsCheckFailureText(unittest.TestCase):
         self.assertEqual(excuse.unittest_failures(section),
                          [("test_x (__main__.A.test_x)", ["ValueError: tools/b.py is listed", "- 'tools/b.py'"]),
                           ("test_y (__main__.A.test_y)", ["KeyError: 'k'"])])
+
+
+class SourceCacheBound(unittest.TestCase):
+    """git_cache's bound on its bare repo (source_cache_hold): past SOURCE_CACHE_MAX_BYTES and a day old, the next run
+    no other run shares it with makes it again from nothing; a repo another run holds, or one under the cap or made
+    today, is kept as it is."""
+    REPO = "o/r"
+
+    def setUp(self):
+        top = tempfile.TemporaryDirectory(prefix="bre-bound-")
+        self.addCleanup(top.cleanup)
+        self.cache = Path(top.name, "src")
+        self.where = self.cache / "o__r.git"
+        for patch in (unittest.mock.patch.dict(os.environ, {excuse.SOURCE_CACHE_ENV: str(self.cache),
+                                                            excuse.SOURCE_CACHE_MAX_BYTES_ENV: "4096"}),
+                      unittest.mock.patch.dict(excuse._SOURCE_CACHE_LOCKS, clear=True)):
+            patch.start()
+            self.addCleanup(patch.stop)
+        self.addCleanup(self.release)
+        git_fixture_env.init_repo(self.where, "--bare")
+        self.blob = subprocess.run(["git", "--git-dir", str(self.where), "hash-object", "-w", "--stdin"],
+                                   input=os.urandom(64 * 1024), capture_output=True, check=True).stdout.decode().strip()
+
+    def release(self):
+        for fd in excuse._SOURCE_CACHE_LOCKS.values():
+            os.close(fd)
+
+    def has_blob(self) -> bool:
+        return subprocess.run(["git", "--git-dir", str(self.where), "cat-file", "-e", self.blob],
+                              capture_output=True).returncode == 0
+
+    def age(self, seconds):
+        stamp = self.where / excuse.SOURCE_CACHE_STAMP
+        stamp.touch()
+        when = time.time() - seconds
+        os.utime(stamp, (when, when))
+
+    def test_a_repo_past_the_cap_is_made_again_from_nothing(self):
+        self.assertIsNotNone(excuse.git_cache(self.REPO))
+        self.assertFalse(self.has_blob())
+        self.assertTrue((self.where / "HEAD").is_file())
+        self.assertTrue((self.where / excuse.SOURCE_CACHE_STAMP).is_file())
+        self.assertEqual(sorted(path.name for path in self.cache.iterdir()), ["o__r.git", "o__r.git.lock"])
+        config = subprocess.run(["git", "--git-dir", str(self.where), "config", "remote.origin.partialclonefilter"],
+                                capture_output=True, text=True)
+        self.assertEqual(config.stdout.strip(), "blob:none")
+
+    def test_a_repo_under_the_cap_is_kept(self):
+        with unittest.mock.patch.dict(os.environ, {excuse.SOURCE_CACHE_MAX_BYTES_ENV: str(1 << 30)}):
+            excuse.git_cache(self.REPO)
+        self.assertTrue(self.has_blob())
+
+    def test_a_repo_made_within_the_day_is_kept_past_the_cap(self):
+        self.age(excuse.SOURCE_CACHE_MIN_AGE_SECONDS - 600)
+        excuse.git_cache(self.REPO)
+        self.assertTrue(self.has_blob())
+        self.age(excuse.SOURCE_CACHE_MIN_AGE_SECONDS + 600)
+        self.release()  # the first run exits; a later one starts
+        excuse._SOURCE_CACHE_LOCKS.clear()
+        excuse.git_cache(self.REPO)
+        self.assertFalse(self.has_blob())
+
+    def test_a_repo_another_run_holds_is_never_moved(self):
+        import fcntl
+        other = os.open(self.where.with_name("o__r.git.lock"), os.O_RDWR | os.O_CREAT)
+        self.addCleanup(os.close, other)
+        fcntl.flock(other, fcntl.LOCK_SH)
+        excuse.git_cache(self.REPO)
+        self.assertTrue(self.has_blob())
+
+    def test_a_run_holds_its_repo_shared_until_it_exits(self):
+        import fcntl
+        excuse.git_cache(self.REPO)
+        excuse.git_cache(self.REPO)  # once per process: no second lock, no second check
+        self.assertEqual(len(excuse._SOURCE_CACHE_LOCKS), 1)
+        other = os.open(self.where.with_name("o__r.git.lock"), os.O_RDWR)
+        self.addCleanup(os.close, other)
+        fcntl.flock(other, fcntl.LOCK_SH | fcntl.LOCK_NB)  # readers share
+        fcntl.flock(other, fcntl.LOCK_UN)
+        with self.assertRaises(OSError):
+            fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)  # no rebuild under a live run
+
+    def test_a_copy_an_earlier_rebuild_left_is_removed_when_no_run_holds_the_repo(self):
+        left = self.cache / "o__r.git.retired-1-2"
+        (left / "objects").mkdir(parents=True)
+        with unittest.mock.patch.dict(os.environ, {excuse.SOURCE_CACHE_MAX_BYTES_ENV: str(1 << 30)}):
+            excuse.git_cache(self.REPO)
+        self.assertFalse(left.exists())
+        self.assertTrue(self.has_blob())
+
+
+class JobsCacheBound(unittest.TestCase):
+    """prune_kept, the jobs cache's prune (kept job lists and settled reads): past its age, a crashed write's spare
+    file past an hour, then the oldest answers until the directory fits JOBS_CACHE_MAX_BYTES."""
+
+    def setUp(self):
+        top = tempfile.TemporaryDirectory(prefix="bre-jobs-")
+        self.addCleanup(top.cleanup)
+        self.where = Path(top.name)
+
+    def kept(self, name, size, age):
+        path = self.where / name
+        path.write_bytes(b"x" * size)
+        when = time.time() - age
+        os.utime(path, (when, when))
+        return path
+
+    def test_the_oldest_answers_go_until_the_directory_fits_the_cap(self):
+        oldest, older, newest = self.kept("a.json", 400, 300), self.kept("b.json", 400, 200), self.kept("c.json", 400, 100)
+        (self.where / "settled").mkdir()
+        with unittest.mock.patch.dict(os.environ, {excuse.JOBS_CACHE_MAX_BYTES_ENV: "900"}):
+            excuse.prune_kept(self.where, 3600)
+        self.assertEqual([path.exists() for path in (oldest, older, newest)], [False, True, True])
+        self.assertTrue((self.where / "settled").is_dir())
+
+    def test_answers_past_their_age_and_stale_spare_files_go_under_the_cap(self):
+        old, fresh = self.kept("old.json", 10, 7200), self.kept("new.json", 10, 10)
+        spare, live = self.kept(".x.json.1", 10, 2 * excuse.KEPT_SPARE_SECONDS), self.kept(".y.json.2", 10, 5)
+        other = self.kept("notes.txt", 10, 7200)
+        excuse.prune_kept(self.where, 3600)
+        self.assertEqual([path.exists() for path in (old, fresh, spare, live, other)], [False, True, False, True, True])
+
+    def test_settled_put_prunes_the_settled_store_by_size(self):
+        settled = self.where / "settled"
+        settled.mkdir()
+        stale = self.kept("settled/0.json", 2000, 100)
+        with unittest.mock.patch.dict(os.environ, {excuse.JOBS_CACHE_ENV: str(self.where),
+                                                   excuse.JOBS_CACHE_MAX_BYTES_ENV: "1000"}), \
+                unittest.mock.patch.object(excuse, "_SETTLED_PRUNED", []):
+            excuse.settled_put("repos/o/r/actions/jobs/1", {"id": 1})
+            self.assertEqual(excuse.settled_get("repos/o/r/actions/jobs/1"), {"id": 1})
+        self.assertFalse(stale.exists())
 
 
 class WsCheckSquashTree(unittest.TestCase):
