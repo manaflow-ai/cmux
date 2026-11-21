@@ -418,7 +418,19 @@ fn change_lines(change: &Changed) -> String {
         )),
         // A code layer moves web-dev.json, which no generation holds.
         None if change.changed.iter().any(|key| key == cmux_customize::library::WEB_KEY) => {
-            out.push_str("web pages now load from the layer the library says; open pages reload\n");
+            let web = cmux_customize::library::WEB_KEY;
+            let serving = change.library.entries.iter().find(|entry| {
+                entry.on
+                    && entry.code.as_ref().is_some_and(|code| code.has_web())
+                    && !entry.overridden.iter().any(|key| key == web)
+            });
+            out.push_str(&match serving {
+                Some(entry) => {
+                    format!("web pages now load from {}; open pages reload\n", entry.name)
+                }
+                None => "no code layer is on: web pages are as they were before any; open pages reload\n"
+                    .to_owned(),
+            });
         }
         None => out.push_str("nothing live changed\n"),
     }
@@ -439,8 +451,12 @@ fn list_lines(listing: &Listing) -> String {
             entry.settings.iter().chain(entry.files.iter()).cloned().collect();
         if let Some(code) = &entry.code {
             what.push(if code.has_web() {
+                let base = match code.base.get(..12) {
+                    Some(base) => format!(" on {base}"),
+                    None => String::new(),
+                };
                 format!(
-                    "web layer of {} at {}",
+                    "web layer of {} at {}{base}",
                     code.source_label(),
                     code.head.get(..12).unwrap_or(&code.head)
                 )
