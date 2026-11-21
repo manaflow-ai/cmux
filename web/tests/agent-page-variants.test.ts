@@ -431,6 +431,15 @@ describe("agent page variants", () => {
     expect(sitemapPaths).not.toContain("/de/docs/remote-tmux");
   });
 
+  test("lists the English-only main-thread docs only in English", () => {
+    expect(resolveAgentPageVariant("/docs/main-thread.md")).not.toBeNull();
+    expect(resolveAgentPageVariant("/ja/docs/main-thread.md")).toBeNull();
+
+    const sitemapPaths = sitemap().map((entry) => new URL(String(entry.url)).pathname);
+    expect(sitemapPaths).toContain("/docs/main-thread");
+    expect(sitemapPaths).not.toContain("/ja/docs/main-thread");
+  });
+
   test("limits English-only blog variants to their canonical routes", () => {
     for (const path of [
       "/blog/cmux-claude-teams",
