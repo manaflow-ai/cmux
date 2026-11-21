@@ -11,6 +11,7 @@ mod input;
 mod keys;
 #[cfg(feature = "bench")]
 pub(crate) mod observe;
+pub(crate) mod pasteboard;
 #[cfg(feature = "bench")]
 pub(crate) mod synthetic;
 mod sys;
@@ -69,8 +70,6 @@ pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
     Ok((Box::new(desktop), Box::new(frames)))
 }
 
-/// [`open`]'s halves as their own types, which are `Send`: `desktop::open_ahead` opens them
-/// on another thread.
 /// One `open_steps` line in CMUX_RD_TIMING_LOG (when set): how long each step of opening the
 /// desktop took, in µs. `content` is the shareable-content request, `stream` the stream's
 /// start up to its answer, `encoder` what is left of the encoder session after that (it is made
@@ -90,6 +89,8 @@ fn log_open_steps(begin_ns: u64, content_ns: u64, started_ns: u64, encoder_ns: u
     }
 }
 
+/// [`open`]'s halves as their own types, which are `Send`: `desktop::open_ahead` opens them
+/// on another thread.
 pub fn open_halves(cfg: &SessionCfg, cursor_metadata: bool) -> Res<(MacDesktop, MacFrames)> {
     if cfg.codec != "videotoolbox" {
         return Err(format!(
@@ -160,6 +161,7 @@ impl Desktop for MacDesktop {
     }
 
     fn drain(&mut self, out: &mut Vec<Rect>) -> Res<()> {
+        self.capture.recover()?;
         self.capture.drain(out);
         Ok(())
     }
@@ -225,5 +227,9 @@ impl FrameSource for MacFrames {
 
     fn encoder_name(&self) -> String {
         self.name.clone()
+    }
+
+    fn idr_cause(&self) -> Option<&'static str> {
+        cmux_encode::H264Encoder::idr_cause(&self.encoder)
     }
 }
