@@ -299,8 +299,8 @@ await requireBrowserLane("chat-open-smooth.test.ts", async () => {
   /// load that is the frame the reveal shows: the app covers the page until it tells its host it
   /// shows the chat (`pane.painted`, the dev host's `cmuxDevPaintedAt`), and a frame is recorded only
   /// when something changed, so the last frame before that moment is what the reveal shows (the first
-  /// after it when none came before). For a switch it is the first frame with rows that are not the
-  /// last chat's (the first recorded frame, before the switch). That frame must already be the latest
+  /// after it when none came before). For a switch it is the first frame recorded after the one
+  /// before the switch. That frame must already be the latest
   /// message (`atLatest`): a chat shown blank, at its top or mid-way that then moves there fails.
   const judge = (recorded: Recorded, page: boolean): Judged => {
     let from = -1;
@@ -309,11 +309,10 @@ await requireBrowserLane("chat-open-smooth.test.ts", async () => {
       for (const [index, frame] of recorded.frames.entries()) if (frame.t < after) from = index;
       if (from < 0 || recorded.frames[from]!.rows.length === 0)
         from = recorded.frames.findIndex((frame) => frame.t >= after && frame.rows.length > 0);
-    } else {
-      const last = new Set(recorded.frames[0]?.rows.map((row) => row.id));
-      from = recorded.frames.findIndex(
-        (frame, index) => index > 0 && frame.rows.length > 0 && frame.rows.every((row) => !last.has(row.id)),
-      );
+    } else if (recorded.frames.length > 1) {
+      // A frame is recorded only when what is in view changed, from just before the switch: the second
+      // is the switch's first drawn frame, whatever it shows (rows of two chats can share an id).
+      from = 1;
     }
     const frames = (from < 0 ? [] : recorded.frames.slice(from)).map((frame) => ({
       ...frame,
