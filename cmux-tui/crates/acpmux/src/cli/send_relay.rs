@@ -49,7 +49,7 @@ pub(crate) fn relay_ls(relay: &SendRelay, deadline: Option<Instant>) -> Result<O
     let Some((program, args)) = relay.ls_argv.as_deref().and_then(<[String]>::split_first) else {
         return Ok(None);
     };
-    let mut cmd = Command::new(program);
+    let mut cmd = Command::new(crate::config::user_program(program));
     cmd.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     #[cfg(unix)]
     std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
@@ -395,7 +395,7 @@ pub(crate) fn relay_with_deadline(
 ) -> Result<Relayed> {
     let (program, args) =
         relay.argv.split_first().ok_or_else(|| anyhow!("sendRelay has no argv"))?;
-    let mut cmd = Command::new(program);
+    let mut cmd = Command::new(crate::config::user_program(program));
     cmd.args(args)
         .arg(session)
         .arg("-")
