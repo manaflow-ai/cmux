@@ -564,7 +564,7 @@ class Route:
 
     def macos(self) -> bool:
         """Any tier that needs a Mac: the placement job places these runs."""
-        return self.native or self.webview or self.swift or self.generated or self.daemon
+        return self.native or self.webview or self.swift or self.generated or self.daemon or self.fast_tier()
 
     def fast_tier(self) -> bool:
         """The Mac fast tier's package build or suites can change: a package target's sources, a file its
