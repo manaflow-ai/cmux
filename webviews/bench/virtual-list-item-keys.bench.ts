@@ -47,7 +47,12 @@ function virtualizer(rows: Card[], keyed: boolean): Virtualizer<HTMLElement, HTM
 
 function misplaced(rows: Card[], keyed: boolean, change: (rows: Card[]) => Card[]) {
   const v = virtualizer(rows, keyed);
+  // resizeItem ignores an index the virtualizer has not placed yet, so place them all first, as the first render
+  // does; then check every height took, or the bench would compare two unmeasured columns.
+  v.getTotalSize();
   rows.forEach((card, index) => v.resizeItem(index, card.height));
+  const measured = rows.reduce((sum, card) => sum + card.height, 0);
+  if (v.getTotalSize() !== measured) throw new Error(`measured ${v.getTotalSize()} px, cards add up to ${measured} px`);
   const next = change(rows);
   v.setOptions({ ...v.options, count: next.length, ...(keyed ? { getItemKey: (index) => next[index]!.id } : {}) });
   v.getTotalSize();
