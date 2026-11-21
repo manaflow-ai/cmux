@@ -7,11 +7,11 @@ import { rowsByKey } from "./schema";
 import type { SettingsState } from "./store";
 import { t, text } from "./strings";
 
-/** The Settings pages whose rows the stack records and that show its Undo bar: Appearance,
- * Personalization (which draws the old Theme page's cards) and Sidebar (every row of it was
+/** The Settings pages whose rows the stack records and that show its Undo bar: Appearance (which
+ * draws the theme studio, the background picker and density) and Sidebar (every row of it was
  * Appearance's before the pages split). */
-// Theme is no category: Personalization holds it (an unknown id would read as General).
-export const APPEARANCE_CATEGORIES: readonly string[] = ["personalization", "appearance", "sidebar"];
+// Theme and Personalization are no categories: Appearance holds both (an unknown id would read as General).
+export const APPEARANCE_CATEGORIES: readonly string[] = ["appearance", "sidebar"];
 
 /** The look rows that left Appearance for a page of mixed rows (Tabs and Panes, Terminal): the stack
  * still records them and Reset to Defaults still resets them, as before the split, while the

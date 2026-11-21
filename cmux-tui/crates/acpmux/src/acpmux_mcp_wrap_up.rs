@@ -27,7 +27,8 @@ Leave learned out otherwise. Then end the turn without repeating the recap.";
 const MAX_ACTIONS: usize = 2;
 /// The longest answer a button takes.
 const MAX_ACTION: usize = 80;
-/// Bounds that keep the box a box; longer text belongs in the answer.
+/// Bounds that keep the box a box; longer text belongs in the answer. The input schema carries
+/// each as `maxLength` and in its description, so a caller sees the limit before it calls.
 const MAX_RECAP: usize = 600;
 const MAX_ASK: usize = 200;
 /// The most facts a turn offers (`memory_inbox.rs`), and the longest one.
@@ -41,10 +42,10 @@ pub(super) fn tool() -> Value {
         "inputSchema": {
             "type": "object",
             "properties": {
-                "recap": {"type": "string", "description": "Two or three short sentences: what is now true or changed, then where it stands, including what is not done or not verified."},
-                "ask": {"type": "string", "description": "One short question, only when the next move is the person's call. Leave it out when nothing waits on them."},
-                "actions": {"type": "array", "items": {"type": "string"}, "maxItems": MAX_ACTIONS, "description": "With ask: one or two answers, a few words each, your pick first (\"Yes, open PR\", \"Not now\"). Each is sent as the person's reply when clicked. Without it a question gets Yes and Not now."},
-                "learned": {"type": "array", "items": {"type": "string"}, "maxItems": MAX_LEARNED, "description": "Only when the person corrected you this turn, or a command failed and a later one worked: up to three one-line facts about this project for its instructions file (\"Use pnpm, not npm.\"). Each is shown to the person to accept or dismiss."}
+                "recap": {"type": "string", "maxLength": MAX_RECAP, "description": format!("Two or three short sentences, at most {MAX_RECAP} characters: what is now true or changed, then where it stands, including what is not done or not verified.")},
+                "ask": {"type": "string", "maxLength": MAX_ASK, "description": format!("One short question of at most {MAX_ASK} characters, only when the next move is the person's call. Leave it out when nothing waits on them.")},
+                "actions": {"type": "array", "items": {"type": "string", "maxLength": MAX_ACTION}, "maxItems": MAX_ACTIONS, "description": format!("With ask: one or two answers, a few words each and at most {MAX_ACTION} characters, your pick first (\"Yes, open PR\", \"Not now\"). Each is sent as the person's reply when clicked. Without it a question gets Yes and Not now.")},
+                "learned": {"type": "array", "items": {"type": "string", "maxLength": MAX_FACT}, "maxItems": MAX_LEARNED, "description": format!("Only when the person corrected you this turn, or a command failed and a later one worked: up to three one-line facts about this project for its instructions file (\"Use pnpm, not npm.\"), each at most {MAX_FACT} characters. Each is shown to the person to accept or dismiss.")}
             },
             "required": ["recap"]
         }
@@ -171,6 +172,28 @@ mod tests {
         let shown = check(&json!({"recap": "Done.", "learned": [" Use pnpm, not npm. "]})).unwrap();
         assert_eq!(shown["learned"], json!(["Use pnpm, not npm."]));
         assert!(check(&json!({"recap": "Done.", "learned": []})).unwrap().get("learned").is_none());
+    }
+
+    #[test]
+    fn the_schema_carries_every_length_limit_the_check_enforces() {
+        let tool = tool();
+        let props = &tool["inputSchema"]["properties"];
+        assert_eq!(props["recap"]["maxLength"], MAX_RECAP);
+        assert_eq!(props["ask"]["maxLength"], MAX_ASK);
+        assert_eq!(props["actions"]["items"]["maxLength"], MAX_ACTION);
+        assert_eq!(props["actions"]["maxItems"], MAX_ACTIONS);
+        assert_eq!(props["learned"]["items"]["maxLength"], MAX_FACT);
+        assert_eq!(props["learned"]["maxItems"], MAX_LEARNED);
+        for (key, max) in
+            [("recap", MAX_RECAP), ("ask", MAX_ASK), ("actions", MAX_ACTION), ("learned", MAX_FACT)]
+        {
+            let said = props[key]["description"].as_str().unwrap();
+            assert!(said.contains(&format!("at most {max} characters")), "{key}: {said}");
+        }
+        // The schema's limit is the check's: a recap at it passes whole, one past it is refused.
+        let at = "x".repeat(MAX_RECAP);
+        assert_eq!(check(&json!({"recap": at})).unwrap()["recap"], at);
+        assert!(check(&json!({"recap": "x".repeat(MAX_RECAP + 1)})).is_err());
     }
 
     #[test]

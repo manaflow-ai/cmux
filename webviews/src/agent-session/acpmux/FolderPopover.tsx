@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useLocationShortcut } from "./composerControls";
 import { Combobox } from "../../ui/Combobox";
 import { Popover } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
@@ -9,7 +10,7 @@ import type { ExtraFolderRows } from "./extraFolders";
 import { GitHubMark, LockIcon } from "./GitHubIcons";
 import { githubFolder, githubFolderRepo, matchingRepos, type GitHubPicker } from "./githubRepos";
 import { translate as t } from "./i18n";
-import { FOLDER_MENU_LIST_CAP, FOLDER_MENU_MIN_HEIGHT, useLocationOpener, useLocationPopover } from "./locationPopover";
+import { FOLDER_MENU_LIST_CAP, folderMenuShortest, useLocationOpener, useLocationPopover } from "./locationPopover";
 import { ProjectBadge } from "./ProjectBadge";
 import { projectSuffixes } from "./projectSuffix";
 import { folderRepo, groupByRepo, isMainCheckout, shownRepoRows, worktreeName, type ProjectRepo } from "./projectRepos";
@@ -41,15 +42,15 @@ export type FolderChoice = { id: string; label: string; repo?: ProjectRepo };
 /// `github:owner/name`, over the folders for a chat set to Cloud (`githubFirst`), else under them.
 /// The GitHub row is a fixed action under Add folder…: Choose more repositories… (the installation's
 /// page on GitHub) once connected, so a connected team always sees it; Retry, its second line the
-/// error, when the repositories' list failed to load (a click reads it again, the menu still open);
-/// until then (the cmux GitHub
-/// App not installed, signed out, no GitHub App on this Cloud service, or the check did not answer)
-/// Connect to GitHub, which one click connects in place: the host opens the install page, or sign-in when signed out, the menu
-/// stays open and lists the repositories once the status says ready. Its second line is a refusal (a
-/// click tries again), the wait for the browser, or why it can't connect yet. It never picks a folder.
-/// Before the first status read answers the row says it is checking, so GitHub is never missing; a
-/// click on it then does nothing. With the repositories listed first, the folders after them are
-/// headed This Mac, so they never read as part of the GitHub group.
+/// error, when the repositories' list failed to load (a click reads it again, the menu still open).
+/// GitHub is optional: while the cmux GitHub App is not installed, or the person is signed out, the
+/// row is Connect to GitHub (none on a Cloud service with no GitHub App, none while the check did
+/// not answer, none before the first status read answers), and one click connects in place: the host
+/// opens the install page, or sign-in when signed out, the menu stays open and lists the repositories
+/// once the status says ready. The row is its title alone; only a refusal (a click tries again) adds
+/// a second line. GitHub's own page is the one wait: no Waiting for GitHub… under the row. It never
+/// picks a folder. With the repositories listed first, the folders after them are headed This Mac,
+/// so they never read as part of the GitHub group.
 export function FolderPopover({
   label,
   menu,
@@ -110,17 +111,17 @@ export function FolderPopover({
     setOpen: setPopoverOpen,
     side,
     flip,
-  } = useLocationPopover({
-    listCap: FOLDER_MENU_LIST_CAP,
-    shortest: FOLDER_MENU_MIN_HEIGHT,
-  });
+  } = useLocationPopover({ listCap: FOLDER_MENU_LIST_CAP });
   const setOpen = (next: boolean) => {
     if (next) {
       setHighlightAuto(true);
       // Each open reads whether GitHub is connected, and its repositories once it is.
       if (!open) github?.onOpen();
     }
-    setPopoverOpen(next);
+    // The side fits the rows and actions the menu has now (they are counted below, before any press),
+    // the GitHub row its status may still add, and the chat's extra folders listed under the actions.
+    const below = pinned.length + (github && !githubAction && !addingExtra ? 1 : 0) + (extra?.folders.length ?? 0);
+    setPopoverOpen(next, folderMenuShortest(suggestions.length - pinned.length, below));
   };
   const press = usePopoverTrigger(open, (next) => {
     setOpen(next);
@@ -131,6 +132,7 @@ export function FolderPopover({
     }
   });
   useLocationOpener(menu, () => setOpen(true));
+  const shortcut = useLocationShortcut(menu);
   // Add another folder… gives the menu a fresh field (the Combobox's key): the keyboard stays in it.
   useEffect(() => {
     if (!addingExtra) return;
@@ -139,10 +141,15 @@ export function FolderPopover({
       ?.focus();
   }, [addingExtra]);
   const extraFolders = extra?.folders;
+  // The filesystem root is no project, so it is never listed: a chat someone started there (a shell
+  // at `/`) put a row among the folders that named no folder. Typing `/` still offers it as a path.
   // While adding, the project and the folders already added are not offered again.
   const offered = useMemo(
     () =>
-      addingExtra ? folders.filter((folder) => folder.id !== current && !extraFolders?.includes(folder.id)) : folders,
+      folders.filter(
+        (folder) =>
+          !/^\/+$/.test(folder.id) && !(addingExtra && (folder.id === current || extraFolders?.includes(folder.id))),
+      ),
     [addingExtra, folders, current, extraFolders],
   );
   const groups = useMemo(() => groupByRepo(offered, current), [offered, current]);
@@ -179,16 +186,21 @@ export function FolderPopover({
     () => (githubReady && githubRepos ? matchingRepos(githubRepos, typed) : []),
     [githubReady, githubRepos, typed],
   );
-  // Connect to GitHub (not connected yet), Choose more repositories… (connected) or Retry (connected,
-  // the repositories' list failed) is pinned with the actions under the list: the folder list scrolls
-  // (thousands of projects), and a row at its end would sit below the fold where nobody finds it.
+  // The GitHub row is pinned with the actions under the list: the folder list scrolls (thousands of
+  // projects), and a row at its end would sit below the fold where nobody finds it. Connected: Choose
+  // more repositories…, or Retry when the repositories' list failed. Connect to GitHub only where a
+  // click can connect: not connected, or signed out (the click signs in first). Never while the check
+  // did not answer (a connected team's check can fail), nor on a Cloud service with no GitHub App (#46018).
   const githubAction =
     github && !addingExtra
       ? githubReady
         ? GITHUB_MORE
         : githubStatus === "ready"
           ? GITHUB_RETRY
-          : GITHUB_ADD
+          : githubStatus === "not_connected" ||
+              (githubStatus === "unavailable" && github.state.status?.reason === "signed_out")
+            ? GITHUB_ADD
+            : undefined
       : undefined;
   const githubRows = repos.map((repo) => GITHUB_REPO + repo.fullName);
   const repoRows = useMemo(() => new Map(repos.map((repo) => [GITHUB_REPO + repo.fullName, repo])), [repos]);
@@ -235,6 +247,29 @@ export function FolderPopover({
     ...(typedPath ? [typedPath] : []),
     ...(githubFirst ? [] : githubRows),
   ];
+  // A worktree or subfolder leading its row is named by its branch or path; the main checkout needs none.
+  const leadSuffix = (folder: FolderChoice) =>
+    folderRepo(folder) && !isMainCheckout(folder) ? worktreeName(folder) : suffixes.get(folder.id);
+  // The menu is as wide as its fullest listed row needs (composerLocation.css `.acpmux-folder-fit`).
+  // The list mounts only the rows in view and places them itself, so the rows give the popup no
+  // width: the longest rows' words are listed once more, unseen, and the browser measures those.
+  // Only while open: a closed menu measures nothing, whatever re-renders its composer.
+  const fit = widestLines(
+    (open ? suggestions.slice(pinned.length) : []).map((value): FitLine => {
+      const place = shown.get(value);
+      if (!place) {
+        const repo = repoRows.get(value);
+        return repo
+          ? { text: repo.fullName, kind: repo.private ? "lock" : "row" }
+          : { text: t("project.usePath", { path: value }), kind: "row" };
+      }
+      if (place.worktree) return { text: worktreeName(place.worktree), kind: "worktree" };
+      const suffix = leadSuffix(place.group.lead);
+      const others = place.group.members.length - 1;
+      const name = suffix ? `${place.group.name} · ${suffix}` : place.group.name;
+      return others > 0 && !typed ? { text: `${name} ${others}`, kind: "count" } : { text: name, kind: "row" };
+    }),
+  );
   const close = () => {
     setOpen(false);
     setQuery("");
@@ -245,10 +280,9 @@ export function FolderPopover({
   };
   const submit = (value: string) => {
     // Connect to GitHub connects from the row in one click (the host opens the install page, or
-    // sign-in), the menu still open; a click while it waits opens the page again. Until the status
-    // answers a click does nothing: the connect reply would race the first status.
+    // sign-in), the menu still open; a click while it waits opens the page again.
     if (value === GITHUB_ADD) {
-      if (githubStatus !== undefined) github?.onConnect();
+      github?.onConnect();
       return;
     }
     // Retry reads the repositories again, the menu still open; they are listed once they load.
@@ -297,9 +331,9 @@ export function FolderPopover({
     const section = sectionOf(value);
     if (value === GITHUB_ADD) {
       const reason = githubStatus === "unavailable" ? github?.state.status?.reason : undefined;
-      // One line at rest, in every status. A second line only for what follows a click: the
-      // host's refusal, else the wait for the browser.
-      const detail = github?.state.connectError ?? (github?.state.waiting ? t("composer.githubWaiting") : undefined);
+      // The title alone: GitHub's own page is the one place the person waits, so the row adds no
+      // Waiting for GitHub… nor a reason under it. Only a click the host refused says why (#46018).
+      const detail = github?.state.connectError;
       return (
         <span className="acpmux-location-action acpmux-location-row" data-github="" data-github-unavailable={reason}>
           <span className="acpmux-location-action-icon" aria-hidden="true">
@@ -326,7 +360,7 @@ export function FolderPopover({
       );
     if (value === GITHUB_MORE)
       return (
-        <span className="acpmux-location-action acpmux-location-row" data-github="" data-section={section}>
+        <span className="acpmux-location-action acpmux-location-row" data-github="">
           <span className="acpmux-location-action-icon" aria-hidden="true">
             <ActionIcon action={ACTION + "browse"} />
           </span>
@@ -408,8 +442,7 @@ export function FolderPopover({
       );
     const folder = group.lead;
     const repo = folderRepo(folder);
-    // A worktree or subfolder leading its row is named by its branch or path; the main checkout needs none.
-    const suffix = repo && !isMainCheckout(folder) ? worktreeName(folder) : suffixes.get(folder.id);
+    const suffix = leadSuffix(folder);
     const others = group.members.length - 1;
     const open = expanded.has(group.key);
     return (
@@ -486,8 +519,10 @@ export function FolderPopover({
         type="button"
         className="acpmux-location-button ui-ghost ui-ghost-sm"
         aria-label={label}
-        // tooltip-allow: the fixed footer column may truncate a long folder name.
-        title={current}
+        // tooltip-allow: the fixed footer column may truncate a long folder name; with none picked the
+        // tooltip names the control, so its key (data-tooltip-shortcut) still shows.
+        title={current || label}
+        data-tooltip-shortcut={shortcut}
         {...press}
       >
         {face}
@@ -521,6 +556,11 @@ export function FolderPopover({
         flip={flip}
         finalFocus={false}
       >
+        <span className="acpmux-folder-fit" aria-hidden="true">
+          {fit.map((line) => (
+            <span key={line.kind + line.text} data-text={line.text} data-kind={line.kind} />
+          ))}
+        </span>
         <Combobox
           // A fresh field for Add another folder…'s pick.
           key={addingExtra ? "extra" : "folder"}
@@ -569,6 +609,29 @@ export function FolderPopover({
     </span>
   );
 }
+
+/// One listed row's words and what its row draws beside them (a worktree count, a worktree's
+/// indent, a private repository's lock glyph), for the menu's width.
+export type FitLine = { text: string; kind: "row" | "count" | "worktree" | "lock" };
+
+/// The few lines that can be the widest: the longest by their letters, the room beside them counted
+/// in letters too. Thousands of folders stay a handful of measured lines.
+export function widestLines(lines: readonly FitLine[], keep = 6): FitLine[] {
+  const reach = (line: FitLine) => line.text.length + FIT_KIND_LETTERS[line.kind];
+  // One pass, the kept few in order: no sort of every folder on each render.
+  const widest: FitLine[] = [];
+  for (const line of lines) {
+    if (widest.length === keep && reach(line) <= reach(widest[keep - 1]!)) continue;
+    if (widest.some((kept) => kept.kind === line.kind && kept.text === line.text)) continue;
+    const at = widest.findIndex((kept) => reach(kept) < reach(line));
+    widest.splice(at === -1 ? widest.length : at, 0, line);
+    if (widest.length > keep) widest.pop();
+  }
+  return widest;
+}
+
+/// About how many letters wide each kind's extra room is (composerLocation.css gives the real widths).
+const FIT_KIND_LETTERS: Record<FitLine["kind"], number> = { row: 0, count: 5, worktree: 3, lock: 3 };
 
 /// An action row's value: never a path.
 const ACTION = "\u0000action:";

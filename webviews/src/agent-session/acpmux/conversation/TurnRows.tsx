@@ -23,7 +23,7 @@ import { ToolRunSteps } from "./ToolRunSteps";
 import { KeepOpenedLine } from "./KeepOpenedLine";
 import { visibleToolItems } from "./mcpPresentation";
 import { ThoughtRow } from "./ThoughtRow";
-import { groupId, runStretches, stretchStart, toolGroups, type RunStretch, type ToolGroup } from "./toolGroups";
+import { groupId, runStretches, stretchStart, toolGroups, type ToolGroup } from "./toolGroups";
 import type { RetryNote } from "../subagents/retryState";
 import { RowReplyButton } from "./SelectionReply";
 import { TurnActionsContext } from "./turnActions";
@@ -41,9 +41,11 @@ import {
 import { stoppedTurnLook } from "./stoppedTurn.experiment";
 import { turnCopyText } from "./turnCopy";
 import { TimedLabel } from "./TurnTokens";
-import { AlertCircle, ChevronRight, Retry } from "./icons";
+import { AlertCircle, ChevronRight, Close, Retry } from "./icons";
 import { ForkButton, MessageCopy, MessageFooterRow, MessageMore, PinButton, ReadAloudButton } from "./MessageActions";
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
+import { dismissFailure, useFailureDismissed } from "./dismissedFailures";
+import { SteerChatContext } from "./pendingSteerModel";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { CloudSignIn } from "./CloudSignIn";
 import { offersGateway, type CloudSignIn as CloudSignInActions } from "../cloudAgentLogin";
@@ -64,7 +66,7 @@ import { useCodeRouterChoice } from "./codeRouterOfferModel";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 import { PresentationContext } from "./presentationContextModel";
 import { useTurnWaterfall } from "./useTurnWaterfall";
-import { groupDisclosureKey, runDisclosureKey, runShape, thoughtIds } from "./turnRowsModel";
+import { groupDisclosureKey, runDisclosureKey, runLinks, runShape, thoughtIds } from "./turnRowsModel";
 
 /// "Worked for 15s" with its time in the line's quieter color (workedLabel's words otherwise).
 function WorkedLabel({ row }: { row: AcpmuxRow }) {
@@ -228,26 +230,6 @@ function groupNode(
         />
       );
   }
-}
-
-/// How a folded stretch's line follows the group lines it grew from and splits back into
-/// (`useTranscriptDisclosure` links): any of them the reader opened opens it (`inherits`); its own
-/// choice passes down to those they set, but never to an edits group, which keeps its own state as it
-/// draws inside the opened line (`passesDown`); and closing every group that drew open while the turn
-/// ran, one by one, closes it (`closedBy`).
-function runLinks(stretch: RunStretch, rowId: string) {
-  const inherits: string[] = [];
-  const passesDown: string[] = [];
-  const closedBy: string[] = [];
-  stretch.groups.forEach((group, offset) => {
-    const key = groupDisclosureKey(group, stretch.from + offset, rowId);
-    if (!key) return;
-    inherits.push(key);
-    if (group.type === "group" && group.kind === "edits") return;
-    passesDown.push(key);
-    if (group.type === "group") closedBy.push(key);
-  });
-  return { inherits, passesDown, closedBy };
 }
 
 export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: string }) {
@@ -422,6 +404,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const automaticRecoveryAttempted = useRef<string | undefined>(undefined);
   const automaticRecoveryRow =
     failed &&
+    !row.recovered &&
     !teamMachine &&
     row.retryable === true &&
     row.retryRowId &&
@@ -477,6 +460,12 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
       if (retrying) return;
       runRetry(recovery.run, recovery.label);
     });
+  // A failed turn's card goes once the chat went on and a later turn finished (turns.ts
+  // `markRecovered`), or once the person closed it with its × (cmux#48434). The footer's own Retry
+  // stays for the turn that is still the chat's last.
+  const chat = useContext(SteerChatContext);
+  const dismissed = useFailureDismissed(chat, row.id);
+  const showsCard = failed && !row.recovered && !dismissed;
   const promptOnly = row.toolCount === 0 && !text && !copy && !row.turnWork?.length && !row.changedFiles;
   if (!failed && promptOnly && !stoppedWord) return null;
   // A failure reads as the turn's answer does: its own block above the footer row, never squeezed
@@ -485,8 +474,9 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // turn the reader points at, from its answer to its footer).
   return (
     <>
-      {failed && (
+      {showsCard && (
         <TurnFailure
+          onDismiss={() => dismissFailure(chat, row.id)}
           message={row.error}
           code={row.errorCode}
           route={route}
@@ -584,6 +574,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
 /// Switch model after it; Compact for a chat that outgrew its context window, with Retry after it); Details opens the agent's own message with Copy error. Its surface is the
 /// `turn-error-card` experiment's arm (turnErrorCard.experiment.ts).
 function TurnFailure({
+  onDismiss,
   message,
   code,
   route,
@@ -603,6 +594,8 @@ function TurnFailure({
   failedAgain = false,
   retryNote,
 }: {
+  /// Closes the card for good (dismissedFailures.ts); the turn's footer stays.
+  onDismiss?: () => void;
   message: string | undefined;
   code?: string;
   route?: FailureRoute;
@@ -745,10 +738,7 @@ function TurnFailure({
     </button>
   );
   return (
-    <div
-      className={`cv-turn-note cv-turn-error ui-transient-error cv-turn-error--${arm}${arm === "card" ? " ui-glass" : ""}`}
-      data-failure-kind={kind}
-    >
+    <div className={`cv-turn-note cv-turn-error cv-turn-error--${arm}`} data-failure-kind={kind}>
       <span className="cv-turn-error__cause">
         {arm !== "note" && <AlertCircle size={arm === "card" ? 16 : 14} className="cv-turn-error__icon" />}
         <span className="text-fg">
@@ -843,6 +833,17 @@ function TurnFailure({
         )}
         {message && <ErrorDetails text={message} />}
       </span>
+      {onDismiss && (
+        <button
+          type="button"
+          className="cv-iconbtn cv-iconbtn--compact cv-turn-error__dismiss text-dim"
+          aria-label={t("toast.dismiss")}
+          title={t("toast.dismiss")}
+          onClick={onDismiss}
+        >
+          <Close size={14} />
+        </button>
+      )}
     </div>
   );
 }

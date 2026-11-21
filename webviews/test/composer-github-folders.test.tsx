@@ -40,6 +40,7 @@ const { createGitHubPicker, useGitHubPicker, githubFolderRepo } =
   await import("../src/agent-session/acpmux/githubRepos");
 const { cloudStartFolder, newTabProjectPick } = await import("../src/agent-session/acpmux/cloudRun");
 const { installPageKey } = await import("../src/agent-session/acpmux/pageKey");
+const { widestLines } = await import("../src/agent-session/acpmux/FolderPopover");
 const { useState } = await import("react");
 
 afterAll(async () => {
@@ -155,23 +156,26 @@ test("not connected: one click on Connect to GitHub opens GitHub in place, waits
     expect(row).toBeDefined();
     expect(row!.querySelector("[data-github-unavailable]")).toBeNull();
     expect(detail(row)).toBeUndefined();
-    // It is one of the fixed actions, under the folders.
-    const rows = [...doc().querySelectorAll("[role=option]")].map((item) => item.textContent);
-    expect(rows.indexOf(row!.textContent)).toBeGreaterThan(rows.findIndex((text) => text?.includes("notes")));
+    // It is one of the fixed actions under the folders, outside their scrolling list, so a long list never hides it.
+    expect(row!.closest(".ui-combobox-pinned")).not.toBeNull();
+    expect(row!.closest(".ui-combobox-scroll")).toBeNull();
+    expect(option("notes")!.closest(".ui-combobox-scroll")).not.toBeNull();
     await press(row!);
     // One click connects: no second step in the menu.
     expect(gh.calls.at(-1)).toEqual(["github.connect", {}]);
     expect(button("Install on GitHub")).toBeUndefined();
     expect(doc().body.textContent).not.toContain("Install the cmux GitHub App");
     expect(picked).toEqual([]);
-    // The menu is still open on the list, the row waiting for the browser.
+    // The menu is still open on the list, and the row stays its title alone: GitHub's own page is the
+    // one place the person waits, with no Waiting for GitHub… layered under the row (#46018).
     expect(doc().querySelector(".acpmux-location-search")).not.toBeNull();
     expect(option("notes")).toBeDefined();
-    expect(detail(option(CONNECT))).toBe("Waiting for GitHub…");
-    // Coming back while it is still not installed: the row keeps waiting.
+    expect(detail(option(CONNECT))).toBeUndefined();
+    expect(doc().body.textContent).not.toContain("Waiting for GitHub");
+    // Coming back while it is still not installed: the status is read again, the row unchanged.
     await gh.back();
     expect(gh.calls.at(-1)?.[0]).toBe("github.status");
-    expect(detail(option(CONNECT))).toBe("Waiting for GitHub…");
+    expect(detail(option(CONNECT))).toBeUndefined();
     // Installed: the repositories, and no Connect to GitHub row.
     gh.answers["github.status"] = { state: "ready", repos_scope: "all" };
     gh.answers["github.repos.list"] = { repos: REPOS, truncated: false };
@@ -187,9 +191,9 @@ test("not connected: one click on Connect to GitHub opens GitHub in place, waits
 
 for (const status of [
   { state: "not_connected", repos_scope: null },
-  { state: "unavailable", repos_scope: null, reason: "unreachable" },
+  { state: "unavailable", repos_scope: null, reason: "signed_out" },
 ]) {
-  test(`${status.state}: Connect to GitHub is a fixed action under Add folder…, never a row of the scrolling list`, async () => {
+  test(`${status.reason ?? status.state}: Connect to GitHub is a fixed action under Add folder…, never a row of the scrolling list`, async () => {
     const gh = host({ "github.status": status, "github.connect": { opened: true } });
     const { root, picked } = await renderTray({ onBrowseProject: () => undefined }, gh.store);
     try {
@@ -226,6 +230,69 @@ test("a new Cloud chat with no folder draws no line under the folder menu's acti
   } finally {
     await act(async () => root.unmount());
   }
+});
+
+test("the filesystem root is never listed as a folder, and no folder is ever named No folder", async () => {
+  // A chat started in `/` (a shell at the root) put a folder row that read No folder among the folders.
+  const { projectLabel } = await import("../src/agent-session/acpmux/sessionList");
+  expect(projectLabel("/")).toBe("/");
+  expect(projectLabel("")).toBe("No folder");
+  expect(projectLabel(undefined)).toBe("No folder");
+  const gh = host({ "github.status": { state: "not_connected", repos_scope: null } });
+  const { root } = await renderTray(
+    {
+      projectChoices: [
+        { cwd: FOLDER, label: "app" },
+        { cwd: "/", label: projectLabel("/") },
+        { cwd: "/Users/me/notes", label: "notes" },
+      ],
+      onNoProject: () => {},
+    },
+    gh.store,
+  );
+  try {
+    await openFolderMenu();
+    const listed = [...doc().querySelectorAll(".ui-combobox-scroll [role=option]")].map((item) => item.textContent);
+    expect(listed).toEqual(["app", "notes"]);
+    // No folder is the action under the list, and only that.
+    const named = [...doc().querySelectorAll("[role=option]")].filter((item) => item.textContent === "No folder");
+    expect(named.length).toBe(1);
+    expect(named[0]!.closest(".ui-combobox-pinned")).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("the folder menu lists its fullest rows' words for its width, and never as a second visible name", async () => {
+  const gh = host({ "github.status": { state: "not_connected", repos_scope: null } });
+  const { root } = await renderTray({}, gh.store);
+  try {
+    await openFolderMenu();
+    const menu = doc().querySelector(".acpmux-folder-popover")!;
+    const fit = menu.querySelector(".acpmux-folder-fit")!;
+    expect(fit.getAttribute("aria-hidden")).toBe("true");
+    // The two listed folders, by the names their rows show; the words are drawn by CSS from the attribute.
+    expect(new Set([...fit.children].map((line) => line.getAttribute("data-text")))).toEqual(new Set(["app", "notes"]));
+    expect(fit.textContent).toBe("");
+    // The actions are in the page's flow and size the menu themselves: no line for them.
+    expect(fit.querySelector('[data-text="Connect to GitHub"]')).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("only the few longest lines are measured, the room beside the words counted", () => {
+  const row = (text: string) => ({ text, kind: "row" as const });
+  const many = Array.from({ length: 4000 }, (_, index) => row("f" + index));
+  const picked = widestLines([...many, row("a much longer folder name"), row("f1")]);
+  expect(picked).toHaveLength(6);
+  expect(picked[0]).toEqual(row("a much longer folder name"));
+  // The same row is listed once.
+  expect(widestLines([row("api"), row("api"), row("web")])).toEqual([row("api"), row("web")]);
+  // A worktree count beside shorter words can reach further than longer words alone.
+  expect(widestLines([row("cmuxterm"), { text: "cmux 24", kind: "count" }], 1)).toEqual([
+    { text: "cmux 24", kind: "count" },
+  ]);
 });
 
 /// Nothing with text follows the pinned actions in the folder menu, and `line` comes before them.
@@ -319,6 +386,65 @@ test("with the page's own key state, coming back to the window after Connect to 
   }
 });
 
+test("the app finishing the install GitHub handed back (cmux-github-changed) lists the repositories with no click", async () => {
+  const answers: Record<string, unknown> = {
+    "github.status": { state: "not_connected", repos_scope: null },
+    "github.connect": { opened: true },
+  };
+  const calls: string[] = [];
+  const store = createGitHubPicker(async (method) => {
+    calls.push(method);
+    return answers[method];
+  });
+  const { root } = await renderTray({}, store);
+  try {
+    await openFolderMenu();
+    await press(option(CONNECT)!);
+    // Back in cmux before the app's completion answered: still not connected.
+    answers["github.status"] = { state: "ready", repos_scope: "all" };
+    answers["github.repos.list"] = { repos: REPOS, truncated: false };
+    await act(async () => void dom.window.dispatchEvent(new dom.window.Event("cmux-github-changed")));
+    await settle();
+    expect(calls).toEqual(["github.status", "github.connect", "github.status", "github.repos.list"]);
+    expect(option("acme/api")).toBeDefined();
+    // A later change (Reconfigure added a repository) lists them again.
+    answers["github.repos.list"] = {
+      repos: [...REPOS, { full_name: "acme/docs", private: true, default_branch: "main" }],
+      truncated: false,
+    };
+    await act(async () => void dom.window.dispatchEvent(new dom.window.Event("cmux-github-changed")));
+    await settle();
+    expect(option("acme/docs")).toBeDefined();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("the GitHub row is pinned right under Add folder…, under the scrolling folders: Connect, then Choose more repositories… once connected", async () => {
+  const gh = host({
+    "github.status": { state: "not_connected", repos_scope: null },
+    "github.connect": { opened: true },
+  });
+  const { root } = await renderTray({ onBrowseProject: () => undefined }, gh.store);
+  try {
+    await openFolderMenu();
+    const pinned = [...doc().querySelectorAll(".ui-combobox-pinned [role=option]")].map((item) => item.textContent);
+    expect(pinned).toEqual(["Add folder…", CONNECT]);
+    gh.answers["github.status"] = { state: "ready", repos_scope: "all" };
+    gh.answers["github.repos.list"] = { repos: REPOS, truncated: false };
+    await gh.back();
+    await act(async () => void dom.window.dispatchEvent(new dom.window.Event("cmux-github-changed")));
+    await settle();
+    expect([...doc().querySelectorAll(".ui-combobox-pinned [role=option]")].map((item) => item.textContent)).toEqual([
+      "Add folder…",
+      "Choose more repositories…",
+    ]);
+    expect(option("acme/api")!.closest(".ui-combobox-scroll")).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 test("a click on Connect to GitHub while it waits opens GitHub again", async () => {
   const gh = host({
     "github.status": { state: "not_connected", repos_scope: null },
@@ -328,7 +454,7 @@ test("a click on Connect to GitHub while it waits opens GitHub again", async () 
   try {
     await openFolderMenu();
     await press(option(CONNECT)!);
-    expect(detail(option(CONNECT))).toBe("Waiting for GitHub…");
+    expect(detail(option(CONNECT))).toBeUndefined();
     await press(option(CONNECT)!);
     expect(gh.calls.filter(([method]) => method === "github.connect")).toHaveLength(2);
     expect(option("notes")).toBeDefined();
@@ -492,7 +618,7 @@ test("another repos.list failure makes the pinned GitHub row Retry, which reads 
   }
 });
 
-test("before the status answers, the Connect to GitHub row is there, one line, and a click asks nothing", async () => {
+test("before the status answers, nothing GitHub shows; a check that did not answer shows no Connect row", async () => {
   let answer: (value: unknown) => void = () => undefined;
   const calls: string[] = [];
   const store = createGitHubPicker((method) => {
@@ -503,51 +629,42 @@ test("before the status answers, the Connect to GitHub row is there, one line, a
   try {
     await openFolderMenu();
     expect(calls).toEqual(["github.status"]);
-    expect(option(CONNECT)!.querySelector(".acpmux-menu-description")).toBeNull();
-    // Until the status answers a click asks nothing.
-    await press(option(CONNECT)!);
-    expect(calls).toEqual(["github.status"]);
-    expect(option(CONNECT)).toBeDefined();
+    expect(doc().querySelector("[data-github]")).toBeNull();
     await act(async () => answer({ state: "unavailable", repos_scope: null, reason: "unreachable" }));
     await settle();
-    expect(detail(option(CONNECT))).toBeUndefined();
+    // A connected team's check can fail too: never offer Connect to GitHub on a guess (#46018).
+    expect(option(CONNECT)).toBeUndefined();
   } finally {
     await act(async () => root.unmount());
   }
 });
 
-test("unavailable: one row connects in place, never picks a folder, and lists the repositories once ready", async () => {
+test("connected, or unchecked: no Connect to GitHub row in the folder menu", async () => {
   const gh = host({
-    "github.status": { state: "unavailable", repos_scope: null, reason: "unreachable" },
-    "github.connect": { opened: true },
+    "github.status": { state: "ready", repos_scope: "all" },
+    "github.repos.list": { repos: REPOS, truncated: false },
   });
-  const { root, picked } = await renderTray({}, gh.store);
+  const { root } = await renderTray({}, gh.store);
   try {
     await openFolderMenu();
-    const row = option(CONNECT)!;
-    expect(row.querySelector("[data-github-unavailable]")?.getAttribute("data-github-unavailable")).toBe("unreachable");
-    // No reason worth a line before a click.
-    expect(row.querySelector(".acpmux-menu-description")).toBeNull();
-    await press(row);
-    expect(gh.calls.map(([method]) => method)).toEqual(["github.status", "github.connect"]);
-    expect(picked).toEqual([]);
-    expect(button("Install on GitHub")).toBeUndefined();
-    // The menu is still open on the list, the row waiting for the browser.
-    expect(option(CONNECT)?.querySelector(".acpmux-menu-description")?.textContent).toBe("Waiting for GitHub…");
-    gh.answers["github.status"] = { state: "ready", repos_scope: "all" };
-    gh.answers["github.repos.list"] = { repos: REPOS, truncated: false };
-    await gh.back();
     expect(option("acme/api")).toBeDefined();
     expect(option(CONNECT)).toBeUndefined();
-    expect(picked).toEqual([]);
+    // The next open's check does not answer (offline, a team policy): still connected as far as the
+    // menu knows, so no Connect row appears and nothing is clicked into a dead end.
+    gh.answers["github.status"] = { state: "unavailable", repos_scope: null, reason: "unreachable" };
+    await act(async () => gh.store.open());
+    await settle();
+    expect(gh.store.snapshot().status?.reason).toBe("unreachable");
+    expect(option(CONNECT)).toBeUndefined();
+    expect(gh.calls.filter(([method]) => method === "github.connect")).toHaveLength(0);
   } finally {
     await act(async () => root.unmount());
   }
 });
 
-test("unavailable: a refused connect shows the host's words on the row, and a click tries again", async () => {
+test("a refused connect shows the host's words on the row, and a click tries again", async () => {
   const gh = host({
-    "github.status": { state: "unavailable", repos_scope: null },
+    "github.status": { state: "not_connected", repos_scope: null },
     "github.connect": { error: Object.assign(new Error("GitHub didn't answer."), { code: "github.unavailable" }) },
   });
   const { root, picked } = await renderTray({}, gh.store);
@@ -582,9 +699,9 @@ test("signed out: back before the sign-in ends keeps waiting; signed in, the sam
   try {
     await openFolderMenu();
     await press(option(CONNECT)!);
-    // Back early, still signed out: the row waits, and the next return reads the status again.
+    // Back early, still signed out: the next return reads the status again; the row stays its title.
     await gh.back();
-    expect(detail(option(CONNECT))).toBe("Waiting for GitHub…");
+    expect(detail(option(CONNECT))).toBeUndefined();
     // Signed in, the App not installed yet: the wait is over, and the row connects again.
     gh.answers["github.status"] = { state: "not_connected", repos_scope: null };
     await gh.back();
@@ -599,7 +716,7 @@ test("signed out: back before the sign-in ends keeps waiting; signed in, the sam
   }
 });
 
-test("unavailable: the row is one line at rest; a click connects, and a refusal is its second line", async () => {
+test("signed out: the Connect to GitHub row is its title alone and signs in; no GitHub App here: no row", async () => {
   const gh = host({
     "github.status": { state: "unavailable", repos_scope: null, reason: "signed_out" },
     "github.connect": { opened: true },
@@ -611,7 +728,7 @@ test("unavailable: the row is one line at rest; a click connects, and a refusal 
     expect(signIn.querySelector("[data-github-unavailable]")?.getAttribute("data-github-unavailable")).toBe(
       "signed_out",
     );
-    expect(signIn.querySelector(".acpmux-menu-description")).toBeNull();
+    expect(detail(signIn)).toBeUndefined();
     await press(signIn);
     expect(gh.calls.at(-1)).toEqual(["github.connect", {}]);
   } finally {
@@ -619,17 +736,14 @@ test("unavailable: the row is one line at rest; a click connects, and a refusal 
   }
   const unset = host({
     "github.status": { state: "unavailable", repos_scope: null, reason: "not_configured" },
-    "github.connect": { error: Object.assign(new Error("Not set up."), { code: "github.not_configured" }) },
   });
   const second = await renderTray({}, unset.store);
   try {
     await openFolderMenu();
-    const row = option(CONNECT)!;
-    expect(row.querySelector(".acpmux-menu-description")).toBeNull();
-    // Still a click: the host may have been set up since.
-    await press(row);
-    expect(unset.calls.at(-1)).toEqual(["github.connect", {}]);
-    expect(option(CONNECT)!.querySelector(".acpmux-menu-description")?.textContent).toBe("Not set up.");
+    // No "GitHub isn't set up for this Cloud service yet." row: there is nothing a click could connect.
+    expect(option(CONNECT)).toBeUndefined();
+    expect(doc().body.textContent).not.toContain("set up for this Cloud service");
+    expect(doc().querySelector("[data-github]")).toBeNull();
   } finally {
     await act(async () => second.root.unmount());
   }
@@ -641,7 +755,7 @@ test("a host that refuses github.status reads as unreachable", async () => {
   try {
     await openFolderMenu();
     expect(gh.store.snapshot().status).toEqual({ state: "unavailable", reposScope: null, reason: "unreachable" });
-    expect(option(CONNECT)).toBeDefined();
+    expect(option(CONNECT)).toBeUndefined();
   } finally {
     await act(async () => root.unmount());
   }

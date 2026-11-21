@@ -489,6 +489,13 @@ impl CongestionController {
         self.sent.remove(&transport_seq);
     }
 
+    /// A datagram recorded by `on_sent_bytes` was dropped before it left (the
+    /// host's pacer queue after an outage, D12): it is never timed. (The outage
+    /// end already emptied the send-rate window it was counted in.)
+    pub fn on_dropped(&mut self, transport_seq: u16) {
+        self.sent.remove(&transport_seq);
+    }
+
     /// A path change resets the delay baseline and the measured capacity (RTT and
     /// capacity change at once) and applies the relay cap immediately.
     pub fn on_path_changed(&mut self, path: PathKind) {

@@ -26,15 +26,16 @@ extension SettingsSchema {
     /// Keys an agent may set and reset.
     public static let agentSettableKeys: Set<String> = [
         "window.titlebar",
-        // Whether a chat shows the live view of the app its agent uses: looks only.
-        "computerUse.livePreview",
         "shortcuts.showModifierHoldHints",
+        // Whether the window offers the Customize Inspector and right-click Customize…: looks only, and off is the default.
+        "customize.fromTheApp",
         // Whether right-click menus end with Customize Menu… (looks only; the layouts stay the person's).
         "contextMenus.showCustomizeItem",
         "window.titlebarButtons", "tabs.plusButton", "tabs.barPosition", "tabs.barOrder", "tabs.toolbarButtons",
         "browser.toolbarPosition", "navigation.historyScope", "navigation.history.scope", "sidebar.minimalMode",
         "sidebar.minimal", "sidebar.density", "sidebar.textSize", "sidebar.detailedStatusIcons",
-        "sidebar.showTimestamps", "sidebar.showColors", "sidebar.showLocalMachine", "workspaceColors.indicatorStyle",
+        "sidebar.showTimestamps", "sidebar.settleFinished", "sidebar.showColors", "sidebar.showLocalMachine",
+        "workspaceColors.indicatorStyle",
         // Sidebar control visibility (looks only)
         "sidebar.controlsOnHover", "sidebar.floatOnHover",
         "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background",
@@ -72,7 +73,7 @@ extension SettingsSchema {
         "appearance.highlightColor",
         "appearance.themeEdits",
         // The theme file whose look applies (looks only)
-        "appearance.themeFile",
+        "appearance.themeFile", "appearance.themeFileExceptions",
         // Starred themes and their rotation (looks only)
         "appearance.favoriteThemes", "appearance.rotateFavoriteThemes",
         // The color of each machine's marks (looks only)

@@ -261,6 +261,37 @@ request() { # <sha>
   fi
 }
 
+# starved_runs <commit>: how many of the commit's queued cmux-tui-artifacts
+# push runs have a first job that has waited past CMUX_TREE_RUN_STARVED_MIN
+# (default 30) minutes with no runner. Such a run counts as no run: it is not
+# building the tree, and the rescue dispatch must not wait on it (2026-11-19:
+# 40+ feat-cmux-next preflights queued since 04:21Z on cmux-gcp-lane-build-x64
+# with every runner busy, and no tip got its tree). Only push runs: a
+# workflow_dispatch run is the rescue itself, so each tip is rescued at most
+# once. A read that fails counts nothing starved (the old, careful answer).
+starved_runs() { # <commit>
+  local limit="${CMUX_TREE_RUN_STARVED_MIN:-30}" now ids id first at age n=0
+  [[ "$limit" =~ ^[0-9]+$ ]] || limit=30
+  now="$(date -u +%s)"
+  ids="$(gh api "repos/$repo/actions/workflows/cmux-tui-artifacts.yml/runs?head_sha=$1&event=push&status=queued&per_page=20" \
+    --jq '.workflow_runs[].id' 2>/dev/null)" || { echo 0; return 0; }
+  for id in $ids; do
+    [[ "$id" =~ ^[0-9]+$ ]] || continue
+    # The run's first job (the oldest), and only while it is queued with no runner.
+    first="$(gh api "repos/$repo/actions/runs/$id/jobs?filter=latest&per_page=100" \
+      --jq '[.jobs[]] | sort_by(.created_at) | first | select(. != null and .status == "queued" and ((.runner_name // "") == "")) | .created_at' \
+      2>/dev/null)" || continue
+    [[ -n "$first" ]] || continue
+    at="$(date -u -d "$first" +%s 2>/dev/null || date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$first" +%s 2>/dev/null)" || continue
+    age=$(( (now - at) / 60 ))
+    if (( age >= limit )); then
+      echo "cmux-tui-artifacts run $id for ${1:0:12}: its first job has waited ${age} min with no runner; counted as no run" >&2
+      n=$((n + 1))
+    fi
+  done
+  echo "$n"
+}
+
 # NIGHTLY_NEXT_TREE_AT_INSTALL: the feat-cmux-next tip whose tree is a
 # confirmed 404 (never a read failure), whose own nightly.yml carries the line
 # main's promote guard reads, and whose tree a cmux-tui-artifacts run is
@@ -282,6 +313,8 @@ request_tree_pending() {
     [[ "$(python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "$commit" 2>/dev/null)" == "$tip_key" ]] || break
     runs="$(gh run list --repo "$repo" --workflow cmux-tui-artifacts.yml --commit "$commit" --limit 5 --json status \
       --jq '[.[] | select(.status != "completed")] | length' 2>/dev/null)" || continue
+    # A run starved of a runner builds nothing: it must not stand for the tree.
+    [[ "$runs" =~ ^[1-9][0-9]*$ ]] && runs=$((runs - $(starved_runs "$commit")))
     if [[ "$runs" =~ ^[1-9][0-9]*$ ]]; then active="$commit"; break; fi
   done < <(git rev-list --first-parent -n 40 "$sha" 2>/dev/null)
   if [[ -z "$active" ]]; then
@@ -299,9 +332,12 @@ request_tree_pending() {
 # marks every recent commit whose tree is ready (mark-tree-commits) and builds
 # the tip's tree when it has none. At most one per job (the nightly-next tick
 # calls this script once per commit it walks): a stamp in RUNNER_TEMP keyed by
-# the run. Never while an artifacts run on feat-cmux-next is queued, waiting
-# or in progress (one filtered read per state, so no older active run hides
-# behind newer finished ones), and never when that cannot be read. Two jobs
+# the run. Never while an artifacts run for the dispatch's current branch tip
+# is queued, waiting or in progress (one filtered read per state, so no older
+# active run hides behind newer finished ones), and never when that cannot be
+# read. An unrelated tree cannot publish this tip: its run must not suppress
+# recovery. request_tree_pending already reuses an active same-tree ancestor
+# before a missing tree reaches this fallback. Two jobs
 # racing past the check (the tick and an artifacts push run) start at most two
 # runs, and a dispatch's concurrency group (one per commit, never cancelled)
 # keeps one of them pending behind the other.
@@ -311,20 +347,31 @@ backfill() { # <reason>
     echo "backfill: already dispatched in this job; not dispatching again ($1)"
     return 0
   fi
-  local state count
+  local state count dispatch_tip tip_line
+  # This function also repairs older candidates' markers, but the dispatch
+  # always builds feat-cmux-next. Bind the duplicate check to that source,
+  # rather than the candidate or every publisher on the branch.
+  if ! tip_line="$(git ls-remote origin refs/heads/feat-cmux-next 2>/dev/null)" \
+      || ! [[ "${tip_line%%[[:space:]]*}" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "backfill: could not read the feat-cmux-next tip; not dispatching ($1)"
+    return 0
+  fi
+  dispatch_tip="${tip_line%%[[:space:]]*}"
   active=0
   # The REST filter, not `gh run list --status`: gh's flag refuses "pending"
   # (a run held behind its concurrency group).
   for state in queued in_progress waiting pending requested; do
-    if ! count="$(gh api "repos/$repo/actions/workflows/cmux-tui-artifacts.yml/runs?branch=feat-cmux-next&status=$state&per_page=1" \
+    if ! count="$(gh api "repos/$repo/actions/workflows/cmux-tui-artifacts.yml/runs?branch=feat-cmux-next&head_sha=$dispatch_tip&status=$state&per_page=1" \
         --jq .total_count 2>/dev/null)" || [[ ! "$count" =~ ^[0-9]+$ ]]; then
       echo "backfill: could not read the cmux-tui-artifacts runs; not dispatching ($1)"
       return 0
     fi
     active=$((active + count))
   done
+  # A tip run queued past the limit with no runner is no run (starved_runs).
+  (( active > 0 )) && active=$((active - $(starved_runs "$dispatch_tip")))
   if (( active > 0 )); then
-    echo "backfill: a cmux-tui-artifacts run on feat-cmux-next is queued or running; not dispatching ($1)"
+    echo "backfill: a cmux-tui-artifacts run for feat-cmux-next ${dispatch_tip:0:12} is queued or running; not dispatching ($1)"
     return 0
   fi
   if gh workflow run cmux-tui-artifacts.yml --repo "$repo" --ref feat-cmux-next; then
@@ -348,8 +395,10 @@ if ! resolved="$(env -u GITHUB_OUTPUT -u GITHUB_STEP_SUMMARY CMUX_TUI_TREE_DISPA
   esac
   echo "not promoting ${sha:0:12}: the nightly cannot resolve a published cmux-tui tree for it yet"
   # The feat-cmux-next tip with no cmux-tui-artifacts run at all (a push that
-  # started none, such as a GITHUB_TOKEN push) gets one. A tip whose run failed
-  # or is running gets none: a failed build is a red to fix, not to re-run here.
+  # started none, such as a GITHUB_TOKEN push) gets one, and so does a tip whose
+  # only runs are push runs starved of a runner past the limit (starved_runs). A
+  # tip whose run failed or is running gets none: a failed build is a red to
+  # fix, not to re-run here.
   # Only on a confirmed miss: the CDN answers 404 for the tip's tree (verify-key
   # exit 1), never on a read failure.
   if tip_line="$(git ls-remote origin refs/heads/feat-cmux-next 2>/dev/null)" && [[ "${tip_line%%[[:space:]]*}" == "$sha" ]] \
@@ -358,7 +407,8 @@ if ! resolved="$(env -u GITHUB_OUTPUT -u GITHUB_STEP_SUMMARY CMUX_TUI_TREE_DISPA
     bash "$script_dir/pin-cmux-tui.sh" verify-key "$tip_key" >/dev/null 2>&1 || tip_verify=$?
     if (( tip_verify == 1 )) \
         && tip_runs="$(gh run list --repo "$repo" --workflow cmux-tui-artifacts.yml --commit "$sha" --limit 5 --json status --jq length 2>/dev/null)" \
-        && [[ "$tip_runs" == 0 ]]; then
+        && [[ "$tip_runs" =~ ^[0-9]+$ ]] \
+        && { (( tip_runs == 0 )) || (( tip_runs - $(starved_runs "$sha") <= 0 )); }; then
       backfill "the feat-cmux-next tip ${sha:0:12} has no cmux-tui-artifacts run"
     fi
   fi
