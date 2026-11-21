@@ -160,12 +160,10 @@ function renderRecents() {
         const chat = getChat()
         const next = !chat.archived
         const nested = children().has(key(chat))
-        const items = [
-          Button("Open", open),
-          Button(chat.pinned ? "Unpin" : "Pin", () => cmux.call("chat.pin", { ...target(chat), pinned: !chat.pinned })
-            .catch((e) => setError(problem(e)))),
-          Button(next ? "Archive" : "Restore", () => archive([chat], next)).disabled(busy),
-        ]
+        const items = [Button("Open", open)]
+        if (!chat.archived) items.push(Button(chat.pinned ? "Unpin" : "Pin", () =>
+          cmux.call("chat.pin", { ...target(chat), pinned: !chat.pinned }).catch((e) => setError(problem(e)))))
+        items.push(Button(next ? "Archive" : "Restore", () => archive([chat], next)).disabled(busy))
         if (nested) items.push(Button(next ? "Archive with nested sessions" : "Restore with nested sessions",
           () => archive(branch(chat, children()), next)).disabled(busy))
         return items

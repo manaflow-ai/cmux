@@ -133,6 +133,7 @@ test("explicit nested archive and restore stay on the selected peer through part
   await choose(host, "Row", "Nested", "Archive")
   await choose(host, "Menu", "Archive", "Show archived")
   assert.deepEqual(titles(host), ["Remote", "Nested"])
+  assert.deepEqual(node(host, "Row", "Remote").props.menu.map((item) => item.title), ["Open", "Restore", "Restore with nested sessions"])
   await choose(host, "Row", "Remote", "Restore with nested sessions")
   assert.deepEqual(titles(host), [])
   assert.ok(headings(host).includes("No archived sessions"))
