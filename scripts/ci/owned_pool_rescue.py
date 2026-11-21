@@ -338,7 +338,6 @@ UNRESCUED_WORKFLOW_PATHS = {
         "act on",
     ".github/workflows/automation-bench.yml": _POOL_READ_WHY,
     ".github/workflows/ci-artifact-transport.yml": _POOL_READ_WHY,
-    ".github/workflows/ci-cache-receipts.yml": _POOL_READ_WHY,
     ".github/workflows/ci-fast-guards.yml": _POOL_READ_WHY,
     ".github/workflows/ci-repo-variables.yml": _POOL_READ_WHY,
     ".github/workflows/cloud-vm-guest-install.yml": _POOL_READ_WHY,
@@ -355,12 +354,10 @@ UNRESCUED_WORKFLOW_PATHS = {
     ".github/workflows/cmux-next-pr-merge-tree.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-next-remote-daemon.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-next-web-bundles.yml": _POOL_READ_WHY,
-    ".github/workflows/cmux-skill-contract.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-tui-sdks.yml": _POOL_READ_WHY,
     ".github/workflows/cmux-tui-spec.yml": _POOL_READ_WHY,
     ".github/workflows/fleet-test-compile.yml": _POOL_READ_WHY,
     ".github/workflows/gallery-health.yml": _POOL_READ_WHY,
-    ".github/workflows/indexnow-tests.yml": _POOL_READ_WHY,
     ".github/workflows/indexnow.yml": _POOL_READ_WHY,
     ".github/workflows/ios-e2e.yml": _POOL_READ_WHY,
     ".github/workflows/ios-internal-nightly-trigger.yml": _POOL_READ_WHY,
@@ -371,12 +368,10 @@ UNRESCUED_WORKFLOW_PATHS = {
         "one advisory job (CI v2 step 6) that holds a pull-requests write token, so it takes a one-job VM: the "
         "cmux-gcp-pr-control-jit-x64 JIT label on a same-repo attempt 1, Blacksmith for a fork or a re-run, never an "
         "owned Mac; none of its steps can fail a pull request, and the next push or a re-run answers again",
-    ".github/workflows/r2-upload-tests.yml": _POOL_READ_WHY,
     ".github/workflows/required-checks-drift.yml": _POOL_READ_WHY,
     ".github/workflows/risk-tier-tests.yml": _POOL_READ_WHY,
     ".github/workflows/signing-keychain-macos.yml": _POOL_READ_WHY,
     ".github/workflows/testbox-broker-guard.yml": _POOL_READ_WHY,
-    ".github/workflows/vendored-agent-cursor.yml": _POOL_READ_WHY,
     ".github/workflows/web-validation.yml": _POOL_READ_WHY,
     ".github/workflows/docs-only-fallback.yml":
         "its own gate is one small Linux job; it only calls ci.yml (and the other docs-only workflows) in the pull "
