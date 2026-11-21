@@ -30,9 +30,25 @@ jobs:
     permissions:
       actions: write # dispatch nightly-next-health.yml
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 5
+    # The cron fires every 15 minutes: wait at most 9 of them through a spent API budget, so a
+    # wait ends in the wrapper's own failure before the next run starts.
+    timeout-minutes: 14
     env:
       GH_TOKEN: ${{ github.token }}
+      GH_BUDGET_WAIT_MAX_SECONDS: "540"
     steps:
+      - name: Check out the GitHub API budget wait
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .gh-budget-tooling
+          sparse-checkout: |
+            scripts/ci/gh_budget_wait.sh
+            scripts/ci/gh_budget_wait.cjs
+          sparse-checkout-cone-mode: false
+      - name: Wait through GitHub API rate limits and 5xx in this job
+        working-directory: ${{ github.workspace }}
+        run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
       - name: Dispatch the judge on nightly-next
         run: gh workflow run nightly-next-health.yml -R "$GITHUB_REPOSITORY" --ref nightly-next
