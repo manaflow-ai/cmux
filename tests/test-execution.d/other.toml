@@ -114,10 +114,6 @@ path = "tests/test_chromium_staleness.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_cla_guard_metadata_routing.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_classic_api_guard.py"
 lane = "linux-guard"
 
@@ -216,6 +212,11 @@ path = "tests/test_fetch_run_artifact.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_files_host_dev_only.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Proves cmux Files (dev) never reaches a shipped build (docs/cmux-files-host.md, Production): runs the real embed-files-host-dev.sh for every Release configuration and shipped bundle id against a stub asset, and checks FilesHost's #if DEBUG gate. Run python3 tests/test_files_host_dev_only.py on a fleet Mac after changing the embed phase, FilesHost or the pin (seconds; macOS ditto and codesign, no build)."
+
+[[test]]
 path = "tests/test_format_post_edit.py"
 lane = "linux-guard"
 
@@ -268,6 +269,11 @@ lane = "linux-guard"
 path = "tests/test_guard_logs_survive_closed_pipe.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23). Checks that a shell guard's message before its kill never skips the kill when nobody reads its output (SIGPIPE), and scans scripts/ for a message before a kill not in the safe form; run python3 -I tests/test_guard_logs_survive_closed_pipe.py yourself after adding or changing a shell guard that logs before it kills (about 30 s; bash, curl and procps)."
+
+[[test]]
+path = "tests/test_guard_step_inputs.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins scripts/ci/guard_step_inputs.py, run_ci_guards.py --affected's per-diff guard step selection (imports, run scripts, named and walked folders, whole-tree reasons); run python3 tests/test_guard_step_inputs.py yourself after changing either, and guard_step_inputs.py --verify for the traced check over every real step (about 5 min)."
 
 [[test]]
 path = "tests/test_guards_new_reds.py"
@@ -960,8 +966,3 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_zsh_git_head_watch_no_fork.py"
 lane = "linux-guard"
-
-[[test]]
-path = "tests/test_files_host_dev_only.py"
-lane = "manual"
-reason = "Lawrence 2026-10-23: no new CI tests. Proves cmux Files (dev) never reaches a shipped build (docs/cmux-files-host.md, Production): runs the real embed-files-host-dev.sh for every Release configuration and shipped bundle id against a stub asset, and checks FilesHost's #if DEBUG gate. Run python3 tests/test_files_host_dev_only.py on a fleet Mac after changing the embed phase, FilesHost or the pin (seconds; macOS ditto and codesign, no build)."
