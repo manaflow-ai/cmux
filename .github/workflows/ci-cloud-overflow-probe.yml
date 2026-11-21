@@ -170,10 +170,26 @@ jobs:
           private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-actions: read
 
+      # The cmux-bot installation's hour before this pass spends any of it (GET /rate_limit is free), as an
+      # `app-spend-pool:` line HQ's spend publisher sums, and the floor: below it the pool pass below is skipped and
+      # RUNNER_POOLS keeps its last value. The App runs dry by mid-hour; on 2026-11-18 the pool pass then read the
+      # janitor snapshot's refusal as no evidence, judged on the probe alone and moved every large Linux pool to
+      # 2 vCPU (scripts/ci/app_spend_mark.py, runner_pools.refused()). The switch itself still runs: its reads
+      # fall back to the workflow token and a refused read is never a stall (cloud_overflow_switch.wait_for_probe()).
+      - name: Read the cmux-bot budget before the pass
+        id: app-spend
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          APP_SPEND_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+        run: python3 scripts/ci/app_spend_mark.py start ci-cloud-overflow-probe/watch --floor pass
+
       - name: Probe and switch
         id: switch
         env:
-          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
+          # Under the cmux-bot floor (the reading above) the switch reads on the workflow token instead: it still
+          # watches its probes, and the cmux-bot hour's rest stays above HQ's NOW reserve.
+          GH_TOKEN: ${{ steps.app-spend.outputs.low != 'true' && steps.cmux-bot-token.outputs.token || github.token }}
           GH_FALLBACK_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           SWITCH_TOKEN: ${{ steps.switch-token.outputs.token }}
@@ -210,7 +226,7 @@ jobs:
       # Only its two files are checked out; main's policy and clients stay this checkout's.
       - name: Check out the reviewed linux pool spill
         id: spill-tooling
-        if: always() && steps.switch.outcome != 'skipped'
+        if: always() && steps.switch.outcome != 'skipped' && steps.app-spend.outputs.low != 'true'
         continue-on-error: true
         timeout-minutes: 2
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -234,7 +250,7 @@ jobs:
       # on SWITCH_TOKEN; a failed mint falls back to the workflow token.
       - name: Point the runner pools at live members
         id: pools
-        if: always() && steps.switch.outcome != 'skipped'
+        if: always() && steps.switch.outcome != 'skipped' && steps.app-spend.outputs.low != 'true'
         env:
           GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           # A refused read (the cmux-bot budget is org-wide) is asked once more with this (runner_pools.main()).
@@ -277,7 +293,7 @@ jobs:
       # 44476854382 queued on 16 vCPU from 07:04Z), so any label no pool and no raw runner variable
       # names counts too, after MOVED_MINUTES (cloud_overflow_switch.stranded_labels).
       - name: Re-run runs stranded on a dead label
-        if: always() && steps.switch.outcome != 'skipped' && steps.pools.outcome == 'success'
+        if: always() && steps.switch.outcome != 'skipped' && steps.pools.outcome == 'success' && steps.app-spend.outputs.low != 'true'
         continue-on-error: true
         timeout-minutes: 5
         env:
@@ -302,6 +318,16 @@ jobs:
             LINUX_RUNNER=${{ vars.LINUX_RUNNER }}
             LINUX_RUNNER_DARWIN_CROSS=${{ vars.LINUX_RUNNER_DARWIN_CROSS }}
         run: bash scripts/ci/python-with-yaml.sh scripts/ci/cloud_overflow_switch.py --rescue-dead
+
+      # This job's spend: the pool again and the difference from the reading above (an upper bound, since every
+      # job holding a cmux-bot token spends the same pool). Before the stuck-probe cancel, which ends the run.
+      - name: Read the cmux-bot budget after the pass
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          APP_SPEND_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+        run: python3 scripts/ci/app_spend_mark.py end ci-cloud-overflow-probe/watch
 
       # Last, in its own step so the summary above is already saved. If the
       # switch did not observe every probe start (one may still be queued),

@@ -40,7 +40,7 @@ concurrency:
 jobs:
   cloudflare-relay:
     name: Cloudflare Durable Object relay
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -63,8 +63,14 @@ jobs:
       - name: Set up pinned Rust toolchain
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      # worker-build links openssl-sys; the persistent cmux-linux pool has no
+      # OpenSSL headers unless a job installs them.
       - name: Install pinned Rust toolchain and Worker builder
         run: |
+          if ! pkg-config --exists openssl 2>/dev/null; then
+            sudo apt-get -o DPkg::Lock::Timeout=120 update
+            sudo DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=120 install -y --no-install-recommends libssl-dev pkg-config
+          fi
           rustup target add wasm32-unknown-unknown
           cargo install --locked worker-build@0.8.5
 
