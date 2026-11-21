@@ -6,8 +6,6 @@ import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextHome
 import Foundation
-import ImageIO
-import UniformTypeIdentifiers
 
 /// Design mode in browser panes (plans/cmux-next/design-mode-DESIGN.md): turns it on and off for a
 /// tab (`toggleBrowserDesignMode`: the toolbar button, the palette, Ctrl-Opt-Cmd-D and the CLI all
@@ -22,8 +20,6 @@ final class BrowserDesignModeController {
     private let strings = BrowserDesignModeStrings()
     /// What each tab (by tab key) already sent, so a scroll or a repaint sends nothing.
     private var cards: [String: BrowserDesignModeCards] = [:]
-    /// The tab (by tab key) each card id came from, so a chat letting the card go reaches its page.
-    private var owners: [String: String] = [:]
 
     init(services: AppServices) { self.services = services }
 
@@ -33,7 +29,6 @@ final class BrowserDesignModeController {
         modes.designMode.toggle()
         let on = modes.designMode, tab = entry.tab
         cards[key] = on ? BrowserDesignModeCards() : nil
-        if !on { owners = owners.filter { $0.value != key } }
         Task { [weak self, state = entry.state] in
             guard on else { return await tab.disableDesignMode() }
             do {
@@ -52,12 +47,7 @@ final class BrowserDesignModeController {
             if let entry = services.cache.existingBrowser(key), entry.state.modes.designMode { toggle(entry, key: key) }
             return
         }
-        guard var tracker = cards[key] else { return }
-        // A drawn region: cmux-next crops it from its own capture, so the stroke's bounds complete it.
-        if let completion = BrowserDesignModeCards.captureCompletion(message) {
-            Task { [weak page] in _ = try? await page?.evaluate(completion, world: .isolated, gesture: .cmux) }
-            return
-        }
+        guard var tracker = cards[key], !page.completeDesignModeCapture(message) else { return }
         let change = tracker.change(message, pageURL: page.state.url)
         cards[key] = tracker
         guard !change.cards.isEmpty || !change.removed.isEmpty else { return }
@@ -67,13 +57,9 @@ final class BrowserDesignModeController {
         let home = HomeNativeTranscriptView.shown(in: page.contentView.window).flatMap { $0.canAttach ? $0 : nil }
         let chat = home == nil ? chatView(near: key) : nil
         // A highlight removed on the page takes its card out of whichever composer holds it.
-        for id in change.removed {
-            takeOut(id, home: home, chat: chat)
-            owners[id] = nil
-        }
+        for id in change.removed { takeOut(id, home: home, chat: chat) }
         let made = change.cards
         guard !made.isEmpty else { return }
-        for card in made { owners[card.id] = key }
         let deliveries = made.map { BrowserDesignModeDelivery($0, homeShown: home != nil, agentChat: chat != nil) }
         if deliveries.contains(.nowhere) {
             services.cache.existingBrowser(key)?.state.showNotice(strings.noAgentChat)
@@ -86,13 +72,14 @@ final class BrowserDesignModeController {
         guard !rest.isEmpty else { return }
         Task { [weak self, weak page, weak chat, weak home] in
             guard let page else { return }
-            let shot = await Self.capture(page)
+            // Only the agent chat shows the crop; Home's one file per pick is the card's text.
+            let shot = home == nil ? await page.designModeSnapshot() : nil
             for card in rest {
-                let png = shot.flatMap { Self.crop($0, to: card) }
+                let png = shot.flatMap { card.crop(from: $0) }
                 if let home {
                     // One file per pick: Home draws each file as its own chip, and two per pick
                     // (the text and the crop) was the clutter David Beyer pointed at.
-                    await self?.attach(card, png: nil, to: home)
+                    await self?.attach(card, to: home)
                 } else if let chat {
                     // One chip per pick, its crop inside it; the same id replaces an edited card's chip.
                     AgentPaneDesignSelection(id: card.id, name: card.name, text: card.text, png: png).push(to: chat)
@@ -104,14 +91,10 @@ final class BrowserDesignModeController {
 
     /// Takes the picks of card `ids` off their pages: a chat removed their chips, or sent them.
     func release(_ ids: [String]) {
-        guard let services else { return }
         for id in ids {
-            guard let key = owners.removeValue(forKey: id), let selector = cards[key]?.selector(of: id),
-                  let page = services.cache.existingBrowser(key)?.tab,
-                  let quoted = (try? JSONSerialization.data(withJSONObject: [selector])).flatMap({ String(data: $0, encoding: .utf8) })
-            else { continue }
-            let script = "globalThis.__cmuxDesignMode?.removeSelection(\(quoted.dropFirst().dropLast())); true"
-            Task { [weak page] in _ = try? await page?.evaluate(script, world: .isolated, gesture: .cmux) }
+            guard let (key, tracker) = cards.first(where: { $0.value.selector(of: id) != nil }), let selector = tracker.selector(of: id),
+                  let page = services?.cache.existingBrowser(key)?.tab else { continue }
+            Task { [weak page] in await page?.removeDesignModePick(selector) }
         }
     }
 
@@ -119,25 +102,11 @@ final class BrowserDesignModeController {
     /// `debug.design_mode {draft?, comment?, commit?}` (captures and tours): types `draft` into the
     /// open comment bubble of the tab in design mode, or `comment` and adds it, or adds what is typed
     /// (`commit: true`), through the runtime's own path. `ok` false when no tab is in design mode.
-    func debugDrive(_ params: [String: JSONValue]) async -> JSONValue {
-        guard let services,
-              let page = services.cache.browsers.first(where: { cards[$0.key] != nil })?.value.tab else {
-            return ["ok": .bool(false), "error": .string("no tab is in design mode")]
-        }
-        let text = params["comment"]?.stringValue ?? params["draft"]?.stringValue
-        var calls: [String] = []
-        if let text, let quoted = (try? JSONSerialization.data(withJSONObject: [text])).flatMap({ String(data: $0, encoding: .utf8) }) {
-            calls.append("api.draft(\(quoted.dropFirst().dropLast()))")
-        }
-        if params["comment"] != nil || params["commit"]?.boolValue == true { calls.append("api.commit()") }
-        let script = "(() => { const api = globalThis.__cmuxDesignMode; if (!api) return false; "
-            + calls.map { $0 + ";" }.joined() + " return true; })()"
-        do {
-            _ = try await page.evaluate(script, world: .isolated, gesture: .cmux)
-            return ["ok": .bool(true)]
-        } catch {
-            return ["ok": .bool(false), "error": .string("\(error)")]
-        }
+    static func debugDrive(_ params: [String: JSONValue], services: AppServices?) async -> JSONValue {
+        let cards = services?.designMode.cards ?? [:]
+        guard let page = services?.cache.browsers.first(where: { cards[$0.key] != nil })?.value.tab else { return ["ok": .bool(false)] }
+        let commit = params["comment"] != nil || params["commit"]?.boolValue == true
+        return ["ok": .bool(await page.driveDesignMode(draft: params["comment"]?.stringValue ?? params["draft"]?.stringValue, commit: commit))]
     }
     #endif
 
@@ -160,22 +129,13 @@ final class BrowserDesignModeController {
 
     /// Gives the Home composer `card` as files, through its own intake (as a drop), replacing what an
     /// earlier version of the card added, then removes the files once the draft holds Home's copies.
-    private func attach(_ card: BrowserDesignModeCard, png: Data?, to home: HomeNativeTranscriptView) async {
+    private func attach(_ card: BrowserDesignModeCard, to home: HomeNativeTranscriptView) async {
         if let old = homeAttachments.removeValue(forKey: card.id) { home.removeDraftAttachments(old) }
         let temp = Self.tempFiles, folder = temp.newFolder()
-        guard let files = try? BrowserDesignModeCardFiles(folder: folder).write(card, png: png) else {
-            temp.remove(folder)
-            return
-        }
-        await home.attachmentsReady()
-        let before = Set(home.draftAttachmentHashes)
-        guard home.attachFiles(paths: files.map(\.path), via: .drop) == .accepted else {
-            temp.remove(folder)
-            return
-        }
-        await home.attachmentsReady()
-        temp.remove(folder)
-        homeAttachments[card.id] = home.draftAttachmentHashes.filter { !before.contains($0) }
+        defer { temp.remove(folder) }
+        guard let files = try? BrowserDesignModeCardFiles(folder: folder).write(card, png: nil),
+              let added = await home.addDraftFiles(files.map(\.path)) else { return }
+        homeAttachments[card.id] = added
     }
 
     /// The agent chat in the workspace of browser tab `key` whose pane was focused last.
@@ -191,27 +151,5 @@ final class BrowserDesignModeController {
             }
         }
         return nil
-    }
-
-    /// The page as shown, without design mode's own outline and badges.
-    private static func capture(_ page: any BrowserTab) async -> CGImage? {
-        _ = try? await page.evaluate("globalThis.__cmuxDesignMode?.prepareCapture(); true", world: .isolated, gesture: .cmux)
-        let image = try? await page.snapshot()
-        _ = try? await page.evaluate("globalThis.__cmuxDesignMode?.finishCapture(); true", world: .isolated, gesture: .cmux)
-        return image
-    }
-
-    /// The card's element cut from the page image, as PNG; nil when it is off the page or empty.
-    nonisolated static func crop(_ image: CGImage, to card: BrowserDesignModeCard) -> Data? {
-        guard card.viewportWidth > 0 else { return nil }
-        let scale = Double(image.width) / card.viewportWidth
-        let rect = CGRect(x: card.bounds.minX * scale, y: card.bounds.minY * scale,
-                          width: card.bounds.width * scale, height: card.bounds.height * scale)
-            .integral.intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height))
-        guard !rect.isNull, rect.width >= 1, rect.height >= 1, let cut = image.cropping(to: rect) else { return nil }
-        let data = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil) else { return nil }
-        CGImageDestinationAddImage(destination, cut, nil)
-        return CGImageDestinationFinalize(destination) ? data as Data : nil
     }
 }
