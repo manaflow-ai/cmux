@@ -302,6 +302,7 @@ pub(crate) fn policy_now() -> Arc<Policy> {
     policy
 }
 
+#[cfg(test)]
 pub(crate) fn policy_of(entries: Vec<Given>) -> Policy {
     policy_with(None, entries)
 }
