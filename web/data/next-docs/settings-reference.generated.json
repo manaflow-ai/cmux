@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 632,
+  "count": 640,
   "sections": [
     {
       "id": "general",
@@ -517,7 +517,7 @@
           "title": "Hide Dock Icon When No Windows Are Open",
           "help": "cmux stays in the menu bar until a window opens.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Window"
         },
         {
@@ -1652,6 +1652,27 @@
           "group": "Updates"
         },
         {
+          "key": "updates.installWhenIdle",
+          "title": "Update When Idle",
+          "help": "Installs a downloaded update after cmux has been idle for the time below, never while an agent is working or a message is unsent. Agents keep running.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Updates"
+        },
+        {
+          "key": "updates.installWhenIdleMinutes",
+          "title": "Idle Time Before Updating",
+          "help": "How long cmux must be idle before Update When Idle installs.",
+          "kind": "number",
+          "default": 15,
+          "group": "Updates",
+          "range": {
+            "min": 1,
+            "max": 240,
+            "unit": "minutes"
+          }
+        },
+        {
           "key": "updates.keepPreviousVersions",
           "title": "Keep Previous Versions",
           "help": "Earlier builds kept so you can roll back. Uses almost no disk until files change.",
@@ -1815,7 +1836,7 @@
           "title": "Free Idle Terminals",
           "help": "Ends idle shells of long-unused workspaces; they restart in the same folder.",
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "group": "Hibernation"
         },
         {
@@ -2148,6 +2169,56 @@
           ]
         },
         {
+          "key": "agentPane.display.thinking.jumpButton",
+          "title": "Jump to Latest While Working",
+          "help": "What the Jump to latest button shows while the agent works.",
+          "kind": "choice",
+          "default": "arrow",
+          "group": "Agent Chat",
+          "values": [
+            "arrow",
+            "dots"
+          ]
+        },
+        {
+          "key": "agentPane.display.thinking.shimmer",
+          "title": "Thinking Shimmer",
+          "help": "How the light band moves across the live status line.",
+          "kind": "choice",
+          "default": "cadenced",
+          "group": "Agent Chat",
+          "values": [
+            "cadenced",
+            "continuous"
+          ]
+        },
+        {
+          "key": "agentPane.display.thinking.shimmerBand",
+          "title": "Shimmer Width",
+          "help": "The width of the shimmer's light band. 0 uses half the line.",
+          "kind": "number",
+          "default": 0,
+          "group": "Agent Chat",
+          "range": {
+            "min": 0,
+            "max": 240,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "agentPane.display.thinking.shimmerPeriod",
+          "title": "Shimmer Speed",
+          "help": "How long one continuous pass of the shimmer takes.",
+          "kind": "number",
+          "default": 1250,
+          "group": "Agent Chat",
+          "range": {
+            "min": 600,
+            "max": 4000,
+            "unit": "milliseconds"
+          }
+        },
+        {
           "key": "agentPane.display.transcriptView",
           "title": "Transcript View",
           "help": "How much of each turn a chat shows. A chat's ··· menu sets its own.",
@@ -2246,6 +2317,14 @@
             "magenta",
             "cyan"
           ]
+        },
+        {
+          "key": "appearance.agentGlow",
+          "title": "React to Agents",
+          "help": "Calm while agents are idle; a soft glow in the machine's color when an agent needs you.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Window Background"
         },
         {
           "key": "appearance.appTheme",
@@ -4211,14 +4290,6 @@
           "help": "The sidebar bell's state while the Priority view is on. Off, the sidebar is unchanged.",
           "kind": "toggle",
           "default": true,
-          "group": "Sidebar"
-        },
-        {
-          "key": "sidebar.relativeTimestamps",
-          "title": "Relative Timestamps",
-          "help": "With Show Timestamps on, a change today reads as its age, such as 5m or 2h, not its time.",
-          "kind": "toggle",
-          "default": false,
           "group": "Sidebar"
         },
         {
@@ -6226,6 +6297,14 @@
       "title": "Keyboard",
       "rows": [
         {
+          "key": "macScreen.shareWithoutAsking",
+          "title": "Share This Mac Without Asking",
+          "help": "Your own cmux CLI, agents and devices turn sharing on with no sheet. Each device's access still applies.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Mac Screen"
+        },
+        {
           "key": "macScreen.systemShortcuts",
           "title": "Send System Shortcuts to the Remote Mac",
           "help": "Shortcuts like ⌘Tab and ⌘Space go to the other Mac. Needs Accessibility.",
@@ -6380,6 +6459,18 @@
           "kind": "toggle",
           "default": true,
           "group": "Attention Ring"
+        },
+        {
+          "key": "notifications.attention.mark",
+          "title": "Needs You Look",
+          "help": "How a tab and a sidebar row that wait for you show it: the badge, or a gentle glow until you look at them.",
+          "kind": "choice",
+          "default": "badge",
+          "group": "Attention Ring",
+          "values": [
+            "badge",
+            "glow"
+          ]
         },
         {
           "key": "notifications.attention.moveToTop",
