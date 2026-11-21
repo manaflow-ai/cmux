@@ -338,7 +338,7 @@ jobs:
     needs: [sign, sign-blacksmith]
     if: "!cancelled() && (needs.sign-blacksmith.result == 'skipped' && needs.sign.result || needs.sign-blacksmith.result) == 'success' && ((needs.sign-blacksmith.outputs.signed || needs.sign.outputs.signed) == 'true')"
     environment: release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     # Reads the queue janitor's pool snapshot (e2e_runner_pool.py's budget)
     # and the owned runners through the routing App's own budget.
@@ -519,7 +519,7 @@ jobs:
     concurrency:
       group: cmux-next-dev-daily
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 15
     permissions:
       contents: write

@@ -224,7 +224,8 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
         for workflow in ("cmux-tui-build-package.yml", "cmux-tui-tree-request.yml"):
             jobs = yaml.load((WORKFLOW.parent / workflow).read_text(encoding="utf-8"), Loader=yaml.BaseLoader)["jobs"]
             routes.extend((workflow, name, job["runs-on"]) for name, job in jobs.items()
-                          if "vars.LINUX_RUNNER" in str(job.get("runs-on", "")))
+                          # The own-branch route (vars.CI_OVERFLOW_LINUX || 'cmux-linux', c-ab6690acae) or LINUX_RUNNER.
+                          if re.search(r"vars\.(?:LINUX_RUNNER|CI_OVERFLOW_LINUX)\b", str(job.get("runs-on", ""))))
         self.assertGreaterEqual(len(routes), len(NIGHTLY_TREE_JOBS) + 3)
         nightly = {"event": "'push'", "ref": "'refs/heads/feat-cmux-next'", "attempt": "1"}
         cases = (

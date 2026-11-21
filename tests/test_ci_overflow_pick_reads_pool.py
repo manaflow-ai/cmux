@@ -241,7 +241,7 @@ class WorkflowTests(unittest.TestCase):
                 self.assertEqual(len(cells), 1, cells)
                 runs_on = cells[0]
                 self.assertFalse(picks_one_size(runs_on), runs_on)
-                self.assertTrue(runs_on.rstrip().endswith("|| " + POOL + " }}"), runs_on)
+                self.assertTrue(runs_on.rstrip().endswith("|| vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}"), runs_on)
 
     def test_no_workflow_adds_a_one_size_linux_pick(self) -> None:
         grown = {name: (count, PICKS.get(name, 0)) for name, count in counts().items() if count > PICKS.get(name, 0)}

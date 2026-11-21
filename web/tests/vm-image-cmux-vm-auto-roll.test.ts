@@ -467,16 +467,29 @@ describe("auto-roll workflows", () => {
 
   // Roll 44282278310 (2026-11-18): with vars.LINUX_RUNNER on a 16-vCPU Blacksmith size, plan queued 41 min and
   // promote 20+ min for that size, each a minute of work. Only the bake needs the big runner.
-  test("the roll's control jobs take the 4-vCPU pool, never LINUX_RUNNER; the bake keeps it", () => {
+  test("the roll's control jobs and the bake never take LINUX_RUNNER; plan and promote keep the 4-vCPU pool", () => {
     const roll = load("cloud-vm-image-roll.yml") as unknown as { jobs: Record<string, { "runs-on"?: string }> };
     for (const job of ["platform-readiness", "plan", "promote", "report"]) {
       const runsOn = roll.jobs[job]!["runs-on"]!;
       expect(runsOn).not.toContain("vars.LINUX_RUNNER");
+      expect(runsOn).not.toContain("blacksmith");
+    }
+    // plan and promote keep the 4-vCPU pool (8 while the cloud overflow is saved)
+    for (const job of ["plan", "promote"]) {
+      const runsOn = roll.jobs[job]!["runs-on"]!;
       expect(runsOn).toMatch(/\|\| fromJSON\(vars\.RUNNER_POOLS\)\.linux_4 }}$/);
       expect(runsOn).toContain("vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 ||");
     }
+    // readiness and report are one-minute jobs: our pool, Blacksmith only while the overflow switch is on
+    for (const job of ["platform-readiness", "report"]) {
+      expect(roll.jobs[job]!["runs-on"]).toMatch(/\|\| vars\.CI_OVERFLOW_LINUX \|\| 'cmux-linux' }}$/);
+    }
     const bake = load("cloud-vm-image-bake.yml") as unknown as { jobs: Record<string, { "runs-on"?: string }> };
-    expect(bake.jobs["bake"]!["runs-on"]).toContain("vars.LINUX_RUNNER");
+    // the bake reads the overflow switch too: our pool, Blacksmith only while CI_OVERFLOW_LINUX is on
+    const bakeRunsOn = bake.jobs["bake"]!["runs-on"]!;
+    expect(bakeRunsOn).not.toContain("vars.LINUX_RUNNER");
+    expect(bakeRunsOn).not.toContain("blacksmith");
+    expect(bakeRunsOn).toMatch(/\|\| vars\.CI_OVERFLOW_LINUX \|\| 'cmux-linux' }}$/);
   });
 
   test("platform mode mints its scoped token, checks out main and passes the split checkout", () => {
