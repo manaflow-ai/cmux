@@ -30,18 +30,27 @@ on:
     branches: [feat-cmux-next]
     paths:
       - "cmux-next-ios/**"
-      # The local packages CmuxMobileKit depends on (Package.swift).
-      - "Packages/Shared/CmuxGhosttyKit/**"
-      - "Packages/Shared/CmuxAgentQuestion/**"
-      - "Packages/Shared/CmuxAuthRuntime/**"
+      # The local packages CmuxMobileKit depends on, transitively (scripts/ci/ios_app_package_paths.py --check keeps this list exact).
       - "Packages/Shared/CMUXAuthCore/**"
       - "Packages/Shared/CMUXMobileCore/**"
       - "Packages/Shared/CmuxAgentBrands/**"
-      - "Packages/Shared/CmuxSpinner/**"
+      - "Packages/Shared/CmuxAgentQuestion/**"
+      - "Packages/Shared/CmuxAuthRuntime/**"
+      - "Packages/Shared/CmuxChiefList/**"
       - "Packages/Shared/CmuxChiefVoiceCore/**"
-      - "Packages/iOS/CmuxTabsKit/**"
+      - "Packages/Shared/CmuxConnectivityTelemetry/**"
+      - "Packages/Shared/CmuxDeviceHub/**"
+      - "Packages/Shared/CmuxGhosttyKit/**"
+      - "Packages/Shared/CmuxHomeCore/**"
+      - "Packages/Shared/CmuxScreenKit/**"
+      - "Packages/Shared/CmuxSpinner/**"
+      - "Packages/Shared/CmuxTheme/**"
+      - "Packages/Shared/CmuxVNC/**"
+      - "Packages/Shared/CmuxVNCWebRTC/**"
       - "Packages/iOS/CmuxConversation/**"
+      - "Packages/iOS/CmuxMobileBilling/**"
       - "Packages/iOS/CmuxMobileSupport/**"
+      - "Packages/iOS/CmuxTabsKit/**"
       - "vendor/stack-auth-swift-sdk-prerelease/**"
       # The toolchains it uses.
       - ".github/actions/setup-cmux-tui-rust/**"
@@ -51,6 +60,7 @@ on:
       - "scripts/ci/xcode-pins.txt"
       - ".xcode-version"
       - ".github/workflows/cmux-next-ios-kit.yml"
+      - "scripts/ci/ios_app_package_paths.py"
       - "!**/*.md"
       - "!cmux-next-ios/verify/**"
       - "cmux-next-ios/CmuxMobileKit/**/Resources/**"
@@ -60,18 +70,27 @@ on:
     branches: [feat-cmux-next]
     paths:
       - "cmux-next-ios/**"
-      # The local packages CmuxMobileKit depends on (Package.swift).
-      - "Packages/Shared/CmuxGhosttyKit/**"
-      - "Packages/Shared/CmuxAgentQuestion/**"
-      - "Packages/Shared/CmuxAuthRuntime/**"
+      # The local packages CmuxMobileKit depends on, transitively (scripts/ci/ios_app_package_paths.py --check keeps this list exact).
       - "Packages/Shared/CMUXAuthCore/**"
       - "Packages/Shared/CMUXMobileCore/**"
       - "Packages/Shared/CmuxAgentBrands/**"
-      - "Packages/Shared/CmuxSpinner/**"
+      - "Packages/Shared/CmuxAgentQuestion/**"
+      - "Packages/Shared/CmuxAuthRuntime/**"
+      - "Packages/Shared/CmuxChiefList/**"
       - "Packages/Shared/CmuxChiefVoiceCore/**"
-      - "Packages/iOS/CmuxTabsKit/**"
+      - "Packages/Shared/CmuxConnectivityTelemetry/**"
+      - "Packages/Shared/CmuxDeviceHub/**"
+      - "Packages/Shared/CmuxGhosttyKit/**"
+      - "Packages/Shared/CmuxHomeCore/**"
+      - "Packages/Shared/CmuxScreenKit/**"
+      - "Packages/Shared/CmuxSpinner/**"
+      - "Packages/Shared/CmuxTheme/**"
+      - "Packages/Shared/CmuxVNC/**"
+      - "Packages/Shared/CmuxVNCWebRTC/**"
       - "Packages/iOS/CmuxConversation/**"
+      - "Packages/iOS/CmuxMobileBilling/**"
       - "Packages/iOS/CmuxMobileSupport/**"
+      - "Packages/iOS/CmuxTabsKit/**"
       - "vendor/stack-auth-swift-sdk-prerelease/**"
       # The toolchains it uses.
       - ".github/actions/setup-cmux-tui-rust/**"
@@ -81,6 +100,7 @@ on:
       - "scripts/ci/xcode-pins.txt"
       - ".xcode-version"
       - ".github/workflows/cmux-next-ios-kit.yml"
+      - "scripts/ci/ios_app_package_paths.py"
       - "!**/*.md"
       - "!cmux-next-ios/verify/**"
       - "cmux-next-ios/CmuxMobileKit/**/Resources/**"
@@ -224,7 +244,7 @@ jobs:
       # (CI_SAME_TREE_AUDIT_PERCENT), and a red there names the receipt. CI_SAME_TREE_REUSE=0 turns it off.
       - name: Same-tree keys
         id: same-tree-keys
-        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && vars.CI_SAME_TREE_REUSE != '0' }}
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (vars.CI_SAME_TREE_REUSE || '1') != '0' }}
         continue-on-error: true
         run: python3 scripts/ci/same_tree_reuse.py keys --workflow .github/workflows/cmux-next-ios-kit.yml --jobs kit-tests >> "$GITHUB_OUTPUT"
       - name: Look up a same-tree pass of kit-tests

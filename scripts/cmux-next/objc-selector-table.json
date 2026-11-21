@@ -136,6 +136,14 @@
    "26.5.1": true,
    "26.6": true
   },
+  "NSButton call:hitTest/1": {
+   "26.5.2": true,
+   "26.7": true,
+   "27.0": true,
+   "27.0.1": true,
+   "26.5.1": true,
+   "26.6": true
+  },
   "NSButton call:accessibilityPerformPress/0": {
    "26.5.2": true,
    "26.7": true,
@@ -539,6 +547,14 @@
    "26.6": true
   },
   "NSImageView get:firstBaselineOffsetFromTop/0": {
+   "26.5.2": true,
+   "26.7": true,
+   "27.0": true,
+   "27.0.1": true,
+   "26.5.1": true,
+   "26.6": true
+  },
+  "NSPanel call:addChildWindow/2:ordered": {
    "26.5.2": true,
    "26.7": true,
    "27.0": true,

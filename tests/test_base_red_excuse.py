@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import tomllib
 import unittest
 import urllib.error
@@ -1896,9 +1897,10 @@ class Excusing(unittest.TestCase):
                 self.judge()
 
     def test_a_failure_with_nothing_to_compare_blocks(self):
-        # No test names and no error lines: the same step name alone proves nothing.
+        # No test names and no error lines, while the base names its failure: the same step name alone proves
+        # nothing (step_only_verdict excuses only a base that names nothing either).
         self.gh.logs[1] = log(SWIFT, TEST_STEP, "##[error]Process completed with exit code 1.")
-        with self.assertRaisesRegex(excuse.Refused, "nothing to compare"):
+        with self.assertRaisesRegex(excuse.Refused, "names no failing test or error line"):
             self.judge()
 
     def test_a_red_run_with_no_failed_job_listed_blocks(self):
@@ -3775,6 +3777,21 @@ class RollupsFromNeeds(unittest.TestCase):
         for why, (files, said) in cases.items():
             with self.subTest(why), self.assertRaisesRegex(excuse.Refused, said):
                 self.derive(**files)
+
+    def test_a_matrix_name_over_a_computed_include_matches_its_rendered_names_by_prefix(self):
+        # ci-web.yml react-apps-check-shard (#48561): a pull request runs only the shards its tests reach, so
+        # the include is computed. Actions still names each job 'react-apps-check (<shard>)'.
+        job = {"name": "react-apps-check (${{ matrix.shard }})", "runs-on": "x", "steps": [],
+               "strategy": {"matrix": {"include": "${{ fromJSON(needs.scope.outputs.react_shards) }}"}}}
+        self.assertEqual(excuse._check_matcher("react-apps-check-shard", job, "ci-web.yml"),
+                         {"exact": [], "prefixes": ["react-apps-check ("]})
+        for why, bad in {
+            "a called workflow": dict(job, uses="./.github/workflows/x.yml"),
+            "a computed matrix that is not an include": dict(job, strategy={"matrix": "${{ fromJSON(x) }}"}),
+            "an include of fixed rows without the key": dict(job, strategy={"matrix": {"include": [{"part": 1}]}}),
+        }.items():
+            with self.subTest(why), self.assertRaisesRegex(excuse.Refused, "not one matrix key over fixed values"):
+                excuse._check_matcher("react-apps-check-shard", bad, "ci-web.yml")
 
     def test_a_missing_or_malformed_contract_refuses_every_rollup(self):
         for text in (None, "{", "[]", '{"run": {}, "routed": {}}',
@@ -7885,6 +7902,138 @@ class WsCheckFailureText(unittest.TestCase):
         self.assertEqual(excuse.unittest_failures(section),
                          [("test_x (__main__.A.test_x)", ["ValueError: tools/b.py is listed", "- 'tools/b.py'"]),
                           ("test_y (__main__.A.test_y)", ["KeyError: 'k'"])])
+
+
+class SourceCacheBound(unittest.TestCase):
+    """git_cache's bound on its bare repo (source_cache_hold): past SOURCE_CACHE_MAX_BYTES and a day old, the next run
+    no other run shares it with makes it again from nothing; a repo another run holds, or one under the cap or made
+    today, is kept as it is."""
+    REPO = "o/r"
+
+    def setUp(self):
+        top = tempfile.TemporaryDirectory(prefix="bre-bound-")
+        self.addCleanup(top.cleanup)
+        self.cache = Path(top.name, "src")
+        self.where = self.cache / "o__r.git"
+        for patch in (unittest.mock.patch.dict(os.environ, {excuse.SOURCE_CACHE_ENV: str(self.cache),
+                                                            excuse.SOURCE_CACHE_MAX_BYTES_ENV: "4096"}),
+                      unittest.mock.patch.dict(excuse._SOURCE_CACHE_LOCKS, clear=True)):
+            patch.start()
+            self.addCleanup(patch.stop)
+        self.addCleanup(self.release)
+        git_fixture_env.init_repo(self.where, "--bare")
+        self.blob = subprocess.run(["git", "--git-dir", str(self.where), "hash-object", "-w", "--stdin"],
+                                   input=os.urandom(64 * 1024), capture_output=True, check=True).stdout.decode().strip()
+
+    def release(self):
+        for fd in excuse._SOURCE_CACHE_LOCKS.values():
+            os.close(fd)
+
+    def has_blob(self) -> bool:
+        return subprocess.run(["git", "--git-dir", str(self.where), "cat-file", "-e", self.blob],
+                              capture_output=True).returncode == 0
+
+    def age(self, seconds):
+        stamp = self.where / excuse.SOURCE_CACHE_STAMP
+        stamp.touch()
+        when = time.time() - seconds
+        os.utime(stamp, (when, when))
+
+    def test_a_repo_past_the_cap_is_made_again_from_nothing(self):
+        self.assertIsNotNone(excuse.git_cache(self.REPO))
+        self.assertFalse(self.has_blob())
+        self.assertTrue((self.where / "HEAD").is_file())
+        self.assertTrue((self.where / excuse.SOURCE_CACHE_STAMP).is_file())
+        self.assertEqual(sorted(path.name for path in self.cache.iterdir()), ["o__r.git", "o__r.git.lock"])
+        config = subprocess.run(["git", "--git-dir", str(self.where), "config", "remote.origin.partialclonefilter"],
+                                capture_output=True, text=True)
+        self.assertEqual(config.stdout.strip(), "blob:none")
+
+    def test_a_repo_under_the_cap_is_kept(self):
+        with unittest.mock.patch.dict(os.environ, {excuse.SOURCE_CACHE_MAX_BYTES_ENV: str(1 << 30)}):
+            excuse.git_cache(self.REPO)
+        self.assertTrue(self.has_blob())
+
+    def test_a_repo_made_within_the_day_is_kept_past_the_cap(self):
+        self.age(excuse.SOURCE_CACHE_MIN_AGE_SECONDS - 600)
+        excuse.git_cache(self.REPO)
+        self.assertTrue(self.has_blob())
+        self.age(excuse.SOURCE_CACHE_MIN_AGE_SECONDS + 600)
+        self.release()  # the first run exits; a later one starts
+        excuse._SOURCE_CACHE_LOCKS.clear()
+        excuse.git_cache(self.REPO)
+        self.assertFalse(self.has_blob())
+
+    def test_a_repo_another_run_holds_is_never_moved(self):
+        import fcntl
+        other = os.open(self.where.with_name("o__r.git.lock"), os.O_RDWR | os.O_CREAT)
+        self.addCleanup(os.close, other)
+        fcntl.flock(other, fcntl.LOCK_SH)
+        excuse.git_cache(self.REPO)
+        self.assertTrue(self.has_blob())
+
+    def test_a_run_holds_its_repo_shared_until_it_exits(self):
+        import fcntl
+        excuse.git_cache(self.REPO)
+        excuse.git_cache(self.REPO)  # once per process: no second lock, no second check
+        self.assertEqual(len(excuse._SOURCE_CACHE_LOCKS), 1)
+        other = os.open(self.where.with_name("o__r.git.lock"), os.O_RDWR)
+        self.addCleanup(os.close, other)
+        fcntl.flock(other, fcntl.LOCK_SH | fcntl.LOCK_NB)  # readers share
+        fcntl.flock(other, fcntl.LOCK_UN)
+        with self.assertRaises(OSError):
+            fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)  # no rebuild under a live run
+
+    def test_a_copy_an_earlier_rebuild_left_is_removed_when_no_run_holds_the_repo(self):
+        left = self.cache / "o__r.git.retired-1-2"
+        (left / "objects").mkdir(parents=True)
+        with unittest.mock.patch.dict(os.environ, {excuse.SOURCE_CACHE_MAX_BYTES_ENV: str(1 << 30)}):
+            excuse.git_cache(self.REPO)
+        self.assertFalse(left.exists())
+        self.assertTrue(self.has_blob())
+
+
+class JobsCacheBound(unittest.TestCase):
+    """prune_kept, the jobs cache's prune (kept job lists and settled reads): past its age, a crashed write's spare
+    file past an hour, then the oldest answers until the directory fits JOBS_CACHE_MAX_BYTES."""
+
+    def setUp(self):
+        top = tempfile.TemporaryDirectory(prefix="bre-jobs-")
+        self.addCleanup(top.cleanup)
+        self.where = Path(top.name)
+
+    def kept(self, name, size, age):
+        path = self.where / name
+        path.write_bytes(b"x" * size)
+        when = time.time() - age
+        os.utime(path, (when, when))
+        return path
+
+    def test_the_oldest_answers_go_until_the_directory_fits_the_cap(self):
+        oldest, older, newest = self.kept("a.json", 400, 300), self.kept("b.json", 400, 200), self.kept("c.json", 400, 100)
+        (self.where / "settled").mkdir()
+        with unittest.mock.patch.dict(os.environ, {excuse.JOBS_CACHE_MAX_BYTES_ENV: "900"}):
+            excuse.prune_kept(self.where, 3600)
+        self.assertEqual([path.exists() for path in (oldest, older, newest)], [False, True, True])
+        self.assertTrue((self.where / "settled").is_dir())
+
+    def test_answers_past_their_age_and_stale_spare_files_go_under_the_cap(self):
+        old, fresh = self.kept("old.json", 10, 7200), self.kept("new.json", 10, 10)
+        spare, live = self.kept(".x.json.1", 10, 2 * excuse.KEPT_SPARE_SECONDS), self.kept(".y.json.2", 10, 5)
+        other = self.kept("notes.txt", 10, 7200)
+        excuse.prune_kept(self.where, 3600)
+        self.assertEqual([path.exists() for path in (old, fresh, spare, live, other)], [False, True, False, True, True])
+
+    def test_settled_put_prunes_the_settled_store_by_size(self):
+        settled = self.where / "settled"
+        settled.mkdir()
+        stale = self.kept("settled/0.json", 2000, 100)
+        with unittest.mock.patch.dict(os.environ, {excuse.JOBS_CACHE_ENV: str(self.where),
+                                                   excuse.JOBS_CACHE_MAX_BYTES_ENV: "1000"}), \
+                unittest.mock.patch.object(excuse, "_SETTLED_PRUNED", []):
+            excuse.settled_put("repos/o/r/actions/jobs/1", {"id": 1})
+            self.assertEqual(excuse.settled_get("repos/o/r/actions/jobs/1"), {"id": 1})
+        self.assertFalse(stale.exists())
 
 
 class WsCheckSquashTree(unittest.TestCase):
@@ -12263,9 +12412,22 @@ class UnplacedLogsAreComparedWhole(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "error lines are not .*more on this head: .*New.swift"):
             self.judge(UnplacedGitHub(UNPLACED_CHECKS, UNPLACED_CHECKS_STEP, base + [negative], base))
 
-    def test_a_red_that_names_nothing_is_refused(self):
+    def test_48480_a_red_that_names_nothing_is_excused_by_the_same_failed_step_on_base(self):
+        # cmux#48480: 'seven-language live conformance' failed at 'Select JDK 17' on the head and on feat-cmux-next,
+        # and neither log names a test or error line; refused three times as "nothing to compare". Nothing printed
+        # before the runner's exit annotation either, so there are no last words (last_words): only the step is left.
+        said = self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, [], []))
+        self.assertIn("only its failed steps identify it", said)
+        self.assertIn("swift test (macOS) (failure)", said)
+
+    def test_a_red_that_names_nothing_is_refused_by_another_step_or_a_base_that_names_its_failure(self):
+        other = UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, [], [])
+        other.jobs[2]["steps"][2]["name"] = "xcodebuild test (iOS simulator)"
         with self.assertRaisesRegex(excuse.Refused, "names no failing test or error line"):
-            self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, ["just output"], ["just output"]))
+            self.judge(other)
+        named = ["✘ Test reconnectsAfterSleep() failed after 2.100 seconds with 1 issue."]
+        with self.assertRaisesRegex(excuse.Refused, "names no failing test or error line"):
+            self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, [], named))
 
     def test_the_scripts_echo_is_never_a_red(self):
         # The runner echoes each step's script: a `::error::` the script could print is not one it did.
@@ -12275,6 +12437,58 @@ class UnplacedLogsAreComparedWhole(unittest.TestCase):
         red = ["##[error]red check: Scrollbars thin, one style"]
         said = self.judge(UnplacedGitHub(UNPLACED_CHECKS, UNPLACED_CHECKS_STEP, echo + red, red))
         self.assertIn("compared whole", said)
+
+
+class ShellStepLastWordsAreItsErrorLine(unittest.TestCase):
+    """2026-11-20, cmuxterm-hq#15467 at 4aa7a17c (cmuxterm-hq#15575): 'Fleet tests' (job 136408981140) failed
+    "Validate the fleet client install and the tag policy" on the same plain line as main's Skills tests run
+    44769654200 (job 136405799814), `Bundled fleet client is stale. Run scripts/sync-fleet-skill-client.py.` then the
+    runner's exit annotation. Its log is unplaced and names no failing test or error line, so it was refused as having
+    nothing to compare. Recorded from both jobs' logs: the line before each exit annotation is that step's error line,
+    on both sides, so the same red is excused and a new or different one is still the PR's own."""
+
+    JOB = "Fleet tests"
+    STEP = "Validate the fleet client install and the tag policy"
+    STALE = "Bundled fleet client is stale. Run scripts/sync-fleet-skill-client.py."
+    # The step's own header and the runner's echo of its script, as both logs print them, then its last words.
+    RED = ("##[group]Run python3 scripts/sync-fleet-skill-client.py --check",
+           "\x1b[36;1mpython3 scripts/sync-fleet-skill-client.py --check\x1b[0m",
+           "\x1b[36;1mpython3 -m unittest discover -s build-fleet -p 'client_install_test.py'\x1b[0m",
+           "shell: /usr/bin/bash -e {0}", "##[endgroup]", STALE)
+
+    def judge(self, github):
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
+
+    def github(self, head=RED, base=RED):
+        return UnplacedGitHub(self.JOB, self.STEP, head, base)
+
+    def test_15467_the_same_failed_step_and_last_words_as_the_base_are_excused(self):
+        said = self.judge(self.github())
+        self.assertIn("excused 'Fleet tests'", said)
+        self.assertIn(f"last words before exit 1: {self.STALE}", said)
+
+    def test_other_last_words_are_the_prs_own(self):
+        other = (*self.RED[:-1], "Tag policy: lane/foo is not an allowed tag.")
+        with self.assertRaisesRegex(excuse.Refused, "error lines are not .*more on this head: .*Tag policy"):
+            self.judge(self.github(head=other))
+
+    def test_a_step_that_fails_besides_is_the_prs_own(self):
+        github = self.github()
+        github.jobs[1]["steps"].append({"name": "Run the fleet policy tests", "status": "completed",
+                                        "conclusion": "failure"})
+        with self.assertRaisesRegex(excuse.Refused, r"its failed steps \(.*Run the fleet policy tests"):
+            self.judge(github)
+
+    def test_a_second_exit_on_the_head_is_the_prs_own(self):
+        with self.assertRaisesRegex(excuse.Refused, "error lines are not"):
+            self.judge(self.github(head=(*self.RED, "##[error]Process completed with exit code 1.", self.STALE)))
+
+    def test_a_named_error_line_keeps_last_words_out(self):
+        # A log that names an error line is compared by it alone, as before: last words are only for a log that
+        # names nothing.
+        mine = excuse.unplaced_signature(failed_job(1, 10, HEAD, self.JOB, self.STEP),
+                                         unplaced_log(self.JOB, self.STEP, "##[error]red check: x", self.STALE))
+        self.assertFalse([error for error in mine.errors if error.startswith(excuse.LAST_WORDS)])
 
 
 class FailedViewIsTheOnlyReader(unittest.TestCase):
@@ -15557,7 +15771,10 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             # Calls ci.yml, cmux-next-guards.yml and the other docs-only-filtered workflows when their filter can
             # be wrong (scripts/ci/docs_only_paths.py FALLBACK); a called guard job's check name carries the
             # caller's prefix, so no guard job declaration matches it and its red is judged as any job's.
-            "docs-only-fallback.yml"),
+            "docs-only-fallback.yml",
+            # One router per push (RFD 0023): its route job lists changed files; it calls the routed workflows
+            # (scripts/ci/pr_router.json), whose check names carry the `pr router / ` prefix, as the fallback's do.
+            "pr-router.yml"),
         "bots, labels, receipts, comments and policy reads of the pull request or GitHub, not of the tree": (
             "cla-policy-guard.yml", "cla.yml", "classic-frozen-guard.yml", "contributor-welcome.yml", "labels-sync.yml",
             "merge-freeze.yml", "merge-receipt.yml", "namespace-autofix.yml", "pr-body-checks.yml", "risk-tier.yml",
