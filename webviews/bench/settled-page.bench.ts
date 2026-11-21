@@ -41,14 +41,15 @@
 //
 //   bun bench/settled-page.bench.ts [rounds=3] [turns=120]
 //   ONLY=chat_switch,restart  ARMS=idle  TRACE=1 (each scenario's worst round frame by frame)
+//   PROFILE=1 (an unminified build and a CPU profile of each chat switch: its top functions)
 /// <reference types="bun" />
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { Browser, BrowserContext, Page } from "playwright";
+import type { Browser, BrowserContext, CDPSession, Page } from "playwright";
 import { chromium } from "./browsers";
 import { papercutEvents } from "../test/support/papercutChat";
-import { classifyFrames, type FrameRecord } from "../src/agent-session/acpmux/firstLoadFrames";
+import { classifyFrames, MOVE_TOLERANCE_PX, type FrameRecord } from "../src/agent-session/acpmux/firstLoadFrames";
 import { perfRow } from "./perfRow";
 
 const ROUNDS = Number(process.argv[2] ?? 3);
@@ -64,6 +65,60 @@ type Arm = (typeof ARMS)[number];
 const only = process.env.ONLY?.split(",") as Scenario[] | undefined;
 const arms = (process.env.ARMS?.split(",") as Arm[] | undefined) ?? [...ARMS];
 const TRACE = process.env.TRACE === "1";
+// PROFILE=1: an unminified build and a CPU profile of each chat switch, its top functions by self and total time.
+const PROFILE = process.env.PROFILE === "1";
+
+type CpuProfile = {
+  nodes: {
+    id: number;
+    parent?: number;
+    children?: number[];
+    callFrame: { functionName: string; url: string; lineNumber: number };
+  }[];
+  samples: number[];
+  timeDeltas: number[];
+};
+/// PROFILE's report: the switch's first 150 ms of samples, the top functions by self time and by total time.
+function printProfile(label: string, profile: CpuProfile) {
+  const keep = process.env.FAST_CHECKS_OUT ?? process.env.PROFILE_OUT;
+  if (keep) fs.writeFileSync(path.join(keep, `${label}-${Date.now()}.cpuprofile`), JSON.stringify(profile));
+  console.log(
+    `  ${label} profile: ${profile.samples.length} samples over ${(profile.timeDeltas.reduce((x, y) => x + y, 0) / 1000).toFixed(0)} ms`,
+  );
+  const byId = new Map(profile.nodes.map((node) => [node.id, node]));
+  const parent = new Map<number, number>();
+  for (const node of profile.nodes) for (const child of node.children ?? []) parent.set(child, node.id);
+  const name = (id: number) => {
+    const frame = byId.get(id)!.callFrame;
+    return `${frame.functionName || "(anon)"} ${frame.url.split("/").pop()}:${frame.lineNumber + 1}`;
+  };
+  const self = new Map<string, number>();
+  const total = new Map<string, number>();
+  let t = 0;
+  for (let i = 0; i < profile.samples.length; i += 1) {
+    t += profile.timeDeltas[i]! / 1000;
+    if (t > 150) break;
+    const dt = (profile.timeDeltas[i + 1] ?? 100) / 1000;
+    const leaf = profile.samples[i]!;
+    self.set(name(leaf), (self.get(name(leaf)) ?? 0) + dt);
+    const seen = new Set<string>();
+    for (let id: number | undefined = leaf; id !== undefined; id = parent.get(id)) {
+      const key = name(id);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      total.set(key, (total.get(key) ?? 0) + dt);
+    }
+  }
+  const top = (map: Map<string, number>, count: number) =>
+    [...map]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, count)
+      .map(([key, ms]) => `      ${ms.toFixed(1)}ms ${key}`);
+  console.log(`  ${label} profile, self:`);
+  for (const line of top(self, 20)) console.log(line);
+  console.log(`  ${label} profile, total:`);
+  for (const line of top(total, 45)) console.log(line);
+}
 /// Frames are read for this long after the transition, then the read stops once nothing changed for QUIET_MS.
 const MIN_WATCH_MS = 1_500;
 const QUIET_MS = 800;
@@ -76,14 +131,27 @@ const webviews = path.resolve(import.meta.dir, "..");
 const A = "0190a000-0000-7000-8000-00000000fd01";
 const B = "0190a000-0000-7000-8000-00000000fd02";
 const S = "0190a000-0000-7000-8000-00000000fd03";
-/// Each chat's own words and row ids: B's answers read differently, and B's and S's records start one and two later,
-/// so a switch from A changes every row in view (identical chats would read as no change at all).
+/// Each chat's own words and row ids: B's answers read differently, and each chat's records number from its own base,
+/// so no row id is shared between chats (a shared id would read as one row moving across a switch, identical chats as
+/// no change at all) and a row id names its chat.
 const WORD = new Map([
   [A, "Answer"],
   [B, "Reply"],
   [S, "Answer"],
 ]);
 const markOf = (chat: string) => `${WORD.get(chat)} ${TURNS}:`;
+const SEQ_SPAN = 100_000;
+const SEQ_BASE = new Map([
+  [A, 0],
+  [B, SEQ_SPAN],
+  [S, 2 * SEQ_SPAN],
+]);
+/** Whether a row id (`assistant-100479`, `working-user-481`) is one of `chat`'s rows. */
+const rowOf = (rowId: string, chat: string) => {
+  const seq = Number(/(\d+)$/.exec(rowId)?.[1] ?? NaN);
+  const base = SEQ_BASE.get(chat)!;
+  return seq > base && seq <= base + SEQ_SPAN;
+};
 
 type Chat = { session: Record<string, unknown>; events: Record<string, unknown>[] };
 const chatOf = (sessionId: string, title: string, running: boolean): Chat => {
@@ -92,15 +160,11 @@ const chatOf = (sessionId: string, title: string, running: boolean): Chat => {
     turns: TURNS,
     running,
     answer: (n) => `${word} ${n}: the checks on the merged head are green.`,
-    lead: Array.from({ length: sessionId === B ? 1 : sessionId === S ? 2 : 0 }, () => [
-      "mux",
-      "user_message",
-      { text: "Before we start" },
-    ]),
   });
+  const base = SEQ_BASE.get(sessionId)!;
   return {
-    session: { ...session, sessionId, title },
-    events: events.map((event) => ({ ...event, sessionId })),
+    session: { ...session, sessionId, title, lastSeq: Number(session.lastSeq) + base },
+    events: events.map((event) => ({ ...event, sessionId, seq: Number(event.seq) + base })),
   };
 };
 const chats = new Map<string, Chat>([
@@ -204,7 +268,7 @@ function installFrameReader() {
     __settle?: {
       start(t0: number): void;
       peek(): { lastChange: number; now: number };
-      stop(): { t0: number; frames: Rec[]; lastChange: number };
+      stop(): { t0: number; frames: Rec[]; lastChange: number; marks: { t: number; what: string }[] };
     };
     __hidden?: boolean;
   };
@@ -216,6 +280,43 @@ function installFrameReader() {
     get: () => (w.__hidden ? "hidden" : "visible"),
   });
   Object.defineProperty(Document.prototype, "hidden", { configurable: true, get: () => !!w.__hidden });
+  // TRACE's timeline: each socket message out and in (its method, or the id it answers) and each long task.
+  const marks: { t: number; what: string }[] = [];
+  const mark = (what: string) => marks.push({ t: performance.now(), what });
+  const Native = window.WebSocket;
+  const asked = new Map<unknown, string>();
+  window.WebSocket = class extends Native {
+    constructor(url: string | URL, protocols?: string | string[]) {
+      super(url, protocols);
+      this.addEventListener("message", (event) => {
+        try {
+          const msg = JSON.parse(String(event.data)) as { id?: unknown; method?: string; params?: { kind?: string } };
+          const what = msg.method ?? `answer ${asked.get(msg.id) ?? msg.id}`;
+          mark(`in ${what}${msg.params?.kind ? ` ${msg.params.kind}` : ""} ${String(event.data).length}B`);
+        } catch {
+          mark("in ?");
+        }
+      });
+    }
+    send(data: string | ArrayBufferLike | Blob | ArrayBufferView) {
+      try {
+        const msg = JSON.parse(String(data)) as { id?: unknown; method?: string };
+        if (msg.method) asked.set(msg.id, msg.method);
+        mark(`out ${msg.method ?? "answer"}`);
+      } catch {
+        mark("out ?");
+      }
+      super.send(data);
+    }
+  } as typeof WebSocket;
+  try {
+    new PerformanceObserver((list) => {
+      for (const entry of list.getEntries())
+        marks.push({ t: entry.startTime, what: `longtask ${entry.duration.toFixed(0)}ms` });
+    }).observe({ type: "longtask", buffered: false });
+  } catch {
+    // no long task timing in this engine
+  }
   const raf = window.requestAnimationFrame.bind(window);
   let frames: Rec[] = [];
   let t0 = 0;
@@ -269,6 +370,7 @@ function installFrameReader() {
   w.__settle = {
     start(at: number) {
       frames = [];
+      marks.length = 0;
       t0 = at;
       lastKey = "";
       lastChange = at;
@@ -280,12 +382,12 @@ function installFrameReader() {
     },
     stop() {
       running = false;
-      return { t0, frames, lastChange };
+      return { t0, frames, lastChange, marks: marks.slice() };
     },
   };
 }
 
-type Read = { t0: number; frames: FrameRecord[]; lastChange: number };
+type Read = { t0: number; frames: FrameRecord[]; lastChange: number; marks: { t: number; what: string }[] };
 type Reader = { start(t0: number): void; peek(): { lastChange: number; now: number }; stop(): Read };
 /** Reads until the page painted `mark`, MIN_WATCH_MS passed and nothing changed for QUIET_MS (or MAX_WATCH_MS); returns
  * every frame read since the transition. */
@@ -320,26 +422,37 @@ function streamView(frame: FrameRecord): FrameRecord {
 /**
  * The stream arm's judge. The view follows the growing reply, so rows leave the top of the view and the reply's own
  * row grows and may change identity (the working row becomes the answer): none of that is a shift. A shift is a row
- * seen in two frames in a row (the bottom-most left out) whose content position changed, or a composer that moved.
+ * seen in two frames in a row (the bottom-most left out) that moved both in the view and in the content: following
+ * the reply moves rows in the view only, and a height read above that the scroll offset absorbs (the view held still)
+ * moves them in the content only, and neither is seen. A composer that moved is a shift too.
  * Settled: the first frame from which no such move happens again and the final bottom row is already shown.
  */
 function judgeStream(frames: FrameRecord[], t0: number): Judged {
   const views = frames.map(streamView);
   const moved = (a: FrameRecord, b: FrameRecord): string | null => {
     const before = new Map(a.rows.map((row) => [row.id, row.top]));
+    const offset = (frame: FrameRecord) => frame.scrollTop ?? 0;
     for (const row of b.rows) {
       const top = before.get(row.id);
-      if (top !== undefined && Math.abs(top - row.top) > 0.5)
-        return `row ${row.id} ${top.toFixed(1)} -> ${row.top.toFixed(1)}`;
+      if (top === undefined || Math.abs(top - row.top) <= MOVE_TOLERANCE_PX) continue;
+      const [viewA, viewB] = [top - offset(a), row.top - offset(b)];
+      if (Math.abs(viewA - viewB) > MOVE_TOLERANCE_PX)
+        return `row ${row.id} view ${viewA.toFixed(1)} -> ${viewB.toFixed(1)}, content ${top.toFixed(1)} -> ${row.top.toFixed(1)}`;
     }
     const [ca, cb] = [a.composer, b.composer];
-    if (ca && cb && (Math.abs(ca.top - cb.top) > 0.5 || Math.abs(ca.height - cb.height) > 0.5))
+    if (
+      ca &&
+      cb &&
+      (Math.abs(ca.top - cb.top) > MOVE_TOLERANCE_PX || Math.abs(ca.height - cb.height) > MOVE_TOLERANCE_PX)
+    )
       return `composer ${ca.top.toFixed(1)}+${ca.height.toFixed(1)} -> ${cb.top.toFixed(1)}+${cb.height.toFixed(1)}`;
     return null;
   };
   const bottomOf = (frame: FrameRecord) =>
-    frame.rows.reduce<{ id: string; top: number } | null>((best, row) => (!best || row.top >= best.top ? row : best), null)
-      ?.id ?? null;
+    frame.rows.reduce<{ id: string; top: number } | null>(
+      (best, row) => (!best || row.top >= best.top ? row : best),
+      null,
+    )?.id ?? null;
   const finalBottom = frames.length ? bottomOf(frames.at(-1)!) : null;
   const why: string[] = [];
   let lastMove = -1;
@@ -356,8 +469,12 @@ function judgeStream(frames: FrameRecord[], t0: number): Judged {
 }
 
 type Judged = { settledMs: number; shifts: number; why: string[]; frames: number };
-function judge(read: Read, arm: Arm): Judged {
-  const frames = read.frames.filter((frame) => frame.t >= read.t0);
+function judge(read: Read, arm: Arm, target: string): Judged {
+  // The chat on screen before the switch stays until the target draws (no blank between): judged from the first frame
+  // showing any of the target's rows. A frame mixing both chats is still judged (an oddity).
+  const after = read.frames.filter((frame) => frame.t >= read.t0);
+  const first = after.findIndex((frame) => frame.rows.some((row) => rowOf(row.id, target)));
+  const frames = first < 0 ? after : after.slice(first);
   if (arm === "stream") return judgeStream(frames, read.t0);
   const view = frames;
   const metrics = classifyFrames(view);
@@ -478,9 +595,14 @@ try {
   const { build } = await import("vite");
   await build({
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-    build: { outDir: out, emptyOutDir: true },
+    build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false, sourcemap: true } : {}) },
     logLevel: "error",
   });
+  // PROFILE keeps the build's source maps beside its profiles, to read their lines back as source.
+  const keepMaps = process.env.FAST_CHECKS_OUT ?? process.env.PROFILE_OUT;
+  if (PROFILE && keepMaps)
+    for (const file of fs.readdirSync(path.join(out, "assets")).filter((name) => name.endsWith(".js.map")))
+      fs.copyFileSync(path.join(out, "assets", file), path.join(keepMaps, file));
   const statics = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -522,6 +644,7 @@ try {
   const one = async (scenario: Scenario, arm: Arm): Promise<Round> => {
     const target = arm === "stream" ? S : B;
     let context: BrowserContext | undefined;
+    let profiler: CDPSession | undefined;
     try {
       let page: Page;
       if (scenario === "chat_switch") {
@@ -530,6 +653,12 @@ try {
         await page.goto(urlFor(A));
         await waitPainted(page, markOf(A));
         await settleIdle(page);
+        if (PROFILE) {
+          profiler = await context.newCDPSession(page);
+          await profiler.send("Profiler.enable");
+          await profiler.send("Profiler.setSamplingInterval", { interval: 100 });
+          await profiler.send("Profiler.start");
+        }
         await start(page);
         if (arm === "stream") startStream();
         await page.evaluate(
@@ -563,7 +692,23 @@ try {
       } else throw new Error(`${scenario} runs in first-load-after-restart.bench.ts`);
       const read = await framesOf(page, markOf(target));
       stopStream();
-      const judged = judge(read, arm);
+      if (profiler) printProfile(`${scenario}.${arm}`, (await profiler.send("Profiler.stop")).profile);
+      const judged = judge(read, arm, target);
+      if (TRACE) {
+        // The timeline to the settled frame: socket traffic, long tasks, and the first frame showing the target.
+        const first = read.frames.find(
+          (frame) => frame.t >= read.t0 && frame.rows.some((row) => rowOf(row.id, target)),
+        );
+        const lines = [
+          ...read.marks,
+          ...(first ? [{ t: first.t, what: "first frame showing the target" }] : []),
+          { t: read.t0 + judged.settledMs, what: "settled" },
+        ]
+          .filter((one) => one.t - read.t0 <= judged.settledMs + 50)
+          .sort((x, y) => x.t - y.t);
+        console.log(`  ${scenario}.${arm} timeline:`);
+        for (const one of lines) console.log(`    +${(one.t - read.t0).toFixed(1)}ms ${one.what}`);
+      }
       const copy = await settledCopy(page);
       const boundMs = await boundInPage(page, copy);
       return { ...judged, boundMs, ratio: judged.settledMs / Math.max(boundMs, 1) };
