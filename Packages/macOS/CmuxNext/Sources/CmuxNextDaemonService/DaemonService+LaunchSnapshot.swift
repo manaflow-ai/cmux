@@ -20,6 +20,7 @@ extension DaemonService {
         // first handshake; `rememberLaunchSnapshot` gives it again at each handshake.
         if let path = launchSnapshotLocation.path(session: session) { noteSessionFolder(ofLaunchSnapshot: path) }
         guard let snapshot, snapshot.session == session else { return }
+        launchRecordedRegistryID = snapshot.knownRegistryID
         store.applyProvisional(snapshot: snapshot.tree)
         launchSnapshotWindows = snapshot.windows
         launchSnapshotRegistryID = snapshot.tree.registryID
@@ -48,11 +49,16 @@ extension DaemonService {
         take(data)
     }
 
-    /// Records the snapshot path the local daemon reported, for the next launch.
+    /// Records the snapshot path the local daemon reported, for the next launch, and its registry id in this home's
+    /// folder (`LaunchSnapshotLocation.recordRegistry`): the next launch draws only a snapshot of that registry.
     func rememberLaunchSnapshot(_ identity: DaemonIdentity) {
         guard let session = launchSnapshotSession, identity.session == session else { return }
         launchSnapshotLocation.record(identity.launchSnapshotPath, session: session)
         if let path = identity.launchSnapshotPath { noteSessionFolder(ofLaunchSnapshot: path) }
+        if let registry = identity.registryID, registry != launchRecordedRegistryID {
+            launchRecordedRegistryID = registry
+            launchRegistryRecorder.record(registry, session: session, location: launchSnapshotLocation)
+        }
     }
 
     /// The daemon keeps its launch snapshot in its session folder: the app's slow request log goes beside the
