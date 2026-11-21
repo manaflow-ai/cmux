@@ -352,11 +352,13 @@ struct EnvSentencesDirection: View {
                 promise("arrow.up.right", "cmux adds the value only on requests to \(sample.requestHost).")
                 promise("eye.slash", "After you save, nobody can read it back: not you, not an agent.")
             }
+            Divider()
+            Text("Where to keep it").font(.system(size: TypeScale.detail, weight: .semibold))
+            EnvRequestScopePicker(model: model)
             HStack {
-                Text("Keep it for this chat only").font(.system(size: TypeScale.detail)).foregroundStyle(EnvInk.secondary)
                 Spacer()
                 Button("Decline") {}
-                Button("Save for this chat") {}.buttonStyle(.borderedProminent)
+                Button(model.requestSaveTitle) {}.buttonStyle(.borderedProminent)
             }
         }
     }
