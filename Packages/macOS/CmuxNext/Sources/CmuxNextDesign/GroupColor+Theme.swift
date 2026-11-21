@@ -55,10 +55,16 @@ extension GroupColor {
     /// - Parameters:
     ///   - tokens: The theme the row draws in.
     ///   - emphasized: Whether the row is selected (or a drop target), so its bar steps up.
+    ///   - muted: Halve the swatch's OKLCH chroma first, for a softer, grayer bar at the same contrast.
     /// - Returns: The bar's opaque color.
-    nonisolated public func railRGB(_ tokens: ThemeTokens, emphasized: Bool) -> ThemeRGB {
+    nonisolated public func railRGB(_ tokens: ThemeTokens, emphasized: Bool, muted: Bool = false) -> ThemeRGB {
         let ground = tokens.sidebarBackground.composited(over: tokens.windowBackground.withAlpha(1)).withAlpha(1)
-        let swatch = swatchRGB(tokens).withAlpha(1)
+        var swatch = swatchRGB(tokens).withAlpha(1)
+        if muted {
+            // Half the chroma at the same lightness and hue: a softer, grayer hue that still names the color.
+            let lch = swatch.oklch
+            swatch = ThemeRGB(oklchLightness: lch.lightness, chroma: lch.chroma * 0.5, hue: lch.hue)
+        }
         let target = emphasized ? Self.railEmphasizedContrast : Self.railRestContrast
         guard swatch.contrast(with: ground) > target else { return swatch }
         // Contrast falls steadily as the swatch moves toward the ground, so the least move that reaches the target is
@@ -71,10 +77,14 @@ extension GroupColor {
         return swatch.mixed(toward: ground, high)
     }
 
-    /// ``railRGB(_:emphasized:)`` in the active theme scope (the app theme outside one).
+    /// ``railRGB(_:emphasized:muted:)`` in the active theme scope (the app theme outside one).
     ///
-    /// - Parameter emphasized: Whether the row is selected (or a drop target).
-    public func railColor(emphasized: Bool) -> NSColor { railRGB(Self.activeTokens, emphasized: emphasized).nsColor }
+    /// - Parameters:
+    ///   - emphasized: Whether the row is selected (or a drop target).
+    ///   - muted: Halve the swatch's chroma first (the Sidebar States Playground's muted looks).
+    public func railColor(emphasized: Bool, muted: Bool = false) -> NSColor {
+        railRGB(Self.activeTokens, emphasized: emphasized, muted: muted).nsColor
+    }
 
     /// The color where it marks content (tab tints, space avatars and dots, profile dots).
     public var markColor: NSColor { swatchRGB(Self.activeTokens).nsColor }
