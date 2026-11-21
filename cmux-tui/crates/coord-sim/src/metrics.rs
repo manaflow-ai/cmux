@@ -85,12 +85,17 @@ pub fn run(args: &[String]) -> Result<(), String> {
 /// Bump when what a row measures changes (the perf cron then rebases the row instead of calling it a regression).
 pub const ROWS_VERSION: u32 = 1;
 
+/// (name, distribution, unit, target, floor) of one p50/p95 row.
+type DistRow<'a> = (&'a str, &'a Value, &'a str, Option<f64>, Option<f64>);
+/// (name, count, unit, target, floor, whether the run measured it) of one single-value row.
+type OneRow<'a> = (&'a str, &'a Value, &'a str, Option<f64>, f64, bool);
+
 /// The report as PERF_ROW objects (webviews/bench/perfRow.ts's shape: name, p50, p95, unit, target, floor, version),
 /// which the perf cron stores as webui.coord_sim.<name>. Lower is better for every row; a row with no value is left
 /// out. Targets follow perfRow.ts's TARGET_MS rules (a response 100 ms, a load 1000 ms); lost and duplicated events 0.
 pub fn perf_rows(r: &Value) -> Vec<Value> {
     let mut rows = Vec::new();
-    let dists: [(&str, &Value, &str, Option<f64>, Option<f64>); 9] = [
+    let dists: [DistRow; 9] = [
         ("delivery_ms", &r["delivery_ms"], "ms", Some(100.0), None),
         ("attach_ms", &r["attach_ms"], "ms", Some(1000.0), None),
         ("first_paint_ms", &r["first_paint_ms"], "ms", Some(1000.0), None),
@@ -119,7 +124,7 @@ pub fn perf_rows(r: &Value) -> Vec<Value> {
         (Some(l), Some(d)) => json!(l + d),
         _ => Value::Null,
     };
-    let ones: [(&str, &Value, &str, Option<f64>, f64, bool); 7] = [
+    let ones: [OneRow; 7] = [
         ("events.lost_or_duplicated", &lost_or_dup, "events", Some(0.0), 0.5, events),
         ("events.lost", &r["events"]["lost"], "events", Some(0.0), 0.5, events),
         ("events.duplicated", &r["events"]["duplicated"], "events", Some(0.0), 0.5, events),
