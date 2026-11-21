@@ -3,9 +3,14 @@ import Foundation
 
 /// Pure rules of the profile bar: visibility, stepping, and drag reorder.
 public nonisolated enum ProfileBarLogic {
-    /// A profile mark remains useful with one profile: it identifies the
-    /// current space and is the hover target for the new-space affordance.
-    public static func isVisible(profileCount: Int) -> Bool { profileCount > 0 }
+    /// Whether the person has spaces to show: two or more. Spaces stay out of
+    /// sight until then (Lawrence 2026-11-20: "hide spaces by default, but
+    /// people can still cmd shift p new space"): a lone space shows no strip,
+    /// and the menus leave the space rows out (`SpacesMenuVisibility`, CmuxNextSidebarActions); the
+    /// command palette, keys, CLI and MCP keep every space action, and the
+    /// second space brings it all back. Replaces the 2026-11-01 rule (#30232)
+    /// that kept a lone space's dot and its + in the bottom strip.
+    public static func isVisible(profileCount: Int) -> Bool { profileCount > 1 }
 
     /// The profile `delta` steps from `current` (swipe, next/previous),
     /// clamped at the ends (no wrap). Nil when nothing changes.
