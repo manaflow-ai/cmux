@@ -119,6 +119,11 @@ pub struct Session {
     /// A retry task may outlive an imported replacement with the same durable id. Its mark
     /// belongs to this instance, so its wake and cleanup cannot consume the replacement's.
     pub(super) auto_resume: auto_resume::Pending,
+    /// The account's rate limit holds every turn until its reset (`rate_hold.rs`).
+    pub(super) rate_hold: rate_hold::RateHold,
+    /// A continuation folded into the queue's next turn at a reset leaves its words here
+    /// (`rate_hold.rs` `rate_hold_due`); that turn takes them.
+    pub(super) rate_note: StdMutex<Option<String>>,
     pub(super) turn_lock: Mutex<()>,
     /// Set while `_acpmux/release_to_watch` waits to hand the chat to a terminal: a new prompt
     /// is refused (`watch.releasing`, `release_to_watch.rs`) rather than lost.
@@ -178,6 +183,8 @@ pub struct Session {
     pub(super) turn: StdMutex<Option<TurnInfo>>,
     /// When the person left it and the recap made meanwhile (`away_recap.rs`).
     pub(super) away: StdMutex<super::away_recap::Away>,
+    /// Whether a person started the running turn, and the summary request (`rolling_summary.rs`).
+    pub(super) rolling: StdMutex<super::rolling_summary::Rolling>,
     /// The person's corrections and the prompt coach's offer (`prompt_coach.rs`).
     pub(super) coach: StdMutex<crate::prompt_coach::Coach>,
     /// The turn `finish_turn` took and has not ended yet: a shutdown settles it if its end does

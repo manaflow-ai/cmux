@@ -19,9 +19,11 @@ name: cmux-next size budget
 # from the pull request's merge commit, as every pull_request workflow is; a change to it shows in
 # the diff under review.
 on:
-  pull_request:
-    branches: [feat-cmux-next]
-    types: [opened, synchronize, reopened, edited, ready_for_review]
+  # Started only by pr-router.yml (one router per push, RFD 0023), which lists the changed files once and
+  # calls this workflow when the change touches an input it measures (scripts/ci/pr_router.json
+  # `affects`). Its check runs report as `cmux-next size budget / ...`; when the router does not start it,
+  # one skipped `cmux-next size budget` check reports instead.
+  workflow_call:
 
 permissions: {}
 
@@ -67,7 +69,7 @@ jobs:
             exit 0
           fi
           echo "tool=true" >> "$GITHUB_OUTPUT"
-          git worktree add --detach "$RUNNER_TEMP/base" HEAD^1
+          git worktree add -f -f --detach "$RUNNER_TEMP/base" HEAD^1
           mapfile -t routed < <(python3 -I "$RUNNER_TEMP/base/scripts/cmux-next/web-bundle-key.py" "$RUNNER_TEMP/base" --routed)
           if git diff --quiet HEAD^1 HEAD -- "${routed[@]}"; then
             echo "web=false" >> "$GITHUB_OUTPUT"
@@ -95,6 +97,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
@@ -127,6 +130,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
