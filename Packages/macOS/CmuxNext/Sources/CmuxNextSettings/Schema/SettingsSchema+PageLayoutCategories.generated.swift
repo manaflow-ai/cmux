@@ -102,7 +102,7 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.terminalCompatibility"),
             // The program that opens links from a terminal, and its rules, beside the terminal they come from.
             GroupSpec(keys: ["terminal.linkOpener.default", "terminal.linkOpener.rules"], title: SettingsText.keyed("settings.group.links", "Links")),
-            GroupSpec(keys: ["newTerminal.opensWorkspace", "app.warnBeforeClosingTab"], title: SettingsText.keyed("settings.pageGroup.terminalBehavior", "Behavior")),
+            GroupSpec(keys: ["newTerminal.opensWorkspace", "app.warnBeforeClosingTab", "terminal.predictiveLocalEcho"], title: SettingsText.keyed("settings.pageGroup.terminalBehavior", "Behavior")),
         ],
         lead: [.terminalInfo], trail: [.ghosttyDiagnostics], actions: [.terminal], aliases: [.terminal]
     )
