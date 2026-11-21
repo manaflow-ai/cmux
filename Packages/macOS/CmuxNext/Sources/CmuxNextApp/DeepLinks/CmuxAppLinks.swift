@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextLayout
+import CmuxNextMacScreen
 import CmuxNextPages
 import Foundation
 import CmuxNextWakeups
@@ -23,6 +24,11 @@ enum CmuxAppLinks {
         if let route = DeepLink.settingsRoute(for: url, linkScheme: services.linkScheme) { return (try? services.settingsWindow.show(section: nil, route: route)) != nil }
         if let action = settingsAction(for: url, linkScheme: services.linkScheme) {
             return services.registry.perform(action.id, invocation: ActionInvocation(arguments: action.arguments, origin: .user))
+        }
+        // A screen link (`cmux://mac-screen?…` or `https://cmux.com/deeplink/screen?…`): its device's Screen Sharing tab.
+        if let record = MacScreenRecord(link: url, linkScheme: services.linkScheme) {
+            services.macScreenTabs.openAddress(record, in: nil, focus: !click.background)
+            return true
         }
         if let agent = openAgentWeb(url, services: services, click: click) { return agent }
         // A pull request link clicked in an agent chat: the native GitHub page when `browser.openPullRequestsInGitHubPage` is on.

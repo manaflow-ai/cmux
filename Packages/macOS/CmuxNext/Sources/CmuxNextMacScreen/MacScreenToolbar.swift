@@ -112,10 +112,22 @@ final class MacScreenToolbarView: MacScreenThemedView {
         }
     }
 
+    /// The device's name, then a run link's name, or that its display is gone (the host shows its main display).
+    static func title(_ model: MacScreenPaneModel) -> String {
+        var parts = [model.name]
+        if model.session?.linkedDisplayGone == true {
+            parts.append(L.t("macScreen.run.displayGone", "That run's display is gone; showing the main display"))
+        } else if let run = model.runName {
+            parts.append(run)
+        }
+        return parts.joined(separator: " · ")
+    }
+
     private func apply() {
         applyType()
         dot.fill = statusColor
-        if name.stringValue != model.name { name.stringValue = model.name }
+        let title = Self.title(model)
+        if name.stringValue != title { name.stringValue = title }
         let session = model.session
         let live = model.isLive
         statsSlot = session != nil && live
