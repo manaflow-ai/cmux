@@ -17,8 +17,7 @@ extension MobileShellComposite {
         generation: Int,
         excluding pairingIDs: Set<String>
     ) async -> [MobilePairedMac] {
-        guard let personalIrohDiscovery else { return [] }
-        let discovered = await personalIrohDiscovery.discoverLiveMacs()
+        let discovered = await loadDirectoryCandidates(scope: scope, publish: false)
         guard generation == storedMacReconnectGeneration,
               await isScopeCurrent(scope) else { return [] }
 
@@ -27,6 +26,38 @@ extension MobileShellComposite {
             scope: scope,
             excluding: pairingIDs
         )
+    }
+
+    /// One owner for the directory shown in Computers and used for first-pair
+    /// dialing. A superseded or cancelled read cannot restore stale rows.
+    func loadDirectoryCandidates(
+        scope: MobileShellScopeSnapshot,
+        publish: Bool = true
+    ) async -> [MobileDiscoveredIrohMac] {
+        if publish { directoryCandidatesGeneration &+= 1 }
+        let generation = directoryCandidatesGeneration
+        guard let personalIrohDiscovery else {
+            discoveredIrohMacs = []
+            return []
+        }
+        let discovered = await personalIrohDiscovery.discoverLiveMacs()
+        let hiddenIDs = await hiddenMacDeviceIDs(scope: scope)
+        let currentScope = await currentScopeSnapshot()
+        guard !Task.isCancelled, currentScope == scope else { return [] }
+        var seen: Set<String> = []
+        let visible = discovered.filter { mac in
+            let key = MacPairingKey(macDeviceID: mac.deviceID, instanceTag: mac.instanceTag)
+            guard macBuildIsCompatible(instanceTag: mac.instanceTag),
+                  !mac.routes.isEmpty,
+                  mac.routes.allSatisfy({ $0.kind == .iroh }),
+                  !isHiddenMacPairingKey(key, hiddenIDs: hiddenIDs) else { return false }
+            return seen.insert(key.pairingID).inserted
+        }
+        if publish {
+            guard generation == directoryCandidatesGeneration else { return [] }
+            discoveredIrohMacs = visible
+        }
+        return visible
     }
 
     /// Dials one discovered Mac with the exact client the foreground connect
@@ -116,8 +147,7 @@ extension MobileShellComposite {
         scope: MobileShellScopeSnapshot,
         excluding pairingIDs: Set<String>
     ) async -> [MobilePairedMac] {
-        guard let personalIrohDiscovery else { return [] }
-        let discovered = await personalIrohDiscovery.discoverLiveMacs()
+        let discovered = await loadDirectoryCandidates(scope: scope, publish: false)
         guard await isScopeCurrent(scope) else { return [] }
 
         return await zeroTouchIrohCandidates(

@@ -7,13 +7,15 @@ import SwiftUI
 struct MobileIrohCustomPrivatePathEditor: View {
     private let existing: CmxIrohSettingsSnapshot.CustomPrivateNetwork?
     private let availableMacs: [CmxIrohSettingsSnapshot.PrivateNetworkMac]
-    private let onSave: (CmxIrohCustomPrivatePathDraft) async -> Bool
+    private let onSave: (CmxIrohCustomPrivatePathDraft) async -> (saved: Bool, failureMessage: String?)
 
     @Environment(\.dismiss) private var dismiss
     @State private var selectedMacDeviceID: String
     @State private var addressesText: String
     @State private var isEnabled: Bool
     @State private var isSaving = false
+    @State private var saveTask: Task<Void, Never>?
+    @State private var saveErrorMessage: String?
     @State private var validation: Validation
 
     struct Validation: Equatable {
@@ -24,7 +26,7 @@ struct MobileIrohCustomPrivatePathEditor: View {
     init(
         path: CmxIrohSettingsSnapshot.CustomPrivateNetwork?,
         availableMacs: [CmxIrohSettingsSnapshot.PrivateNetworkMac],
-        onSave: @escaping (CmxIrohCustomPrivatePathDraft) async -> Bool
+        onSave: @escaping (CmxIrohCustomPrivatePathDraft) async -> (saved: Bool, failureMessage: String?)
     ) {
         existing = path
         self.availableMacs = availableMacs
@@ -102,6 +104,10 @@ struct MobileIrohCustomPrivatePathEditor: View {
                         ))
                         .foregroundStyle(.orange)
                     }
+                    if let saveErrorMessage {
+                        Label(saveErrorMessage, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.red)
+                    }
                 }
             }
             .navigationTitle(existing == nil
@@ -129,6 +135,10 @@ struct MobileIrohCustomPrivatePathEditor: View {
             }
             .onChange(of: addressesText) { _, _ in refreshValidation() }
             .onChange(of: selectedMacDeviceID) { _, _ in refreshValidation() }
+            .onDisappear {
+                saveTask?.cancel()
+                saveTask = nil
+            }
         }
     }
 
@@ -185,8 +195,18 @@ struct MobileIrohCustomPrivatePathEditor: View {
             isEnabled: isEnabled
         )
         isSaving = true
-        Task {
-            if await onSave(draft) { dismiss() }
+        saveErrorMessage = nil
+        saveTask = Task { @MainActor in
+            let result = await onSave(draft)
+            guard !Task.isCancelled else { return }
+            if result.saved {
+                dismiss()
+            } else {
+                saveErrorMessage = result.failureMessage ?? L10n.string(
+                    "mobile.iroh.private.custom.connectFailed",
+                    defaultValue: "The addresses were saved, but cmux could not connect. Check the address and try again."
+                )
+            }
             isSaving = false
         }
     }
