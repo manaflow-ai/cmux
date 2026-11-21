@@ -10470,11 +10470,13 @@ see `agent-session-proxy-bind`).
 
 ### agent-session-attach
 
-`{id, cmd:"agent-session-attach", surface, after_seq?, before_seq?, limit?, kinds?}`
+`{id, cmd:"agent-session-attach", surface, after_seq?, before_seq?, limit?, kinds?, max_bytes?}`
 subscribes the connection to the tab's session and answers acpmux's attach
 page `{session, events, hasMore, lastSeq}` (`limit` 1 to 500, default 200;
 `kinds` at most 32 acpmux record kinds or categories; at most 8 MiB of
-records, the rest left for the next page with `hasMore`). On an attached tab
+records, the rest left for the next page with `hasMore`; `max_bytes`, under
+`agent-session-page-bytes-v1`, passes acpmux a page budget as `maxBytes`, at
+least 1 and held to 8 MiB, else acpmux's own 1 MiB default). On an attached tab
 it only pages. Live records then arrive as
 `{event:"agent-session-record", surface, record}` (one acpmux record in its
 `eventStream` form), permission requests as
@@ -10506,7 +10508,7 @@ existing attachment unchanged; the same mode again only pages.
 
 ### agent-session-events
 
-`{id, cmd:"agent-session-events", surface, after_seq?, before_seq?, limit?, kinds?}`
+`{id, cmd:"agent-session-events", surface, after_seq?, before_seq?, limit?, kinds?, max_bytes?}`
 pages the log of an attached tab, as acpmux's `_acpmux/events`
 (`{events, hasMore, lastSeq}`), with the same bounds.
 
@@ -11629,10 +11631,15 @@ Only the verified app sees `host.screen.devices`, `session`, `pending`, `indicat
 
 `{"cmd":"remote-host-call","method":M,"params":{...}}` for `status`, `refresh`,
 `request {permission}`, `open_settings {permission}`, `restart {worker, force}`,
-`screen.share {on}`, `screen.access {device, scope}` and `screen.stop_session`.
+`screen.share {on}`, `screen.access {device, scope}`, `screen.stop_session` and
+`computer_use.session {action, session, label?}` (the cmux menu bar's per-agent
+rows: `stop` an agent's Computer Use, `resume` it, `spotlight` its cursor,
+`raise_window` the window it works in).
 Any local Unix connection may read, refresh, ask macOS for a grant, restart a
-worker and lower access. Turning sharing on or raising a device's access is
-the verified app's only (`origin.forbidden`).
+worker, lower access, stop an agent's Computer Use and spotlight its cursor.
+Turning sharing on, raising a device's access, resuming a stopped agent and
+raising its window (which takes the person's focus) are the verified app's
+only (`origin.forbidden`).
 
 ### remote-host-config
 
@@ -11652,6 +11659,41 @@ becomes active.
 `{"cmd":"remote-host-app"}`. The verified app's own credentials for cmux
 Remote's app socket: `{socket, secret, host_pid}`. The host admits only that
 app process; the secret is never logged or journaled.
+
+## cmux Computer Use (computer-use-v1)
+
+The Computer Use worker serves the agent socket (`cmux-computer-use-v1`). On
+Linux and Windows this daemon supervises it (the `cmux-tui` binary's hidden
+`__computer-use-worker` mode, restarted with backoff, its state directory kept
+so grants survive); on macOS the cmux Remote host runs it. Its policy is the
+machine owner's `/etc/cmux/computer-use.json` or
+`%ProgramData%\cmux\computer-use.json` (root or SYSTEM owned, not
+user-writable) when present, else `computerUse.*` from the settings.
+
+### computer-use-endpoint
+
+`{"cmd":"computer-use-endpoint"}`. The agent socket for acpmux's bridge:
+`{"state":"ready","socket":PATH,"secret":HEX,"pid":N}`, or
+`{"state":"starting"|"off"|"unavailable","reason":R}`. Starts the worker when
+Computer Use is on and none runs, waiting up to 10 s for it. Local Unix
+connections of this user only; the secret is never logged or journaled.
+
+### computer-use-config
+
+`{"cmd":"computer-use-config","config":{PolicyConfig}}`. The person's Computer
+Use settings from the verified app (`origin.forbidden` otherwise), sent to the
+running worker at once. The owner file still wins (`applied: false`).
+
+### computer-use-approvals
+
+`{"cmd":"computer-use-approvals","action":A,"app_id":ID,"id":N,"answer":ANS}`.
+`list` returns `{saved: {always, never}, pending}` (`pending`, the questions
+waiting for the person, only to the verified app). `forget`, `never` and
+`revoke_sessions` lower trust (any local connection); `always` raises it (the
+verified app only). `answer` answers question `id` (`allow_once`,
+`allow_session`, `always`, `deny`, `never`); an allowing answer needs the
+verified app. With no app connected a worker's question is answered
+`unavailable` at once.
 
 ### device-setup
 

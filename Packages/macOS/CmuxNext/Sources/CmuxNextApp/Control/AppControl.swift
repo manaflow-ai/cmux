@@ -10,6 +10,7 @@ import CmuxNextDesign
 import CmuxNextErrorJournal
 import CmuxNextMacScreen
 import CmuxNextNotifications
+import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTabs
@@ -73,8 +74,7 @@ final class AppControl {
     }
 
     func start(registry: ActionRegistry, settings: SettingsController, launch: LaunchIdentity, services: AppServices) throws {
-        let service = try ControlService.start(registry: registry, settings: settings, launch: launch, frameSource: frames, watchdog: watchdog,
-                                               sessionHandoff: .forNightly(launch: launch, productionAuth: services.cloud.configuration.isProductionAuth, session: services.cloud.auth.storedSession))
+        let service = try ControlService.start(registry: registry, settings: settings, launch: launch, frameSource: frames, watchdog: watchdog)
         self.service = service
         let budget = ActionBudgetReporter(monitor: services.actionBudget, naming: ActionReportNaming(catalog: Set(registry.descriptors.map(\.id.rawValue))),
                                           overBudget: watchdog.overBudget, sampling: recordsTaskBudgets,
@@ -253,10 +253,10 @@ final class AppControl {
             // Repeating Core Animation loops and whether anyone can see them (hq#3716).
             .mainActor("debug.loops") { call in .value(CmuxNextSettings.JSONValue(foundation: DebugLoops.report(limit: call.params["limit"]?.intValue ?? 50)) ?? .null) },
             // The one hover card: machine phase, card window, timer, monitor.
-            // `{dismiss: true}` first dismisses the shown card as an app action would (live checks).
+            // `{dismiss: true}` first dismisses the shown card as an app action would; `{press: "Show details"}` presses that button.
             .mainActor("debug.hover_cards") { [weak services] call in
                 guard let services else { return .value(.null) }
-                if call.params["dismiss"]?.boolValue == true { services.hoverCards.dismiss(.action) }
+                if let error = services.hoverCards.debugCommand(dismiss: call.params["dismiss"]?.boolValue == true, press: call.params["press"]?.stringValue) { return .value(["error": .string(error)]) }
                 // `gallery: sidebar|tabs|none` shows the card kinds over fixture data (HoverCardGallery).
                 return .value(.object((HoverCardGallery.show(call.params["gallery"]?.stringValue) ?? services.hoverCards.report).mapValues(JSONValue.string)))
             },
@@ -366,8 +366,13 @@ final class AppControl {
             .mainActor("debug.key") { [weak services, player = keySequencePlayer] call in
                 guard let services else { return .value(.null) }
                 if call.params["sequence"] != nil { return .value(DebugKey.sendSequence(call.params, services: services, player: player)) }
-                return .value(DebugKey.send(call.params, services: services))
+                return DebugKey.reply(call.params, services: services)
             }.injectingInput(),
+            // Types into (and adds) the open comment bubble of the browser tab in design mode
+            // (BrowserDesignModeController.debugDrive), for captures of the element picker.
+            .async("debug.design_mode") { [weak services] call in
+                await BrowserDesignModeController.debugDrive(call.params, services: services)
+            },
             // The app's resign and become-active path without activating it (DebugAppActivation).
             .mainActor("debug.app_activation") { call in
                 .value(DebugAppActivation.send(call.params))
@@ -427,6 +432,11 @@ final class AppControl {
             },
             .mainActor("debug.page_popup") { _ in .value(DebugPagePopup.list()) },
             DebugWindowSnapshot.controlMethod(services: services),
+            .async("debug.glass_parity") { @MainActor [weak services, glassParity = GlassParityPlayground()] call in
+                guard let services else { return .null }
+                // Native and web glass side by side over one backdrop, diffed (CmuxNextPages GlassParity).
+                return await glassParity.handle(call.params) { await DebugWindowSnapshot.captureAsync($0, services: services) }
+            }.withDeadline(.fixed(.seconds(60))),
             .mainActor("debug.window.focus") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.focusWindow(call.params, services: services))
@@ -440,14 +450,9 @@ final class AppControl {
                 return .value(DebugLayers.dropHighlight(call.params, services: services))
             },
             .mainActor("debug.sidebar_filter") { [weak services] call in .value(services.map { DebugSidebarFilter.run(call.params, $0) } ?? .null) },
-            .mainActor("debug.sidebar_rows") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(DebugSidebarRows.report(call.params, services: services))
-            },
-            .mainActor("debug.sidebar_wheel") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(DebugSidebarWheel.post(call.params, services: services))
-            },
+            .mainActor("debug.sidebar_rows") { [weak services] call in .value(services.map { DebugSidebarRows.report(call.params, services: $0) } ?? .null) },
+            .mainActor("debug.sidebar_wheel") { [weak services] call in .value(services.map { DebugSidebarWheel.post(call.params, services: $0) } ?? .null) },
+            .mainActor("debug.text_field") { [weak services] call in .value(DebugFieldEditor.run(call.params, window: services?.windows.active?.window)) },
             .mainActor("debug.sidebar_rename") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.beginSidebarRename(call.params, services: services))

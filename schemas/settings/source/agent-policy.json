@@ -27,15 +27,15 @@
     },
     {
       "agent": "settable",
-      "why": "Whether a chat shows the live view of the app its agent uses: looks only.",
       "keys": [
-        "computerUse.livePreview"
+        "shortcuts.showModifierHoldHints"
       ]
     },
     {
       "agent": "settable",
+      "why": "Whether the window offers the Customize Inspector and right-click Customize…: looks only, and off is the default.",
       "keys": [
-        "shortcuts.showModifierHoldHints"
+        "customize.fromTheApp"
       ]
     },
     {
@@ -62,6 +62,7 @@
         "sidebar.textSize",
         "sidebar.detailedStatusIcons",
         "sidebar.showTimestamps",
+        "sidebar.settleFinished",
         "sidebar.showColors",
         "sidebar.showLocalMachine",
         "workspaceColors.indicatorStyle"
@@ -224,7 +225,8 @@
       "agent": "settable",
       "why": "The theme file whose look applies (looks only)",
       "keys": [
-        "appearance.themeFile"
+        "appearance.themeFile",
+        "appearance.themeFileExceptions"
       ]
     },
     {
@@ -256,7 +258,8 @@
         "appearance.backgroundDark",
         "appearance.backgroundSchedule",
         "appearance.backgroundDynamic",
-        "appearance.backgroundLocation"
+        "appearance.backgroundLocation",
+        "appearance.backgroundMemory"
       ]
     },
     {
@@ -272,6 +275,7 @@
       "keys": [
         "appearance.paneBackgrounds",
         "ui.reducedBackgrounds",
+        "appearance.agentGlow",
         "appearance.experimentalControls",
         "app.uiScale",
         "appearance.glassTransparency",
@@ -436,6 +440,7 @@
         "notifications.attention.flashOnTyping",
         "notifications.attention.showOnTab",
         "notifications.attention.showOnSidebar",
+        "notifications.attention.mark",
         "notifications.attention.moveToTop",
         "notifications.attention.moveToTopOnAgentFinish"
       ]
@@ -451,6 +456,13 @@
       "agent": "settable",
       "keys": [
         "labs.previewFeatures"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "The live-tree preview changes how the person's shared editing workflow is presented; only the person turns it on.",
+      "keys": [
+        "labs.liveTree"
       ]
     },
     {
@@ -475,13 +487,6 @@
         "home.chiefDock.edge",
         "home.chiefPanel.style",
         "home.chiefDock.openBeside"
-      ]
-    },
-    {
-      "agent": "userOnly",
-      "why": "On, opening the floating Chief gives it a look at the person's screen; only the person turns it on.",
-      "keys": [
-        "home.chiefPanel.seesScreen"
       ]
     },
     {
@@ -754,6 +759,10 @@
         "agentPane.display.promptCoach",
         "agentPane.display.statusVerbs.mode",
         "agentPane.display.statusVerbs.custom",
+        "agentPane.display.thinking.shimmer",
+        "agentPane.display.thinking.shimmerPeriod",
+        "agentPane.display.thinking.shimmerBand",
+        "agentPane.display.thinking.jumpButton",
         "agentPane.display.harnessPlacement",
         "agentPane.display.rail.side",
         "agentPane.display.commandLabels"
@@ -1261,6 +1270,13 @@
     },
     {
       "agent": "userOnly",
+      "why": "On, Settings edits the MCP servers in Claude Code's and Codex's own config files: only the person turns that on.",
+      "keys": [
+        "labs.agentCustomization"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "Whether cmux's own pages open developer tools, which read and change their live content: the person's call.",
       "keys": [
         "developerTools.appPages"
@@ -1322,6 +1338,14 @@
       ]
     },
     {
+      "agent": "userOnly",
+      "why": "On, cmux restarts into a downloaded update by itself once idle: the person's call.",
+      "keys": [
+        "updates.installWhenIdle",
+        "updates.installWhenIdleMinutes"
+      ]
+    },
+    {
       "agent": "network",
       "keys": [
         "announcements.fetch"
@@ -1350,6 +1374,13 @@
     },
     {
       "agent": "userOnly",
+      "why": "Whether cmux adds its tools to the person's own coding agents (their config files and each terminal launch): the onboarding step asks the person, and only the person answers; an agent must not grant itself or other agents cmux's tools.",
+      "keys": [
+        "agents.cmuxMcp"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "How long Claude Code chats keep their prompt cache: it moves the person's model bill.",
       "keys": [
         "agents.promptCache"
@@ -1357,10 +1388,18 @@
     },
     {
       "agent": "userOnly",
-      "why": "On, cmux starts a helper that sees and controls other apps; only the person turns it on.",
+      "why": "Computer Use: what agents may do with the person's apps. An agent must never widen (or even change) its own access, so every computerUse.* key is the person's alone.",
       "keys": [
-        "computerUse.enabled",
-        "computerUse.driver"
+        "computerUse.mode",
+        "computerUse.deniedApps",
+        "computerUse.allowOwnMachines",
+        "computerUse.pauseOnTakeover",
+        "computerUse.allowForeground",
+        "computerUse.showCursor",
+        "computerUse.cursorTag",
+        "computerUse.settle",
+        "computerUse.livePreview",
+        "computerUse.menus"
       ]
     },
     {
@@ -1450,6 +1489,13 @@
       ]
     },
     {
+      "agent": "network",
+      "why": "Whether new chats get the person's saved MCP servers opens their connected services (Linear, Slack and others) to agents: the person's call.",
+      "keys": [
+        "agents.mcpServers.enabled"
+      ]
+    },
+    {
       "agent": "userOnly",
       "why": "Compacting on a timer spends the person's usage (one model call each): their call.",
       "keys": [
@@ -1507,6 +1553,13 @@
       "why": "On, a session event tap takes system chords from macOS for the other Mac; only the person turns it on. cmux Remote: the person's call.",
       "keys": [
         "macScreen.systemShortcuts"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "It is the person's standing yes to Share This Mac; an agent that could set it would approve its own share request. cmux Remote: the person's call.",
+      "keys": [
+        "macScreen.shareWithoutAsking"
       ]
     },
     {
