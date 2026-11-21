@@ -21,10 +21,10 @@ mod apps {
     const STORE_MANIFEST: &str = "cmux-app.json";
 
     fn samples() -> Vec<(PathBuf, &'static str)> {
-        // affected-reads: samples/apps examples/extensions first-party-apps
         let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
         let mut dirs = Vec::new();
         for folder in ["samples/apps", "examples/extensions"] {
+            // affected-reads: samples/apps examples/extensions
             let root = repo.join(folder);
             dirs.extend(
                 std::fs::read_dir(&root)
@@ -34,6 +34,7 @@ mod apps {
                     .map(|p| (p, V2)),
             );
         }
+        // affected-reads: first-party-apps
         let root = repo.join("first-party-apps");
         dirs.extend(
             std::fs::read_dir(&root)

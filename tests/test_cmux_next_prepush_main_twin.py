@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""The pre-push hook refuses a feat-cmux-next push that changes the production journey workflow's jobs without main.
+"""The pre-push hook refuses a feat-cmux-next push that changes a scheduled workflow main runs differently, or adds an
+unbounded job (no timeout-minutes, or an always() that queues on a cancelled run).
 
 The production journey's schedule registers from main, so main's copy of .github/workflows/cloud-journey-prod.yml is
 what runs; only the scripts come from feat-cmux-next. cmux#43781 (2026-11-15) added --preclaim-login to
@@ -54,6 +55,37 @@ FEAT = JOURNEY.format(environment=FEAT_ENV, flags="")
 MAIN = JOURNEY.format(environment=MAIN_ENV, flags="")
 FEAT_NEW_FLAG = JOURNEY.format(environment=FEAT_ENV, flags=" --preclaim-login cmux-tui")
 FEAT_COMMENT = FEAT.replace("# Run the journey.", "# Run the production journey.")
+SCHEDULED = ".github/workflows/sweep.yml"
+SWEEP = """name: sweep
+on:
+  schedule:
+    - cron: "{cron}"
+  workflow_dispatch:
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: {timeout}
+    steps:
+      - run: echo sweep
+"""
+UNSCHEDULED = ".github/workflows/check.yml"
+PLAIN = """name: check
+on:
+  push:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+{bound}    steps:
+      - run: echo check
+"""
+TAIL = """  report:
+    needs: check
+    if: {cond}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: echo report
+"""
 
 
 class MainTwinPushTests(unittest.TestCase):
@@ -89,7 +121,7 @@ class MainTwinPushTests(unittest.TestCase):
         output = result.stdout + result.stderr
         self.assertNotEqual(result.returncode, 0, output)
         self.assertEqual(self.remote_head(), before, "a change production never runs must not reach origin")
-        self.assertIn("Production journey workflow matches main's", output)
+        self.assertIn("Scheduled workflows match main's", output)
         self.assertIn("gh pr create --base main", output)
         self.assertIn("Main-Twin:", output)
 
@@ -137,6 +169,87 @@ class MainTwinPushTests(unittest.TestCase):
         self.base_with_twins(main=JOURNEY.format(environment=MAIN_ENV, flags=" --preclaim-login cmux-tui"))
         self.write(WORKFLOW, FEAT_NEW_FLAG)
         self.commit("journey: copy the login on spare.ready (main has it)")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    # Every scheduled workflow, not only the journey (cmuxterm-hq boneheaded-designs section 10: thirteen scheduled
+    # files existed only on feat-cmux-next and never fired).
+
+    def test_a_scheduled_workflow_main_lacks_is_refused(self):
+        self.base_with_twins()
+        before = self.remote_head()
+        self.write(SCHEDULED, SWEEP.format(cron="17 7 * * *", timeout="30"))
+        self.commit("sweep: run the large seed window daily")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn("Scheduled workflows match main's", output)
+        self.assertIn("never fires", output)
+
+    def test_a_scheduled_workflow_with_its_twin_named_passes(self):
+        self.base_with_twins()
+        self.write(SCHEDULED, SWEEP.format(cron="17 7 * * *", timeout="30"))
+        self.commit("sweep: run the large seed window daily\n\nMain-Twin: https://github.com/manaflow-ai/cmux/pull/1")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_cron_change_main_lacks_is_refused(self):
+        self.base_with_twins()
+        self.git("checkout", "--quiet", "main")
+        self.write(SCHEDULED, SWEEP.format(cron="17 7 * * *", timeout="30"))
+        self.commit("main's sweep")
+        self.assertEqual(self.push_ref("main", "--no-verify").returncode, 0)
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        self.write(SCHEDULED, SWEEP.format(cron="17 7 * * *", timeout="30"))
+        self.commit("feat-cmux-next's sweep, the same as main's\n\nMain-Twin: https://github.com/manaflow-ai/cmux/pull/1")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        before = self.remote_head()
+        self.write(SCHEDULED, SWEEP.format(cron="17 */6 * * *", timeout="30"))
+        self.commit("sweep: every six hours")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn("jobs or crons now differ", output)
+
+    # Every job is bounded (boneheaded-designs section 11).
+
+    def test_a_job_with_no_timeout_is_refused(self):
+        self.base_with_twins()
+        before = self.remote_head()
+        self.write(UNSCHEDULED, PLAIN.format(bound=""))
+        self.commit("a check with no bound")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn("Workflow jobs are bounded", output)
+        self.assertIn("check.yml:check: no timeout-minutes", output)
+
+    def test_an_always_tail_job_is_refused_and_not_cancelled_passes(self):
+        self.base_with_twins()
+        self.write(UNSCHEDULED, PLAIN.format(bound="    timeout-minutes: 5\n") + TAIL.format(cond="always()"))
+        self.commit("a report after the check")
+
+        refused = self.push()
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertIn("check.yml:report: if: always() still queues on a cancelled run", output)
+        self.write(UNSCHEDULED, PLAIN.format(bound="    timeout-minutes: 5\n") + TAIL.format(cond="${{ !cancelled() }}"))
+        self.commit("the report skips on a cancelled run")
 
         result = self.push()
 
