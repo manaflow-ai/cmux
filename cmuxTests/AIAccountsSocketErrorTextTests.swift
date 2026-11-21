@@ -17,10 +17,15 @@ import Testing
         defaultValue: "The Cloud VM request failed. Retry, or check the machine's status with `cmux vm ls`."
     )
 
-    private func errorMessage(for failure: AIAccountsClientError) throws -> String {
-        let reply = TerminalController.shared.v2VmCall(id: 9, timeoutSeconds: 10) {
-            throw failure
-        }
+    /// `v2VmCall` blocks its caller on a semaphore while `work` runs in a Task. A closure
+    /// written in this `@MainActor` suite would run on the main actor the caller is blocking,
+    /// so the call runs off the main actor (as `SurfaceSocketCommandTests` does).
+    private func errorMessage(for failure: AIAccountsClientError) async throws -> String {
+        let reply = await Task.detached {
+            TerminalController.shared.v2VmCall(id: 9, timeoutSeconds: 10) {
+                throw failure
+            }
+        }.value
         let object = try #require(
             JSONSerialization.jsonObject(with: Data(reply.utf8)) as? [String: Any]
         )
@@ -34,8 +39,8 @@ import Testing
         AIAccountsClientError.notSignedIn,
         AIAccountsClientError.malformedResponse("missing `accounts` array"),
     ])
-    func accountsFailureKeepsItsOwnMessage(_ failure: AIAccountsClientError) throws {
-        let message = try errorMessage(for: failure)
+    func accountsFailureKeepsItsOwnMessage(_ failure: AIAccountsClientError) async throws {
+        let message = try await errorMessage(for: failure)
 
         #expect(message == failure.description)
         #expect(!message.localizedCaseInsensitiveContains("Cloud VM"))
@@ -43,12 +48,13 @@ import Testing
 
     /// The pass-through keeps the Cloud VM wrapper's safety filter: text that names an
     /// origin or credentials still reads as the generic line.
-    @Test func accountsFailureNamingAnOriginStaysHidden() throws {
+    @Test func accountsFailureNamingAnOriginStaysHidden() async throws {
         let failure = AIAccountsClientError.backendUnreachable(
             url: "https://cmux.com",
             detail: "The request timed out."
         )
 
-        #expect(try errorMessage(for: failure) == Self.cloudVMFallback)
+        let message = try await errorMessage(for: failure)
+        #expect(message == Self.cloudVMFallback)
     }
 }
