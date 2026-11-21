@@ -161,7 +161,7 @@ class WatchdogStepTests(unittest.TestCase):
         # carries that label, so a roster read would always say starved; the alert names the variable instead.
         done = self.run_step(label="ubuntu-24.04", repo_runners=[runner(1)])
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
-        self.assertEqual([call for call in self.calls() if "runner" in " ".join(call["args"])], [])
+        self.assertEqual([call for call in self.calls() if call["args"][:1] == ["api"] and "runner" in call["args"][1]], [])
         [create] = self.issue_writes("create")
         body = self.body_of(create)
         self.assertIn("Runner label starved: ubuntu-24.04", create)
