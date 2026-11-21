@@ -47,7 +47,10 @@ enum HomeThemePalette {
         // paints the pane's fill, never a tint of its own, active or not,
         // unless the user set Home's background (`appearance.surfaces.home`).
         // The secondary text reads on that fill over the window, not on the window alone.
-        palette = palette.onBackground(color(Palette.fill(for: .home, default: Palette.paneFill), opaque: false), over: theme.background)
+        // Over a see-through window the composer's placeholder is the secondary text token, the web
+        // fields' placeholder there (--cmux-text-secondary), so the two match pixel for pixel.
+        palette = palette.onBackground(color(Palette.fill(for: .home, default: Palette.paneFill), opaque: false), over: theme.background,
+                                       placeholderOverGlass: color(Palette.textSecondary, opaque: false))
         return palette
     }
 

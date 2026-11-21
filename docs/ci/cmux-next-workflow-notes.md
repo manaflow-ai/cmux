@@ -3870,3 +3870,19 @@ past 1100 s (cmux#44271). `vars.CI_FAST_TIER_OWNED_SEED` = `0` switches it off: 
 the shared roots as before. The root's parent must exist, belong to the mini's user and hold the marker
 `.cmux-seed-root` (fleet setup); without
 them the tier falls back. The marker keeps a runner that works at that path (the nightly-next builder) out.
+
+## note-410
+
+Above the generated-files job's `Keep Swift package builds on this owned Mac` step in `.github/workflows/cmux-next.yml`.
+
+Generated files builds the same `swift build --build-tests` of CmuxNext as the fast tier (note-379), so on an
+owned mini it takes the mini's seed root the same way (note-409): `owned_spm_scratch.py lease` with
+`CMUX_FAST_TIER_OWNED_SEED`, the R2 base seed restored at the root and its input times replayed. It used
+`link`, whose kept build sits at the slot's own workspace path: 24 h to 2026-11-21T12Z, 542 owned jobs at p50
+38.6 min, and a job that found its kept 15.9 GiB build still compiled every one of ~15,200 steps (job
+136633693044), because the kept build was another base's and SwiftPM's absolute paths tie it to one slot.
+Every step that reads the build or writes the checkout (bun, web bundles, the build, the action and settings
+checks, both export packs, the regenerate) runs in the root (the mirror holds `.git`, so the checks'
+`git checkout HEAD^1` works there); the uploads read `$RUNNER_TEMP` and stay as they are. One job per mini
+holds the root, fast tier or generated files; the other takes a shared root or `link` as before.
+`vars.CI_FAST_TIER_OWNED_SEED` = `0` switches both off.
