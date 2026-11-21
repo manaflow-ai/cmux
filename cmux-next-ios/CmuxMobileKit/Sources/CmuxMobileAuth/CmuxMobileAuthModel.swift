@@ -256,12 +256,8 @@ public final class CmuxMobileAuthModel {
         environment: [String: String], isDebug: Bool, isSimulator: Bool, stagingStack: Bool,
         defaults: UserDefaults
     ) -> Bool {
-        guard isDebug else { return stagingStack }
-        guard isSimulator else { return true }
-        if let value = environment["CMUX_MOBILE_STACK_ENVIRONMENT"] {
-            defaults.set(value == "production" ? "production" : nil, forKey: stackEnvironmentOverrideKey)
-        }
-        return defaults.string(forKey: stackEnvironmentOverrideKey) != "production"
+        // Scratch comparison (not for merge): feat-cmux-next's rule before cmux#45435.
+        return isDebug || stagingStack
     }
 
     /// The `cmux-mobile-api` base URL: the `CMUX_MOBILE_API_BASE` launch override (DEBUG
