@@ -18,12 +18,12 @@ covers your change:
 | Route | Edit to visible | Use it for |
 |---|---|---|
 | Fleet simulator step: `cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --arg build --artifact artifacts/ios-sim/evidence.zip` | about 15 min (queue median about 8 min) | PR evidence: `build`, `test` (with `only=`, `ui=`, `video`, `profile`), `bench`; modes are in the script's header |
-| Swift live code, `scripts/live-code/ios-sim.sh patch OUT FILE.swift` ([#45397](https://github.com/manaflow-ai/cmux/pull/45397), draft) | about 1.9 s | DEBUG simulator builds only. A patch that changes a `some View` type (a view or modifier added or removed) is refused; rebuild for those |
+| Swift live code, `scripts/live-code/ios-sim.sh patch OUT FILE.swift` ([#45397](https://github.com/manaflow-ai/cmux/pull/45397), open; not on `feat-cmux-next` yet) | about 1.9 s | DEBUG simulator builds only. A patch that changes a `some View` type (a view or modifier added or removed) is refused; rebuild for those |
 | Always-on simulator, `scripts/ios-live/ios-live` ([#45435](https://github.com/manaflow-ai/cmux/pull/45435), once it lands) | 1.9 s live, about 16 s rebuild | One driver at a time: `ios-live lease take` before anything that touches the app; `shot`, `tree`, `status`, `log` need no lease. Leave it running. See `scripts/ios-live/README.md` |
 
 ## Hand-off command
 
-This is the root [CLAUDE.md](../CLAUDE.md#finishing-a-task) "Finishing a task" hand-off for the
+This is the ["Finishing a task"](../skills/cmux-dev-workflow/references/finishing-a-task.md) hand-off for the
 iPhone app. Its phone leg passed end to end on 2026-11-18 on a real iPhone 16 Plus (tag
 `phone-e2e-1118`, [#46718](https://github.com/manaflow-ai/cmux/pull/46718)) in all three modes:
 default, `--manual-pairing` and `--no-auth`. Report any failure as the phone's blocker. It leaves the task's build on every connected iPhone,
