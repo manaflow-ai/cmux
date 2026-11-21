@@ -45,7 +45,7 @@ public final class MoveTabGroupToSplitRequest implements WireValue {
         Object rawGroup = Wire.required(object, "group");
         builder.group(Wire.string(rawGroup, "MoveTabGroupToSplitRequest.group"));
         Object rawPane = Wire.required(object, "pane");
-        builder.pane(Wire.immutableJson(rawPane));
+        builder.pane(Wire.immutableJson(ProtocolSupport.nonNull(rawPane, "MoveTabGroupToSplitRequest.pane")));
         Object rawRatio = Wire.optional(object, "ratio");
         if (!Wire.isMissing(rawRatio)) {
             builder.ratio(rawRatio == null ? null : Wire.float64(rawRatio, "MoveTabGroupToSplitRequest.ratio"));

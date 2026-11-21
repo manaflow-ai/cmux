@@ -401,3 +401,42 @@ fn the_runner_clones_first_and_retries_after_a_script_that_sets_up_github() {
     assert!(runner.contains(r#"status failed 75 ',"late":true'; exit 75"#));
     assert!(!runner.contains("start.lock"), "the runner never waits on start.lock");
 }
+
+/// cmux#38364: an identical start runs again when its background fill failed since, and only
+/// then: both the start command and the runner skip it otherwise.
+#[cfg(unix)]
+#[test]
+fn an_identical_start_runs_again_only_after_its_fill_failed() {
+    let runner = runner();
+    assert!(runner.contains(FILL_FAILED));
+    assert!(runner.contains(r#"2>/dev/null && ! fill_failed; then exit 0; fi"#));
+    assert!(start_command("x").contains(&format!("{FILL_FAILED}; if grep -q")));
+    let scratch = std::env::temp_dir().join(format!("cmux-fill-failed-{}", std::process::id()));
+    std::fs::create_dir_all(scratch.join("bin")).unwrap();
+    let cmux = scratch.join("bin/cmux-tui");
+    let stub = "#!/bin/sh\n[ \"$1 $2 $3 $4\" = \"repo wait /w/r 0\" ] || exit 2\nexit \"$CODE\"\n";
+    std::fs::write(&cmux, stub).unwrap();
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::set_permissions(&cmux, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let path = format!("{}:/usr/bin:/bin", scratch.join("bin").display());
+    let failed = |fill: &str, code: &str| {
+        let status = format!(r#"{{"status":"cloned","dir":"/w/r","fill":"{fill}"}}"#);
+        std::fs::write(scratch.join("repo-status.json"), status).unwrap();
+        let script =
+            format!("d='{}'; as_u() {{ \"$@\"; }}; {FILL_FAILED}; fill_failed", scratch.display());
+        std::process::Command::new("sh")
+            .arg("-c")
+            .arg(script)
+            .env("PATH", &path)
+            .env("CODE", code)
+            .status()
+            .unwrap()
+            .success()
+    };
+    assert!(failed("background", "1"), "a failed fill runs the start again");
+    assert!(!failed("background", "124"), "a running fill is left to itself");
+    assert!(!failed("background", "0"), "a fill that ended is done");
+    assert!(!failed("background", "2"), "a cmux with no `repo wait` changes nothing");
+    assert!(!failed("done", "1"), "a whole clone is done");
+    let _ = std::fs::remove_dir_all(&scratch);
+}

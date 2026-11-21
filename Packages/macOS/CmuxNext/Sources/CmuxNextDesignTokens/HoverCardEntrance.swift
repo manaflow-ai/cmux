@@ -7,7 +7,7 @@ public nonisolated enum HoverCardEntrance: String, Sendable, CaseIterable, Codab
     /// Fades in while it moves the last few points away from its target (`HoverCardMotion`).
     case slide
     /// Grows out of its target: from the target's width at its touching edge to its full size,
-    /// on a slightly under-damped spring, like a drop pulling away from a surface (Leo
+    /// on the settle spring (it stops on its rest size), like a drop pulling away from a surface (Leo
     /// 2026-11-07: "do we want to make it, like, morph together with the tab? ... I wanted to have
     /// goo, right? ... that water surface tension thing").
     case morph

@@ -55,4 +55,24 @@ await requireBrowserLane("worktree-creating.test.ts", async () => {
     await page.close();
     expect(playFailures(result.report)).toEqual([]);
   });
+
+  // Review F2 on #37789: before the first send the chat's summary still names the checkout the
+  // worktree came from, so the setup line has to follow the draft folder or it goes when Creating
+  // worktree… does.
+  test("the setup line takes over from Creating worktree… and stays while the setup runs", async () => {
+    const port = (vite!.httpServer!.address() as { port: number }).port;
+    const page = await browser!.newPage({ viewport: { width: 760, height: 560 } });
+    await page.goto(
+      `http://127.0.0.1:${port}${galleryFrame("agent-pane.start-folder", { variant: "worktree-setup-runs" })}`,
+    );
+    await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay), undefined, {
+      timeout: 90_000,
+    });
+    const result = await page.evaluate(() => ({
+      play: document.documentElement.dataset.galleryPlay,
+      report: JSON.stringify((window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport),
+    }));
+    await page.close();
+    expect(playFailures(result.report)).toEqual([]);
+  });
 });

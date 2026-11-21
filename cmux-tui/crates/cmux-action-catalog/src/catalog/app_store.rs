@@ -61,6 +61,18 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "app.reloadCustomViews",
+        group: GROUP,
+        title: t("AppStoreActions", "action.app.reloadCustomViews", "Reload Custom Views"),
+        keywords: &["apps", "reload", "customize", "custom views", "sidebar sections", "refresh", "script", "error"],
+        category: "settings",
+        symbol: "arrow.clockwise",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "apps reload",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "app.install",
         group: GROUP,
         title: t("AppStoreActions", "action.app.install", "Install App…"),
@@ -112,6 +124,24 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         arguments: &[args::APP_2.optional(), args::COMMAND_4.optional()],
         cli_name: "app run-command",
+        ..Action::DEFAULT
+    },
+    // `contributes.menus`: one app row of a workspace row, tab or terminal menu runs the row's op
+    // on the right-clicked object. The rows are the apps' (`registry.contributedMenuItems` builds
+    // one per row, titled by the app), so no catalog placement; the palette's row for an app op is
+    // `app.command.run`, and a script names the row (`cmux app run-menu-item <app> --item <id>`).
+    Action {
+        id: "app.menu.run",
+        group: GROUP,
+        title: t("AppStoreActions", "action.app.menu.run", "Run App Menu Item"),
+        keywords: &["apps", "extensions", "menu", "right-click", "context menu"],
+        category: "settings",
+        symbol: "puzzlepiece.extension",
+        surfaces: CONTEXT_MENU,
+        surface_plan: SurfacePlan { palette: Decision::Exempt("familyMember"), cli: Some(Decision::Offered), context_menu_exemption: Some("noTargetSurface"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::APP_2, args::MENU_ITEM],
+        targets: &["workspace", "tab"],
+        cli_name: "app run-menu-item",
         ..Action::DEFAULT
     },
 ];

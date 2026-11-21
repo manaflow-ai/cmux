@@ -4,12 +4,15 @@ import CmuxNextAgentActivity
 import CmuxNextCompat
 import CmuxNextCloud
 import CmuxNextPages
+
 extension InternalPageID {
     static let stats = InternalPageID(rawValue: "stats")
     static let artifacts = InternalPageID(rawValue: "artifacts")
     static let skills = InternalPageID(rawValue: "skills")
 }
 
+/// The Stats page (``StatsPageProvider``, hq#1920) and the Artifacts page as internal page tabs, one per
+/// window. Stats is a preview feature until styled: `stats.show` needs `labs.previewFeatures`.
 enum StatsPageTab {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services

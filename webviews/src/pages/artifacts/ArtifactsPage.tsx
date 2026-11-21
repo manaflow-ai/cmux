@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { galleryArtifactDocument } from "../../agent-session/acpmux/conversation/artifactSandbox";
 import { FileIcon } from "../../file-icons";
 import { SignInButton } from "../../ui/SignInButton";
+import { SplitEdge } from "../../ui/SplitEdge";
 import { Tree, type TreeLine } from "../../ui/Tree";
 import type { Strings } from "../shared/i18n";
 import { lineHunks } from "./lineDiff";
@@ -40,6 +41,15 @@ export function ArtifactsPage({ store, strings }: { store: ArtifactsStore; strin
           <h1 className="artifacts-title">{t("artifacts.page.title")}</h1>
         </header>
         <FileTree snapshot={snapshot} store={store} strings={strings} />
+        {/* Its line is the split's divider and drags as one (ui/SplitEdge.tsx); the grid reads the width. */}
+        <SplitEdge
+          side="end"
+          property="--artifacts-side-width"
+          storageKey="cmux.artifacts.side.width"
+          min={180}
+          max={640}
+          on="parent"
+        />
       </aside>
       <section className="artifacts-main">
         <header className="artifacts-header">

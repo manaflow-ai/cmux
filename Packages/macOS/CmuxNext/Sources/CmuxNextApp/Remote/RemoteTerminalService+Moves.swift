@@ -85,8 +85,8 @@ extension RemoteTerminalService {
         }
         let terminalConnection = tab.kind == .remoteTerminal ? services.machines.daemon(session: ref.sessionID)?.connection : sourceConnection
         land(tab, closingOn: sourceConnection, on: destinationConnection, completion: completion) { [weak self] in
-            // Kept first: closing the old tab must never end it.
-            let kept = try? await terminalConnection?.keepTerminal(ref.terminalID)
+            // Kept first: closing the old tab must never end it. A failed keep fails the move; the tab stays.
+            let kept = try await terminalConnection?.keepTerminalIfReaping(ref.terminalID)
             if let known = kept ?? resource { self?.remember(ref, resource: known) }
             return try await destinationConnection.newRemoteTerminalTab(ref, in: targetHandle, title: title).surface
         }

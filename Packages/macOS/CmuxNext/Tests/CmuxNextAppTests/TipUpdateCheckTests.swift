@@ -1,3 +1,4 @@
+import CmuxNextTestSupport
 @testable import CmuxNextUpdater
 import Foundation
 import Testing
@@ -64,7 +65,7 @@ import CmuxNextWakeupsTestSupport
     /// A started updater on build 100 with nothing found yet; the person's interval is an hour.
     static func make(_ identity: UpdateBuildIdentity = tip, checkAutomatically: Bool = true, downloadAutomatically: Bool = true,
                      held: Bool = false, xml: String = feed) -> Harness {
-        let defaults = UserDefaults(suiteName: "TipUpdateCheckTests.\(UUID().uuidString)")!
+        let defaults = UserDefaults(testSuiteName: "TipUpdateCheckTests.\(UUID().uuidString)")!
         let clock = ManualClock()
         let feed = Base.CountingFeed(xml: xml, held: held)
         let sparkle = Base.FakeSparkle()
@@ -236,7 +237,7 @@ import CmuxNextWakeupsTestSupport
     /// Nothing reads the feed before the settings load: `updates.checkAutomatically` may be off.
     @Test func noFastCheckBeforeTheSettingsLoad() {
         let updater = UpdaterService(identity: Self.nightly, policy: ManagedUpdatePolicy { false },
-                                     defaults: UserDefaults(suiteName: "TipUpdateCheckTests.\(UUID().uuidString)")!,
+                                     defaults: UserDefaults(testSuiteName: "TipUpdateCheckTests.\(UUID().uuidString)")!,
                                      enableSparkle: false, recordsUpdates: false, clock: ManualClock())
         updater.announcementsFetch = false
         updater.start()

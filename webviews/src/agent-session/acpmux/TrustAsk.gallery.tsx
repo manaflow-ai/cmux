@@ -118,6 +118,16 @@ export default componentEntry<Props>({
       play: notNow,
     },
     failed: { props: { initialAsk: ask("failed") } },
+    "failed-with-reason": {
+      note: "The host refused the save and said why: the reason shows under the question.",
+      props: {
+        initialAsk: {
+          cwd,
+          state: "failed",
+          reason: "cwd is outside the folders this machine serves (webRoots)",
+        },
+      },
+    },
     remote: { props: { initialAsk: ask("remote") } },
     trusted: { props: { initialAsk: ask("decided") }, play: undo },
     "trusted-via-repo": { props: { initialAsk: ask("decided", { ...worktree, via: repoRoot }) } },

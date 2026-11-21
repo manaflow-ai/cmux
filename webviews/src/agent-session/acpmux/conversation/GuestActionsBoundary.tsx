@@ -18,6 +18,7 @@ import { TurnActionsContext, type TurnActions } from "./turnActions";
 import { ChatAccountsContext } from "../chatAccounts";
 import { SpeedToggleHost } from "../fastToggleModel";
 import { UpdateOfferContext } from "../harnessHealthNoticeModel";
+import { HarnessUpdatesContext } from "../harnessUpdateList";
 import { PromptFocus } from "../promptFocus";
 import { ShellActionsContext } from "../shell/shellRowModel";
 import { SignInContext } from "../signIn";
@@ -50,6 +51,7 @@ export function GuestActionsBoundary({ children }: { children: ReactNode }) {
     [SignInContext.Provider, undefined],
     [ChatAccountsContext.Provider, undefined],
     [UpdateOfferContext.Provider, undefined],
+    [HarnessUpdatesContext.Provider, undefined],
     [SpeedToggleHost.Provider, null],
     [PromptFocus.Provider, null],
     [AvatarContext.Provider, undefined],

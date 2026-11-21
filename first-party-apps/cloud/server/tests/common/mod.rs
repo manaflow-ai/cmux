@@ -57,6 +57,13 @@ pub struct FakeControlPlane {
     pub carrier_asks: Vec<String>,
     /// The app refuses the carrier ask with this `(code, message)`.
     carrier_refusal: Option<(&'static str, &'static str)>,
+    /// Fault `http` (design remote-cloud-durability, F11): the next
+    /// `cloud.machine.start` calls answer these refusals, in order, before
+    /// the machine starts.
+    start_faults: std::collections::VecDeque<WireError>,
+    /// Every `cloud.machine.start` answers this refusal (a fault that never
+    /// clears).
+    start_fault_always: Option<WireError>,
     /// The app's answer has this socket instead of [`carrier_socket_of`].
     carrier_socket: Option<std::path::PathBuf>,
 }
@@ -68,10 +75,12 @@ pub fn carrier_socket_of(machine: &str) -> std::path::PathBuf {
 
 /// A link-test machine record (contract 1.2 shape).
 pub fn link_machine(id: &str, status: &str) -> Value {
-    json!({ "id": id, "team": "team_t0000000000000000001", "name": id, "status": status,
-        "size": { "cpu": 2, "memory_mb": 4096, "disk_mb": 16384 },
+    json!({ "id": id, "team": "team_t0000000000000000001", "creator": "user_u0000000000000000001",
+        "name": id, "status": status, "size": { "cpu": 2, "memory_mb": 4096, "disk_mb": 16384 },
+        "image": { "id": "img_i0000000000000000001", "daemon_version": "0.40.0" },
         "host": if status == "running" { json!(format!("host-{id}")) } else { Value::Null },
-        "classic": false, "revision": "1" })
+        "classic": false, "created_at": 1_790_000_001_000i64, "last_active_at": null,
+        "idle_policy": { "idle_seconds": 1800 }, "error": null, "revision": "1" })
 }
 
 /// A `cloud.machine.connect_info` answer (contract 1.7) for a bound,
@@ -108,6 +117,8 @@ impl FakeControlPlane {
             carrier_asks: Vec::new(),
             carrier_refusal: None,
             carrier_socket: None,
+            start_faults: std::collections::VecDeque::new(),
+            start_fault_always: None,
         };
         for name in names {
             match *name {
@@ -179,6 +190,23 @@ impl FakeControlPlane {
     /// Later carrier asks answer `socket` (a real listener in a test).
     pub fn set_carrier_socket(&mut self, socket: std::path::PathBuf) {
         self.carrier_socket = Some(socket);
+    }
+
+    /// Fault `http`: the next `cloud.machine.start` calls answer `faults`, one
+    /// each, in order; the fault then clears.
+    pub fn fault_start(&mut self, faults: impl IntoIterator<Item = WireError>) {
+        self.start_faults.extend(faults);
+    }
+
+    /// Fault `http` that never clears: every `cloud.machine.start` answers
+    /// `fault`.
+    pub fn fault_start_always(&mut self, fault: WireError) {
+        self.start_fault_always = Some(fault);
+    }
+
+    /// The `cloud.machine.start` calls that reached the backend, in order.
+    pub fn starts(&self) -> Vec<WireCall> {
+        self.wire.calls.iter().filter(|c| c.op == "cloud.machine.start").cloned().collect()
     }
 
     /// True when nothing reached the backend.
@@ -267,6 +295,14 @@ impl ControlPlane for FakeControlPlane {
         if call.op == "cloud.machine.connect_info" && self.connect_info_unreachable {
             self.wire.calls.push(call.clone());
             return Err(RelayError::Unavailable("the relay to cmux Cloud did not answer".into()));
+        }
+        if self.wire.signed_in
+            && call.op == "cloud.machine.start"
+            && let Some(fault) =
+                self.start_faults.pop_front().or_else(|| self.start_fault_always.clone())
+        {
+            self.wire.calls.push(call.clone());
+            return Ok(WireReply::Error(fault));
         }
         // The link-test names answer first: `vm-list` replaces the vectors'
         // `list {}` for the tests that name it.

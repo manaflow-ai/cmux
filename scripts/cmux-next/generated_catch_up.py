@@ -2,8 +2,9 @@
 """Picks and classifies the pull requests the cmux-next generated catch-up
 (.github/workflows/cmux-next-generated-catch-up.yml) merges feat-cmux-next into.
 
-The generated web bundles and strings tables (.gitattributes, merge driver
-cmux-generated-v1) collide on nearly every feat-cmux-next move, and GitHub
+Generated files (.gitattributes, merge driver cmux-generated-v1: every file the
+generated-files check knows, scripts/cmux-next/generated_merge.py) collide on
+nearly every feat-cmux-next move, and GitHub
 ignores merge drivers, so each landed UI PR left the other open PRs
 conflicting until someone merged the base and rebuilt them by hand. CI does
 that now for a PR whose only conflicts are those files, if Leo's agents
@@ -69,11 +70,32 @@ def _regex(pattern: str) -> re.Pattern[str]:
     return re.compile(out + r"\Z")
 
 
-def is_generated(path: str, patterns: Iterable[str]) -> bool:
-    return any(_regex(pattern).match(path) for pattern in patterns)
+def merge_rules(gitattributes: str) -> list[tuple[str, bool]]:
+    """Every .gitattributes line that sets or unsets `merge`, in order: (pattern, routes to DRIVER).
+    As in git, the last line that matches a path decides, so a later `PATH !merge` (a hand-written
+    file inside a generated directory) takes the path back out."""
+    rules = []
+    for line in gitattributes.splitlines():
+        fields = line.split()
+        if not fields or fields[0].startswith("#"):
+            continue
+        for field in fields[1:]:
+            if field in ("merge", "-merge", "!merge") or field.startswith("merge="):
+                rules.append((fields[0], field == f"merge={DRIVER}"))
+    return rules
 
 
-def authored(paths: Iterable[str], patterns: list[str]) -> list[str]:
+def is_generated(path: str, patterns: Iterable[str] | list[tuple[str, bool]]) -> bool:
+    """Whether the last rule matching `path` routes it to DRIVER (plain patterns: any match)."""
+    verdict = False
+    for rule in patterns:
+        pattern, generated = rule if isinstance(rule, tuple) else (rule, True)
+        if _regex(pattern).match(path):
+            verdict = generated
+    return verdict
+
+
+def authored(paths: Iterable[str], patterns: list[str] | list[tuple[str, bool]]) -> list[str]:
     """The paths a rebuild cannot resolve."""
     return [path for path in paths if not is_generated(path, patterns)]
 
@@ -125,7 +147,7 @@ def main(argv: list[str]) -> int:
 
     if args.command == "authored":
         with open(args.gitattributes, encoding="utf-8") as handle:
-            patterns = generated_patterns(handle.read())
+            patterns = merge_rules(handle.read())
         found = authored([line.strip() for line in sys.stdin if line.strip()], patterns)
         for path in found:
             print(path)

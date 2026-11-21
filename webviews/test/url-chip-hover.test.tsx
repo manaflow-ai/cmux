@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", { url: "http://localhost/", pretendToBeVisual: true });
 const scope = globalThis as Record<string, unknown>;
@@ -38,7 +39,8 @@ beforeAll(() => {
     IS_REACT_ACT_ENVIRONMENT: true,
   });
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
     else delete scope[key];
@@ -82,10 +84,9 @@ test("URL chips expose a safe hover card with a browser Open action", async () =
   await act(async () => card.querySelector<HTMLButtonElement>("button")!.focus());
   expect(rootElement.querySelector(".cv-link-preview")).not.toBeNull();
   await act(async () => card.querySelector<HTMLButtonElement>("button")!.click());
-  // The chip asked the host's cache for its mark's state colour; its card then asked gh about it
-  // (chips/PullRequestCard.tsx).
+  // Its card asked gh about it (chips/PullRequestCard.tsx); the chip asks nothing for itself, as its
+  // mark keeps the link's colour (Lucas, 2026-11-11).
   expect(calls).toEqual([
-    { method: "pr.inspect", params: { url: "https://github.com/manaflow-ai/cmux/pull/21180", cached: true } },
     { method: "pr.inspect", params: { url: "https://github.com/manaflow-ai/cmux/pull/21180" } },
     // Not `browser.open`, which the host takes only for a turn's local preview page.
     { method: "browser.openIn", params: { url: "https://github.com/manaflow-ai/cmux/pull/21180", browserId: "cmux" } },

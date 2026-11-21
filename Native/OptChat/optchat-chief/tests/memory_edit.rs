@@ -385,6 +385,7 @@ fn the_chief_and_its_agents_cannot_change_the_memory() {
             turn: None,
             peers: None,
             fork: None,
+            mcp: None,
         },
     )
     .unwrap();

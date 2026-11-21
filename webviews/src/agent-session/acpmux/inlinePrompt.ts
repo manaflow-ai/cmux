@@ -200,16 +200,31 @@ export function recordedPromptParts(msg: any, known?: readonly PromptContentPart
     };
   });
 }
-/// Move complete attachment tokens across a plain-text edit. Literal U+FFFC stays ordinary text.
-export function carryInline(input: string, text: string, attachments: ComposerAttachment[]): string {
+/// `input` as text a person reads and edits: its words and the text of its pasted and text chips,
+/// each other attachment's token taken out and kept by where it was (`marks`).
+function plainRuns(input: string, attachments: readonly ComposerAttachment[]) {
   let plain = "";
   const marks: { at: number; token: string }[] = [];
-  for (const run of orderedDraftParts(input, attachments)) {
+  // A chip left in the strip goes after the words as its own paragraph, as an unedited send puts it.
+  const apart = (id: string) => (!input.includes(inlineToken(id)) && plain && !plain.endsWith("\n\n") ? "\n\n" : "");
+  for (const run of orderedDraftParts(input, [...attachments])) {
     if (run.type === "text") plain += run.text;
-    else if (run.attachment.kind === "pasted") plain += run.attachment.text ?? "";
-    else if (run.attachment.kind === "text") plain += promptText("", [run.attachment]);
+    else if (run.attachment.kind === "pasted") plain += apart(run.attachment.id) + (run.attachment.text ?? "");
+    else if (run.attachment.kind === "text") plain += apart(run.attachment.id) + promptText("", [run.attachment]);
     else marks.push({ at: plain.length, token: inlineToken(run.attachment.id) });
   }
+  return { plain, marks };
+}
+
+/// The text of a draft `input` a queued row shows and edits (`carryInline` puts its tokens back):
+/// never an attachment's token, whose id is no text the person wrote (#41016).
+export function inlinePlainText(input: string, attachments: readonly ComposerAttachment[]): string {
+  return plainRuns(input, attachments).plain;
+}
+
+/// Move complete attachment tokens across a plain-text edit. Literal U+FFFC stays ordinary text.
+export function carryInline(input: string, text: string, attachments: ComposerAttachment[]): string {
+  const { plain, marks } = plainRuns(input, attachments);
   let head = 0,
     tail = 0;
   while (head < plain.length && head < text.length && plain[head] === text[head]) head += 1;
@@ -234,6 +249,38 @@ export function carryInline(input: string, text: string, attachments: ComposerAt
     from = at;
   }
   return out + text.slice(from);
+}
+/** Whether Retry can send a prompt's attachments again without dropping one (`resendPrompt`): the
+ * ones this page sent and kept, else every recorded part `restoreInline` rebuilds (an image read
+ * back by id, a linked or inline-text file, a paste), else its `images` read back by id. A recorded
+ * document or audio block, or a file with neither a path nor its text, cannot be rebuilt once the
+ * kept attachments are gone (a reload, a reconnect), so an attachment-only prompt offers no Retry. */
+export function canResendAttachments(row: Pick<AcpmuxRow, "retryAttachments" | "inlineParts" | "images">): boolean {
+  if (row.retryAttachments?.length) return true;
+  const parts = row.inlineParts;
+  if (!parts?.length) return true;
+  return parts.every(
+    (part) =>
+      part.kind === "text" ||
+      part.kind === "image" ||
+      (part.kind === "pasted" && Boolean(part.text)) ||
+      (part.kind === "file" &&
+        Boolean(
+          part.uri ||
+          part.text ||
+          (part.companionOf !== undefined &&
+            parts.some((image) => image.kind === "image" && image.blockIndex === part.companionOf)),
+        )),
+  );
+}
+/// A prompt with attachments that Retry can all send again (``canResendAttachments``): what an
+/// attachment-only prompt resends, so it keeps Retry under the prompt (UserBubble) and on its turn's
+/// footer (turns.ts isRetryablePrompt) only when this holds.
+export function resendsAttachments(row: Pick<AcpmuxRow, "retryAttachments" | "inlineParts" | "images">): boolean {
+  const has = Boolean(
+    row.images?.length || row.retryAttachments?.length || row.inlineParts?.some((part) => part.kind !== "text"),
+  );
+  return has && canResendAttachments(row);
 }
 export async function restoreInline(
   row: AcpmuxRow,
