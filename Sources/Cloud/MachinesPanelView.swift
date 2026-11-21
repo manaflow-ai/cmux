@@ -511,7 +511,9 @@ struct MachinesPanelView: View {
                 discoveryEnabled: includesDevices,
                 incomingAccessEnabled: devicesModel.preferences?.incomingAccessEnabled ?? false,
                 discoveryManaged: discoveryManaged,
-                incomingAccessManaged: incomingAccessManaged, available: DevicesFeature.isAvailable(), isRefreshing: devicesModel.isRefreshing
+                incomingAccessManaged: incomingAccessManaged, available: DevicesFeature.isAvailable(),
+                isRefreshing: devicesModel.isRefreshing && devicesModel.deviceListPhase != .discovering,
+                discoveryPhase: devicesModel.deviceListPhase
             ),
             coderouter: coderouter,
             showsCloudVPNWarning: tunnelStatus.status?.state == .off,
@@ -682,24 +684,54 @@ struct MachinesPanelView: View {
         }
     }
 
+    /// Devices-only panel, with no Cloud fleet underneath. The same claim the
+    /// sidebar row uses: discovery in progress is not "no other devices".
+    @ViewBuilder
+    private var devicesOnlyEmptyState: some View {
+        let claim = DeviceListDiscoveryPresentation.claim(
+            deviceCount: devicesModel.knownDeviceCount,
+            discoveryEnabled: includesDevices,
+            phase: devicesModel.deviceListPhase
+        )
+        switch claim {
+        case .discovering:
+            ProgressView()
+                .controlSize(.small)
+            Text(DeviceListEmptyRowText.title(.discovering))
+                .font(.callout.weight(.medium))
+                .accessibilityIdentifier(DeviceListEmptyStatusIdentifier.identifier(.discovering))
+        case .unreachable:
+            Text(DeviceListEmptyRowText.title(.unreachable))
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+                .accessibilityIdentifier(DeviceListEmptyStatusIdentifier.identifier(.unreachable))
+        case .empty, .hidden:
+            Image(systemName: "desktopcomputer")
+                .font(.system(size: 30, weight: .light))
+                .foregroundStyle(.secondary)
+            Text(String(localized: "devices.empty.title", defaultValue: "No other devices yet"))
+                .font(.callout.weight(.medium))
+                .accessibilityIdentifier(DeviceListEmptyStatusIdentifier.identifier(.empty))
+            Text(String(localized: "devices.empty.help", defaultValue: "Sign in to cmux on another Mac and make it discoverable in Settings › Devices."))
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+            Button(String(localized: "devices.settings", defaultValue: "Devices Settings…")) {
+                SettingsWindowPresenter.show(navigationTarget: .computers)
+            }
+        }
+    }
+
     @ViewBuilder
     private var emptyState: some View {
         VStack(spacing: 10) {
             Spacer()
             if !includesCloud {
-                Image(systemName: "desktopcomputer")
-                    .font(.system(size: 30, weight: .light))
-                    .foregroundStyle(.secondary)
-                Text(String(localized: "devices.empty.title", defaultValue: "No other devices yet"))
-                    .font(.callout.weight(.medium))
-                Text(String(localized: "devices.empty.help", defaultValue: "Sign in to cmux on another Mac and make it discoverable in Settings › Devices."))
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 24)
-                Button(String(localized: "devices.settings", defaultValue: "Devices Settings…")) {
-                    SettingsWindowPresenter.show(navigationTarget: .computers)
-                }
+                devicesOnlyEmptyState
+            }
             } else if let status = viewModel.listStatus {
                 // Say the true thing instead of pretending the fleet is empty:
                 // offline, reconnecting, or the failure with its real fix.
