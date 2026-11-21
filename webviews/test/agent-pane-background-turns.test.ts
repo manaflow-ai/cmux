@@ -1208,3 +1208,39 @@ for (const [shape, steps] of Object.entries(workedShapes))
         client.close();
       }
     });
+
+// A background task's notice that comes in during a turn is what the agent answers with the work
+// under it: the run under it opens nothing, so it sits flush on the 22 pitch, never the 32 turn gap
+// (Leo, 2026-11-16: "why is the background task space after so big").
+test("the run under a background task's notice sits flush under it", async () => {
+  const notification = "<task-notification><summary>Background command finished (exit 0)</summary></task-notification>";
+  const daemon = fakeDaemon(
+    record([
+      ...personTurn("Hi", "Landing.", "t1"),
+      ["mux", "user_message", { text: "Push it", turnId: "t2" }],
+      ["mux", "turn_started", { turnId: "t2" }],
+      ran("push"),
+      started("bg"),
+      ["mux", "user_message", { text: notification, client: "adopt" }],
+      ran("after"),
+      ended("bg", false),
+      say("Pushed."),
+      ["mux", "turn_result", { turnId: "t2", status: "completed" }],
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    const closed = drawn(rows());
+    const view = drawn(
+      rows(),
+      closed.filter((row) => row.kind === "worked" || row.kind === BACKGROUND_TURN).map((row) => row.id),
+    );
+    const notice = view.findIndex((row) => row.kind === "user" && row.incoming?.kind === "notice");
+    expect(notice).toBeGreaterThan(0);
+    const next = view[notice + 1]!;
+    expect(next.kind).toBe("activity");
+    expect(transcriptGap(gridMark(view[notice]!, view[notice - 1]), gridMark(next, view[notice]))).toBe(0);
+  } finally {
+    client.close();
+  }
+});
