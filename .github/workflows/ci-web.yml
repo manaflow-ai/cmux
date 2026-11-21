@@ -1820,6 +1820,22 @@ jobs:
       # for (known) need no replay, and when it answers all of them the bun install, the base
       # bundle build and the browsers below are skipped too (replay=0). Any failure here leaves
       # replay unset, and every red file replays as before.
+      # The cached copy first (webviews-test-history saves it beside its artifact; web-subarea-scope reads the same):
+      # the artifact list answered 403 (rate limit remaining 0) on cmux#49338's base check (run 44958089696,
+      # 2026-11-21), and every red file then replayed.
+      - name: Take the base's webview test history from the cache
+        id: history-cache
+        if: ${{ steps.head.outputs.reds != '0' }}
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          # R2, as web-subarea-scope reads it: the GitHub cache is over its 10 GB cap and evicts this entry.
+          backend: r2
+          path: .webviews-test-history-cache/history.json
+          key: webviews-test-history-${{ github.base_ref }}-${{ github.run_id }}
+          restore-keys: webviews-test-history-${{ github.base_ref }}-
       - name: Restore the base's webview test history
         id: history
         if: ${{ steps.head.outputs.reds != '0' }}
@@ -1837,7 +1853,12 @@ jobs:
             echo "no head reds: the base's history is not needed"
             exit 0
           fi
-          python3 "$runner/webviews_test_history.py" fetch "$history" --repo "$GITHUB_REPOSITORY" --branch "$BASE_REF"
+          cached=.webviews-test-history-cache/history.json
+          if [ -s "$cached" ]; then
+            mkdir -p "$(dirname "$history")" && cp "$cached" "$history" && echo "webview test history: the Actions cache's copy"
+          else
+            python3 "$runner/webviews_test_history.py" fetch "$history" --repo "$GITHUB_REPOSITORY" --branch "$BASE_REF"
+          fi
           if [ -z "$reds" ]; then
             echo "head results unreadable: every red file replays"
             exit 0

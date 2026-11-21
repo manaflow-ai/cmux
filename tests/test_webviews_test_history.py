@@ -1065,8 +1065,11 @@ class Workflow(unittest.TestCase):
         # takes a key of its own and every restore takes the newest by prefix. The path is relative to the workspace
         # in both, since the cache version hashes the path as written and runner.temp differs between runners.
         scope = self.job("web-subarea-scope")
+        # The base check read the history over the API alone, and a 403 there replayed every red file (2026-11-21).
+        base_check = self.job("react-apps-base-check")
         for text, key in ((upkeep, "webviews-test-history-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}"),
-                          (scope, "webviews-test-history-${{ github.base_ref }}-${{ github.run_id }}")):
+                          (scope, "webviews-test-history-${{ github.base_ref }}-${{ github.run_id }}"),
+                          (base_check, "webviews-test-history-${{ github.base_ref }}-${{ github.run_id }}")):
             self.assertIn(f"key: {key}\n", text)
             paths = re.findall(r"path: ([^\n]+)\n\s+key: webviews-test-history-", text)
             self.assertTrue(paths)
@@ -1075,9 +1078,12 @@ class Workflow(unittest.TestCase):
         self.assertIn("restore-keys: webviews-test-history-${{ github.base_ref }}-\n", scope)
         self.assertIn("uses: ./.github/actions/cache-save\n", upkeep)
         self.assertNotIn("cache-save", scope)
+        self.assertIn("restore-keys: webviews-test-history-${{ github.base_ref }}-\n", base_check)
+        self.assertNotIn("cache-save", base_check)
+        self.assertIn("webview test history: the Actions cache's copy", base_check)
         # R2, not the GitHub cache: that store is over its 10 GB cap and evicted the base's history before pull
         # requests read it (2026-11-25), so base comparisons missed. Every save and restore of it names the backend.
-        for text in (upkeep, scope):
+        for text in (upkeep, scope, base_check):
             self.assertNotIn("actions/cache/", text.split("webviews-test-history-")[0][-400:])
             self.assertEqual(len(re.findall(r"backend: r2\n\s+path: \.webviews-test-history-cache/", text)),
                              len(re.findall(r"path: \.webviews-test-history-cache/history\.json\n\s+key:", text)))
