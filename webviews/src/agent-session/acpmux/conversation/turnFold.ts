@@ -244,7 +244,7 @@ export function startTurnFold(
     moving.set(row.node, { id: row.id, top, delta: 0, reveal: false, animations: [] });
   }
   thread.setAttribute(TURN_FOLD_ATTR, opening ? "open" : "close");
-  const lead = opening ? 0 : exitLeadMs(ms);
+  const lead = opening ? 0 : exitLeadMs(ms, 1, thread);
   const fold: TurnFold = {
     id,
     at,

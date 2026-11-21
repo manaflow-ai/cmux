@@ -389,7 +389,7 @@ export function playTurnEnd(
   // rows that come in) starts when it ends, held at its start until then. A fold that takes nothing
   // away has no lead. Leo, 2026-11-21: "that text hiding as it travels so it doesnt show weird overlays
   // is the big one ... we must hide text faster and sooner".
-  const lead = capture.rows.some((row) => row.copy) ? exitLeadMs(ms) : 0;
+  const lead = capture.rows.some((row) => row.copy) ? exitLeadMs(ms, 1, thread) : 0;
   /// The first painted frame (the exit's clock), and when the move's clock starts.
   let startedAt: number | undefined;
   let movesAt: number | undefined;
@@ -418,13 +418,16 @@ export function playTurnEnd(
   };
   /// A copy's ink going to 0 on the exit's clock, `offset` ms into it (a stagger's step). A copy whose
   /// clock started again (`starts` has its drawn ink) goes on from that ink over the exit left.
+  // With no lead (the gallery's `none` arm, the look before) the copy fades on the move's own clock,
+  // gone by 60% of it, as #41078 had it.
+  const exitMs = lead > 0 ? lead : ms * 0.6; // motion-allow: the `none` arm's share of the settle
   const exit = (copy: HTMLElement, offset: number) => {
     const drawn = starts.get(copy)?.opacity;
     const since = startedAt === undefined ? 0 : now() - startedAt;
     const timing: KeyframeAnimationOptions =
       drawn === undefined
-        ? { duration: Math.max(1, lead - offset), delay: offset - since }
-        : { duration: Math.max(1, lead - Math.max(offset, since)), delay: 0 };
+        ? { duration: Math.max(1, exitMs - offset), delay: offset - since }
+        : { duration: Math.max(1, exitMs - Math.max(offset, since)), delay: 0 };
     const animation = copy.animate([{ opacity: drawn ?? 1 }, { opacity: 0 }], {
       ...timing,
       easing: EXIT_EASING,
@@ -693,7 +696,7 @@ export function playTurnEnd(
       // Held at its start until the move, so a copy that has faded never shows full again.
       const timing: KeyframeAnimationOptions = { fill: "both" };
       // The last row first, each a step after the one under it, inside the exit lead.
-      const step = look === "stagger" ? lead / Math.max(2, copies.length * 2) : 0;
+      const step = look === "stagger" ? exitMs / Math.max(2, copies.length * 2) : 0;
       // The copy's text is gone when the exit lead ends, before it or anything over it moves: faded on
       // the move's clock (by 60% of it, #41078), its text still travelled, faint, while the rows
       // slid over its place (agent-pane-stream-row-overlap: 5.5 px under the reply at 94%).

@@ -212,3 +212,12 @@ test("the read since line: its words are gone before its height starts to shrink
   );
   expect(tokens).toContain("--cv-exit-lead: calc(var(--cmux-motion-quick, 80ms) / 2);");
 });
+
+test("the gallery's arms: none plays no lead, quick a whole quick step, shipped the 40 ms lead", () => {
+  const { document } = new JSDOM(
+    "<!doctype html><div data-exit-lead=none><p id=a></p></div><div data-exit-lead=quick><p id=b></p></div><p id=c></p>",
+  ).window;
+  expect(exitLeadMs(180, 1, document.getElementById("a"))).toBe(0);
+  expect(exitLeadMs(180, 1, document.getElementById("b"))).toBe(80);
+  expect(exitLeadMs(180, 1, document.getElementById("c"))).toBe(40);
+});

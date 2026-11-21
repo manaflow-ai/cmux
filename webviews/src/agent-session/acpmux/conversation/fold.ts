@@ -397,7 +397,7 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
     // A close takes its text away before its height moves (exitLead.ts): the body fades out over a
     // short lead while it holds its height, then shuts, so no text is drawn while the rows under it
     // travel (Leo, 2026-11-21: "we must hide text faster and sooner"). An open plays no lead.
-    const lead = open ? 0 : exitLeadMs(move, fromOpacity);
+    const lead = open ? 0 : exitLeadMs(move, fromOpacity, node);
     const ms = lead + move;
     markHeightFold(node, ms);
     clipFold(node, true);
