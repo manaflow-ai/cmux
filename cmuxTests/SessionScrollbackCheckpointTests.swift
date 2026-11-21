@@ -755,3 +755,217 @@ struct SessionScrollbackCheckpointStoreTests {
         )
     }
 }
+
+@Suite("Session scrollback checkpoint persister")
+struct SessionScrollbackCheckpointPersisterTests {
+    private func makePersister() -> (
+        persister: SessionScrollbackCheckpointPersister,
+        store: SessionScrollbackCheckpointStore,
+        queue: DispatchQueue
+    ) {
+        let store = SessionScrollbackCheckpointStore(
+            primarySnapshotURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-scrollback-persister-tests-\(UUID().uuidString)", isDirectory: true)
+                .appendingPathComponent("session-com.cmuxterm.test.json", isDirectory: false)
+        )
+        let queue = DispatchQueue(label: "test.sessionScrollbackCheckpoint", qos: .utility)
+        return (
+            SessionScrollbackCheckpointPersister(
+                store: store,
+                queue: queue,
+                activity: TerminalScrollbackCheckpointActivity()
+            ),
+            store,
+            queue
+        )
+    }
+
+    private func cleanUp(_ store: SessionScrollbackCheckpointStore) {
+        // Delete only the fixture's UUID-scoped directory; if the store's
+        // directory layout ever drifts, skip rather than risk $TMPDIR.
+        let root = store.directoryURL.deletingLastPathComponent()
+        guard root.lastPathComponent.hasPrefix("cmux-scrollback-persister-tests-") else { return }
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    private func capture(
+        _ panelId: UUID,
+        at capturedAt: TimeInterval = 1,
+        _ text: String? = "output"
+    ) -> SessionScrollbackCheckpointCapture {
+        SessionScrollbackCheckpointCapture(
+            panelId: panelId,
+            surfaceId: panelId,
+            capturedAt: capturedAt,
+            finish: { text }
+        )
+    }
+
+    /// Throws on listing failure: silently returning [] would let a sweep
+    /// that deleted the whole directory pass as "no asides left".
+    private func asideNames(_ store: SessionScrollbackCheckpointStore, panelId: UUID) throws -> [String] {
+        let prefix = "\(panelId.uuidString).json.invalidated-"
+        return try FileManager.default.contentsOfDirectory(atPath: store.directoryURL.path)
+            .filter { $0.hasPrefix(prefix) }
+    }
+
+    /// The checkpoint queue may still hold earlier write batches when `persist`
+    /// runs on the main actor. `persist` must not block the caller behind them:
+    /// that wait put `FileManager.removeItem` on the main thread inside
+    /// `_dispatch_lane_barrier_sync_invoke_and_complete` in watchdog captures.
+    @Test func persistDoesNotBlockCallerBehindQueuedWrites() throws {
+        let (persister, store, queue) = makePersister()
+        defer { cleanUp(store) }
+        let removed = UUID()
+        store.apply(.init(captures: [capture(removed)], removals: [], livePanelIds: nil))
+
+        let gate = DispatchSemaphore(value: 0)
+        queue.async { gate.wait() }
+        let returned = DispatchSemaphore(value: 0)
+        Thread.detachNewThread {
+            persister.persist(.init(captures: [], removals: [removed], livePanelIds: nil))
+            returned.signal()
+        }
+        let finishedWithoutBlocking = returned.wait(timeout: .now() + 5) == .success
+        gate.signal()
+        // A caller that timed out may still be finishing on the queue; join it
+        // before the fixture teardown rather than race it, and fail loudly if
+        // even the open gate couldn't flush it out. Skip the second wait when
+        // the first already consumed the signal — it would just burn 5 s.
+        let callerJoined = finishedWithoutBlocking || returned.wait(timeout: .now() + 5) == .success
+        queue.sync {}
+        #expect(finishedWithoutBlocking)
+        #expect(callerJoined)
+        #expect(!FileManager.default.fileExists(atPath: store.fileURL(panelId: removed).path))
+        #expect(try asideNames(store, panelId: removed).isEmpty)
+    }
+
+    /// A removal is durable before `persist` returns: the caller renames the
+    /// file aside, so a crash before the queue drains cannot leave it for the
+    /// next unclean restore to merge. The queued apply then reclaims the aside.
+    @Test func removalIsDurableBeforePersistReturns() throws {
+        let (persister, store, queue) = makePersister()
+        defer { cleanUp(store) }
+        let removed = UUID()
+        store.apply(.init(captures: [capture(removed)], removals: [], livePanelIds: nil))
+
+        let gate = DispatchSemaphore(value: 0)
+        queue.async { gate.wait() }
+        // Detached so a blocking implementation fails on the return instead of
+        // deadlocking the test thread on the gate.
+        let persistReturned = DispatchSemaphore(value: 0)
+        Thread.detachNewThread {
+            persister.persist(.init(captures: [], removals: [removed], livePanelIds: nil))
+            persistReturned.signal()
+        }
+        let returnedWhileQueued = persistReturned.wait(timeout: .now() + 5) == .success
+        // Read the pre-drain state inside a Result: a listing failure must not
+        // skip the gate release and leave the queue parked under teardown.
+        let invalidatedBeforeDrain = Result {
+            try !FileManager.default.fileExists(atPath: store.fileURL(panelId: removed).path)
+                && !asideNames(store, panelId: removed).isEmpty
+        }
+        gate.signal()
+        // Join only a caller that hadn't returned — an already-consumed signal
+        // has nothing left to wait on and would just burn the timeout.
+        let callerJoined = returnedWhileQueued || persistReturned.wait(timeout: .now() + 5) == .success
+        queue.sync {}
+
+        #expect(returnedWhileQueued)
+        #expect(callerJoined)
+        #expect(try invalidatedBeforeDrain.get())
+        #expect(store.loadRecords(panelIds: [removed]).isEmpty)
+        #expect(try asideNames(store, panelId: removed).isEmpty)
+    }
+
+    /// An invalidated checkpoint is already unreachable: `loadRecords` only
+    /// looks for `<panel>.json`, so the aside wins no merge while it waits for
+    /// the queue's delete.
+    @Test func invalidatedCheckpointIsInvisibleToLoadRecords() throws {
+        let (_, store, _) = makePersister()
+        defer { cleanUp(store) }
+        let panel = UUID()
+        store.apply(.init(captures: [capture(panel)], removals: [], livePanelIds: nil))
+
+        #expect(store.invalidate(panelId: panel))
+        #expect(store.loadRecords(panelIds: [panel]).isEmpty)
+        #expect(try asideNames(store, panelId: panel).count == 1)
+    }
+
+    @Test func pruneSweepsInvalidatedAsides() throws {
+        let (_, store, _) = makePersister()
+        defer { cleanUp(store) }
+        let panel = UUID()
+        let other = UUID()
+        store.apply(.init(captures: [capture(panel), capture(other)], removals: [], livePanelIds: nil))
+        #expect(store.invalidate(panelId: panel))
+        // Prune must have a real aside to sweep or the final assertions are
+        // vacuous — an invalidate that only unlinked would pass them too.
+        #expect(try asideNames(store, panelId: panel).count == 1)
+
+        store.apply(.init(captures: [], removals: [], livePanelIds: [panel, other]))
+
+        #expect(try asideNames(store, panelId: panel).isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: store.fileURL(panelId: panel).path))
+        #expect(store.loadRecords(panelIds: [other])[other]?.scrollback == "output")
+    }
+
+    /// Ordering is what keeps the async removal crash-honest: a stale file may
+    /// only be deleted after the earlier queued write that created it lands.
+    /// The gate holds the write in the queue while the removal is submitted,
+    /// so an implementation that deleted on the caller would run before the
+    /// write created the file and leave it behind.
+    @Test func removalStillAppliesAfterEarlierQueuedWrite() {
+        let (persister, store, queue) = makePersister()
+        defer { cleanUp(store) }
+        let panel = UUID()
+
+        let gate = DispatchSemaphore(value: 0)
+        queue.async { gate.wait() }
+        let writeSubmitted = DispatchSemaphore(value: 0)
+        Thread.detachNewThread {
+            persister.persist(.init(captures: [capture(panel)], removals: [], livePanelIds: nil))
+            writeSubmitted.signal()
+        }
+        // Order the two submissions without asserting on the write's return:
+        // a blocking implementation never signals it, and the pinned failure
+        // is the removal's return, not the write's. A write that never landed
+        // is a setup failure — open the gate, let the caller finish, then stop.
+        guard writeSubmitted.wait(timeout: .now() + 5) == .success else {
+            gate.signal()
+            _ = writeSubmitted.wait(timeout: .now() + 5)
+            queue.sync {}
+            Issue.record("the write submission never returned while the queue was gated")
+            return
+        }
+        let removalReturned = DispatchSemaphore(value: 0)
+        Thread.detachNewThread {
+            persister.persist(.init(captures: [], removals: [panel], livePanelIds: nil))
+            removalReturned.signal()
+        }
+        let removalReturnedWhileQueued = removalReturned.wait(timeout: .now() + 5) == .success
+        gate.signal()
+        let removalCallerJoined = removalReturnedWhileQueued
+            || removalReturned.wait(timeout: .now() + 5) == .success
+        queue.sync {}
+
+        #expect(removalReturnedWhileQueued)
+        #expect(removalCallerJoined)
+        #expect(store.loadRecords(panelIds: [panel]).isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: store.fileURL(panelId: panel).path))
+    }
+
+    @Test func capturesStillWriteAndPruneOnTheCheckpointQueue() {
+        let (persister, store, queue) = makePersister()
+        defer { cleanUp(store) }
+        let kept = UUID()
+        let stale = UUID()
+        store.apply(.init(captures: [capture(kept), capture(stale)], removals: [], livePanelIds: [kept, stale]))
+
+        persister.persist(.init(captures: [capture(kept, at: 2, "new")], removals: [], livePanelIds: [kept]))
+        queue.sync {}
+
+        #expect(store.loadRecords(panelIds: [kept])[kept]?.scrollback == "new")
+        #expect(!FileManager.default.fileExists(atPath: store.fileURL(panelId: stale).path))
+    }
+}
