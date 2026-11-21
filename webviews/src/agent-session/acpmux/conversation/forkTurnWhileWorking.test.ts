@@ -34,3 +34,14 @@ test("an unserved or disconnected chat forks nothing", () => {
   expect(canForkTurn({ ...snapshot("claude", true), canFork: false } as AcpmuxSnapshot)).toBe(false);
   expect(canForkTurn({ ...snapshot("claude", true), connection: "disconnected" } as AcpmuxSnapshot)).toBe(false);
 });
+
+test("the running turn shows no Fork, and Fork Conversation (forkRefusal, forkToTarget) is unchanged", async () => {
+  const { promptTurns } = await import("./editPrompt");
+  const { forkRefusal, forkToTarget } = await import("./messageMenu");
+  expect([...promptTurns(rows as never)]).toEqual([["u1", 7]]);
+  expect(messageMenuTarget(snapshot("claude", true), "a2")?.forkSeq).toBeUndefined();
+  expect(messageMenuTarget(snapshot("claude", true), "u2")?.forkSeq).toBeUndefined();
+  expect(forkRefusal(snapshot("claude", true))).toBeUndefined();
+  expect(forkToTarget(snapshot("claude", true))).toEqual({ live: true });
+  expect(forkToTarget(snapshot("claude", false))).toEqual({ throughSeq: 7 });
+});

@@ -3432,8 +3432,11 @@ button.cv-worked:focus-visible {
    other tool calls are"; it lit only its chevron). A click leaves no lift: only keyboard focus is
    `:focus-visible`. Pointing at a session chip in the line lights the chip alone. A line with
    nothing behind it is no button and never lifts. test/transcript-row-word-lift-browser.test.ts. */
-button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-agent-tag.is-open:is(:hover, :focus)))
+button.cv-tool:not(.cv-sent, .cv-thought, :disabled):is(:hover, :focus-visible):not(:has(.cv-agent-tag.is-open:is(:hover, :focus)))
   > :is(.cv-tool__text, .cv-command__text, .cv-agent-activity__sentence),
+/* A thought's button spans its row for the click, but its words light only when the pointer is on its
+   glyph, words or chevron, not on the empty line after them (Lucas, 2026-11-06). */
+button.cv-thought.is-toggle:is(:focus-visible, :has(> :hover)) > .cv-tool__text,
 :is(.cv-disclosure__toggle:not(.is-chevron), .cv-disclosure__open, .cv-subagent-report__head):is(
     :hover,
     :focus-visible
