@@ -72,14 +72,19 @@ import Testing
 
         let current = try await start(serving: owner + [AgentSessionAttachClient.startCodexCredentialsCapability],
                                       ownerLink: link(3, 3), harness: "codex", credentials: token)
-        #expect(current.refusal == nil)
+        // The fake daemon answers a start with no session, so a start that went out ends `agent_session.refused`;
+        // only the credential refusal is the client's own.
+        #expect(current.refusal != AgentSessionAttachClient.codexCredentialsUnsupported)
+        #expect(current.frame != nil)
         #expect((current.frame?["credentials"] as? [String: Any])?["env"] as? [String: String] == token)
 
         // A Claude credential and a credential-less Codex start are unchanged on the older daemon.
         let claude = try await start(serving: owner, ownerLink: link(3, 3), harness: "claude", credentials: ["CLAUDE_CODE_OAUTH_TOKEN": "tok"])
-        #expect(claude.refusal == nil)
+        #expect(claude.refusal != AgentSessionAttachClient.codexCredentialsUnsupported)
+        #expect(claude.frame != nil)
         let plain = try await start(serving: owner, ownerLink: link(3, 3), harness: "codex")
-        #expect(plain.refusal == nil)
+        #expect(plain.refusal != AgentSessionAttachClient.codexCredentialsUnsupported)
+        #expect(plain.frame != nil)
         #expect(AgentSessionAttachClient.credentialsCapability(harness: "codex") == AgentSessionAttachClient.startCodexCredentialsCapability)
         #expect(AgentSessionAttachClient.credentialsCapability(harness: "claude") == AgentSessionAttachClient.startCredentialsCapability)
     }
