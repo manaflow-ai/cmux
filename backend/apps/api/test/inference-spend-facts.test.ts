@@ -1,3 +1,4 @@
+import { markupPct } from "../src/team-ai-usage.ts"
 import { env } from "cloudflare:workers"
 import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test"
 import worker from "../src/index.ts"
@@ -553,7 +554,7 @@ describe("the console's team usage line (cx-y79zh S5)", () => {
     const meter = testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(team)) as any
     await meter.record(team, [{ key: `line:${crypto.randomUUID()}`, meter: "model.spend_usd", quantity: 12.5, source: "coderouter", observed_at: Date.now() }])
     const before = await aiLimits(t, env)
-    expect(before.value.team_usage).toMatchObject({ billed: false, included_usd: 20, per_seat: false, seats: 1, spent_usd: 12.5, stop_applies: false, stopped: false })
+    expect(before.value.team_usage).toMatchObject({ billed: false, included_usd: 20, per_seat: false, seats: 1, spent_usd: 12.5, stop_applies: false, stopped: false, overage_models_markup_pct: 0 })
     expect(before.value.team_usage.period_end).toBe(before.value.resets_at)
     await meter.record(team, [{ key: `line:${crypto.randomUUID()}`, meter: "model.spend_usd", quantity: 7.5, source: "coderouter", observed_at: Date.now() }])
     expect((await aiLimits(t, env)).value.team_usage).toMatchObject({ spent_usd: 20, stopped: false })
@@ -561,7 +562,7 @@ describe("the console's team usage line (cx-y79zh S5)", () => {
     stripe.addSub("sub_line1", "cus_line1", { plan: "pro", stackUserId: stackUser }, "cmux-pro-monthly-50")
     await sync()
     const billed = (await aiLimits(t, env)).value.team_usage
-    expect(billed).toMatchObject({ billed: true, included_usd: 20, per_seat: false, seats: 1, spent_usd: 20, period_start: stripe.period.start * 1000, period_end: stripe.period.end * 1000, stop_applies: false, stopped: false })
+    expect(billed).toMatchObject({ billed: true, included_usd: 20, per_seat: false, seats: 1, spent_usd: 20, period_start: stripe.period.start * 1000, period_end: stripe.period.end * 1000, stop_applies: false, stopped: false, overage_models_markup_pct: 0 })
   })
 })
 
@@ -589,7 +590,10 @@ describe("model overage markup in the sync and the levels read (v2)", () => {
     expect((await sync(v2Env)).body).toMatchObject({ checked: 1, pushed: 1, failed: 0 })
     // Overage 25 = 15 models + 10 machines: 15 x 1.1 + 10.
     expect(stripe.events).toEqual([expect.objectContaining({ event_name: "cmux_ai_usage_above_included", "payload[value]": "26.500000" })])
-    expect((await meterOf(team).teamUsage(team, "per_seat", true)).billable).toMatchObject({ mode: "per_seat", seats: 3, included_usd: 75, spent_usd: 101.5 })
+    expect((await meterOf(team).teamUsage(team, "per_seat", true)).billable).toMatchObject({ mode: "per_seat", seats: 3, included_usd: 75, spent_usd: 101.5, markup_bp: 11_000 })
+    // The console's team line names the period's pinned markup: models above the pool at list + 10%.
+    expect(markupPct(11_000)).toBe(10)
+    expect(markupPct(10_000)).toBe(0)
     const item = { stack_team: stackTeam, from: stripe.period.start * 1000, to: stripe.period.end * 1000 }
     const v2Read = await levelsRead(v2Env, item)
     expect(v2Read.levels[0]).toMatchObject({ team, micros: 101.5 * M, cost_micros: 100 * M, models_micros: 60 * M, machine_micros: 40 * M, included_micros: 75 * M, meter_micros: 26.5 * M, markup_bp: 11_000, facts: 2, price_version: "ai-overage-models110-v2" })

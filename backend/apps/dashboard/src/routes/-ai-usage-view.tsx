@@ -21,6 +21,8 @@ export interface AiUsageLine {
   readonly period_end: number
   readonly stop_applies: boolean
   readonly stopped: boolean
+  /** Model usage above the included amount: 0 at cost, 10 at the provider's list price + 10% (price set v2). Absent: 0. */
+  readonly overage_models_markup_pct?: number
 }
 export interface AiUsageMember {
   readonly user: string
@@ -71,7 +73,8 @@ const Intro = ({ t, locale, data }: { t: T; locale: Locale; data: AiUsageData })
   if (!line || line.included_usd === null) return <p className="aiu-intro">{t("usage.intro.open", { date: dateOf(locale, data.resets_at) })}</p>
   const included = usd(locale, line.per_seat ? line.included_usd / Math.max(1, line.seats) : line.included_usd)
   if (!line.billed) return <p className="aiu-intro">{t(line.stop_applies ? "usage.intro.unbilled" : "usage.intro.unbilled_open", { included })}</p>
-  return <p className="aiu-intro">{t("usage.intro.billed", { included, per: line.per_seat ? t("usage.per.seat", { seats: String(line.seats) }) : t("usage.per.team") })}</p>
+  const marked = (line.overage_models_markup_pct ?? 0) > 0
+  return <p className="aiu-intro">{t(marked ? "usage.intro.billed.list" : "usage.intro.billed", { included, per: line.per_seat ? t("usage.per.seat", { seats: String(line.seats) }) : t("usage.per.team"), pct: String(line.overage_models_markup_pct ?? 0) })}</p>
 }
 
 /** The thin bar: the part used, capped at the track; `tone` only for real state. */
@@ -144,7 +147,7 @@ const TeamLine = ({ t, locale, line }: { t: T; locale: Locale; line: AiUsageLine
   const end = dateOf(locale, line.period_end)
   const status =
     state === "stopped" ? <p className="aiu-status aiu-bad">{t("usage.stopped", { date: end })}</p>
-    : state === "over" ? <p className="aiu-status">{t("usage.over", { over: usd(locale, over) })}</p>
+    : state === "over" ? <p className="aiu-status">{t((line.overage_models_markup_pct ?? 0) > 0 ? "usage.over.list" : "usage.over", { over: usd(locale, over), pct: String(line.overage_models_markup_pct ?? 0) })}</p>
     : state === "over_free" ? <p className="aiu-status">{t("usage.over.unbilled", { over: usd(locale, over) })}</p>
     : state === "near" ? <p className="aiu-status aiu-warn">{t("usage.near")}</p>
     : null

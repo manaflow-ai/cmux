@@ -1,6 +1,6 @@
 import { INFERENCE_PERSONAL_PLAN_IDS, INFERENCE_TEAM_PLAN_IDS } from "@cmux/protocol"
 import type { Env } from "./env.ts"
-import { defaultIncludedMode, poolsMachineTime, usageIncludedUsd } from "./billing-catalog.ts"
+import { defaultIncludedMode, overageModelMarkup, poolsMachineTime, usageIncludedUsd } from "./billing-catalog.ts"
 import { usagePriceSet } from "./billing-usage-sync.ts"
 import { includedPlanOf } from "./inference/included-stop.ts"
 import { nextMonthStart } from "./usage-user.ts"
@@ -26,7 +26,15 @@ export interface TeamUsageLine {
   readonly stop_applies: boolean
   /** The stop applies and the team reached its included amount: AI calls are refused until the reset. */
   readonly stopped: boolean
+  /**
+   * The markup on model usage above the included amount, percent of list: 0 (at cost) or 10 (list + 10%, price set
+   * v2, Leo 2026-11-09). Billed: the period's pinned markup; not billed: the deployment's set. Machine time: at list.
+   */
+  readonly overage_models_markup_pct: number
 }
+
+/** Basis points of a multiplier above 1, as a whole percent (11000 -> 10). */
+export const markupPct = (bp: number): number => Math.max(0, Math.round((bp - 10_000) / 100))
 
 const monthStart = (now: number) => {
   const d = new Date(now)
@@ -39,7 +47,7 @@ export const teamUsageLine = async (env: Env, team: string, plan: string | null)
   const set = usagePriceSet(env)
   const usage = await env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(team)).teamUsage(team, defaultIncludedMode(usagePlan, set), poolsMachineTime(set)).catch(() => null)
   const b = usage?.billable ?? null
-  if (b) return { billed: true, included_usd: b.included_usd, per_seat: b.mode === "per_seat", seats: b.seats, spent_usd: b.spent_usd, period_start: b.period_start === null ? null : b.period_start * 1000, period_end: b.period_end * 1000, stop_applies: false, stopped: false }
+  if (b) return { billed: true, included_usd: b.included_usd, per_seat: b.mode === "per_seat", seats: b.seats, spent_usd: b.spent_usd, period_start: b.period_start === null ? null : b.period_start * 1000, period_end: b.period_end * 1000, stop_applies: false, stopped: false, overage_models_markup_pct: markupPct(b.markup_bp) }
   // As the stop counts it (included-stop.ts): a paid plan the catalog does not know has 0 included; an unpaid
   // plan or no plan copy has none to show (its calls stop at the plan gate, never at the included amount).
   const paid = plan !== null && (INFERENCE_PERSONAL_PLAN_IDS.has(plan) || INFERENCE_TEAM_PLAN_IDS.has(plan))
@@ -48,5 +56,5 @@ export const teamUsageLine = async (env: Env, team: string, plan: string | null)
   const included = usagePlan ? usageIncludedUsd(usagePlan, set) * seats : paid ? 0 : null
   const spent = usage ? usage.month_spent_usd : -1
   const stopApplies = env.USAGE_HARD_STOP_UNBILLED === "1"
-  return { billed: false, included_usd: included, per_seat: perSeat, seats, spent_usd: spent, period_start: monthStart(now), period_end: nextMonthStart(now), stop_applies: stopApplies, stopped: stopApplies && included !== null && spent >= 0 && spent >= included }
+  return { billed: false, included_usd: included, per_seat: perSeat, seats, spent_usd: spent, period_start: monthStart(now), period_end: nextMonthStart(now), stop_applies: stopApplies, stopped: stopApplies && included !== null && spent >= 0 && spent >= included, overage_models_markup_pct: markupPct(Math.round(overageModelMarkup(set) * 10_000)) }
 }

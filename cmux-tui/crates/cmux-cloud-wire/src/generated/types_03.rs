@@ -721,6 +721,8 @@ pub struct TeamAiUsageLine {
     pub period_end: i64,
     pub stop_applies: bool,
     pub stopped: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overage_models_markup_pct: Option<WireNumber>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
