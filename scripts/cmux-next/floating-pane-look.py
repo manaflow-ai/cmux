@@ -23,9 +23,14 @@ the daemon, and `debug.pane_chrome` (the window's scale and each shown pane's fr
 Usage: floating-pane-look.py --tag TAG --app PATH/TO/TAGGED.app --out DIR [--opacity 0.5]
 Exit: 0 when report.json and at least 1 picture are written (also when a later step failed: the report says which);
 3 when no picture was written.
+
+       floating-pane-look.py --tag TAG --daemon-only PATH/TO/cmux-tui
+The daemon's calls of step 2 alone, on a daemon that this starts with no app and no display (no picture, no
+report): floating-pane-look-daemon.sh runs it before a display step. Exit: 0 when each call answered, else 1.
 """
 import argparse
 import glob
+import hashlib
 import json
 import os
 import shutil
@@ -40,10 +45,13 @@ import zlib
 
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 parser.add_argument("--tag", required=True)
-parser.add_argument("--app", required=True)
-parser.add_argument("--out", required=True)
+parser.add_argument("--app", default="")
+parser.add_argument("--out", default="")
 parser.add_argument("--opacity", type=float, default=0.5)
+parser.add_argument("--daemon-only", metavar="CMUX_TUI", help="only the daemon's calls, on a daemon of this binary")
 opts = parser.parse_args()
+if not opts.daemon_only and not (opts.app and opts.out):
+    parser.error("--app and --out are needed (or --daemon-only CMUX_TUI)")
 TAG, APP, OUT = opts.tag, os.path.abspath(opts.app.rstrip("/")), os.path.abspath(opts.out)
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
@@ -82,16 +90,48 @@ def rpc(method, params=None, timeout=30):
     return reply.get("result") if reply.get("ok") else {"error": reply.get("error")}
 
 
+def daemon_paths():
+    """Where the tag's daemon can listen: `<temp>/cmux-tui-<uid>/<session>.sock` for each temp folder, the app's own
+    TMPDIR first, then the folders for a path that is too long for a socket: `<temp>/cmux-tui-hashed-<uid>/<sha256 of
+    the session>.sock` (the same names as `session_socket_path` of bench-startup.py)."""
+    session, uid = f"cmux-app-{TAG}", os.getuid()
+    darwin = subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True).stdout.strip()
+    temps = [t for t in (os.environ.get("TMPDIR"), darwin, "/tmp", "/private/tmp") if t]
+    hashed = hashlib.sha256(session.encode()).hexdigest() + ".sock"
+    return ([os.path.join(t, f"cmux-tui-{uid}", session + ".sock") for t in temps]
+            + [os.path.join(t, f"cmux-tui-hashed-{uid}", hashed) for t in temps])
+
+
 def daemon(request, timeout=30):
-    """One request on the socket of the tag's daemon; the first candidate path that exists is used."""
-    session = f"cmux-app-{TAG}"
-    temps = [os.environ.get("TMPDIR"), subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True,
-                                                     text=True).stdout.strip(), "/tmp"]
-    paths = [os.path.join(t, f"cmux-tui-{os.getuid()}", session) for t in temps if t]
+    """One request on the socket of the tag's daemon; the first candidate path that exists is used. The reply is the
+    line with the request's id: a line with another id, or an event, is passed over."""
+    paths = daemon_paths()
     path = next((p for p in paths if os.path.exists(p)), None)
     if not path:
-        return {"error": "no daemon socket at " + ", ".join(paths)}
-    return line_json(path, dict(request, id=1), timeout)
+        folders = [os.path.dirname(p) for p in paths]
+        seen = sorted({n for f in folders if os.path.isdir(f) for n in os.listdir(f)})
+        there = ", ".join(seen) or "nothing"
+        return {"error": "no daemon socket at " + ", ".join(paths) + "; in those folders: " + there}
+    try:
+        conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        conn.settimeout(timeout)
+        conn.connect(path)
+        conn.sendall((json.dumps(dict(request, id=1)) + "\n").encode())
+        buf = b""
+        while True:
+            while b"\n" not in buf:
+                chunk = conn.recv(1 << 20)
+                if not chunk:
+                    conn.close()
+                    return {"error": "the daemon closed the connection before its reply"}
+                buf += chunk
+            line, buf = buf.split(b"\n", 1)
+            value = json.loads(line)
+            if isinstance(value, dict) and value.get("id") == 1 and "event" not in value:
+                conn.close()
+                return value
+    except (OSError, ValueError) as error:
+        return {"error": str(error)}
 
 
 def step(name, reply):
@@ -295,7 +335,44 @@ def main():
     stop(0)
 
 
+def daemon_only(binary):
+    """The look's calls on the daemon with no app and no display: a daemon of the tag alone on its own default socket
+    (so `daemon_paths` is checked too), a workspace, a split, `float-pane` on, the screen's `floating` list, and off.
+    Returns 0 when each call answered as the look needs it, else 1; the lines say which call did not."""
+    session, env = f"cmux-app-{TAG}", {k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}
+    proc = subprocess.Popen([binary, "--headless", "--session", session], env=env, stdin=subprocess.DEVNULL)
+    good = False
+    try:
+        up = wait(lambda: daemon({"cmd": "list-workspaces"}, timeout=5).get("ok"), 60)
+        step("list-workspaces", daemon({"cmd": "list-workspaces"}))
+        if up and not pane_ids():
+            step("new-workspace", daemon({"cmd": "new-workspace"}))
+        before = wait(pane_ids, 10) or set()
+        step("daemon pane ids before the split", sorted(before, key=str))
+        if before:
+            step("split", daemon({"cmd": "split", "pane": sorted(before, key=str)[0], "dir": "right"}))
+        new = wait(lambda: sorted(pane_ids() - before, key=str), 10) if before else None
+        step("new pane ids after the split", new)
+        if new:
+            on = step("float-pane on", daemon(dict({"cmd": "float-pane", "pane": new[0], "mode": "on"}, **FRAME)))
+            floating = next((s.get("floating") for s in screens() if s.get("floating")), None)
+            step("the screen's floating list", floating)
+            off = step("float-pane off", daemon({"cmd": "float-pane", "pane": new[0], "mode": "off"}))
+            good = bool(on.get("ok") and floating and off.get("ok"))
+    finally:
+        subprocess.run([binary, "server", "stop", "--session", session, "--end-terminals"], env=env,
+                       capture_output=True, timeout=30)
+        try:
+            proc.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+    print(f"FLOATING-PANE-LOOK daemon-only {'PASS' if good else 'FAIL'}", flush=True)
+    return 0 if good else 1
+
+
 if __name__ == "__main__":
+    if opts.daemon_only:
+        sys.exit(daemon_only(opts.daemon_only))
     try:
         main()
     except SystemExit:

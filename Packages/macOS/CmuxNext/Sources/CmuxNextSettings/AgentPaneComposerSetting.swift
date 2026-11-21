@@ -41,9 +41,9 @@ import CmuxNextDesign
 /// machine, the page's `cloud.startChat`). The page decides (runLocationDefault.ts); this only
 /// carries the value. Leo, 2026-10-31: "whenever i start a chat it should be able to send me to
 /// cloud autommatically".
-/// `composerLook`: which of the composer's two looks every chat draws, `auto` (the look the chat's
-/// dots picked, kept in the page, else Codex's; the default), `codex` or `claude` (that look over
-/// the dots' choice). The New Tab page always draws Claude's (composerLook.ts).
+/// `composerLook`: the composer's look in every chat, `auto` (the app's own; the default) or
+/// `studio` (opt-in: the model, effort and access chips in the box, a paperclip and a round Send).
+/// The New Tab page always draws its own (composerLook.ts).
 /// `emptyChatComposerPosition`: where a chat with no messages yet sits its composer, `bottom`
 /// (docked, the default) or `center` (the middle of the pane, the hero over it; styles.css).
 ///

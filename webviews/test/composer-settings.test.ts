@@ -118,13 +118,12 @@ test("new chats start on this Mac by default; Cloud only when the setting says s
 });
 
 // agentPane.composerLook and agentPane.emptyChatComposerPosition: a cmuxProfile can carry both; the
-// defaults are the page's behaviour before them (the dots' stored look; the composer at the bottom).
-test("the composer look setting is auto by default; codex and claude are the set looks", () => {
+// defaults are the page's behaviour before them (the standard composer; the composer at the bottom).
+test("the composer look setting is auto by default; studio is the one set look", () => {
   expect(DEFAULT_COMPOSER.composerLook).toBe("auto");
   expect(readComposerSettings({}).composerLook).toBe("auto");
-  expect(readComposerSettings({ composerLook: "codex" }).composerLook).toBe("codex");
-  expect(readComposerSettings({ composerLook: "claude" }).composerLook).toBe("claude");
-  for (const bad of ["Claude", "t3", true, null])
+  expect(readComposerSettings({ composerLook: "studio" }).composerLook).toBe("studio");
+  for (const bad of ["Studio", "codex", "claude", true, null])
     expect(readComposerSettings({ composerLook: bad }).composerLook).toBe("auto");
 });
 

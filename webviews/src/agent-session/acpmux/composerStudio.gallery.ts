@@ -1,15 +1,15 @@
 // l10n-allow-file: gallery fixtures (sample chats and prompts), not shipped UI.
 // Studio's composer look (composerLook.ts `studio`, Settings' agentPane.composerLook "studio", which
-// the Studio add-on look sets): Codex's in-box row laid out as the Studio reference composer draws it.
+// the Studio add-on look sets): the in-box row laid out as a coding studio's composer draws it.
 // The prompt on its own line over one row: the model, the effort and the access chips on the left,
 // the attach paperclip and the round accent Send on the right (composerLook.css). The Studio look
 // also turns the mic and the context ring off (agentPane.showDictation, agentPane.showContextUsage);
-// `studio-own-settings` keeps them on, as the look alone draws them. `codex-beside` is Codex's look
-// on the same chat, to set beside.
+// `studio-own-settings` keeps them on, as the look alone draws them. `standard-beside` is the default
+// composer on the same chat, to set beside.
 import { agentPaneEntry } from "../../gallery/format";
 import type { PlayContext } from "../../gallery/play";
 import { assistant, chat, CWD, manySessions, noChat, user } from "../../gallery/fixtures/acpmux";
-import { setComposerLook, type ComposerLook } from "./composerLook";
+import { setPreviewComposerLook, type ComposerLook } from "./composerLook";
 import { setComposerSettings } from "./composerSettings";
 import type { AcpmuxSnapshot } from "./model";
 
@@ -78,11 +78,11 @@ const studioSettings = () => setComposerSettings({ showDictation: false, showCon
 
 async function look(ctx: PlayContext, which: ComposerLook, own = false) {
   if (!own) studioSettings();
-  setComposerLook(which, { remember: false });
+  setPreviewComposerLook(which);
   await ctx.waitFor(() =>
     which === "studio"
       ? ctx.document.querySelector('[data-composer-variant="studio"]')
-      : ctx.document.querySelector('[data-composer-look="codex"]:not([data-composer-variant])'),
+      : ctx.document.querySelector(".acpmux-composer:not([data-composer-look]):not([data-composer-variant])"),
   );
 }
 
@@ -131,11 +131,11 @@ export default agentPaneEntry({
       snapshot: startedChat(),
       play: (ctx) => look(ctx, "studio", true),
     },
-    "codex-beside": {
-      composerLook: "codex",
-      note: "Before: Codex's look (the default) on the same chat, to set beside Studio's; unchanged.",
+    "standard-beside": {
+      composerLook: "claude",
+      note: "Before: the default composer on the same chat, to set beside Studio's; unchanged.",
       snapshot: startedChat(),
-      play: (ctx) => look(ctx, "codex", true),
+      play: (ctx) => look(ctx, "claude", true),
     },
   },
 });

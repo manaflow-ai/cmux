@@ -32,7 +32,7 @@ extension AgentPaneComposerSetting {
     /// `agentPane.newChatsIn`: Where a new chat runs when its composer picks nothing (agentPane.newChatsIn); the page decides (runLocationDefault.ts). Leo, 2026-10-31: "whenever i start a chat it should be able to send me to cloud autommatically".
     public nonisolated static let newChatsInPath = ["agentPane", "newChatsIn"]
     public nonisolated static let newChatsInDefault: AgentPaneNewChatPlace = .local
-    /// `agentPane.composerLook`: Which of the composer's looks every chat draws (agentPane.composerLook; composerLook.ts): auto keeps the look the chat's dots picked, stored in the page (cmux.composer.look), else Codex's; claude or codex pins that look over the dots' choice. The New Tab page always draws Claude's look. Leo, 2026-10-22: "first dot claude, second dot codex. since it's just all looks anyways".
+    /// `agentPane.composerLook`: The composer's look in every chat (agentPane.composerLook; composerLook.ts): auto is the app's own composer; studio (opt-in) lays the model, effort and access chips inside the box with an attach paperclip and a round accent Send on the right, as a coding studio's composer does (composerLook.css data-composer-variant). The New Tab page always draws its own. Leo: "the composer doesn't even look remotely similar".
     public nonisolated static let composerLookPath = ["agentPane", "composerLook"]
     public nonisolated static let composerLookDefault: AgentPaneComposerLook = .auto
     /// `agentPane.emptyChatComposerPosition`: Where an empty chat's composer sits (agentPane.emptyChatComposerPosition): bottom, docked as always, or center, the middle of the pane with the hero over it, as the New Tab page sets it (styles.css, [data-empty-chat-composer="center"]).
@@ -171,12 +171,10 @@ nonisolated enum AgentPaneComposerSettingsSchema {
                 help: SettingsText.keyed("settings.agentPane.composerLook.help", "Where the mode, model and effort sit: under the box or inside it."),
                 kind: .choice([
                     SettingChoice(AgentPaneComposerLook.auto.rawValue, SettingsText.keyed("settings.choice.composerLookAuto", "Automatic")),
-                    SettingChoice(AgentPaneComposerLook.codex.rawValue, "Codex"),
-                    SettingChoice(AgentPaneComposerLook.claude.rawValue, "Claude"),
                     SettingChoice(AgentPaneComposerLook.studio.rawValue, "Studio"),
                 ]),
                 default: .string(AgentPaneComposerSetting.composerLookDefault.rawValue),
-                keywords: ["composer", "look", "style", "codex", "claude", "message box", "model", "mode", "effort", "agent"]
+                keywords: ["composer", "look", "style", "studio", "message box", "model", "mode", "effort", "agent"]
             ),
             SettingDescriptor(
                 AgentPaneComposerSetting.emptyChatComposerPositionPath,

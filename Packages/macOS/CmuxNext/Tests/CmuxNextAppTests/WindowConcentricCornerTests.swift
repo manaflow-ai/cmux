@@ -100,7 +100,7 @@ import Testing
         defer { load() }
         load()
         #expect(!Metrics.cornerRadiusIsSet)
-        #expect(PaneToolbarView.moreCornerRadius(inset: PaneToolbarView.trailingGap) == Metrics.buttonCornerRadius)
+        #expect(PaneToolbarView.moreCornerRadius(inset: PaneToolbarView.trailingGap) == Metrics.tabBarControlCornerRadius())
         let toolbar = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 160, height: Metrics.tabStripHeight))
         toolbar.moreButton.hoverStyle = .plate
         toolbar.show([], more: true, lit: false)
@@ -109,9 +109,10 @@ import Testing
         #expect(toolbar.moreButton.layer?.cornerRadius == Metrics.buttonCornerRadius)
     }
 
-    /// The default top row keeps the gutter at the card's top as at its sides (an even inset), and
-    /// the controls center on the pills' line there.
-    @Test func theCardsTopInsetEqualsItsSideInset() throws {
+    /// The default top row starts its strip under the window's rim (user 2026-11-19: "top padding is not equal to left
+    /// padding for the tab"): the card's top is the rim, not the side gutter, so the one strip padding inside the strip is
+    /// the whole gap above the tabs, as it is beside the first and under them, and the controls center on the pills' line.
+    @Test func theTopRowStripStartsUnderTheWindowsRim() throws {
         defer { load() }
         load()
         #expect(TopRowLineLook.tunable.defaultValue == .concentric)
@@ -129,14 +130,13 @@ import Testing
         let root = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: 640))
         window.contentView = root
         let gutter = Metrics.mainPaneGutter
-        let side = Metrics.windowEdgeInset(gutter, in: window)
+        let rim = WindowTitlebar.topRowRim(in: window)
         let top = WindowTitlebar.cardTopInset(of: root, minimal: true, gutter: gutter)
-        #expect(top == side, "the card is \(top) pt below the window's top, \(side) pt from its side")
+        #expect(top == rim, "the card is \(top) pt below the window's top, its rim is \(rim)")
         let line = try #require(WindowTitlebar.topRowLine(in: window, look: .concentric))
-        // The pills sit midway between the window's top edge and the strip's bottom (Lucas 2026-11-14: equal room above
-        // and below the top row's tabs), and the controls center on them.
-        let row = PaneChromeMetrics.current
-        #expect(line.centerY == row.topRowPillCenter(cardTop: side, scale: window.backingScaleFactor),
-                "the controls center on the pills, evened between the window's top and the strip's bottom")
+        // The pills keep the strip padding above them (from under the rim) as below them, and the controls center on them.
+        let row = PaneChromeMetrics.current, scale = window.backingScaleFactor
+        #expect(line.centerY == rim + row.tabGap(scale: scale) + row.tabHeight / 2,
+                "the controls center on the pills, one strip padding under the window's rim")
     }
 }

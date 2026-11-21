@@ -1,10 +1,10 @@
 import CmuxNextSettings
 import Testing
 
-/// `agentPane.composerLook` (auto, codex, claude) and `agentPane.emptyChatComposerPosition` (bottom,
+/// `agentPane.composerLook` (auto, studio) and `agentPane.emptyChatComposerPosition` (bottom,
 /// center): the composer's look and where an empty chat's composer sits, settings a profile can
 /// carry. Both reach the page on the `composer` event (webviews composerSettings.ts, composerLook.ts)
-/// and default to the page's own behaviour: the dots' stored look, and the composer docked at the bottom.
+/// and default to the page's own behaviour: the app's own composer, docked at the bottom.
 struct AgentPaneComposerLookSettingTests {
     @Test func defaultsKeepTodaysBehaviour() {
         let snapshot = CmuxConfigSnapshot.parse(.object([:]), validDensities: [], validMetrics: [])
@@ -17,7 +17,7 @@ struct AgentPaneComposerLookSettingTests {
     }
 
     @Test func setValuesRoundTrip() {
-        for look in ["codex", "claude"] {
+        for look in ["studio"] {
             let root = JSONValue.object([
                 "agentPane": .object(["composerLook": .string(look), "emptyChatComposerPosition": .string("center")]),
             ])
@@ -39,7 +39,7 @@ struct AgentPaneComposerLookSettingTests {
     }
 
     @Test func aBadValueIsTheDefaultWithADiagnostic() {
-        for bad: JSONValue in [.string("Codex"), .string("t3"), .bool(true)] {
+        for bad: JSONValue in [.string("Studio"), .string("codex"), .string("claude"), .bool(true)] {
             let root = JSONValue.object([
                 "agentPane": .object(["composerLook": bad, "emptyChatComposerPosition": bad]),
             ])

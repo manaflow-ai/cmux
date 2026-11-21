@@ -19,6 +19,25 @@ struct AgentPaneGitHubRequestTests {
         #expect(AgentPaneRequest(body: ["method": "github.nope"]) == .unsupported("github.nope"))
     }
 
+    /// `github.repos.checkout`: an `owner/name`, a key, and only absolute folders the page knows for it.
+    @Test func decodesCheckoutAndRefusesAnythingButARepositoryAndFolders() {
+        let checkout = { (params: [String: Any]) in AgentPaneRequest(body: ["method": "github.repos.checkout", "params": params]) }
+        #expect(checkout(["repo": "acme/api", "idempotency_key": "k1"]) == .gitHub(.checkout(repo: "acme/api", candidates: [], key: "k1")))
+        #expect(checkout(["repo": "acme/api", "candidates": ["/Users/me/api"], "idempotency_key": "k1"])
+            == .gitHub(.checkout(repo: "acme/api", candidates: ["/Users/me/api"], key: "k1")))
+        for bad: [String: Any] in [
+            ["repo": "acme/api"],
+            ["repo": "https://github.com/acme/api", "idempotency_key": "k1"],
+            ["repo": "../api", "idempotency_key": "k1"],
+            ["repo": "acme/api", "candidates": ["relative/api"], "idempotency_key": "k1"],
+            ["repo": "acme/api", "candidates": "/Users/me/api", "idempotency_key": "k1"],
+        ] {
+            #expect(checkout(bad) == .unsupported("github.repos.checkout"), "\(bad)")
+        }
+        #expect(AgentPaneRequest.gitHub(.checkout(repo: "acme/api", candidates: ["/Users/me/secret"], key: "k1")).description
+            == "github.repos.checkout")
+    }
+
     @Test func thePageHostServesThem() {
         for method in AgentPaneGitHubRequest.methods {
             #expect(AgentPageOps.method(for: AgentPageOps.namespace + method) == method)
@@ -28,19 +47,73 @@ struct AgentPaneGitHubRequestTests {
 
     @MainActor final class Asked { var query: String?? }
 
-    static func gitHub(status: (String, String?) = ("ready", "all"), connect: AgentPaneGitHubConnect = .opened,
+    static func gitHub(status: CloudGitHubPicker.Status = .ready(reposScope: "all"), connect: AgentPaneGitHubConnect = .opened,
                        repos: Result<CloudGitHubRepos, CloudGitHubRepos.Failure> = .success(.init(repos: [], truncated: false)),
                        asked: Asked = Asked()) -> AgentPaneGitHub {
-        AgentPaneGitHub(status: { (state: status.0, reposScope: status.1) }, connect: { connect }, repos: { asked.query = .some($0); return repos })
+        AgentPaneGitHub(status: { status }, connect: { connect }, repos: { asked.query = .some($0); return repos })
     }
 
     @Test func statusAnswersStateAndScope() async {
-        let ready = await AgentPaneGitHubRequest.status.reply(Self.gitHub(status: ("ready", "selected"))) { false }
+        let ready = await AgentPaneGitHubRequest.status.reply(Self.gitHub(status: .ready(reposScope: "selected"))) { false }
         #expect((ready["value"] as? [String: Any])?["state"] as? String == "ready")
         #expect((ready["value"] as? [String: Any])?["repos_scope"] as? String == "selected")
+        #expect((ready["value"] as? [String: Any])?["reason"] is NSNull)
+        let notConnected = await AgentPaneGitHubRequest.status.reply(Self.gitHub(status: .notConnected)) { false }
+        #expect((notConnected["value"] as? [String: Any])?["state"] as? String == "not_connected")
+        #expect((notConnected["value"] as? [String: Any])?["reason"] is NSNull)
         let none = await AgentPaneGitHubRequest.status.reply(nil) { false }
         #expect((none["value"] as? [String: Any])?["state"] as? String == "unavailable")
         #expect((none["value"] as? [String: Any])?["repos_scope"] is NSNull)
+        #expect((none["value"] as? [String: Any])?["reason"] as? String == "unreachable")
+    }
+
+    @Test func statusSaysWhyConnectIsNeededAgain() async {
+        let cases: [(CloudGitHubPicker.Status, String, String)] = [
+            (.needsReauth(detail: "the GitHub App was uninstalled"), "needs_reauth", "the GitHub App was uninstalled"),
+            (.needsReauth(detail: nil), "needs_reauth", AgentPaneModel.gitHubReauthMessage),
+            (.linking, "linking", AgentPaneModel.gitHubConnectPendingMessage),
+            (.error, "error", AgentPaneModel.gitHubConnectionErrorMessage),
+            (.linkRefused(reason: nil), "link_refused", AgentPaneModel.gitHubLinkExpiredMessage),
+            (.linkRefused(reason: "Only an owner can connect GitHub."), "link_refused", "Only an owner can connect GitHub."),
+        ]
+        for (status, problem, message) in cases {
+            let reply = await AgentPaneGitHubRequest.status.reply(Self.gitHub(status: status)) { false }
+            let value = reply["value"] as? [String: Any]
+            #expect(value?["state"] as? String == "not_connected")
+            #expect(value?["problem"] as? String == problem)
+            #expect(value?["message"] as? String == message)
+        }
+        let plain = await AgentPaneGitHubRequest.status.reply(Self.gitHub(status: .notConnected)) { false }
+        #expect((plain["value"] as? [String: Any])?["problem"] is NSNull)
+        #expect((plain["value"] as? [String: Any])?["message"] is NSNull)
+    }
+
+    /// Unavailable says why, so the picker can still offer Connect GitHub (sign in first, or not set up here).
+    @Test(arguments: [(.signedOut, "signed_out"), (.notConfigured, "not_configured"), (.unreachable, "unreachable")] as [(CloudGitHubPicker.Unavailable, String)])
+    func unavailableStatusSaysWhy(reason: CloudGitHubPicker.Unavailable, text: String) async {
+        let reply = await AgentPaneGitHubRequest.status.reply(Self.gitHub(status: .unavailable(reason))) { false }
+        let value = reply["value"] as? [String: Any]
+        #expect(value?["state"] as? String == "unavailable")
+        #expect(value?["repos_scope"] is NSNull)
+        #expect(value?["reason"] as? String == text)
+    }
+
+    /// Connect GitHub where GitHub is unavailable answers why, with the words the person reads.
+    @Test func connectWhileUnavailableSaysWhy() async {
+        let cases: [(CloudGitHubPicker.Unavailable, String, String)] = [
+            (.signedOut, "github.signed_out", AgentPaneModel.gitHubSignedOutMessage),
+            (.notConfigured, "github.not_configured", AgentPaneModel.gitHubNotConfiguredMessage),
+            (.unreachable, "github.unavailable", AgentPaneModel.gitHubUnavailableMessage),
+        ]
+        for (reason, code, message) in cases {
+            let reply = await AgentPaneGitHubRequest.connect.reply(Self.gitHub(status: .unavailable(reason), connect: .unavailable(reason))) { true }
+            #expect((reply["error"] as? [String: Any])?["code"] as? String == code)
+            #expect((reply["error"] as? [String: Any])?["userMessage"] as? String == message)
+        }
+        let connected = await AgentPaneGitHubRequest.connect.reply(Self.gitHub(connect: .alreadyConnected)) { true }
+        #expect((connected["value"] as? [String: Any])?["opened"] as? Bool == false)
+        let none = await AgentPaneGitHubRequest.connect.reply(nil) { true }
+        #expect((none["error"] as? [String: Any])?["code"] as? String == "github.unavailable")
     }
 
     @Test func connectNeedsTheClickAndSaysWhetherItOpened() async {
@@ -89,13 +162,32 @@ struct AgentPaneGitHubRequestTests {
         var opened: [URL] = []
         let open = AgentPaneGitHubConnect(.open(page)) { opened.append($0) }
         let connected = AgentPaneGitHubConnect(.connected) { opened.append($0) }
-        let unavailable = AgentPaneGitHubConnect(.unavailable) { opened.append($0) }
+        let unavailable = AgentPaneGitHubConnect(.unavailable(.unreachable)) { opened.append($0) }
+        let notConfigured = AgentPaneGitHubConnect(.unavailable(.notConfigured)) { opened.append($0) }
+        let failed = AgentPaneGitHubConnect(.failed) { opened.append($0) }
         let pending = AgentPaneGitHubConnect(.pending) { opened.append($0) }
         #expect(pending == .failed(AgentPaneModel.gitHubConnectPendingMessage))
         #expect(open == .opened)
         #expect(connected == .alreadyConnected)
-        #expect(unavailable == .failed(""))
+        #expect(unavailable == .unavailable(.unreachable))
+        #expect(notConfigured == .unavailable(.notConfigured))
+        #expect(failed == .failed(""))
         #expect(opened == [page])
+    }
+
+    /// Signed out, the picker's Connect GitHub starts the cmux sign-in when it has one, else says to sign in first.
+    @Test func signedOutConnectStartsTheSignIn() {
+        var signIns = 0
+        var opened: [URL] = []
+        let started = AgentPaneGitHubConnect(.unavailable(.signedOut), open: { opened.append($0) }, signIn: { signIns += 1 })
+        #expect(started == .opened)
+        #expect(signIns == 1)
+        let noSignIn = AgentPaneGitHubConnect(.unavailable(.signedOut)) { opened.append($0) }
+        #expect(noSignIn == .unavailable(.signedOut))
+        let notConfigured = AgentPaneGitHubConnect(.unavailable(.notConfigured), open: { opened.append($0) }, signIn: { signIns += 1 })
+        #expect(notConfigured == .unavailable(.notConfigured))
+        #expect(signIns == 1)
+        #expect(opened.isEmpty)
     }
 
     @Test(arguments: [

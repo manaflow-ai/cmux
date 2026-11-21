@@ -9,15 +9,11 @@ public nonisolated enum AgentPaneNewChatPlace: String, Sendable, Hashable, CaseI
     case cloud
 }
 
-/// Which of the composer's looks every chat draws (agentPane.composerLook; composerLook.ts): auto keeps the look the chat's dots picked, stored in the page (cmux.composer.look), else Codex's; claude or codex pins that look over the dots' choice. The New Tab page always draws Claude's look. Leo, 2026-10-22: "first dot claude, second dot codex. since it's just all looks anyways".
+/// The composer's look in every chat (agentPane.composerLook; composerLook.ts): auto is the app's own composer; studio (opt-in) lays the model, effort and access chips inside the box with an attach paperclip and a round accent Send on the right, as a coding studio's composer does (composerLook.css data-composer-variant). The New Tab page always draws its own. Leo: "the composer doesn't even look remotely similar".
 public nonisolated enum AgentPaneComposerLook: String, Sendable, Hashable, CaseIterable {
-    /// The look the chat's dots picked, else Codex's (as before).
+    /// The app's own composer (as before).
     case auto
-    /// The mode, model and effort inside the box.
-    case codex
-    /// The mode, model and effort in a quiet row under the box.
-    case claude
-    /// Codex's in-box row laid out as the Studio add-on look's reference composer: the model, effort and access chips on the left, the attach paperclip and a round accent Send on the right. The name of a look, not translated. No dot of its own; only Settings (a setup) picks it.
+    /// The model, effort and access chips inside the box on the left, the attach paperclip and a round accent Send on the right. The name of a look, not translated.
     case studio
 }
 

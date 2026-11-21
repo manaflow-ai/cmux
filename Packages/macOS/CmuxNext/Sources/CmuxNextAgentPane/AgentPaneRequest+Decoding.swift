@@ -47,8 +47,8 @@ extension AgentPaneRequest {
             guard let token = params["token"] as? String, (1...128).contains(token.utf8.count),
                   let offset = (params["offset"] as? NSNumber)?.intValue, offset >= 0,
                   let text = params["data"] as? String,
-                  text.utf8.count <= (maximumUploadStageChunk / 3 + 1) * 4,
-                  let data = Data(base64Encoded: text), data.count <= maximumUploadStageChunk else { return .unsupported(method) }
+                  // Its bytes are decoded where they are written, off the main thread (AgentPaneUploadWriter).
+                  let data = AgentPaneUploadChunk(base64: text), data.count <= maximumUploadStageChunk else { return .unsupported(method) }
             return .uploadStage(.chunk(token: token, offset: offset, data: data))
         case "chat.upload.finish":
             guard let token = params["token"] as? String, (1...128).contains(token.utf8.count) else { return .unsupported(method) }
@@ -215,13 +215,6 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
-        case "pane.setComposerLook":
-            // The chat's look dots when `agentPane.composerLook` pins a look; the page writes only this key with it.
-            if let look = (params?["look"] as? String).flatMap(AgentPaneComposerLook.init(rawValue:)) {
-                self = .displaySetting(path: AgentPaneComposerSetting.composerLookPath, value: .string(look.rawValue))
-            } else {
-                self = .unsupported(method)
-            }
         case "pane.setRemoteControl":
             // Session Info's Remote Control switch: one Bool, nothing else.
             if let on = params?["on"] as? Bool, Set((params ?? [:]).keys) == ["on"] {
@@ -349,7 +342,9 @@ extension AgentPaneRequest {
         case "newTab.context":
             self = .newTabContext
         case "newTab.warm":
-            if let warm = params?["warm"] as? [String: Any], let data = try? JSONSerialization.data(withJSONObject: warm),
+            // Sorted keys: one list has one text, so the pages of one list share one part (``AgentPaneNewTabShared``).
+            if let warm = params?["warm"] as? [String: Any],
+               let data = try? JSONSerialization.data(withJSONObject: warm, options: [.sortedKeys]),
                data.count <= AgentPaneNewTab.maximumWarmBytes, let text = String(data: data, encoding: .utf8) {
                 self = .newTabWarm(text)
             } else {
@@ -539,7 +534,7 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
-        case "pane.tabState": self = .tabState(refresh: params?["refresh"] as? Bool == true)
+        case "pane.tabState": self = .tabState(refresh: params?["refresh"] as? Bool == true, terminalSwitch: params?["terminalSwitch"] as? Bool == true)
         case "pane.tabRowTools":
             if let width = (params?["width"] as? NSNumber)?.doubleValue, width.isFinite, (0...2000).contains(width) {
                 self = .tabRowTools(width: width)
@@ -565,7 +560,7 @@ extension AgentPaneRequest {
                 self = .toast(message: message, isError: params?["tone"] as? String == "error", group: params?["group"] as? String)
             } else { self = .unsupported(method) }
         case "pane.glass":
-            if let surfaces = AgentPaneHostGlassSurface.decode(params?["surfaces"]) { self = .hostGlass(surfaces) }
+            if let surfaces = AgentPaneHostGlassSurface.decode(params?["surfaces"], zoom: params?["zoom"]) { self = .hostGlass(surfaces) }
             else { self = .unsupported(method) }
         case "pane.copyText":
             if let text = params?["text"] as? String { self = .copyText(text) }

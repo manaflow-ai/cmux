@@ -141,7 +141,8 @@ pub(crate) use agent_session_attach::agent_session_link::chat_marks::ChatMarkErr
 #[cfg(unix)]
 pub use agent_session_attach::{
     AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_FOLDERS_CAPABILITY,
-    AGENT_SESSION_FORK_CAPABILITY, AGENT_SESSION_START_CAPABILITY,
+    AGENT_SESSION_FORK_CAPABILITY, AGENT_SESSION_PREWARM_CAPABILITY,
+    AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY,
     AGENT_SESSION_START_CREDENTIALS_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY,
     AGENT_SESSION_START_MODE_CAPABILITY, AGENT_SESSION_START_MODEL_CAPABILITY,
     AGENT_SESSION_START_NO_CWD_CAPABILITY, AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY,
@@ -195,6 +196,7 @@ mod close_tabs_command;
 mod cloud_attachments;
 mod cloud_conversations;
 pub mod cloud_host_replica;
+pub(crate) mod computer_use_command;
 mod conversation_attachments;
 mod conversation_live;
 mod conversation_resource;
@@ -893,6 +895,20 @@ enum Command {
         app_permissions: Option<crate::remote_host::AppPermissions>,
     },
     RemoteHostApp,
+    /// cmux Computer Use (`computer-use-v1`, server/computer_use_command.rs).
+    ComputerUseEndpoint,
+    ComputerUseConfig {
+        config: Value,
+    },
+    ComputerUseApprovals {
+        action: String,
+        #[serde(default)]
+        app_id: Option<String>,
+        #[serde(default)]
+        id: Option<u64>,
+        #[serde(default)]
+        answer: Option<String>,
+    },
     /// `cmux device setup|start` for the app (server/device_setup_command.rs).
     DeviceSetup {
         device: String,
@@ -1930,6 +1946,8 @@ enum Command {
     MoveColumn(column_move::MoveColumnParams),
     /// `floating-panes-v1`: float a pane above the tiled layout, put it back, or move it.
     FloatPane(floating_panes::FloatPaneParams),
+    /// `quick-terminal-v1`: make the quick terminal of a screen, show it with the focus, or hide it.
+    QuickTerminal(floating_panes::QuickTerminalParams),
     /// Drop a tab on the sidebar: a new workspace holding the tab.
     MoveTabToNewWorkspace {
         surface: SurfaceId,
@@ -3093,10 +3111,6 @@ fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> 
     mux.surface(id)
         .filter(|surface| !surface.is_dead())
         .ok_or_else(|| anyhow::anyhow!("unknown surface {id}"))
-}
-
-fn surface_has_view_placement(mux: &Mux, id: SurfaceId) -> bool {
-    mux.with_state(|state| state.pane_of(id).is_some())
 }
 
 fn require_pty(surface: &crate::Surface) -> anyhow::Result<()> {
