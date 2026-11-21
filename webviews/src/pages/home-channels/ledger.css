@@ -989,6 +989,7 @@
   border: 0;
   border-radius: 12px;
   /* Its fill, frost and rim are the dialog glass (.ui-dialog.ui-glass, ui/popupSurface.css). */
+  --glass-elevation: var(--elevation-2);
   overflow: hidden;
   z-index: var(--layer-overlay);
 }
