@@ -6,7 +6,7 @@
  *       Production config gate (deploy-worker.sh runs it before every production deploy): every
  *       secret named in production-approvals.json `required_secrets` is set on cmux-api, and
  *       HOME_INVITES_SEND "on" needs HOME_INVITE_FROM. Names only, never values.
- *   bun prod-promote.ts gates [--candidate SHA] [--github-output FILE]
+ *   bun prod-promote.ts gates [--candidate SHA] [--github-output FILE] [--runs-cache FILE]
  *       Picks the staging-proven candidate and runs G1-G7. Exit 0 = promote (writes
  *       candidate=<sha> to FILE); exit 3 = nothing to do or a gate holds (the reason is printed).
  *       --candidate (40 hex; the exact-SHA promote): G1 must prove exactly that commit (its own
@@ -30,12 +30,17 @@
  *       commit and anything not newer than it; a newer staging-proven commit promotes itself.
  *       After the off switch it holds every automatic promote; only an exact-SHA promote
  *       (--candidate) moves production forward.
- *   bun prod-promote.ts stale [--issue]
+ *   bun prod-promote.ts stale [--issue] [--runs-cache FILE]
  *       Exit 1 = stale (no source tag, a staging-proven commit older than STALE_HOURS missing, or
  *       more than STALE_COMMITS backend commits behind); 0 = current, proven by at least one green
  *       staging run that production has; 4 = unknown (no green evidence). Errors exit 2.
  *       --issue opens the `prod-stale` issue, comments once per state change, and closes it only
  *       on "current".
+ *
+ * --runs-cache FILE (gates, stale): what each finished staging run attempt proved, kept between steps and runs
+ *   (backend.yml's promote-gates restores and saves it with actions/cache). Each run still lists backend.yml's
+ *   runs (one call) but reads only the attempts the file lacks (one call each), not all 30 every time: the
+ *   repository's GITHUB_TOKEN hour is shared by every workflow, and this read 403'd when it ran out.
  *
  * Environment: CLOUDFLARE_API_TOKEN (read: scripts, versions, deployments, secret names),
  * GITHUB_TOKEN or GH_TOKEN and GITHUB_REPOSITORY (read: Actions runs; issues for --issue),
@@ -44,7 +49,7 @@
  * `config`, which reads the approvals next to this file.
  */
 import { execFileSync } from "node:child_process"
-import { appendFileSync, readFileSync } from "node:fs"
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { stripJsonc } from "./worker-release.ts"
 
@@ -155,7 +160,27 @@ const cf = async (path: string): Promise<any> => {
 /** Waits before each retry of a GitHub 5xx or network error (one 502 failed promote-gates before G1-G7 ran). 4xx never retries. */
 export const GH_RETRY_DELAYS_MS: ReadonlyArray<number> = [2_000, 5_000, 10_000]
 
-export const gh = async (path: string, init: RequestInit = {}, delays: ReadonlyArray<number> = GH_RETRY_DELAYS_MS): Promise<any> => {
+/**
+ * The longest gh() waits for a spent token hour to reset before its one retry. The repository's GITHUB_TOKEN hour is
+ * shared by every workflow and still ran out a few minutes before its reset (2026-11-21 14:49Z for 14:51Z); a
+ * promote-gates read in those minutes failed the promote. Ten minutes leaves promote-gates (25) room to finish.
+ */
+export const GH_RATE_LIMIT_WAIT_MS = 10 * 60_000
+
+/** The clock gh() waits on for a rate-limit reset; tests pass a fake one. */
+export type GhLimits = { now: () => number; sleep: (ms: number) => Promise<void> }
+const realLimits: GhLimits = { now: () => Date.now(), sleep: (ms) => new Promise((done) => setTimeout(done, ms)) }
+
+/** How long until a rate-limit refusal's hour resets (plus a second), or null when it is no such refusal or the reset is too far away. */
+const rateLimitWait = (r: Response, now: number): number | null => {
+  if ((r.status !== 403 && r.status !== 429) || r.headers.get("x-ratelimit-remaining") !== "0") return null
+  const reset = Number(r.headers.get("x-ratelimit-reset"))
+  if (!Number.isFinite(reset)) return null
+  const ms = Math.max(0, reset * 1000 - now) + 1_000
+  return ms <= GH_RATE_LIMIT_WAIT_MS ? ms : null
+}
+
+export const gh = async (path: string, init: RequestInit = {}, delays: ReadonlyArray<number> = GH_RETRY_DELAYS_MS, limits: GhLimits = realLimits): Promise<any> => {
   const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN
   const repo = process.env.GITHUB_REPOSITORY ?? "manaflow-ai/cmux"
   if (!token) throw new Error("GITHUB_TOKEN is not set")
@@ -175,7 +200,15 @@ export const gh = async (path: string, init: RequestInit = {}, delays: ReadonlyA
     await sleep(retries[attempt]!)
     return fetchOnce(attempt + 1)
   }
-  const r = await fetchOnce(0)
+  let r = await fetchOnce(0)
+  // A refused request did nothing (a POST too), so one retry after the reset is safe; a second refusal throws.
+  const wait = rateLimitWait(r, limits.now())
+  if (wait !== null) {
+    await r.body?.cancel().catch(() => {})
+    console.error(`prod-promote: GitHub ${path}: the token's hour is spent; waiting ${Math.round(wait / 1000)} s for its reset, then retrying once`)
+    await limits.sleep(wait)
+    r = await fetchOnce(0)
+  }
   // The body and the rate-limit headers say why (a 403 is a rate limit or a permission; the status alone hid which).
   if (!r.ok) throw new Error(`GitHub ${path}: HTTP ${r.status} ${(await r.text().catch(() => "")).slice(0, 300)} [remaining ${r.headers.get("x-ratelimit-remaining")}, reset ${r.headers.get("x-ratelimit-reset")}, retry-after ${r.headers.get("retry-after")}]`)
   return r.status === 204 ? null : r.json()
@@ -266,22 +299,72 @@ export const rollbackPlan = async (script: string, force = false): Promise<{ fro
 
 export interface StagingRun { sha: string; at: number; green: boolean }
 
-/** Staging deploys of feat-cmux-next pushes, newest first: green = deploy-staging and its smoke step passed. */
-export const stagingRuns = async (limit = 30): Promise<Array<StagingRun>> => {
+/**
+ * What each finished staging run attempt proved, keyed `<run id>:<attempt>`: its StagingRun, or null when it proves
+ * nothing (no deploy-staging, skipped, or source-fenced). A completed attempt's jobs never change, so a verdict is
+ * read from GitHub once and reused (a re-run is a new attempt, read again); `sha` must match the listed run's head.
+ */
+export type RunVerdicts = Record<string, { sha: string; run: StagingRun | null }>
+
+/** One run's verdict from its jobs (one GitHub call). */
+const runVerdict = async (run: { id: number; head_sha: string }): Promise<StagingRun | null> => {
+  const jobs = (await gh(`/actions/runs/${run.id}/jobs?per_page=100`)).jobs as Array<any>
+  const job = jobs.find((j) => j.name === "deploy-staging")
+  if (!job || job.conclusion === "skipped") return null
+  // A source-fenced stale run made no staging mutation and contributes no soak evidence.
+  if ((job.steps as Array<any>).some((s) => s.name === "Newer deployment inputs already queued; skip" && s.conclusion === "success")) return null
+  const smoke = (job.steps as Array<any>).find((s) => String(s.name).startsWith("Smoke the API Worker"))
+  // G1 proves the tests too: the run's test and migrations-push-guard jobs passed.
+  const passed = (name: string) => jobs.some((j) => j.name === name && j.conclusion === "success")
+  return { sha: run.head_sha, at: Date.parse(job.completed_at), green: job.conclusion === "success" && smoke?.conclusion === "success" && passed("test") && passed("migrations-push-guard") }
+}
+
+/**
+ * Staging deploys of feat-cmux-next pushes, newest first: green = deploy-staging and its smoke step passed.
+ * One list call, plus one jobs call per run attempt `verdicts` does not already hold. `verdicts` is updated in
+ * place and keeps only the listed attempts, so a caller that saves it (--runs-cache) never reads a run twice.
+ */
+export const stagingRuns = async (limit = 30, verdicts: RunVerdicts = {}): Promise<Array<StagingRun>> => {
   const runs = (await gh(`/actions/workflows/backend.yml/runs?branch=feat-cmux-next&event=push&status=completed&per_page=${limit}`)).workflow_runs as Array<any>
   const out: Array<StagingRun> = []
+  const listed = new Set<string>()
   for (const run of runs) {
-    const jobs = (await gh(`/actions/runs/${run.id}/jobs?per_page=100`)).jobs as Array<any>
-    const job = jobs.find((j) => j.name === "deploy-staging")
-    if (!job || job.conclusion === "skipped") continue
-    // A source-fenced stale run made no staging mutation and contributes no soak evidence.
-    if ((job.steps as Array<any>).some((s) => s.name === "Newer deployment inputs already queued; skip" && s.conclusion === "success")) continue
-    const smoke = (job.steps as Array<any>).find((s) => String(s.name).startsWith("Smoke the API Worker"))
-    // G1 proves the tests too: the run's test and migrations-push-guard jobs passed.
-    const passed = (name: string) => jobs.some((j) => j.name === name && j.conclusion === "success")
-    out.push({ sha: run.head_sha, at: Date.parse(job.completed_at), green: job.conclusion === "success" && smoke?.conclusion === "success" && passed("test") && passed("migrations-push-guard") })
+    const key = `${run.id}:${run.run_attempt ?? 1}`
+    listed.add(key)
+    const known = verdicts[key]
+    const verdict = known && known.sha === run.head_sha && (known.run === null || known.run.sha === run.head_sha) ? known.run : await runVerdict(run)
+    verdicts[key] = { sha: run.head_sha, run: verdict }
+    if (verdict) out.push(verdict)
   }
+  for (const key of Object.keys(verdicts)) if (!listed.has(key)) delete verdicts[key]
   return out
+}
+
+/** The verdicts a --runs-cache file holds; anything missing or malformed reads as none (every run is read again). */
+export const loadVerdicts = (path: string | undefined): RunVerdicts => {
+  if (!path) return {}
+  try {
+    const raw = JSON.parse(readFileSync(path, "utf8")) as unknown
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {}
+    const out: RunVerdicts = {}
+    for (const [key, value] of Object.entries(raw as Record<string, any>)) {
+      if (!/^\d+:\d+$/.test(key) || typeof value?.sha !== "string") continue
+      const run = value.run
+      if (run === null) out[key] = { sha: value.sha, run: null }
+      else if (typeof run?.sha === "string" && typeof run.at === "number" && typeof run.green === "boolean") out[key] = { sha: value.sha, run: { sha: run.sha, at: run.at, green: run.green } }
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+/** stagingRuns() through a --runs-cache file: read it, list the runs, read only the attempts it lacks, write it back. */
+const cachedStagingRuns = async (path: string | undefined): Promise<Array<StagingRun>> => {
+  const verdicts = loadVerdicts(path)
+  const runs = await stagingRuns(30, verdicts)
+  if (path) writeFileSync(path, JSON.stringify(verdicts))
+  return runs
 }
 
 /** G1: the newest green staging deploy at least SOAK_MINUTES old with no red staging deploy in its soak window. */
@@ -376,7 +459,7 @@ export const main = async (argv: ReadonlyArray<string>): Promise<number> => {
     if (prod.heldBack && asked === undefined && !prod.rolledBackTag) return hold("rolled-back", `${prod.heldBack}; promote an exact fixed commit with --candidate (target=promote, candidate=<sha>)`)
     if (prod.codeDeployedAt && now - prod.codeDeployedAt < SPACING_HOURS * 3600_000) return hold("spacing", `production code changed less than ${SPACING_HOURS} h ago`)
     const prodSha = fullSha(prod.sourceTag)
-    const runs = await stagingRuns()
+    const runs = await cachedStagingRuns(opt("--runs-cache"))
     const cand = pickCandidate(candidateRuns(runs, want), now)
     if (!cand) return hold("G1", want ? `${want.slice(0, 12)} has no green staging deploy (tests, push guard, deploy and smoke) older than ${SOAK_MINUTES} min without a red one after it, among the last ${runs.length} staging runs` : `no green staging deploy older than ${SOAK_MINUTES} min without a red one after it`)
     if (cand.sha === prodSha || isAncestor(cand.sha, prodSha)) return hold("none", `production ${prodSha.slice(0, 12)} already has the staging-proven ${cand.sha.slice(0, 12)}`)
@@ -460,7 +543,7 @@ export const main = async (argv: ReadonlyArray<string>): Promise<number> => {
   if (cmd === "stale") {
     const now = Date.now()
     const prod = await serving(PRODUCTION)
-    const runs = await stagingRuns()
+    const runs = await cachedStagingRuns(opt("--runs-cache"))
     // state: a stable key per situation (one comment per change); reason: the text.
     let state: "current" | "unknown" | string
     let reason: string
