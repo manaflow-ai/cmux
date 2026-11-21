@@ -71,6 +71,8 @@ import {
   type McpServersState,
   type AgentMcpRun,
   type AgentMcpState,
+  type AgentHooksRun,
+  type AgentHooksState,
   type ListRow,
   type ManagedInfo,
   type MuseumArtResult,
@@ -808,6 +810,18 @@ export class SettingsStore {
   async runAgentMcp(run: AgentMcpRun): Promise<AgentMcpState | null> {
     await this.request("cmux.settings.agentMcp.run", run);
     return this.agentMcpState();
+  }
+
+  /** Settings > Agents > Claude Code & Codex > Hooks; null when the host has none. */
+  async agentHooksState(): Promise<AgentHooksState | null> {
+    const reply = await this.request("cmux.settings.agentHooks.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One Hooks gesture; the host answers with the state after it (a refused gesture: the state as it is). */
+  async runAgentHooks(run: AgentHooksRun): Promise<AgentHooksState | null> {
+    const reply = await this.request("cmux.settings.agentHooks.run", run);
+    return reply.ok ? reply.value : this.agentHooksState();
   }
 
   /** Reads Settings > Models (a host without it rejects, and the part stays null). */
