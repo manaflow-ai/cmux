@@ -287,6 +287,22 @@ extension AppearanceSettingsSchema {
                 default: .number(TitleAreaContrastSetting.fallback),
                 keywords: ["contrast", "title", "titlebar", "tab bar", "tabs", "chrome", "shade", "intensity", "darker", "softer", "frame"]
             ),
+            SettingDescriptor(
+                CornerFlushSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.cornerFlush", "Selected Tab Shape"),
+                help: SettingsText.keyed("settings.appearance.cornerFlush.help", "How the selected tab meets the content below it: a pill, flush with it, or flowing into it like a drop of water."),
+                summary: SettingsText.keyed("settings.appearance.cornerFlush.summary", "Pill, flush or goo for the selected tab"),
+                kind: .choice([
+                    SettingChoice(CornerFlush.off.rawValue, SettingsText.keyed("settings.choice.cornerFlush.off", "Pill")),
+                    SettingChoice(CornerFlush.flush.rawValue, SettingsText.keyed("settings.choice.cornerFlush.flush", "Flush")),
+                    SettingChoice(CornerFlush.tight.rawValue, SettingsText.keyed("settings.choice.cornerFlush.tight", "Flush, Tight to the Sidebar")),
+                    SettingChoice(CornerFlush.goo.rawValue, SettingsText.keyed("settings.choice.cornerFlush.goo", "Goo")),
+                ]),
+                default: .string(CornerFlushSetting.fallback.rawValue),
+                keywords: ["corner", "flush", "goo", "gooey", "folder tab", "fillet", "pill", "selected tab", "tab shape", "card", "material"]
+            ),
         ]
     }
 }

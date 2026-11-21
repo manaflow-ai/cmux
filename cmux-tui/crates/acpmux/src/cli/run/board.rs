@@ -193,7 +193,7 @@ mod tests {
     fn organizer_board_staleness_uses_activity_and_latest_claimant() {
         let now = STALE_AFTER_MS + 100;
         let old = session("old", "/one", "fix", 100);
-        assert_eq!(project(&[old.clone()], now)["cards"][0]["column"], "stale");
+        assert_eq!(project(std::slice::from_ref(&old), now)["cards"][0]["column"], "stale");
         let recent = session("recent", "/one", "fix", 101);
         assert_eq!(project(&[old, recent], now)["cards"][0]["column"], "claimed");
         let mut waiting = session("wait", "/one", "fix", 200);
