@@ -52,8 +52,11 @@ nonisolated extension AcpmuxPaneMethods {
         // settled-attach-v1); refused, no chat opens once the daemon names it (#42185).
         // `hold`: a chat drawn from the row store attaches without a page (rows/holdKinds.ts,
         // attach-hold-v1); refused, the open failed and no new chat started (#42460).
+        // `afterSeq`: a reconnect that holds the chat through that seq reads only the records after
+        // it (attachParams.ts plainAttach, #47119); refused, every reopen after an app restart said
+        // "cmux blocked opening this chat".
         // schemas/agent-pane/attach-params.json lists every key the page sends here.
-        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "waitLogs", "settled", "hold"], []),
+        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "waitLogs", "settled", "hold", "afterSeq"], []),
         "_acpmux/detach": (["sessionId"], []),
         "_acpmux/view": (["sessionId", "visible"], []),
         // Whether this pane types in a shared chat, never its text (multiplayer/presenceClient.ts).

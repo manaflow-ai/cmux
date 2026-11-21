@@ -22,6 +22,10 @@ const sent: Record<string, object | undefined> = {
   "plain, local": plainAttach("s", { settled: false, visible: true, local: true, maxBytes: 128 * 1024 }),
   "plain, peer": plainAttach("s", { settled: false, visible: false, local: false, maxBytes: 128 * 1024 }),
   "settled, local": plainAttach("s", { settled: true, visible: true, local: true, maxBytes: 128 * 1024 }),
+  // A reconnect that holds the chat through seq 7 reads only the records after it (#47119). The
+  // relay did not know `afterSeq`, so every reopen after an app restart read "cmux blocked opening
+  // this chat".
+  "forward, local": plainAttach("s", { settled: false, visible: true, local: true, maxBytes: 128 * 1024, afterSeq: 7 }),
   hold: holdAttach("s", true),
 };
 
@@ -45,6 +49,26 @@ describe("the page's _acpmux/attach params are the contract's", () => {
         name: frame.name,
         refused: [],
       });
+  });
+
+  // Every attach plainAttach can build, not only the ones listed above: a key a new option adds
+  // fails here before it fails every chat's open in the app (#42185 settled, #42460 hold, afterSeq).
+  test("the pane policy's params rule takes every attach plainAttach can build", () => {
+    const policy = JSON.parse(
+      readFileSync(join(import.meta.dir, "../../cmux-tui/crates/cmux-agent-pane-policy/policy.json"), "utf8"),
+    ) as { known_params: Record<string, { params: string[] }> };
+    const known = policy.known_params["_acpmux/attach"]?.params ?? [];
+    const refused: string[] = [];
+    for (const settled of [false, true])
+      for (const visible of [false, true])
+        for (const local of [false, true])
+          for (const afterSeq of [undefined, 0, 7]) {
+            const params = plainAttach("s", { settled, visible, local, maxBytes: 128 * 1024, afterSeq });
+            for (const key of Object.keys(params)) if (!known.includes(key)) refused.push(key);
+          }
+    for (const visible of [false, true])
+      for (const key of Object.keys(holdAttach("s", visible))) if (!known.includes(key)) refused.push(key);
+    expect([...new Set(refused)]).toEqual([]);
   });
 
   test("the contract lists no attach the page does not send", () => {
