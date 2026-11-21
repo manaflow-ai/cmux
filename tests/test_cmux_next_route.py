@@ -390,7 +390,8 @@ class PullRequestTiers(unittest.TestCase):
         self.assertEqual(result["swift_targets"], "CmuxNextAppTests CmuxNextDesignTests")
         self.assertEqual(result["daemon"], "false")
         self.assertEqual(result["scheme"], "false")
-        self.assertEqual(result["generated"], "true")
+        # No action or settings export input changed: the generated files job would repeat the base's verdict.
+        self.assertEqual(result["generated"], "false")
         self.assertEqual(result["native"], "true")
         self.assertEqual(result["swift_filter"], r"^(CmuxNextAppTests|CmuxNextDesignTests)\.")
 
@@ -760,6 +761,29 @@ class PullRequestTiers(unittest.TestCase):
         result = tiers(["plans/cmux-next/actions.md"])
         self.assertEqual(result["generated"], "true")
         self.assertIn("CmuxNextActionsTests", result["swift_targets"].split())
+
+    def test_generator_inputs_alone_run_the_generated_files_job(self):
+        """The job's verdict reads the action exports' closure (action_export_inputs.py) and the settings source
+        stamp's files; any other CmuxNext path gets the base's verdict there (2026-11-21: 104 of 290 runs)."""
+        for path in (f"{PACKAGE}/Sources/CmuxNextActions/ActionCatalog.swift",
+                     f"{PACKAGE}/Tests/CmuxNextActionsTests/ActionCatalogTests.swift",
+                     f"{PACKAGE}/Sources/CmuxNextSettings/SettingsSchema.swift",
+                     f"{PACKAGE}/Tests/CmuxNextSettingsTests/SettingsSchemaExportTests.swift",
+                     f"{PACKAGE}/Package.swift"):
+            with self.subTest(path=path):
+                self.assertEqual(tiers([path])["generated"], "true")
+        for path in (f"{PACKAGE}/Sources/CmuxNextApp/Windows/WindowManager.swift",
+                     f"{PACKAGE}/Tests/CmuxNextAppTests/CloudBringBackTests.swift",
+                     f"{PACKAGE}/Tests/CmuxNextSettingsTests/OtherSettingsTests.swift"):
+            with self.subTest(path=path):
+                result = route(ROOT, "pull_request", [path], set())
+                self.assertFalse(result.generated)
+                self.assertTrue(result.swift)
+                self.assertTrue(any("(no generator input)" in reason for reason in result.reasons))
+
+    def test_an_unreadable_action_closure_keeps_every_package_path_an_input(self):
+        with mock.patch.object(cmux_next_route, "action_export_closure", return_value=None):
+            self.assertEqual(tiers([f"{PACKAGE}/Sources/CmuxNextApp/Windows/WindowManager.swift"])["generated"], "true")
 
 
 class EveryTier(unittest.TestCase):
