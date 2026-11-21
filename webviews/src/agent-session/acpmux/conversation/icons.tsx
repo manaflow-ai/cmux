@@ -83,7 +83,7 @@ export const GitHubMark = ({ size = 16, className, style }: CvIconProps) => (
   </svg>
 );
 
-/// The working mark. `track` (the default) is a three-quarter ring with rounded caps on a faint full
+/// The working mark. `arc` (the default) is the open arc every spinner draws; `track` is a three-quarter ring with rounded caps on a faint full
 /// ring: still, it reads as a ring part way round, never as the letter "C" an open arc alone draws
 /// (Leo, 2026-11-21: "this spinner is incredibly ugly"). `arc` is the open arc this replaced and
 /// `dots` three pulsing dots; both stay for the gallery's side by sides (BackgroundSpinner.gallery.ts).
@@ -95,7 +95,7 @@ export const Spinner = ({
   style,
   strokeWidth,
   loading = false,
-  look = "track",
+  look = "arc",
 }: CvIconProps & { loading?: boolean; strokeWidth?: number; look?: SpinnerLook }) => {
   // The ring takes the line icons' weight (iconSize.ts ICON_STROKE) so it sits with the clock and terminal beside it.
   const weight = strokeWidth ?? (look === "track" ? 1.25 : 1.5);

@@ -88,6 +88,7 @@ test("a running background turn is the compact line with the working spinner", (
   // Its words shimmer as a running tool row's do (Leo, 2026-11-09: "isn't highlighted all the way
   // through like other tool calls are"): the lit copy of the whole label, on a live line.
   expect(html).toContain("is-live");
+  expect(html).toContain('data-spinner-look="track"');
   expect(html).toMatch(/class="cv-row-shimmer"[^>]*>.*Scheduled check/);
   const ended = line("bg", { running: false, quiet: true, trigger: "scheduled" });
   expect(renderToStaticMarkup(<BackgroundTurnLine row={ended} expanded={false} onToggle={() => {}} />)).not.toContain(

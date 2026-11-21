@@ -79,7 +79,7 @@ export function BackgroundTurnLine({
     turn.hasRows === true && foldsBackground(row) && !backgroundTurnsInline(experimentArm(backgroundTurnLook));
   return (
     <TranscriptActivityRow
-      icon={turn.running && !taskEnded ? <Spinner /> : <Clock />}
+      icon={turn.running && !taskEnded ? <Spinner look="track" /> : <Clock />}
       before={<span className="cv-background-turn__label">{label}</span>}
       after={turn.running ? <RowShimmer>{label}</RowShimmer> : undefined}
       className={`cv-background-turn${turn.running ? " is-live" : ""}`}
