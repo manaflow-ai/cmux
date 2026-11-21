@@ -482,3 +482,206 @@ async fn wireguard_replaces_a_dead_turn_tls_stream() {
 async fn wireguard_without_roaming_never_recovers() {
     let _ = stream_across_a_change(options(), options(), None, Duration::from_secs(5)).await;
 }
+
+/// What a blackout run measured.
+#[derive(Debug)]
+struct Blackout {
+    /// From the network coming back to the first app frame the Mac read
+    /// (phone to Mac) and the first echo the phone read (Mac to phone), on
+    /// the link dialed before the blackout. `None`: none arrived.
+    first_frame_up: Option<Duration>,
+    first_frame_down: Option<Duration>,
+    /// Why either end of the link closed, if it did.
+    phone_closed: Option<String>,
+    mac_closed: Option<String>,
+    /// Sessions the Mac answered (1: no redial).
+    sessions: usize,
+    sent: usize,
+    echoed: usize,
+}
+
+/// A full blackout of the phone's network for `dark` (nothing it sends
+/// leaves, nothing reaches it, on its socket and its TURN allocation),
+/// then the network back on the same socket and addresses. With
+/// `network_changed`, the OS reports the path back as it returns (the app
+/// roams the session). A small app frame goes each way every 100 ms all
+/// along, on one channel of the one link.
+async fn blackout(dark: Duration, network_changed: bool) -> Blackout {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_test_writer()
+        .try_init();
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
+    let sessions = Arc::new(AtomicUsize::new(0));
+    let mac_arrivals = Arc::new(Mutex::new(Vec::<Instant>::new()));
+    let mac_link = Arc::new(Mutex::new(None::<cmux_mobile_link::Link>));
+    {
+        let (sessions, mac_arrivals, mac_link) =
+            (Arc::clone(&sessions), Arc::clone(&mac_arrivals), Arc::clone(&mac_link));
+        tokio::spawn(async move {
+            while let Some(session) = mac.next_session().await {
+                sessions.fetch_add(1, Ordering::SeqCst);
+                let events = SessionEvents {
+                    backend: mac.events(),
+                    session_id: session.first.session_id.clone(),
+                    session: session.events,
+                };
+                let mac = mac.clone();
+                let (mac_arrivals, mac_link) = (Arc::clone(&mac_arrivals), Arc::clone(&mac_link));
+                tokio::spawn(async move {
+                    let connected =
+                        dial::answer(&mac, session.first, events, &options(), LinkConfig::default())
+                            .await
+                            .unwrap();
+                    *mac_link.lock().unwrap() = Some(connected.link.clone());
+                    while let Some(mut incoming) = connected.link.accept().await {
+                        let mac_arrivals = Arc::clone(&mac_arrivals);
+                        tokio::spawn(async move {
+                            while let Some(ChannelEvent::Data(bytes)) = incoming.channel.recv().await {
+                                mac_arrivals.lock().unwrap().push(Instant::now());
+                                let _ = incoming.channel.send(bytes).await;
+                            }
+                        });
+                    }
+                });
+            }
+        });
+    }
+    let phone_id = uuid::Uuid::new_v4().to_string();
+    let phone = SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.unwrap();
+    let connected =
+        dial::connect(&phone, &mac_id, TransportKind::WireGuard, &options(), LinkConfig::default())
+            .await
+            .expect("dial");
+    let session_id = connected.session_id.clone();
+    let channel = connected.link.open("echo", serde_json::json!({})).await.unwrap();
+    let (sender, mut receiver) = channel.split();
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let sent = Arc::new(AtomicUsize::new(0));
+    let writer = {
+        let (stop, sent) = (Arc::clone(&stop), Arc::clone(&sent));
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(Duration::from_millis(100));
+            while !stop.load(Ordering::Relaxed) {
+                tick.tick().await;
+                let n = sent.load(Ordering::Relaxed);
+                if sender.send(Bytes::from(format!("frame {n:08}"))).await.is_err() {
+                    break;
+                }
+                sent.fetch_add(1, Ordering::Relaxed);
+            }
+            sender
+        })
+    };
+    let phone_arrivals = Arc::new(Mutex::new(Vec::<Instant>::new()));
+    let reader = {
+        let phone_arrivals = Arc::clone(&phone_arrivals);
+        tokio::spawn(async move {
+            while let Some(ChannelEvent::Data(_)) = receiver.recv().await {
+                phone_arrivals.lock().unwrap().push(Instant::now());
+            }
+        })
+    };
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert_eq!(wireguard::simulate_blackout(Some(&session_id), true, true), 1);
+    tokio::time::sleep(dark).await;
+    let back = Instant::now();
+    assert_eq!(wireguard::simulate_blackout(Some(&session_id), true, false), 1);
+    if network_changed {
+        let session_id = session_id.clone();
+        tokio::spawn(async move { wireguard::roam_session(&session_id, true).await });
+    }
+    // Watch for the first frame each way, up to 10 s.
+    let first_after = |arrivals: &Mutex<Vec<Instant>>| {
+        arrivals.lock().unwrap().iter().find(|at| **at >= back).map(|at| at.duration_since(back))
+    };
+    let deadline = back + Duration::from_secs(10);
+    while Instant::now() < deadline
+        && (first_after(&mac_arrivals).is_none() || first_after(&phone_arrivals).is_none())
+    {
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let (first_frame_up, first_frame_down) = (first_after(&mac_arrivals), first_after(&phone_arrivals));
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    stop.store(true, Ordering::Relaxed);
+    let _sender = tokio::time::timeout(Duration::from_secs(5), writer).await;
+    let sent = sent.load(Ordering::Relaxed);
+    let all = tokio::time::timeout(Duration::from_secs(10), async {
+        while phone_arrivals.lock().unwrap().len() < sent {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    let _ = all;
+    let echoed = phone_arrivals.lock().unwrap().len();
+    let phone_closed = connected.link.closed_state().borrow().clone();
+    let mac_closed = mac_link.lock().unwrap().as_ref().and_then(|link| link.closed_state().borrow().clone());
+    connected.link.close("done");
+    reader.abort();
+    Blackout {
+        first_frame_up,
+        first_frame_down,
+        phone_closed,
+        mac_closed,
+        sessions: sessions.load(Ordering::SeqCst),
+        sent,
+        echoed,
+    }
+}
+
+fn check_blackout(name: &str, run: &Blackout) {
+    let ms = |d: Option<Duration>| d.map(|d| d.as_millis() as i64).unwrap_or(-1);
+    eprintln!(
+        "BLACKOUT {name}: first_frame_up_ms={} first_frame_down_ms={} phone_closed={:?} mac_closed={:?} sessions={} sent={} echoed={}",
+        ms(run.first_frame_up),
+        ms(run.first_frame_down),
+        run.phone_closed,
+        run.mac_closed,
+        run.sessions,
+        run.sent,
+        run.echoed
+    );
+    assert_eq!(run.phone_closed, None, "the phone's link closed: {run:?}");
+    assert_eq!(run.mac_closed, None, "the Mac's link closed: {run:?}");
+    assert_eq!(run.sessions, 1, "redialed: {run:?}");
+    let bound = Duration::from_millis(1500);
+    assert!(run.first_frame_up.is_some_and(|d| d < bound), "phone to Mac: {run:?}");
+    assert!(run.first_frame_down.is_some_and(|d| d < bound), "Mac to phone: {run:?}");
+    assert_eq!(run.echoed, run.sent, "frames lost: {run:?}");
+}
+
+/// An elevator: the phone's network goes dark for 8 s and comes back on
+/// the same socket with no OS event. The same link carries frames again
+/// within about a second, both ways, with no redial.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_link_survives_an_8s_blackout() {
+    check_blackout("8s", &blackout(Duration::from_secs(8), false).await);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_link_survives_a_10s_blackout() {
+    check_blackout("10s", &blackout(Duration::from_secs(10), false).await);
+}
+
+/// 30 s dark: past the link's old 20 s keepalive timeout.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_link_survives_a_30s_blackout() {
+    check_blackout("30s", &blackout(Duration::from_secs(30), false).await);
+}
+
+/// 30 s dark, and the OS reports the path as it comes back (the app roams).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_link_survives_a_30s_blackout_then_network_changed() {
+    check_blackout("30s+network_changed", &blackout(Duration::from_secs(30), true).await);
+}
+
+/// 60 s dark: past the link's keepalive timeout, so the link closes on
+/// both ends and the app redials (its own probes noticed long before).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_link_after_a_60s_blackout() {
+    check_blackout("60s", &blackout(Duration::from_secs(60), false).await);
+}
