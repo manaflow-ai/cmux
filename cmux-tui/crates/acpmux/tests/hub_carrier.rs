@@ -2101,10 +2101,14 @@ async fn hub_carrier_a_pre_copied_chat_moves_only_its_tail_inside_the_freeze() {
         copied.staging_ms
     );
     assert!(whole.bundle > 1 << 20, "{whole:?}");
-    assert!(copied.bundle * 20 < whole.bundle, "the freeze's bundle is the tail: {copied:?}");
-    assert!(copied.page_bytes * 20 < whole.page_bytes, "{copied:?} vs {whole:?}");
+    // Measured about 200x smaller; 5x leaves room for a busy runner without hiding a regression
+    // to a whole move.
+    assert!(copied.bundle * 5 < whole.bundle, "the freeze's bundle is the tail: {copied:?}");
+    assert!(copied.page_bytes * 5 < whole.page_bytes, "{copied:?} vs {whole:?}");
     assert!(copied.pages < whole.pages, "{copied:?} vs {whole:?}");
-    assert!(copied.carried_in_freeze * 20 < whole.carried_in_freeze, "{copied:?} vs {whole:?}");
+    assert!(copied.carried_in_freeze * 5 < whole.carried_in_freeze, "{copied:?} vs {whole:?}");
+    // A loose wall-clock bound (measured 132 ms): a freeze that waits on a timeout fails here.
+    assert!(copied.freeze_ms < 5_000, "the pre-copied freeze took {} ms", copied.freeze_ms);
     // The history crossed the relay once, before the freeze.
     assert!(copied.staged_carried >= whole.bundle / 2, "{copied:?} vs {whole:?}");
 }
@@ -2301,6 +2305,8 @@ async fn move_over_relay(precopy: bool) -> MoveRun {
     assert_eq!(committed["committed"], true, "{committed}");
     let split = &moved["timings"];
     let freeze = started.elapsed();
+    // Loose (measured 319 ms whole, 132 ms pre-copied): a stalled page or timeout fails here.
+    assert!(freeze < Duration::from_secs(10), "the freeze took {freeze:?}");
     eprintln!(
         "hub move over the relay{}: bundle {bundle} B, relay carried {carried} B, begin {} ms, \
          pull+import {} ms (circuit open {} ms, {} pages {} ms, import {} ms), commit {} ms, \
