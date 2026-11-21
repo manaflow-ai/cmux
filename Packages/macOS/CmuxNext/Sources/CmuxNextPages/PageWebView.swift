@@ -56,6 +56,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// Called after the page's effective visibility changes. Owners use this to revoke native
     /// page proofs on hide/detach and rebind them after the Chromium document is visible again.
     public var onVisibilityChanged: (@MainActor (Bool) -> Void)?
+    /// The host keeps the page drawn while no pane shows it (``setDrawnAway(_:)``): to the page and to
+    /// its owner it is hidden, though its engine still draws it, off screen.
+    public internal(set) var isDrawnAway = false
     /// The Chromium host this page started in: told when its Chromium page attached
     /// (``PageChromiumHosting/focusViewChanged(_:)``).
     weak var chromiumFocusHost: (any PageChromiumHosting)?
@@ -724,7 +727,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         // Its tab or window closed: the page's popup ends with it.
         if window == nil { popupHost?.dismiss() }
         setChromiumVisibility(true)
-        let visible = window != nil && !isHiddenOrHasHiddenAncestor
+        let visible = window != nil && !isHiddenOrHasHiddenAncestor && !isDrawnAway
         if !visible { chromiumSession?.questionKeys?.invalidate() }
         onVisibilityChanged?(visible)
         healthFeed?.pageVisibilityChanged(self)
@@ -753,7 +756,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     public override func viewDidUnhide() {
         super.viewDidUnhide()
-        let visible = window != nil && !isHiddenOrHasHiddenAncestor
+        let visible = window != nil && !isHiddenOrHasHiddenAncestor && !isDrawnAway
         setChromiumVisibility(true)
         onVisibilityChanged?(visible)
         healthFeed?.pageVisibilityChanged(self)
@@ -767,7 +770,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         themeFollower.rebind()
-        let visible = superview != nil && window != nil && !isHiddenOrHasHiddenAncestor
+        let visible = superview != nil && window != nil && !isHiddenOrHasHiddenAncestor && !isDrawnAway
         if !visible { chromiumSession?.questionKeys?.invalidate() }
         onVisibilityChanged?(visible)
         healthFeed?.pageVisibilityChanged(self)
