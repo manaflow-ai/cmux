@@ -4,7 +4,8 @@
 // its own band at the top of the agent stage, above the scroller; Jump to new is placed over the
 // transcript's top, so it must start below that band, never on the tab strip beside the tab titles.
 // A one-tab pane's transcript runs up under its row (`topInset`), and the pill still clears the row;
-// so does a header that is its own row. Each layout runs at a wide, a narrow and a phone-narrow width.
+// so does a header that is its own row. Each layout runs at a wide, a narrow and a phone-narrow width,
+// and in two short panes.
 // SINCE_JUMP_SHOTS=<dir> saves the top of each pane as a PNG there.
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux
 // daemon whose chat has turns that ended since the person last looked.
@@ -149,8 +150,8 @@ await requireBrowserLane("agent-pane-since-jump-tab-row.test.ts", async () => {
   type Bridge = { applyTabRow?(row: unknown): void };
 
   /// Opens the chat at `width` and offers `row` (no offer: the header is its own row).
-  async function openChat(width: number, row?: Record<string, unknown>): Promise<Page> {
-    const page = await browser!.newPage({ viewport: { width, height: 600 } });
+  async function openChat(width: number, row?: Record<string, unknown>, height = 600): Promise<Page> {
+    const page = await browser!.newPage({ viewport: { width, height } });
     await installPaintedFrames(page);
     await page.goto(url());
     await page.getByText(LAST).waitFor();
@@ -193,13 +194,22 @@ await requireBrowserLane("agent-pane-since-jump-tab-row.test.ts", async () => {
     { name: "a one-tab pane", slug: "solo", row: { height: 32, trailingInset: 40, soloTab: true } },
     { name: "a header of its own (no tab row)", slug: "header", row: undefined },
   ];
+  // A short pane too (https://github.com/manaflow-ai/cmux/issues/40065): the transcript is only a few
+  // lines tall under the row, and the pill still starts below the row and stays in the transcript.
+  const sizes = [
+    { width: 900, height: 600 },
+    { width: 480, height: 600 },
+    { width: 320, height: 600 },
+    { width: 480, height: 260 },
+    { width: 320, height: 200 },
+  ];
   for (const layout of layouts)
-    for (const width of [900, 480, 320])
-      test(`in ${layout.name} at ${width}px, Jump to new never overlaps the header`, async () => {
-        const page = await openChat(width, layout.row);
+    for (const { width, height } of sizes)
+      test(`in ${layout.name} at ${width}x${height}, Jump to new never overlaps the header`, async () => {
+        const page = await openChat(width, layout.row, height);
         if (shots)
           await page.screenshot({
-            path: path.join(shots, `since-jump-${layout.slug}-${width}.png`),
+            path: path.join(shots, `since-jump-${layout.slug}-${width}x${height}.png`),
             clip: { x: 0, y: 0, width, height: 140 },
           });
         const at = await placement(page);
@@ -210,6 +220,8 @@ await requireBrowserLane("agent-pane-since-jump-tab-row.test.ts", async () => {
         // Inside the pane's width at any width.
         expect(at.pill.left).toBeGreaterThanOrEqual(0);
         expect(at.pill.right).toBeLessThanOrEqual(width);
+        // And above the transcript's bottom, however short the pane.
+        expect(at.pill.bottom).toBeLessThanOrEqual(at.scroller.bottom);
         await page.close();
       });
 });
