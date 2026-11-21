@@ -22,7 +22,7 @@ import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { papercutPane, type PapercutStep } from "./support/papercutChat";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { MAIN_DOCK } from "../src/agent-session/acpmux/composerSelectors";
+import { COMPOSER_MD, MAIN_DOCK } from "../src/agent-session/acpmux/composerSelectors";
 import { TRANSCRIPT_ROW } from "../src/agent-session/acpmux/transcriptSelectors";
 
 await requireBrowserLane("agent-pane-scrolled-up-bottom-trim.test.ts", async () => {
@@ -227,20 +227,32 @@ await requireBrowserLane("agent-pane-scrolled-up-bottom-trim.test.ts", async () 
           await settle(page);
           const later = await view(page);
           const idle = movedDown(before, later);
+          // Then the composer grows two lines over the room kept: the rows rise with the card or
+          // hold, never drop under it (the lift works on the kept room as on the stack's).
+          await page.locator(COMPOSER_MD).click();
+          await page.keyboard.type("One more thing");
+          for (let line = 0; line < 2; line++) {
+            await page.keyboard.press("Shift+Enter");
+            await page.keyboard.type(`and line ${line + 2}`);
+          }
+          await settle(page);
+          const typed = await view(page);
+          const dropped = Math.max(0, movedDown(later, typed));
           const moved = steps.filter(([, extra]) => Math.abs(extra) > 1);
           const total = moved.reduce((sum, [, extra]) => sum + Math.abs(extra), 0) + Math.abs(idle);
           console.log(
             `bottom-trim ${engine} "${each.name}": px moved under the view ${total.toFixed(1)} ` +
               `(steps ${JSON.stringify(moved)}, at rest ${idle.toFixed(1)}); room under the last row: ` +
               `at the latest row before ${rest.room.toFixed(1)}, on reaching the end ${atEnd!.room.toFixed(1)}, ` +
-              `at rest ${later.room.toFixed(1)}; ${steps.length} steps`,
+              `at rest ${later.room.toFixed(1)}; composer grown: rows dropped ${dropped.toFixed(1)}; ${steps.length} steps`,
           );
-          expect({ engine, case: each.name, moved, idle: Math.abs(idle) > 1 ? idle : 0 }).toEqual({
+          expect({
             engine,
             case: each.name,
-            moved: [],
-            idle: 0,
-          });
+            moved,
+            idle: Math.abs(idle) > 1 ? idle : 0,
+            dropped: dropped > 1 ? dropped : 0,
+          }).toEqual({ engine, case: each.name, moved: [], idle: 0, dropped: 0 });
           await page.close();
         } finally {
           await pane.close();

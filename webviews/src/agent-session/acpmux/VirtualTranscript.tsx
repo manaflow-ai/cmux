@@ -3720,9 +3720,16 @@ function TranscriptView({
   /// kept under. Cut back to the stack's room there, it moved every row in view down by what was cut
   /// (Leo, 2026-11-20: "And then like we cut it out. We cut out the extra space. And so that is the
   /// jump."). It stays, a scroll away, until a send, Jump to latest or the next prompt's turn.
-  const readerRoom = useRef<{ room: number; prompt: string | undefined } | undefined>(undefined);
-  /// Whether the last placement pass followed the latest row.
-  const followedBefore = useRef(false);
+  /// `extra` is the room over the stack's (`followedRoom`), so the lift and the floor work on it as
+  /// they do without it; the rows grown since `rows` (the content's height then) fill it, so a reply
+  /// streaming on writes into it and moves nothing.
+  const readerRoom = useRef<{ extra: number; rows: number; prompt: string | undefined } | undefined>(undefined);
+  /// Whether the last placement pass followed the latest row (true at mount: a chat opened at its end
+  /// was not scrolled back down to).
+  const followedBefore = useRef(true);
+  /// A send or Jump to latest gave the stack its room (`takeRoom`, the send) and the view follows for
+  /// that, not the reader's scroll: the pass that follows again keeps none. Cleared once one follows.
+  const roomGiven = useRef(false);
   /// The composer card's height the room under the last row was last made for (`grown` below).
   const cardRest = useRef(0);
   /// The overlay dock (composer/dockMotion.experiment.ts): the composer card's height the room under
@@ -3754,6 +3761,7 @@ function TranscriptView({
     trayToggled.current = false;
     const kept = readerRoom.current !== undefined;
     readerRoom.current = undefined;
+    roomGiven.current = true;
     if (!held && !kept && Math.abs(heldRoom.current - dockRoomRef.current) <= 0.5) return;
     heldRoom.current = dockRoomRef.current;
     flushSync(() => {
@@ -4461,18 +4469,23 @@ function TranscriptView({
   // last row (`readerRoom`) instead of being cut to the stack's while they look at it. A send or Jump
   // to latest gives the stack's room before following (`takeRoom`, the send), so theirs keeps none.
   const followedRoom = dockRoom - lifted - trayHold - cardHold - noticeHold;
-  const keptPrompt = following && !sessionSwitched ? newestPromptId(rows) : undefined;
-  const readerKept =
-    !following || sessionSwitched
-      ? undefined
-      : !followedBefore.current
-        ? heldRoom.current > followedRoom + 0.5
-          ? { room: heldRoom.current, prompt: keptPrompt }
-          : undefined
-        : readerRoom.current?.prompt === keptPrompt
-          ? readerRoom.current
-          : undefined;
-  const room = sessionSwitched || following ? Math.max(followedRoom, readerKept?.room ?? 0) : heldRoom.current;
+  const rowsNow = measured.layout.totalHeight - (measured.layout.origin ?? 0);
+  const arrived =
+    following &&
+    !sessionSwitched &&
+    !followedBefore.current &&
+    !roomGiven.current &&
+    heldRoom.current > followedRoom + 0.5;
+  const before = following && !sessionSwitched && followedBefore.current ? readerRoom.current : undefined;
+  // The newest prompt is read only while a keep starts or holds: O(1) otherwise.
+  const keptPrompt = arrived || before ? newestPromptId(rows) : undefined;
+  const readerKept = arrived
+    ? { extra: heldRoom.current - followedRoom, rows: rowsNow, prompt: keptPrompt }
+    : before && before.prompt === keptPrompt && before.extra - Math.max(0, rowsNow - before.rows) > 0.5
+      ? before
+      : undefined;
+  const readerExtra = readerKept ? readerKept.extra - Math.max(0, rowsNow - readerKept.rows) : 0;
+  const room = sessionSwitched || following ? followedRoom + readerExtra : heldRoom.current;
   const rowsHeight = measured.layout.totalHeight + THREAD_TOP + topInset + tailGap + room;
   // The content's end without the room a collapse left (`foldRoom`), which it is released against.
   const rowsEnd = Math.max(floorHeight - lifted, rowsHeight);
@@ -4493,11 +4506,19 @@ function TranscriptView({
   // Each commit: what this pass kept for the reader (`readerKept`), and whether it followed, for the next.
   useLayoutEffect(() => {
     readerRoom.current = readerKept;
-    followedBefore.current = following && !sessionSwitched;
+    // A switch pass starts the shown chat at its end: the next pass is no return to it.
+    followedBefore.current = following || sessionSwitched;
+    if (following && !sessionSwitched) roomGiven.current = false;
   });
   // Where the rows draw against where they lay out: the followed offset of this layout against the
   // one the unlifted layout would hold. Negative draws them up, positive down.
-  const lift = lifted ? Math.round(Math.max(0, layout.totalHeight - height) - Math.max(0, atDock - height)) : 0;
+  // The reader's kept room is under both, so it moves no row (`readerExtra`).
+  const lift = lifted
+    ? Math.round(
+        Math.max(0, layout.totalHeight - height) -
+          Math.max(0, Math.max(floorHeight, rowsAtDock + readerExtra) - height),
+      )
+    : 0;
   const liftRef = useRef(lift);
   liftRef.current = lift;
   const reportedLayout = useRef<typeof measured | null>(null);
@@ -5585,7 +5606,7 @@ function TranscriptView({
       cardBase.current = dockCardRef.current;
       trayToggled.current = false;
       // Room the reader came back down to stays under the list (`readerRoom`).
-      heldRoom.current = Math.max(dockRoomRef.current, readerRoom.current?.room ?? 0);
+      heldRoom.current = dockRoomRef.current + Math.max(0, readerRoom.current?.extra ?? 0);
       flushSync(() => {
         followRef.current(false);
         roomTaken();
@@ -6057,6 +6078,7 @@ function TranscriptView({
     // room the reader came back down to goes with the send (`readerRoom`).
     heldRoom.current = dockRoomRef.current;
     readerRoom.current = undefined;
+    roomGiven.current = true;
     // The placement pass already has the latest estimated total and measured viewport. Reusing
     // those values avoids forcing a style/layout flush from the send effect before the new row
     // paints; the following placement pass reconciles any drawn-height correction. A fractional
