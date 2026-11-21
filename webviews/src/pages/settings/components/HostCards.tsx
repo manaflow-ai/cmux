@@ -21,6 +21,7 @@ import {
   LIGHT_KEY,
   LOCATION_KEY,
   modeOf,
+  rememberedFolder,
   SCHEDULE_KEY,
   WALLPAPER_KEYS,
   type WallpaperValues,
@@ -176,8 +177,10 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
   const rotation = rowsByKey.get(ROTATION_KEY);
   // Shuffle Your Images: the folder the person's own images are in, once there are some.
   const yours = usage?.folder ? FOLDER_PREFIX + usage.folder : null;
-  // A folder shuffled that is not Your Images: its own tile, chosen, by the folder's name.
-  const otherFolder = !own && current.startsWith(FOLDER_PREFIX) && current !== yours ? current : null;
+  // A folder shuffled that is not Your Images: its own tile, chosen, by the folder's name. While
+  // another mode is on, the last folder shuffled keeps its tile, so one click brings it back.
+  const shownFolder = current.startsWith(FOLDER_PREFIX) ? current : rememberedFolder();
+  const otherFolder = !own && shownFolder !== null && shownFolder !== yours ? shownFolder : null;
   const shuffles = current === DAILY_ID || current.startsWith(FOLDER_PREFIX);
   // Switch Automatically reads the app's keys; a workspace's own background is one picture.
   const read = (key: string) => {

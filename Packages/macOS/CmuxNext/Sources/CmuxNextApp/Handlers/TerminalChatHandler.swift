@@ -47,9 +47,8 @@ enum TerminalChatHandler {
     /// The tab `invocation` names (a menu row's), else the focused pane's selected tab (the palette's).
     private static func targetTab(_ invocation: ActionInvocation, context: AppActionContext) -> TabModel? {
         if let target = invocation.target, target.kind == .tab {
-            let services = context.services
             // A named machine never falls back to a same-id tab of another (a fork keeps its ids).
-            return (invocation.targetMachineID.map { services.locateTab(target.id, onMachine: $0) } ?? services.locateTab(target.id))?.0
+            return context.targetTab(target.id, invocation)?.0
         }
         guard let (pane, id) = context.scope(invocation).tab else { return nil }
         return pane.tab(id)
@@ -134,7 +133,7 @@ enum TerminalChatHandler {
         facts.running = !terminals.isEmpty
         facts.busy = tab.agentSession.map(turnOpen) ?? false
         facts.handOff = handOff
-        facts.handOffOpen = handOff?.tab.map { services.locateTabOnAnyMachine($0) != nil } ?? false
+        facts.handOffOpen = handOff.flatMap { made in made.tab.flatMap { id in made.machine.flatMap { services.locateTab(id, onMachine: $0) } } } != nil // its own machine's
         facts.now = Date().timeIntervalSince1970
         return (facts, key, terminals)
     }
@@ -196,7 +195,7 @@ enum TerminalChatHandler {
             target.newTerminalTab(cwd: cwd, typing: resumeHere(acpmux, run: run) + "\r",
                                   placementOwner: HomeDockOpens.opensBeside(target.pane, services: services),
                                   then: HomeDockOpens.placing(target.pane, services: services, focus: true, then: { surface in
-                if let made = target.daemon.store.tab(surface: surface) { tabs.terminalHandOffs[key]?.tab = made.id }
+                if let made = target.daemon.store.tab(surface: surface) { tabs.terminalHandOffs[key]?.tab = made.id; tabs.terminalHandOffs[key]?.machine = target.daemon.machineID }
             }))
         }
         if work.isEmpty { tabs.terminalHandOffs[key] = nil; throw ActionFailure(message: MiscHandlerStrings.terminalChatNoPane) }
