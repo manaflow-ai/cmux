@@ -4,8 +4,8 @@
 # module, rebuild and shoot again. Prints and writes OUT/timings.json with each phase's seconds; the edit-to-PNG time
 # is the rebuild plus the second shoot, the number an agent waits after changing a UI file. Never the app build.
 #
-#   scripts/cmux-next/ui-shell-edit-shoot.sh [OUT] [SCENE]
-#   cmux-ci run --class light --script scripts/cmux-next/ui-shell-edit-shoot.sh --ref SHA --display \
+#   scripts/measure/ui-shell-edit-shoot.sh [OUT] [SCENE]
+#   cmux-ci run --class light --script scripts/measure/ui-shell-edit-shoot.sh --ref SHA --display \
 #     --artifact Prototypes/UiLayerHost/.build/ui-shell-edit.tar
 #
 # OUT defaults to Prototypes/UiLayerHost/.build/ui-shell-edit; SCENE to tabs (the edit below is a tabs title).
