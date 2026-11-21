@@ -152,7 +152,8 @@ test("a scrolled-up chat reports where it rests and reopens there, not at the la
       (Number.parseFloat(
         scroller().querySelector<HTMLElement>(".acpmux-thread")?.style.getPropertyValue("margin-top") ?? "",
       ) || 0) - roomFraction(scroller());
-    expect(scroller().scrollTop - cssOrigin).toBe(logicalResting);
+    // Less the room's fraction, a float difference: equal to well under a pixel's millionth.
+    expect(scroller().scrollTop - cssOrigin).toBeCloseTo(logicalResting, 6);
 
     // Back at the latest message: the place is forgotten, so the next open follows the reply.
     await scrollAndRest(scroller(), latest, anchors);

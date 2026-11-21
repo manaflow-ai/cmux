@@ -4521,6 +4521,22 @@ function TranscriptView({
     }),
     [measured, rowsEnd, keptEnd, draggedHeight],
   );
+  // Rows are placed under the room held for older history (ConversationLayout.origin) by the thread,
+  // never one by one: that room changes as pages land and as the reader rises while room is owed
+  // (conversation/olderReserve.ts), a frame at a time, and placing each row under it rewrote the top
+  // of every mounted row, and missed every kept frame (RowFrameCache), on every such frame (Leo,
+  // 2026-11-11: "scrolling up is slow and it layout shift and everythng lag"). Now such a frame moves
+  // one element. Its whole pixels go in the thread's `top`; the fraction a payment leaves joins the
+  // scroll origin in the thread's margin (scrollCoordinates.ts `holdRoomFraction`), as the rows split
+  // theirs (RowFrame), since WebKit drops fractional bits of large offsets.
+  const roomAbove = layout.origin ?? 0;
+  const threadRoom = Math.floor(roomAbove);
+  const threadRoomFraction = roomAbove - threadRoom;
+  // Declared before the placement and flow passes' layout effects, so they read the thread where it
+  // draws (a stale margin is up to a pixel off in what they measure).
+  useLayoutEffect(() => {
+    if (ref.current) holdRoomFraction(ref.current, threadRoomFraction);
+  }, [threadRoomFraction]);
   // Each commit: what this pass kept for the reader (`readerKept`), and whether it followed, for the next.
   useLayoutEffect(() => {
     const followed = following && !sessionSwitched;
@@ -7132,20 +7148,6 @@ function TranscriptView({
   };
   // Jump to latest remains shown once the reader is far behind, avoiding flicker near the threshold.
   const below = layout.totalHeight - height - (renderScroll.top - origin);
-  // Rows are placed under the room held for older history (ConversationLayout.origin) by the thread,
-  // never one by one: that room changes as pages land and as the reader rises while room is owed
-  // (conversation/olderReserve.ts), a frame at a time, and placing each row under it rewrote the top
-  // of every mounted row, and missed every kept frame (RowFrameCache), on every such frame (Leo,
-  // 2026-11-11: "scrolling up is slow and it layout shift and everythng lag"). Now such a frame moves
-  // one element. Its whole pixels go in the thread's `top`; the fraction a payment leaves joins the
-  // scroll origin in the thread's margin (scrollCoordinates.ts `holdRoomFraction`), as the rows split
-  // theirs (RowFrame), since WebKit drops fractional bits of large offsets.
-  const roomAbove = layout.origin ?? 0;
-  const threadRoom = Math.floor(roomAbove);
-  const threadRoomFraction = roomAbove - threadRoom;
-  useLayoutEffect(() => {
-    if (ref.current) holdRoomFraction(ref.current, threadRoomFraction);
-  }, [threadRoomFraction]);
   // A fold the reader closed at the very bottom keeps the view at its end on each of its frames
   // (`beginBottomStackFold`; an open there grows down and stops following): a render mid-fold that
   // lays out ahead of that pin (a call that joins the group) is not the reader falling behind, and
