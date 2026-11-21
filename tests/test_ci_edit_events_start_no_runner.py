@@ -74,8 +74,9 @@ EDIT_READS: dict[tuple[str, str], tuple[frozenset[str], str]] = {
         "line; a skip under its name would read as a pass"),
     ("classic-frozen-guard.yml", "pull_request_target"): (ALL, "fails a frozen change; a skip under its name "
         "would read as a pass"),
-    ("cmux-next-size-budget.yml", "pull_request"): (frozenset({"body"}), "reads the `size:` line; a skip after "
-        "a title or base edit is unchanged since the budget landed"),
+    ("pr-router.yml", "pull_request"): (frozenset({"body"}), "routes a body edit for the size budget's `size:` "
+        "line (its callee cmux-next-size-budget.yml); a skip after a title or base edit is unchanged since the "
+        "budget landed"),
     ("gallery-advisory.yml", "pull_request"): (frozenset({"body"}), "reads the `Gallery:` and `Visual-change:` "
         "lines; advisory"),
     ("language-boundaries.yml", "pull_request_target"): (ALL, "keeps its old edit behavior: it runs on every "

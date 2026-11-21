@@ -22,7 +22,7 @@ pub(super) fn tools() -> Vec<Value> {
     vec![
         json!({
             "name": "goal_set",
-            "description": "Set this chat's goal: an objective and a done-when that can be checked (a command that passes, a PR that merged, a page that loads). The chat keeps both outside your context, so they survive compaction, and the person sees the goal above the composer. On harnesses without a goal of their own, acpmux prompts you to keep going after every turn until you call goal_update with complete or blocked, or a budget runs out. A new goal_set replaces the last. Refused in a Codex chat: use Codex's own /goal there.",
+            "description": "Set this chat's goal: an objective and a done-when that can be checked (a command that passes, a PR that merged, a page that loads). The chat keeps both outside your context, so they survive compaction, and the person sees the goal above the composer. On harnesses without a goal of their own, acpmux prompts you to keep going after every turn until you call goal_update with complete or blocked, or a budget runs out. A new goal_set replaces the last, and a new objective renames the chat after its task (its old name still reaches it). Refused in a Codex chat: use Codex's own /goal there.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
