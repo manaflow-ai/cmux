@@ -219,7 +219,7 @@ impl Hub {
             return Some("process");
         }
         // A Claude chat with turns but none stored: stopped, it would come back as a fresh
-        // conversation (`idle.rs` keeps it awake for the same reason).
+        // conversation. (Idle hibernation does not refuse it: its wake restores the transcript.)
         {
             let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             if m.claude_unstored && m.turn_count > 0 {

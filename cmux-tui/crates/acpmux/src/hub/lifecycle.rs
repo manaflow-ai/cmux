@@ -1194,11 +1194,11 @@ impl Hub {
             && let Some(sid) = existing_sid.take()
         {
             tracing::info!(session = %session.id, agent_session = %sid, "starting a fresh Claude conversation: {why}");
-            // A chat woken from hibernation had no turn when it hibernated (`idle.rs` keeps one
-            // with turns but none stored awake), so it has nothing to restore: it starts fresh
-            // with no row and no restored transcript. (The prompt waking it is counted already.)
-            let untouched = self.waking(session);
-            if !untouched {
+            // A wake from hibernation draws no row. A chat that hibernated with turns none of
+            // which Claude stored (each failed) gets its transcript restored into the next prompt
+            // all the same; one that hibernated untouched has none (`transcript` is empty), so it
+            // starts fresh with nothing restored.
+            if !self.waking(session) {
                 self.append(
                     session,
                     "mux",
@@ -1211,9 +1211,7 @@ impl Hub {
                 m.set_agent_session_id(None, "claude");
                 m.claude_unstored = false;
             }
-            if !untouched {
-                session.rehydrate.store(true, Ordering::SeqCst);
-            }
+            session.rehydrate.store(true, Ordering::SeqCst);
         }
         // The --permission-mode acpmux started a Claude process in.
         let mut started_mode = None;

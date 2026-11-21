@@ -433,6 +433,64 @@ async fn an_untouched_claude_chat_wakes_with_no_row_and_nothing_restored() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// A Claude chat whose every turn failed (the model gateway's 503: Claude stored no conversation)
+/// hibernates like any other; it was kept up forever. Leo (2026-11-21): "the whole point is that
+/// they can be idle and take 0 cpu and memory." Its wake starts a fresh conversation with the
+/// chat's transcript, the failed prompt included, restored into the next prompt.
+#[tokio::test]
+async fn a_claude_chat_whose_turns_all_failed_hibernates_and_wakes_with_its_transcript() {
+    let root = std::env::temp_dir().join(format!("acpmux-hib-claude-{}", uuid::Uuid::now_v7()));
+    let claude = root.join("claude");
+    std::fs::create_dir_all(&claude).unwrap();
+    let down = root.join("gateway-down");
+    std::fs::write(&down, b"").unwrap();
+    let (hub, mut c) = super::fork_through::claude_setup(
+        &claude,
+        &[("FAKE_CLAUDE_503_IF", &down.to_string_lossy())],
+    )
+    .await;
+    let clock = ManualClock::new();
+    hub.set_clock(clock.clone());
+    hub.set_idle_child(Some(IDLE));
+    // No automatic retry of the 503 (as for a chat whose retries were used up long ago).
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![]);
+    let id = new_session(&mut c, "failed").await;
+    let failed = c.request(method::SESSION_PROMPT, prompt(&id, "remember the walrus", None)).await;
+    assert!(failed.is_err(), "the 503 did not fail the turn: {failed:?}");
+    let meta = hub.resolve(&id).unwrap().meta();
+    assert!(meta.claude_unstored && meta.turn_count > 0, "the failed turn was taken as stored");
+    let status = || hub.session_summary(&hub.resolve(&id).unwrap())["status"].clone();
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    while status() != "idle" {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the chat whose turns failed never hibernated"
+        );
+        clock.advance(IDLE + Duration::from_secs(1));
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    // The gateway is back by the next prompt.
+    std::fs::remove_file(&down).unwrap();
+    let reply = c.request(method::SESSION_PROMPT, prompt(&id, "after-wake", None)).await.unwrap();
+    assert_eq!(reply["stopReason"], "end_turn");
+    let events = hub.events(&id, 0, 10_000).unwrap();
+    assert!(!events.iter().any(|e| e.kind == "resume_failed"), "the wake drew a resume_failed row");
+    let woke = events
+        .iter()
+        .filter(|e| e.dir == "out")
+        .map(|e| e.msg.to_string())
+        .find(|m| m.contains("after-wake"))
+        .expect("the waking prompt never reached the agent");
+    assert!(woke.contains("restored_transcript"), "nothing restored: {woke}");
+    assert!(woke.contains("remember the walrus"), "the failed prompt was not restored: {woke}");
+    assert!(
+        !hub.resolve(&id).unwrap().meta().claude_unstored,
+        "the answered turn left it unstored"
+    );
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// `n` chats that each ran a turn ("before-restart") and then hibernated together.
 async fn hibernated_chats(r: &mut Rig, n: usize) -> Vec<String> {
     let mut ids = Vec::new();
