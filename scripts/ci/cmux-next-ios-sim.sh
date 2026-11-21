@@ -140,6 +140,9 @@
 #                          events-burst (events-500, then 2000 records in 1 s)
 #                          events-filter (events-500 at 20 records/s while "tool_call"
 #                          is typed into Filter and cleared, repeating)
+#                          ws-heavy-live feed-live ws-2000 (the first two: a
+#                          busy Mac on the real live path, ListStressSettings
+#                          CMUX_MOBILE_LIST_FLOOD)
 #                          A row's rig knobs may exist only on a feature branch's
 #                          app; the table is data.
 #           SUMMARY.md gets one row per window; the artifact keeps listperf/.
@@ -349,6 +352,9 @@ listperf_table=(
   "events-500         inspector   LIST_COUNT=500"
   "events-burst       inspector   LIST_COUNT=500 LIST_STREAM=1"
   "events-filter      inspector   LIST_COUNT=500 LIST_LIVE_HZ=20 LIST_FILTER=tool_call"
+  "ws-heavy-live   workspaces  LIST_FLOOD=45 LIST_FLOOD_ROWS=200 LIST_FLOOD_ADD_SECONDS=3 LIST_FLOOD_BURST=500 LIST_PASSES=3 LIST_SPEED=2400"
+  "feed-live       feed        LIST_FLOOD=45 LIST_FLOOD_ROWS=200 LIST_FLOOD_ADD_SECONDS=3 FEED_STRESS=320 LIST_PASSES=2 LIST_SPEED=2400"
+  "ws-2000         workspaces  LIST_COUNT=2000 LIST_PASSES=1"
 )
 listperf_base="" listperf_reps=2
 listperf_cases=(ws-200-live4 chat-40-stream chat-40 diff-2400 tabs-30-stream)
