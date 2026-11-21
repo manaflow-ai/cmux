@@ -17,16 +17,30 @@ pub enum FrameType {
     Close = 2,
     Ping = 3,
     Pong = 4,
+    /// A sequenced channel frame (reliable links only, both sides offered
+    /// `reliable`): `u64 seq | u8 inner type | inner payload`.
+    Seq = 5,
+    /// Channel 0, reliable links only: `u32 count | (u32 channel, u64 seq)*`.
+    Ack = 6,
+    /// Channel 0, reliable links only: a carrier's opening (new or resume).
+    Hello = 7,
+    /// Channel 0, reliable links only: the link ends on purpose (a carrier
+    /// that just drops is resumed instead).
+    Bye = 8,
 }
 
 impl FrameType {
-    fn from_u8(value: u8) -> Option<Self> {
+    pub(crate) fn from_u8(value: u8) -> Option<Self> {
         Some(match value {
             0 => Self::Open,
             1 => Self::Data,
             2 => Self::Close,
             3 => Self::Ping,
             4 => Self::Pong,
+            5 => Self::Seq,
+            6 => Self::Ack,
+            7 => Self::Hello,
+            8 => Self::Bye,
             _ => return None,
         })
     }
