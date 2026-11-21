@@ -1,8 +1,8 @@
-// T3 Code, dark: a deep violet-black #13111a page, a #1a1722 sidebar, lavender-white ink and the pink
-// #e0559b T3 marks things with. Picked to match the app's look by eye from its public screenshots,
+// A violet desktop coding app, dark: a deep violet-black #13111a page, a #1a1722 sidebar, lavender-white ink and the pink
+// #e0559b accent. Picked by eye,
 // not measured.
 {
-  "name": "T3 Code app",
+  "name": "Violet coding app",
   "description": "A violet-black #13111a page, a #1a1722 sidebar, lavender ink and a pink accent.",
 
   "appearance.theme": "Builtin Dark",
