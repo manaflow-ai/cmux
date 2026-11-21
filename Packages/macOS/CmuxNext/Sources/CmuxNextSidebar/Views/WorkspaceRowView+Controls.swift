@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 // A workspace row's close, menu button, Unpin, tree fold and audio controls, each made the first time it shows
 // (`RowControlSlot`, REOPEN-F7). Each maker reads the row's state for that control, so the row stays its one owner:
@@ -24,10 +25,16 @@ extension WorkspaceRowView {
     }
 
     func makePinButton() -> SidebarIconButton {
-        let button = SidebarIconButton(icon: .statePinned, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.unpinWorkspace)
+        let button = SidebarIconButton(icon: .statePinned, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.pinWorkspace)
         button.onPress = { [weak self] in self?.onPin?() }
         identify(button, as: "pin")
         return button
+    }
+
+    /// The hover pin says what a press does: an outline pin pins an unpinned row, a filled one unpins a pinned row.
+    func applyPin(_ button: SidebarIconButton, pinned: Bool) {
+        button.iconStyle = pinned ? .solid : .line
+        button.label = pinned ? Strings.unpinWorkspace : Strings.pinWorkspace
     }
 
     func makeTreeFoldButton() -> SidebarIconButton {

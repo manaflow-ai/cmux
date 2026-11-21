@@ -1,4 +1,7 @@
 #if os(iOS)
+#if DEBUG
+import CmuxMobileAgentChat
+#endif
 import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxSpinner
@@ -55,8 +58,6 @@ public struct WorkspacesList: View {
     @State private var bulkClosing: BulkClose?
     /// Set Icon…: the workspace whose icon picker is open.
     @State private var iconPicking: Workspace?
-    /// New Task…: the task composer is open.
-    @State private var composingTask = false
     /// New Workspace Group…: the Mac it goes on (one name field with the other group names).
     @State private var newGroupOnMac: String?
     /// Group by None / Group by Folder (this iPhone's view of the list).
@@ -202,20 +203,6 @@ public struct WorkspacesList: View {
             .sheet(item: $iconPicking) { ws in
                 WorkspaceIconPicker(workspace: ws) { icon in creator.setIcon(ws, icon) }
             }
-            #if DEBUG
-            // `-cmux-mobile-open-new-task`: New Task opens at launch (its captures at Accessibility sizes).
-            .task {
-                guard CommandLine.arguments.contains("-cmux-mobile-open-new-task"), !DebugLaunch.openedNewTask,
-                      !creator.taskMacs.isEmpty else { return }
-                DebugLaunch.openedNewTask = true
-                composingTask = true
-            }
-            #endif
-            // Full screen, as classic's task composer: a prompt canvas with its controls above the keyboard.
-            .fullScreenCover(isPresented: $composingTask) {
-                TaskComposerScreen(creator: creator, sameNames: sameNames,
-                                   started: { made in startedTask(made) }, close: { composingTask = false })
-            }
             .alert("Rename Workspace", isPresented: isPresented($renaming), presenting: renaming) { ws in
                 TextField("Name", text: $renameText)
                     // Names and prompts are code-like: no autocorrect, no capitals (full verify D5).
@@ -348,20 +335,11 @@ public struct WorkspacesList: View {
         create(tap.start, directory: tap.directory, on: macID)
     }
 
-    /// New Task…: opens the composer.
-    func startNewTask() { composingTask = true }
-
-    /// New Task started: one workspace opens at once; several stay in the list, each row
-    /// spinning until its Mac answers.
-    func startedTask(_ made: [Workspace]) {
-        guard made.count == 1, let workspace = made.first else { return }
-        open(workspace)
-    }
-
     /// Opens a workspace: a needs-you one on its waiting tab, else the tab left on screen
     /// there in this launch, else the active tab of its layout's top-left pane
     /// (`AppStore.openingTab`). Clears its "Done".
     func openWorkspace(_ ws: Workspace, status: WorkspaceStatus, tab: WorkspaceTab? = nil) {
+        LaunchMarks.shared.mark("workspace_row_tap")
         if status == .offline {
             theme.haptics.warning()
             unavailable = ws
@@ -1009,8 +987,7 @@ public struct WorkspacesList: View {
             tap: target.map { creator.tapStart(on: $0.id) },
             options: target.map { creator.options(on: $0.id) }, availableMacs: creator.availableMacs,
             grouping: grouping, canNewGroup: target.map { creator.canCreateGroup(on: $0.id) } ?? false,
-            agentDestinations: NewAgentChatDestination.all(creator),
-            canStartTask: !creator.taskMacs.isEmpty
+            agentDestinations: NewAgentChatDestination.all(creator)
         )
         return WorkspacesToolbar(model: model, host: self).equatable()
     }
@@ -1071,6 +1048,13 @@ struct WorkspaceListRow: View, Equatable {
         .opacity(model.isStale ? 0.55 : 1)
         .animation(theme.motion.smooth.animation.unlessReduceMotion, value: model.isStale)
         .onAppear {
+            #if DEBUG
+            // The list rig's seeded rows, not the mock ones shown before it seeds (LaunchTTIUITests).
+            let countsForLaunch = ListStressSettings.shared.countsListFrame(rowID: ws.id)
+            #else
+            let countsForLaunch = true
+            #endif
+            if countsForLaunch { LaunchMarks.shared.markNextFrame("workspaces_list_frame") }
             // verify/fast-connect.md: when a row is first on screen, cached or live.
             if model.tracksMacData {
                 ConnectTimeline.shared.mark(model.isStale ? "workspace_row_cached" : "workspace_row_live")
@@ -1121,10 +1105,8 @@ struct WorkspacesToolbar: View, Equatable {
         var grouping: WorkspaceListGrouping
         /// New Workspace Group… can make a group on the target Mac now.
         var canNewGroup: Bool
-        /// New Agent Chat on…: each Mac that starts agent chats from a phone, with its folders.
+        /// New Agent Chat ▸: each Mac that starts agent chats from a phone, with its folders.
         var agentDestinations: [NewAgentChatDestination] = []
-        /// New Task… can start agents on some Mac now.
-        var canStartTask = false
     }
 
     let model: Model
@@ -1148,8 +1130,6 @@ struct WorkspacesToolbar: View, Equatable {
                                        macs: model.availableMacs, canNewGroup: model.canNewGroup,
                                        newGroup: { if let id = model.target?.id { host.startNewEmptyGroup(on: id) } },
                                        agentDestinations: model.agentDestinations,
-                                       canStartTask: model.canStartTask,
-                                       newTask: { host.startNewTask() },
                                        createOn: { start, directory, macID in host.create(start, directory: directory, on: macID) }) { start, directory in
                         host.create(start, directory: directory, on: model.target?.id)
                     }
@@ -1875,12 +1855,9 @@ struct NewWorkspaceButton: View, Equatable {
     /// New Workspace Group… (the Mac's File menu row): an empty group on the target Mac.
     let canNewGroup: Bool
     let newGroup: () -> Void
-    /// New Agent Chat on…: the Macs it can start on, each with its folders (from the list).
+    /// New Agent Chat ▸: the Macs it can start on, each with its folders (from the list).
     var agentDestinations: [NewAgentChatDestination] = []
-    /// New Task… (the task composer): offered when some Mac can start agents now.
-    var canStartTask = false
-    var newTask: () -> Void = {}
-    /// Creates on a named Mac (New Agent Chat on…).
+    /// Creates on a named Mac (New Agent Chat ▸ a Mac ▸ a folder).
     var createOn: (NewWorkspaceStart, String?, String) -> Void = { _, _, _ in }
     let create: (NewWorkspaceStart, String?) -> Void
 
@@ -1888,7 +1865,7 @@ struct NewWorkspaceButton: View, Equatable {
     nonisolated static func == (a: Self, b: Self) -> Bool {
         a.target == b.target && a.showsMacPicker == b.showsMacPicker && a.sameNames == b.sameNames && a.recents == b.recents
             && a.tap == b.tap && a.options == b.options && a.macs == b.macs && a.canNewGroup == b.canNewGroup
-            && a.agentDestinations == b.agentDestinations && a.canStartTask == b.canStartTask
+            && a.agentDestinations == b.agentDestinations
     }
     /// Open Folder…: the typed path, and why the last one was refused.
     @State private var openingFolder = false
@@ -1932,75 +1909,39 @@ struct NewWorkspaceButton: View, Equatable {
         } ?? "")
     }
 
+    /// Long press: the other ways to start, in four short groups (2026-11-18 reorganize). New
+    /// Task… is not here: it is the floating button above the tab bar (`NewTaskFloatingButton`).
+    /// Each folder list appears once, inside a submenu, not as a page of rows.
     @ViewBuilder private var menu: some View {
-        if canStartTask {
-            // New Task…: a prompt, the agents that run it and where, in one sheet.
-            Section {
-                Button("New Task…", systemImage: "text.badge.plus") { newTask() }
-                    .accessibilityIdentifier("workspaces.newTask")
-            }
-        }
         if let mac = target, let options {
+            // 1. Start something new: an agent chat, a terminal, a browser.
             if macs.count > 1 || !showsMacPicker {
                 Section("On \(displayName(mac))") { starts(options) }
             } else {
                 Section { starts(options) }
             }
-            // Its own section near the top: it lists every Mac, not only the one named above.
-            if !agentDestinations.isEmpty {
-                Section { newAgentChatOn }
-            }
-            if !recents.isEmpty {
-                Section("Recent Directories") {
-                    ForEach(recents, id: \.self) { directory in
-                        Button {
-                            create(.terminal, directory)
-                        } label: {
-                            Label {
-                                Text(Self.folderName(directory))
-                                Text(directory)
-                            } icon: {
-                                Image(systemName: "folder")
-                            }
+            // 2. Open a place: a recent folder or a typed path.
+            if !recents.isEmpty || options.directories {
+                Section {
+                    if !recents.isEmpty { openRecent }
+                    if options.directories {
+                        // The Mac's Open Folder… (⌘O): a typed path, since a phone browses no Mac folders.
+                        Button("Open Folder…", systemImage: "folder.badge.plus") {
+                            folderText = ""
+                            openingFolder = true
                         }
+                        .accessibilityIdentifier("workspaces.openFolder")
                     }
                 }
             }
-            if options.agents.contains(""), !recents.isEmpty {
-                // The Mac's New Agent Chat over Home: a workspace whose only tab is the
-                // chat, in one of the Mac's workspace folders.
-                Section("New Agent Chat") {
-                    ForEach(recents, id: \.self) { directory in
-                        Button {
-                            create(.agent(""), directory)
-                        } label: {
-                            Label {
-                                Text(Self.folderName(directory))
-                                Text(directory)
-                            } icon: {
-                                Image(systemName: "sparkle")
-                            }
-                        }
-                        .accessibilityIdentifier("workspaces.newAgentChat.\(Self.folderName(directory))")
-                    }
-                }
-            }
+            // 3. Organize.
             if canNewGroup {
                 Section {
-                    Button("New Workspace Group…", systemImage: "folder.badge.plus") { newGroup() }
+                    Button("New Workspace Group…", systemImage: "rectangle.stack.badge.plus") { newGroup() }
                         .accessibilityIdentifier("workspaces.newGroup")
                 }
             }
-            if options.directories {
-                Section {
-                    // The Mac's Open Folder… (⌘O): a typed path, since a phone browses no Mac folders.
-                    Button("Open Folder…", systemImage: "folder.badge.plus") {
-                        folderText = ""
-                        openingFolder = true
-                    }
-                    .accessibilityIdentifier("workspaces.openFolder")
-                }
-            }
+            // 4. Where a tap creates.
             if showsMacPicker && macs.count > 1 {
                 Section {
                     Picker(selection: Binding(get: { mac.id }, set: { creator.prefer(macID: $0) })) {
@@ -2015,48 +1956,107 @@ struct NewWorkspaceButton: View, Equatable {
     }
 
     @ViewBuilder private func starts(_ options: WorkspaceCreationOptions) -> some View {
+        newAgentChat
         // A plain tap opens an agent chat; the terminal stays one item away.
         Button("New Terminal Workspace", systemImage: "apple.terminal") { create(.terminal, nil) }
             .accessibilityIdentifier("workspaces.newTerminal")
-        ForEach(options.agents.filter { !$0.isEmpty }, id: \.self) { harness in
+        let harnesses = options.agents.filter { !$0.isEmpty }
+        if harnesses.count == 1, let harness = harnesses.first {
             Button("New \(Self.agentName(harness)) Workspace", systemImage: "sparkle") { create(.agent(harness), nil) }
+                .accessibilityIdentifier("workspaces.newAgentWorkspace.\(harness)")
+        } else if harnesses.count > 1 {
+            Menu {
+                ForEach(harnesses, id: \.self) { harness in
+                    Button(Self.agentName(harness), systemImage: "sparkle") { create(.agent(harness), nil) }
+                        .accessibilityIdentifier("workspaces.newAgentWorkspace.\(harness)")
+                }
+            } label: {
+                Label("New Agent Workspace", systemImage: "sparkle")
+            }
+            .accessibilityIdentifier("workspaces.newAgentWorkspace")
         }
         if options.browser {
             Button("New Browser Workspace", systemImage: "globe") { create(.browser, nil) }
+                .accessibilityIdentifier("workspaces.newBrowser")
         }
     }
 
-    /// The Mac's New Agent Chat on…: pick the machine, then the place (one of its workspace
-    /// folders); acpmux on that Mac starts the chat there (`session/new {cwd}`). Beside New
-    /// Workspace, where the menu opens, not under its folder lists.
-    @ViewBuilder private var newAgentChatOn: some View {
-        if !agentDestinations.isEmpty {
+    /// New Agent Chat ▸: a workspace whose only tab is the agent chat, in one of the Mac's
+    /// workspace folders; acpmux on that Mac starts the chat there (`session/new {cwd}`). One
+    /// Mac lists its folders; several list each Mac (the target first), then its folders. It
+    /// replaces the old "New Agent Chat" folder section and "New Agent Chat on…", which listed
+    /// the same folders twice.
+    @ViewBuilder private var newAgentChat: some View {
+        let destinations = Self.ordered(agentDestinations, first: target?.id)
+        if destinations.count == 1, let only = destinations.first {
             Menu {
-                ForEach(agentDestinations) { destination in
+                agentFolders(only, idPrefix: "workspaces.newAgentChat")
+            } label: {
+                Label("New Agent Chat", systemImage: "bubble.left.and.bubble.right")
+            }
+            .accessibilityIdentifier("workspaces.newAgentChatOn")
+        } else if destinations.count > 1 {
+            Menu {
+                ForEach(destinations) { destination in
                     Menu {
-                        ForEach(destination.folders, id: \.self) { directory in
-                            Button {
-                                createOn(.agent(""), directory, destination.mac.id)
-                            } label: {
-                                Label {
-                                    Text(Self.folderName(directory))
-                                    Text(directory)
-                                } icon: {
-                                    Image(systemName: "folder")
-                                }
-                            }
-                            .accessibilityIdentifier("workspaces.newAgentChatOn.\(destination.mac.id).\(Self.folderName(directory))")
-                        }
+                        agentFolders(destination, idPrefix: "workspaces.newAgentChatOn.\(destination.mac.id)")
                     } label: {
                         Label(displayName(destination.mac), systemImage: "desktopcomputer")
                     }
                     .accessibilityIdentifier("workspaces.newAgentChatOn.\(destination.mac.id)")
                 }
             } label: {
-                Label("New Agent Chat on…", systemImage: "bubble.left.and.bubble.right")
+                Label("New Agent Chat", systemImage: "bubble.left.and.bubble.right")
             }
             .accessibilityIdentifier("workspaces.newAgentChatOn")
         }
+    }
+
+    @ViewBuilder private func agentFolders(_ destination: NewAgentChatDestination, idPrefix: String) -> some View {
+        ForEach(destination.folders, id: \.self) { directory in
+            Button {
+                createOn(.agent(""), directory, destination.mac.id)
+            } label: {
+                Label {
+                    Text(Self.folderName(directory))
+                    Text(directory)
+                } icon: {
+                    Image(systemName: "folder")
+                }
+            }
+            .accessibilityIdentifier("\(idPrefix).\(Self.folderName(directory))")
+        }
+    }
+
+    /// Open Recent ▸: the target Mac's workspace folders, each opened as a terminal workspace
+    /// there (`cd`), as the Mac's File ▸ Open Recent.
+    private var openRecent: some View {
+        Menu {
+            ForEach(recents, id: \.self) { directory in
+                Button {
+                    create(.terminal, directory)
+                } label: {
+                    Label {
+                        Text(Self.folderName(directory))
+                        Text(directory)
+                    } icon: {
+                        Image(systemName: "folder")
+                    }
+                }
+                .accessibilityIdentifier("workspaces.recent.\(Self.folderName(directory))")
+            }
+        } label: {
+            Label("Open Recent", systemImage: "clock.arrow.circlepath")
+        }
+        .accessibilityIdentifier("workspaces.openRecent")
+    }
+
+    /// `destinations` with the Mac `first` (the one a tap creates on) at the top, the rest in order.
+    static func ordered(_ destinations: [NewAgentChatDestination], first: String?) -> [NewAgentChatDestination] {
+        guard let first, let index = destinations.firstIndex(where: { $0.mac.id == first }), index > 0 else { return destinations }
+        var ordered = destinations
+        ordered.insert(ordered.remove(at: index), at: 0)
+        return ordered
     }
 
     static func agentName(_ harness: String) -> String {

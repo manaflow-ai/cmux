@@ -13,7 +13,7 @@ name: cmux-next tab switch (advisory)
 # budget miss fails the check (enforce) or only warns (report); a pull request flips it, not a setting.
 #
 # Advisory for now (coordinator, 2026-11-15): GATE_MODE is report and the workflow name ends "(advisory)", so
-# merge_hold's ADVISORY_WORKFLOW does not hold a pull request while the display run waits in the exclusive queue.
+# land-judge's ADVISORY_WORKFLOW does not hold a pull request while the display run waits in the exclusive queue.
 # Once the remount fix's pull request passes it, a pull request sets GATE_MODE: enforce, drops the suffix, and the
 # ruleset adds the verdict job's context.
 #
@@ -40,10 +40,10 @@ name: cmux-next tab switch (advisory)
 # the fleet compile and test clients and signing jobs need: 23 gateway jobs (test-compile, hot verify, this one) were
 # refused in "Set up runner" after waiting 600 s with "all 2 gateway tokens are taken".
 
+# Cut from pull requests on 2026-11-21 (ci-time-map: advisory, GATE_MODE report, never required; ~4.2k fleet runner-min a day).
+# It runs on workflow_dispatch only; docs-only-fallback.yml no longer calls it.
 on:
-  pull_request:
-    branches: [feat-cmux-next]
-    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
 
 permissions: {}
 
@@ -202,7 +202,7 @@ jobs:
     # The context a ruleset requires: keep this name.
     name: tab switch (frames, under load)
     needs: [scope, frames]
-    if: always()
+    if: ${{ !cancelled() }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     permissions:
