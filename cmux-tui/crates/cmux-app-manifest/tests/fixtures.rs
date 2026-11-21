@@ -81,6 +81,25 @@ fn native_code_is_first_party_only() {
     assert!(codes(&first).is_empty());
 }
 
+/// A setting-backed entry (the App Store's Auto cleanup) writes the person's cmux settings: only a
+/// first-party app may declare one, and the schema takes a dotted key and a boolean default.
+#[test]
+fn setting_backed_entries_are_first_party_only() {
+    let setting = json!({ "key": "worktrees.autoCleanup", "default": true });
+    let first = manifest(
+        json!({ "id": "cmux/x", "repository": "https://github.com/manaflow-ai/cmux", "setting": setting }),
+    );
+    assert!(codes(&first).is_empty());
+    let third = manifest(
+        json!({ "id": "octo/x", "repository": "https://github.com/octo/x", "setting": setting }),
+    );
+    assert_eq!(codes(&third), vec!["setting.firstPartyOnly"]);
+    let bad =
+        manifest(json!({ "id": "cmux/x", "repository": "https://github.com/manaflow-ai/cmux",
+        "setting": { "key": "worktrees", "default": "yes" } }));
+    assert!(codes(&bad).contains(&"schema"), "{:?}", codes(&bad));
+}
+
 #[test]
 fn publisher_rules() {
     assert_eq!(
