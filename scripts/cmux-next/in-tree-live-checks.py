@@ -380,6 +380,7 @@ try:
                 rpc("debug.key", {"key": "escape"})
                 time.sleep(0.5)  # test harness: any sheet closes
                 detail["host_panel_probe"] = rpc("debug.open_panel_bench", {"mode": "fresh"}, timeout=90)
+                detail["app_file_dialogs"] = (rpc("debug.cef") or {}).get("file_dialogs")
                 detail["input_events"] = page_eval("JSON.stringify(window.__file)", page_tab).get("value")
                 detail["user_activation"] = page_eval("navigator.userActivation && navigator.userActivation.hasBeenActive", page_tab).get("value")
             row(changed, f"prompts.{name}", detail)
