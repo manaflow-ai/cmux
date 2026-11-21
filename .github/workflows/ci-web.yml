@@ -949,6 +949,10 @@ jobs:
           - shard: 2
             shard_count: 2
     steps:
+      # Run the base reds stops starting files a minute before the 8 minutes end, counted from here.
+      - name: Record the job start
+        run: echo "CMUX_WEB_TEST_JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
+
       - name: Checkout the merge commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -1053,6 +1057,13 @@ jobs:
           SHARD: ${{ matrix.shard }}
         run: |
           early="$RUNNER_TEMP/base-early"
+          # These files are red on the base, and the slow ones fail at their 450-900 s limits one at a time while each
+          # Vite config warms: 41 of 73 runs (11-21 09:30-16:50Z) were cancelled at the job limit still testing, with no
+          # verdict. No file starts, and none runs, past 60 s before the job's 8 minutes end (the upload's margin); a
+          # file it did not finish has no result, and react-apps-base-check replays it.
+          started="${CMUX_WEB_TEST_JOB_STARTED:-}"
+          [[ "$started" =~ ^[0-9]+$ ]] || started=$(( $(date +%s) - 180 ))
+          export CMUX_WEB_TEST_STOP_AT=$(( started + 8 * 60 - 60 ))
           CMUX_WEB_TEST_FILES="$(cat "$early/files")" \
             CMUX_WEB_TEST_RESULTS="$early/results.json" \
             env -u CMUX_WEB_TEST_SHARD -u CMUX_WEB_TEST_SHARD_COUNT -u CMUX_PR_CHANGED_FILES \
