@@ -258,6 +258,51 @@ fn session_of(id: &str) -> &str {
 
 /// The sections `rows` (one window's view of `doc`) draw.
 pub fn project(doc: &Doc, rows: &[Row]) -> Projection {
+    let mut out = project_rows(doc, rows);
+    host_groups(doc, &mut out);
+    for item in doc.items_unordered() {
+        group_settings(item, &mut out);
+    }
+    out.pinned_in_group.sort();
+    out
+}
+
+/// The machine sections made remote groups.
+pub(super) fn host_groups(doc: &Doc, out: &mut Projection) {
+    out.host_groups = doc
+        .sections()
+        .iter()
+        .filter(|section| section.host_group && section.kind.machine().is_some())
+        .map(|section| section.id.clone())
+        .collect();
+}
+
+/// One item's group settings (sort, row cap, revealed rows, pinned in its
+/// group), whatever rows show it; `pinned_in_group` unsorted.
+pub(super) fn group_settings(item: &Item, out: &mut Projection) {
+    if item.body.is_group()
+        && let Some(sort) = item.group_sort().value()
+    {
+        out.group_sorts.insert(item.id.clone(), sort.to_string());
+    }
+    if item.body.is_group() {
+        if let Some(cap) = item.group_row_limit() {
+            out.group_row_limits.insert(item.id.clone(), cap);
+        }
+        let revealed = item.group_revealed();
+        if revealed > 0 {
+            out.group_revealed.insert(item.id.clone(), revealed);
+        }
+    }
+    if item.pinned_in_group() {
+        out.pinned_in_group.push(item.id.clone());
+    }
+}
+
+/// What `rows` alone draw: everything but the document-wide fields
+/// (`host_groups`, the group settings), so a slice of rows (one block)
+/// projects on its own.
+pub(super) fn project_rows(doc: &Doc, rows: &[Row]) -> Projection {
     let mut out = Projection::default();
     let mut machines = MachineNodes::default();
     let mut placed_list = false;
@@ -368,31 +413,5 @@ pub fn project(doc: &Doc, rows: &[Row]) -> Projection {
         out.sections.push(ProjectedSection::Workspaces { like: None });
     }
     out.machines = machines.nodes();
-    out.host_groups = doc
-        .sections()
-        .iter()
-        .filter(|section| section.host_group && section.kind.machine().is_some())
-        .map(|section| section.id.clone())
-        .collect();
-    for item in doc.items_unordered() {
-        if item.body.is_group()
-            && let Some(sort) = item.group_sort().value()
-        {
-            out.group_sorts.insert(item.id.clone(), sort.to_string());
-        }
-        if item.body.is_group() {
-            if let Some(cap) = item.group_row_limit() {
-                out.group_row_limits.insert(item.id.clone(), cap);
-            }
-            let revealed = item.group_revealed();
-            if revealed > 0 {
-                out.group_revealed.insert(item.id.clone(), revealed);
-            }
-        }
-        if item.pinned_in_group() {
-            out.pinned_in_group.push(item.id.clone());
-        }
-    }
-    out.pinned_in_group.sort();
     out
 }
