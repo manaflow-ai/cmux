@@ -319,6 +319,9 @@ export type DiffPageVariant = VariantBase & {
   sourceOptions?: SourceOption[];
   /** A machine error while the loaded diff remains visible. */
   fingerprintError?: { code: string; message: string };
+  /** The first diff never arrives (`loading`), or opening it fails with `openError` (`error`). */
+  mode?: "loading" | "error";
+  openError?: { code: string; message: string };
   /** Saved review comments the in-page host lists (`comments.list`). */
   comments?: DiffCommentRecord[];
   /** The host sends comments to the diff's chat (Send to agent). */

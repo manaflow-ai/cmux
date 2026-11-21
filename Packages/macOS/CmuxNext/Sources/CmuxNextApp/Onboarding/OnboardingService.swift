@@ -9,6 +9,8 @@ import CmuxNextCompat
 import CmuxNextCookieImport
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextImportCards
 import CmuxNextOnboarding
 import CmuxNextSettings
@@ -166,6 +168,10 @@ final class OnboardingService {
 
     /// Home's Set Up cmux card (``FirstRunSetup``): what a first run offers, in place of the first-run windows.
     private(set) lazy var setup = FirstRunSetup(skipsOnboarding: services.environment.launchSteps.skipsFirstRun)
+
+    /// Meet Chief (``ChiefOnboarding``): a fresh install's first look at Chief, on the empty Chief chat.
+    private(set) lazy var chief = ChiefOnboarding(defaults: .standard, settings: HomeChiefOnboardingSettings { [weak services] in services?.settings },
+                                                  skipsOnboarding: services.environment.launchSteps.skipsFirstRun)
 
     /// The launch's steps (``AppEnvironment/launchSteps``): with onboarding on, a first run starts Home's Set Up cmux card
     /// (the Agents window and the CLI toast count as shown), else Agents, then Bring your history (``OnboardingWindowPresenter/showFirstRunSteps``).

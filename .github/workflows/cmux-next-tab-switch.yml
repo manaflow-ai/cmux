@@ -45,12 +45,70 @@ name: cmux-next tab switch (advisory)
 # the fleet compile and test clients and signing jobs need: 23 gateway jobs (test-compile, hot verify, this one) were
 # refused in "Set up runner" after waiting 600 s with "all 2 gateway tokens are taken".
 
+# Cut from pull requests on 2026-11-21 (#48515; ci-time-map: advisory, GATE_MODE report, never required; ~4.2k fleet
+# runner-min a day). It runs after merge (an in-scope feat-cmux-next push) and on workflow_dispatch;
+# docs-only-fallback.yml no longer calls it.
 on:
   # After merge only (see the header): no pull_request trigger, so a pull request starts no run and takes no queue
-  # slot. A pull request that makes the check enforcing puts the pull_request trigger back.
-  # After merge: each feat-cmux-next push is scoped (one short Linux job) and, in scope, measured at its commit.
+  # slot (#48515 took the pull_request trigger off). A pull request that makes the check enforcing puts it back.
+  # Each feat-cmux-next push is scoped (one short Linux job) and, in scope, measured at its commit.
   push:
     branches: [feat-cmux-next]
+    # tab_switch_gate.py SCOPE (plus its gate tests), minus EXCLUDE: a push outside them starts no run. The scope
+    # job still decides; keep this list equal to SCOPE when SCOPE changes.
+    paths:
+      - ".github/workflows/cmux-next-tab-switch.yml"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/**"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentChatTab*.swift"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentTab*.swift"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneBackdropState.swift"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneContentView*.swift"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneController*.swift"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneFullWidthTabs.swift"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneMounts.swift"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneSelectionPresenter.swift"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneTabBars.swift"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PreparedTabClose.swift"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/StripNewTab.swift"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/TabContent*.swift"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserTabs/**"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/**"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/**"
+      - "cmux-tui/crates/cmux-tui-core/src/server/cmd_panes.rs"
+      - "cmux-tui/crates/cmux-tui-core/src/server/cmd_tabs.rs"
+      - "cmux-tui/crates/cmux-tui-core/src/server/raw_tab.rs"
+      - "cmux-tui/crates/cmux-tui-core/src/state/conversation_tabs.rs"
+      - "cmux-tui/crates/cmux-tui-core/src/state/kept_tabs.rs"
+      - "cmux-tui/crates/cmux-tui-core/src/state/tabs.rs"
+      - "scripts/cmux-next/bench-tab-switch.sh"
+      - "scripts/cmux-next/bench_tab_switch.py"
+      - "scripts/cmux-next/tab-switch-stages.py"
+      - "scripts/cmux-next/tab_switch_gate.py"
+      - "scripts/measure/tab-switch.sh"
+      - "tests/test_cmux_next_tab_switch_gate.py"
+      - "webviews/src/agent-session/acpmux/App.tsx"
+      - "webviews/src/agent-session/acpmux/Composer*.tsx"
+      - "webviews/src/agent-session/acpmux/PaneBoundary.tsx"
+      - "webviews/src/agent-session/acpmux/chatSnapshot/**"
+      - "webviews/src/agent-session/acpmux/composer/**"
+      - "webviews/src/agent-session/acpmux/composerRestore.ts"
+      - "webviews/src/agent-session/acpmux/conversation/**"
+      - "webviews/src/agent-session/acpmux/main.tsx"
+      - "webviews/src/agent-session/acpmux/mount.tsx"
+      - "webviews/src/agent-session/acpmux/mountModel.tsx"
+      - "webviews/src/agent-session/acpmux/pane*.ts"
+      - "webviews/src/agent-session/acpmux/restoredTail.ts"
+      - "webviews/src/agent-session/acpmux/snapshotCache.ts"
+      - "!**/Tests/**"
+      - "!**/*Tests.swift"
+      - "!**/Playground/**"
+      - "!**/Demo/**"
+      - "!**/*.test.ts"
+      - "!**/*.test.tsx"
+      - "!**/*.gallery.*"
+      - "!**/*.md"
+  # By hand: the dispatched ref's last commit (HEAD^1..HEAD), measured when it is in scope.
+  workflow_dispatch:
 
 permissions: {}
 
@@ -79,7 +137,7 @@ jobs:
   scope:
     name: tab switch scope
     # After merge only (see the header): a pull request's run takes no runner.
-    if: ${{ github.event_name == 'push' }}
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     permissions:
@@ -116,7 +174,7 @@ jobs:
     needs: scope
     if: >-
       needs.scope.outputs.in_scope == 'true' && github.repository == 'manaflow-ai/cmux'
-      && github.event_name == 'push' && vars.CI_EVAL_STEP_GATEWAY != ''
+      && github.event_name != 'pull_request' && vars.CI_EVAL_STEP_GATEWAY != ''
     runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
     # The job holds one of the gateway runner's two tokens while it waits, so it waits only when the queue is short
     # (ADMIT), at most QUEUE_WAIT_S (20 min) for a display worker, and an hour for the build and the measure. Past
@@ -212,7 +270,7 @@ jobs:
     # The context a ruleset requires: keep this name.
     name: tab switch (frames, under load)
     needs: [scope, frames]
-    if: ${{ !cancelled() && github.event_name == 'push' }}
+    if: ${{ !cancelled() && github.event_name != 'pull_request' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     permissions:

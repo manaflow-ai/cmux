@@ -1298,6 +1298,7 @@ fn start(
     // Each installed brain's turn preset: the Chief's own home for it, cmux's Chief tools only.
     let mut brains = crate::brain_home::BrainTurns {
         root: Some(paths.root.clone()),
+        model: Some(crate::brain_home::BrainSetup::from_choice(&engine_choice_file, paths).model),
         ..Default::default()
     };
     for brain in &crate::brain_home::BRAINS {
