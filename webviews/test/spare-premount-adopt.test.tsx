@@ -140,7 +140,9 @@ async function mount(kind: "spare" | "direct" | "new") {
 const rows = () => host.querySelectorAll(".acpmux-row[data-row-id]").length;
 const dock = () => host.querySelector<HTMLElement>(".acpmux-dock");
 const stage = () => host.querySelector<HTMLElement>(".acpmux-stage");
-const shown = (element: HTMLElement | null) => element !== null && element.style.display !== "none";
+/// Drawn: not under the hidden Activity (display: none) and not parked invisible (sparePark.ts).
+const shown = (element: HTMLElement | null) =>
+  element !== null && element.style.display !== "none" && element.style.visibility !== "hidden";
 const composerText = () =>
   (
     host.querySelector(".acpmux-composer-prompt") as { acpmuxMarkdownField?: { value(): string } } | null
@@ -271,4 +273,60 @@ test("a spare parked drawn but invisible has run its chat view's effects before 
   } finally {
     delete (dom.window as unknown as { __cmuxSparePark?: unknown }).__cmuxSparePark;
   }
+}, 60_000);
+
+test("a spare parks its chat view drawn once idle, so the adopt's reveal runs none of its effects", async () => {
+  // No switch set: the page builds the view hidden, then parks it drawn but invisible and inert once
+  // idle (newtab/sparePark.ts). The composer's editor is made in an effect: it exists before the
+  // adopt only if the view's effects ran while parked.
+  const session = await mount("spare");
+  await until(() => host.querySelector(".nt-field") !== null, "the spare draws its New Tab page");
+  await until(
+    () => host.querySelector(".acpmux-composer-prompt [contenteditable]") !== null,
+    "the parked composer's editor (made in an effect) exists before the adopt",
+  );
+  const editor = host.querySelector(".acpmux-composer-prompt [contenteditable]");
+  expect(shown(stage()), "parked invisible").toBe(false);
+  expect(stage()?.hasAttribute("inert"), "parked inert").toBe(true);
+  const press = new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true, cancelable: true });
+  await act(async () => void dom.window.dispatchEvent(press));
+  expect(press.defaultPrevented, "the parked model picker took Cmd-Ctrl-M").toBe(false);
+  const { SESSION_ADOPT_EVENT } = await import("../src/agent-session/acpmux/newtab/adoption");
+  await act(async () =>
+    dom.window.dispatchEvent(
+      new dom.window.CustomEvent(SESSION_ADOPT_EVENT, { detail: { sessionId: session, scrollAnchor: null } }),
+    ),
+  );
+  expect(shown(stage()), "the adopt shows the parked view").toBe(true);
+  expect(stage()?.hasAttribute("inert")).toBe(false);
+  expect(host.querySelector(".acpmux-composer-prompt [contenteditable]"), "the same editor").toBe(editor);
+  await until(() => rows() > 0, "the adopted chat draws its rows");
+}, 60_000);
+
+test("a spare's adopt pass draws only the rows in view; the rest mount in a render after it", async () => {
+  // The kept tail of a chat many viewports tall, carried by the adopt event (AgentPaneView.adoptSession),
+  // so its rows draw in the event's own task.
+  const { papercutEvents, PAPERCUT_CHAT } = await import("./support/papercutChat");
+  const { events, session } = papercutEvents({ turns: 60, running: false });
+  const tail = { events, summary: session, historyExhausted: true, queue: [], configSeq: 0, usageFromSeq: 0 };
+  await mount("spare");
+  await until(() => dock() !== null && host.querySelector(".nt-field") !== null, "the spare built the chat view");
+  const { SESSION_ADOPT_EVENT } = await import("../src/agent-session/acpmux/newtab/adoption");
+  // Outside act: what the event's own task (its flushSync pass and the effects it flushes) drew, before
+  // any render scheduled after it.
+  dom.window.dispatchEvent(
+    new dom.window.CustomEvent(SESSION_ADOPT_EVENT, {
+      detail: { sessionId: PAPERCUT_CHAT, tail, scrollAnchor: null },
+    }),
+  );
+  const inTask = rows();
+  const last = [...host.querySelectorAll(".acpmux-row[data-row-id]")].at(-1)?.textContent ?? "";
+  expect(inTask, "the adopt's task drew the chat's rows").toBeGreaterThan(0);
+  expect(last, "the rows in view are the chat's newest").toContain("Answer 60");
+  // The history above the view (several viewports) mounts after: the task drew well under half of it.
+  await until(
+    () => rows() > 2 * inTask,
+    `the rows past the view mount after the adopt's task: ${inTask} in it, ${rows()} after`,
+    5_000,
+  );
 }, 60_000);
