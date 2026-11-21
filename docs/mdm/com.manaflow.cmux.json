@@ -3593,12 +3593,6 @@
       "title" : "Engine",
       "type" : "string"
     },
-    "home.chiefPanel.seesScreen" : {
-      "default" : true,
-      "description" : "The floating Chief takes one look at your screen when it opens. The eye turns it off.",
-      "title" : "Chief Sees Your Screen When It Opens",
-      "type" : "boolean"
-    },
     "home.chiefPanel.style" : {
       "default" : "composeBar",
       "description" : "How the Chief looks floating over a workspace. Drag any style by its grip.",
@@ -3670,6 +3664,12 @@
       "default" : false,
       "description" : "Lets cmux read Messages conversations on this Mac. Sending needs your click.",
       "title" : "Connect iMessage",
+      "type" : "boolean"
+    },
+    "labs.agentCustomization" : {
+      "default" : false,
+      "description" : "Show and edit the MCP servers Claude Code and Codex use, in their own config files.",
+      "title" : "Claude Code and Codex Customization",
       "type" : "boolean"
     },
     "labs.liveCode" : {
@@ -5156,7 +5156,7 @@
       "type" : "boolean"
     },
     "sidebar.showSpaces" : {
-      "default" : true,
+      "default" : false,
       "description" : "sidebar.showSpaces",
       "title" : "Show Spaces",
       "type" : "boolean"

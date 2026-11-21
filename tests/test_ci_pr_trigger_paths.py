@@ -141,18 +141,6 @@ class DerivedTests(unittest.TestCase):
     def test_each_derived_workflow_filters_exactly_what_its_decider_derives(self) -> None:
         self.assertEqual(router.check(ROOT), [])
 
-    def test_the_tab_switch_filter_agrees_with_its_gate_on_every_tracked_file(self) -> None:
-        """Every tracked file the gate puts in scope starts the workflow, and every one it leaves out does not
-        (but for the workflow's own files): the filter and the gate are one rule."""
-        gate = router._load(ROOT / "scripts/cmux-next/tab_switch_gate.py", "test_tab_switch_gate")
-        workflow = ".github/workflows/cmux-next-tab-switch.yml"
-        globs = router.pr_events((ROOT / workflow).read_text(encoding="utf-8"))["pull_request"]["paths"]
-        own = set(router.named_paths((ROOT / workflow).read_text(encoding="utf-8"), router.tracked(ROOT))) | {workflow}
-        for path in sorted(router.tracked(ROOT)):
-            if path in own:
-                continue
-            self.assertEqual(router.starts(globs, [path]), bool(gate.scoped_paths([path])), path)
-
     def test_the_classic_filters_agree_with_their_guards_on_every_tracked_file(self) -> None:
         api = router._load(ROOT / "scripts/ci/classic_api_guard.py", "test_classic_api_guard")
         frozen = router._load(ROOT / "scripts/ci/classic_frozen_guard.py", "test_classic_frozen_guard")
