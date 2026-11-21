@@ -63,6 +63,22 @@ public struct CloudBackendOverride: Sendable, Equatable {
         return CloudBackendOverride(url: url, source: .build)
     }
 
+    /// The tag stack's mobile Worker (`cmux-next-ios/backend`) when this backend is a tag's stack:
+    /// `scripts/cmux-next/cloud-dev-stack.sh` serves the stack's API, mobile Worker and device hub on
+    /// three consecutive ports of one tailnet host, the API's first, so the API origin names the other
+    /// two (the Mac reads them from the stack's `/v1/client-config`, the same origins). Nil for the shared
+    /// development deployment and previews, whose services are the build's own.
+    public var mobileAPI: URL? { stackService(offset: 1) }
+
+    /// The tag stack's device hub (`workers/device-hub`): the API origin's port plus two (``mobileAPI``).
+    public var deviceHub: URL? { stackService(offset: 2) }
+
+    private func stackService(offset: Int) -> URL? {
+        guard let host = url.host()?.lowercased(), host.hasSuffix(".ts.net"), let port = url.port,
+              port + offset <= 65_535 else { return nil }
+        return URL(string: "https://\(host):\(port + offset)")
+    }
+
     /// How Settings > Developer and the receipt name it: `host[:port] (source)`.
     public var label: String {
         let port = url.port.map { ":\($0)" } ?? ""

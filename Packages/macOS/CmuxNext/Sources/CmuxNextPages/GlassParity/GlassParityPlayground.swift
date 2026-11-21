@@ -56,9 +56,9 @@ public final class GlassParityPlayground {
     }
 
     /// Everything a capture depends on that the playground sets itself.
-    /// How the text on the glass is rasterized, to measure which pairing matches: `standard` is AppKit's own
-    /// text beside the shipped pages' (`-webkit-font-smoothing: antialiased`); `flat` draws the native text
-    /// with font smoothing off; `smooth` lets the pages smooth theirs (`subpixel-antialiased`).
+    /// How the text on the glass is rasterized: `standard` is what the app ships (AppKit's own text beside
+    /// the pages', which follow it under `appearance.fontSmoothing` `auto`); `flat` draws both with font
+    /// smoothing off; `smooth` both with it on.
     nonisolated enum TextRendering: String, Sendable { case standard, flat, smooth }
 
     nonisolated struct Scenario: Equatable, Sendable {
