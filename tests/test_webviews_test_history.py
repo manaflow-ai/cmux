@@ -502,7 +502,12 @@ class OneBaseCheck(unittest.TestCase):
         self.assertEqual(download["pattern"], "react-apps-head-results-shard*")
         self.assertNotIn("merge-multiple", download)
         join = steps["Join the head shards' results"]
-        self.assertEqual(int(join["env"]["HEAD_SHARDS"]), len(jobs["react-apps-check-shard"]["strategy"]["matrix"]["include"]))
+        # The matrix and the join read one router output: a pull request runs shard 1 only, anything else all 12.
+        self.assertEqual(join["env"]["HEAD_SHARDS"], "${{ needs.web-subarea-scope.outputs.head_shards || '12' }}")
+        self.assertIn("needs.web-subarea-scope.outputs.shard_list", jobs["react-apps-check-shard"]["strategy"]["matrix"]["include"])
+        pick = next(s for s in jobs["web-subarea-scope"]["steps"] if s.get("name") == "Pick the head shards")["run"]
+        self.assertIn("head_shards=1", pick)
+        self.assertIn("head_shards=12", pick)
         self.assertIn('--out "$RUNNER_TEMP/head-results"', join["run"])
         self.assertNotIn("continue-on-error", join)
         self.assertLess(names.index("Join the head shards' results"), names.index("Use the merge parent as the base"))

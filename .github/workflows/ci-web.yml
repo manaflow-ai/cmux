@@ -38,6 +38,8 @@ jobs:
       actions: read
     outputs:
       db: ${{ steps.scope.outputs.db }}
+      head_shards: ${{ steps.shards.outputs.head_shards }}
+      shard_list: ${{ steps.shards.outputs.shard_list }}
       diff_sidecar: ${{ steps.scope.outputs.diff_sidecar }}
       instant: ${{ steps.scope.outputs.instant }}
       production_build: ${{ steps.scope.outputs.production_build }}
@@ -65,6 +67,25 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           WEB_SUBAREAS_BASE: ${{ inputs.push_base }}
         run: python3 scripts/ci/web_subareas.py route
+
+      # A pull request runs the head shard that carries the shard-independent checks (lint, type check, budgets) and
+      # a slice of the tests: shards 2 to 12 never caught a red that shard 1 and the base replay missed (0.00% miss
+      # over 3,078 heads, hq docs/ci/bottleneck-and-skip-candidates-2026-11-21.md), and each paid a full setup. A push
+      # to the base, a run with the `full-ci` label and any other event keep all 12, and cmux-next-web.yml runs the
+      # full suite after every landing. The shard split still divides by 12, so one shard is a twelfth of the files.
+      - name: Pick the head shards
+        id: shards
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+        run: |
+          if [ "$EVENT_NAME" = pull_request ] && [ "$FULL_CI" != true ]; then
+            echo 'head_shards=1' >> "$GITHUB_OUTPUT"
+            echo 'shard_list=[{"shard":1,"shard_count":12}]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'head_shards=12' >> "$GITHUB_OUTPUT"
+            echo "shard_list=$(python3 -c 'import json; print(json.dumps([{"shard": i, "shard_count": 12} for i in range(1, 13)], separators=(",", ":")))')" >> "$GITHUB_OUTPUT"
+          fi
 
       # The webview test shards split their files by recorded duration
       # (scripts/ci/webviews_test_shards.py). One copy of the manifest for the
@@ -465,31 +486,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - shard: 1
-            shard_count: 12
-          - shard: 2
-            shard_count: 12
-          - shard: 3
-            shard_count: 12
-          - shard: 4
-            shard_count: 12
-          - shard: 5
-            shard_count: 12
-          - shard: 6
-            shard_count: 12
-          - shard: 7
-            shard_count: 12
-          - shard: 8
-            shard_count: 12
-          - shard: 9
-            shard_count: 12
-          - shard: 10
-            shard_count: 12
-          - shard: 11
-            shard_count: 12
-          - shard: 12
-            shard_count: 12
+        include: ${{ fromJSON(needs.web-subarea-scope.outputs.shard_list || '[{"shard":1,"shard_count":12}]') }}
     steps:
       # timeout-minutes count from the job's start, not from Test webviews': its retry
       # deadline is measured from this stamp (#46488 F1: about 8 min of setup runs first).
@@ -1041,8 +1038,8 @@ jobs:
       # A shard that published no results fails the check here, as its missing download failed its own base check.
       - name: Join the head shards' results
         env:
-          # react-apps-check-shard's matrix size (tests/test_webviews_test_history.py holds them equal).
-          HEAD_SHARDS: "12"
+          # react-apps-check-shard's matrix size: web-subarea-scope's head_shards (tests/test_webviews_test_history.py).
+          HEAD_SHARDS: ${{ needs.web-subarea-scope.outputs.head_shards || '12' }}
         run: python3 scripts/ci/webviews_test_history.py heads "$RUNNER_TEMP/head-shards" --count "$HEAD_SHARDS" --out "$RUNNER_TEMP/head-results"
 
       # Every early shard's verdicts (react-apps-base-early): any shard's head reds may be any early shard's files.
