@@ -362,7 +362,10 @@ fn stdio_served(spec: &Value) -> crate::tools_mcp::Served {
 async fn each_of_acpmux_s_own_servers_answers_at_the_tool_endpoint_as_its_own_process_does() {
     let home = tempfile::tempdir().unwrap();
     let socket = home.path().join("d.sock");
-    let g = bind_at(home.path(), socket.clone(), IDLE_STOP, Duration::from_secs(60)).await.unwrap();
+    let g =
+        bind_at(home.path(), socket.clone(), IDLE_STOP, Duration::from_secs(60), KEPT_PORT_WAIT)
+            .await
+            .unwrap();
     // One chat with an allowlist on the acpmux server, one without: each answers by its own.
     let narrow = tool_specs("chat-t", &socket, Some("acpmux_ls,acpmux_send"));
     let wide = tool_specs("chat-u", &socket, None);
@@ -412,7 +415,10 @@ async fn a_tool_call_acts_as_the_session_in_its_url_and_another_chats_token_is_r
     let socket = home.path().join("d.sock");
     let scope = Arc::new(cmux_scope::Scope::new("fake daemon"));
     fake_daemon(&socket, scope.clone());
-    let g = bind_at(home.path(), socket.clone(), IDLE_STOP, Duration::from_secs(60)).await.unwrap();
+    let g =
+        bind_at(home.path(), socket.clone(), IDLE_STOP, Duration::from_secs(60), KEPT_PORT_WAIT)
+            .await
+            .unwrap();
     for session in ["chat-v", "chat-w"] {
         g.keep(session, tools_launch(home.path(), &tool_specs(session, &socket, None))).unwrap();
     }
@@ -503,4 +509,49 @@ fn a_gateway_server_is_an_http_entry_for_claude_code_and_acp() {
     assert!(crate::agent_tools::takes_http(Some(&json!({"mcpCapabilities": {"http": true}}))));
     assert!(!crate::agent_tools::takes_http(Some(&json!({"mcpCapabilities": {"http": false}}))));
     assert!(!crate::agent_tools::takes_http(None));
+}
+
+/// A take-over start binds the daemon socket first, which is what makes the daemon it replaces
+/// stop, so the kept gateway port is still held when it binds the gateway: on Leo's big-red every
+/// one of 5 daemon starts on 2026-11-21 fell back to a fresh port, and every live chat's config
+/// still named the old one, so each lost all four HTTP MCP servers until it started again. The
+/// kept port is now waited for, and given up on only when the wait runs out.
+#[tokio::test]
+async fn the_kept_port_is_waited_for_while_the_outgoing_daemon_still_holds_it() {
+    let home = tempfile::tempdir().unwrap();
+    let socket = home.path().join("d.sock");
+    let kept_file = home.path().join("run").join("mcp-gateway.json");
+    std::fs::create_dir_all(kept_file.parent().unwrap()).unwrap();
+    let keep = |port: u16| {
+        std::fs::write(&kept_file, format!(r#"{{"port":{port},"key":"{}"}}"#, "ab".repeat(32)))
+            .unwrap()
+    };
+    let bind_with = |wait: Duration| {
+        let socket = socket.clone();
+        let home = home.path().to_owned();
+        async move { bind_at(&home, socket, IDLE_STOP, Duration::from_secs(60), wait).await.unwrap() }
+    };
+
+    // The outgoing daemon lets the port go while the new one waits: the new one takes it.
+    let outgoing = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let port = outgoing.local_addr().unwrap().port();
+    keep(port);
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        drop(outgoing);
+    });
+    let gateway = bind_with(Duration::from_secs(20)).await;
+    assert_eq!(gateway.port, port, "the kept port, after waiting for the outgoing daemon");
+    drop(gateway);
+
+    // A port something else holds for good is given up on, and the gateway still comes up.
+    let stranger = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let held = stranger.local_addr().unwrap().port();
+    keep(held);
+    let gateway = bind_with(Duration::from_millis(300)).await;
+    assert_ne!(gateway.port, held, "a port still taken when the wait ran out: a free one");
+    assert_ne!(gateway.port, 0);
+    let record: Value = serde_json::from_slice(&std::fs::read(&kept_file).unwrap()).unwrap();
+    assert_eq!(record["port"], json!(gateway.port), "the port it took is the one it keeps");
+    drop(stranger);
 }
