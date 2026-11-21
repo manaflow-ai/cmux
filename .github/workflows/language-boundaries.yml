@@ -25,11 +25,6 @@ concurrency:
   group: language-boundaries-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
-env:
-  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh). It
-  # switches itself off at 2026-11-22 00:00 UTC. These runs (about 800 an hour each) had no attribution.
-  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
-
 jobs:
   language-boundaries:
     name: language-boundaries
@@ -52,7 +47,6 @@ jobs:
           sparse-checkout: |
             scripts/ci/language_boundaries.py
             .github/language-boundaries.toml
-            scripts/ci/api_call_log
           sparse-checkout-cone-mode: false
 
       - name: Check the changed files against the language boundaries
