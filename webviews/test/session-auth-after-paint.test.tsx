@@ -56,7 +56,14 @@ afterAll(async () => {
   await teardownDom(saved, { window: dom.window });
 });
 
-const tasks = () => new Promise((resolve) => setTimeout(resolve, 5));
+/// Yields one task at a time until `ready` holds: the read a painted frame schedules runs in a task
+/// after that frame, so a test waits for the read it asserts on next, never a fixed time.
+const until = async (ready: () => boolean) => {
+  for (let turn = 0; !ready(); turn++) {
+    if (turn > 1000) throw new Error("the awaited read never came");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+};
 
 test("a switched chat reads its sign-in after the frame that draws it", async () => {
   const { createRoot } = await import("react-dom/client");
@@ -75,17 +82,17 @@ test("a switched chat reads its sign-in after the frame that draws it", async ()
     await act(async () => root.render(<Probe sessionId="chat-a" />));
     await act(async () => {
       paint();
-      await tasks();
+      await until(() => reads.length === 1);
     });
     expect(reads).toEqual(["chat-a"]);
 
-    // The switch renders and commits; its sign-in read waits for the frame that shows it.
+    // The switch renders and commits; its sign-in read waits for the frame that shows it (before
+    // the change the read went out in the commit's own effect).
     await act(async () => root.render(<Probe sessionId="chat-b" />));
-    await act(tasks);
     expect(reads).toEqual(["chat-a"]);
     await act(async () => {
       paint();
-      await tasks();
+      await until(() => reads.length === 2);
     });
     expect(reads).toEqual(["chat-a", "chat-b"]);
   } finally {
@@ -109,9 +116,10 @@ test("a switch away before the frame never reads the chat it left", async () => 
   try {
     await act(async () => root.render(<Probe sessionId="chat-a" />));
     await act(async () => root.render(<Probe sessionId="chat-b" />));
+    expect(reads).toEqual([]);
     await act(async () => {
       paint();
-      await tasks();
+      await until(() => reads.includes("chat-b"));
     });
     expect(reads).toEqual(["chat-b"]);
   } finally {
