@@ -26,7 +26,7 @@ nonisolated enum AcpmuxPaneShedding {
         if method == "_acpmux/event" {
             // Its `params.kind`, read as the inbound pass reads it (``AcpmuxRequestIds/classify(_:)``).
             let facts = AcpmuxJSONKeys.facts(text)
-            return facts.verdict == .clean && !(facts.kind.map(AcpmuxRequestIds.observedEventKinds.contains) ?? true)
+            return facts.verdict == .clean && !(facts.kind.map(AcpmuxRequestIds.observedEventKinds.contains) ?? false)
         }
         return !AcpmuxRequestIds.observedNotificationMethods.contains(method)
     }

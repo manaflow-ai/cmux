@@ -67,6 +67,8 @@ struct AcpmuxFrameFactsTests {
         #expect(object == nil && method == "_acpmux/event")
         #expect(AcpmuxPaneShedding.sheddable(quoted))
         #expect(!AcpmuxPaneShedding.sheddable(#"{"method":"_acpmux/event","params":{"kind":"permission_request"}}"#))
+        // An event with no kind is no permission record: it sheds like any stream chunk.
+        #expect(AcpmuxPaneShedding.sheddable(#"{"method":"_acpmux/event","params":{"seq":3,"record":{"kind":"permission_request"}}}"#))
     }
 
     /// A `_acpmux/session_changed` the size Leo's watch feed carried (~45 KB, 2026-11-21), and a
