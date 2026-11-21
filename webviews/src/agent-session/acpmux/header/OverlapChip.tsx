@@ -62,11 +62,8 @@ export function OverlapChip({
       >
         <div className="acpmux-pr-title">{label}</div>
         <div className="acpmux-pr-facts">
-          Finish{" "}
-          {overlap.smallerSessionId === overlap.peerSessionId
-            ? overlap.peerName
-            : "the smaller change"}{" "}
-          first to keep the merge simple.
+          Finish {overlap.smallerSessionId === overlap.peerSessionId ? overlap.peerName : "the smaller change"} first to
+          keep the merge simple.
         </div>
         <ul className="acpmux-overlap-files">
           {overlap.files.map((file) => (
