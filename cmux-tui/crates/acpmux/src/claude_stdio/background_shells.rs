@@ -279,10 +279,10 @@ impl Translator {
                 .flatten()
             }
         };
-        let (call, agent) = match found {
-            Some((call, agent)) => (call, Some(agent)),
-            None if runs.len() == 1 => (runs[0].0.clone(), None),
-            None => return None,
+        let (call, agent) = match (found, runs.as_slice()) {
+            (Some((call, agent)), _) => (call, Some(agent)),
+            (None, [(call, _)]) => (call.clone(), None),
+            (None, _) => return None,
         };
         let child = self.subagents.lock().await.get(&call)?.clone();
         Some((child, agent))
