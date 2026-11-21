@@ -21,7 +21,7 @@ This pins the fat legs' wiring:
   differs (link inputs Cargo does not track: clang, lld, zig, the SDK label, the stubs);
 - the shipped builds print cargo --timings (compile vs link per unit).
 
-lane = "manual" (no new CI tests, Lawrence 2026-10-23). Run: python3 tests/test_ci_cmux_tui_fat_warm_target.py
+lane = "manual" (no new CI tests, Lawrence 2026-10-23, lifted 2026-11-18). Run: python3 tests/test_ci_cmux_tui_fat_warm_target.py
 """
 
 from __future__ import annotations

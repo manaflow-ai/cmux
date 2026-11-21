@@ -10,7 +10,8 @@ name: Cloud journey (production, hourly)
 #   passed is a made-up setup-token shape. The reply must carry the stub's nonce, every model request must carry the
 #   passed login (the credential hop), and one Bash tool call must make the round trip. No Claude secret is used.
 #   probe.json is the cmuxterm-hq probes.py row `cloud-chat-replies-production` (ok with the send-to-reply ms).
-# - real Claude, every six hours (the canary): CLAUDE_CODE_OAUTH_TOKEN and the real model.
+# - real Claude, every six hours (the canary): CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN (the journey's own login), else
+#   the repository's CLAUDE_CODE_OAUTH_TOKEN, and the real model.
 # - real Codex, every six hours (when CODEX_AUTH_JSON is set): the test account's ChatGPT device login and the real
 #   model. An unset secret records a skipped row without creating a machine.
 #
@@ -21,8 +22,8 @@ name: Cloud journey (production, hourly)
 # A red run opens one issue per agent/model row, or rewrites the open one's body; the next green run of that row closes it.
 # Secrets: the production agent test account, CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD in the cmux-next-cloud-journey
 # environment (they shadow the repository's pair, the dev Stack account, which production rejects), and for the real
-# model the repository's CLAUDE_CODE_OAUTH_TOKEN. The staging preclaim below runs in cmux-next-vm-image-dev with that
-# environment's staging pair and the same Claude token; production names stay intact.
+# model CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN (same environment), else the repository's CLAUDE_CODE_OAUTH_TOKEN. The staging preclaim below runs in cmux-next-vm-image-dev with that
+# environment's staging pair and the repository's Claude token; production names stay intact.
 # They reach the one run step through env; the journey sends them only in headers and request bodies and scrubs them
 # from its output.
 #
@@ -36,7 +37,7 @@ on:
   workflow_dispatch:
     inputs:
       model:
-        description: stub (no Claude secret) or real (CLAUDE_CODE_OAUTH_TOKEN)
+        description: stub (no Claude secret) or real (the journey's Claude login, else CLAUDE_CODE_OAUTH_TOKEN)
         type: choice
         options: [stub, real]
         default: stub
@@ -87,7 +88,7 @@ jobs:
           - agent: codex
             model: real
             schedule: "47 */6 * * *"
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # The cmux-tui build (warm from the rust cache) comes before the journey's own 25 minutes.
     timeout-minutes: 60
     environment:
@@ -158,7 +159,10 @@ jobs:
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ matrix.agent == 'claude' && matrix.model == 'real' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
+          # The journey's own Claude login first (a cmux-next-cloud-journey environment secret, as backend.yml's
+          # journey-production reads it): the repository's CLAUDE_CODE_OAUTH_TOKEN is shared with claude.yml and
+          # its weekly limit turned the real leg into skips (run 44649399953). Falls back while it is not set.
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ matrix.agent == 'claude' && matrix.model == 'real' && (secrets.CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN || secrets.CLAUDE_CODE_OAUTH_TOKEN) || '' }}
           CODEX_AUTH_JSON: ${{ matrix.agent == 'codex' && secrets.CODEX_AUTH_JSON || '' }}
           AGENT: ${{ matrix.agent }}
           MODEL: ${{ matrix.model }}
@@ -190,7 +194,7 @@ jobs:
           path: ${{ runner.temp }}/cloud-journey
           if-no-files-found: ignore
           retention-days: 3
-      # One issue per model: opened on the first red, its body rewritten on later reds (no comment per hour), closed
+      # One issue per row (agent and model): opened on the first red, its body rewritten on later reds (no comment per hour), closed
       # by the next green. A timed-out or cancelled journey counts as red. Only main's own runs touch it.
       - name: Open, update or close the red-journey issue
         if: always() && env.SELECTED == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
@@ -198,8 +202,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           OUTCOME: ${{ steps.journey.outcome }}
-          MODEL: ${{ matrix.agent }} ${{ matrix.model }}
-          AGENT: ${{ matrix.agent }}
+          # Claude rows keep their earlier labels ("stub model", "real model"), so an issue already open under that
+          # title is still the one a green run closes; the Codex row is "codex, real model".
+          MODEL: ${{ matrix.agent == 'claude' && format('{0} model', matrix.model) || format('{0}, {1} model', matrix.agent, matrix.model) }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail

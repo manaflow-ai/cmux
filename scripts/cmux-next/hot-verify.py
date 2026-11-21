@@ -1654,15 +1654,10 @@ def _ci_client() -> str:
     return ci
 
 
-def why_failed(text: str | None, limit: int) -> str:
-    """The last `limit` characters of a failed step's output, or a note that it printed nothing."""
-    return (text or "").strip()[-limit:] or "no output"
-
-
 def _ci_run(argv: list[str], cwd: Path | None = None, timeout: int = APPLY_SECONDS) -> subprocess.CompletedProcess:
     done = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, errors="replace", timeout=timeout)
     if done.returncode != 0:
-        detail = why_failed(done.stderr or done.stdout, 500)
+        detail = why_failed(done.stderr or done.stdout, 500) or "no output"
         raise LookError(f"{' '.join(argv[1:])}: {detail}")
     return done
 
@@ -1692,7 +1687,7 @@ def build_swift_app(repo: Path, planned: dict, source: str, out: Path) -> Path:
     try:
         job = str(json.loads(submitted.stdout)["id"])
     except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
-        raise LookError(f"cmux-ci build returned no job id: {why_failed(submitted.stdout, 300)}") from error
+        raise LookError(f"cmux-ci build returned no job id: {why_failed(submitted.stdout, 300) or 'no output'}") from error
     log(f"fleet app build {job} for {planned['head'][:12]}")
     _ci_run([ci, "wait", "--timeout", str(APPLY_SECONDS), job], cwd=tree, timeout=APPLY_SECONDS + 30)
     bundle = out / "fleet-bundle"
@@ -1707,7 +1702,7 @@ def build_swift_app(repo: Path, planned: dict, source: str, out: Path) -> Path:
         # ditto preserves the executable modes and framework symlinks in macOS app archives.
         _ci_run(["ditto", "-x", "-k", str(archive), str(bundle)], cwd=tree)
     elif artifact.returncode != 0:
-        raise LookError(f"cmux-ci artifact {job}: {why_failed(artifact.stderr or artifact.stdout, 500)}")
+        raise LookError(f"cmux-ci artifact {job}: {why_failed(artifact.stderr or artifact.stdout, 500) or 'no output'}")
     return _artifact_app(bundle)
 
 
@@ -1754,10 +1749,11 @@ def command_run(args) -> int:
                 scratch = None
                 raise
         with phases("side"):
-            # A fresh clone per try: the last one, its dev server too, goes first.
+            # A fresh clone per try: the last one, its dev server too, goes first. Its own Cloud session stays
+            # (side-instance.sh remove --keep-sign-in): a person signs a copy in once, not every try.
             if side.exists():
                 side.stop()
-                side.run("remove", timeout=300)
+                side.run("remove", "--keep-sign-in", timeout=300)
             make = ["make", "--from", str(built_app or the_app), "--label", args.label or f"cmux {side.name}"]
             side.run(*make, timeout=600)
             side.remember(try_source=args.source, try_repo=str(repo), try_head=planned["head"],

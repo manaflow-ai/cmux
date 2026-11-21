@@ -71,14 +71,33 @@ def key(front):
     return ("home",) if is_home(front) else ("tab", (front or {}).get("workspace"), (front or {}).get("tab"))
 
 
+def unreadable(front):
+    """Why `front` names nothing a launch could reopen, or None. A window with no workspace, no tab and no Home in
+    front is no front: the app never loaded its daemon's tree. cmux#47182's A/B (2026-11-20): the head arm's daemon
+    never connected, every launch read {"tab": null, "workspace": null}, and equal nulls passed as reopened 5/5."""
+    if not front or "error" in front:
+        return str((front or {}).get("error") or "none read")
+    if not is_home(front) and not front.get("tab") and not front.get("workspace"):
+        return "no workspace, tab or Home in front: " + json.dumps(front, sort_keys=True)
+    return None
+
+
 def describe(front):
     k = key(front)
     return "Home" if k == ("home",) else f"workspace={k[1]} tab={k[2]}"
 
 
+# What a person sees of a tab: a terminal frame or the launch snapshot's windows. The window's own regions
+# (reveal.sidebar, reveal.tabs, reveal.pane) ready before Home's page in a fresh window too: they hold Home.
+TAB_DRAWN = ("launch_snapshot_shown", "first_terminal_frame", "launch.visible_terminals_drawn")
+
+
 def first_surface(row):
-    """What the launch showed first: home or tabs (a pane, restored tabs, the launch snapshot's windows), or none."""
+    """What the launch showed first: home or tabs (a terminal, restored tabs, the launch snapshot's windows), or none."""
     first, marks = row.get("first_reveal"), row.get("marks") or {}
+    home = marks.get("reveal.home", marks.get("home.first_page"))
+    if home is not None:
+        return "tabs" if any(marks.get(k, home) < home for k in TAB_DRAWN) else "home"
     if first:
         return "home" if first == "home" else "tabs"
     if "launch_snapshot_shown" in marks:
@@ -97,11 +116,11 @@ def judge(row, expect, prev):
         if first_surface(row) == "tabs":
             return f"on a tab with no saved state: first_reveal={row.get('first_reveal') or 'none'}"
         return None if "window_usable" in marks else "no window_usable: Home's message field never took keys"
-    if not front or "error" in front:
-        return "no front: " + str((front or {}).get("error") or row.get("error") or "none read")
+    if unreadable(front):
+        return "no front: " + str(row.get("error") if not front and row.get("error") else unreadable(front))
     if expect == "home":
         return None if is_home(front) else "on " + describe(front) + ", want Home"
-    if not prev or "error" in prev:
+    if unreadable(prev):
         return "no front for the launch before"
     if expect == "own" and "launch_snapshot_shown" in marks:
         return "drew windows from a foreign launch snapshot (launch_snapshot_shown)"
@@ -161,7 +180,7 @@ def summarize(rows, case="kept", seeded="", keys=False):
             prime = next((r for r in own if r["label"] == "prime"), {})
             anchor = prime.get("front")
             anchor_drew_home = "home.first_page" in (prime.get("marks") or {})
-            if not anchor or "error" in anchor or key(anchor)[0] != ("home" if seeded == "home" else "tab"):
+            if unreadable(anchor) or key(anchor)[0] != ("home" if seeded == "home" else "tab"):
                 print("LR-FAIL", side, "prime", f"front={seeded} not seeded: front " + json.dumps(anchor, sort_keys=True), flush=True)
                 failed.append("prime")
         # kept, cold, foreign: nothing between launches moves the front, so every launch after the priming one (or the
@@ -171,10 +190,12 @@ def summarize(rows, case="kept", seeded="", keys=False):
         # not judged at all: comparing with the launch before instead is the same blind spot.
         anchored = not seeded and case in PRIME_ANCHORED
         for r in own:
-            if anchored and r["label"] in ("prime", "seed"):
+            # The stress3 seed sets the front every later launch must reopen, with front= too: it makes the session
+            # and leaves its last workspace's tab (front=tab) in front, so the prime's front is no longer the anchor.
+            if (anchored and r["label"] in ("prime", "seed")) or (seeded and r["label"] == "seed"):
                 front = r.get("front")
-                if not front or "error" in front:
-                    not_judged = f"{r['label']} front unreadable: " + str((front or {}).get("error") or "none read")
+                if unreadable(front):
+                    not_judged = f"{r['label']} front unreadable: " + unreadable(front)
                     anchor = None
                 else:
                     anchor, not_judged = front, None
@@ -192,8 +213,8 @@ def summarize(rows, case="kept", seeded="", keys=False):
                 front, before = r.get("front"), None if case == "fresh" else (anchor if seeded else prev)
                 if anchored:
                     reason = None if not_judged else judge_against_anchor(r, expect, anchor, anchor_drew_home)
-                elif (expect != "home" and not seeded and not r.get("cross_arm") and front and "error" not in front
-                        and (not before or "error" in before)):
+                elif (expect != "home" and not seeded and not r.get("cross_arm") and not unreadable(front)
+                        and unreadable(before)):
                     skipped, reason = skipped + 1, None
                     print("LR-SKIP", side, r["label"], f"{prev_label or 'the launch before'} left no readable front:",
                           str((before or {}).get("error") or "none read"), flush=True)
