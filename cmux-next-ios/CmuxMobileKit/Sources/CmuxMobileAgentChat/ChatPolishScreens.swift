@@ -313,7 +313,7 @@ struct EventInspectorScreen: View {
     private func summary(shown: Int, total: Int, dropped: Int, filtering: Bool) -> String {
         var text = shown == total ? String(localized: "\(total) events") : String(localized: "\(shown) of \(total) events")
         if dropped > 0 { text += " · " + String(localized: "\(dropped) older dropped") }
-        if filtering { text += " · " + String(localized: "Filtering…") }
+        if filtering { text += " · " + String(localized: "mobile.agentChat.inspector.filtering", defaultValue: "Filtering…", bundle: .module) }
         return text
     }
 }

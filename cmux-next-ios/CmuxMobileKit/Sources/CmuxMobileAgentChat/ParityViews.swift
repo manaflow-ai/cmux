@@ -259,7 +259,7 @@ struct SubagentTranscriptScreen: View {
                     }
                     HStack(spacing: 8) {
                         SubagentStateGlyph(state: offline ? .disconnected : agent.state)
-                        Text(offline ? String(localized: "Mac offline") : agent.state == .running ? (agent.action ?? "Working") : agent.state.label)
+                        Text(offline ? String(localized: "mobile.agentChat.subagent.macOffline", defaultValue: "Mac offline", bundle: .module) : agent.state == .running ? (agent.action ?? "Working") : agent.state.label)
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                             .accessibilityIdentifier("chat.subagent.footer")
