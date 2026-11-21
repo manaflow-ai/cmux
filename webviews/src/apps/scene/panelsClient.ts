@@ -9,7 +9,7 @@ export type MountContext = { session_id: string; cwd?: string; branch?: string; 
 /** A New Tab widget's mount context (`cmux.newtab.widget/1`): the page, not a chat. */
 export type NewTabMountContext = { surface: "newTab" };
 /** Where a mount shows (`cmux.apps.panels.mount {surface}`); the host resolves the app's implementation for it. */
-export type MountSurface = "pane" | "sidebarSection" | "hoverCard" | "sessionInfoSection" | "newTab";
+export type MountSurface = "pane" | "sidebarSection" | "hoverCard" | "sessionInfoSection" | "newTab" | "widget";
 /** The scene stream's three events: an ops batch, the mount's status (`loading`, `ready`,
  * `failed {reason}`, `disconnected {reason}`), or its kept view's refused save (`reload_failure`:
  * the app's last saved script did not load; `null` once a scene of one that loaded replaces it). */

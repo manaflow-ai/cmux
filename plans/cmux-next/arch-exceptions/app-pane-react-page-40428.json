@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-21",
+  "row": "app_lines",
+  "allow": 13,
+  "why": "#40428 moves the app-pane page composition adapter into CmuxNextApp so the native app owns the page route, host context, and pane lifecycle while the React scene remains in the page package. Keeping this glue at the App boundary avoids moving app-owned routing and lifecycle dependencies into the renderer.",
+  "author": "Codex",
+  "owner": "app-pane React page owner (#40428)",
+  "receipt": "Review (claude-opus-5-5): SHIP at b0c1689570188c76ad375173efb5a54edf47e62e",
+  "expiry": "2026-12-21"
+}
