@@ -14,5 +14,9 @@ serde_json.workspace = true
 [build-dependencies]
 serde_json.workspace = true
 
+[dev-dependencies]
+tempfile = "3"
+wait-timeout.workspace = true
+
 [lints]
 workspace = true
