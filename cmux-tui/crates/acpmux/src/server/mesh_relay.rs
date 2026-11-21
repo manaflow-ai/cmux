@@ -758,7 +758,7 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
     if matches!(op, crate::mesh_relay_config::MOVE_OP | crate::mesh_relay_config::MOVE_FORGET_OP) {
         let source = message.from.daemon_id.as_deref().unwrap_or_default();
         let answered = if op == crate::mesh_relay_config::MOVE_OP {
-            hub.transfer_pull(source, message.from.host.as_deref(), &body).await
+            hub.transfer_pull_op(source, message.from.host.as_deref(), &body).await
         } else {
             hub.transfer_pull_forget(&body).await
         };

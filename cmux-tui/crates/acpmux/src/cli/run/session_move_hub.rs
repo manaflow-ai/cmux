@@ -11,6 +11,7 @@
 //! refusal gives the chat back. No answer in time leaves it frozen: the move's watch asks the
 //! target (`move_forget`) and ends it either way. `--carry-changes` does not go through the hub.
 
+use super::super::transfer::{Staged, refused_as};
 use super::*;
 
 pub(super) async fn run(
@@ -139,60 +140,15 @@ async fn steps(
         });
         return Ok(());
     }
-    let to = json!({"hub": daemon, "host": host});
-    let begun =
-        super::super::transfer::begin_move(src, &id, Some(to), (args.interrupt, args.after_turn))
-            .await?;
-    let made = async {
-        // Read again now that the chat is frozen: it may have changed before the freeze.
-        let checkout = checkout_unless_named(&cwd, args, &Source::Here).await?;
-        let folder = plan::plan_folder(
-            &cwd,
-            &home,
-            checkout.as_ref(),
-            &home_text,
-            leave_dirty,
-            args.cwd.as_deref(),
-        )
-        .map_err(|e| anyhow!(e))?;
-        let mut sent = json!({"sessionId": id, "transferId": begun.transfer_id,
-                              "epoch": begun.epoch, "manifest": begun.begin,
-                              "folder": folder_value(&folder, &home, args.cwd.is_some())?});
-        if let (Folder::Worktree { branch, dirty, .. }, Some(c)) = (&folder, &checkout) {
-            let commit = tokio::task::spawn_blocking({
-                let (top, branch) = (c.top.clone(), branch.clone());
-                move || push_branch(&top, &branch)
-            })
-            .await??;
-            sent["branch"] = json!(branch);
-            sent["commit"] = json!(commit);
-            if *dirty {
-                sent["uncommittedLeftOn"] = json!(crate::pairing::machine_name());
-            }
+    // Pre-copied when the target takes a stage over the hub: the freeze then carries only the
+    // log's tail. A target that lost the stage refuses the move as unstaged: made again in full.
+    let staged = precopy(src, &id, daemon).await;
+    let moving = Moving { src, id: &id, args, home: &home, home_text: &home_text, cwd: &cwd };
+    let (sent, answer) = match moving.run(daemon, host, staged.as_ref()).await {
+        Err(e) if staged.is_some() && refused_as(&e, "transfer.unstaged") => {
+            moving.run(daemon, host, None).await?
         }
-        Ok::<Value, anyhow::Error>(sent)
-    }
-    .await;
-    let sent = match made {
-        Ok(sent) => sent,
-        Err(e) => {
-            super::super::transfer::abort_move(src, &id, &begun).await;
-            return Err(e);
-        }
-    };
-    let answer = match src.request("_acpmux/transfer_hub", sent.clone()).await {
-        Ok(answer) => answer,
-        Err(e) => {
-            let data =
-                e.downcast_ref::<crate::client::DaemonError>().and_then(|d| d.0.data.clone());
-            if data.as_ref().is_some_and(|d| d["refused"] == true) {
-                super::super::transfer::abort_move(src, &id, &begun).await;
-                return Err(e);
-            }
-            bail!(
-                "{e:#}; the chat stays frozen here until {host} answers (its move ends on its own if it never does)"
-            );
-        }
+        done => done?,
     };
     let moved = &answer["moved"];
     let mut to_meta = json!({"host": host, "via": "hub", "daemonId": daemon,
@@ -205,14 +161,113 @@ async fn steps(
     }
     src.request(
         "_acpmux/transfer_commit",
-        json!({"sessionId": id, "transferId": begun.transfer_id, "to": to_meta,
-               "epoch": begun.epoch}),
+        json!({"sessionId": id, "transferId": sent["transferId"], "to": to_meta,
+               "epoch": sent["epoch"]}),
     )
     .await?;
     o.moved = true;
     o.cwd = moved["cwd"].as_str().map(str::to_owned);
     o.there = moved["sessionId"].as_str().map(str::to_owned);
     Ok(())
+}
+
+/// What one chat's move needs to be made: the chat, its folder, and the move's flags.
+struct Moving<'a> {
+    src: &'a Client,
+    id: &'a str,
+    args: &'a MoveArgs,
+    home: &'a Path,
+    home_text: &'a str,
+    cwd: &'a Path,
+}
+
+/// The chat's history staged on the hub target `daemon` before the freeze, when it can be; None
+/// (a whole move) on any failure, an old target included (it refuses the stage).
+async fn precopy(src: &Client, id: &str, daemon: &str) -> Option<Staged> {
+    let status = src.request(method::MUX_STATUS, json!({})).await.ok()?;
+    if !super::super::transfer::lists_precopy(&status, "/capabilities") {
+        return None;
+    }
+    let ask = json!({"sessionId": id, "stage": {"daemon": daemon}});
+    let staged = src.request("_acpmux/transfer_hub", ask).await.ok()?;
+    Some(Staged {
+        prepare_id: staged["prepareId"].as_str()?.to_owned(),
+        after_seq: staged["afterSeq"].as_u64()?,
+        stage_id: staged["stageId"].as_str()?.to_owned(),
+    })
+}
+
+impl Moving<'_> {
+    /// Freezes the chat (after `staged`, when the source still holds it as staged), sends op
+    /// `move` and waits for the target's answer: the request sent and its answer. A refusal or a
+    /// failure before the send gives the chat back.
+    async fn run(
+        &self,
+        daemon: &str,
+        host: &str,
+        staged: Option<&Staged>,
+    ) -> Result<(Value, Value)> {
+        let Moving { src, id, args, home, home_text, cwd } = *self;
+        let (id, leave_dirty) = (id.to_owned(), args.leave_dirty);
+        let to = json!({"hub": daemon, "host": host});
+        let running = (args.interrupt, args.after_turn);
+        let begun =
+            super::super::transfer::begin_staged(src, &id, Some(to), running, staged).await?;
+        let made = async {
+            // Read again now that the chat is frozen: it may have changed before the freeze.
+            let checkout = checkout_unless_named(cwd, args, &Source::Here).await?;
+            let folder = plan::plan_folder(
+                cwd,
+                home,
+                checkout.as_ref(),
+                home_text,
+                leave_dirty,
+                args.cwd.as_deref(),
+            )
+            .map_err(|e| anyhow!(e))?;
+            let mut sent = json!({"sessionId": id, "transferId": begun.transfer_id,
+                                  "epoch": begun.epoch, "manifest": begun.begin,
+                                  "folder": folder_value(&folder, home, args.cwd.is_some())?});
+            if let Some(stage_id) = &begun.stage_id {
+                sent["stageId"] = json!(stage_id);
+            }
+            if let (Folder::Worktree { branch, dirty, .. }, Some(c)) = (&folder, &checkout) {
+                let commit = tokio::task::spawn_blocking({
+                    let (top, branch) = (c.top.clone(), branch.clone());
+                    move || push_branch(&top, &branch)
+                })
+                .await??;
+                sent["branch"] = json!(branch);
+                sent["commit"] = json!(commit);
+                if *dirty {
+                    sent["uncommittedLeftOn"] = json!(crate::pairing::machine_name());
+                }
+            }
+            Ok::<Value, anyhow::Error>(sent)
+        }
+        .await;
+        let sent = match made {
+            Ok(sent) => sent,
+            Err(e) => {
+                super::super::transfer::abort_move(src, &id, &begun).await;
+                return Err(e);
+            }
+        };
+        match src.request("_acpmux/transfer_hub", sent.clone()).await {
+            Ok(answer) => Ok((sent, answer)),
+            Err(e) => {
+                let data =
+                    e.downcast_ref::<crate::client::DaemonError>().and_then(|d| d.0.data.clone());
+                if data.as_ref().is_some_and(|d| d["refused"] == true) {
+                    super::super::transfer::abort_move(src, &id, &begun).await;
+                    return Err(e);
+                }
+                bail!(
+                    "{e:#}; the chat stays frozen here until {host} answers (its move ends on its own if it never does)"
+                );
+            }
+        }
+    }
 }
 
 #[cfg(test)]

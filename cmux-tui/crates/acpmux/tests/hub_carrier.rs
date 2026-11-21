@@ -2073,6 +2073,56 @@ async fn hub_carrier_a_moves_pages_reach_only_the_machine_it_moves_to() {
 /// the move began. No connection between A and B but the relay's.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn hub_carrier_a_chat_moves_whole_over_the_relay_and_runs_on_the_target() {
+    let whole = move_over_relay(false).await;
+    assert!(whole.pages >= 3, "{whole:?}");
+}
+
+/// The same move, pre-copied (`hub/transfer_hub_precopy.rs`): B stages the history over the
+/// relay before the freeze, and only the log's tail crosses it inside the freeze. The harness
+/// is [`move_over_relay`]'s, run both ways. The chat's history lands once and the queued prompt
+/// runs once, as in the whole move.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_pre_copied_chat_moves_only_its_tail_inside_the_freeze() {
+    let whole = move_over_relay(false).await;
+    let copied = move_over_relay(true).await;
+    eprintln!(
+        "hub move freeze, whole vs pre-copied: bundle {} B vs {} B, pages paged inside the freeze \
+         {} ({} B, {} ms) vs {} ({} B, {} ms), freeze {} ms vs {} ms (pre-copy before it: {} ms)",
+        whole.bundle,
+        copied.bundle,
+        whole.pages,
+        whole.page_bytes,
+        whole.pages_ms,
+        copied.pages,
+        copied.page_bytes,
+        copied.pages_ms,
+        whole.freeze_ms,
+        copied.freeze_ms,
+        copied.staging_ms
+    );
+    assert!(whole.bundle > 1 << 20, "{whole:?}");
+    assert!(copied.bundle * 20 < whole.bundle, "the freeze's bundle is the tail: {copied:?}");
+    assert!(copied.page_bytes * 20 < whole.page_bytes, "{copied:?} vs {whole:?}");
+    assert!(copied.pages < whole.pages, "{copied:?} vs {whole:?}");
+    assert!(copied.carried_in_freeze * 20 < whole.carried_in_freeze, "{copied:?} vs {whole:?}");
+    // The history crossed the relay once, before the freeze.
+    assert!(copied.staged_carried >= whole.bundle / 2, "{copied:?} vs {whole:?}");
+}
+
+/// What one move over the relay measured, from its freeze (the begin) to its commit.
+#[derive(Debug)]
+struct MoveRun {
+    bundle: u64,
+    pages: u64,
+    page_bytes: u64,
+    pages_ms: u64,
+    freeze_ms: u128,
+    carried_in_freeze: u64,
+    staged_carried: u64,
+    staging_ms: u128,
+}
+
+async fn move_over_relay(precopy: bool) -> MoveRun {
     use acpmux::mesh::{ControlHook as _, InMessage};
     use acpmux::mesh_http::MeshControlFrom;
     use acpmux::server::mesh_relay::MeshControlHook;
@@ -2174,29 +2224,57 @@ async fn hub_carrier_a_chat_moves_whole_over_the_relay_and_runs_on_the_target() 
     ca.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-after" && p["queued"] == true)
         .await;
 
+    let control = |message_id: &str, body: &Value| -> InMessage {
+        serde_json::from_value(json!({
+            "messageId": message_id, "kind": "control", "op": "move", "mode": "now",
+            "to": {"daemonId": b_key},
+            "from": {"daemonId": a_key, "user": "user-1", "host": "machine-a"},
+            "body": body.to_string(),
+        }))
+        .unwrap()
+    };
+    // Pre-copy: A prepares the history for B and B stages it over the relay, the chat running.
+    let (mut begin_params, mut stage_id) = (Value::Null, None);
+    let (staging_started, staged_before) =
+        (tokio::time::Instant::now(), proxy.bytes.load(Ordering::SeqCst));
+    if precopy {
+        let prepared = ca
+            .call("_acpmux/transfer_hub", json!({"sessionId": id, "prepare": {"daemon": b_key}}))
+            .await;
+        let body = json!({"version": 1, "sessionId": id, "stage": {"manifest": prepared}});
+        let stage = control("m-relay-stage", &body);
+        let ack = within("B's stage over the relay", hook.control(&b, &stage)).await;
+        let ack = serde_json::to_value(ack.expect("an answer within the hook's wait")).unwrap();
+        assert_eq!(ack["state"], "delivered", "{ack}");
+        let staged: Value = serde_json::from_str(ack["result"].as_str().unwrap()).unwrap();
+        stage_id = staged["stageId"].as_str().map(str::to_owned);
+        assert!(stage_id.is_some(), "{staged}");
+        begin_params =
+            json!({"prepareId": prepared["prepareId"], "afterSeq": prepared["afterSeq"]});
+    }
+    let staging_ms = if precopy { staging_started.elapsed().as_millis() } else { 0 };
+    let staged_carried =
+        if precopy { proxy.bytes.load(Ordering::SeqCst) - staged_before } else { 0 };
     let started = tokio::time::Instant::now();
-    let begin = ca
-        .call(
-            "_acpmux/transfer_begin",
-            json!({"sessionId": id, "interrupt": true, "gatesQueueApproval": true,
-                   "to": {"hub": b_key, "host": "machine-b"}}),
-        )
-        .await;
+    let mut begin_request = json!({"sessionId": id, "interrupt": true, "gatesQueueApproval": true,
+                                   "to": {"hub": b_key, "host": "machine-b"}});
+    if let Some(extra) = begin_params.as_object() {
+        begin_request.as_object_mut().unwrap().extend(extra.clone());
+    }
+    let begin = ca.call("_acpmux/transfer_begin", begin_request).await;
+    assert_eq!(begin.get("prefix").is_some(), precopy, "{begin}");
     let began = started.elapsed();
     let bundle: u64 = begin["files"]
         .as_array()
         .map(|files| files.iter().filter_map(|f| f["size"].as_u64()).sum())
         .unwrap_or(0);
-    assert!(bundle > 1 << 20, "the history spans more than one page: {begin}");
-    let body = json!({"version": 1, "transferId": begin["transferId"], "sessionId": id,
-                      "manifest": begin, "folder": {"cwd": root_text}});
-    let message: InMessage = serde_json::from_value(json!({
-        "messageId": "m-relay-1", "kind": "control", "op": "move", "mode": "now",
-        "to": {"daemonId": b_key},
-        "from": {"daemonId": a_key, "user": "user-1", "host": "machine-a"},
-        "body": body.to_string(),
-    }))
-    .unwrap();
+    assert!(precopy || bundle > 1 << 20, "the history spans more than one page: {begin}");
+    let mut body = json!({"version": 1, "transferId": begin["transferId"], "sessionId": id,
+                          "manifest": begin, "folder": {"cwd": root_text}});
+    if let Some(stage_id) = &stage_id {
+        body["stageId"] = json!(stage_id);
+    }
+    let message = control("m-relay-1", &body);
     let carried_before = proxy.bytes.load(Ordering::SeqCst);
     let pull_started = tokio::time::Instant::now();
     let ack = within("B's pull over the relay", hook.control(&b, &message)).await;
@@ -2209,6 +2287,7 @@ async fn hub_carrier_a_chat_moves_whole_over_the_relay_and_runs_on_the_target() 
     assert_eq!(moved["cwd"], root_text.as_str(), "{moved}");
     // Every page crossed the relay: what it carried is at least the bundle.
     assert!(carried >= bundle, "the relay carried {carried} B of a {bundle} B bundle");
+    let moved_timings = moved["timings"].clone();
 
     let commit_started = tokio::time::Instant::now();
     let to = json!({"host": "machine-b", "via": "hub", "sessionId": id, "cwd": moved["cwd"]});
@@ -2221,11 +2300,12 @@ async fn hub_carrier_a_chat_moves_whole_over_the_relay_and_runs_on_the_target() 
     let commit = commit_started.elapsed();
     assert_eq!(committed["committed"], true, "{committed}");
     let split = &moved["timings"];
-    assert!(split["pages"].as_u64().is_some_and(|n| n >= 3), "{moved}");
+    let freeze = started.elapsed();
     eprintln!(
-        "hub move over the relay: bundle {bundle} B, relay carried {carried} B, begin {} ms, \
+        "hub move over the relay{}: bundle {bundle} B, relay carried {carried} B, begin {} ms, \
          pull+import {} ms (circuit open {} ms, {} pages {} ms, import {} ms), commit {} ms, \
          freeze {} ms",
+        if precopy { " (pre-copied)" } else { "" },
         began.as_millis(),
         pulled.as_millis(),
         split["dialMs"],
@@ -2270,4 +2350,14 @@ async fn hub_carrier_a_chat_moves_whole_over_the_relay_and_runs_on_the_target() 
     let left = ca.call(method::MUX_INFO, json!({"sessionId": id})).await;
     assert_eq!(left["status"], "closed", "{left}");
     let _ = std::fs::remove_dir_all(&root);
+    MoveRun {
+        bundle,
+        pages: moved_timings["pages"].as_u64().unwrap_or(0),
+        page_bytes: moved_timings["pageBytes"].as_u64().unwrap_or(0),
+        pages_ms: moved_timings["pagesMs"].as_u64().unwrap_or(0),
+        freeze_ms: freeze.as_millis(),
+        carried_in_freeze: carried,
+        staged_carried,
+        staging_ms,
+    }
 }
