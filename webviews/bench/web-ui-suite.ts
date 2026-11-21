@@ -155,14 +155,14 @@ export const BENCHES: readonly Bench[] = [
     ownPart: true,
   },
   // Its 20 chats grown live to 100k rows each (about 28 minutes on a 4-vCPU runner): perf-cron.py's web-ui-flat-grown
-  // part, under that part's 30-minute run cap. Its windows are 5 s (three of each kind, as in the main part) so the
+  // part, under that part's 45-minute run cap (its run_seconds). Its windows are 5 s (three of each kind, as in the main part) so the
   // repeats fit under that cap.
   {
     name: "chat-100k-flat-grown",
     file: "chat-100k-flat.bench.ts",
     args: ["100000", "20"],
     env: { CASES: "grown-many", IDLE_S: "5", STREAM_S: "5" },
-    timeoutMs: 1_770_000,
+    timeoutMs: 2_640_000,
     ownPart: true,
   },
   // Composer typing under load (CMUX-571, Leo 2026-11-16: "but typing under load is not good enough"): 500 keys
