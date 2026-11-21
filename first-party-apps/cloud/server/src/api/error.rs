@@ -30,6 +30,10 @@ pub mod codes {
     pub const MEMBER_BUDGET_REACHED: &str = "cmux.cloud.member_budget_reached";
     /// `cloud.provider.unavailable` (retryable).
     pub const PROVIDER_UNAVAILABLE: &str = "cmux.cloud.provider_unavailable";
+    /// `cloud.surge.unavailable`: the team's Surge is unavailable.
+    pub const SURGE_UNAVAILABLE: &str = "cmux.cloud.surge_unavailable";
+    /// `cloud.surge.capacity`: the requested Surge capacity is unavailable.
+    pub const SURGE_CAPACITY: &str = "cmux.cloud.surge_capacity";
     /// `cloud.machine.not_bound`: still provisioning, no host yet.
     pub const NOT_BOUND: &str = "cmux.cloud.not_bound";
     /// `cloud.machine.paused`.
@@ -121,6 +125,8 @@ const WIRE_CODES: &[(&str, &str)] = &[
     ("cloud.spend_cap.reached", codes::SPEND_CAP_REACHED),
     ("cloud.member_budget.reached", codes::MEMBER_BUDGET_REACHED),
     ("cloud.provider.unavailable", codes::PROVIDER_UNAVAILABLE),
+    ("cloud.surge.unavailable", codes::SURGE_UNAVAILABLE),
+    ("cloud.surge.capacity", codes::SURGE_CAPACITY),
     ("cloud.machine.not_bound", codes::NOT_BOUND),
     ("cloud.machine.paused", codes::MACHINE_PAUSED),
     ("cloud.migration.unavailable", codes::MIGRATION_UNAVAILABLE),
