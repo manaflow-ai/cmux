@@ -39,6 +39,7 @@ button.acpmux-git-primary text 2.21
 button.acpmux-git-tool text 2.22
 button.acpmux-harness-action.is-primary text 4.10
 button.acpmux-harness-status__copy-all text 3.65
+button.acpmux-harness-updates-all text 4.10
 button.acpmux-hat-questions__quiet text 1.85
 button.acpmux-header-tool icon 1.85
 button.acpmux-header-tool.acpmux-header-panel-toggle icon 2.19
@@ -86,7 +87,8 @@ button.acpmux-tour-offer-take icon 1.85
 button.acpmux-tray-pull__tab icon 1.87
 button.acpmux-trust-ask-action.acpmux-trust-ask-primary text 3.98
 button.acpmux-unavailable-action text 3.79
-button.acpmux-workflow-agent__button.acpmux-workflow-agent__button--detail icon 2.20
+button.acpmux-workflow-agent__button.acpmux-workflow-agent__button--detail icon 1.85
+button.acpmux-workflow-agent__disclosure icon 1.85
 button.apps-button.apps-button-subtle text 2.57
 button.bm-more icon 2.19
 button.chrome-sidebar-toggle text 1.59
@@ -120,12 +122,13 @@ button.cv-disclosure__toggle text 2.50
 button.cv-disclosure__toggle.is-status icon 1.85
 button.cv-expand-row.cv-user__more text 4.07
 button.cv-held__approve text 4.10
-button.cv-iconbtn.cv-codeblock__action icon 2.53
+button.cv-iconbtn.cv-codeblock__action icon 2.03
 button.cv-iconbtn.cv-codeblock__action.cv-codeblock__action--text text 3.92
 button.cv-iconbtn.cv-iconbtn--compact icon 1.56
 button.cv-iconbtn.cv-iconbtn--compact.cv-fork-button icon 1.70
 button.cv-iconbtn.cv-iconbtn--compact.cv-message-pin icon 2.73
 button.cv-iconbtn.cv-iconbtn--compact.cv-read-aloud icon 1.56
+button.cv-iconbtn.cv-iconbtn--compact.cv-turn-error__dismiss icon 2.03
 button.cv-iconbtn.cv-iconbtn--compact.cv-waterfall-toggle icon 2.36
 button.cv-memory__button.is-accept text 1.25
 button.cv-preset-approval__button.is-primary text 1.25
@@ -135,13 +138,17 @@ button.cv-received__more text 1.77
 button.cv-subagent-report__head icon 2.57
 button.cv-subagent-retry icon 1.32
 button.cv-subagent-retry text 3.23
+button.cv-tool.cv-agent-activity__control.cv-background-turn icon 2.53
+button.cv-tool.cv-agent-activity__control.cv-background-turn text 2.57
 button.cv-tool.cv-agent-activity__control.cv-lane-batch__toggle text 2.50
 button.cv-tool.cv-bgtask.is-toggle text 3.19
 button.cv-tool.cv-command.is-toggle icon 1.10
 button.cv-tool.cv-command.is-toggle text 1.00
+button.cv-tool.cv-message-group__head icon 2.89
 button.cv-tool.cv-message-group__head text 3.60
 button.cv-tool.cv-message-group__head.cv-lane-batch__toggle text 2.57
 button.cv-tool.cv-message-group__head.cv-pending__toggle icon 1.85
+button.cv-tool.cv-message-group__head.cv-pending__toggle text 3.66
 button.cv-tool.cv-session-start.is-toggle text 2.50
 button.cv-tool.is-toggle.cv-thought text 2.50
 button.cv-tool.is-toggle.is-live icon 2.53
@@ -154,6 +161,7 @@ button.cv-tool.is-toggle.is-whole-open icon 2.41
 button.cv-tool.is-toggle.is-whole-open text 1.00
 button.cv-turn-auth-action text 3.85
 button.cv-user__send-now text 3.23
+button.cv-user__video icon 2.89
 button.cv-waterfall__span.is-edit.is-link text 2.50
 button.cv-waterfall__span.is-other.is-failed icon 1.95
 button.cv-waterfall__span.is-read.is-link icon 1.87
@@ -205,6 +213,7 @@ button.row-main.host-toggle text 4.12
 button.sa-think-line text 3.95
 button.sc-header.sc-header-foldable text 3.41
 button.sc-row.sc-tail text 4.38
+button.sidebar-more text 3.22
 button.term text 4.35
 button.theme-token icon 1.04
 button.ui-button.acpmux-header-tool.acpmux-header-more icon 2.19
@@ -239,6 +248,7 @@ button.ui-glass.ui-glass-floats.acpmux-jump-latest text 3.92
 button.wn-copy-version text 1.07
 button.wn-notes-row text 1.15
 button.wn-notes-whatsnew text 1.15
+div.acpmux-cols-row text 4.37
 div.file-header icon 2.48
 div.nt-row text 3.76
 div.ui-listbox-row.ve-recent text 3.94

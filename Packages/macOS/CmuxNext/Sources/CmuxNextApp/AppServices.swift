@@ -518,6 +518,7 @@ final class AppServices {
     let attentionTabs = AgentPaneAttentionTabs()
     /// Keeps Needs you's marked tabs and Go to What Needs Me current (`AttentionTabsWatch`).
     var attentionTabsWatch: AttentionTabsWatch?
+    let menuTextSize = MenuTextSize(tracking: MenuTracking()) // native menus at the person's Text Size (MenuTextSize)
     /// Page menus and the open-menu diagnostic shared by browser hosts.
     let contextMenus: BrowserContextMenuBuilder
     /// Sized browser popups (OAuth, payment), each in its own Chrome-style popup window.

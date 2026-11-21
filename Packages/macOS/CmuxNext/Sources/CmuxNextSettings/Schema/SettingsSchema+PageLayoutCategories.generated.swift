@@ -30,7 +30,7 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.tasks"),
             GroupSpec(group: "settings.group.announcements"),
         ],
-        actions: [.general], aliases: [.general]
+        lead: [.textSize], actions: [.general], aliases: [.general]
     )
 
     /// The app update's status, how this Mac updates, then every channel's recent builds (docs/release-rings.md in hq). After the groups: the Web UI card (the web half of Updates; NIGHTLY only), then the channels.
@@ -182,7 +182,7 @@ extension SettingsPageLayout {
             // Whether agents the person starts in cmux (its terminals and agent chats) get cmux's MCP server, Computer Use included (the onboarding step's question); the agentTools card under it lists the agents with Turn On.
             GroupSpec(group: "settings.group.agentTools"),
         ],
-        trail: [.agentTools, .harnesses, .agentHarnesses, .agentIntegrations, .worktreeSetup]
+        trail: [.agentCustomization, .agentTools, .harnesses, .agentHarnesses, .agentIntegrations, .worktreeSetup]
     )
 
     /// Every Chief setting on one page (Leo 2026-10-20: the name pill's popover is the quick version; its All Chief Settings link opens this): Chiefs lists every Chief, each opening its editor (name, picture, backend; u2586); the Chief Pet card (ChatGPT's Mini & Pets; the Chief's look, its one home since Personalization folded into Appearance) draws the preview, Show/Hide and the characters from its group's two rows; then the chat's look. Voice input (the message box's mic) shows only in builds with Debug Settings. Notices last: a row that opens Notifications (the Chief's notices are the app's notifications; their rows keep their one home there).

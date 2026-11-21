@@ -379,6 +379,14 @@ UNRESCUED_WORKFLOW_PATHS = {
     ".github/workflows/testbox-broker-guard.yml": _POOL_READ_WHY,
     ".github/workflows/vendored-agent-cursor.yml": _POOL_READ_WHY,
     ".github/workflows/web-validation.yml": _POOL_READ_WHY,
+    ".github/workflows/docs-only-fallback.yml":
+        "its own gate is one small Linux job; it only calls ci.yml (and the other docs-only workflows) in the pull "
+        "request's context when none started, and the rescue already watches each of those workflows' own runs; a "
+        "called job stuck on a mini ends at its timeout and a person's re-run takes the declared fallback",
+    ".github/workflows/measure-swift-typecheck.yml":
+        "a path-filtered 15-minute type-check of scripts/measure/*.swift: attempt 1 takes the light mini when "
+        "CI_PR_POOL_OWNED allows and a re-run (attempt 2 on) takes the declared macos_15 pool, so a stuck or "
+        "refused job ends at its timeout and a person's re-run lands off the minis",
 }
 SIDE_WORKFLOW_PATHS = frozenset({
     # cmux NEXT Stable: its UI tests, suites, perf and dry-run signing take the owned gui pool on attempt 1
