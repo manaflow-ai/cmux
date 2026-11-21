@@ -71,6 +71,12 @@ final class FeedEdgeUITests: XCTestCase {
                       "the swipe actions open\n\(app.debugDescription)")
         let openCount = reads.count
         edgeShot(app, "feed13-1-swipe-open")
+        // What the reader sees just before the Mac withdraws it: opening the swipe actions scrolls
+        // a row whose top is under the bars fully into view (UITableView), so the removal is
+        // measured from here, not from before the swipe (ilc-r2-edgeui-3: 88 pt of that scroll).
+        let opened = RowFrames.settled(list, prefix: "feed.row.")
+        edgeNote("before swipe: \(before.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value.minY)" })\n"
+                 + "swipe open: \(opened.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value.minY)" })", "feed13-swipe-frames")
 
         RigSignal.post("remove")
         XCTAssertTrue(row.waitForNonExistence(timeout: 10), "the event leaves the Feed\n\(app.debugDescription)")
@@ -80,11 +86,11 @@ final class FeedEdgeUITests: XCTestCase {
         let noStale = NSPredicate { _, _ in reads.count == closedCount }
         XCTAssertEqual(XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: noStale, object: nil)], timeout: 5), .completed,
                        "no swipe action stays open for the removed event (Done/Read/Unread swipe buttons: \(closedCount) closed, \(openCount) open, \(reads.count) now)")
-        let report = RowFrames.expectGapClosed(before: before, after: after, removed: "feed.row.\(Self.removed)")
+        let report = RowFrames.expectGapClosed(before: opened, after: after, removed: "feed.row.\(Self.removed)")
         edgeNote(report + "\nswipe buttons closed=\(closedCount) open=\(openCount) after=\(reads.count)", "feed13-frames")
 
         // The row now in its place swipes as itself.
-        if let next = after.filter({ $0.value.minY >= before["feed.row.\(Self.removed)"]!.minY - RowFrames.shiftBar })
+        if let next = after.filter({ $0.value.minY >= (opened["feed.row.\(Self.removed)"] ?? gone).minY - RowFrames.shiftBar })
             .min(by: { $0.value.minY < $1.value.minY })?.key {
             let cell = list.cells[next]
             cell.swipeLeft()
