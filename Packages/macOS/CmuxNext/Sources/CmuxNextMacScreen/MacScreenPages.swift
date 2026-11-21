@@ -348,6 +348,16 @@ public final class MacScreenPages {
         if byPerson { confirmed[key] = record } else { confirmed[key] = nil }
     }
 
+    /// What runs once tab `key` exists: `created`, and for a tab opened unselected (`focus` false)
+    /// first ``connectInBackground(_:)``, so an autoconnect connects without being shown.
+    public func whenCreated(_ key: String, focus: Bool, then created: (@MainActor () -> Void)?) -> (@MainActor () -> Void)? {
+        if focus { return created }
+        return { [weak self] in
+            self?.connectInBackground(key)
+            created?()
+        }
+    }
+
     /// Tab `key` opened unselected with a scope waiting (`macScreen.open --autoconnect`
     /// into a background tab): its screen is made now and asks the hub, so it connects
     /// without waiting to be shown. Any other tab waits to be shown, as before.

@@ -115,11 +115,8 @@ final class MacScreenPageService: InternalPageProvider {
         pages.prepare(key, record: record, byPerson: byPerson)
         guard let services else { return key }
         let window = services.windowController(showing: pane)
-        // Unselected with a scope waiting (an autoconnect): it connects once the tab exists, not when shown.
-        let tabPages = self.pages
-        let made: (@MainActor () -> Void)? = focus ? created : { tabPages.connectInBackground(key); created?() }
-        var onCreated: (@MainActor (SurfaceID) -> Void)?
-        if let made { onCreated = { _ in made() } }
+        let made = pages.whenCreated(key, focus: focus, then: created)
+        let onCreated: (@MainActor (SurfaceID) -> Void)? = made.map { made in { _ in made() } }
         if let window, services.pages.openStoreTab(.macScreen, in: pane, window: window, focus: focus, key: key,
                                                    created: onCreated) != nil {
             return key
