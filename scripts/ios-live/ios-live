@@ -66,6 +66,8 @@ make_patch() {
 }
 
 now() { perl -MTime::HiRes=time -e 'printf "%.3f\n", time'; }
+# since T0: seconds since T0 (now's format), in perl as now is: bc is not on every client (a Linux host has none).
+since() { perl -MTime::HiRes=time -e 'printf "%.2f\n", time - $ARGV[0]' "$1"; }
 
 cmd="${1:-status}"; shift || true
 case "$cmd" in
@@ -85,7 +87,7 @@ case "$cmd" in
     base="$(make_patch "$tmp")"
     host_sh --patch "$tmp" "$cmd" "$owner" "$base" || { rc=$?; rm -f "$tmp"; exit "$rc"; }
     rm -f "$tmp"
-    echo "ios-live: $cmd end to end (diff, send, apply, redraw): $(echo "$(now) - $t0" | bc) s" ;;
+    echo "ios-live: $cmd end to end (diff, send, apply, redraw): $(since "$t0") s" ;;
   undo|relaunch) host_sh "$cmd" "$owner" "$@" ;;
   tap) host_sh tap "$owner" "${1:?x}" "${2:?y}" ;;
   type) host_sh type "$owner" "${1:?text}" ;;
