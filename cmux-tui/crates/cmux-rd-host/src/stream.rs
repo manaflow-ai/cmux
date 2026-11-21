@@ -15,7 +15,7 @@ use crate::wire::Control;
 use crate::Res;
 use cmux_rd_core::cc::PathKind;
 use cmux_rd_core::flow::Rect;
-use cmux_rd_core::pacer::Pacer;
+use cmux_rd_core::pacer::{Pacer, StrictWireBudget};
 use cmux_rd_core::policy::Principal;
 use cmux_rd_core::session::{SessionId, SessionTable};
 use cmux_rd_engine::{Encoded, EngineConfig, MediaEngine, Output};
@@ -25,6 +25,8 @@ use std::collections::VecDeque;
 pub struct SessionCfg {
     pub display: String,
     pub max_fps: u32,
+    /// `--encode-profile`: standard (default) or ultra (the engine marks every frame with it).
+    pub encode_profile: cmux_rd_core::profile::EncodeProfile,
     pub start_kbps: u32,
     pub max_kbps: u32,
     #[cfg_attr(target_os = "macos", allow(dead_code))] // software encoders only
@@ -237,7 +239,7 @@ impl MediaSession {
     ) -> Res<Self> {
         let (w, h) = desktop.size();
         // Phase 1 has no path events from the link yet; the VPC path is the deployed case.
-        let engine = MediaEngine::new(
+        let mut engine = MediaEngine::new(
             EngineConfig {
                 width: w,
                 height: h,
@@ -252,6 +254,13 @@ impl MediaSession {
             },
             now_us(),
         );
+        engine.set_profile(cfg.encode_profile);
+        let pacer = pacing_enabled().then(|| match cfg.encode_profile {
+            cmux_rd_core::profile::EncodeProfile::Ultra => {
+                Pacer::strict(StrictWireBudget::new(engine.target_bps()))
+            }
+            cmux_rd_core::profile::EncodeProfile::Standard => Pacer::new(),
+        });
         Ok(Self {
             desktop,
             encoder: EncodeThread::spawn(frames)?,
@@ -266,7 +275,7 @@ impl MediaSession {
             settle_ns: cfg.settle_us * 1000,
             timing: Timing::from_env(),
             cursor: wants_cursor(negotiated_caps).then(CursorChannel::new),
-            pacer: pacing_enabled().then(Pacer::new),
+            pacer,
             frame_interval_us: 1_000_000 / u64::from(cfg.max_fps.max(1)),
             paced_logs: VecDeque::new(),
         })
@@ -524,6 +533,9 @@ impl MediaSession {
     /// Sends the paced datagrams that are due, telling the engine when each left.
     fn send_paced(&mut self, carrier: &mut dyn Carrier) -> std::io::Result<()> {
         let Some(pacer) = self.pacer.as_mut() else { return Ok(()) };
+        // Ultra's strict budget follows the controller's held wire rate as probes raise it and a
+        // standing queue cuts it (balanced pacing ignores this).
+        pacer.set_rate_bps(self.engine.target_bps());
         let now = now_us();
         let due = pacer.due(now);
         for datagram in &due {
@@ -800,6 +812,7 @@ mod encode_off_loop_tests {
         SessionCfg {
             display: String::new(),
             max_fps: 60,
+            encode_profile: Default::default(),
             start_kbps: 1000,
             max_kbps: 2000,
             preset: String::new(),
@@ -817,6 +830,46 @@ mod encode_off_loop_tests {
             max_width: None,
             capture: crate::capture_backend::CaptureBackend::default(),
         }
+    }
+
+    fn strict_rate(session: &MediaSession) -> Option<u64> {
+        match session.pacer.as_ref()?.policy() {
+            cmux_rd_core::pacer::PacerPolicy::Strict(budget) => Some(budget.rate_bps),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn the_ultra_pacer_follows_the_controller_wire_rate() {
+        let seen = Arc::new(Seen::default());
+        let (_release_tx, release_rx) = mpsc::channel();
+        let desktop =
+            FakeDesktop { seen: seen.clone(), quiet: UnixStream::pair().expect("socket pair") };
+        let encoder = BlockingEncoder { seen: seen.clone(), release: release_rx, first: true };
+        let cfg =
+            SessionCfg { encode_profile: cmux_rd_core::profile::EncodeProfile::Ultra, ..cfg() };
+        let mut session = MediaSession::with_desktop(
+            Box::new(desktop),
+            Box::new(encoder),
+            &cfg,
+            1200,
+            &[],
+            Box::new(crate::upstream::NoSink),
+        )
+        .expect("session");
+        assert_eq!(strict_rate(&session), Some(session.engine.target_bps()));
+
+        // A rate the controller has since moved away from (a probe raised it or a
+        // standing queue cut it): the next drain paces at the controller's rate again.
+        session.pacer.as_mut().expect("pacing on").set_rate_bps(1);
+        let mut carrier = FakeCarrier {
+            seen,
+            release: None,
+            sent_input: false,
+            ready: UnixStream::pair().expect("socket pair"),
+        };
+        session.send_paced(&mut carrier).expect("drain");
+        assert_eq!(strict_rate(&session), Some(session.engine.target_bps()));
     }
 
     #[test]

@@ -122,11 +122,17 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
         Some(_) => opts.num_or("max-fps", 60)?,
         None => crate::desktop::default_max_fps(&display),
     };
+    // `--encode-profile ultra`: frames at that rate up to 120, a higher ceiling, the encoder's
+    // ultra settings and strict wire pacing. Standard (the default) is unchanged.
+    let encode_profile = opts.encode_profile()?;
+    let max_fps = encode_profile.stream_fps(max_fps);
+    let explicit_max_kbps = opts.get("max-kbps").map(|_| opts.num_or("max-kbps", 0)).transpose()?;
     Ok(SessionCfg {
         display,
         max_fps,
+        encode_profile,
         start_kbps: opts.num_or("start-kbps", 8000)?,
-        max_kbps: opts.num_or("max-kbps", 50_000)?,
+        max_kbps: cmux_rd_core::profile::max_kbps(encode_profile, explicit_max_kbps, 50_000),
         preset: opts.str_or("preset", "ultrafast"),
         // High for hardware decoders (VideoToolbox); the Linux bench decoder needs baseline.
         profile: opts.str_or("profile", "high"),
@@ -664,6 +670,37 @@ fn stream_session<S: ViewerStream>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cmux_rd_core::profile::EncodeProfile;
+
+    fn cfg_from(args: &[&str]) -> Res<SessionCfg> {
+        let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+        session_cfg(&Opts::parse(&args)?)
+    }
+
+    #[test]
+    fn encode_profile_ultra_reaches_the_host_session() {
+        let standard = cfg_from(&["--max-fps", "240"]).expect("standard");
+        assert_eq!(standard.encode_profile, EncodeProfile::Standard);
+        assert_eq!((standard.max_fps, standard.max_kbps), (240, 50_000));
+
+        let ultra = cfg_from(&["--max-fps", "240", "--encode-profile", "ultra"]).expect("ultra");
+        assert_eq!(ultra.encode_profile, EncodeProfile::Ultra);
+        assert_eq!(ultra.max_fps, EncodeProfile::Ultra.stream_fps(240));
+        assert_eq!(
+            ultra.max_kbps,
+            cmux_rd_core::profile::max_kbps(EncodeProfile::Ultra, None, 50_000)
+        );
+        assert!(ultra.max_kbps > standard.max_kbps);
+
+        let capped =
+            cfg_from(&["--encode-profile", "ultra", "--max-fps", "60", "--max-kbps", "9000"])
+                .expect("explicit ceiling");
+        assert_eq!(capped.max_kbps, 9000);
+
+        let err =
+            cfg_from(&["--max-fps", "60", "--encode-profile", "fast"]).err().expect("refused");
+        assert!(err.to_string().contains("--encode-profile"), "{err}");
+    }
 
     #[test]
     fn a_real_loopback_connection_passes_the_default_check() {
