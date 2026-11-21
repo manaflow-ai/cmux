@@ -40,8 +40,8 @@ extension SettingsSchema {
         "sidebar.controlsOnHover", "sidebar.floatOnHover",
         "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background",
         "sidebar.groupPalette", "sidebar.groupGradient", "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping",
-        "sidebar.steppingWraps", "sidebar.side", "sidebar.style", "sidebar.spacesPosition", "sidebar.spacesVisibility",
-        "tabs.newTabTemplate",
+        "sidebar.steppingWraps", "sidebar.side", "sidebar.look", "sidebar.style", "sidebar.spacesPosition",
+        "sidebar.spacesVisibility", "tabs.newTabTemplate",
         // Which New Tab page draws; a look switch, ends no work.
         "tabs.nativeNewTabPage", "tabs.newTabApp",
         "tabs.newTabPosition",
@@ -141,7 +141,7 @@ extension SettingsSchema {
         "notifications.mutedWorkspaces",
         "labs.previewFeatures",
         // Experiments are taste prototypes of how a surface looks (looks only), each off by default.
-        "experiments.glassToolbarGroups",
+        "experiments.glassToolbarGroups", "experiments.composerV2",
         // Which Home entries the sidebar shows (looks only; `cmux home enable-channels` runs as an agent writer).
         "home.channelsEnabled",
         // The floating Chief pet and its character: a display the person can hide again; its reply box types only what the person writes.
@@ -233,7 +233,8 @@ extension SettingsSchema {
         "agentPane.display.pinnedPlan", "agentPane.display.finishSound", "agentPane.display.trayTucked",
         "agentPane.display.trayHandle", "agentPane.display.unreadBanner", "agentPane.display.senderIcon.lead",
         "agentPane.display.senderIcon.badge", "agentPane.display.senderIcon.corner", "agentPane.display.font.preset",
-        "agentPane.display.font.ui", "agentPane.display.font.size", "agentPane.display.font.lineHeight",
+        "agentPane.display.font.ui", "agentPane.display.font.uiFamily", "agentPane.display.font.proseFamily",
+        "agentPane.display.font.faces", "agentPane.display.font.size", "agentPane.display.font.lineHeight",
         "agentPane.display.code.family", "agentPane.display.code.scale", "agentPane.display.sessionInfo.placement",
         "agentPane.display.environment.placement", "agentPane.display.minimap", "agentPane.display.transcriptView",
         "agentPane.display.presentation", "agentPane.display.promptCoach", "agentPane.display.statusVerbs.mode",
