@@ -2442,7 +2442,7 @@ jobs:
               exec scripts/cmux-next/check-app-ffi-pin.sh --verify-release --base "$base"
             fi
             tree="$code/tree"
-            git worktree add --quiet --detach "$tree" "$MERGE"
+            git worktree add -f -f --quiet --detach "$tree" "$MERGE"
             status=0
             bash "$code/scripts/cmux-next/check-app-ffi-pin.sh" --verify-release --base "$base" --tree "$tree" || status=$?
             git worktree remove --force "$tree" || true
