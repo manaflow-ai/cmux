@@ -68,7 +68,7 @@ impl Hub {
         }
         // Messages waiting for a name this list has go now, not after the rest of their retry
         // delay (`server/outbox.rs` `deliver`).
-        self.outbox.peer_ready.notify_waiters();
+        self.outbox.peer_back(peer);
     }
 
     /// Peer `peer`'s link is ready (`PeerNotice::Connected`). Most links' list came before it;

@@ -37,7 +37,7 @@ use std::time::Duration;
 
 use super::*;
 use crate::hub::no_session::NO_SESSION_PREFIX;
-use crate::hub::outbox::{Delivery, RETRY_DELAYS_SECS, RETRY_FOR_MS, State};
+use crate::hub::outbox::{Delivery, RETRY_DELAYS_SECS, RETRY_FOR_MS, State, Stats};
 
 /// What an attempt that did not deliver leaves the delivery as.
 #[derive(Debug, PartialEq)]
@@ -490,8 +490,11 @@ async fn outbox_status(hub: &Arc<Hub>, id: &str, params: &Value) -> Result<Value
     // peer that is down): the sender learns nothing more by waiting (`acpmux send`'s quick wait).
     let first = params.get("firstAttempt").and_then(Value::as_bool) == Some(true);
     let deadline = tokio::time::Instant::now() + Duration::from_millis(wait);
+    let stats = &hub.outbox.stats;
+    // Woken by this delivery's changes alone, not by every other message's.
+    let watch = hub.outbox.watch(id);
     loop {
-        let changed = hub.outbox.changed.notified();
+        let changed = watch.notified();
         let delivery = hub.outbox.get(id).ok_or_else(|| {
             RpcError::invalid_params(format!("no delivery {id}"))
                 .with_data(json!({"reason": "outbox.unknown", "deliveryId": id}))
@@ -500,7 +503,9 @@ async fn outbox_status(hub: &Arc<Hub>, id: &str, params: &Value) -> Result<Value
         if delivery.settled() || retrying || tokio::time::Instant::now() >= deadline {
             return Ok(delivery.status());
         }
-        let _ = tokio::time::timeout_at(deadline, changed).await;
+        if tokio::time::timeout_at(deadline, changed).await.is_ok() {
+            Stats::count(&stats.status_wakes, 1);
+        }
     }
 }
 
@@ -563,6 +568,11 @@ fn spawn(hub: Arc<Hub>, id: String) {
 
 async fn deliver(hub: &Arc<Hub>, id: &str) {
     let mut delays = RETRY_DELAYS_SECS.iter();
+    // This delivery's turn at its target, once taken (below); held only into the attempt.
+    let mut held = None;
+    // An attempt in this run found what it found: a delivery resumed at a start is attempted
+    // once before it waits for its peer (below).
+    let mut tried = false;
     loop {
         let Some(delivery) = hub.outbox.get(id) else { return };
         if delivery.settled() {
@@ -596,6 +606,39 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
             }
             return;
         }
+        // A message whose peer is down after an attempt found it so waits for that peer's link,
+        // which its own reconnect loop probes on its own backoff, and tries again the moment
+        // it is back (`Outbox::peer_back`); until then each of its retry delays ends with no
+        // attempt: nothing is written, no connection opened, no other message woken. Before,
+        // each of 4,000 messages to a down peer opened a connection to this daemon on every
+        // retry to learn the same thing, and wrote twice. Its day still ends it (above).
+        if tried && let Some(peer) = waits_for_down_peer(hub, &delivery) {
+            let back = hub.outbox.peer_back_notify(&peer);
+            let back = back.notified();
+            tokio::pin!(back);
+            // Armed, then read again: a link back in between ends the wait at once.
+            back.as_mut().enable();
+            let now = crate::store::now_ms();
+            if hub.peer_down_for(&delivery.target).is_some()
+                && let Some(secs) = retry_delay(&mut delays, &delivery, now)
+            {
+                // No turn is held while it waits.
+                held = None;
+                tokio::select! {
+                    () = tokio::time::sleep(retry_sleep(&delivery, secs, now)) => {}
+                    () = back => {}
+                }
+                continue;
+            }
+        }
+        // One attempt at a time to each target: a burst to one target goes one by one, in
+        // turn, never as one connection and request each at once. The wait for the turn may be
+        // long, so with it held every check above runs again (a proof that came meanwhile, its
+        // day ending, its peer down) before the attempt.
+        let Some(turn) = held.take() else {
+            held = Some(hub.outbox.target_turn(&delivery.target).await);
+            continue;
+        };
         // Armed before the attempt: `notify_waiters` wakes only waits that exist, so a peer
         // ready while the attempt runs or its failure is saved still ends the retry wait.
         let ready = hub.outbox.peer_ready.notified();
@@ -639,6 +682,7 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         if fresh_pin && pin.is_some() {
             saved &= hub.outbox.update_saved(id, |d| d.pin.clone_from(&pin));
         }
+        hub.outbox.stats.attempt_started(&delivery.target);
         let outcome = if !saved {
             // Nothing went on the link.
             Err(("the outbox could not be saved; tried again".to_owned(), Next::Retry))
@@ -698,6 +742,10 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                 outcome => outcome,
             }
         };
+        hub.outbox.stats.attempt_ended(&delivery.target);
+        // The next delivery to the target goes while this one records its outcome and waits.
+        drop(turn);
+        tried = true;
         match outcome {
             Ok(accepted) => {
                 // A peer's session may lose it with the machine's disk until the owner's copy of
@@ -958,6 +1006,26 @@ async fn close_open(hub: &Arc<Hub>, d: &Delivery, f: impl FnOnce(&mut Delivery))
     }
 }
 
+/// The peer `delivery` waits for: a message (not a projection intent, which reads the receiver's
+/// journal on its own schedule) waiting for its retry after an attempt, to a session on a peer
+/// whose link is down, that only that link may carry (the mesh relay carries one never sent
+/// with the relay on, and one it posted already). None: it is attempted as before.
+fn waits_for_down_peer(hub: &Arc<Hub>, delivery: &Delivery) -> Option<String> {
+    let relay_may_carry =
+        hub.mesh.get().is_some() && (delivery.never_sent || delivery.relay_post.is_some());
+    if delivery.attempts == 0
+        || delivery.state != State::Queued
+        || delivery.projection_only()
+        || delivery.relay_post.is_some()
+        || relay_may_carry
+    {
+        return None;
+    }
+    let (peer, _) = delivery.target.split_once('/')?;
+    (hub.resolve(&delivery.target).is_err() && hub.peer_down_for(&delivery.target).is_some())
+        .then(|| peer.to_owned())
+}
+
 /// How long `delivery` sleeps before its next attempt, given the schedule's `secs`: a message
 /// no longer than what is left of its day ([`RETRY_FOR_MS`]), a projection intent the whole delay.
 fn retry_sleep(delivery: &Delivery, secs: u64, now: u64) -> Duration {
@@ -1075,6 +1143,15 @@ pub(super) async fn attempt_once(
             return Err((format!("machine wake failed: {error}"), Next::Retry));
         }
     }
+    // A session on a peer whose link is down: the refusal the connection would give
+    // (`peer_forward.rs`), without opening one. Not on a peer's connection, which never learns
+    // this host's peers (`redact::hide_peers_from_peer`).
+    if origin == Origin::Local
+        && hub.resolve(target).is_err()
+        && let Some(e) = hub.peer_down_for(target)
+    {
+        return Err((e.message.clone(), next(&e)));
+    }
     let prompt_id = request
         .pointer("/_meta/acpmux/promptId")
         .and_then(Value::as_str)
@@ -1082,6 +1159,7 @@ pub(super) async fn attempt_once(
         .to_owned();
     let (in_tx, in_rx) = mpsc::channel(16);
     let (out_tx, mut out_rx) = mpsc::channel(1024);
+    Stats::count(&hub.outbox.stats.connections, 1);
     tokio::spawn(super::serve_outbox_connection(hub.clone(), in_rx, out_tx, origin));
     let mut hello = json!({
         "protocolVersion": 1,
@@ -1116,16 +1194,30 @@ pub(super) async fn attempt_once(
             return Err(("this daemon's connection closed".into(), Next::Retry));
         }
     }
-    let deadline = tokio::time::sleep(ATTEMPT_WAIT);
+    // Held open while the answer is awaited: dropping it ends the connection.
+    let _connection = in_tx;
+    answer(&prompt_id, &mut out_rx, ATTEMPT_WAIT).await
+}
+
+/// The answer to an attempt's `session/prompt` (request 2) on its connection to this daemon
+/// (`out_rx`), within `wait`. One with none by then is left as before: the connection is
+/// dropped and the request it serves goes on (`request_cancel.rs`: a future dropped for a
+/// timeout keeps what it did), so a target that took it answers the next resend with its
+/// outcome. A cancel here could stop a prompt the peer took whose acceptance was lost, and the
+/// resend would then read that stopped run as delivered. One attempt runs at a time for each
+/// target (`Outbox::target_turn`), so at most one such request waits per target.
+async fn answer(
+    prompt_id: &str,
+    out_rx: &mut mpsc::Receiver<String>,
+    wait: Duration,
+) -> Result<Value, (String, Next)> {
+    let deadline = tokio::time::sleep(wait);
     tokio::pin!(deadline);
     loop {
         let line = tokio::select! {
             line = out_rx.recv() => line,
             () = &mut deadline => {
-                return Err((
-                    format!("no answer within {} s", ATTEMPT_WAIT.as_secs()),
-                    Next::Retry,
-                ));
+                return Err((format!("no answer within {} s", wait.as_secs()), Next::Retry));
             }
         };
         let Some(line) = line else {
@@ -1136,7 +1228,7 @@ pub(super) async fn attempt_once(
             // held or refused: its answer says.
             Ok(Message::Notification { method: m, params: Some(p) })
                 if m == method::MUX_PROMPT_ACCEPTED
-                    && p.get("promptId").and_then(Value::as_str) == Some(prompt_id.as_str())
+                    && p.get("promptId").and_then(Value::as_str) == Some(prompt_id)
                     && !(p.get("duplicate") == Some(&Value::Bool(true))
                         && p.get("turnId").is_none_or(Value::is_null)) =>
             {
@@ -1613,3 +1705,7 @@ mod forward_projection_tests {
 #[cfg(test)]
 #[path = "outbox_relay_tests.rs"]
 mod relay_tests;
+
+#[cfg(test)]
+#[path = "outbox_cost_tests.rs"]
+mod cost_tests;
