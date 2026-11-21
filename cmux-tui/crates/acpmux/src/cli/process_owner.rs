@@ -110,14 +110,14 @@ pub fn judge(
     if !marks.any() {
         return Verdict::NotAnAgents;
     }
-    if caller.is_some() && marks.session_id.as_deref() == caller {
-        return Verdict::Yours;
-    }
+    let yours = caller.is_some() && marks.session_id.as_deref() == caller;
     // A task outlives the host that asked for it (a dev server runs while its chat hibernates),
-    // so its runner decides, not the host.
+    // so its runner decides, not the host; a running task, the caller's own too, is stopped
+    // through its runner (`process kill SESSION/TASK`), never behind its back.
     if marks.task_mark.is_some() {
         return match runner {
             Some(Liveness::Live) => Verdict::Task,
+            Some(Liveness::Dead) if yours => Verdict::Yours,
             // Its runner is gone: with no host nonce nothing else ends it (a task's process runs
             // with the daemon's environment and the task's mark only).
             Some(Liveness::Dead) => match host {
@@ -126,6 +126,9 @@ pub fn judge(
             },
             _ => Verdict::Unknown,
         };
+    }
+    if yours {
+        return Verdict::Yours;
     }
     judge_host(host)
 }
@@ -231,6 +234,31 @@ pub fn is_acpmux_own(argv: &[String]) -> bool {
         || argv.windows(2).any(|w| w[0] == "daemon" && w[1] == "run")
 }
 
+/// Whether the nearest acpmux process above `proc` is the daemon itself, not an agent host or a
+/// task runner: the daemon's own helpers (MCP servers, git, peer links) carry whatever marks the
+/// daemon was started with (an older build, or a handover, kept its starter chat's), so they are
+/// the daemon's, never that chat's.
+fn under_the_daemon(proc: &tree::Started, table: &[tree::Started], daemon: Option<u32>) -> bool {
+    let mut parent = proc.ppid();
+    let mut seen = 0;
+    while parent > 1 && seen < 256 {
+        if daemon == Some(parent) {
+            return true;
+        }
+        if let Some(argv) = tree::argv(parent) {
+            if argv.windows(2).any(|w| w[0] == "daemon" && w[1] == "run") {
+                return true;
+            }
+            if is_acpmux_own(&argv) {
+                return false;
+            }
+        }
+        parent = table.iter().find(|p| p.pid == parent).map_or(0, tree::Started::ppid);
+        seen += 1;
+    }
+    false
+}
+
 /// The pid `<acpmux home>/daemon.pid` names.
 fn daemon_pid() -> Option<u32> {
     std::fs::read_to_string(crate::config::home().join("daemon.pid")).ok()?.trim().parse().ok()
@@ -254,7 +282,11 @@ fn own(proc: &tree::Started, table: &[tree::Started], caller: Option<&str>) -> O
     let marks = tree::environ(proc.pid).map(|env| Marks::from_env(&env));
     // acpmux's own processes first: a daemon a chat's shell started carries that chat's marks
     // (an older build did not clear them), and ending it would end every session.
-    if daemon_pid() == Some(proc.pid) || argv.as_deref().is_some_and(is_acpmux_own) {
+    let daemon = daemon_pid();
+    if daemon == Some(proc.pid)
+        || argv.as_deref().is_some_and(is_acpmux_own)
+        || under_the_daemon(proc, table, daemon)
+    {
         return Owned { proc: proc.clone(), marks, verdict: Verdict::Acpmux, argv };
     }
     if argv.is_none() {
@@ -422,18 +454,22 @@ pub async fn kill_pid(pid: u32, json_out: bool) -> Result<()> {
     let table = tree::all();
     let caller = caller_session();
     let session = o.marks.as_ref().and_then(|m| m.session_id.clone());
+    // The walk stops at a process it may not end: nothing below one is taken.
     let mut procs = vec![o.proc.clone()];
-    procs.extend(
-        tree::descendants(&[pid])
-            .into_iter()
-            .filter(|p| !spared.contains(&p.pid))
-            .map(|p| own(&p, &table, caller.as_deref()))
-            .filter(|c| {
-                c.verdict.may_end()
-                    && c.marks.as_ref().and_then(|m| m.session_id.clone()) == session
-            })
-            .map(|c| c.proc),
-    );
+    let mut frontier = vec![pid];
+    while let Some(parent) = frontier.pop() {
+        for p in table.iter().filter(|p| p.ppid() == parent && !spared.contains(&p.pid)) {
+            if procs.iter().any(|q| q.pid == p.pid) {
+                continue;
+            }
+            let c = own(p, &table, caller.as_deref());
+            if c.verdict.may_end() && c.marks.as_ref().and_then(|m| m.session_id.clone()) == session
+            {
+                procs.push(c.proc);
+                frontier.push(p.pid);
+            }
+        }
+    }
     tree::signal_still_running(&procs, libc::SIGTERM);
     let deadline = std::time::Instant::now() + crate::bg_run::GRACE;
     let mut left = tree::still_running(&procs);
@@ -566,6 +602,21 @@ mod tests {
         let m = marks("s2", None, Some("123-456"));
         assert_eq!(judge(Some(&m), Some("s1"), Some(Liveness::Dead), None), Verdict::LeftBehind);
         assert_eq!(judge(Some(&m), Some("s1"), Some(Liveness::Live), None), Verdict::Task);
+    }
+
+    #[test]
+    fn the_callers_own_running_task_is_stopped_through_its_runner() {
+        let m = marks("s1", None, Some("123-456"));
+        assert_eq!(judge(Some(&m), Some("s1"), Some(Liveness::Live), None), Verdict::Task);
+        assert_eq!(judge(Some(&m), Some("s1"), Some(Liveness::Dead), None), Verdict::Yours);
+    }
+
+    #[test]
+    fn a_daemon_drops_every_mark_this_module_reads() {
+        let dropped = crate::daemon::STARTER_SESSION_MARKS;
+        for k in [SESSION_ID, SESSION_NAME, agent_host::HOST_MARK, crate::bg_run::TASK_MARK] {
+            assert!(dropped.contains(&k), "{k}");
+        }
     }
 
     #[test]
