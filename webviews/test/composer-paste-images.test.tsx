@@ -284,15 +284,16 @@ test("overlapping drops with twin screenshots and folders keep each drop's nativ
   expect(
     attachments()
       .filter((chip) => chip.kind === "image")
-      .map((chip) => chip.originalPath)
-      .sort(),
+      .map((chip) => chip.originalPath ?? "")
+      .sort((a, b) => a.localeCompare(b)),
   ).toEqual(directories.map((directory) => `${directory}/image.png`));
   expect(
     attachments()
       .filter((chip) => chip.kind === "link")
-      .map((chip) => chip.path)
-      .sort(),
+      .map((chip) => chip.path ?? "")
+      .sort((a, b) => a.localeCompare(b)),
   ).toEqual(directories.map((directory) => `${directory}/assets`));
+  expect(attachments()).toHaveLength(4);
 });
 
 test("a send made while a paste's twins are still compared waits for its image", async () => {
