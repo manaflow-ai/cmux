@@ -1,2 +1,3 @@
-# #43947: Machines joins sidebar.item.add's pinned suggestions (catalog/args.rs)
+# #43947: Machines joins sidebar.item.add's pinned suggestions (catalog/args.rs); the whole list
+# also covers cmux#48416's Home-to-Chief and Chief Activity title renames until the re-pin
 /arguments/0/suggestions/pinned

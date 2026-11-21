@@ -1,0 +1,286 @@
+name: cmux-next post-merge batch
+
+# The base's deferred checks run here on the clock, not once per merge (RFD 0023 in cmuxterm-hq;
+# Leo 2026-11-21: "everything else runs once post-merge, batched"). main's
+# cmux-next-post-merge-dispatch.yml ticks every 30 min and starts a batch run on the newest
+# feat-cmux-next tip once a window (vars.NEXT_POST_MERGE_WINDOW_MINUTES, default 120) has passed
+# since the last one and the tip is untested. A batch run calls every suite in
+# .github/post-merge-batch.json whose paths the commits since the last batch run touched. A job red
+# here and green on the last batch run where it ran starts a bisect: probe runs of that job alone,
+# each dispatched by the one before, end on the first red commit, and the last probe opens its
+# revert pull request through normal landing (never merged here). scripts/ci/post_merge_batch.py
+# holds the logic; a push to a lane/post-merge-drill-* branch runs a batch there (the drill).
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: batch (every reached suite on the branch tip) or probe (one job at one commit).
+        type: choice
+        options: [batch, probe]
+        default: batch
+      reason:
+        description: Why this batch run started (tick, manual).
+        type: string
+        default: manual
+      suite:
+        description: "probe: the suite key in .github/post-merge-batch.json."
+        type: string
+        default: ""
+      job:
+        description: "probe: the red job's full name in the batch run."
+        type: string
+        default: ""
+      only:
+        description: "probe: the job id the suite runs alone (empty: the whole suite)."
+        type: string
+        default: ""
+      sha:
+        description: "probe: the commit to test."
+        type: string
+        default: ""
+      good:
+        description: "probe: the newest commit known green."
+        type: string
+        default: ""
+      bad:
+        description: "probe: the oldest commit known red (empty: confirm the batch's red first)."
+        type: string
+        default: ""
+      origin:
+        description: "probe: the batch run that found the red."
+        type: string
+        default: ""
+      tries:
+        description: "probe: retries of this probe after a run with no verdict."
+        type: string
+        default: "0"
+  push:
+    branches:
+      - lane/post-merge-drill-*
+
+run-name: >-
+  ${{ inputs.mode == 'probe'
+      && format('probe {0} {1} at {2}', inputs.suite, inputs.only || 'all', inputs.sha)
+      || format('batch {0}', inputs.reason || github.event_name) }}
+
+permissions: {}
+
+concurrency:
+  # One batch run per branch at a time; probes queue per suite and job, never cancelled.
+  group: cmux-next-post-merge-${{ github.ref_name }}-${{ inputs.mode == 'probe' && format('probe-{0}-{1}', inputs.suite, inputs.only) || 'batch' }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      suites: ${{ steps.plan.outputs.suites }}
+      sha: ${{ steps.plan.outputs.sha }}
+      only: ${{ steps.plan.outputs.only }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          filter: blob:none
+      # Reads on the route App's own budget, not the GITHUB_TOKEN every workflow in the repository shares
+      # (cmux-next-quality-report.yml does the same); the script falls back to GITHUB_TOKEN when it is spent.
+      - name: Mint the read token
+        id: read-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-actions: read
+          permission-contents: read
+      - name: Plan the suites
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_READ_TOKEN: ${{ steps.read-token.outputs.token }}
+          MODE: ${{ inputs.mode || 'batch' }}
+          SUITE: ${{ inputs.suite }}
+          ONLY: ${{ inputs.only }}
+          PROBE_SHA: ${{ inputs.sha }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          python3 scripts/ci/post_merge_batch.py plan --branch "$BRANCH" --mode "$MODE" --sha "$GITHUB_SHA" \
+            --suite "$SUITE" --only "$ONLY" --probe-sha "$PROBE_SHA"
+
+  # One caller job per suite in .github/post-merge-batch.json; its name is the suite key.
+  drill:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' drill ')
+    uses: ./.github/workflows/post-merge-drill.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+    permissions:
+      contents: read
+
+  cmux-tui-windows-check:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' cmux-tui-windows-check ')
+    uses: ./.github/workflows/cmux-tui-windows-check.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+    permissions:
+      contents: read
+
+  acpmux-sim-sweep:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' acpmux-sim-sweep ')
+    uses: ./.github/workflows/acpmux-sim-sweep.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+    permissions:
+      contents: read
+
+  swift-acpmux-protocol:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' swift-acpmux-protocol ')
+    uses: ./.github/workflows/swift-acpmux-protocol.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+    permissions:
+      contents: read
+
+  rust-workspaces:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' rust-workspaces ')
+    uses: ./.github/workflows/rust-workspaces.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+    permissions:
+      actions: read
+      contents: read
+
+  judge:
+    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces]
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 15
+    permissions:
+      actions: write
+      contents: read
+    outputs:
+      culprit: ${{ steps.judge.outputs.culprit }}
+      job: ${{ steps.judge.outputs.job }}
+      good: ${{ steps.judge.outputs.good }}
+      origin: ${{ steps.judge.outputs.origin }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          filter: blob:none
+      # Reads on the route App's own budget, not the GITHUB_TOKEN every workflow in the repository shares
+      # (cmux-next-quality-report.yml does the same); the script falls back to GITHUB_TOKEN when it is spent.
+      - name: Mint the read token
+        id: read-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-actions: read
+          permission-contents: read
+      - name: Judge the run
+        id: judge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_READ_TOKEN: ${{ steps.read-token.outputs.token }}
+          MODE: ${{ inputs.mode || 'batch' }}
+          BRANCH: ${{ github.ref_name }}
+          SUITE: ${{ inputs.suite }}
+          JOB: ${{ inputs.job }}
+          ONLY: ${{ inputs.only }}
+          PROBE_SHA: ${{ inputs.sha }}
+          GOOD: ${{ inputs.good }}
+          BAD: ${{ inputs.bad }}
+          ORIGIN: ${{ inputs.origin }}
+          TRIES: ${{ inputs.tries }}
+        run: |
+          python3 scripts/ci/post_merge_batch.py judge --branch "$BRANCH" --mode "$MODE" --sha "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" --suite "$SUITE" --job "$JOB" --only "$ONLY" --probe-sha "$PROBE_SHA" \
+            --good "$GOOD" --bad "$BAD" --origin "$ORIGIN" --tries "$TRIES"
+
+  revert:
+    needs: judge
+    if: ${{ !cancelled() && needs.judge.outputs.culprit != '' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 20
+    # The routing App's key lives in ci-routing-agent, which serves the base; a drill branch opens
+    # its revert with GITHUB_TOKEN instead (that pull request starts no CI, which a drill needs not).
+    environment: ${{ github.ref_name == 'feat-cmux-next' && 'ci-routing-agent' || '' }}
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+          filter: blob:none
+      # Reads on the route App's own budget, not the GITHUB_TOKEN every workflow in the repository shares
+      # (cmux-next-quality-report.yml does the same); the script falls back to GITHUB_TOKEN when it is spent.
+      - name: Mint the read token
+        id: read-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-actions: read
+          permission-contents: read
+      # A pull request GITHUB_TOKEN opens starts no CI, so on the base the revert opens with the
+      # routing App's token, as cmux-next.yml's release-compile-revert does.
+      - name: Mint the revert PR token
+        id: app-token
+        if: ${{ github.ref_name == 'feat-cmux-next' && vars.GLAEDA_ROUTE_APP_ID != '' }}
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Open the revert pull request
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          GH_READ_TOKEN: ${{ steps.read-token.outputs.token }}
+          CULPRIT: ${{ needs.judge.outputs.culprit }}
+          RED_JOB: ${{ needs.judge.outputs.job }}
+          GOOD: ${{ needs.judge.outputs.good }}
+          ORIGIN: ${{ needs.judge.outputs.origin }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          git config user.name "cmux post-merge batch"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          python3 scripts/ci/post_merge_batch.py revert --branch "$BRANCH" --culprit "$CULPRIT" --job "$RED_JOB" \
+            --good "$GOOD" --origin "$ORIGIN" \
+            --push-url "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
