@@ -98,8 +98,13 @@ struct ChatSendSettle {
     private(set) var startsAtFirstFrame = false
 
     /// The first display frame of a glide begun outside one: its clock starts at `time`.
+    /// How long after the send drew the rows its first display frame came (the send trace reports
+    /// it): main-thread work left in the Send tap's turn, or after it, holds that frame back.
+    private(set) var startLag: Double?
+
     mutating func firstFrame(at time: Double) {
         guard startsAtFirstFrame else { return }
+        startLag = time - armedAt
         start = time
         startsAtFirstFrame = false
     }

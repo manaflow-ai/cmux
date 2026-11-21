@@ -74,6 +74,13 @@ final class ChatSendMotionUITests: XCTestCase {
             return XCTFail("\(name): the trace has no finished glide: \(trace)")
         }
         XCTAssertLessThanOrEqual(first, max(6, reach * 0.12), "\(name): the first frame moved the rows \(first) of \(reach) pt: \(end)")
+        // The glide's first frame follows the frame the composer clears in: nothing left of the
+        // Send (the keyboard going down) holds the main thread past two 60 Hz frames.
+        if let lag = number(after: "start lag ", in: end) {
+            XCTAssertLessThanOrEqual(lag, 34, "\(name): the glide's first frame came \(lag) ms after the send drew its rows: \(end)")
+        } else {
+            XCTFail("\(name): the trace has no start lag: \(end)")
+        }
     }
 
     private func number(after label: String, in text: String) -> Double? {

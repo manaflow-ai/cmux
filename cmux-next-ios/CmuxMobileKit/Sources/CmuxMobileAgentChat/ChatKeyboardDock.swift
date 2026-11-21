@@ -697,7 +697,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         if let settle = sendSettle {
             let started = settle.start.map { "after \(Int((settleClock - $0) * 1000)) ms" } ?? "before it began"
             noteSend("end \(started), reach \(Int(settle.reach)), first step \(Int((settle.firstStep ?? 0).rounded())), "
-                + "largest step \(Int(settle.largestStep.rounded()))")
+                + "largest step \(Int(settle.largestStep.rounded())), start lag \(Int(((settle.startLag ?? 0) * 1000).rounded())) ms")
             for id in settle.rowIDs {
                 guard let view = list.cell(for: id)?.contentView else { continue }
                 view.transform = .identity
