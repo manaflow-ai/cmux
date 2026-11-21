@@ -225,7 +225,44 @@ class KeepTests(unittest.TestCase):
         self.assertEqual(run("D\tcmux-tui/crates/cmux-cloud-wire/src/a.rs\nA\twebviews/src/cloud/a.ts\n")[0], 1)
 
     def test_paths_outside_every_area_pass(self) -> None:
-        self.assertEqual(run("D\tPackages/macOS/CmuxNext/Sources/CmuxNextPages/X.swift\nA\twebviews/src/x.swift\n")[0], 0)
+        # Existing Swift outside every area is grandfathered: edits, deletions and Swift-to-Swift moves pass.
+        self.assertEqual(run("D\tPackages/macOS/CmuxNext/Sources/CmuxNextPages/X.swift\n"
+                             "M\tPackages/macOS/CmuxNext/Sources/CmuxNextPages/Y.swift\n"
+                             "R100\tPackages/macOS/CmuxNext/Sources/CmuxNextPages/Z.swift\tPackages/Other/Z.swift\n"
+                             "A\tPackages/NewThing/README.md\nA\tscripts/new.py\n")[0], 0)
+
+
+class SwiftOutsideAreasTests(unittest.TestCase):
+    """Catch-22 audit FO1 (2026-11-19, a taste lane via the coordinator): "language-boundaries passes new Swift files
+    that sit outside every declared area... New Swift outside the Swift areas should fail the check." """
+
+    def test_new_swift_outside_every_area_fails(self) -> None:
+        for path in ("Packages/NewThing/Sources/Foo.swift", "NewTopLevel/Foo.swift", "webviews/src/x.swift",
+                     "Packages/macOS/CmuxNext/Sources/CmuxNextPages/New.swift"):
+            code, lines = run(f"A\t{path}\n")
+            self.assertEqual(code, 1, path)
+            text = "\n".join(lines)
+            self.assertIn(f"adds Swift file {path} outside every area", text)
+            self.assertIn("put it in an existing Swift area, or move the logic to Rust/React; a new Swift area needs "
+                          "its own line in .github/language-boundaries.toml", text)
+            self.assertTrue(any(line.startswith("next: put it in an existing Swift area") for line in lines))
+
+    def test_swift_copied_or_renamed_from_another_language_outside_every_area_fails(self) -> None:
+        self.assertEqual(run("C100\tPackages/Other/A.swift\tPackages/NewThing/A.swift\n")[0], 1)
+        self.assertEqual(run("R080\tPackages/Other/a.ts\tPackages/NewThing/A.swift\n")[0], 1)
+        self.assertEqual(run("added\tPackages/NewThing/Sources/Foo.swift\n")[0], 1)
+
+    def test_new_swift_in_a_swift_area_passes(self) -> None:
+        self.assertEqual(run(f"A\t{HOME}/Messages/New.swift\n")[0], 0)
+
+    def test_new_swift_in_a_non_swift_area_is_reported_once_by_that_area(self) -> None:
+        code, lines = run(f"A\t{CLOUD}/New.swift\n")
+        self.assertEqual(code, 1)
+        self.assertFalse(any("outside every area" in line for line in lines))
+
+    def test_leos_approval_lets_it_through(self) -> None:
+        self.assertEqual(run("A\tPackages/NewThing/Foo.swift\n", ["leo-approved-port"], [LABEL_EVENT],
+                             [LEO_NOTE])[0], 0)
 
 
 class SelfTests(unittest.TestCase):
@@ -397,7 +434,7 @@ class ReactPortTests(unittest.TestCase):
         self.assertEqual(run("A\twebviews/src/settings/New.tsx\n")[0], 0)
         self.assertEqual(run(f"M\t{PAGES}/A.swift\nA\twebviews/src/settings/New.tsx\n")[0], 0)
         # A Swift split (one deleted, two added) loses no Swift on net.
-        self.assertEqual(run(f"D\t{PAGES}/A.swift\nA\t{PAGES}/A1.swift\nA\twebviews/src/x.tsx\n")[0], 0)
+        self.assertEqual(run(f"D\t{HOME}/A.swift\nA\t{HOME}/A1.swift\nA\twebviews/src/x.tsx\n")[0], 0)
         # Moving web code around inside the webviews is not a port.
         self.assertEqual(run(f"D\t{PAGES}/A.swift\nR100\twebviews/src/a.tsx\twebviews/src/b/a.tsx\n")[0], 0)
 
