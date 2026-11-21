@@ -68,6 +68,8 @@ mod cloud_automation_relay;
 #[cfg(unix)]
 mod cloud_client_session;
 #[cfg(unix)]
+mod cloud_connect;
+#[cfg(unix)]
 mod cloud_environment;
 #[cfg(unix)]
 mod cloud_hands;
@@ -220,6 +222,10 @@ mod share_cli;
 mod shorthand;
 #[cfg(unix)]
 mod skew;
+#[cfg(unix)]
+mod stale_app;
+#[cfg(unix)]
+pub(crate) use stale_app::InstalledApp;
 mod skill;
 #[cfg(unix)]
 mod status;
@@ -235,6 +241,9 @@ mod terminal_talk;
 mod theme_file;
 #[cfg(unix)]
 mod theme_scheme;
+// `cmux tmux attach`: one tmux pane in this terminal through control mode (experiment).
+#[cfg(unix)]
+mod tmux_attach;
 // `cmux wallpaper`: the window picture and how it switches by itself.
 mod topology_help;
 #[cfg(unix)]
@@ -528,6 +537,7 @@ pub(crate) fn rewrite_deprecated_server_lifecycle(args: &mut Vec<String>) {
 pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "agents",
     "chats",
+    "board",
     "harness",
     "remote",
     "script",
@@ -543,6 +553,7 @@ pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "chat",
     "vm",
     "customize",
+    "agent-config",
 ];
 
 /// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
@@ -626,7 +637,7 @@ pub(crate) fn early_usage_error(args: &[String], message: &str) -> i32 {
 /// Scopes `main` routes by their first word, before the cmux global options
 /// are read, whose own parser takes `--json` right after the scope word:
 /// acpmux's (`--json` is a global clap option there).
-const JSON_AFTER_SCOPE: &[&str] = &["acp", "agent", "harness", "chats"];
+const JSON_AFTER_SCOPE: &[&str] = &["acp", "agent", "harness", "chats", "board"];
 
 /// `cmux --json <scope> …` for a scope `main` routes by its first word: the
 /// leading `--json` moves to just after the scope word (to the end for `host`
@@ -926,6 +937,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| vnc::run_if_requested(args))
         .or_else(|| cloud_environment::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
+        .or_else(|| cloud_connect::run_if_requested(args))
         .or_else(|| cloud_team_keys::run_if_requested(args))
         .or_else(|| key_broker::run_if_requested(args))
         .or_else(|| cloud_start_chat::run_if_requested(args))
@@ -958,6 +970,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| remote_host::run_if_requested(args))
         .or_else(|| computer_use::run_if_requested(args))
         .or_else(|| attention::run_if_requested(args))
+        .or_else(|| tmux_attach::run_if_requested(args))
         .or_else(|| notification_banners::run_if_requested(args))
         .or_else(|| status::run_args(args))
     {

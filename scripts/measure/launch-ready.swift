@@ -506,7 +506,7 @@ let keep = ["stub_main", "main_start", "main.warmup_started", "main.environment"
             "launch_snapshot_shown", "first_window_flushed", "did_finish_launching_end", "first_window_frame_committed", "home.first_page", "reveal.home",
             "deferred_windows_restored",
             // The bare launch's marks (piece 8): Home's composer takes keys; a terminal's shell printed its first output.
-            "window_usable", "first_shell_live",
+            "window_usable", "first_shell_live", "first_key_down",
             // A relaunch's restored terminal: its first frame, and with `type` the key typed at the first window frame,
             // when it left the app for the PTY, and its echo back (LaunchTypeProbe, LaunchInputMarks).
             "first_terminal_content_applied", "first_terminal_frame", "launch.visible_terminals_drawn",
@@ -543,7 +543,7 @@ var row: [String: Any] = [
     // its window still waited on the CLI (2026-11-17: 635 ms on a fresh home's prime launch, and no relaunch row).
     "marks": marks.filter { mark in
         label == "prime" || keep.contains(mark.key)
-            || ["dfl.", "home.", "reveal.", "cloud_env.", "app.", "daemon.", "launch_snapshot", "terminal."].contains { mark.key.hasPrefix($0) }
+            || ["dfl.", "home.", "reveal.", "cloud_env.", "app.", "daemon.", "launch_snapshot", "terminal.", "window.", "frame."].contains { mark.key.hasPrefix($0) }
     },
     "all_marks": marks.count,
     "stages": stages,
