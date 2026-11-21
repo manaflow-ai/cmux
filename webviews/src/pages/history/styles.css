@@ -322,3 +322,24 @@
   font-weight: var(--weight-emphasis);
   cursor: default;
 }
+
+/* The windowed list (HistoryLines.tsx): each line is placed at its measured offset. flow-root keeps a
+   group title's margins inside its line, so the line's measured height includes them. */
+.history-lines {
+  position: relative;
+  width: 100%;
+}
+
+.history-line {
+  position: absolute;
+  top: 0;
+  inset-inline-start: 0;
+  width: 100%;
+  display: flow-root;
+}
+
+/* A windowed row is measured where it is placed: skipping its rendering off screen would measure the
+   36 px placeholder size, and the row would move when it scrolls into view. */
+.history-line .history-row {
+  content-visibility: visible;
+}

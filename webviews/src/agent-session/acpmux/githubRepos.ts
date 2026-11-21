@@ -134,6 +134,50 @@ const statusKey = (status?: GitHubStatus) => `${status?.state}:${status?.reason 
 
 const INITIAL: GitHubPickerState = { query: null, truncated: false, loading: false, waiting: false };
 
+/// What a page last read of GitHub: the status and the repositories with no search words. The next
+/// page's menu lists them on its first open (a new tab's folder menu showed none until two host
+/// round trips and a GitHub read answered) and reads both again behind them, replacing them.
+export type GitHubSeen = { status: GitHubStatus; repos: readonly GitHubRepo[]; truncated: boolean };
+export type GitHubMemory = { read(): GitHubSeen | undefined; write(seen: GitHubSeen | undefined): void };
+const NO_MEMORY: GitHubMemory = { read: () => undefined, write: () => undefined };
+
+const SEEN_KEY = "cmux.acpmux.github.seen";
+const CONNECTIONS: readonly string[] = ["ready", "not_connected", "unavailable"];
+
+function seenFrom(value: unknown): GitHubSeen | undefined {
+  const raw = (value ?? {}) as { status?: { state?: unknown }; repos?: unknown; truncated?: unknown };
+  if (!raw.status || !CONNECTIONS.includes(raw.status.state as string) || !Array.isArray(raw.repos)) return undefined;
+  const repos = raw.repos.filter(
+    (repo): repo is GitHubRepo =>
+      !!repo &&
+      typeof (repo as GitHubRepo).fullName === "string" &&
+      typeof (repo as GitHubRepo).private === "boolean" &&
+      ((repo as GitHubRepo).defaultBranch === null || typeof (repo as GitHubRepo).defaultBranch === "string"),
+  );
+  return { status: raw.status as GitHubStatus, repos, truncated: raw.truncated === true };
+}
+
+/// The page's memory: localStorage, which every agent page shares (one website data store, as
+/// newtab/settledCache.ts). A blocked store remembers nothing and the menu reads as before.
+export const storedGitHubMemory: GitHubMemory = {
+  read() {
+    try {
+      const text = globalThis.localStorage?.getItem(SEEN_KEY);
+      return text ? seenFrom(JSON.parse(text)) : undefined;
+    } catch {
+      return undefined;
+    }
+  },
+  write(seen) {
+    try {
+      if (seen) globalThis.localStorage?.setItem(SEEN_KEY, JSON.stringify(seen));
+      else globalThis.localStorage?.removeItem(SEEN_KEY);
+    } catch {
+      // Storage unavailable: the next page reads GitHub as before.
+    }
+  },
+};
+
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 
 /// The host's word that GitHub changed under this page (the app finished an install GitHub handed back to it, #46018):
@@ -154,8 +198,14 @@ export function createGitHubPicker(
   watchKey: (run: () => void) => () => void = watchPageKey,
   isKey: () => boolean = pageIsKey,
   watchChanged: (run: () => void) => () => void = watchGitHubChanged,
+  memory: GitHubMemory = NO_MEMORY,
 ) {
-  let state = INITIAL;
+  const seen = memory.read();
+  let state: GitHubPickerState = seen
+    ? { ...INITIAL, status: seen.status, repos: seen.repos, truncated: seen.truncated }
+    : INITIAL;
+  // The status and repositories shown came from an earlier page: the first ready status lists them again.
+  let stale = seen !== undefined;
   const listeners = new Set<() => void>();
   // Each read's turn: an answer to an older read than the latest changes nothing.
   let statusTurn = 0;
@@ -179,10 +229,15 @@ export function createGitHubPicker(
         if (turn !== reposTurn) return;
         const { repos, truncated } = githubReposFromReply(reply);
         set({ repos, truncated, loading: false });
+        if (query === null && state.status?.state === "ready") {
+          stale = false;
+          memory.write({ status: state.status, repos, truncated });
+        }
       },
       (error: unknown) => {
         if (turn !== reposTurn) return;
         if ((error as { code?: unknown } | null)?.code === "github.not_connected") {
+          memory.write(undefined);
           set({ loading: false, repos: undefined, status: { state: "not_connected", reposScope: null } });
           return;
         }
@@ -207,7 +262,12 @@ export function createGitHubPicker(
           (status.state === "not_connected" || status.reason === "signed_out");
         if (!stays) stopWaiting();
         set({ status, ...(stays ? {} : { waiting: false }) });
-        if (ready && (relist || state.repos === undefined || state.error !== undefined)) listRepos(state.query);
+        // Not connected any more: the next page shows no repositories from before.
+        if (!ready) memory.write(undefined);
+        if (ready && (relist || stale || state.repos === undefined || state.error !== undefined)) {
+          stale = false;
+          listRepos(state.query);
+        }
       },
       () => {
         // A host that does not serve it (an older app) or refused it: GitHub can't be reached.
@@ -271,7 +331,8 @@ export type GitHubPickerStore = ReturnType<typeof createGitHubPicker>;
 let pageStore: GitHubPickerStore | undefined;
 
 function pagePicker(): GitHubPickerStore {
-  if (!pageStore) pageStore = createGitHubPicker();
+  if (!pageStore)
+    pageStore = createGitHubPicker(postNative, watchPageKey, pageIsKey, watchGitHubChanged, storedGitHubMemory);
   return pageStore;
 }
 
