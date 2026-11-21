@@ -196,7 +196,19 @@ function useRoll(key: string | undefined, label: string, lead: Roll["lead"], tai
 function useRollOutWidth(line: RefObject<HTMLDivElement | null>, turns: number) {
   const drawn = useRef<{ turns: number; width?: number }>({ turns });
   const watch = useRef<{ observer?: ResizeObserver; words?: Element | null }>({});
-  useLayoutEffect(() => () => watch.current.observer?.disconnect(), []);
+  useLayoutEffect(() => {
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      const box = entries.at(-1)?.borderBoxSize?.[0];
+      const width = box ? box.inlineSize : entries.at(-1)?.target.getBoundingClientRect().width;
+      drawn.current.width = width && width > 0 ? width : undefined;
+    });
+    watch.current = { observer };
+    return () => {
+      observer.disconnect();
+      watch.current = {};
+    };
+  }, []);
   useLayoutEffect(() => {
     const node = line.current;
     if (!node) return;
@@ -209,20 +221,19 @@ function useRollOutWidth(line: RefObject<HTMLDivElement | null>, turns: number) 
       if (tail) tail.style.left = px;
     }
     last.turns = turns;
-    const words = node.querySelector("output.cv-thinking");
-    const now = watch.current;
-    if (words === now.words || typeof ResizeObserver === "undefined") return;
-    now.observer?.disconnect();
-    now.words = words;
-    last.width = undefined;
-    if (!words) return;
-    now.observer ??= new ResizeObserver((entries) => {
-      const box = entries.at(-1)?.borderBoxSize?.[0];
-      const width = box ? box.inlineSize : entries.at(-1)?.target.getBoundingClientRect().width;
-      drawn.current.width = width && width > 0 ? width : undefined;
-    });
-    now.observer.observe(words);
+    if (follow(watch.current, node.querySelector("output.cv-thinking"))) last.width = undefined;
   });
+}
+
+/// Moves the observer to the words now drawn; true when they changed. The mount effect in
+/// `useRollOutWidth` owns the observer and disconnects it, so a commit never makes one.
+function follow(watch: { observer?: ResizeObserver; words?: Element | null }, words: Element | null) {
+  const { observer, words: watched } = watch;
+  if (!observer || words === watched) return false;
+  if (watched) observer.unobserve(watched);
+  watch.words = words;
+  if (words) observer.observe(words);
+  return true;
 }
 
 /// The line's counts glide to where their words leave them (Leo, 2026-11-11: "the animation system
