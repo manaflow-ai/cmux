@@ -500,6 +500,11 @@ fn on_datagram(
                 }
             }
         }
+        // An ultra capacity probe: only its arrival goes back, in the media feedback.
+        DatagramKind::Probe => {
+            arrivals
+                .push(Arrival { transport_seq: h.transport_seq, arrival_us: (now / 1000) as u32 });
+        }
         DatagramKind::InputAck if payload.len() >= 4 => {
             sender.ack(u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]));
         }

@@ -326,21 +326,29 @@ impl Receiver {
         let (header, payload) = DatagramHeader::decode(datagram).map_err(ReceiverError::Invalid)?;
         match header.kind {
             DatagramKind::Video | DatagramKind::Fec => {
-                if self.arrivals.len() >= MAX_PENDING_ARRIVALS {
-                    self.arrivals.pop_front();
-                }
-                // Viewer monotonic microseconds; the field wraps and only differences matter.
-                self.arrivals.push_back(Arrival {
-                    transport_seq: header.transport_seq,
-                    arrival_us: now_us as u32,
-                });
+                self.note_arrival(header.transport_seq, now_us);
                 let released = self.reassembler.push(&header, payload, now_us);
                 released.into_iter().for_each(|f| self.on_released(f));
                 self.count_losses();
                 Ok(())
             }
+            // An ultra capacity probe is padding: only its arrival time matters. It rides
+            // the same transport feedback as media, so the host's probe planner can read
+            // the train's dispersion.
+            DatagramKind::Probe => {
+                self.note_arrival(header.transport_seq, now_us);
+                Ok(())
+            }
             _ => self.queue_message(STREAM_DATAGRAM, datagram.to_vec()),
         }
+    }
+
+    fn note_arrival(&mut self, transport_seq: u16, now_us: u64) {
+        if self.arrivals.len() >= MAX_PENDING_ARRIVALS {
+            self.arrivals.pop_front();
+        }
+        // Viewer monotonic microseconds; the field wraps and only differences matter.
+        self.arrivals.push_back(Arrival { transport_seq, arrival_us: now_us as u32 });
     }
 
     fn queue_message(&mut self, kind: u8, bytes: Vec<u8>) -> Result<(), ReceiverError> {
