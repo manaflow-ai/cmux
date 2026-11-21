@@ -18,6 +18,7 @@ import tempfile
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
+import http.server as _hs; _hs.HTTPServer.server_bind = lambda s: (_hs.socketserver.TCPServer.server_bind(s), setattr(s, "server_name", str(s.server_address[0])), setattr(s, "server_port", s.server_address[1])) and None  # no reverse DNS on bind (Local Network prompt): tests/test_python_http_server_no_lookup.py
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'cmux-next'))
 try:
     from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)

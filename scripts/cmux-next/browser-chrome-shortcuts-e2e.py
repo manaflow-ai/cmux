@@ -29,6 +29,7 @@ Usage: browser-chrome-shortcuts-e2e.py --socket /tmp/cmux-debug-<tag>.sock [--en
 Exit status 0 when every check passes.
 """
 import argparse, http.server, json, os, socket, sys, threading, time
+import http.server as _hs; _hs.HTTPServer.server_bind = lambda s: (_hs.socketserver.TCPServer.server_bind(s), setattr(s, "server_name", str(s.server_address[0])), setattr(s, "server_port", s.server_address[1])) and None  # no reverse DNS on bind (Local Network prompt): tests/test_python_http_server_no_lookup.py
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True, help="the tagged app's debug socket")

@@ -20,6 +20,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+import http.server as _hs; _hs.HTTPServer.server_bind = lambda s: (_hs.socketserver.TCPServer.server_bind(s), setattr(s, "server_name", str(s.server_address[0])), setattr(s, "server_port", s.server_address[1])) and None  # no reverse DNS on bind (Local Network prompt): tests/test_python_http_server_no_lookup.py
 
 HERE = Path(__file__).parent
 spec = importlib.util.spec_from_file_location("server_release_render", HERE / "render.py")

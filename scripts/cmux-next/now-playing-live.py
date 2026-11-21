@@ -29,6 +29,7 @@ daemons stopped at the end; one it attached to with --socket keeps running.
 Exits 1 when a check fails.
 """
 import argparse, functools, glob, http.server, json, math, os, plistlib, socket, struct, subprocess, sys, tempfile, threading, time, wave
+import http.server as _hs; _hs.HTTPServer.server_bind = lambda s: (_hs.socketserver.TCPServer.server_bind(s), setattr(s, "server_name", str(s.server_address[0])), setattr(s, "server_port", s.server_address[1])) and None  # no reverse DNS on bind (Local Network prompt): tests/test_python_http_server_no_lookup.py
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402

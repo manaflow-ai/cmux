@@ -69,6 +69,7 @@ import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
+import http.server as _hs; _hs.HTTPServer.server_bind = lambda s: (_hs.socketserver.TCPServer.server_bind(s), setattr(s, "server_name", str(s.server_address[0])), setattr(s, "server_port", s.server_address[1])) and None  # no reverse DNS on bind (Local Network prompt): tests/test_python_http_server_no_lookup.py
 
 # Bump on any change a script or a test could notice (wire shapes, template grammar, log fields).
 STUB_VERSION = 5  # 2: {{prompt}} templates; 3: per-turn scripts ("turns"); 4: a step's "pause"; 5: error steps, delay_ms, /__stub/faults
