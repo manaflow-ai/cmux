@@ -11,13 +11,20 @@ use std::time::{Duration, Instant};
 use anyhow::Context;
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 
+use crate::workspace_registry::is_pending_reset_dir_name;
+use crate::workspace_registry::session_journal::subject_rows::stored_number_for_a_rollback;
+
+const REGISTRY: &str = "workspace_registry";
+
 /// Every store a rollback checks: its name, its file in a session directory,
 /// and the newest schema this build reads.
 const STORES: &[(&str, &str, i64)] = &[
     (
-        "workspace_registry",
+        REGISTRY,
         crate::workspace_registry::WORKSPACE_REGISTRY_FILE,
-        crate::workspace_registry::SCHEMA_VERSION,
+        // The number of a store whose journal has subject rows due: this
+        // build opens it, a build that does not know the number refuses it.
+        crate::workspace_registry::session_journal::subject_rows::ROWS_DUE_SCHEMA_VERSION,
     ),
     (
         "conversation_store",
@@ -29,6 +36,52 @@ const STORES: &[(&str, &str, i64)] = &[
 /// The newest schema of every store this build reads.
 pub fn readable() -> BTreeMap<String, i64> {
     STORES.iter().map(|(name, _, version)| ((*name).to_string(), *version)).collect()
+}
+
+/// A stopwatch for one part of a rollback check. In a test build its end
+/// counts the part and adds its time for the thread, so that a test can
+/// assert how many times each part ran and print where the time went
+/// ([`take_parts`]). In the product it holds nothing and does nothing.
+pub(crate) struct Part {
+    #[cfg(test)]
+    began: Instant,
+}
+
+impl Part {
+    pub(crate) fn start() -> Self {
+        Self {
+            #[cfg(test)]
+            began: Instant::now(),
+        }
+    }
+
+    /// Ends the part `name`. A part that an error leaves is not counted.
+    pub(crate) fn end(self, name: &'static str) {
+        #[cfg(test)]
+        PARTS.with(|parts| {
+            let mut parts = parts.borrow_mut();
+            let part = parts.entry(name).or_insert((0, Duration::ZERO));
+            part.0 += 1;
+            part.1 += self.began.elapsed();
+        });
+        #[cfg(not(test))]
+        let _ = name;
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// The parts that the checks of this thread ended: how many times, and
+    /// their time in all.
+    static PARTS: std::cell::RefCell<BTreeMap<&'static str, (u64, Duration)>> =
+        const { std::cell::RefCell::new(BTreeMap::new()) };
+}
+
+/// The parts that the checks of this thread ended since the last call: for
+/// each name how many times, and their time in all.
+#[cfg(test)]
+pub(crate) fn take_parts() -> BTreeMap<&'static str, (u64, Duration)> {
+    PARTS.with(|parts| std::mem::take(&mut *parts.borrow_mut()))
 }
 
 /// What a check of the stored schemas found.
@@ -45,6 +98,12 @@ pub enum Stored {
 /// A store that no session has written yet is absent. A store that cannot be
 /// read is an error: the caller must not guess.
 ///
+/// It is a read for its caller, and it can write: the registry of a session
+/// that no daemon owns, left with journal subject rows due, gets those rows
+/// here (`stored_number_for_a_rollback`). That write changes derived rows
+/// and the stored number only, and it makes no file. When the check cannot
+/// tell whether a daemon owns such a session, that is an error too.
+///
 /// `end` is the check's end time. The caller of the check ends its process
 /// after a fixed time, and a check that is ended gives no answer. So before
 /// each session after the first, the check reads the clock; at or after
@@ -53,7 +112,16 @@ pub enum Stored {
 /// The check keeps nothing between 2 calls: a call after it starts at the
 /// first session again, in the same order (the session folders sorted by
 /// path), and is faster only because the files are in the file cache. With
-/// no `end` it reads each session.
+/// no `end` it reads each session. The write for a session is a part of
+/// that session's read, and the clock is read only between 2 sessions: a
+/// check that stops at `end` made the write of each session that it read,
+/// and no write for a session after them. A call after it finds those
+/// stores written.
+///
+/// The folder that a session reset left in the state root when it did not
+/// end (`is_pending_reset_dir_name`) is no session: the check does not read
+/// its stores and does not count it. No build opens that folder again, and
+/// the next reset of that session deletes it.
 pub fn stored_until(state_root: &Path, end: Option<Instant>) -> anyhow::Result<Stored> {
     let mut found = BTreeMap::new();
     let entries = match std::fs::read_dir(state_root) {
@@ -69,7 +137,13 @@ pub fn stored_until(state_root: &Path, end: Option<Instant>) -> anyhow::Result<S
     // answer before the end names how many there are.
     let mut sessions: Vec<PathBuf> = Vec::new();
     for entry in entries {
-        let session = entry.with_context(|| format!("read {}", state_root.display()))?.path();
+        let entry = entry.with_context(|| format!("read {}", state_root.display()))?;
+        // The folder that a session reset left when it did not end is no
+        // session: no build opens it again, and no guard has its name.
+        if entry.file_name().to_str().is_some_and(is_pending_reset_dir_name) {
+            continue;
+        }
+        let session = entry.path();
         if session.is_dir() && STORES.iter().any(|(_, file, _)| session.join(file).is_file()) {
             sessions.push(session);
         }
@@ -88,6 +162,11 @@ pub fn stored_until(state_root: &Path, end: Option<Instant>) -> anyhow::Result<S
                 continue;
             }
             if let Some(version) = schema_version(&path)? {
+                let version = if *name == REGISTRY {
+                    stored_number_for_a_rollback(state_root, session, &path, version)?
+                } else {
+                    version
+                };
                 let newest = found.entry((*name).to_string()).or_insert(version);
                 *newest = (*newest).max(version);
             }
@@ -99,23 +178,33 @@ pub fn stored_until(state_root: &Path, end: Option<Instant>) -> anyhow::Result<S
 /// `meta.schema_version` of the SQLite store at `path`, read-only; nil when
 /// the store has no schema yet.
 fn schema_version(path: &Path) -> anyhow::Result<Option<i64>> {
+    let part = Part::start();
     let connection = Connection::open_with_flags(
         path,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
     .with_context(|| format!("open {}", path.display()))?;
     connection.busy_timeout(Duration::from_millis(500))?;
+    part.end("read: the open");
+    // The first statement of a connection reads the store's schema.
+    let part = Part::start();
     let has_meta: bool = connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta')",
         [],
         |row| row.get(0),
     )?;
+    part.end("read: the schema and the meta table's name");
     if !has_meta {
         return Ok(None);
     }
+    let part = Part::start();
     let value: Option<String> = connection
         .query_row("SELECT value FROM meta WHERE key = 'schema_version'", [], |row| row.get(0))
         .optional()?;
+    part.end("read: the number");
+    let part = Part::start();
+    drop(connection);
+    part.end("read: the close");
     value
         .map(|value| {
             value.parse::<i64>().with_context(|| format!("{} schema is invalid", path.display()))

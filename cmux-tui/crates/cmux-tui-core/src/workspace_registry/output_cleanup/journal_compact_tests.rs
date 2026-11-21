@@ -199,6 +199,9 @@ fn restating_registry(root: &Path, session: &str) -> PathBuf {
         registry.seal_journal_for_test(&format!("compact_{batch}"));
     }
     writer.append(&registry, LIVE);
+    // A closed registry is a stopped one: the stop writes the subject rows
+    // of the journal's tail, so the subject table has each record's rows.
+    registry.write_journal_subject_tail().unwrap();
     let db_path = registry.session_journal_database_path().unwrap();
     drop(registry);
     let db = Connection::open(&db_path).unwrap();

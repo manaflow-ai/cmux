@@ -50,8 +50,8 @@
 //!
 //! # Subjects
 //!
-//! A rewritten record's subjects are narrowed, and so are its
-//! `journal_subject_index` rows (the pack derives them from the subjects).
+//! A rewritten record's subjects are narrowed, and so are its subject
+//! rows (the pack derives them from the subjects).
 //! The live path names as subjects the session, the resources of the
 //! commit's patch, every public id in the result and the changes, and their
 //! ancestors (`session_journal.rs` `append_resource_journal_record_at`); a

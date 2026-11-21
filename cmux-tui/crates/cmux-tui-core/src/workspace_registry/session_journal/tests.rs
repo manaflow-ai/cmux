@@ -1,5 +1,7 @@
 use super::*;
 
+pub(crate) mod late_subject_rows;
+
 #[test]
 fn resource_record_is_typed_scoped_and_append_only() {
     let registry = WorkspaceRegistry::in_memory("journal").unwrap();
@@ -46,6 +48,8 @@ fn resource_record_is_typed_scoped_and_append_only() {
             .any(|subject| { subject.kind == "workspace" && subject.id == workspace_id })
     );
     assert!(record.subjects.iter().any(|subject| subject.kind == "pane" && subject.id == pane_id));
+    // A later commit writes the row's subject rows: here, the stop's.
+    registry.write_journal_subject_tail().unwrap();
     let indexed = registry
         .connection
         .get()

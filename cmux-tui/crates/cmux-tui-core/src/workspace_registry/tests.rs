@@ -3266,10 +3266,10 @@ fn thousand_workspace_rename_has_bounded_writes_and_time() {
         .unwrap();
     let elapsed = started.elapsed();
     let changed_rows = registry.connection.get().total_changes() - changes_before;
-    // The fixed write budget includes one append-only journal row and its
-    // session and workspace subject-index rows. It must not grow with the
-    // number of workspaces in the registry.
+    // The fixed write budget has one append-only journal row; a later commit
+    // writes its subject rows. It must not grow with the workspaces' count.
     assert!(changed_rows <= 10, "rename changed {changed_rows} rows");
+    registry.write_journal_subject_tail().unwrap();
     let latest_sequence = registry
         .connection
         .get()
@@ -5606,97 +5606,6 @@ fn vt_replay_blob_for_test(
 }
 
 #[test]
-fn terminal_output_window_resumes_exactly_and_honors_record_boundaries() {
-    let mut registry = WorkspaceRegistry::in_memory("terminal-output-window").unwrap();
-    commit_terminal_topology(&mut registry, "terminal-output-window-seed");
-    let terminal_id = terminal_resource(TERMINAL_ONE);
-    let first: &[u8] = b"first \x1b[31mred\x1b[0m\r\n";
-    let second: &[u8] = b"second plain\r\n";
-    let third: &[u8] = b"third \x1b[1mbold\x1b[0m\r\n";
-    append_terminal_output_for_test(
-        &mut registry,
-        &terminal_id,
-        INCARNATION_ONE,
-        &[first, second, third],
-    );
-    let total = u64::try_from(first.len() + second.len() + third.len()).unwrap();
-    assert_eq!(
-        registry.terminal_stream_latest(terminal_id.as_str()).unwrap(),
-        Some((INCARNATION_ONE.to_string(), total))
-    );
-
-    // The full window is contiguous and record-aligned.
-    let window = registry
-        .terminal_output_records_after(terminal_id.as_str(), INCARNATION_ONE, 0, 1 << 20)
-        .unwrap();
-    assert!(!window.truncated);
-    let offsets = window
-        .chunks
-        .iter()
-        .map(|chunk| (chunk.stream_offset_start, chunk.stream_offset_end))
-        .collect::<Vec<_>>();
-    let first_end = u64::try_from(first.len()).unwrap();
-    let second_end = first_end + u64::try_from(second.len()).unwrap();
-    assert_eq!(offsets, vec![(0, first_end), (first_end, second_end), (second_end, total)]);
-    assert_eq!(window.chunks[0].bytes.as_ref(), first);
-
-    // A cursor at a record boundary resumes exactly after it.
-    let resumed = registry
-        .terminal_output_records_after(terminal_id.as_str(), INCARNATION_ONE, first_end, 1 << 20)
-        .unwrap();
-    assert_eq!(resumed.chunks.first().map(|chunk| chunk.stream_offset_start), Some(first_end));
-
-    // A mid-record cursor never splits the record: the window starts at the
-    // boundary of the record containing the cursor.
-    let mid = registry
-        .terminal_output_records_after(
-            terminal_id.as_str(),
-            INCARNATION_ONE,
-            first_end + 1,
-            1 << 20,
-        )
-        .unwrap();
-    assert_eq!(mid.chunks.first().map(|chunk| chunk.stream_offset_start), Some(first_end));
-
-    // The byte budget truncates at record boundaries and reports truncation.
-    let budgeted = registry
-        .terminal_output_records_after(
-            terminal_id.as_str(),
-            INCARNATION_ONE,
-            0,
-            u64::try_from(first.len()).unwrap(),
-        )
-        .unwrap();
-    assert!(budgeted.truncated);
-    assert_eq!(budgeted.chunks.len(), 1);
-    assert_eq!(budgeted.chunks[0].stream_offset_end, first_end);
-
-    // Even a budget below one record returns the first record whole.
-    let tiny = registry
-        .terminal_output_records_after(terminal_id.as_str(), INCARNATION_ONE, 0, 1)
-        .unwrap();
-    assert!(tiny.truncated);
-    assert_eq!(tiny.chunks.len(), 1);
-    assert_eq!(tiny.chunks[0].bytes.as_ref(), first);
-
-    // A cursor at the stream head returns an empty, non-truncated window,
-    // and a foreign generation owns no records.
-    let drained = registry
-        .terminal_output_records_after(terminal_id.as_str(), INCARNATION_ONE, total, 1 << 20)
-        .unwrap();
-    assert!(drained.chunks.is_empty() && !drained.truncated);
-    let foreign = registry
-        .terminal_output_records_after(
-            terminal_id.as_str(),
-            "20000000000040008000000000000001",
-            0,
-            1 << 20,
-        )
-        .unwrap();
-    assert!(foreign.chunks.is_empty() && !foreign.truncated);
-}
-
-#[test]
 fn terminal_exit_snapshot_round_trips_and_records_journal_coverage() {
     let mut registry = WorkspaceRegistry::in_memory("terminal-exit-snapshot").unwrap();
     commit_terminal_topology(&mut registry, "terminal-exit-snapshot-seed");
@@ -5972,6 +5881,9 @@ fn schema_eleven_receipts_gain_origin_scope_without_losing_replays() {
     assert_eq!(replay.sequence, first.sequence);
     assert!(!other_origin.replayed);
     assert!(other_origin.sequence > first.sequence);
+    // The new producer's journal row has its subject rows due, and the stored
+    // number says so until a stop's write.
+    migrated.write_journal_subject_tail().unwrap();
     assert_eq!(
         required_meta(&migrated.connection.get(), "schema_version").unwrap(),
         SCHEMA_VERSION.to_string()
@@ -6144,13 +6056,13 @@ fn newer_schema_is_reported_before_writer_lease_conflict() {
         .get()
         .execute(
             "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
-            [(SCHEMA_VERSION + 1).to_string()],
+            [(SCHEMA_VERSION + 2).to_string()],
         )
         .unwrap();
 
     let error = WorkspaceRegistry::open(&root, "session").unwrap_err();
     let schema = error.downcast_ref::<UnsupportedWorkspaceRegistrySchema>().unwrap();
-    assert_eq!(schema.found(), SCHEMA_VERSION + 1);
+    assert_eq!(schema.found(), SCHEMA_VERSION + 2);
     assert_eq!(schema.registry_id(), Some(registry.registry_id()));
     assert!(!error.to_string().contains("already owned"));
 

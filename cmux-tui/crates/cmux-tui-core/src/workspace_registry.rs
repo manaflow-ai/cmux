@@ -45,6 +45,9 @@ use schema::{
 };
 mod terminal_snapshot_read;
 use session_reset::*;
+// For the rollback's check (`store_schemas`): the folder of a reset that did
+// not end is no session.
+pub(crate) use session_reset::is_pending_reset_dir_name;
 
 pub(crate) use open::{
     open_registry_database, open_registry_database_read_only, open_registry_database_with_flags,

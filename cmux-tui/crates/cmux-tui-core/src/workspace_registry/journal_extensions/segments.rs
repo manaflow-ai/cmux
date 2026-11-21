@@ -301,6 +301,9 @@ impl WorkspaceRegistry {
                 &segment.reducer_records,
             )?;
         }
+        // A row that leaves the active table takes its subjects with it, so
+        // its subject rows are written first, in this commit.
+        session_journal::subject_rows::write_through(&tx, plan.through_sequence)?;
         tx.execute_batch("DROP TRIGGER IF EXISTS session_journal_reject_delete;")?;
         let deleted = {
             let _kept = DeleteOfKeptRows::begin(&tx)?;
