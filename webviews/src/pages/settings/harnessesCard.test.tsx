@@ -14,7 +14,7 @@ const ids = (element: HTMLElement) =>
   [...element.querySelectorAll<HTMLElement>("[data-harness]")].map((row) => row.dataset.harness);
 
 test("owner job receipts stay pending until a terminal exit; a lost reply blocks another update, an unknown exit does not", async () => {
-  const page = await renderPage({ path: "/settings/agents" });
+  const page = await renderPage({ path: "/settings/agents", mock: { values: { "labs.previewFeatures": true } } });
   await settle();
   const base = page.provider.harnesses;
   const show = async (state: string, extra = {}) => {
@@ -80,7 +80,7 @@ test("owner job receipts stay pending until a terminal exit; a lost reply blocks
 });
 
 test("a recovered unstarted intent resumes only by an explicit click with its retained key", async () => {
-  const page = await renderPage({ path: "/settings/agents" });
+  const page = await renderPage({ path: "/settings/agents", mock: { values: { "labs.previewFeatures": true } } });
   await settle();
   const base = page.provider.harnesses;
   const show = async (canResume: boolean, state = "unknown") => {
@@ -163,7 +163,7 @@ test("an intent nothing runs for can be dismissed by an explicit click with its 
 });
 
 test("a channel the update owner cannot run (a Homebrew cask) offers no Update or Update All", async () => {
-  const page = await renderPage({ path: "/settings/agents" });
+  const page = await renderPage({ path: "/settings/agents", mock: { values: { "labs.previewFeatures": true } } });
   await settle();
   const cask = {
     id: "claude",
@@ -247,8 +247,18 @@ test("a change from the host shows without a reload; no daemon says why", async 
   page.unmount();
 });
 
-test("an outdated harness shows both versions and an Update; one that needs sudo shows its command; Agents gets a badge", async () => {
+test("the update card experiment stays quiet until Preview Features is enabled", async () => {
   const page = await renderPage({ path: "/settings/agents" });
+  await settle();
+  expect(card(page.container)!.querySelector("[data-harness-update-cards]")).toBeNull();
+  await act(async () => page.store.set("labs.previewFeatures", true));
+  await settle();
+  expect(card(page.container)!.querySelector("[data-harness-update-cards]")).not.toBeNull();
+  page.unmount();
+});
+
+test("an outdated harness shows both versions and an Update; one that needs sudo shows its command; Agents gets a badge", async () => {
+  const page = await renderPage({ path: "/settings/agents", mock: { values: { "labs.previewFeatures": true } } });
   await settle();
   const element = card(page.container)!;
   const codex = element.querySelector<HTMLElement>('[data-harness="codex"]')!;
@@ -387,7 +397,7 @@ test("an expired sign-in badges Agents and says so on its row, like a signed-out
 // same ~/.local/bin/claude as `claude`, so Settings drew two update cards for one binary, one of them
 // titled "Update Cmux". The harness list keeps both profiles; the update cards are one per binary.
 test("two profiles that run one binary get one update card, named for that binary", async () => {
-  const page = await renderPage({ path: "/settings/agents" });
+  const page = await renderPage({ path: "/settings/agents", mock: { values: { "labs.previewFeatures": true } } });
   await settle();
   const claude = (id: string) => ({
     id,

@@ -187,6 +187,24 @@ test("versions and Skip This Version show only while Option is held", async () =
   expect(text()).not.toContain("0.164.0");
 });
 
+// Lawrence 2026-11-21: "maybe update all should be more prominent since that's the action most
+// people will take". Update all is the footer's one default button, drawn in the accent; each row's
+// Update is a quiet secondary. With one row, that row's Update is the default.
+test("Update all is the one default button; with one row, its Update is", async () => {
+  const view = await mount([codex, opencode]);
+  const defaults = () => [...view.container.querySelectorAll("[data-default]")];
+  expect(defaults()).toHaveLength(1);
+  expect(defaults()[0]!.textContent).toBe("Update all");
+  expect(defaults()[0]!.classList.contains("acpmux-harness-updates-all")).toBe(true);
+  for (const id of ["codex", "opencode"])
+    expect(view.rowOf(id)!.querySelector(".acpmux-harness-update-run")!.hasAttribute("data-default")).toBe(false);
+
+  await view.draw([codex]);
+  expect(defaults()).toHaveLength(1);
+  expect(defaults()[0]!.closest("[data-harness-update]")?.getAttribute("data-harness-update")).toBe("codex");
+  expect(defaults()[0]!.textContent).toBe("Update");
+});
+
 test("the chat's own offer leads, then the others; each Update runs its own update", async () => {
   const ran: string[] = [];
   const offer: UpdateOffer = {
@@ -203,7 +221,11 @@ test("the chat's own offer leads, then the others; each Update runs its own upda
   expect(view.names()).toEqual(["claude", "codex", "opencode"]);
   expect(view.container.textContent).toContain("Harness updates available");
   expect(view.rowOf("codex")!.textContent).toContain("Codex");
-  expect(view.container.textContent).toContain("New models often need the latest version.");
+  // The reason is the heading's tooltip, not a line of its own (Lawrence 2026-11-21: simpler).
+  expect(view.container.textContent).not.toContain("New models often need the latest version.");
+  expect(view.container.querySelector(".acpmux-harness-updates-title")?.getAttribute("title")).toBe(
+    "New models often need the latest version.",
+  );
   // Skip This Version is the chat's own row's, and shows with the versions (Option held).
   await holdOption(true);
   expect(view.rowOf("claude")!.querySelector(".acpmux-harness-update-skip")).not.toBeNull();

@@ -173,6 +173,9 @@ async fn a_chat_starts_codex_with_its_agent_limits_lifted_unless_the_profile_set
         starts.iter().any(|s| s.to_string().contains(acpmux::agent_tools::CONCURRENT_WORK_RULE)),
         "{starts:?}"
     );
+    // Every override, the rules included, before the subcommand: none after it, or a codex that
+    // drops the root ones then would lose the limits and a launcher's own (cmux#48354).
+    assert!(!starts.iter().any(config_after_subcommand), "{starts:?}");
 
     // A key the project's codex config sets wins too.
     let project = d.join("project");
@@ -310,18 +313,35 @@ async fn a_chat_starts_codex_with_the_configured_model_on_its_command_line() {
     let _ = std::fs::remove_dir_all(&d);
 }
 
-/// A start's arguments without the `-c developer_instructions=...` a chat's start ends with
+/// A start's arguments without the `-c developer_instructions=...` a chat's start carries
 /// (`context_inventory::launch_args`): cmux's rules, which the limits leave alone.
 fn without_rules(start: &Value) -> Value {
-    let mut words = start.as_array().cloned().unwrap_or_default();
-    let n = words.len();
-    if n >= 2
-        && words[n - 2] == "-c"
-        && words[n - 1].as_str().is_some_and(|w| w.starts_with("developer_instructions="))
-    {
-        words.truncate(n - 2);
+    let words = start.as_array().cloned().unwrap_or_default();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < words.len() {
+        let rules = words[i] == "-c"
+            && words
+                .get(i + 1)
+                .and_then(Value::as_str)
+                .is_some_and(|w| w.starts_with("developer_instructions="));
+        if rules {
+            i += 2;
+        } else {
+            out.push(words[i].clone());
+            i += 1;
+        }
     }
-    Value::Array(words)
+    Value::Array(out)
+}
+
+/// Whether `start` has a config override after its `app-server` word, which some codex builds
+/// (0.160, the cmux fork) answer by dropping every override before the subcommand (cmux#48354).
+fn config_after_subcommand(start: &Value) -> bool {
+    let words: Vec<&str> = start.as_array().unwrap().iter().filter_map(Value::as_str).collect();
+    words.iter().position(|w| *w == "app-server").is_some_and(|at| {
+        words[at + 1..].iter().any(|w| w.starts_with("-c") || w.starts_with("--config"))
+    })
 }
 
 #[tokio::test]
