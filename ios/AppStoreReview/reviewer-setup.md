@@ -136,8 +136,8 @@ Optional permissions:
 Payments:
 - cmux Go, Pro, and Max are monthly auto-renewable subscriptions in the
   subscription group "cmux Plans", sold only through In-App Purchase.
-- To review them, open Settings > Account > Plan (or Cloud > Upgrade). The plans
-  screen shows each plan with its App Store price, Restore Purchases, Manage
+- To review them, tap See Plans on the Upgrade card at the top of Settings
+  (or on the banner in the Cloud tab). The plans screen shows each plan with its App Store price, Restore Purchases, Manage
   Subscription, the auto-renewal terms, and links to the Terms of Use and
   Privacy Policy.
 - Purchases use the Sandbox Apple Account on the review device. The server
