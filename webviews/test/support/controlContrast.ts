@@ -29,13 +29,15 @@
 // Captures are at 2x, as the app draws on a Retina screen: thin strokes keep full-ink pixels.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { chromium, type Browser, type CDPSession, type Page } from "playwright";
+import { chromium, type Browser, type BrowserContext, type CDPSession, type Page } from "playwright";
 import { readShippedThemes } from "../../dev-server/galleryHost";
 import { loadEntrySources } from "../../scripts/gallery/entries";
 import { hideInk, markControls, readControls, type Control, type Reading } from "./controlContrastScan";
 import { warmGalleryFrame } from "./galleryFrame";
 import { requireBrowserLane } from "./requireBrowserLane";
+import type { Plugin } from "vite";
 import { launchStageBrowser, type StageBrowser } from "./stageBrowser";
 
 export type ControlContrastPart = {
@@ -46,6 +48,25 @@ export type ControlContrastPart = {
   parts: number;
   /** The gallery's dev server config, named in the part's own file so the runner sees a dev server file. */
   viteConfig: string;
+};
+
+/** Pages read at once, each worker in a Chromium of its own. */
+const WORKERS = 12;
+
+/**
+ * Lets each Chromium keep the dev server's modules for the run. Vite sends `Cache-Control: no-cache`, so
+ * every page load asks again for each of an entry's ~1,000 modules; the files don't change during a run.
+ */
+const keepModules: Plugin = {
+  name: "control-contrast-keep-modules",
+  configureServer(server) {
+    server.middlewares.use((_req, res, next) => {
+      const setHeader = res.setHeader.bind(res);
+      res.setHeader = (name, value) =>
+        setHeader(name, name.toLowerCase() === "cache-control" && value === "no-cache" ? "private, max-age=3600" : value);
+      next();
+    });
+  },
 };
 
 /** The themes and modes every entry is read in: the gallery's own query keys (src/gallery/env.ts). */
@@ -219,28 +240,45 @@ export async function controlContrast({ file, part, parts, viteConfig }: Control
 
     const { createServer } = await import("vite");
     let vite: Awaited<ReturnType<typeof createServer>> | undefined;
-    let shared: StageBrowser<Browser, Page> | undefined;
+    let browsers: StageBrowser<BrowserContext, Page>[] = [];
+    const profiles: string[] = [];
     beforeAll(async () => {
       vite = await createServer({
         configFile: path.join(webviews, viteConfig),
         server: { port: 0, host: "127.0.0.1", strictPort: false },
         logLevel: "error",
+        plugins: [keepModules],
       });
       await vite.listen();
-      shared = await launchStageBrowser<Browser, Page>({
-        launch: () => chromium.launch({ headless: true }),
-        open: (browser) =>
-          browser.newPage({ viewport: { width: 760, height: 900 }, deviceScaleFactor: 2, reducedMotion: "reduce" }),
-      });
+      // One Chromium per worker: one shared Chromium serializes every worker's page loads. Each has a
+      // profile of its own, whose disk cache keeps an entry's modules between its schemes.
+      browsers = await Promise.all(
+        Array.from({ length: WORKERS }, () =>
+          launchStageBrowser<BrowserContext, Page>({
+            launch: () => {
+              const profile = fs.mkdtempSync(path.join(os.tmpdir(), "control-contrast-"));
+              profiles.push(profile);
+              return chromium.launchPersistentContext(profile, {
+                headless: true,
+                viewport: { width: 760, height: 900 },
+                deviceScaleFactor: 2,
+                reducedMotion: "reduce",
+              });
+            },
+            open: (context) => context.newPage(),
+          }),
+        ),
+      );
       const first = stages[0]!;
       await warmGalleryFrame(vite, first.entry, {
-        browser: shared.browser,
+        browser: browsers[0]!.browser as unknown as Browser,
         params: { variant: first.variant, frame: "component", ...first.scheme.query },
       });
     });
     afterAll(async () => {
-      await shared?.close();
+      await Promise.all(browsers.map((browser) => browser.close()));
       await vite?.close();
+      for (const profile of profiles) fs.rmSync(profile, { recursive: true, force: true });
     });
 
     type Scanned = { stage: string; controls: number; failures: Failure[] } | { stage: string; error: string };
@@ -362,14 +400,14 @@ export async function controlContrast({ file, part, parts, viteConfig }: Control
       // at the end.
       const queue = [...byEntry(stages).values()].sort((a, b) => b.length - a.length);
       await Promise.all(
-        Array.from({ length: 6 }, async () => {
+        browsers.map(async (shared) => {
           let page: Page | undefined;
           let cdp: CDPSession | undefined;
           for (let group = queue.shift(); group; group = queue.shift())
           for (const stage of group) {
             if (!page || !cdp)
               try {
-                page = await shared!.page();
+                page = await shared.page();
                 cdp = await page.context().newCDPSession(page);
               } catch (error) {
                 results.push({ stage: stageName(stage), error: String(error).split("\n")[0]! });
@@ -380,7 +418,7 @@ export async function controlContrast({ file, part, parts, viteConfig }: Control
             const result = await scanWithin(page, cdp, stage);
             results.push(result);
             if ("error" in result) {
-              void shared!.closePage(page);
+              void shared.closePage(page);
               page = undefined;
               cdp = undefined;
             }
@@ -389,10 +427,10 @@ export async function controlContrast({ file, part, parts, viteConfig }: Control
                 `control-contrast: ${results.length}/${stages.length} stages, ${Math.round(performance.now() / 1000)}s`,
               );
           }
-          if (page) await shared!.closePage(page);
+          if (page) await shared.closePage(page);
         }),
       );
-      expect(shared!.failure, "the shared Chromium").toBeUndefined();
+      for (const shared of browsers) expect(shared.failure, "a worker's Chromium").toBeUndefined();
 
       // A new failure holds only when a second read of its stage, on a fresh page, finds it again: one
       // capture taken mid-paint (a palette's rows drawn white on white, a hover fill caught half in)
@@ -405,7 +443,8 @@ export async function controlContrast({ file, part, parts, viteConfig }: Control
         ),
       );
       if (recheck.length) {
-        const page = await shared!.page();
+        const shared = browsers[0]!;
+        const page = await shared.page();
         const cdp = await page.context().newCDPSession(page);
         for (const stage of recheck) {
           // fixed-wait: the stage's deadline above; each stage ends as soon as it is read.
@@ -417,7 +456,7 @@ export async function controlContrast({ file, part, parts, viteConfig }: Control
           if ("failures" in first)
             results[index] = { ...first, failures: first.failures.filter((f) => !isFresh(f) || seen.has(f.key)) };
         }
-        await shared!.closePage(page);
+        await shared.closePage(page);
         console.log(`control-contrast: read ${recheck.length} stage(s) again to confirm their new failures`);
       }
 
