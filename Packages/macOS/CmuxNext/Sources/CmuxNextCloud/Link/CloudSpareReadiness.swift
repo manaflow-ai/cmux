@@ -9,7 +9,9 @@ import os
 /// or from a compose's reserve (the person is about to start a chat, and the service keeps the machine running for
 /// it) also dials the machine on that link: the first dial of a machine took about 3 s on 2026-11-19, a stream on a session already dialed 0.05 to
 /// 0.2 s. A start on a machine this app run keyed skips its approvals step (``isKeyed(_:scope:instance:)``), and the
-/// session made for the claimed machine takes the link that is already up (``link(for:team:)``).
+/// session made for the claimed machine takes the link that is already up (``link(for:team:)``). Once keyed, the spare's
+/// model-route report is read too, so the start's route check runs no command on the machine
+/// (``routeReport(_:scope:instance:)``; 1.9 to 2.5 s of each start, 2026-11-21).
 ///
 /// Memory only, like the key itself: an app restart starts with nothing keyed. Every entry belongs to one scope, the
 /// user and team signed in when it was made: after a sign-out or an account or team switch it reads as absent (and is
@@ -36,11 +38,14 @@ public final class CloudSpareReadiness {
         /// the App's active team (a member of a shared team has an active team that is not the install token's). A link
         /// made for another team than the record's is ended at the claim, not taken. Nil when it cannot be read.
         public var team: @MainActor () async -> String?
+        /// `machine`'s model-route report as its start's check would read it now (the App's `CloudMachineRoute.report()`:
+        /// one command on the machine), nil when it has none worth keeping. Nil here: no report is read ahead.
+        public var route: (@MainActor (_ machine: String) async -> String?)?
 
         public init(scope: @escaping @MainActor () -> Scope, key: @escaping @MainActor (String, Scope) async -> String?,
                     keyedInstance: @escaping @MainActor (String) -> String?, link: @escaping @MainActor (String, String?) -> SpareLink?,
-                    team: @escaping @MainActor () async -> String?) {
-            (self.scope, self.key, self.keyedInstance, self.link, self.team) = (scope, key, keyedInstance, link, team)
+                    team: @escaping @MainActor () async -> String?, route: (@MainActor (String) async -> String?)? = nil) {
+            (self.scope, self.key, self.keyedInstance, self.link, self.team, self.route) = (scope, key, keyedInstance, link, team, route)
         }
     }
 
@@ -79,6 +84,8 @@ public final class CloudSpareReadiness {
     public static let linkKept: Duration = .seconds(600)
 
     private struct Keyed { let scope: Scope; let instance: String }
+    /// A model-route report read ahead: under the daemon run `instance`, for `scope`, kept until `until`.
+    private struct Routed { let scope: Scope; let instance: String; let until: ContinuousClock.Instant; let report: String }
     /// Where a held link's dial ahead stands: one dial per link, never asked twice.
     private enum Dial: String { case notAsked = "not dialed", running = "dialing", connected = "dialed", failed = "its dial did not connect" }
     private struct Held {
@@ -92,6 +99,9 @@ public final class CloudSpareReadiness {
 
     private let dependencies: Dependencies
     private var keyed: [String: Keyed] = [:]
+    private var routes: [String: Routed] = [:]
+    /// When a route read ahead of `machine` last gave no report: not read again for ``keyRetry``.
+    private var routeMissed: [String: ContinuousClock.Instant] = [:]
     private var links: [String: Held] = [:]
     /// The prime running for each machine, with the ``resets`` it started under: one from before a reset writes
     /// nothing, so a prime after that reset starts its own. `dials`: it dials its link; `id` tells it from a later one.
@@ -187,14 +197,51 @@ public final class CloudSpareReadiness {
         links = [:]
         keyed = [:]
         keyMissed = [:]
+        routes = [:]
+        routeMissed = [:]
         asked = []
         resets += 1
+    }
+
+    /// The model-route report read ahead on `machine` (``Dependencies/route``), for its start's route check: only for
+    /// the scope it was read in, while the daemon run it was read under is still `instance` (the run that holds this
+    /// app's key now) and not past ``linkKept``. The start then runs no command on the machine for a report that says
+    /// its chat starts. An entry that no longer fits is dropped, and the start reads its own.
+    public func routeReport(_ machine: String, scope: Scope, instance: String?) -> String? {
+        guard let entry = routes[machine] else { return nil }
+        guard Self.signedIn(scope), entry.scope == scope, let instance, entry.instance == instance, now() < entry.until else {
+            routes[machine] = nil
+            return nil
+        }
+        return entry.report
     }
 
     private func primed(_ machine: String, team: String?, scope: Scope, resets: Int, dials: Bool) async {
         async let linked: Void = linkAhead(machine, team: team, scope: scope, resets: resets, dials: dials)
         await keyAhead(machine, scope: scope, resets: resets)
+        await routeAhead(machine, scope: scope, resets: resets)
         await linked
+    }
+
+    /// Reads the spare's model-route report once it is keyed, under the daemon run that holds the key: the keyed start
+    /// restarts the machine's agent service, so a report from before it is not that run's. One read per run; a read
+    /// that gave none waits ``keyRetry``. `resets`: as ``keyAhead(_:scope:resets:)``.
+    private func routeAhead(_ machine: String, scope: Scope, resets: Int) async {
+        guard resets == self.resets, let route = dependencies.route, let instance = dependencies.keyedInstance(machine),
+              isKeyed(machine, scope: scope, instance: instance), routeReport(machine, scope: scope, instance: instance) == nil else { return }
+        if let missed = routeMissed[machine], now() < missed.advanced(by: Self.keyRetry) { return }
+        routeMissed[machine] = nil
+        let report = await route(machine)
+        // Forgotten while it ran: nothing of this run is written back.
+        guard resets == self.resets else { return }
+        // No report, another account, or another daemon run since (a restart under the read): not this run's report.
+        guard let report, dependencies.scope() == scope, dependencies.keyedInstance(machine) == instance else {
+            routeMissed[machine] = now()
+            Self.log.info("cloud spare \(machine, privacy: .public): no model route read ahead (no report, or its agent service or the account changed); the start reads it")
+            return
+        }
+        routes[machine] = Routed(scope: scope, instance: instance, until: now().advanced(by: Self.linkKept), report: report)
+        Self.log.info("cloud spare \(machine, privacy: .public): model route read ahead")
     }
 
     /// `resets` is the count its prime started under: forgotten since (Cloud turned off, signed out), it keys nothing.
