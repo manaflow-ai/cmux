@@ -49,6 +49,7 @@ pub mod chatgpt;
 pub mod chats;
 pub mod claude_auth;
 mod claude_cloud_auth;
+pub mod claude_inbox_relay;
 pub mod claude_peers;
 pub mod claude_stdio;
 pub mod cli;
@@ -142,6 +143,7 @@ pub mod hunk_summary;
 pub mod idempotency;
 #[cfg(windows)]
 mod job;
+mod joined_model_plane;
 pub mod launch_credential;
 pub mod launch_policy;
 pub mod left_on_mac;
@@ -305,6 +307,7 @@ pub mod subsession_worktree;
 pub mod suggestion_gate;
 pub(crate) mod supervise;
 pub mod tailnet;
+pub mod task_list;
 #[cfg(unix)]
 #[path = "daemon/term_sender.rs"]
 pub(crate) mod term_sender;

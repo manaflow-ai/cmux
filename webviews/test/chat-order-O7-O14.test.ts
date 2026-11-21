@@ -3,8 +3,8 @@
 // Leo, 2026-11-21: "some animations i think are still a bit... off. like, you finish some sort of
 // tool call, things happen, things fold, stuff comes in at different times".
 //
-// - O7  a row arriving under the kept row while the fold plays rides the fold's clock (translate)
-// - O8  a text row that brings its own entrance (`--message-enter`) takes only the carried translate
+// - O7  a row arriving under the kept row while the fold plays fades at its final place
+// - O8  a text row that brings its own entrance (`--message-enter`) keeps only that entrance
 // - O9  a second turn end settles the first fold (animations finished, copies gone) before it plays
 // - O10 a first frame that paints late re-arms the fold's backstop from that frame, nothing is finished
 // - O11 a longer move before the first frame flattens the curve and restarts the clock (`grew`)
@@ -141,7 +141,7 @@ const translates = (entries: Played[]) => entries.filter((e) => e.keyframes.some
 const opacities = (entries: Played[]) =>
   entries.filter((e) => e.keyframes.some((f) => f.opacity !== undefined) && !e.keyframes.some((f) => f.translate));
 
-test("O7: a row arriving under the kept row while the fold plays rides the fold's clock and fades in", async () => {
+test("O7: a row arriving under the kept row while the fold plays fades at its final place", async () => {
   const p = page();
   const capture = endOfTurn(p);
   const fold = playTurnEnd(p.thread, capture, "chat")!;
@@ -151,15 +151,9 @@ test("O7: a row arriving under the kept row while the fold plays rides the fold'
     const next = p.draw("next-line", "notice", 184, 22);
     await p.observed();
     const mine = p.played.slice(before).filter((e) => e.node === next);
-    // The reply starts 40 px from its place (94 -> 134): the arriving row carries that start.
+    // The row is already laid out at its final top. It must not ride the kept reply's fold offset.
     const slide = translates(mine);
-    expect(slide.length).toBe(1);
-    expect(slide[0]!.keyframes[0]!.translate).toBe("0 -40px");
-    expect(slide[0]!.keyframes.at(-1)!.translate).toBe("0 0");
-    // On the fold's one clock, not on a clock of its own.
-    const reply = translates(p.played.filter((e) => e.node.dataset.rowId === "answer"))[0]!;
-    expect(slide[0]!.duration).toBe(reply.duration);
-    expect(slide[0]!.easing).toBe(reply.easing);
+    expect(slide.length).toBe(0);
     expect(opacities(mine).length).toBe(1);
   } finally {
     settleTurnEnd(p.thread, fold);
@@ -167,7 +161,7 @@ test("O7: a row arriving under the kept row while the fold plays rides the fold'
   }
 });
 
-test("O8: a text row with its own entrance takes the carried translate and no fade of the fold's", async () => {
+test("O8: a text row with its own entrance stays at its final place and holds until the move lands", async () => {
   const p = page();
   const capture = endOfTurn(p);
   const fold = playTurnEnd(p.thread, capture, "chat")!;
@@ -176,10 +170,13 @@ test("O8: a text row with its own entrance takes the carried translate and no fa
     const next = p.draw("next-reply", "assistant", 184, 40, "acpmux-row--message-enter");
     await p.observed();
     const mine = p.played.slice(before).filter((e) => e.node === next);
-    expect(translates(mine).length).toBe(1);
-    // The entrance's own fade plays (CSS); the fold adds none on top (reply fading twice).
-    expect(opacities(mine).length).toBe(0);
-    expect(mine.some((e) => e.keyframes.some((f) => f.opacity !== undefined))).toBe(false);
+    expect(translates(mine).length).toBe(0);
+    // Held at no ink over the kept rows still sliding in, then faded in at its place once the move
+    // has landed: one fold fade, delayed by the move (the entrance's own CSS fade runs under the hold).
+    const hold = opacities(mine);
+    expect(hold.length).toBe(1);
+    expect(hold[0]!.keyframes[0]!.opacity).toBe(0);
+    expect(hold[0]!.delay).toBeGreaterThan(0);
   } finally {
     settleTurnEnd(p.thread, fold);
     p.dom.window.close();
