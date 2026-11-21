@@ -5,7 +5,7 @@
   padding: 0;
   background: var(--surface-popup);
   color: var(--text);
-  border-radius: var(--ds-radius-card);
+  border-radius: calc(var(--ds-radius-control) + var(--ds-space-6));
 }
 .chief-contact-content {
   position: relative;
@@ -36,7 +36,7 @@
 .chief-contact-content h2 { margin: 0; font-size: var(--text-title); line-height: var(--text-title--line-height); font-weight: 600; text-wrap: balance; }
 .chief-contact-channels { display: flex; justify-content: center; gap: var(--ds-space-5); width: 100%; }
 .chief-contact-channel { display: flex; flex-direction: column; align-items: center; gap: var(--ds-space-1); min-width: 0; flex: 1; }
-.chief-contact-channel button { display: grid; place-items: center; width: calc(var(--ds-space-5) * 2); height: calc(var(--ds-space-5) * 2); border-radius: 50%; border: 0; color: inherit; background: var(--input-bg); }
+.chief-contact-channel button { display: grid; place-items: center; width: calc(var(--ds-space-5) * 2); height: calc(var(--ds-space-5) * 2); border-radius: var(--ds-radius-control); border: 0; color: inherit; background: var(--input-bg); }
 .chief-contact-channel button[aria-pressed="true"] { background: var(--accent-soft); outline: 1px solid var(--border-strong); }
 .chief-contact-channel svg { width: var(--ds-space-5); height: var(--ds-space-5); }
 .chief-contact-channel small { color: var(--muted-text); font: inherit; }
