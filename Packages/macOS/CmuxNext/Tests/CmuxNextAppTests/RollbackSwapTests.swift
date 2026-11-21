@@ -94,4 +94,59 @@ import Testing
         }
         #expect(calls == 1)
     }
+
+    /// The reopen after a rollback keeps a custom home (the weekly rollback drill runs the app in a
+    /// throwaway home): `open` gets `--env` for it, and a launch in the account's own home gets the
+    /// `open` argv it always had. The helper runs with `printf` in place of `open`, so this reads
+    /// the argv `open` would get, a home with a space and a quote included.
+    @Test func theReopenKeepsACustomHomeAndOnlyThen() throws {
+        let app = URL(fileURLWithPath: "/Applications/cmux NEXT.app")
+        let account = "/Users/ci"
+        let ownHome = RelaunchHome.openArguments(environment: ["HOME": account], accountHome: account)
+        #expect(ownHome.isEmpty)
+        let own = RollbackSwap.relaunchCommand(pid: 42, app: app, openOptions: ownHome)
+        #expect(own == ["/bin/sh", "-c", #"/usr/bin/caffeinate -w 42; /usr/bin/open "$@" "$0""#, app.path])
+        #expect(try Self.openArgv(own) == ["/usr/bin/open", app.path])
+
+        let drill = "/private/tmp/walk home/it's \(UUID().uuidString)"
+        let options = RelaunchHome.openArguments(environment: ["HOME": drill, "CFFIXED_USER_HOME": drill], accountHome: account)
+        #expect(options == ["--env", "HOME=\(drill)", "--env", "CFFIXED_USER_HOME=\(drill)"])
+        let custom = RollbackSwap.relaunchCommand(pid: 42, app: app, openOptions: options)
+        #expect(custom[2] == own[2], "the home is an argument, never script text")
+        #expect(try Self.openArgv(custom) == ["/usr/bin/open", "--env", "HOME=\(drill)", "--env", "CFFIXED_USER_HOME=\(drill)", app.path])
+    }
+
+    @Test func relaunchHomePassesOnlyTheVariablesThatAreSet() {
+        let account = "/Users/ci"
+        #expect(RelaunchHome.openArguments(environment: [:], accountHome: account).isEmpty)
+        #expect(RelaunchHome.openArguments(environment: ["HOME": "/tmp/h"], accountHome: account) == ["--env", "HOME=/tmp/h"])
+        #expect(RelaunchHome.openArguments(environment: ["HOME": account, "CFFIXED_USER_HOME": "/tmp/h"], accountHome: account)
+            == ["--env", "HOME=\(account)", "--env", "CFFIXED_USER_HOME=/tmp/h"])
+        #expect(RelaunchHome.openArguments(environment: ["CFFIXED_USER_HOME": "/tmp/h"], accountHome: account)
+            == ["--env", "CFFIXED_USER_HOME=/tmp/h"])
+    }
+
+    /// Runs the relaunch helper without its wait and with `printf` in place of `/usr/bin/open`;
+    /// returns the argv `open` would get, one element per line.
+    private static func openArgv(_ command: [String]) throws -> [String] {
+        let script = try #require(command[2].components(separatedBy: "; ").last)
+            .replacingOccurrences(of: "/usr/bin/open", with: #"/usr/bin/printf '%s\n' /usr/bin/open"#)
+        return try RelaunchHomeShell.run([command[0], command[1], script] + command.dropFirst(3))
+    }
+}
+
+/// Runs a helper's shell command in tests and returns its stdout lines.
+enum RelaunchHomeShell {
+    static func run(_ command: [String]) throws -> [String] {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: command[0])
+        process.arguments = Array(command.dropFirst())
+        let out = Pipe()
+        process.standardOutput = out
+        try process.run()
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        #expect(process.terminationStatus == 0)
+        return String(decoding: data, as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: false).dropLast().map(String.init)
+    }
 }
