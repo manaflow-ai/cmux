@@ -49,10 +49,11 @@ export class Wallpaper {
     gl.uniformBlockBinding(program, 0, 0);
     this.ubo = gl.createBuffer();
     gl.bindBuffer(gl.UNIFORM_BUFFER, this.ubo);
-    gl.bufferData(gl.UNIFORM_BUFFER, 144, gl.DYNAMIC_DRAW);
+    gl.bufferData(gl.UNIFORM_BUFFER, 160, gl.DYNAMIC_DRAW);
     gl.bindBufferBase(gl.UNIFORM_BUFFER, 0, this.ubo);
-    this.data = new Float32Array(36);
+    this.data = new Float32Array(40);
     this.pointer = { x: 0, y: 0, vx: 0, vy: 0, inside: 0, target: 0, moved: -1e9, down: 0 };
+    this.activity = { level: 0, count: 0, last: -1e9, advanced: 0, has: false };
     this.frame = 0;
     this.seed = options.seed ?? Math.random();
     if (!options.still) this.listen();
@@ -79,6 +80,31 @@ export class Wallpaper {
     c.addEventListener("pointerleave", () => (this.pointer.target = 0));
     c.addEventListener("pointerdown", () => (this.pointer.down = 1));
     c.addEventListener("pointerup", () => (this.pointer.down = 0));
+  }
+
+  // An agent event at `t` seconds: cmux-wallpaper's ActivityState (src/frame.rs), the same numbers.
+  // A burst within 0.4 s raises the level a little and is not counted.
+  agentEvent(t) {
+    const a = this.activity;
+    if (a.has && t - a.last < 0.4) {
+      a.level += (1 - a.level) * 0.05;
+      return;
+    }
+    if (!a.has) a.advanced = t;
+    a.level += (1 - a.level) * 0.3;
+    a.count = (a.count + 1) % 1024;
+    a.last = t;
+    a.has = true;
+  }
+
+  // The gallery has no agents: a stand-in writes a burst of output every 1 to 4 seconds.
+  simulateAgent(t) {
+    const s = (this.agent ??= { next: 1, until: 0 });
+    if (t >= s.next) {
+      s.until = t + 0.2 + Math.random() * 0.6;
+      s.next = t + 1 + Math.random() * 3;
+    }
+    if (t < s.until) this.agentEvent(t);
   }
 
   // `width` and `height` in points. Like the app, the canvas renders at the screen's backing
@@ -117,6 +143,14 @@ export class Wallpaper {
     data.set([...accent, 1], 24);
     data.fill(0, 28);
     data.set(params.slice(0, 8), 28);
+    const a = this.activity;
+    if (!options.still) {
+      a.level *= Math.exp(-0.35 * Math.max(0, time - a.advanced));
+      if (a.level < 1e-3) a.level = 0;
+      a.advanced = time;
+    }
+    const sinceAgent = a.has ? Math.min(Math.max(time - a.last, 0), 1e4) : 1e4;
+    data.set([a.level, sinceAgent, a.count, 0], 36);
     gl.viewport(0, 0, canvas.width, canvas.height);
     gl.useProgram(this.program);
     gl.bindBuffer(gl.UNIFORM_BUFFER, this.ubo);
@@ -135,7 +169,9 @@ export class Wallpaper {
       if (now - last < interval - 1) return;
       const dt = last ? (now - last) / 1000 : 1 / fps;
       last = now;
-      this.draw((now - t0) / 1000, dt);
+      const time = (now - t0) / 1000;
+      if (this.wallpaper.manifest.agents) this.simulateAgent(time);
+      this.draw(time, dt);
     };
     this.raf = requestAnimationFrame(tick);
   }

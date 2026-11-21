@@ -1,7 +1,7 @@
 //! The `Frame` uniform (`prelude.wgsl`) and the pointer's smoothing.
 //!
 //! Every field of `Frame` is a `vec4<f32>`, so the layout is the same in
-//! Metal, WGSL and GLSL std140: 9 vec4s, 36 floats, 144 bytes.
+//! Metal, WGSL and GLSL std140: 10 vec4s, 40 floats, 160 bytes.
 //!
 //! | floats | field | x | y | z | w |
 //! |---|---|---|---|---|---|
@@ -13,15 +13,18 @@
 //! | 20..24 | paper | r | g | b | 1 |
 //! | 24..28 | accent | r | g | b | 1 |
 //! | 28..36 | params | 8 floats in manifest order |
+//! | 36..40 | activity | agent activity (eased 0..1) | seconds since the newest agent event | agent events so far (mod 1024) | 0 |
 
 use crate::manifest::Manifest;
 
 /// Floats in `Frame`.
-pub const FRAME_FLOATS: usize = 36;
+pub const FRAME_FLOATS: usize = 40;
 /// Bytes in `Frame`.
 pub const FRAME_BYTES: usize = FRAME_FLOATS * 4;
-/// `presence.y` never exceeds this (a float stays exact).
+/// `presence.y` and `activity.y` never exceed this (a float stays exact).
 pub const MAX_SINCE_MOVED: f32 = 1.0e4;
+/// `activity.z` counts agent events modulo this, so it stays a small whole float.
+pub const AGENT_EVENT_WRAP: u16 = 1024;
 
 /// Everything a frame's uniform holds, by name. Colors are linear RGB
 /// ([`srgb_to_linear`] converts a theme color).
@@ -47,6 +50,12 @@ pub struct FrameInput {
     pub paper: [f32; 3],
     pub accent: [f32; 3],
     pub params: [f32; 8],
+    /// Agent activity, eased 0..1 ([`ActivityState::level`]).
+    pub activity: f32,
+    /// Seconds since the newest agent event ([`ActivityState::since_event`]).
+    pub since_agent_event: f32,
+    /// Agent events so far, mod [`AGENT_EVENT_WRAP`] ([`ActivityState::count`]).
+    pub agent_events: f32,
 }
 
 fn finite(v: f32) -> f32 {
@@ -57,14 +66,14 @@ fn flag(b: bool) -> f32 {
     if b { 1.0 } else { 0.0 }
 }
 
-/// The 36 floats of `Frame` for `input`. A NaN or infinite input becomes 0,
+/// The 40 floats of `Frame` for `input`. A NaN or infinite input becomes 0,
 /// so no frame hands the GPU a NaN.
 pub fn pack_frame(input: &FrameInput) -> [f32; FRAME_FLOATS] {
     let i = input;
     let rgb1 = |c: [f32; 3]| [finite(c[0]), finite(c[1]), finite(c[2]), 1.0];
     let [ink, paper, accent] = [rgb1(i.ink), rgb1(i.paper), rgb1(i.accent)];
     let p = i.params.map(finite);
-    let rows: [[f32; 4]; 9] = [
+    let rows: [[f32; 4]; 10] = [
         [finite(i.time), finite(i.delta), finite(i.frame_number), flag(i.still)],
         [finite(i.width), finite(i.height), finite(i.backing_scale), finite(i.seed)],
         [finite(i.pointer_x), finite(i.pointer_y), finite(i.velocity_x), finite(i.velocity_y)],
@@ -79,6 +88,12 @@ pub fn pack_frame(input: &FrameInput) -> [f32; FRAME_FLOATS] {
         accent,
         [p[0], p[1], p[2], p[3]],
         [p[4], p[5], p[6], p[7]],
+        [
+            finite(i.activity).clamp(0.0, 1.0),
+            finite(i.since_agent_event).clamp(0.0, MAX_SINCE_MOVED),
+            finite(i.agent_events).clamp(0.0, f32::from(AGENT_EVENT_WRAP)),
+            0.0,
+        ],
     ];
     let mut out = [0.0; FRAME_FLOATS];
     for (slot, v) in out.iter_mut().zip(rows.iter().flatten()) {
@@ -229,6 +244,94 @@ impl PointerState {
     }
 }
 
+/// Events closer than this to the last counted one raise the level but are
+/// not counted: a burst of output is one event to the program, not many.
+pub const AGENT_EVENT_GAP_S: f64 = 0.4;
+/// Each counted event moves the level this share of the way to 1.
+const ACTIVITY_STEP: f32 = 0.3;
+/// An uncounted event in a burst moves it this share.
+const ACTIVITY_BURST_STEP: f32 = 0.05;
+/// The level decays at this rate (1/s).
+const ACTIVITY_DECAY: f32 = 0.35;
+/// Below this the level is 0.
+const ACTIVITY_REST: f32 = 1.0e-3;
+/// A counted event needs frames this long (its flash) even after the level rests.
+pub const AGENT_EVENT_SHOWN_S: f64 = 4.0;
+
+/// The agents' activity as a program sees it (`Frame.activity`): an eased
+/// level, the newest event's time and a count. The host calls `event` when
+/// an agent in the window writes output or changes state, and `advance` once
+/// per drawn frame. Times are the host's monotonic clock in seconds.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ActivityState {
+    /// 0 none .. 1 busy, eased.
+    pub level: f32,
+    /// Counted events so far, mod [`AGENT_EVENT_WRAP`].
+    pub count: u16,
+    /// When the newest counted event came; meaningless until `has_event`.
+    pub last_event: f64,
+    /// When `advance` last ran.
+    pub last_advance: f64,
+    pub has_event: bool,
+}
+
+impl ActivityState {
+    /// An agent event at time `t`.
+    pub fn event(&mut self, t: f64) {
+        if !t.is_finite() {
+            return;
+        }
+        if self.has_event && t - self.last_event < AGENT_EVENT_GAP_S {
+            self.level += (1.0 - self.level) * ACTIVITY_BURST_STEP;
+            return;
+        }
+        if !self.has_event {
+            self.last_advance = t;
+        }
+        self.level += (1.0 - self.level) * ACTIVITY_STEP;
+        self.count = (self.count + 1) % AGENT_EVENT_WRAP;
+        self.last_event = t;
+        self.has_event = true;
+    }
+
+    /// Steps the decay to time `t` (once per drawn frame).
+    pub fn advance(&mut self, t: f64) {
+        if !t.is_finite() {
+            return;
+        }
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "a frame interval in seconds; f32 keeps it to well under a microsecond"
+        )]
+        let dt = (t - self.last_advance).max(0.0) as f32;
+        self.last_advance = t;
+        self.level *= (-ACTIVITY_DECAY * dt).exp();
+        if self.level < ACTIVITY_REST || !self.level.is_finite() {
+            self.level = 0.0;
+        }
+    }
+
+    /// Seconds since the newest counted event, capped at [`MAX_SINCE_MOVED`]
+    /// (the cap when there has been none).
+    pub fn since_event(&self, t: f64) -> f32 {
+        if !self.has_event {
+            return MAX_SINCE_MOVED;
+        }
+        #[allow(
+            clippy::cast_possible_truncation,
+            reason = "clamped to 0..MAX_SINCE_MOVED, an f32 value"
+        )]
+        let s = (t - self.last_event).clamp(0.0, f64::from(MAX_SINCE_MOVED)) as f32;
+        s
+    }
+
+    /// True when the activity needs no frames of its own at time `t`: the
+    /// level rests at 0 and the newest event's flash is over.
+    pub fn settled(&self, t: f64) -> bool {
+        self.level == 0.0 && f64::from(self.since_event(t)) >= AGENT_EVENT_SHOWN_S
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -256,20 +359,21 @@ mod tests {
                 "paper:vec4<f32>",
                 "accent:vec4<f32>",
                 "params:array<vec4<f32>,2>",
+                "activity:vec4<f32>",
             ]
         );
-        assert_eq!(FRAME_BYTES, 144);
+        assert_eq!(FRAME_BYTES, 160);
     }
 
     #[cfg(feature = "compile")]
     #[test]
-    fn layout_by_naga_is_144_bytes() {
+    fn layout_by_naga_is_160_bytes() {
         let module = naga::front::wgsl::parse_str(PRELUDE).unwrap();
         let mut layouter = naga::proc::Layouter::default();
         layouter.update(module.to_ctx()).unwrap();
         let (handle, _) =
             module.types.iter().find(|(_, t)| t.name.as_deref() == Some("Frame")).unwrap();
-        assert_eq!(layouter[handle].size, 144);
+        assert_eq!(layouter[handle].size, 160);
     }
 
     #[test]
@@ -295,6 +399,9 @@ mod tests {
             paper: [0.4, 0.5, 0.6],
             accent: [0.7, 0.8, 0.9],
             params: [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
+            activity: 0.75,
+            since_agent_event: 1.5,
+            agent_events: 3.0,
         };
         let f = pack_frame(&input);
         assert_eq!(&f[0..4], &[1.0, 2.0, 3.0, 1.0]);
@@ -305,6 +412,7 @@ mod tests {
         assert_eq!(&f[20..24], &[0.4, 0.5, 0.6, 1.0]);
         assert_eq!(&f[24..28], &[0.7, 0.8, 0.9, 1.0]);
         assert_eq!(&f[28..36], &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
+        assert_eq!(&f[36..40], &[0.75, 1.5, 3.0, 0.0]);
     }
 
     #[test]
@@ -323,6 +431,37 @@ mod tests {
         assert_eq!(srgb_to_linear(0.0), 0.0);
         assert!((srgb_to_linear(1.0) - 1.0).abs() < 1e-6);
         assert!((srgb_to_linear(0.5) - 0.214_041).abs() < 1e-4);
+    }
+
+    #[test]
+    fn a_burst_of_agent_output_counts_once_and_the_level_settles() {
+        let mut a = ActivityState::default();
+        assert!(a.settled(0.0));
+        assert_eq!(a.since_event(5.0), MAX_SINCE_MOVED);
+        a.event(10.0);
+        // Twenty chunks of output within the gap: one counted event.
+        for i in 1..20 {
+            a.event(10.0 + f64::from(i) * 0.01);
+        }
+        assert_eq!(a.count, 1);
+        assert!(a.level > 0.3 && a.level < 1.0, "{}", a.level);
+        assert!(!a.settled(10.5));
+        a.event(11.0);
+        assert_eq!(a.count, 2);
+        assert_eq!(a.since_event(11.5), 0.5);
+        a.advance(11.0);
+        a.advance(40.0);
+        assert_eq!(a.level, 0.0);
+        assert!(a.settled(40.0));
+    }
+
+    #[test]
+    fn the_agent_event_count_wraps() {
+        let mut a = ActivityState::default();
+        for i in 0..u32::from(AGENT_EVENT_WRAP) + 3 {
+            a.event(f64::from(i));
+        }
+        assert_eq!(a.count, 3);
     }
 
     #[test]

@@ -10,14 +10,14 @@
 //! `catch_unwind`, and the rest are panic-free arithmetic. A null pointer is
 //! answered with a defined value, never read.
 
-use cmux_wallpaper::frame::{FrameInput, PointerState};
+use cmux_wallpaper::frame::{ActivityState, FrameInput, PointerState};
 use cmux_wallpaper::schedule::{Decision, ScheduleInput};
 use cmux_wallpaper::{FRAME_FLOATS, Manifest};
 use std::ffi::{CString, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 /// Bumped on any change to a type or function in the header.
-const ABI_VERSION: u32 = 2;
+const ABI_VERSION: u32 = 3;
 
 /// The result of `cmux_wallpaper_validate_manifest`; free it with
 /// `cmux_wallpaper_manifest_result_free`. On success `json` is the manifest
@@ -41,6 +41,9 @@ pub struct CmuxWallpaperScheduleInput {
     pub seconds_since_activity: f64,
     /// Seconds since the pointer last moved over the window.
     pub seconds_since_pointer: f64,
+    /// Seconds since an agent in the window last wrote output or changed state
+    /// (`cmux_wallpaper_activity_since_event`).
+    pub seconds_since_agent_event: f64,
     /// `appearance.liveWallpaperFrameRate` (15, 30, 60); 0 means 30.
     pub settings_fps_cap: u32,
     /// The manifest's `fps`.
@@ -64,6 +67,8 @@ pub struct CmuxWallpaperScheduleInput {
     pub animations_off: bool,
     /// The manifest's `interactive`.
     pub interactive: bool,
+    /// The manifest's `agents`.
+    pub agents: bool,
     /// The view has drawn at least one frame.
     pub has_frame: bool,
 }
@@ -88,7 +93,7 @@ pub struct CmuxWallpaperDecision {
 }
 
 /// One frame's values by name (`FrameInput`); `cmux_wallpaper_frame_pack`
-/// writes the 36 floats of the 144-byte Frame uniform. Colors are linear
+/// writes the 40 floats of the 160-byte Frame uniform. Colors are linear
 /// RGB (`cmux_wallpaper_srgb_to_linear`). NaN or infinite values become 0.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -114,6 +119,12 @@ pub struct CmuxWallpaperFrameInput {
     pub presence: f32,
     /// `cmux_wallpaper_pointer_since_moved`.
     pub since_moved: f32,
+    /// 0..1, eased (`CmuxWallpaperActivity.level`).
+    pub activity: f32,
+    /// `cmux_wallpaper_activity_since_event`.
+    pub since_agent_event: f32,
+    /// `CmuxWallpaperActivity.count`.
+    pub agent_events: f32,
     pub ink: [f32; 3],
     pub paper: [f32; 3],
     pub accent: [f32; 3],
@@ -194,6 +205,9 @@ impl From<&CmuxWallpaperFrameInput> for FrameInput {
             velocity_y: i.velocity_y,
             presence: i.presence,
             since_moved: i.since_moved,
+            activity: i.activity,
+            since_agent_event: i.since_agent_event,
+            agent_events: i.agent_events,
             button_down: i.button_down,
             dark: i.dark,
             ink: i.ink,
@@ -219,7 +233,9 @@ impl From<&CmuxWallpaperScheduleInput> for ScheduleInput {
             animations_off: i.animations_off,
             seconds_since_activity: i.seconds_since_activity,
             seconds_since_pointer: i.seconds_since_pointer,
+            seconds_since_agent_event: i.seconds_since_agent_event,
             interactive: i.interactive,
+            agents: i.agents,
             settings_fps_cap: i.settings_fps_cap,
             manifest_fps: i.manifest_fps,
             gpu_strikes: i.gpu_strikes,
@@ -307,7 +323,7 @@ pub unsafe extern "C" fn cmux_wallpaper_first_party_source(
 /// First-party wallpaper `index`'s program in Metal Shading Language 2.1,
 /// translated when the library was built (the library has no shader
 /// compiler): `vertex vs_main` (a full-screen triangle, 3 vertices) and
-/// `fragment fs_main`, the 144-byte Frame uniform at buffer index 0 in both.
+/// `fragment fs_main`, the 160-byte Frame uniform at buffer index 0 in both.
 /// Static UTF-8 bytes as above.
 ///
 /// # Safety
@@ -421,12 +437,20 @@ pub extern "C" fn cmux_wallpaper_gpu_strikes(strikes: u32, gpu_ms: f32) -> u32 {
     cmux_wallpaper::gpu_strikes(strikes, gpu_ms)
 }
 
-/// Writes the 36 floats (144 bytes) of the Frame uniform for `input` to
+/// The floats in the Frame uniform (`cmux_wallpaper_frame_pack` writes this
+/// many): the host sizes its buffer from this, never from a number of its
+/// own, so a Frame that grows cannot overrun it.
+#[unsafe(no_mangle)]
+pub extern "C" fn cmux_wallpaper_frame_floats() -> usize {
+    FRAME_FLOATS
+}
+
+/// Writes the 40 floats (160 bytes) of the Frame uniform for `input` to
 /// `out`. False, and nothing written, when either is null.
 ///
 /// # Safety
 /// `input` is null or points to a valid `CmuxWallpaperFrameInput`; `out` is
-/// null or points to 36 writable floats.
+/// null or points to `cmux_wallpaper_frame_floats()` writable floats.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_wallpaper_frame_pack(
     input: *const CmuxWallpaperFrameInput,
@@ -540,6 +564,123 @@ pub unsafe extern "C" fn cmux_wallpaper_pointer_settled(
     PointerState::from(unsafe { *state }).settled()
 }
 
+/// The agents' activity in a window (`ActivityState`). Zero it (or call
+/// `cmux_wallpaper_activity_reset`) once; then `event` when an agent in the
+/// window writes output or changes state, and `advance` once per drawn frame.
+/// Times are the host's monotonic clock in seconds (`CACurrentMediaTime`).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct CmuxWallpaperActivity {
+    pub last_event: f64,
+    pub last_advance: f64,
+    /// 0..1, eased: `Frame.activity.x`.
+    pub level: f32,
+    /// Counted events, mod 1024: `Frame.activity.z`.
+    pub count: u16,
+    pub has_event: bool,
+}
+
+impl From<CmuxWallpaperActivity> for ActivityState {
+    fn from(a: CmuxWallpaperActivity) -> Self {
+        Self {
+            level: a.level,
+            count: a.count,
+            last_event: a.last_event,
+            last_advance: a.last_advance,
+            has_event: a.has_event,
+        }
+    }
+}
+
+impl From<ActivityState> for CmuxWallpaperActivity {
+    fn from(a: ActivityState) -> Self {
+        Self {
+            last_event: a.last_event,
+            last_advance: a.last_advance,
+            level: a.level,
+            count: a.count,
+            has_event: a.has_event,
+        }
+    }
+}
+
+fn with_activity(state: *mut CmuxWallpaperActivity, f: impl FnOnce(&mut ActivityState)) {
+    if state.is_null() {
+        return;
+    }
+    // SAFETY: callers pass `state` from their own contract: null (handled) or valid and writable.
+    let s = unsafe { &mut *state };
+    let mut a = ActivityState::from(*s);
+    f(&mut a);
+    *s = a.into();
+}
+
+/// Sets `state` to its start (no event, level 0).
+///
+/// # Safety
+/// `state` is null or points to a writable `CmuxWallpaperActivity`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_wallpaper_activity_reset(state: *mut CmuxWallpaperActivity) {
+    with_activity(state, |a| *a = ActivityState::default());
+}
+
+/// An agent event at time `t`: the level rises, and an event more than 0.4 s
+/// after the last counted one is counted (a burst of output counts once).
+///
+/// # Safety
+/// `state` is null or points to a valid, writable `CmuxWallpaperActivity`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_wallpaper_activity_event(state: *mut CmuxWallpaperActivity, t: f64) {
+    with_activity(state, |a| a.event(t));
+}
+
+/// Steps the level's decay to time `t` (once per drawn frame).
+///
+/// # Safety
+/// `state` is null or points to a valid, writable `CmuxWallpaperActivity`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_wallpaper_activity_advance(
+    state: *mut CmuxWallpaperActivity,
+    t: f64,
+) {
+    with_activity(state, |a| a.advance(t));
+}
+
+/// Seconds since the newest counted agent event at time `t`, capped at 10000
+/// (the cap when there was none, or for a null `state`): `Frame.activity.y`
+/// and the scheduler's `seconds_since_agent_event`.
+///
+/// # Safety
+/// `state` is null or points to a valid `CmuxWallpaperActivity`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_wallpaper_activity_since_event(
+    state: *const CmuxWallpaperActivity,
+    t: f64,
+) -> f32 {
+    if state.is_null() {
+        return cmux_wallpaper::frame::MAX_SINCE_MOVED;
+    }
+    // SAFETY: non-null and valid per this function's contract.
+    ActivityState::from(unsafe { *state }).since_event(t)
+}
+
+/// True when the activity needs no frames of its own at time `t` (the level
+/// rests at 0 and the newest event's 4 s flash is over). True for a null `state`.
+///
+/// # Safety
+/// `state` is null or points to a valid `CmuxWallpaperActivity`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_wallpaper_activity_settled(
+    state: *const CmuxWallpaperActivity,
+    t: f64,
+) -> bool {
+    if state.is_null() {
+        return true;
+    }
+    // SAFETY: non-null and valid per this function's contract.
+    ActivityState::from(unsafe { *state }).settled(t)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -566,8 +707,8 @@ mod tests {
     }
 
     #[test]
-    fn abi_version_is_two() {
-        assert_eq!(cmux_wallpaper_abi_version(), 2);
+    fn abi_version_is_three() {
+        assert_eq!(cmux_wallpaper_abi_version(), 3);
     }
 
     #[test]
@@ -613,6 +754,7 @@ mod tests {
         let mut input = CmuxWallpaperScheduleInput {
             seconds_since_activity: 0.0,
             seconds_since_pointer: f64::INFINITY,
+            seconds_since_agent_event: f64::INFINITY,
             settings_fps_cap: 30,
             manifest_fps: 60,
             gpu_strikes: 0,
@@ -628,6 +770,7 @@ mod tests {
             reduce_motion: false,
             animations_off: false,
             interactive: true,
+            agents: false,
             has_frame: true,
         };
         // SAFETY: `input` is valid.
@@ -669,7 +812,7 @@ mod tests {
     #[test]
     fn frame_and_pointer_round_trip() {
         let mut p = CmuxWallpaperPointer::default();
-        // SAFETY: `p` is valid and writable; `out` has 36 floats.
+        // SAFETY: `p` is valid and writable; `out` has 40 floats.
         unsafe {
             cmux_wallpaper_pointer_reset(&mut p);
             cmux_wallpaper_pointer_update(&mut p, 10.0, 20.0, 1.0);
@@ -690,7 +833,7 @@ mod tests {
                 dark: true,
                 ..Default::default()
             };
-            let mut out = [7.0f32; 36];
+            let mut out = [7.0f32; 40];
             assert!(cmux_wallpaper_frame_pack(&input, out.as_mut_ptr()));
             assert_eq!(out[0], 3.0);
             assert_eq!(out[8], 20.0);
@@ -701,5 +844,60 @@ mod tests {
             assert!(!cmux_wallpaper_frame_pack(&input, std::ptr::null_mut()));
         }
         assert!((cmux_wallpaper_srgb_to_linear(1.0) - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn activity_round_trips_into_the_frame_and_the_schedule() {
+        let mut a = CmuxWallpaperActivity::default();
+        // SAFETY: `a` is valid and writable; `out` has 40 floats; null is allowed.
+        unsafe {
+            cmux_wallpaper_activity_reset(&mut a);
+            assert!(cmux_wallpaper_activity_settled(&a, 0.0));
+            cmux_wallpaper_activity_event(&mut a, 5.0);
+            cmux_wallpaper_activity_event(&mut a, 5.1);
+            cmux_wallpaper_activity_advance(&mut a, 5.5);
+            assert_eq!(a.count, 1);
+            assert!(a.level > 0.0);
+            assert!(!cmux_wallpaper_activity_settled(&a, 6.0));
+            let since = cmux_wallpaper_activity_since_event(&a, 6.0);
+            assert!((since - 1.0).abs() < 1e-6);
+            assert_eq!(cmux_wallpaper_activity_since_event(std::ptr::null(), 6.0), 1.0e4);
+
+            let input = CmuxWallpaperFrameInput {
+                activity: a.level,
+                since_agent_event: since,
+                agent_events: f32::from(a.count),
+                ..Default::default()
+            };
+            let mut out = [7.0f32; 40];
+            assert!(cmux_wallpaper_frame_pack(&input, out.as_mut_ptr()));
+            assert_eq!(&out[36..40], &[a.level, 1.0, 1.0, 0.0]);
+
+            let mut s = CmuxWallpaperScheduleInput {
+                seconds_since_activity: 100.0,
+                seconds_since_pointer: f64::INFINITY,
+                seconds_since_agent_event: f64::from(since),
+                settings_fps_cap: 30,
+                manifest_fps: 30,
+                gpu_strikes: 0,
+                scale: 1.0,
+                visible: true,
+                coverage_resting: false,
+                minimized: false,
+                app_hidden: false,
+                screens_asleep: false,
+                session_inactive: false,
+                low_power: false,
+                thermal_serious: false,
+                reduce_motion: false,
+                animations_off: false,
+                interactive: true,
+                agents: true,
+                has_frame: true,
+            };
+            assert!(cmux_wallpaper_schedule(&s).run);
+            s.agents = false;
+            assert_eq!(cmux_wallpaper_schedule(&s).hold_reason, 12);
+        }
     }
 }

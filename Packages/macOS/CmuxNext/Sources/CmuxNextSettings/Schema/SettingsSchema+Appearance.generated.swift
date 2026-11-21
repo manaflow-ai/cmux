@@ -46,12 +46,6 @@ extension ThemeFileSetting {
     public nonisolated static let configPath = ["appearance", "themeFile"]
 }
 
-extension ThemeFileExceptionsSetting {
-    /// `appearance.themeFileExceptions`.
-    public nonisolated static let configPath = ["appearance", "themeFileExceptions"]
-    public nonisolated static let fallback: [String] = []
-}
-
 extension HighlightColorSetting {
     /// `appearance.highlightColor`.
     public nonisolated static let configPath = ["appearance", "highlightColor"]
@@ -83,8 +77,6 @@ extension BackdropSelectionSetting {
     public nonisolated static let dynamicDefault: BackdropDynamicMode = .appearance
     /// `appearance.backgroundLocation`: LAT,LON in degrees for sun events and solar frames; unset: the system time zone's coordinates from /usr/share/zoneinfo/zone.tab (no location permission).
     public nonisolated static let locationPath = ["appearance", "backgroundLocation"]
-    /// `appearance.backgroundMemory`: What Background's modes last showed, so switching modes never loses one (Leo, 2026-11-19: "it lost the folder ... i couldn't get back into it"): rotate is Rotate's last shuffle (daily or folder:<path>), folder the last folder it shuffled, off the picture Off last showed (none for No Wallpaper). The Settings page's Background card writes it when the background moves to another mode and reads it back in a new page or after a restart; the app's engine never reads it.
-    public nonisolated static let memoryPath = ["appearance", "backgroundMemory"]
     /// `appearance.displayBackgrounds`.
     public nonisolated static let displayBackgroundsPath = ["appearance", "displayBackgrounds"]
     /// `appearance.displayBackgroundRotations`.
@@ -100,18 +92,6 @@ extension PaneBackgroundsSetting {
 extension ReducedBackgroundsSetting {
     /// `ui.reducedBackgrounds`.
     public nonisolated static let configPath = ["ui", "reducedBackgrounds"]
-    public nonisolated static let fallback = false
-}
-
-extension AgentGlowSetting {
-    /// `appearance.agentGlow`.
-    public nonisolated static let configPath = ["appearance", "agentGlow"]
-    public nonisolated static let fallback = false
-}
-
-extension PreviousGlassSetting {
-    /// `appearance.previousGlass`: Web pages only: on sends glassLevels "previous" with the web theme (WebTheme), data-glass-levels="previous" on <html>, and webviews ui/glass/glass.css (PREVIOUS GLASS) restores the glass numbers from before the one glass system (design/glass-system.md, cmux#48174). Off (default) draws the one glass system.
-    public nonisolated static let configPath = ["appearance", "previousGlass"]
     public nonisolated static let fallback = false
 }
 
@@ -138,6 +118,13 @@ extension WallpaperTintSetting {
     /// `appearance.wallpaperTint`.
     public nonisolated static let configPath = ["appearance", "wallpaperTint"]
     public nonisolated static let fallback = true
+}
+
+extension LiveWallpaperFrameRateSetting {
+    /// `appearance.liveWallpaperFrameRate`.
+    public nonisolated static let configPath = ["appearance", "liveWallpaperFrameRate"]
+    public nonisolated static let fallback = "30"
+    public nonisolated static let values = ["15", "30", "60"]
 }
 
 extension AppearanceTuningSetting {
@@ -185,12 +172,12 @@ extension UIScaleSetting {
 extension InterfaceSizeSetting {
     /// `appearance.metrics.chromeFontSize`.
     public nonisolated static let configPath = ["appearance", "metrics", "chromeFontSize"]
-    public nonisolated static let range: ClosedRange<Double> = 10...20
+    public nonisolated static let range: ClosedRange<Double> = 10...16
     public nonisolated static let placeholder: Double = 12
 }
 
 extension FontSmoothingSetting {
-    /// `appearance.fontSmoothing`: How cmux's text draws, in the CSS model (-webkit-font-smoothing), native and web. Native: AppleFontSmoothing in the app's domain, written at launch and on each change for the next launch (ProcessFontSmoothing). Web: the web theme's data-cmux-font-smoothing, live (WebTheme). Chrome text cmux draws itself (ChromeLabel, ChromeTextLayer: the sidebar, tabs) follows live too (ProcessFontSmoothing.chrome). Ghostty's font-thicken is not affected.
+    /// `appearance.fontSmoothing`: How cmux's text draws, in the CSS model (-webkit-font-smoothing), native and web. Native: AppleFontSmoothing in the app's domain, written at launch and on each change for the next launch (ProcessFontSmoothing). Web: the web theme's data-cmux-font-smoothing, live (WebTheme). Ghostty's font-thicken is not affected.
     public nonisolated static let configPath = ["appearance", "fontSmoothing"]
     public nonisolated static let fallback: FontSmoothing = .auto
 }

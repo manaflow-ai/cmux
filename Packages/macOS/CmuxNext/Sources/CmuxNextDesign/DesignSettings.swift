@@ -158,6 +158,9 @@ public final class DesignSettings {
             BackdropImageStore.shared.desktop.tintEnabled = wallpaperTint
         }
     }
+    /// `appearance.liveWallpaperFrameRate`: the most frames per second a live wallpaper draws (15, 30 or
+    /// 60; ``BackdropLiveView``). A running wallpaper reads it on its next frame; a held one when it runs again.
+    public var liveWallpaperFrameRate = 30
     /// The `ui.animations.{newTab,newWorkspace}` kinds on: new tabs by default
     /// (`AnimationKindsSetting.defaultEnabled`), new workspaces off.
     public var enabledAnimations: Set<MotionKind> = [.newTab]
@@ -333,6 +336,12 @@ public final class DesignSettings {
     /// ``Metrics/titleAreaShadeScale``); a change repaints, as the contrast does.
     public var titleAreaTone: TitleAreaTone = .oneColor {
         didSet { if titleAreaTone != oldValue { ThemeScope.app.store.repaintAll() } }
+    }
+    /// `appearance.cornerFlush`: how the selected tab meets the content card (``CornerFlush``); nil while the key is
+    /// unset, so the default (`flush`, no goo) draws only over the stock chrome (``CornerFlush/current``). A Debug
+    /// Settings pick of `chrome.cornerFlush` still overrides it. A change repaints, as the tone does.
+    public var cornerFlush: CornerFlush? {
+        didSet { if cornerFlush != oldValue { ThemeScope.app.store.repaintAll() } }
     }
     /// `appearance.focusIndicator`: what marks the focused pane.
     public var focusIndicator: FocusIndicator = .tabs
