@@ -1,5 +1,6 @@
 import { composerHealthHarness } from "./composerPickerEntries";
 import { forkMenuRows } from "./header/forkMenu";
+import { useFold } from "./conversation/fold";
 import { openFork, openInOwnTab } from "./conversation/openFork";
 import { setSessionRefResolver } from "./conversation/sessionRefs";
 import { useStopThroughReconnect } from "./stopThroughReconnect";
@@ -12372,16 +12373,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     snapshot.permissionGroups?.supported &&
     (snapshot.permissionGroups.groups.length > 0 || snapshot.permissionGroups.error),
   );
+  const trustOpen = Boolean(trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted"));
+  // The trust question folds out on the fold's clock when it is answered (conversation/fold.ts), so
+  // the stack's top and the transcript's rows over it travel together, instead of the stack dropping
+  // its height in one frame (gallery `agent-pane.bottom-stack` trust-fold-*). While it folds it draws
+  // the question as it last stood, inert, and holds no keys.
+  const trustShown = useRef(trustAsk.ask);
+  if (trustOpen) trustShown.current = trustAsk.ask;
+  const trustFold = useFold(trustOpen, () => !trustOpen, false);
   const liveBottomAsk = Boolean(
-    (trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted")) ||
-    hasPermissionGroups ||
-    individualPermission ||
-    childAsk ||
-    secret ||
-    toolCards.length > 0,
+    trustOpen || hasPermissionGroups || individualPermission || childAsk || secret || toolCards.length > 0,
   );
   // Pinned questions join the stack but never take the composer's keys (waitingAskStore.ts).
-  const bottomStack = bottomAsks(liveBottomAsk, pinnedAsks.length);
+  const bottomStack = bottomAsks(liveBottomAsk, pinnedAsks.length, trustFold.present);
   const hasBottomAsk = bottomStack.holdsKeys;
   // A folder confirmation can be pending while the New Tab stays mounted. Keep the same ask in
   // that surface too: the regular composer is deliberately hidden behind the New Tab, so leaving
@@ -12450,7 +12454,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       />
     ) : undefined;
   const asks = bottomStack.shows ? (
-    <div className="acpmux-permission acpmux-asks-stack">
+    <div className="acpmux-permission acpmux-asks-stack" data-leaving={bottomStack.leaving || undefined}>
       {pinnedAsks.length > 0 && (
         <PendingAsks
           asks={pinnedAsks}
@@ -12460,27 +12464,29 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           asker={turnActions.asker}
         />
       )}
-      {trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted") && (
-        <TrustAsk
-          ask={trustAsk.ask}
-          agent={snapshot.summary?.harness ? agentName(snapshot.summary.harness) : t("trust.agent")}
-          onTrust={trustAsk.trust}
-          onTrustRepo={trustAsk.trustRepo}
-          onDistrust={trustAsk.distrust}
-          onUndo={trustAsk.undo}
-          onContinueWithoutFolder={
-            healthLocal &&
-            !remoteChat &&
-            Boolean(snapshot.sessionId) &&
-            !directClient.current?.startsOnSend &&
-            trustAsk.ask?.state === "decided" &&
-            trustAsk.ask.level === "untrusted" &&
-            !isAgentHome(trustAsk.ask.cwd)
-              ? continueWithoutFolder
-              : undefined
-          }
-          answers={answersTrust}
-        />
+      {trustFold.present && trustShown.current && (
+        <div ref={trustFold.ref} className="cv-fold acpmux-trust-fold" inert={!trustOpen || undefined}>
+          <TrustAsk
+            ask={trustShown.current}
+            agent={snapshot.summary?.harness ? agentName(snapshot.summary.harness) : t("trust.agent")}
+            onTrust={trustAsk.trust}
+            onTrustRepo={trustAsk.trustRepo}
+            onDistrust={trustAsk.distrust}
+            onUndo={trustAsk.undo}
+            onContinueWithoutFolder={
+              healthLocal &&
+              !remoteChat &&
+              Boolean(snapshot.sessionId) &&
+              !directClient.current?.startsOnSend &&
+              trustAsk.ask?.state === "decided" &&
+              trustAsk.ask.level === "untrusted" &&
+              !isAgentHome(trustAsk.ask.cwd)
+                ? continueWithoutFolder
+                : undefined
+            }
+            answers={answersTrust}
+          />
+        </div>
       )}
 
       {hasPermissionGroups && snapshot.permissionGroups && (

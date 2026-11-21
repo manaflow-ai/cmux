@@ -2571,9 +2571,14 @@ function TranscriptView({
     // tray, notice and card holds keep the rows still) has no delta and plays nothing.
     // A second change while one plays adds its own move on top (composite add), so the rows never
     // jump to where the first was headed.
+    // An ask in the stack that folds or resizes on the fold's own clock (the trust question folding
+    // out, a permission card's full command: `clipFold` marks the box while it plays) moves the stack
+    // frame by frame: the room takes each frame's height and the rows ride with it on that one clock.
+    // A glide of their own on top would trail the stack's edge by a fold.
+    const asksFolding = () => dock.querySelector(":scope > .acpmux-asks-stack [data-fold-clip]") !== null;
     const resized = () => {
       const rows = thread.current;
-      if (!rows || growth) {
+      if (!rows || growth || asksFolding()) {
         take();
         return;
       }
