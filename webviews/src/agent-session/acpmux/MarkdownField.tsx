@@ -1271,7 +1271,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                 }
                 // Before the editor is made there is nothing to write the document with (it would read
                 // as an empty prompt and wipe the draft); the document made is `known` then.
-                if (!editor.current) return;
+                if (!editor.current || ((globalThis as { __abl?: string }).__abl ?? "").includes("M")) return;
                 const markdown = promptMarkdown(editor.current, next, inlineOn.current);
                 showPlaceholder(markdown);
                 // A value applied from outside comes back unchanged: not the user's edit.

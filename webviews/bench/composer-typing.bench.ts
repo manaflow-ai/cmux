@@ -230,6 +230,10 @@ async function measure(
       }
     }
     await page.addInitScript(longTaskProbe);
+    if (process.env.ABL)
+      await page.addInitScript((a) => {
+        (globalThis as { __abl?: string }).__abl = a;
+      }, process.env.ABL);
     const rows = await openChat(page, port, Math.max(1, Math.round(length / 3)));
     // WebKit returned above (runComposerLoad): this run is Chromium's, with its DevTools session.
     const cdp = await page.context().newCDPSession(page);

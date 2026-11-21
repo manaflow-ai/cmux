@@ -886,6 +886,7 @@ function ComposerFrame({
   /// that made it, as the text effect did before a key stopped rendering: its write must be queued
   /// before a read that answers later can put an older draft back (composer-draft-orderings).
   const writeDraft = () => {
+    if (((globalThis as { __abl?: string }).__abl ?? "").includes("W")) return;
     const session = persistedSession.current;
     if (hydratedSession.current !== session) {
       // Typed before the chat's draft was read: kept for a remount (the composer swapped out while
@@ -897,6 +898,7 @@ function ComposerFrame({
   };
   /// The draft changed: a new chat's text goes to the host (the throttle below).
   const pushUnsentDraft = () => {
+    if (((globalThis as { __abl?: string }).__abl ?? "").includes("U")) return;
     unsentDraft.current?.push(unsentText(draftStore.now().text));
     // A Cloud start is out: the host may open its chat and close this tab at any moment, seeding that
     // chat's composer with what it holds then, so each change goes now (the Send's clear included).
@@ -2714,7 +2716,7 @@ function ComposerFrame({
         typedAt.current = Number.NEGATIVE_INFINITY;
       }
       edit(value, at, true);
-      if (!typed) return;
+      if (!typed || ((globalThis as { __abl?: string }).__abl ?? "").includes("T")) return;
       if (value.trim()) onTyping?.(value, sessionId);
       if (value.trim()) onPromptEdit?.(value);
     };
