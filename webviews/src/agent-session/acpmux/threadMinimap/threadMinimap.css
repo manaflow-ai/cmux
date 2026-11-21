@@ -708,19 +708,18 @@
   position: absolute;
   bottom: 100%;
   inset-inline-start: 0;
-  margin-bottom: 4px;
-  padding: 1px 4px;
+  margin-bottom: var(--ds-space-1);
+  padding: 0 var(--ds-space-1);
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--ds-space-1);
   background: transparent;
   color: var(--acpmux-minimap-rest);
   font: inherit;
-  font-size: 10px;
-  line-height: 14px;
+  font-size: var(--text-caption);
   white-space: nowrap;
   opacity: 0;
   pointer-events: none;
-  transition: opacity var(--cmux-motion-micro) ease-out;
+  transition: opacity var(--cmux-motion-micro) var(--cmux-ease-out);
 }
 .acpmux-minimap__rail[data-side="right"] .acpmux-minimap__show {
   inset-inline-start: auto;

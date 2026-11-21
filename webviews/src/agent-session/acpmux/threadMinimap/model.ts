@@ -1226,9 +1226,15 @@ export function railEntries(
     if (show === "everything") {
       keptTurns.push(turn);
       keptTicks.push(tick);
-      if (reply && replyRow) (keptTurns.push(reply), keptTicks.push(replyRow));
+      if (reply && replyRow) {
+        keptTurns.push(reply);
+        keptTicks.push(replyRow);
+      }
     } else if (show === "replies") {
-      if (reply && replyRow) (keptTurns.push(reply), keptTicks.push(replyRow));
+      if (reply && replyRow) {
+        keptTurns.push(reply);
+        keptTicks.push(replyRow);
+      }
     } else if (turnHas(turn, show)) {
       keptTurns.push(reply ?? turn);
       keptTicks.push(replyRow ?? tick);
