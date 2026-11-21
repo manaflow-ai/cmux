@@ -64,7 +64,7 @@ public final class ChiefConversationOwner {
     /// on the main thread at launch, cmuxterm-hq#6338). A refused acpmux still gives no `acpmux_bin`.
     @concurrent nonisolated static func ownerEnvironment(home: ChiefHome, process: [String: String],
                                                          resources: URL?) async -> [String: String] {
-        ownerEnvironment(home: home, process: process, brains: timedBrainsValue(home: home, process: process, resources: resources))
+        ownerEnvironment(home: home, process: process, brains: await timedBrainsValue(home: home, process: process, resources: resources))
     }
 
     /// ``ownerEnvironment(home:process:resources:)`` with `brains` already built (``OwnerEnvironmentPrefetch``).
