@@ -69,7 +69,7 @@ bun db:down     # stop this worktree's DB
 The local default URL shape is:
 
 ```text
-postgres://cmux:cmux@localhost:${CMUX_PORT + 10000}/cmux
+postgres://cmux:cmux@127.0.0.1:${CMUX_PORT + 10000}/cmux
 ```
 
 ## Database
