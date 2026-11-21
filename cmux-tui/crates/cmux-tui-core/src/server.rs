@@ -3219,6 +3219,9 @@ mod session_identity_tests;
 #[cfg(all(test, any(target_vendor = "apple", target_os = "linux")))]
 #[path = "server/starter_exit_tests.rs"]
 mod starter_exit_tests;
+#[cfg(test)]
+#[path = "server/terminal_resume_tests.rs"]
+mod terminal_resume_tests;
 
 #[cfg(test)]
 #[path = "server/personal_tests.rs"]
