@@ -2574,6 +2574,7 @@ version = "0.1.0"
 name = "cmux-terminal-projection"
 version = "0.1.0"
 dependencies = [
+ "ghostty-vt",
  "unicode-width",
 ]
 

@@ -12,3 +12,8 @@ workspace = true
 
 [dependencies]
 unicode-width.workspace = true
+
+[dev-dependencies]
+# The parity harness's oracle: Ghostty's VT core, the emulator the Mac pane
+# and the phone's surface both run.
+ghostty-vt = { path = "../ghostty-vt" }
