@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44863660339",
+  "recorded_at": "2026-11-21T04:13:26Z",
+  "reason": "cmux-tui 9da1567514a7 changes the image's cmux-tui (pinned 36af1c3b4c4c)",
+  "dry_run": false,
+  "cmux_tui": "9da1567514a762a3db3b11005c0a6a32b72e9b87",
+  "fixes": [
+    {
+      "sha": "ab29f589cb4fdfb5607ae6f8936e72eb3f1b6dee",
+      "mergedAt": "2026-11-20T19:28:03-08:00",
+      "subject": "Keep the action exports at the pinned FFI until the re-pin"
+    },
+    {
+      "sha": "c382e38bcde93c00ca6d66d358a5320162a68bf3",
+      "mergedAt": "2026-11-20T19:28:03-08:00",
+      "subject": "Remove Share Screen with Chief"
+    },
+    {
+      "sha": "2b253d96c857f726974996c4b203dcbce41d908a",
+      "mergedAt": "2026-11-20T19:19:46-08:00",
+      "subject": "cmux-tui: a rewritten shared shim keeps its older writer as a checked fallback (#48390)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-21T04:13:26Z",
+    "snapshot_id": "sh-b2e74b32cd8144769b3c848e0199d004",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44863660339): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "89c5021963023c00437d4599f52c29cf03017263",
+    "image": "cloud-native-auto-9da15675-44863660339-1",
+    "revision": "ci-44863660339-1",
+    "at": "2026-11-21T04:13:26Z"
+  },
+  "rolled_back": false
+}
