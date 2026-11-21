@@ -16,6 +16,7 @@ import Network
 import CFNetwork
 import SQLite3
 import CryptoKit
+import LocalAuthentication
 import Darwin
 import os
 import CmuxTerminal
@@ -10129,11 +10130,14 @@ private final class ChromiumCookieDecryptor {
         }
 
         for baseName in keychainBaseNames() {
+            let noUIContext = LAContext()
+            noUIContext.interactionNotAllowed = true
             let query: [CFString: Any] = [
                 kSecClass: kSecClassGenericPassword,
                 kSecAttrAccount: baseName,
                 kSecReturnAttributes: true,
                 kSecMatchLimit: kSecMatchLimitAll,
+                kSecUseAuthenticationContext: noUIContext,
             ]
             var rawResult: CFTypeRef?
             let status = SecItemCopyMatching(query as CFDictionary, &rawResult)
@@ -10198,12 +10202,18 @@ private final class ChromiumCookieDecryptor {
     }
 
     private func readPasswordData(item: ChromiumCookieKeychainItem) -> KeychainLookupResult {
+        // Never show a Keychain access prompt for another app's secret. If the
+        // item is not already readable without UI, the lookup fails and the
+        // encrypted cookies are skipped.
+        let noUIContext = LAContext()
+        noUIContext.interactionNotAllowed = true
         let query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: item.service,
             kSecAttrAccount: item.account,
             kSecReturnData: true,
             kSecMatchLimit: kSecMatchLimitOne,
+            kSecUseAuthenticationContext: noUIContext,
         ]
 
         var rawResult: CFTypeRef?
