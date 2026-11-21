@@ -18,6 +18,7 @@
 //! the same errors. A tag or a batch answers with `results`, one row per recipient.
 
 use super::*;
+use crate::prompt_provenance::{MAX_NAME_CHARS, MAX_NOTICE_TITLE_CHARS};
 use cmux_json::JsonSet as _;
 use futures::{FutureExt as _, StreamExt as _};
 use std::collections::{BTreeMap, BTreeSet};
@@ -80,10 +81,10 @@ fn notice_schema(description: &str) -> Value {
         "type": "object",
         "description": description,
         "properties": {
-            "sender": {"type": "string", "description": "Who sends it, a tool or role, one line of at most 64 characters (default: this session's name)."},
-            "host": {"type": "string", "description": "The machine it comes from (default: this one)."},
+            "sender": {"type": "string", "maxLength": MAX_NAME_CHARS, "description": format!("Who sends it, a tool or role, one line of at most {MAX_NAME_CHARS} characters (default: this session's name).")},
+            "host": {"type": "string", "maxLength": MAX_NAME_CHARS, "description": format!("The machine it comes from, at most {MAX_NAME_CHARS} characters of letters, digits, '.', '-' or '_' (default: this one).")},
             "severity": {"type": "string", "enum": crate::prompt_provenance::NOTICE_SEVERITIES},
-            "title": {"type": "string", "description": "One line, at most 200 characters."},
+            "title": {"type": "string", "maxLength": MAX_NOTICE_TITLE_CHARS, "description": format!("One line, at most {MAX_NOTICE_TITLE_CHARS} characters.")},
             "links": {
                 "type": "array",
                 "maxItems": crate::prompt_provenance::MAX_NOTICE_LINKS,
