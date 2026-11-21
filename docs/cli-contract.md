@@ -99,6 +99,19 @@ max}` over the last 60 round trips and 120 frames. It is read-only: it never
 connects, disconnects or sends input, and carries no credential or screen
 content.
 
+`app hangs [--limit <n>]` works with every build: it reads the app's
+`app.hangs`, the main-thread watchdog's stall counts since launch:
+`installed`, `threshold_ms` (50: every stall at or over it is recorded),
+`count`, `over_100ms`, `over_250ms`, `max_ms`, `total_ms`, the main thread's
+busy share since launch (`since_start_ms`, `main_thread_cpu_ms`,
+`main_thread_busy_share`; diff two reads for a window), and `records`, the
+newest stalls (default 20) with `duration_ms`, `cpu_ms`, `verdict` (`blocked`:
+our code, `starved`: the Mac, `waiting`: an idle wait), the scheduled task the stack sample caught
+(`task_owner`, `task_class`) and `frames`, the top 8 frames as symbol names
+(a frame with no name: its image file name and offset, for the dSYM). It is
+read-only and clears nothing, and carries no page, title, path or other text a
+person typed or opened.
+
 `app chat perf --tab <tab> [--seconds <1-60>]` works with every build: the
 app's `agent.chat.perf` runs the chat page's own capture for that many
 seconds (default 5) and returns `{tab, seconds, duration_ms, measured,

@@ -2389,3 +2389,19 @@ fn no_focus_asks_the_app_to_leave_the_view_alone() {
     let help = super::super::cloud_help::verb_help("start-session", false).unwrap();
     assert!(help.contains("[--no-focus]"), "{help}");
 }
+
+/// `cmux app hangs` reads the app's every-build `app.hangs` (never `app call`, which is debug
+/// only, and never an `action.run`); `--limit` must be a count.
+#[test]
+fn hangs_reads_the_release_stall_counts() {
+    let (method, params) = call(parse(&args(&["app", "hangs"])).unwrap().unwrap());
+    assert_eq!(method, APP_HANGS_METHOD);
+    assert_eq!(method, "app.hangs");
+    assert_eq!(params, json!({}));
+    let (_, params) = call(parse(&args(&["app", "hangs", "--limit", "5"])).unwrap().unwrap());
+    assert_eq!(params, json!({ "limit": 5 }));
+    assert!(parse(&args(&["app", "hangs", "--limit", "many"])).is_err());
+    assert!(parse(&args(&["app", "hangs", "--limit", "0"])).is_err());
+    assert!(parse(&args(&["app", "hangs", "--clear"])).is_err());
+    assert!(parse(&args(&["app", "hangs", "reset"])).is_err());
+}

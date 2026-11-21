@@ -12060,3 +12060,4 @@ CmuxNextHome	extension	HomeChiefAvatar	0	PLATFORM	0	0	Packages/macOS/CmuxNext/So
 CmuxNextHome	extension	HomeDockMode	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/Dock/HomeDockMode+Enabled.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	extension	HomeTurnProgressChoice	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/HomeTunables+Styles.swift	AppKit/SwiftUI view or platform code
 CmuxNextHome	extension	HomeTopFadeChoice	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/HomeTunables+Styles.swift	AppKit/SwiftUI view or platform code
+CmuxNextControl	enum	AppHangsControl	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextControl/Diagnostics/AppHangsControl.swift	app.hangs control reply over the Swift main-thread watchdog (Mach thread CPU, stack symbolication)
