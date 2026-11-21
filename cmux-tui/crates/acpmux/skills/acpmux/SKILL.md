@@ -500,6 +500,7 @@ acpmux bead ls cx-cus7j.230                    # the sessions working on a track
 acpmux process list                            # background processes agents left running
 acpmux ps --json                               # every process and lock acpmux owns: owner now, session, state, why
 acpmux gc                                      # proven orphans only (dry run); --apply ends them, logged; never guess from ps/argv
+acpmux board                                   # read-only local branch board (Labs > Show Preview Features); --json
 acpmux worktree list                           # this machine's worktrees and the agents that made them
 ```
 
