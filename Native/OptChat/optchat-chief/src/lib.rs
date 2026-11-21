@@ -83,7 +83,6 @@ pub mod report;
 pub mod rights;
 pub mod rpc;
 pub mod run;
-pub mod screen_share;
 pub mod session_dir;
 pub mod settle_status;
 pub mod show;

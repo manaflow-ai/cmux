@@ -1025,7 +1025,7 @@ test("shell mode asks for no command list and starts no chat for a path in its c
   expect(container.querySelector(".nt-field .acpmux-slash-token")).toBeNull();
 });
 
-test("a cleared draft forgets the row the arrows chose: the same word typed again and Return sends", async () => {
+test("a listed row is always highlighted: Return picks it, and after Esc Return sends the word", async () => {
   const asks: unknown[][] = [];
   const skill = { name: "review-pr", description: "", source: "skill" as const };
   await act(async () => {
@@ -1037,15 +1037,22 @@ test("a cleared draft forgets the row the arrows chose: the same word typed agai
       />,
     );
   });
+  // Leo, 2026-11-20: "i click enter and it should do it".
   let field = await typePrompt("fix /pr");
   expect(container.querySelector("#acpmux-slash-menu")).not.toBeNull();
-  await press(field, "ArrowDown");
-  await typePrompt("");
-  field = await typePrompt("fix /pr");
-  // The same word typed again opens the list again.
-  expect(container.querySelector("#acpmux-slash-menu")).not.toBeNull();
+  // One completion UI: the system's spelling and inline predictions are off while the list shows.
+  const editor = () => field.querySelector<HTMLElement>("[contenteditable]")!;
+  expect(editor().getAttribute("spellcheck")).toBe("false");
+  expect(editor().getAttribute("writingsuggestions")).toBe("false");
   await press(field, "Enter");
-  expect(promptValue()).not.toContain("/review-pr");
+  expect(promptValue()).toContain("/review-pr");
+  expect(container.querySelector("#acpmux-slash-menu")).toBeNull();
+  expect(editor().getAttribute("writingsuggestions")).toBeNull();
+  expect(asks).toEqual([]);
+  field = await typePrompt("fix /pr");
+  expect(container.querySelector("#acpmux-slash-menu")).not.toBeNull();
+  await press(field, "Escape");
+  await press(field, "Enter");
   expect(asks.map((ask) => ask[1])).toEqual(["fix /pr"]);
 });
 
