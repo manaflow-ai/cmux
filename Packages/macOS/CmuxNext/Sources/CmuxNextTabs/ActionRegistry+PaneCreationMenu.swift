@@ -7,7 +7,7 @@ import CmuxNextWindowRules
 extension ActionRegistry {
     /// Only the primary + uses this ordered list. Resolve it on the gesture so settings reloads
     /// need no per-pane observer. The existing runners retain their permissions and refusals.
-    func makeConfiguredPlusMenu(root: JSONValue, target: ActionTargetRef, machineID: String?, localMachineID: String) -> NSMenu? {
+    public func makeConfiguredPlusMenu(root: JSONValue, target: ActionTargetRef, machineID: String?, localMachineID: String) -> NSMenu? {
         let rows = WindowRules().plusMenu(root.value(at: CmuxConfigSnapshot.plusMenuPath) ?? .null)
         guard !rows.isEmpty else { return nil }
         let menu = NSMenu()
@@ -29,7 +29,7 @@ extension ActionRegistry {
     }
 
     /// Pane creation and the full command catalog share the visible + menu.
-    func makePaneCreationMenu(target: ActionTargetRef, machineID: String? = nil) -> NSMenu {
+    public func makePaneCreationMenu(target: ActionTargetRef, machineID: String? = nil) -> NSMenu {
         // The person's arrangement of the New Tab Button menu (Settings > Menus), then All commands….
         let entries = contextMenuEntries(for: .newTab) + [.separator, .action("commandPalette")]
         let menu = makeContextMenu(for: .newTab, target: target, entries: entries, machineID: machineID)

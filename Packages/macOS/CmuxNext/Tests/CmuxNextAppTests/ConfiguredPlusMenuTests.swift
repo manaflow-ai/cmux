@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextActions
+@testable import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextSettings
 @testable import CmuxNextTabs
@@ -20,6 +20,7 @@ import Testing
         #expect(runs[1].target == nil)
         #expect(runs[1].arguments["machine"] == .string("local"))
         #expect(runs[2].target == target)
+        #expect(menu.items.compactMap { ($0.representedObject as? ActionMenuPayload)?.targetMachineID } == ["remote", "local", "remote"])
         #expect(registry.makeConfiguredPlusMenu(root: .null, target: target, machineID: "remote", localMachineID: "local") == nil)
     }
 
