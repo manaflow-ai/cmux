@@ -69,7 +69,7 @@ import {
   DEVBOX_DESKTOP_USER,
 } from "../services/vms/images/desktop";
 import { DEVBOX_HOSTNAME } from "../services/vms/images/identity";
-import { devboxEdgeResolverCheckCommand } from "../services/vms/images/dns";
+import { devboxEdgeResolverCheckCommand, devboxEdgeResolverTlsCheckCommand } from "../services/vms/images/dns";
 import { throwawayVmOptions } from "./cloud-vm/ci-leftovers";
 
 const pins = devboxAgentPins();
@@ -360,6 +360,30 @@ const IDENTITY_CHECKS: readonly string[] = [
 
 type Exec = (cmd: string, timeoutMs?: number) => Promise<{ exitCode: number; output: string }>;
 
+/** A name the TLS rule steers through the edge for the resolver check; any public HTTPS name works. */
+const TLS_RULE_PROBE_DOMAIN = "files.cmux.com";
+
+/**
+ * Adds a TLS rule to the verify machine, waits for the provider's agent to
+ * write its resolver files, and runs the edge resolver's TLS-rule check. The
+ * rule is deleted again whatever happens.
+ */
+async function verifyEdgeResolverWithTlsRule(
+  fs: { tls: { rules: { create(input: object): Promise<unknown>; delete(id: string): Promise<unknown> } } },
+  vmId: string,
+  exec: Exec,
+): Promise<boolean> {
+  const created = await fs.tls.rules.create({ action: "allow", domain: TLS_RULE_PROBE_DOMAIN, source: { vmId }, destination: { public: true } }) as { id?: string; rule?: { id?: string } };
+  const ruleId = created.id ?? created.rule?.id;
+  try {
+    const agent = await exec("for i in $(seq 1 30); do [ -f /etc/systemd/resolved.conf.d/61-freestyle-tls.conf ] && grep -q freestyle-tls /etc/resolv.conf && break; sleep 1; done; sleep 2; ls /etc/systemd/resolved.conf.d", 60_000);
+    console.log(`  agent resolver files after the TLS rule: ${agent.output.trim().split("\n").join(" ")}`);
+    return await runChecks("freestyle-tls-rule", [devboxEdgeResolverTlsCheckCommand(TLS_RULE_PROBE_DOMAIN)], exec);
+  } finally {
+    if (ruleId) await fs.tls.rules.delete(ruleId).catch((err) => console.log(`could not delete TLS rule ${ruleId}: ${String(err)}`));
+  }
+}
+
 async function runChecks(label: string, checks: readonly string[], exec: Exec): Promise<boolean> {
   let ok = true;
   for (const cmd of checks) {
@@ -548,6 +572,13 @@ if (provider === "freestyle") {
     ], exec) && idleOk && cloneIdentityOk;
     if (!idleOk) console.log("[freestyle] idle-wakeup check FAILED");
     if (!cloneIdentityOk) console.log("[freestyle] clone identity check FAILED (--strict-clone-identity)");
+    // The path the resolver fix exists for (#46670): with a TLS rule, the
+    // provider's agent rewrites resolv.conf and its 61- drop-in to the edge
+    // resolver's IPv4 address. Add one, wait for the agent's files, and prove
+    // the IPv6 listener comes first and lookups (steered ones included) answer.
+    const tlsOk = await verifyEdgeResolverWithTlsRule(fs, vmId, exec);
+    if (!tlsOk) console.log("[freestyle] TLS-rule resolver check FAILED");
+    pass = pass && tlsOk;
   } finally {
     await vm.delete();
     console.log(`deleted ${vmId}`);

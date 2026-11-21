@@ -16,7 +16,9 @@ import {
   devboxEdgeResolverPathUnit,
   devboxEdgeResolverScript,
   devboxEdgeResolverServiceUnit,
+  devboxEdgeResolverTlsCheckCommand,
 } from "../services/vms/images/dns";
+import { createHash } from "node:crypto";
 import { egressDestinations, freestyleEdgeAddresses } from "../services/vms/drivers/freestyleNetworkPolicy";
 
 // manaflow-ai/cmux#46670: with a TLS rule, the Freestyle agent points the
@@ -361,6 +363,35 @@ describe("cmux-edge-resolver (services/vms/images/dns.ts)", () => {
     expect(noDns.some((destination) => destination.port === 53)).toBe(false);
   });
 
+  test("the TLS-rule check demands the agent's files, IPv6 first in both, and real lookups including the steered name", () => {
+    const check = devboxEdgeResolverTlsCheckCommand("files.cmux.com");
+    expect(check).toContain("grep -qxF '# freestyle-tls forwarding resolver' /etc/resolv.conf");
+    expect(check).toContain(`test -f /etc/systemd/resolved.conf.d/${FREESTYLE_TLS_RESOLVER_DROP_IN}`);
+    expect(check).toContain(`test -f /etc/systemd/resolved.conf.d/${DEVBOX_RESOLVER_FALLBACK_DROP_IN}`);
+    expect(check).toContain(`[ "$(grep -m1 '^nameserver ' /etc/resolv.conf)" = 'nameserver ${FREESTYLE_EDGE_IPV6}' ]`);
+    expect(check).toContain(`= '${FREESTYLE_EDGE_IPV6}' ]`);
+    expect(check).toContain("getent ahosts api.anthropic.com >/dev/null");
+    expect(check).toContain("getent ahosts 'files.cmux.com' | grep -qE '^(10\\.32\\.0\\.28|2602:f470:1::28)[[:space:]]'");
+    expect(check.endsWith("echo edge-resolver-tls-rule-ok")).toBe(true);
+  });
+
+  test("the resolv.conf order assertion holds on the fixed file and fails on the agent's", async () => {
+    const order = `[ "$(grep -m1 '^nameserver ' "$1")" = 'nameserver ${FREESTYLE_EDGE_IPV6}' ]`;
+    await withGuest(tlsMachine, async (guest) => {
+      expect((await runChild("sh", ["-c", order, "sh", guest.resolv])).status).toBe(1);
+      await guest.run();
+      expect((await runChild("sh", ["-c", order, "sh", guest.resolv])).status).toBe(0);
+    });
+  });
+
+  test("the baked script is pinned: changing it needs a new image bake and a new pin", () => {
+    // The image source digest covers the bake script's text, not dns.ts, so an
+    // edit here would not otherwise fail the manifest contract. Promote a new
+    // bake (cloud-vm-image-contract.yml, promote=true), then update this hash.
+    expect(createHash("sha256").update(devboxEdgeResolverInstallCommand()).digest("hex"))
+      .toBe("07deeae2e9d3b3d108453581244773212b45e5c5c3282d8a88a219e61d26adf5");
+  });
+
   test("the bake installs and checks it before the stamp; the verifier proves it on a booted clone", () => {
     const bake = readFileSync(path.join(import.meta.dirname, "../scripts/build-devbox-freestyle.ts"), "utf8");
     expect(bake).toContain('await step("edge-resolver-ipv6", `${devboxEdgeResolverInstallCommand()} && ${devboxEdgeResolverCheckCommand()}`);');
@@ -369,5 +400,10 @@ describe("cmux-edge-resolver (services/vms/images/dns.ts)", () => {
     const verify = readFileSync(path.join(import.meta.dirname, "../scripts/verify-devbox-image.ts"), "utf8");
     expect(verify).toContain("devboxEdgeResolverCheckCommand(),");
     expect(verify).toContain("...RESOLVER_CHECKS,");
+    // And on the TLS-rule path: the verifier adds a rule, waits for the agent's files, runs the TLS check, and deletes the rule.
+    expect(verify).toContain("const tlsOk = await verifyEdgeResolverWithTlsRule(fs, vmId, exec);");
+    expect(verify).toContain("pass = pass && tlsOk;");
+    expect(verify).toContain("devboxEdgeResolverTlsCheckCommand(TLS_RULE_PROBE_DOMAIN)");
+    expect(verify).toMatch(/finally \{\s*if \(ruleId\) await fs\.tls\.rules\.delete\(ruleId\)/);
   });
 });

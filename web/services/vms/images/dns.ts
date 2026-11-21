@@ -218,3 +218,28 @@ export function devboxEdgeResolverCheckCommand(): string {
     "echo edge-resolver-ipv6-ok",
   ].join(" && ");
 }
+
+/**
+ * Proof on a machine that has a TLS rule for `steeredDomain`, as root: the
+ * agent's files exist, the IPv6 listener comes first in both, and real
+ * lookups answer through them (a public name, and the steered name resolving
+ * to the edge, which proves steering still works). The image verifier runs it
+ * after adding a TLS rule, because a machine created with a firewall alone
+ * never gets the agent's files and would pass the plain check on its
+ * "no agent file" branches.
+ */
+export function devboxEdgeResolverTlsCheckCommand(steeredDomain: string): string {
+  const agentDropIn = `${DEVBOX_RESOLVED_DROP_IN_DIR}/${FREESTYLE_TLS_RESOLVER_DROP_IN}`;
+  const ours = `${DEVBOX_RESOLVED_DROP_IN_DIR}/${DEVBOX_RESOLVER_FALLBACK_DROP_IN}`;
+  return [
+    `grep -qxF ${shellQuote(FREESTYLE_TLS_RESOLV_HEADER)} /etc/resolv.conf`,
+    `test -f ${agentDropIn}`,
+    `test -f ${ours}`,
+    `[ "$(grep -m1 '^nameserver ' /etc/resolv.conf)" = 'nameserver ${FREESTYLE_EDGE_IPV6}' ]`,
+    `grep -qxF 'nameserver ${FREESTYLE_EDGE_IPV4}' /etc/resolv.conf`,
+    `[ "$(resolvectl dns 2>/dev/null | awk 'tolower($1) == "global:" { print $2 }')" = '${FREESTYLE_EDGE_IPV6}' ]`,
+    "getent ahosts api.anthropic.com >/dev/null",
+    `getent ahosts ${shellQuote(steeredDomain)} | grep -qE '^(${FREESTYLE_EDGE_IPV4.replaceAll(".", "\\.")}|${FREESTYLE_EDGE_IPV6})[[:space:]]'`,
+    "echo edge-resolver-tls-rule-ok",
+  ].join(" && ");
+}
