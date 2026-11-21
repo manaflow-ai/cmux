@@ -180,6 +180,7 @@ pub(crate) use log_load::test_hold;
 #[cfg(test)]
 pub(crate) use log_load::{NOTE_BEFORE_CATCH_UP_LOCK, NOTE_BEFORE_REPLAY_SCAN, NOTE_IN_CATCH_UP};
 mod cold_archive;
+mod inactive_archive;
 pub(crate) use cold_archive::COLD_CHANGED;
 mod machine_info;
 mod repo_sync;
@@ -891,6 +892,8 @@ pub struct Hub {
     /// The forum log (`forum.rs`, `hub/forum.rs`).
     pub(super) forum: std::sync::OnceLock<crate::forum::Forum>,
     pub(super) sessions: StdMutex<HashMap<String, Arc<Session>>>,
+    // Invalidates an automatic archive pass when another session gains a parent.
+    archive_tree_revision: AtomicU64,
     spoken_handle_renames: StdMutex<()>,
     /// Session ids whose metadata is still live. Closed records remain in `sessions` and on
     /// disk for history, search, export and restore, but list/peer hot paths never walk them.
@@ -1465,6 +1468,7 @@ impl Hub {
             mailbox,
             forum: std::sync::OnceLock::new(),
             sessions: StdMutex::new(HashMap::new()),
+            archive_tree_revision: AtomicU64::new(0),
             spoken_handle_renames: StdMutex::new(()),
             live_session_ids: StdMutex::new(std::collections::HashSet::new()),
             closed_summary_cache: StdMutex::new(Default::default()),
@@ -1912,7 +1916,7 @@ impl Hub {
         // Its log is read after the ready line (`log_load.rs`).
         *session.log_load.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = false;
         session.log_loaded.store(false, Ordering::SeqCst);
-        sessions.insert(session.id.clone(), session.clone());
+        self.insert_local_session(&mut sessions, &session);
         drop(sessions);
         self.update_live_session_index(&session);
         // A session read from the store may be another row's parent: every closed row is built
@@ -2250,11 +2254,19 @@ impl Hub {
         self.events.row_changed(session);
     }
 
+    fn insert_local_session(
+        &self,
+        sessions: &mut HashMap<String, Arc<Session>>,
+        session: &Arc<Session>,
+    ) {
+        self.archive_tree_revision.fetch_add(1, Ordering::SeqCst);
+        sessions.insert(session.id.clone(), session.clone());
+    }
+
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn insert_test_session(&self, meta: SessionMeta) -> Arc<Session> {
-        let id = meta.id.clone();
         let session = self.make_session(meta);
-        self.sessions.lock().unwrap().insert(id, session.clone());
+        self.insert_local_session(&mut self.sessions.lock().unwrap(), &session);
         self.update_live_session_index(&session);
         self.session_came(&session);
         session

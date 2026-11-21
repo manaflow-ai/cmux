@@ -586,7 +586,7 @@ impl Hub {
     }
 
     /// What holds `session` at work, or None when nothing does.
-    fn at_work(&self, session: &Session) -> Option<SessionAtWork> {
+    pub(super) fn at_work(&self, session: &Session) -> Option<SessionAtWork> {
         let turn = self.turn_at_work(session);
         let subagents =
             session.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running();

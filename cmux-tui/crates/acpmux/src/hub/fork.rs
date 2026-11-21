@@ -881,7 +881,7 @@ impl Hub {
         self.restore_git_branch(&new, new.meta().git_branch);
         {
             let mut sessions = self.sessions.lock().unwrap();
-            sessions.insert(id.clone(), new.clone());
+            self.insert_local_session(&mut sessions, &new);
             super::admission::claim(&id);
         }
         self.update_live_session_index(&new);

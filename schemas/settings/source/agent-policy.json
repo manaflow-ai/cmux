@@ -991,8 +991,9 @@
     },
     {
       "agent": "settable",
-      "why": "Whether old chats' logs are compressed on disk, and after how long: lossless (opening a chat brings its log back), a local disk policy.",
+      "why": "Reversible local chat policies: archive inactive chats in the sidebar or compress old logs on disk.",
       "keys": [
+        "agents.chats.archiveInactive",
         "agents.chats.coldArchive",
         "agents.chats.coldArchiveAfterDays"
       ]

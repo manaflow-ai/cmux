@@ -34,6 +34,7 @@ use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex as StdMutex};
 
 use crate::offer_mcp::{MAX_PROMPT_CHARS, MAX_TITLE_CHARS};
@@ -199,6 +200,7 @@ impl Hub {
             if !self.with_open_offers(session, |open| Ok(open.remove(offer_id).is_some()))? {
                 return Err(no_offer());
             }
+            self.archive_tree_revision.fetch_add(1, Ordering::SeqCst);
             meta.parent_id = Some(session.id.clone());
             // Its sub-session too, unless something already linked it.
             if meta.subsession.is_none() {
