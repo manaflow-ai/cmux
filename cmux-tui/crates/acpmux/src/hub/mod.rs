@@ -403,6 +403,7 @@ pub mod subsessions;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub use subsession_send::Delivery;
 mod drafts;
+pub(crate) mod history_search;
 pub(crate) mod open_delivery;
 pub(crate) mod outbox;
 #[cfg(test)]
@@ -976,6 +977,9 @@ pub struct Hub {
     /// (`peer_snapshot.rs`): a paused or offline peer's chat paints from it.
     pub(super) peer_snapshots: peer_snapshot::PeerSnapshots,
     pub(super) peer_notices: mpsc::Sender<(String, u64, crate::peer::PeerNotice)>,
+    /// `peerWake`'s argv (config `peerWake`), handed to every peer (`Peer::wake`); a config
+    /// reload swaps it in place (`catalog_reload.rs`).
+    pub(super) peer_wake: crate::peer::WakeHook,
     pub(super) peer_notices_rx:
         Mutex<Option<mpsc::Receiver<(String, u64, crate::peer::PeerNotice)>>>,
     pub(super) peer_notices_stop: tokio::sync::watch::Sender<bool>,
@@ -1391,6 +1395,7 @@ impl Hub {
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let audit = audit_log::AuditLog::open(store.audit_dir());
         let usage_limits = StdMutex::new(config.usage_warnings.limits());
+        let peer_wake = Arc::new(StdMutex::new(config.peer_wake.as_ref().map(|w| w.argv.clone())));
         #[cfg(feature = "hub-carrier")]
         let hub_carrier =
             crate::hub_carrier::HubCarrierSlot::for_daemon(&config, wireguard.as_ref());
@@ -1474,6 +1479,7 @@ impl Hub {
             github_app: Default::default(),
             peer_snapshots,
             peer_notices,
+            peer_wake,
             peer_notices_rx: Mutex::new(Some(peer_notices_rx)),
             peer_notices_stop: tokio::sync::watch::channel(false).0,
             peer_notices_finished: AtomicBool::new(false),
@@ -1842,7 +1848,7 @@ impl Hub {
         }
         let session = self.make_session(meta);
         if let Some(meta) = saved_meta {
-            session.meta_writer.note_saved(meta);
+            session.meta_writer.note_saved(&meta);
         }
         session.caught_up.store(false, Ordering::SeqCst);
         *session.transfer_authority.lock().unwrap_or_else(|e| e.into_inner()) = None;
