@@ -27,7 +27,11 @@ extension AcpmuxApprovalAnswerer {
               let option = unsigned["option_id"] as? String, let instance = unsigned["instance"] as? String,
               let nonce = unsigned["decision_nonce"] as? String, let digest = unsigned["digest"] as? String,
               let answers = unsigned["answers"] as? [String: Any], let question = unsigned["question"],
-              let claimed = unsigned["request"] as? [String: Any], !instance.isEmpty, !nonce.isEmpty,
+              // The request's canonical text, not `request`: its numbers never passed through a
+              // lossy JSON value on the way here.
+              let claimedJSON = unsigned["request_json"] as? String,
+              let claimed = (try? JSONSerialization.jsonObject(with: Data(claimedJSON.utf8))) as? [String: Any],
+              !instance.isEmpty, !nonce.isEmpty,
               AcpmuxSecretKey.canonicalDigest(claimed) == digest else { return .refused }
         guard let line = await AcpmuxPersonLine.open(environment) else { return .notHere }
         defer { line.close() }

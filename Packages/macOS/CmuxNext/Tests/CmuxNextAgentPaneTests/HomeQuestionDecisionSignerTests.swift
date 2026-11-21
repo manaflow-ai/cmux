@@ -41,7 +41,8 @@ import Testing
         let reply: [String: Any] = ["session": session, "permission": "p1", "option_id": "answer",
                                     "instance": "0123456789abcdef", "decision_nonce": nonce, "answers": answers,
                                     "question": ["harness": "chief", "session": session, "permission": "p1"],
-                                    "request": request, "digest": digest]
+                                    "request": request, "request_json": try #require(AcpmuxSecretKey.canonicalJSON(request)),
+                                    "digest": digest]
         return String(decoding: try JSONSerialization.data(withJSONObject: reply), as: UTF8.self)
     }
 
@@ -120,6 +121,27 @@ import Testing
             Issue.record("the refused reply used the daemon's connection"); return
         }
         #expect(server.connections == 1)
+    }
+
+    /// The signer reads the request's canonical text, not `request`, which the app's JSON value
+    /// may have rounded: an integer past 2^53 still signs, and the envelope keeps it exact.
+    @Test func aRequestWithAWideIntegerSignsFromItsCanonicalText() async throws {
+        var request = Self.request
+        request["toolCall"] = ["_meta": (Self.request["toolCall"] as? [String: Any])?["_meta"] ?? [:], "rawInput": ["at": 9_007_199_254_740_993]]
+        let (answerer, server, _) = try fixture()
+        defer { server.stop() }
+        var info = server.info
+        info["pending"] = [["permissionId": "p1", "personInstance": "0123456789abcdef", "decisionNonce": Self.nonce, "request": request]]
+        server.info = info
+        var reply = try #require(try JSONSerialization.jsonObject(with: Data(try Self.unsigned(request: request).utf8)) as? [String: Any])
+        var rounded = request
+        rounded["toolCall"] = ["_meta": (Self.request["toolCall"] as? [String: Any])?["_meta"] ?? [:], "rawInput": ["at": 9_007_199_254_740_992.0]]
+        reply["request"] = rounded
+        let text = String(decoding: try JSONSerialization.data(withJSONObject: reply), as: UTF8.self)
+        guard case .signed(let signed) = await answerer.signQuestionDecision(text, through: { body in body(); return true }) else {
+            Issue.record("a wide integer was refused"); return
+        }
+        #expect(signed.contains("9007199254740993"))
     }
 
     /// One native click's write claims, counted.

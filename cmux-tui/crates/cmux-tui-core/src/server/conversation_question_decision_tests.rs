@@ -4,7 +4,7 @@
 use serde_json::{Value, json};
 
 use super::super::*;
-use super::{decide_from, error_code, request_digest};
+use super::{decide_from, error_code, record_question, request_digest};
 use cmux_conversation::{Question, QuestionAnswer};
 
 fn question(permission: Option<&str>) -> Question {
@@ -46,6 +46,9 @@ fn the_decision_is_the_live_prompts_with_its_request() {
     assert_eq!(decided["request"], entry("perm_1")["request"]);
     assert_eq!(decided["question"], serde_json::to_value(question(Some("perm_1"))).unwrap());
     assert_eq!(decided["digest"], super::request_digest(&entry("perm_1")["request"]));
+    let text = decided["request_json"].as_str().unwrap();
+    assert_eq!(serde_json::from_str::<Value>(text).unwrap(), entry("perm_1")["request"]);
+    assert_eq!(decided["digest"], super::request_digest(&serde_json::from_str(text).unwrap()));
 }
 
 #[test]
@@ -107,6 +110,28 @@ fn the_digest_sorts_keys_at_every_depth_and_an_approval_card_is_refused() {
     .unwrap();
     let info = json!({"pending": [entry("perm_1")]});
     assert_eq!(code(decide_from(&card, &answer(), &info)), "question.native_approval");
+}
+
+/// The native record read returns the stored approval card unchanged, never a question's, and
+/// only while it is pending.
+#[test]
+fn the_native_record_read_is_the_pending_approval_card_only() {
+    let stored = json!({
+        "harness": "chief", "session": "sess_mux", "permission": "perm_1", "agent": "Chief",
+        "items": [{"id": format!("approval:{}", "a".repeat(64)), "header": "Tool", "prompt": "Run \"ls\" ✓?",
+                   "multi_select": false, "allows_other": false,
+                   "options": [{"id": "allow", "label": "Allow", "preview": {"text": "{\"a\":1}"}},
+                               {"id": "deny", "label": "Deny"}]}]
+    });
+    let card: Question = serde_json::from_value(stored).unwrap();
+    let read = record_question(&card).unwrap();
+    assert_eq!(read, json!({"question": serde_json::to_value(&card).unwrap()}));
+    let back: Question = serde_json::from_value(read["question"].clone()).unwrap();
+    assert_eq!(back, card);
+    assert_eq!(code(record_question(&question(Some("perm_1")))), "question.not_approval");
+    let mut answered = card;
+    answered.state = serde_json::from_value(json!({"kind": "cancelled"})).unwrap();
+    assert_eq!(code(record_question(&answered)), "question.closed");
 }
 
 /// The request digest is the golden sha256, the bytes acpmux hashes and the app checks.

@@ -242,6 +242,17 @@ public nonisolated final class DaemonHomeSource: HomeSource {
         return String(decoding: try JSONEncoder().encode(reply), as: UTF8.self)
     }
 
+    /// `conversation-question-decision` with `native_record`: the stored tool-approval card,
+    /// `{question}`, unchanged, for the record ``ChiefApprovalDecider`` sends after it answered
+    /// acpmux natively. Refused with the daemon's `question.*` code.
+    public func approvalRecordQuestion(conversation: String, message: String, partIndex: Int, answer: Data) async throws -> String {
+        let value = try JSONDecoder().decode(JSONValue.self, from: answer)
+        let request = ConversationQuestionDecisionRequest(conversation: conversation, messageID: message, partIndex: partIndex,
+                                                          answer: value, nativeRecord: true)
+        let reply = try await requireConnection().request(request)
+        return String(decoding: try JSONEncoder().encode(reply), as: UTF8.self)
+    }
+
     public func submit(_ intent: HomeIntent) async throws -> HomeOpResult {
         // Typing is never stored: the owner's typing frame, not an op.
         if case .setTyping(let conversation, let on) = intent.op {

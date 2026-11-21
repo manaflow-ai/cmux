@@ -79,7 +79,9 @@ extension HomeProjection {
                 var after = local
                 switch outcome {
                 case .answered: after.ended = true
-                case .expired: after.note = CmuxStrings.questionExpired; after.ended = true
+                // Not ended here: a question the owner still shows as pending (a re-issued prompt) stays
+                // answerable, and refreshQuestionStates drops the card once the owner closes it.
+                case .expired: after.note = CmuxStrings.questionExpired
                 case .refused: after.note = CmuxStrings.approvalFailed
                 }
                 self?.showQuestion(question, ref: ref, local: after)

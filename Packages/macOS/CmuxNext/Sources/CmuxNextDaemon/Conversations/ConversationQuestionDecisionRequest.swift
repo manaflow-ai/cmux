@@ -15,14 +15,27 @@ public struct ConversationQuestionDecisionRequest: DaemonRequest {
     public var partIndex: Int
     /// The `question.answer` op's `answer` (selections only).
     public var answer: JSONValue
+    /// `true`: only the stored tool-approval card, `{question}`, for its native record after the
+    /// app answered acpmux itself. The daemon reads no prompt and builds no decision.
+    public var nativeRecord: Bool
 
-    public init(conversation: String, messageID: String, partIndex: Int, answer: JSONValue) {
-        (self.conversation, self.messageID, self.partIndex, self.answer) = (conversation, messageID, partIndex, answer)
+    public init(conversation: String, messageID: String, partIndex: Int, answer: JSONValue, nativeRecord: Bool = false) {
+        (self.conversation, self.messageID, self.partIndex, self.answer, self.nativeRecord) = (conversation, messageID, partIndex, answer, nativeRecord)
     }
 
     enum CodingKeys: String, CodingKey {
         case conversation, answer
         case messageID = "message_id"
         case partIndex = "part_index"
+        case nativeRecord = "native_record"
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(conversation, forKey: .conversation)
+        try container.encode(messageID, forKey: .messageID)
+        try container.encode(partIndex, forKey: .partIndex)
+        try container.encode(answer, forKey: .answer)
+        if nativeRecord { try container.encode(true, forKey: .nativeRecord) }
     }
 }

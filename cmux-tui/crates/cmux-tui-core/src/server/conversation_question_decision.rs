@@ -10,7 +10,7 @@
 //! holds or sees a key, and a result grants nothing: acpmux alone verifies and spends the proof.
 
 use cmux_conversation::question_wire::{self, UnsignedDecision, WireError};
-use cmux_conversation::{Part, Question, QuestionAnswer};
+use cmux_conversation::{Part, Question, QuestionAnswer, QuestionState};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -26,6 +26,10 @@ pub(in crate::server) struct DecisionParams {
     message_id: String,
     part_index: usize,
     answer: QuestionAnswer,
+    /// `true`: the stored tool-approval card itself ([`record_question`]), for the record the app
+    /// sends after it answered acpmux natively. Reads no prompt and builds no decision.
+    #[serde(default)]
+    native_record: bool,
 }
 
 /// A refusal with a stable code (`question.*`), as the reply's error text.
@@ -77,6 +81,9 @@ fn reply(
     let mut value = serde_json::to_value(decision)?;
     value["question"] = serde_json::to_value(question)?;
     value["request"] = request.clone();
+    // The same request as canonical text: the app parses this rather than `request`, so no number
+    // passes through a lossy JSON value on the way (an integer past 2^53 stays exact).
+    value["request_json"] = Value::String(question_wire::canonical_json(request));
     value["digest"] = Value::String(request_digest(request));
     Ok(value)
 }
@@ -86,6 +93,20 @@ fn reply(
 pub(in crate::server) fn request_digest(request: &Value) -> String {
     use sha2::{Digest, Sha256};
     format!("{:x}", Sha256::digest(question_wire::canonical_json(request).as_bytes()))
+}
+
+/// `{question}`: the stored tool-approval card, unchanged, while it is pending. The app answers
+/// acpmux natively with a delivery attempt and sends this question back with the receipt in the
+/// `question.answer` op's `native_record` decision, which the delivery path checks against the
+/// exact acpmux receipt. A question card gets no record here: its answer needs the person's proof.
+pub(in crate::server) fn record_question(question: &Question) -> anyhow::Result<Value> {
+    if !question_wire::is_native_approval(question) {
+        return Err(refused("question.not_approval"));
+    }
+    if question.state != QuestionState::Pending {
+        return Err(refused("question.closed"));
+    }
+    Ok(serde_json::json!({ "question": question }))
 }
 
 /// The unsigned decision from `pending`, the prompt's live `_acpmux/info` pending entries.
@@ -125,6 +146,9 @@ pub(in crate::server) fn decision(mux: &Mux, params: DecisionParams) -> anyhow::
     use std::time::Duration;
 
     let question = stored_question(mux, &params)?;
+    if params.native_record {
+        return record_question(&question);
+    }
     let socket = mux
         .control_clients
         .agent_sessions

@@ -1,6 +1,7 @@
 public import CmuxHomeRender
 public import CmuxNextAgentPane
 import CmuxNextCompat
+import CmuxNextDaemon
 public import CmuxNextWakeups
 import Foundation
 
@@ -15,6 +16,9 @@ import Foundation
     /// The daemon's unsigned decision for a question answer (`DaemonHomeSource.questionDecision`);
     /// nil: question answers are refused.
     public var unsignedQuestionDecision: (@MainActor (HomeQuestionRequest) async throws -> String)?
+    /// The stored tool-approval card for its native record (`DaemonHomeSource.approvalRecordQuestion`);
+    /// nil: an approval that asks for a record is refused before anything is answered.
+    public var storedApprovalQuestion: (@MainActor (HomeQuestionRequest) async throws -> String)?
     /// Uses the app's files lane and resolver; this type never resolves app services itself.
     /// `questions` builds the unsigned decisions for question answers; nil: they are refused.
     public init(home: ChiefHome, app: AcpmuxEnvironment?, work: BackgroundWork,
@@ -25,6 +29,10 @@ import Foundation
                 try await questions.questionDecision(conversation: request.conversation, message: request.message,
                                                      partIndex: request.partIndex, answer: request.answerJSON)
             }
+            storedApprovalQuestion = { request in
+                try await questions.approvalRecordQuestion(conversation: request.conversation, message: request.message,
+                                                           partIndex: request.partIndex, answer: request.answerJSON)
+            }
         }
     }
 
@@ -32,14 +40,34 @@ import Foundation
     public func decide(_ request: HomeApprovalRequest, allow: Bool, through gate: @escaping @Sendable (() -> Void) -> Bool) async -> HomeApprovalDecision {
         guard let session = Self.localSession(request.session),
               let expected = AcpmuxApprovalAnswerer.requestDigest(request.requestJSON),
-              Self.isChief(request.chief), let (id, candidates) = await candidates(chief: request.chief) else { return .refused }
+              Self.isChief(request.chief) else { return .refused }
+        // The stored card is read before anything is answered: an answer the owner cannot record
+        // is never sent.
+        var stored: Any?
+        if let record = request.record {
+            do {
+                guard let storedApprovalQuestion,
+                      let reply = (try? JSONSerialization.jsonObject(with: Data(try await storedApprovalQuestion(record).utf8))) as? [String: Any],
+                      let question = reply["question"] as? [String: Any] else { return .refused }
+                stored = question
+            } catch {
+                return Self.questionEnded(error) ? .expired : .refused
+            }
+        }
+        guard let (id, candidates) = await candidates(chief: request.chief) else { return .refused }
         for environment in candidates {
             let answerer = AcpmuxApprovalAnswerer(environment: environment, chiefHomeID: id)
             await answerer.prepareForHome()
             guard let pending = await answerer.pendingAsk(session: session, permission: request.permission) else { continue }
             guard pending.approval.digest == expected else { return .expired }
             guard allow ? pending.allowOnce != nil : pending.denyOnce != nil else { return .refused }
-            return await answerer.answerOnce(pending.approval, allow: allow, through: gate) ? .answered : .refused
+            guard let stored else {
+                return await answerer.answerOnce(pending.approval, allow: allow, through: gate) ? .answered(record: nil) : .refused
+            }
+            guard let receipt = await answerer.answerOnceReceipted(pending.approval, allow: allow, through: gate) else { return .refused }
+            // acpmux took the answer; a record that cannot be encoded leaves the card answered and
+            // unrecorded, never answered again.
+            return .answered(record: Self.nativeRecord(question: stored, receipt: receipt))
         }
         // A missing response can mean an unavailable daemon; keep the card retryable.
         return .refused
@@ -50,9 +78,14 @@ import Foundation
     /// The app then re-reads that prompt on its own person line, in each daemon this Chief may use,
     /// before it signs (``AcpmuxApprovalAnswerer/signQuestionDecision(_:through:)``).
     public func decide(_ request: HomeQuestionRequest, through gate: @escaping @Sendable (() -> Void) -> Bool) async -> HomeQuestionDecision {
-        guard Self.isChief(request.chief), let unsignedQuestionDecision,
-              let unsigned = try? await unsignedQuestionDecision(request),
-              let (id, candidates) = await candidates(chief: request.chief) else { return .refused }
+        guard Self.isChief(request.chief), let unsignedQuestionDecision else { return .refused }
+        let unsigned: String
+        do {
+            unsigned = try await unsignedQuestionDecision(request)
+        } catch {
+            return Self.questionEnded(error) ? .expired : .refused
+        }
+        guard let (id, candidates) = await candidates(chief: request.chief) else { return .refused }
         for environment in candidates {
             let answerer = AcpmuxApprovalAnswerer(environment: environment, chiefHomeID: id)
             await answerer.prepareForHome()
@@ -65,6 +98,23 @@ import Foundation
         }
         // A missing response can mean an unavailable daemon; keep the card retryable.
         return .refused
+    }
+
+    /// The owner refused because the question is gone or changed (`question.closed`,
+    /// `question.stale`, `question.not_found`), not because a daemon was unavailable.
+    nonisolated static func questionEnded(_ error: Error) -> Bool {
+        guard case DaemonError.command(_, _, let code?, _, _) = error else { return false }
+        return ["question.closed", "question.stale", "question.not_found"].contains(code)
+    }
+
+    /// The `question.answer` op's decision for a natively answered tool approval: the stored
+    /// question unchanged and the acpmux receipt reference, as JSON text. No proof.
+    nonisolated static func nativeRecord(question: Any, receipt: AcpmuxDeliveryReceipt) -> String? {
+        let record: [String: Any] = ["question": question, "receipt_id": receipt.id, "instance": receipt.instance,
+                                     "decision_nonce": receipt.decisionNonce]
+        guard let data = try? JSONSerialization.data(withJSONObject: ["native_record": record],
+                                                     options: [.sortedKeys, .withoutEscapingSlashes]) else { return nil }
+        return String(decoding: data, as: UTF8.self)
     }
 
     nonisolated static func isChief(_ chief: String) -> Bool { chief == "agent_mux" || chief.hasPrefix("agent_") }
