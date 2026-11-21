@@ -55,7 +55,7 @@ extension SidebarSectionsSetting {
     public nonisolated static let showProfileControlDefault = true
     /// `sidebar.showSearchButton`.
     public nonisolated static let showSearchButtonPath = ["sidebar", "showSearchButton"]
-    public nonisolated static let showSearchButtonDefault = true
+    public nonisolated static let showSearchButtonDefault = false
     /// `sidebar.showNewWorkspaceChooser`.
     public nonisolated static let showNewWorkspaceChooserPath = ["sidebar", "showNewWorkspaceChooser"]
     public nonisolated static let showNewWorkspaceChooserDefault = false
@@ -121,7 +121,7 @@ extension SidebarSectionsSetting {
     public nonisolated static let minimalModeDefault: SidebarMinimalMode = .off
     /// `sidebar.cards.tips`.
     public nonisolated static let tipsPath = ["sidebar", "cards", "tips"]
-    public nonisolated static let tipsDefault = true
+    public nonisolated static let tipsDefault = false
 }
 
 extension WorkspaceColorsSetting {

@@ -448,7 +448,7 @@
             "text": "A search button after the profile button. Off: search from the palette."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "sidebar",
             "search",
@@ -1391,7 +1391,7 @@
             "text": "A daily tip about a feature you haven't used"
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "sidebar",
             "tips",
