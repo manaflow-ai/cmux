@@ -13,6 +13,9 @@ extension AgentPaneDisplaySettingsSchema {
     /// `agentPane.display.vscodeMinimap`: The VS Code-style picture of the whole chat at its right edge (webviews chatMinimap/ChatMinimap.tsx). Off by default; the thread rail at the left (Toggle Thread Minimap) is its own thing.
     nonisolated static let vscodeMinimapPath = ["agentPane", "display", "vscodeMinimap"]
     nonisolated static let vscodeMinimapDefault = false
+    /// `agentPane.display.headerBreadcrumb`: Taste prototype: the chat header's title as one monospace slash path, repo / branch / chat title (webviews header/ThreadTitle.tsx). Off by default; off, the header shows the plain title as before.
+    nonisolated static let headerBreadcrumbPath = ["agentPane", "display", "headerBreadcrumb"]
+    nonisolated static let headerBreadcrumbDefault = false
     /// `agentPane.display.pinnedPlan`: The running turn's task list pinned under its latest message (webviews conversation/turns.ts). Off by default: the composer's hat shows it (subagents/SubagentTray.tsx plan; Leo, 2026-11-03).
     nonisolated static let pinnedPlanPath = ["agentPane", "display", "pinnedPlan"]
     nonisolated static let pinnedPlanDefault = false

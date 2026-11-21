@@ -749,6 +749,7 @@
         "agentPane.display.width",
         "agentPane.display.fullWidth",
         "agentPane.display.vscodeMinimap",
+        "agentPane.display.headerBreadcrumb",
         "agentPane.display.pinnedPlan",
         "agentPane.display.finishSound",
         "agentPane.display.trayTucked",

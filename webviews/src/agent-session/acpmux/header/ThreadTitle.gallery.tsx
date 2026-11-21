@@ -37,17 +37,19 @@ function TitleMenuGallery({
   move,
   targets,
   treatment,
+  trail,
 }: {
   title: string;
   move: "local" | "cloud";
   targets: readonly string[];
   treatment: string;
+  trail?: readonly string[];
 }) {
   return (
     <div className={`acpmux-shell acpmux-thread-title-gallery acpmux-thread-title-gallery--${treatment}`}>
       <header className="acpmux-header">
         <div className="acpmux-header-status-slot">
-          <ThreadTitle title={title} onRename={() => undefined} />
+          <ThreadTitle title={title} onRename={() => undefined} trail={trail} />
         </div>
         <div className="acpmux-header-tools">
           <ChatMenu items={() => menuRows(move, targets)} registerPickerLabel={null} />
@@ -73,6 +75,7 @@ export default componentEntry<{
   move: "local" | "cloud";
   targets: readonly string[];
   treatment: string;
+  trail?: readonly string[];
 }>({
   id: "agent-pane.thread-title",
   title: "Chat title",
@@ -102,6 +105,26 @@ export default componentEntry<{
       props: { title: "Review remote agent output", move: "cloud", targets: [], treatment: "glass" },
       play: open,
       note: "Cloud chat: Bring Back Local uses the same existing transfer path as the environment picker.",
+    },
+    "path-on": {
+      props: {
+        title: "Fix the login redirect",
+        move: "local",
+        targets: ["Build Mac"],
+        treatment: "plain",
+        trail: ["cmux", "lane/fix-login"],
+      },
+      note: "Header Path on (agentPane.display.headerBreadcrumb): repo / branch / title as one monospace path, the slashes fainter. Double-click the title to rename.",
+    },
+    "path-long": {
+      props: {
+        title: "Investigate the flaky reconnect path across the build fleet",
+        move: "local",
+        targets: ["Build Mac"],
+        treatment: "compact",
+        trail: ["platform-services", "feature/reconnect-backoff-and-jitter"],
+      },
+      note: "Header Path on, narrow: the repository and branch shrink first, so the title keeps its room.",
     },
     "compact-long": {
       props: {

@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { useExperimentSwitch } from "../../../experiments/switches";
 import { usePaneLanguage, useT } from "../i18n";
 import { GLASS_TOOLBAR_SWITCH } from "./glassToolbar.experiment";
@@ -13,8 +14,23 @@ import { useHeaderState } from "./headerState";
  * off by default) it reads as a window toolbar's title: the chat's workspace, with its chat count
  * under it, while the App has said which workspace that is; the chat's own name is the tooltip.
  * `glass` is the gallery's pick; else the person's switch.
+ *
+ * With Header Path on (`agentPane.display.headerBreadcrumb`, off by default; Taste Board #20), `trail`
+ * (headerState.ts `headerBreadcrumb`: repository, branch) leads the title as one monospace slash path,
+ * `repo / branch / title`, its separators fainter. The title segment stays the rename target. With no
+ * trail the title draws exactly as before.
  */
-export function ThreadTitle({ title, onRename, glass }: { title: string; onRename?: () => void; glass?: boolean }) {
+export function ThreadTitle({
+  title,
+  onRename,
+  trail,
+  glass,
+}: {
+  title: string;
+  onRename?: () => void;
+  trail?: readonly string[];
+  glass?: boolean;
+}) {
   const t = useT();
   const language = usePaneLanguage();
   const glassSwitch = useExperimentSwitch(GLASS_TOOLBAR_SWITCH);
@@ -31,9 +47,25 @@ export function ThreadTitle({ title, onRename, glass }: { title: string; onRenam
         </span>
       </span>
     );
-  return (
-    <span className="acpmux-thread-title" title={title} onDoubleClick={onRename}>
+  // With a trail the title segment carries no tooltip of its own: the path's full-path tooltip shows
+  // over it too.
+  const name = (tooltip: string | undefined) => (
+    <span className="acpmux-thread-title" title={tooltip} onDoubleClick={onRename}>
       {title}
+    </span>
+  );
+  if (!trail?.length) return name(title);
+  return (
+    <span className="acpmux-thread-crumbs" title={[...trail, title].join(" / ")}>
+      {trail.map((part, index) => (
+        <Fragment key={index}>
+          <span className="acpmux-thread-crumb">{part}</span>
+          <span className="acpmux-thread-crumb-sep" aria-hidden="true">
+            {" / "}
+          </span>
+        </Fragment>
+      ))}
+      {name(undefined)}
     </span>
   );
 }

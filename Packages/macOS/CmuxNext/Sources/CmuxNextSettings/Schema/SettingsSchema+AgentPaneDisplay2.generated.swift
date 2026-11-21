@@ -36,6 +36,16 @@ extension AgentPaneDisplaySettingsSchema {
                 keywords: ["agent", "chat", "acp", "display", "reading", "minimap", "vscode", "vs code", "code", "map", "overview", "scroll", "scrollbar", "right", "toggle"]
             ),
             SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.headerBreadcrumbPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.headerBreadcrumb", "Header Path"),
+                help: SettingsText.keyed("settings.agentPane.display.headerBreadcrumb.help", "Show the chat's repository and branch before its title in the header, as a path."),
+                kind: .toggle,
+                default: .bool(AgentPaneDisplaySettingsSchema.headerBreadcrumbDefault),
+                keywords: ["agent", "chat", "display", "header", "title", "breadcrumb", "path", "slash", "monospace", "repo", "branch", "toggle"]
+            ),
+            SettingDescriptor(
                 AgentPaneDisplaySettingsSchema.pinnedPlanPath,
                 section: .appearance,
                 group: group,
