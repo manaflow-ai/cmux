@@ -170,7 +170,7 @@ import {
 } from "./conversation/chatFind";
 import { ChatFindBar } from "./conversation/ChatFindBar";
 import { LIVE_THINKING, THINKING, WORKED, foldCovers, turnFooterFrom, retryTargetIn } from "./conversation/turns";
-import { createLiveLinePulse, LiveLinePulseContext, newestLiveLine } from "./conversation/liveLinePulse";
+import { createLiveLinePulse, LiveLinePulseContext } from "./conversation/liveLinePulse";
 import { ArrowDown } from "./conversation/icons";
 import { Slot } from "../../slots/Slot";
 import { jumpToBottomSlot } from "../../slots/jumpToBottom";
@@ -233,7 +233,7 @@ import {
 import { focusRoute } from "../../ui/focusRoute";
 import { continuesLiveResize, LIVE_RESIZE_MS, stepLiveResize } from "./conversation/liveResizeStep";
 import { DOCK_NOTICE } from "./noticeSlotModel";
-import { activityDotMotion, JumpDots, type DotMotion } from "./conversation/JumpDots";
+import { JumpDots } from "./conversation/JumpDots";
 import { useThinkingLook } from "./conversation/thinkingLook";
 
 /// The live line's box and gap in a run as custom properties on the scroller (transcriptGrid.ts transcriptLiveVars):
@@ -1355,14 +1355,12 @@ const JUMP_LATEST_SIZE = 32;
 export function JumpToLatest({
   shown,
   working,
-  dotMotion,
   onJump,
   lift,
   needsYou,
 }: {
   shown: boolean;
   working: boolean;
-  dotMotion?: DotMotion;
   /// Open asks (needsYou/JumpPill.ts): the button becomes the Needs your input pill.
   needsYou?: TranscriptNeedsYou;
   /// The bottom stack's height over the transcript's foot: the button sits above it.
@@ -1403,7 +1401,7 @@ export function JumpToLatest({
         {/* The mark is a theme slot (schemas/theme/slots.json `chat.jumpToBottom`): its default variant
             draws exactly the static arrow this button drew before. */}
         <Slot slot={jumpToBottomSlot} props={{ shown, working }} />
-        {dots && <JumpDots motion={dotMotion} />}
+        {dots && <JumpDots />}
         {look === "labeled" && <span className="acpmux-jump-latest__label">{t("transcript.jumpLatest")}</span>}
       </button>
     </>
@@ -7353,7 +7351,6 @@ function TranscriptView({
               // The pill also shows at the latest message while the chats this chat started wait: it cycles to them.
               shown={behind || (needsYou?.elsewhere ?? 0) > 0}
               working={working}
-              dotMotion={working ? activityDotMotion(newestLiveLine(rows)?.doingKind) : undefined}
               onJump={onJumpLatest}
               lift={dockSpace}
               needsYou={needsYou}

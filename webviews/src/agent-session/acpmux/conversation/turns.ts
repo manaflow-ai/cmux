@@ -2979,7 +2979,6 @@ function codexLiveTurn(
     line.doingAt = (call.startedAt ?? named.at) + clockOffset;
     // The call the line names: its own words change in place from pending to done (Thinking.tsx).
     line.doingCall = call.id;
-    line.doingKind = call.kind;
   } else if (compactingRow) {
     // A compaction running is the line's state, timed from its own start: no model thinks or
     // writes then, so the line never reads "Thinking" or counts tokens, and the compaction's own

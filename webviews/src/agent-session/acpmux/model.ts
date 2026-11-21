@@ -727,8 +727,6 @@ export type AcpmuxRow = {
   /// The id of the call `doing` names, running or just finished (conversation/turns.ts
   /// `codexLiveTurn`): while it stays the same call the line's words change in place, with no roll.
   doingCall?: string;
-  /// ACP tool kind for the live line's activity dots.
-  doingKind?: string;
   /// How long that finished step took, its own start to its own end (conversation/turns.ts
   /// `liftedStep`): the live line says it beside the step, never the turn's time.
   doingForMs?: number;

@@ -37,12 +37,6 @@ const ALLOWED: { file: string; keyframes: string; selector: string; why: string;
     why: "the opt-in activity mark on the live working line and visible Jump to latest button; the dots trade size and position and honor static and reduced motion",
   })),
   {
-    file: "agent-session/acpmux/conversation/JumpDots.css",
-    keyframes: "cv-activity-dot-square",
-    selector: ".cv-jump-dots[data-inline]",
-    why: "the opt-in activity mark while reading or executing; the square turns and spreads only while working, and honors static and reduced motion",
-  },
-  {
     file: "agent-session/acpmux/styles.css",
     keyframes: "acpmux-mic-wait",
     selector: ".acpmux-mic",

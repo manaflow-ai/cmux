@@ -25,7 +25,7 @@ import { RunningTime } from "./RunningTime";
 import { BackgroundHint } from "./BackgroundHint";
 import { useSubsessionInfo } from "../subagents/subsessions";
 import { LiveShimmer } from "./LiveShimmer";
-import { activityDotMotion, JumpDots } from "./JumpDots";
+import { JumpDots } from "./JumpDots";
 import { useThinkingLook } from "./thinkingLook";
 import { Slot } from "../../../slots/Slot";
 import { slotVariant, useSlotVariant } from "../../../slots/registry";
@@ -346,7 +346,6 @@ export function Thinking({
   since,
   now = Date.now,
   doing,
-  doingKind,
   activityDots = false,
   doingAt,
   doingShell = false,
@@ -377,7 +376,7 @@ export function Thinking({
   since?: number;
   now?: () => number;
   doing?: string;
-  doingKind?: string;
+  /// The live line draws a look's working dots before its words (thinkingLook.ts `jumpButton: "dots"`).
   activityDots?: boolean;
   doingAt?: number;
   doingShell?: boolean;
@@ -665,9 +664,7 @@ export function Thinking({
         </output>
       ) : (
         <span className="cv-shimmer__row">
-          {activityDots && jumpButton === "dots" && !calm && !done && !answered && (
-            <JumpDots inline motion={activityDotMotion(doingKind)} />
-          )}
+          {activityDots && jumpButton === "dots" && !calm && !done && !answered && <JumpDots inline />}
           {answered && (
             <span className="cv-needs-input-glyph is-answered" aria-hidden="true" onAnimationEnd={settled} />
           )}

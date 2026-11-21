@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
 import { BACKGROUND_TURN } from "./backgroundTurns";
-import { LIVE_THINKING, THINKING, WORKED, WORKING, turnView, turnViewFrom } from "./turns";
+import { THINKING, WORKED, WORKING, turnView, turnViewFrom } from "./turns";
 
 const user = (at: number): AcpmuxRow => ({ id: "user", version: 1, at, kind: "user", text: "resume" });
 
@@ -19,29 +19,6 @@ test("a live turn with no start of its own counts from its prompt", () => {
   const rows: AcpmuxRow[] = [user(1_000), { id: "typing", version: 1, at: 100_000, kind: "typing" }];
   const shown = turnView(rows, new Set(), { now: 200_000, working: true });
   expect(shown.find((row) => row.kind === THINKING)?.at).toBe(1_000);
-});
-
-test("the live line exposes the active tool kind for activity dots", () => {
-  const rows: AcpmuxRow[] = [user(1_000)];
-  const folds = new Set<string>();
-  const options = { now: 8_000, working: true };
-  let view = turnViewFrom(rows, folds, options);
-  for (const [index, kind] of ["search", "read", "execute"].entries()) {
-    const call: AcpmuxRow = {
-      id: `tool-${index}`,
-      version: 1,
-      at: 2_000 + index * 1_000,
-      kind: "activity",
-      items: [
-        { kind: "tool", text: "Working", tool: { id: `call-${index}`, title: "Working", kind, status: "in_progress" } },
-      ],
-      toolCount: 1,
-    };
-    view = turnViewFrom([...rows, call], folds, options, view);
-    expect(view.rows.find((row) => row.id === LIVE_THINKING)?.doingKind).toBe(kind);
-  }
-  view = turnViewFrom(rows, folds, options, view);
-  expect(view.rows.find((row) => row.id === LIVE_THINKING)?.doingKind).toBeUndefined();
 });
 
 test("a completed turn has no live timer row", () => {
