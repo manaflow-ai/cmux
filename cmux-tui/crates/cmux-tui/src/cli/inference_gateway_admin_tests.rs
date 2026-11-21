@@ -93,8 +93,19 @@ fn scopes_the_status_and_keeps_api_error_codes() {
     let ok = json!({"ok": true, "gateway": {"mode": "gateway", "online": true}});
     assert_eq!(
         status_answer(true, &ok),
-        json!({"ok": true, "scope": "personal", "gateway": {"mode": "gateway", "online": true}})
+        json!({"ok": true, "scope": "personal", "gateway": {"mode": "gateway", "online": true},
+               "serves": ["claude", "codex"]})
     );
+    // Only a gateway in mode `gateway` that is online serves (hq#15762's start gate reads `serves`).
+    for gateway in [
+        json!({"mode": "gateway", "online": false}),
+        json!({"mode": "off", "online": true}),
+        json!({}),
+    ] {
+        let answer = status_answer(false, &json!({"ok": true, "gateway": gateway}));
+        assert_eq!(answer["serves"], json!([]), "{answer}");
+        assert_eq!(answer["scope"], "team");
+    }
     let refused = json!({"ok": false, "error": {"code": "auth.forbidden", "message": "no"}});
     assert_eq!(status_answer(false, &refused), error_json("auth.forbidden", "no"));
     assert_eq!(route_path(true), "/v1/cloud/inference-gateway/personal");
