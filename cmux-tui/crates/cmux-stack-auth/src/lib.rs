@@ -37,7 +37,7 @@ mod policy;
 mod refresh;
 mod wire;
 
-pub use auth_error::AuthError;
+pub use auth_error::{AuthError, rejected_redirect_origin};
 pub use calls::{CurrentUser, OAuthCallback, OAuthStart, Team};
 pub use client::{StackClient, TokenResolution};
 pub use cmux_api::{

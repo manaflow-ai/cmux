@@ -5497,7 +5497,9 @@
     "errorInvalidTotp": "雙重驗證碼無效。",
     "errorSignUpNotAllowed": "目前無法建立新帳號。",
     "errorPasskey": "通行密鑰登入未完成。請再試一次或改用其他方式。",
-    "errorGeneric": "發生問題，請再試一次。"
+    "errorGeneric": "發生問題，請再試一次。",
+    "errorRedirectNotAllowed": "此版本的登入位址在 {backend} 上不被允許。",
+    "backendDevelopment": "開發後端"
   },
   "MobileRelease106": {
     "title": "1.0.6 更新內容",
