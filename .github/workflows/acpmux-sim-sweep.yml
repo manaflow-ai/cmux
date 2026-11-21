@@ -8,23 +8,12 @@ name: acpmux simulation sweep
 # A schedule fires only from the default branch's copy of this file, so landings on
 # feat-cmux-next that touch acpmux run it too.
 #
-# A pull request into feat-cmux-next that touches acpmux runs a smaller sweep (PR_SEEDS a leg, on the 4 vCPU pool) as
-# an advisory check: no ruleset requires it, and on a pull request the job is named "sim sweep (...) (advisory)",
-# so land-judge and next-autoland neither wait on nor refuse for it (the name leaves out "acpmux", which land-judge's
-# own-diff route reads as the PR's own acpmux suite). A red there is a follow-up (ci-oops soft class), not a merge
-# block. The push and the schedule keep the full sweep.
+# Pull requests no longer run this sweep (an advisory check nothing read, ci-time-map cut, 2026-11-21): the per-change
+# run in cmux-tui-spec.yml (acpmux-sim) covers a pull request; the push to feat-cmux-next keeps the full sweep. (Its schedule was dropped: a schedule fires only from main's copy of this file,
+# and main has none, so it never fired.)
 
 on:
-  schedule:
-    - cron: "17 7 * * *"
   push:
-    branches:
-      - feat-cmux-next
-    paths:
-      - "cmux-tui/crates/acpmux/**"
-      - "cmux-tui/Cargo.lock"
-      - ".github/workflows/acpmux-sim-sweep.yml"
-  pull_request:
     branches:
       - feat-cmux-next
     paths:

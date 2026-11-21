@@ -138,12 +138,12 @@ fn read_host_orphan_grace() -> Option<Duration> {
 
 /// Since when this host process (one terminal per process) has had no
 /// client stream, as the accept loop last saw it.
-static ORPHAN_SINCE: Mutex<Option<Instant>> = Mutex::new(None);
+static ORPHAN_SINCE: Mutex<Option<OrphanSince>> = Mutex::new(None);
 /// The host ended its terminal because its owner was gone: its exit record
 /// says [`crate::terminal_end::EXIT_OWNER_GONE`].
 static OWNER_GONE: AtomicBool = AtomicBool::new(false);
 
-pub(crate) fn set_orphan_since(since: Option<Instant>) {
+pub(crate) fn set_orphan_since(since: Option<OrphanSince>) {
     *ORPHAN_SINCE.lock().recover_poison() = since;
 }
 
@@ -151,6 +151,38 @@ pub(crate) fn set_orphan_since(since: Option<Instant>) {
 pub(crate) fn orphaned_for(min: Duration) -> bool {
     ORPHAN_SINCE.lock().recover_poison().is_some_and(|since| since.elapsed() >= min)
 }
+
+/// When an orphan wait began, by two clocks. `Instant` is the awake clock on
+/// a Mac (`CLOCK_UPTIME_RAW`): it stops while the Mac sleeps, so a laptop
+/// that sleeps every night took weeks to count [`ABANDONED_HOST_GRACE`],
+/// and abandoned hosts 8 to 11 days old were still running on Leo's Mac
+/// (cmuxterm-hq#8377, 2026-11-21). The wall clock counts sleep; a wall clock
+/// set back counts nothing, and the awake time still does.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct OrphanSince {
+    awake: Instant,
+    wall: std::time::SystemTime,
+}
+
+impl OrphanSince {
+    pub(crate) fn now() -> Self {
+        Self { awake: Instant::now(), wall: std::time::SystemTime::now() }
+    }
+
+    /// The longer of the awake and the wall time since the wait began.
+    pub(crate) fn elapsed(&self) -> Duration {
+        self.elapsed_at(Instant::now(), std::time::SystemTime::now())
+    }
+
+    pub(crate) fn elapsed_at(&self, awake: Instant, wall: std::time::SystemTime) -> Duration {
+        let awake = awake.saturating_duration_since(self.awake);
+        awake.max(wall.duration_since(self.wall).unwrap_or_default())
+    }
+}
+
+/// The longest one orphan wait blocks: a sleep the awake clock never counts
+/// is seen by the wall clock within this long of waking.
+pub(crate) const ORPHAN_RECHECK: Duration = Duration::from_secs(60 * 60);
 
 /// Record that the terminal is ended because the owner is gone.
 pub(crate) fn mark_owner_gone() {
