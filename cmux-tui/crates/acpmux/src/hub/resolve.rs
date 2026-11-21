@@ -376,6 +376,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         usage_limits: None,
         available_commands: None,
         goal: None,
+        task_list: None,
         permission_rules: None,
         tags: Default::default(),
         unread: false,
