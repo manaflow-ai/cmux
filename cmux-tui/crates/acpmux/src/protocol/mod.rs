@@ -429,8 +429,11 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/transfer_commit", Request),
         untyped("_acpmux/transfer_finish", Request),
         untyped("_acpmux/transfer_forget", Request),
+        untyped("_acpmux/transfer_prepare", Request),
         untyped("_acpmux/transfer_read", Request),
         untyped("_acpmux/transfer_receive", Request),
+        untyped("_acpmux/transfer_stage", Request),
+        untyped("_acpmux/transfer_stage_finish", Request),
         untyped("_acpmux/transfer_write", Request),
         // Handoff.
         keyed::<params::HandoffPrepareParams>(method::MUX_HANDOFF_PREPARE, Request),

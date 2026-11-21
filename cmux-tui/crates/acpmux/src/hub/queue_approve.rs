@@ -178,7 +178,18 @@ impl Hub {
     /// approved rules: those are returned, for the move to name in its manifest
     /// (`approvedWaiting`, `transfer_out.rs`), so that only a receiver whose own `initialize`
     /// listed [`crate::author::QUEUE_APPROVAL_FEATURE`] takes the bundle (review of #28859).
+    #[cfg(test)]
     pub(in crate::hub) fn held_prompts(&self, bundle: &Path) -> Result<Vec<String>, RpcError> {
+        self.held_prompts_with(None, bundle)
+    }
+
+    /// [`Self::held_prompts`] of a pre-copied move's log: its `prefix` (`transfer_precopy.rs`),
+    /// then the bundle's.
+    pub(in crate::hub) fn held_prompts_with(
+        &self,
+        prefix: Option<&Path>,
+        bundle: &Path,
+    ) -> Result<Vec<String>, RpcError> {
         use std::io::BufRead;
         let check = || -> anyhow::Result<(Vec<String>, Vec<String>)> {
             // Every segment, in name order, as import restores them (`copy_bundle_events`).
@@ -190,13 +201,16 @@ impl Hub {
                 }
             }
             segments.sort();
+            segments.splice(0..0, prefix.map(Path::to_path_buf));
             let mut waiting = queue_waiting::Waiting::default();
             let mut approved: HashMap<String, u64> = HashMap::new();
             for segment in segments {
                 let file = std::fs::File::open(segment)?;
                 for line in std::io::BufReader::new(file).lines() {
                     let line = line?;
-                    if line.trim().is_empty() {
+                    // Only these kinds count; every one of them names one of these words.
+                    let counts = ["queue", "user_message", "turn_started"];
+                    if !counts.iter().any(|word| line.contains(word)) {
                         continue;
                     }
                     let e: EventRecord = serde_json::from_str(&line)?;
