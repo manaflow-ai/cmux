@@ -1,0 +1,13 @@
+{
+  "source": "schemas/settings/source/sidebar.json",
+  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Sidebar.generated.swift",
+  "type": "SidebarSettingsSchema",
+  "lists": {
+    "sidebar": ["sidebar", null],
+    "workspaceRows": ["workspaceRows", null],
+    "terminalWorkspaceRows": ["terminalWorkspaceRows", null],
+    "agentWorkspaceRows": ["agentWorkspaceRows", null],
+    "browserWorkspaceRows": ["browserWorkspaceRows", null],
+    "mixedWorkspaceRows": ["mixedWorkspaceRows", null]
+  }
+}

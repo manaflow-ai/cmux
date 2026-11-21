@@ -5,7 +5,7 @@ import { type RowProps } from "./rowProps";
 export const PlanRow = memo(
   function PlanRow({ row }: RowProps) {
     return row.plan ? (
-      <PlanList entries={row.plan} ended={row.turnEnded} id={row.id} />
+      <PlanList entries={row.plan} ended={row.turnEnded} earlier={row.planEarlier} id={row.id} />
     ) : (
       <div className="acpmux-muted">{row.text}</div>
     );

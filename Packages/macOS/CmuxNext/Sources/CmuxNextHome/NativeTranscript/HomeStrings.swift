@@ -1,4 +1,5 @@
 import CmuxHomeCore
+import CmuxNextHomeModel
 import Foundation
 
 /// Every user-facing string of the Home module (Localizable.xcstrings). The
@@ -147,21 +148,6 @@ enum HomeStrings {
     /// The card's button that hides it for good.
     static var switchKeysHide: String {
         String(localized: "home.firstRun.switchKeys.hide", defaultValue: "Hide", bundle: .module)
-    }
-    static var switchKeysTabs: String {
-        String(localized: "home.firstRun.switchKeys.tabs", defaultValue: "Tab 1–9 (like VS Code)", bundle: .module)
-    }
-    static var switchKeysWorkspaces: String {
-        String(localized: "home.firstRun.switchKeys.workspaces", defaultValue: "Workspace 1–9", bundle: .module)
-    }
-    static var switchKeysNextTab: String {
-        String(localized: "home.firstRun.switchKeys.nextTab", defaultValue: "Previous / next tab", bundle: .module)
-    }
-    static var switchKeysNextWorkspace: String {
-        String(localized: "home.firstRun.switchKeys.nextWorkspace", defaultValue: "Previous / next workspace", bundle: .module)
-    }
-    static var switchKeysFocus: String {
-        String(localized: "home.firstRun.switchKeys.focus", defaultValue: "Focus back / forward", bundle: .module)
     }
     /// The one-line note when Mission Control's Switch to Desktop takes the tab keys.
     static var switchKeysDesktopConflict: String {

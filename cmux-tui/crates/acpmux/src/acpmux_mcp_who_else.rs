@@ -14,10 +14,9 @@ use std::sync::Arc;
 pub(super) const NAME: &str = "who_else";
 
 /// The instruction the server gives with the tool.
-pub(super) const STEER: &str = "Before you change files another agent may be working on, or when \
-you wonder who owns an area, call who_else (with the files, a topic, or nothing for what you \
-edited) instead of digging through git log, plans or PR lists: it lists the live sessions on every \
-harness and machine that touch them, with their branch and pull request.";
+pub(super) const STEER: &str = "Before changing files another agent may be working on, or to \
+learn who owns an area, call who_else (files, topic, or nothing) instead of digging through git \
+log or PR lists.";
 
 pub(super) fn tool() -> Value {
     json!({
@@ -70,21 +69,13 @@ pub(super) async fn call(daemon: &Arc<Client>, session: &str, args: &Value) -> V
         Err(e) => return error_result(e),
     };
     match daemon.request(method::MUX_WHO_ELSE, p).await {
-        Ok(answer) => {
-            let lines: Vec<&str> = answer
-                .get("lines")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(Value::as_str)
-                .collect();
-            let text = if lines.is_empty() {
-                "No other session works on these.".to_owned()
-            } else {
-                lines.join("\n")
-            };
-            ok(text, answer)
-        }
+        Ok(answer) => ok(text(&answer), answer),
         Err(e) => refusal(e),
     }
+}
+
+/// The answer as the CLI prints it: a line per session, then the peers that gave no answer, so
+/// an agent does not read a quiet peer as no one working there.
+pub(super) fn text(answer: &Value) -> String {
+    crate::cli::who_else::text(answer).trim_end().to_owned()
 }

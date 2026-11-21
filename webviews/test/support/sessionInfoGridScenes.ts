@@ -9,27 +9,37 @@ const line = (name: string, selector: string, metric: GridMetric, expected: stri
   expected,
   all: true,
 });
+/// The body's left gutter for the sections' grips (sessionInfo.css --acpmux-session-info-grip-gutter):
+/// every column on the left sits that much further in than the sidebar grid's own.
+const GUTTER = "var(--acpmux-session-info-grip-gutter, 0px)";
+/// The body's right gutter, which holds the sections' grips (--acpmux-session-info-grip-trail): every
+/// trailing column sits that much further in than the sidebar grid's own.
+const TRAIL = "var(--acpmux-session-info-grip-trail, 0px)";
 const lead = (name: string, selector: string, nested = false) =>
   line(
     `${name}: lead cx`,
     selector,
     "cx",
-    `calc(${token("sidebar-lead")} + ${token("icon-box")} / 2${nested ? ` + ${token("sidebar-depth-indent")}` : ""})`,
+    `calc(${token("sidebar-lead")} + ${token("icon-box")} / 2 + ${GUTTER}${nested ? ` + ${token("sidebar-depth-indent")}` : ""})`,
   );
 const text = (name: string, selector: string, nested = false) =>
   line(
     `${name}: text x`,
     selector,
     "text",
-    nested ? `calc(${token("sidebar-text")} + ${token("sidebar-depth-indent")})` : token("sidebar-text"),
+    `calc(${token("sidebar-text")} + ${GUTTER}${nested ? ` + ${token("sidebar-depth-indent")}` : ""})`,
   );
+/// A section's title: on the rows' icon column, with no icon of its own (Lucas, 2026-11-05, Session
+/// Info lab: "the titles sit on the icon column").
+const title = (name: string, selector: string) =>
+  line(`${name}: text x`, selector, "text", `calc(${token("sidebar-lead")} + ${GUTTER})`);
 const trail = (name: string, selector: string): GridLine => ({
   name: `${name}: trail cx`,
   actual: point(selector, "cx"),
   origin: point(":scope", "right"),
   inward: true,
   all: true,
-  expected: token("sidebar-trail-center"),
+  expected: `calc(${token("sidebar-trail-center")} + ${TRAIL})`,
 });
 const p = ".acpmux-session-info";
 const section = (id: string) => `${p}-section[data-section="${id}"]`;
@@ -43,13 +53,11 @@ const scene = (variant: string, lines: GridLine[]): GridScene => ({
 });
 export const sessionInfoGridScenes: GridScene[] = [
   scene("grid-expanded", [
-    ...["environment", "connectors", "outputs"].flatMap((id) => [
+    ...["environment", "connectors"].flatMap((id) => [
       lead(id, `${section(id)} ${p}-row > svg`),
       text(id, `${section(id)} ${p}-row__name`),
     ]),
-    lead("context heading", `${section("context")} ${p}-section__icon`),
-    lead("connectors heading", `${section("connectors")} ${p}-section__icon`),
-    text("section headings", `${p}-section__title`),
+    title("section headings", `${p}-section__title`),
     // No trail line for the fold chevron: #32817 moved it one grid gap after the title and hides it
     // at rest (cmux#32765), so it is not on the trailing column. SessionInfo.gallery.tsx
     // (chevronOnHoverAfterTitle) checks where it sits and that it shows on hover.
@@ -62,12 +70,12 @@ export const sessionInfoGridScenes: GridScene[] = [
     trail("PR rows", `${p}-pr__more`),
     lead("source rows", `${p}-source__link > svg, ${p}-source > svg`),
     text("source rows", `${p}-source__label`),
-    lead("servers", `${p}-server__dot`),
-    text("servers", `${p}-server__text > ${p}-task__command`),
-    trail("servers", `${p}-server > ${p}-stop`),
-    lead("tasks", `${p}-task__open > svg`),
-    text("tasks", `${p}-task__open > ${p}-task__command`),
-    trail("tasks", `${p}-task--command > ${p}-stop`),
+    // A dev server is a task row of its own (ServersSection.tsx): its globe on the icon column, its
+    // address on the text column. Its Stop takes the time's place on hover, off the trailing column.
+    lead("servers", `${p}-task[data-kind="server"] ${p}-task__open > svg`),
+    text("servers", `${p}-task[data-kind="server"] ${p}-task__address`),
+    lead("tasks", `${p}-task:not([data-kind="server"]) ${p}-task__open > svg`),
+    text("tasks", `${p}-task:not([data-kind="server"]) ${p}-task__open > ${p}-task__command`),
     lead("finished fold", `[data-section="tasks"] > ${p}-fold > svg`),
     text("finished fold", `[data-section="tasks"] > ${p}-fold`),
     {
@@ -76,31 +84,14 @@ export const sessionInfoGridScenes: GridScene[] = [
       expected: token("row"),
       all: true,
     },
-    // Session Info's own spacing, tighter than the transcript's (Leo, 2026-11-04: "there's a bit too big of
-    // a gap between sections"): one base step inside a block, one inner gap between blocks.
-    // Adjacent sections of one block in the default order (sectionOrder.ts DEFAULT_ORDER, #32850:
-    // environment, context, usage, subagents, tasks, sources, changes, outputs, connectors).
-    ...[
-      ["environment", "context"],
-      ["context", "usage"],
-    ].map(([before, after]): GridLine => ({
-      name: `${before} to ${after}: inner gap`,
-      actual: point(section(after!), "top"),
-      origin: point(section(before!), "bottom"),
-      expected: token("base"),
-    })),
-    // The block runs that order draws: where it runs, what it runs, what it made, then Connectors
-    // (where it runs) last.
-    ...[
-      ["about", "running"],
-      ["running", "made"],
-      ["made", "about"],
-    ].map(([before, after]): GridLine => ({
-      name: `${before} to ${after}: block gap`,
-      actual: point(`${p}-slot[data-run-start][data-group="${after}"]`, "top"),
-      origin: point(`${p}-slot[data-run-end][data-group="${before}"]`, "bottom"),
-      expected: token("gap-inner"),
-    })),
+    // One grid gap between every two sections, with no blocks and no hairlines (Lucas, 2026-11-05,
+    // Session Info lab).
+    {
+      name: "environment to context: gap",
+      actual: point(section("context"), "top"),
+      origin: point(section("environment"), "bottom"),
+      expected: token("gap"),
+    },
   ]),
   ...["workflow-running", "workflow-agent-row-narrow"].map((variant) =>
     scene(variant, [

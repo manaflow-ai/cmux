@@ -1,0 +1,3 @@
+# The gates whose tests write the design doc's row 3c (`v2.pr03c.*`). A line is GROUP FILTER; see run-v2-gates.sh.
+book v2_pr03c_
+core v2_pr03c_

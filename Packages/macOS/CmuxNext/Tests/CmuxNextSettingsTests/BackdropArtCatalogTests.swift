@@ -4,7 +4,7 @@ import CmuxNextDesign
 import Foundation
 import Testing
 
-/// The bundled backdrop art (cx-t2x.7): well-known public-domain paintings in four picker
+/// The bundled backdrop art (cx-t2x.7): well-known public-domain paintings in five picker
 /// collections, labelled "Title — Artist", each a 1600×1000 image that decodes, and every id a
 /// cmux.json saved before the set changed still choosing art.
 @Suite struct BackdropArtCatalogTests {
@@ -17,18 +17,18 @@ import Testing
         "nga-teniers-market-figures-62615",
     ]
 
-    @Test func thePickerGroupsArtIntoFourCollections() {
+    @Test func thePickerGroupsArtIntoFiveCollections() {
         let collections = BackdropCatalog.bundled.compactMap { choice -> String? in
             if case .art(let art) = choice { return art.collection.rawValue }
             return nil
         }
         var order: [String] = []
         for collection in collections where order.last != collection { order.append(collection) }
-        #expect(order == ["darkArt", "museumIcons", "calm", "dore"])
+        #expect(order == ["darkArt", "museumIcons", "calm", "dore", "eastAsian"])
     }
 
     @Test func everyArtChoiceIsLabelledTitleAndArtist() throws {
-        let descriptor = try #require(SettingsSchema.descriptor(for: BackdropSelectionSetting().configPath))
+        let descriptor = try #require(SettingsSchema.descriptor(for: BackdropSelectionSetting.configPath))
         guard case .choice(let choices) = descriptor.kind else {
             Issue.record("appearance.background is not a choice")
             return

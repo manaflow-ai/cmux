@@ -10,6 +10,7 @@ import type { Root } from "react-dom/client";
 import { noChat, session, user } from "../src/gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import type { AcpmuxSessionEntry, SessionPullRequest } from "../src/agent-session/acpmux/sessionList";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -63,12 +64,8 @@ afterEach(() => {
   host.replaceChildren();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 function Chips() {
@@ -403,7 +400,7 @@ test("the + menu uses the current pane language for existing actions", async () 
       "Dateien oder Bilder anhängen",
     );
     expect(menuDocument().querySelector('[data-value="add.project"] .acpmux-menu-label')?.textContent).toBe(
-      "Projekt auswählen",
+      "Ordner auswählen",
     );
     expect(menuDocument().querySelector('[data-value="add.files"] .acpmux-menu-description')).toBeNull();
     expect(menuDocument().querySelector('[data-value="add.project"] .acpmux-menu-description')).toBeNull();

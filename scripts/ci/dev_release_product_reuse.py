@@ -42,6 +42,10 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
+# cmux-next.yml runs this with -I, which leaves its own directory off sys.path.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402
+
 SCHEMA = "cmux-next-dev-release-product/v1"
 # Bump to invalidate every recorded product (a change to how the product is built or packed that
 # no keyed input shows). Passed to the fingerprint as `recipe`.
@@ -176,15 +180,13 @@ class Api:
             "Authorization": f"Bearer {self.token}", "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28"})
         try:
-            with urllib.request.urlopen(request, timeout=min(20, self.left())) as response:
-                body = bytearray()
-                # A total deadline: a slow-drip response must not outlive the lookup.
-                while chunk := response.read(1 << 16):
-                    body += chunk
-                    if len(body) > MAX_JSON_BYTES:
-                        raise Miss(f"GET {path.split('?')[0]} answered over {MAX_JSON_BYTES} bytes")
-                    self.left()
-                return json.loads(body.decode())
+            # The whole call ends within its bound, a slow-drip answer included (deadline_http), so it never
+            # outlives the lookup.
+            _, body, _ = deadline_http.request(request, min(20, self.left()), max_bytes=MAX_JSON_BYTES,
+                                               raise_errors=True)
+            return json.loads(body.decode())
+        except deadline_http.AnswerTooLarge as error:
+            raise Miss(f"GET {path.split('?')[0]} answered over {MAX_JSON_BYTES} bytes") from error
         except (OSError, ValueError, urllib.error.URLError) as error:
             raise Miss(f"GET {path.split('?')[0]} failed: {error}") from error
 

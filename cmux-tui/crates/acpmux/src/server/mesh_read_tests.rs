@@ -26,9 +26,14 @@ fn machine_b() -> Arc<Hub> {
 
 /// A local client of machine B, to make its session and run a turn.
 async fn call(hub: &Arc<Hub>, m: &str, params: Value) -> Value {
+    call_as(hub, Origin::Local, m, params).await
+}
+
+/// [`call`] from `origin`: the app's pane is `Origin::LocalApp`.
+async fn call_as(hub: &Arc<Hub>, origin: Origin, m: &str, params: Value) -> Value {
     let (tx, in_rx) = mpsc::channel(16);
     let (out_tx, mut rx) = mpsc::channel(4096);
-    tokio::spawn(crate::server::serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
+    tokio::spawn(crate::server::serve_connection_with(hub.clone(), in_rx, out_tx, origin));
     tx.send(crate::rpc::Message::request(1, m, params).to_line()).await.unwrap();
     loop {
         let line = tokio::time::timeout(Duration::from_secs(30), rx.recv()).await.unwrap().unwrap();
@@ -48,6 +53,8 @@ struct Loopback {
     user: &'static str,
     receipts: Mutex<std::collections::HashMap<String, Receipt>>,
     unknown: bool,
+    /// The reads sent: each is one round trip through the hub and the receiver's inbox.
+    asks: std::sync::atomic::AtomicUsize,
 }
 
 impl Loopback {
@@ -57,7 +64,14 @@ impl Loopback {
             Some(dir.join("mesh-controls.json")),
         )
         .with_own_user(Arc::new(|| Some("person-1".to_owned())));
-        Self { b: b.clone(), hook, user, receipts: Mutex::default(), unknown: false }
+        Self {
+            b: b.clone(),
+            hook,
+            user,
+            receipts: Mutex::default(),
+            unknown: false,
+            asks: Default::default(),
+        }
     }
 }
 
@@ -80,6 +94,7 @@ impl MeshHub for Loopback {
     fn send<'a>(&'a self, m: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
         Box::pin(async move {
             m.validate().map_err(HubError::refused)?;
+            self.asks.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             if self.unknown {
                 let mut e = HubError::refused("no such recipient");
                 e.code = Some("mesh.unknown_recipient".into());
@@ -111,6 +126,9 @@ impl MeshHub for Loopback {
             let ack = super::super::deliver(&self.b, &message, &self.hook, Some("inst_b"))
                 .await
                 .expect("a read is always answered");
+            // The hub keeps an answer of at most one message body, as the real hub does.
+            let answered = ack.result.as_ref().map_or(0, String::len);
+            assert!(answered <= MAX_READ_RESULT_BYTES, "an answer of {answered} bytes");
             let mut receipt: Receipt = serde_json::from_value(json!({
                 "messageId": id, "state": serde_json::to_value(ack.state).unwrap(), "createdAt": 1
             }))
@@ -151,6 +169,23 @@ fn a_key_names_a_session_id_or_a_name_on_its_host() {
     assert_eq!(
         serde_json::from_str::<Value>(&body(method::MUX_INFO, &json!({"x": 1}))).unwrap()["params"],
         json!({})
+    );
+    let search: Value = serde_json::from_str(&body(
+        method::MUX_SESSION_SEARCH,
+        &json!({
+            "sessionId": "x",
+            "host": "y",
+            "query": "ship the build",
+            "withTurnTime": true,
+            "role": "assistant",
+            "sinceMs": 123,
+            "limit": 4,
+        }),
+    ))
+    .unwrap();
+    assert_eq!(
+        search["params"],
+        json!({"query": "ship the build", "role": "assistant", "sinceMs": 123, "limit": 4, "withTurnTime": true})
     );
 }
 
@@ -221,6 +256,132 @@ async fn the_same_persons_machine_reads_a_reply_through_the_hub_and_no_one_else_
     assert_eq!(unknown.code, RpcError::not_found("").code, "{unknown:?}");
 }
 
+/// A chat with one record over the hub's 64 KiB opens through the hub, and its older pages read
+/// back to that record: a page always holds at least one record, so no smaller page fits it.
+#[tokio::test]
+async fn a_chat_page_with_a_record_over_64_kib_opens_through_the_hub() {
+    let b = machine_b();
+    let meta = json!({"acpmux": {"harness": "fake", "name": "big-record"}});
+    let made = call(
+        &b,
+        "session/new",
+        json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": meta}),
+    )
+    .await;
+    let session = made["sessionId"].as_str().unwrap().to_owned();
+    let big = "a 65 KiB line ".repeat(65 * 1024 / 14 + 1);
+    assert!(big.len() > 65 * 1024);
+    call(
+        &b,
+        method::SESSION_PROMPT,
+        json!({"sessionId": session, "prompt": [{"type": "text", "text": big}]}),
+    )
+    .await;
+    let dir = tempfile::tempdir().unwrap();
+    let hub = Loopback::new(&b, dir.path(), "person-1");
+
+    // The app's open of the chat, then its older pages as the pane reads them back.
+    let attach =
+        json!({"sessionId": format!("machine-b/{session}"), "limit": 200, "maxBytes": 1 << 20});
+    let opened = read(&hub, "machine-b", &session, method::MUX_ATTACH, &attach).await.unwrap();
+    assert_eq!(opened["session"]["sessionId"].as_str(), Some(session.as_str()));
+    assert_eq!((opened["peer"].as_str(), opened["via"].as_str()), (Some("machine-b"), Some("hub")));
+    let mut events: Vec<Value> = opened["events"].as_array().cloned().unwrap_or_default();
+    let mut more = opened["hasMore"].as_bool() == Some(true);
+    for _ in 0..64 {
+        if !more {
+            break;
+        }
+        let oldest = events.iter().filter_map(|e| e["seq"].as_u64()).min().unwrap();
+        let older = json!({"limit": 200, "maxBytes": 1 << 20, "beforeSeq": oldest});
+        let page = read(&hub, "machine-b", &session, method::MUX_EVENTS, &older).await.unwrap();
+        more = page["hasMore"].as_bool() == Some(true);
+        events.extend(page["events"].as_array().cloned().unwrap_or_default());
+    }
+    assert!(!more, "the pages never reached the chat's start");
+    events.sort_by_key(|e| e["seq"].as_u64());
+    let mut transcript = crate::transcript::Transcript::default();
+    for event in &events {
+        transcript.apply_event(event);
+    }
+    let replies: Vec<_> = transcript
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            crate::transcript::Item::Assistant { text } => Some(text.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(replies, [format!("echo: {big}")]);
+}
+
+/// cmuxterm-hq#15806: claude-sr2-coord's 373 KB detail went through the hub in ten round trips,
+/// 52 to 106 s on a busy host, past the 50 s a read waits, and `acpmux last` reads it first.
+/// A detail of any size is one round trip now, its largest fields marked omitted.
+#[tokio::test]
+async fn a_chat_detail_of_any_size_reads_through_the_hub_in_one_round_trip() {
+    let b = machine_b();
+    let meta = json!({"acpmux": {"harness": "fake", "name": "big-detail"}});
+    let made = call(
+        &b,
+        "session/new",
+        json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": meta}),
+    )
+    .await;
+    let session = made["sessionId"].as_str().unwrap().to_owned();
+    // About 400 KB of commands, as a coordinator's detail was 373 KB.
+    let commands: Vec<Value> = (0..3000)
+        .map(|i| json!({"name": format!("command-{i}"), "description": "d".repeat(110)}))
+        .collect();
+    b.resolve(&session).unwrap().set_available_commands_for_test(json!(commands));
+    let whole = call(&b, method::MUX_INFO, json!({"sessionId": session})).await;
+    assert!(
+        whole.to_string().len() > 350 * 1024,
+        "the detail is {} bytes",
+        whole.to_string().len()
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let hub = Loopback::new(&b, dir.path(), "person-1");
+
+    let info = read(&hub, "machine-b", "big-detail", method::MUX_INFO, &json!({})).await.unwrap();
+    let asks = hub.asks.load(std::sync::atomic::Ordering::SeqCst);
+    assert_eq!(asks, 1, "info took {asks} round trips through the hub");
+    assert_eq!(info["sessionId"].as_str(), Some(session.as_str()));
+    assert_eq!((info["peer"].as_str(), info["via"].as_str()), (Some("machine-b"), Some("hub")));
+    let omitted: Vec<&str> =
+        info["omitted"]["fields"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+    assert!(omitted.contains(&"availableCommands"), "{omitted:?}");
+    // `acpmux last`'s id: what it reads from the detail is whole.
+    assert_eq!(crate::cli::resolve::routed_id(&info).unwrap(), format!("machine-b/{session}"));
+}
+
+/// The queue an `_acpmux/info` through the hub carries is its next [`HUB_QUEUE_KEEP`] prompts
+/// and their count, whatever its length: 368 queued prompts were 229 KB of one detail.
+#[test]
+fn a_detail_through_the_hub_carries_the_queue_head_and_its_count() {
+    let queued: Vec<Value> = (0..400)
+        .map(|i| json!({"promptId": format!("p-{i}"), "prompt": "q".repeat(600)}))
+        .collect();
+    let mut detail = json!({
+        "sessionId": "s", "status": "running", "queue": queued,
+        "timeBreakdown": {"rows": "t".repeat(80 * 1024)},
+    });
+    fit_info(&mut detail);
+    assert!(detail.to_string().len() <= HUB_INFO_BYTES, "{} bytes", detail.to_string().len());
+    let queue = detail["queue"].as_array().unwrap();
+    assert_eq!(queue.len(), HUB_QUEUE_KEEP);
+    assert_eq!(queue[0]["promptId"], "p-0");
+    assert_eq!(
+        (detail["queueCount"].as_u64(), detail["queueTruncated"].as_bool()),
+        (Some(400), Some(true))
+    );
+    assert_eq!(detail["sessionId"], "s");
+    // A short queue goes whole, with no count.
+    let mut short = json!({"sessionId": "s", "queue": [{"promptId": "p-0"}]});
+    fit_info(&mut short);
+    assert_eq!(short, json!({"sessionId": "s", "queue": [{"promptId": "p-0"}]}));
+}
+
 #[tokio::test]
 async fn a_read_runs_only_a_read_method() {
     let b = machine_b();
@@ -229,4 +390,134 @@ async fn a_read_runs_only_a_read_method() {
     let refused =
         read(&hub, "machine-b", "own-e2e", method::SESSION_PROMPT, &json!({})).await.unwrap_err();
     assert!(refused.message.contains("mesh.read_unsupported"), "{refused:?}");
+}
+
+/// The app's prompt to a chat the hub lists for another machine of the same person goes through
+/// the hub and runs there as a turn; nothing here refuses it as no session (#36710 review).
+#[tokio::test]
+async fn a_prompt_to_a_listed_hub_chat_runs_there_through_the_hub() {
+    let b = machine_b();
+    let meta = json!({"acpmux": {"harness": "fake", "name": "own-e2e"}});
+    let made = call(
+        &b,
+        "session/new",
+        json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": meta}),
+    )
+    .await;
+    let session = made["sessionId"].as_str().unwrap().to_owned();
+    let dir = tempfile::tempdir().unwrap();
+    let a = machine_b();
+    let mesh: Arc<dyn MeshHub> = Arc::new(Loopback::new(&b, dir.path(), "person-1"));
+    let _ = a.mesh.set(mesh);
+    let hosts = std::collections::BTreeMap::from([("machine-b".to_owned(), 1)]);
+    let row = crate::mesh::BookSession {
+        name: "own-e2e".into(),
+        session_id: session.clone(),
+        host: "machine-b".into(),
+        daemon_id: "inst_b".into(),
+        harness: "fake".into(),
+        state: "idle".into(),
+        last_seen_at: 1,
+    };
+    a.set_mesh_book(hosts, vec![row]);
+
+    // As the pane sends it, over the app's own connection: the listed row's bare id.
+    let sent = call_as(
+        &a,
+        Origin::LocalApp,
+        method::SESSION_PROMPT,
+        json!({"sessionId": session, "prompt": [{"type": "text", "text": "hello from a"}]}),
+    )
+    .await;
+    assert_eq!(sent["via"], "mesh", "{sent}");
+    // B runs it as a turn: its reply shows there within the bound.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        let info = call(&b, method::MUX_INFO, json!({"sessionId": session})).await;
+        if info.to_string().contains("echo: hello from a") {
+            break;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "no reply on B: {info}");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    // A name the hub does not list here stays this daemon's refusal.
+    assert!(prompt_target_is_listed(&a, "machine-c/own-e2e").is_none());
+}
+
+/// The target [`prompt`] would send `key` to, without sending.
+fn prompt_target_is_listed(hub: &Arc<Hub>, key: &str) -> Option<()> {
+    let (host, _) = key.split_once('/')?;
+    hub.mesh_book_has_host(host).then_some(())
+}
+
+/// `acpmux history HOST/NAME` for a session only the hub reaches reads its turns there, as
+/// `acpmux last` reads its page; a session read the hub does not carry says so and is never
+/// answered `no session` (2026-11-19: `acpmux history cosmic-gray/claude-desktop-…` answered
+/// no_session while `acpmux last` of it worked).
+#[tokio::test]
+async fn history_reads_through_the_hub_and_other_session_reads_never_answer_no_session() {
+    let b = machine_b();
+    let meta = json!({"acpmux": {"harness": "fake", "name": "own-e2e"}});
+    let made = call(
+        &b,
+        "session/new",
+        json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": meta}),
+    )
+    .await;
+    let session = made["sessionId"].as_str().unwrap().to_owned();
+    call(
+        &b,
+        method::SESSION_PROMPT,
+        json!({"sessionId": session, "prompt": [{"type": "text", "text": "turn on b"}]}),
+    )
+    .await;
+    let dir = tempfile::tempdir().unwrap();
+    let a = machine_b();
+    let mesh: Arc<dyn MeshHub> = Arc::new(Loopback::new(&b, dir.path(), "person-1"));
+    let _ = a.mesh.set(mesh);
+
+    let history =
+        call(&a, method::MUX_HISTORY, json!({"sessionId": "machine-b/own-e2e", "limit": 5})).await;
+    assert_eq!(history["sessionId"].as_str(), Some(session.as_str()), "{history}");
+    assert_eq!(history["turns"].as_array().map(Vec::len), Some(1), "{history}");
+    assert_eq!(
+        (history["peer"].as_str(), history["via"].as_str()),
+        (Some("machine-b"), Some("hub"))
+    );
+
+    let found = call(
+        &a,
+        method::MUX_SESSION_SEARCH,
+        json!({"sessionId": "machine-b/own-e2e", "query": "turn on b", "role": "user"}),
+    )
+    .await;
+    assert_eq!(found["hits"][0]["snippet"], "turn on b");
+    assert_eq!(found["peer"], "machine-b");
+
+    for m in [method::MUX_QUEUE_TEXT, method::MUX_ATTACHMENT, method::MUX_WAIT] {
+        let refused = call_error(&a, m, json!({"sessionId": "machine-b/own-e2e"})).await;
+        assert_eq!(
+            refused.pointer("/data/reason"),
+            Some(&json!("mesh.read_unsupported")),
+            "{m}: {refused}"
+        );
+        let said = refused["message"].as_str().unwrap_or_default();
+        assert!(!said.contains("no session"), "{m}: {refused}");
+    }
+}
+
+/// [`call`]'s error, for a request that must fail.
+async fn call_error(hub: &Arc<Hub>, m: &str, params: Value) -> Value {
+    let (tx, in_rx) = mpsc::channel(16);
+    let (out_tx, mut rx) = mpsc::channel(4096);
+    tokio::spawn(crate::server::serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
+    tx.send(crate::rpc::Message::request(1, m, params).to_line()).await.unwrap();
+    loop {
+        let line = tokio::time::timeout(Duration::from_secs(30), rx.recv()).await.unwrap().unwrap();
+        let value: Value = serde_json::from_str(&line).unwrap();
+        if value.get("id") == Some(&json!(1)) {
+            return value.get("error").cloned().unwrap_or_else(|| panic!("no error: {value}"));
+        }
+    }
 }

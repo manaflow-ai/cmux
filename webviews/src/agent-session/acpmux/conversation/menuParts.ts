@@ -8,10 +8,14 @@
 // message's sender, a task line: `data-open-session`) is a `session` part: the click opens it on the
 // right (`chat.offer.open`), and the menu offers Open on Right and, when a tab already shows it, Go
 // to Chat (Leo, ask-e9c4803262: "right split is fine on click by default ... and you can right click
-// to go to it").
+// to go to it"), then the chat's sidebar row's menu (the Priority row's catalog rows on that chat; Leo,
+// 2026-11-05: "right clicking on a deeplink/link to another session/name of another session/rendering
+// of it shuold give thes options"). An agent link that opens a chat is both: its link rows stay.
 
 export type MenuPart = {
   code?: string;
+  /** Fence language, kept when a selection copies a complete code card. */
+  codeLanguage?: string;
   command?: string;
   output?: string;
   path?: string;
@@ -24,7 +28,8 @@ export type MenuPart = {
 
 /// The attributes that make an element a `session` part: the chat `sessionId` its click opens, and
 /// `sender` for a message's sender.
-export const openSessionAttributes = (sessionId: string, sender = false): Record<string, string> =>
+export type OpenSessionAttributes = { "data-open-session": string; "data-open-session-sender"?: string };
+export const openSessionAttributes = (sessionId: string, sender = false): OpenSessionAttributes =>
   sender ? { "data-open-session": sessionId, "data-open-session-sender": "" } : { "data-open-session": sessionId };
 
 const parts = new WeakMap<Element, MenuPart>();
@@ -45,7 +50,16 @@ export function menuPartAt(target: Element | null): MenuPart | undefined {
     const path = element.getAttribute("data-path");
     if (path) return { path };
     const session = element.getAttribute("data-open-session");
-    if (session) return element.hasAttribute("data-open-session-sender") ? { session, sender: true } : { session };
+    if (session) {
+      // An agent link that opens the reader's chat keeps its link rows (Open Link, Copy Link) too.
+      const link =
+        element instanceof HTMLAnchorElement && /^https?:\/\//i.test(element.href) ? element.href : undefined;
+      return {
+        session,
+        ...(element.hasAttribute("data-open-session-sender") ? { sender: true as const } : {}),
+        ...(link ? { link } : {}),
+      };
+    }
     if (element instanceof HTMLAnchorElement && /^https?:\/\//i.test(element.href)) return { link: element.href };
   }
   return undefined;

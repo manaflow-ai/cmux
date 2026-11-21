@@ -113,6 +113,19 @@ fn run_reading(
     payload: impl FnOnce() -> anyhow::Result<Value>,
 ) -> anyhow::Result<()> {
     let native = payload()?;
+    let session = native.get("session_id").and_then(Value::as_str).map(str::to_owned);
+    let session = session.as_deref();
+    // A Claude that another Claude of this terminal started (plugin_copy.rs)
+    // still waits for the repository below; it only reports nothing.
+    let nested = plugin_copy::claimed_elsewhere(&args.source, session, |name| env::var_os(name));
+    if !nested
+        && plugin_copy::stands_down(&args.source, &args.native_event, session, |name| {
+            env::var_os(name)
+        })
+    {
+        inbox::print_nothing(inbox::Delivery::for_event(&args.source, &args.native_event));
+        return Ok(());
+    }
     #[cfg(unix)]
     if let Err(error) = cmux_git::native_hook::wait(
         &args.source,
@@ -125,6 +138,13 @@ fn run_reading(
         println!("{}", cmux_git::native_hook::denial(&error.to_string()));
         return Ok(());
     }
+    if nested {
+        inbox::print_nothing(inbox::Delivery::for_event(&args.source, &args.native_event));
+        return Ok(());
+    }
+    plugin_copy::claim_terminal(&args.source, &args.native_event, session, |name| {
+        env::var_os(name)
+    });
     let result = run_after_ready(&args, exe_prefix, native);
     if result.is_err()
         && args.native_event == "PreToolUse"
@@ -139,7 +159,10 @@ fn run_reading(
 }
 
 fn run_after_ready(args: &Args, exe_prefix: &[&str], native: Value) -> anyhow::Result<()> {
-    let inbox = inbox::Delivery::for_event(&args.source, &args.native_event);
+    let inbox = inbox::Delivery::for_event(&args.source, &args.native_event).or_else(|| {
+        session_context::applies(&args.source, &args.native_event, |name| env::var_os(name))
+            .then_some(inbox::Delivery::SessionContext)
+    });
     if shadowed_by_grok(&args.source, env::var_os("GROK_HOOK_EVENT").as_deref()) {
         inbox::print_nothing(inbox);
         return Ok(());
@@ -181,6 +204,9 @@ fn run_after_ready(args: &Args, exe_prefix: &[&str], native: Value) -> anyhow::R
     match inbox {
         Some(inbox::Delivery::SessionBanner) => {
             inbox::session_banner(terminal.as_deref(), &start_source);
+        }
+        Some(inbox::Delivery::SessionContext) => {
+            session_context::print(&socket, terminal.as_deref());
         }
         Some(inbox) => inbox::deliver(inbox, &socket, terminal.as_deref()),
         None => {}
@@ -239,9 +265,17 @@ use journal_append::{
 #[path = "cmux-tui-hook/inbox.rs"]
 mod inbox;
 
+/// The Claude Code plugin's copy of the hooks, beside an installed copy.
+#[path = "cmux-tui-hook/plugin_copy.rs"]
+mod plugin_copy;
+
 /// cmux's line under Claude Code's startup banner: how the session compacts.
 #[path = "cmux-tui-hook/session_banner.rs"]
 mod session_banner;
+
+/// Where the agent runs, for the model at session start.
+#[path = "cmux-tui-hook/session_context.rs"]
+pub(crate) mod session_context;
 
 /// The session socket and terminal that receive this event: the terminal's
 /// own `CMUX_TUI_*` values; for an agent that clears its hooks' environment
@@ -365,7 +399,9 @@ fn settle_detached_child(mut child: DetachedChildGuard, reader: std::thread::Joi
 }
 
 fn handoff_wait(source: &str, native_event: &str) -> Duration {
-    if source == "codex" && native_event == "SessionEnd" {
+    // Codex SessionStart also reads the session context after the handoff
+    // (session_context.rs, 1.5 s), all inside the 5 s hook timeout.
+    if source == "codex" && matches!(native_event, "SessionEnd" | "SessionStart") {
         CODEX_SESSION_END_HANDOFF_WAIT
     } else {
         HANDOFF_WAIT
@@ -768,163 +804,5 @@ fn random_identifiers() -> anyhow::Result<(String, String)> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A server may answer and close before the hook child reads. macOS then
-    /// refuses `setsockopt(SO_RCVTIMEO)` with EINVAL although the receipt is
-    /// still readable; treating that as a failed attempt re-sent the event,
-    /// so the journal received it twice and out of order.
-    #[cfg(unix)]
-    #[test]
-    fn codex_hook_receipt_from_a_server_that_already_closed_is_still_read() {
-        let (client, mut server) = std::os::unix::net::UnixStream::pair().unwrap();
-        server.write_all(b"{\"type\":\"response\"}\n").unwrap();
-        drop(server);
-        let deadline = Instant::now() + Duration::from_secs(2);
-        match read_before(Box::new(client), deadline) {
-            Ok(response) => assert_eq!(response, b"{\"type\":\"response\"}\n"),
-            Err(AppendAttemptError::Retryable(error) | AppendAttemptError::Fatal(error)) => {
-                panic!("the written receipt was not read: {error:#}")
-            }
-        }
-    }
-
-    fn cmux_environ(pid: u32) -> Option<std::collections::HashMap<String, String>> {
-        let environment = |terminal: &str| {
-            Some(
-                [("CMUX_TUI_SOCKET", "/run/cmux.sock"), ("CMUX_TUI_TERMINAL_ID", terminal)]
-                    .map(|(key, value)| (key.to_owned(), value.to_owned()))
-                    .into(),
-            )
-        };
-        match pid {
-            10 => environment("term_other_window"),
-            11 => environment("term_shows_pane"),
-            12 => environment("term_recent"),
-            // A plain SSH client: no cmux-tui terminal.
-            13 => Some([("SSH_TTY".to_owned(), "/dev/pts/3".to_owned())].into()),
-            _ => None,
-        }
-    }
-
-    #[test]
-    fn tmux_route_prefers_the_client_showing_the_pane() {
-        let clients = "10\t500\t$1\t\t@2\n11\t100\t$1\t\t@1\n12\t900\t$7\t\t@9\n";
-        let route = tmux_route::select("$1\t\t@1\n", clients, cmux_environ).unwrap();
-        assert_eq!(route.terminal, "term_shows_pane");
-        assert_eq!(route.socket, PathBuf::from("/run/cmux.sock"));
-    }
-
-    #[test]
-    fn tmux_route_falls_back_to_the_most_recent_client_of_the_session_group() {
-        // Client 13 shows the pane but is a plain SSH client; 12 attaches a
-        // grouped session and is newer than 10.
-        let clients = "13\t999\t$1\tgrp\t@1\n10\t500\t$1\tgrp\t@2\n12\t900\t$7\tgrp\t@9\n";
-        let route = tmux_route::select("$1\tgrp\t@1", clients, cmux_environ).unwrap();
-        assert_eq!(route.terminal, "term_recent");
-    }
-
-    #[test]
-    fn tmux_route_ignores_other_sessions_and_non_cmux_clients() {
-        let clients = "12\t900\t$7\t\t@9\n13\t999\t$1\t\t@1\n";
-        assert_eq!(tmux_route::select("$1\t\t@1", clients, cmux_environ), None);
-        assert_eq!(tmux_route::select("", clients, cmux_environ), None);
-        assert_eq!(tmux_route::select("$1\t\t@1", "garbage\n1\t0\t$1\t\t@1\n", cmux_environ), None);
-    }
-
-    /// claude `SessionStart` carries cmux's startup line as `systemMessage`
-    /// (shown to the person, never added to the model's context); with no
-    /// line it is the empty object the installed command expects.
-    #[test]
-    fn claude_session_start_writes_the_startup_line_as_a_system_message() {
-        let delivery = inbox::Delivery::for_event("claude", "SessionStart")
-            .expect("claude SessionStart writes cmux's startup line");
-        assert_eq!(delivery.output(None), json!({}));
-        assert_eq!(delivery.output(Some("line")), json!({"systemMessage": "line"}));
-        assert_eq!(inbox::Delivery::for_event("codex", "SessionStart"), None);
-    }
-
-    #[test]
-    fn codex_session_end_handoff_stays_below_the_codex_hook_cap() {
-        assert!(handoff_wait("codex", "SessionEnd") < Duration::from_secs(3));
-        assert_eq!(handoff_wait("codex", "Stop"), HANDOFF_WAIT);
-        assert_eq!(handoff_wait("claude", "SessionEnd"), HANDOFF_WAIT);
-    }
-
-    #[test]
-    fn parses_short_positional_source_and_event() {
-        assert_eq!(
-            parse_args(["codex", "Stop"].map(str::to_owned)).unwrap(),
-            Args { source: "codex".into(), native_event: "Stop".into() }
-        );
-    }
-
-    #[test]
-    fn grok_compatibility_events_are_deduplicated_inside_the_helper() {
-        use std::ffi::OsStr;
-
-        assert!(shadowed_by_grok("claude", Some(OsStr::new("Stop"))));
-        assert!(shadowed_by_grok("cursor", Some(OsStr::new("stop"))));
-        assert!(!shadowed_by_grok("codex", Some(OsStr::new("Stop"))));
-        assert!(!shadowed_by_grok("claude", None));
-    }
-
-    #[test]
-    fn invalid_utf8_is_retained_as_base64() {
-        let native = read_native_payload(&[0xff, 0x00][..]).unwrap();
-        assert_eq!(native, json!({"encoding":"base64","data":"/wA="}));
-    }
-
-    #[test]
-    fn bounded_detached_request_id_preserves_uuid_and_payload() {
-        use std::io::Cursor;
-
-        let request_id = "550e8400-e29b-41d4-a716-446655440000";
-        let mut reader =
-            BufReader::new(Cursor::new(format!("{request_id}\n{{\"event\":\"Stop\"}}")));
-        assert_eq!(read_detached_request_id(&mut reader).unwrap(), request_id);
-
-        let mut payload = Vec::new();
-        reader.read_to_end(&mut payload).unwrap();
-        assert_eq!(payload, br#"{"event":"Stop"}"#);
-    }
-
-    #[test]
-    fn bounded_detached_request_id_accepts_maximum_length_with_crlf() {
-        use std::io::Cursor;
-
-        let request_id = "x".repeat(MAX_REQUEST_ID_BYTES);
-        let mut input = request_id.as_bytes().to_vec();
-        input.extend_from_slice(b"\r\n{}");
-        let mut reader = BufReader::new(Cursor::new(input));
-        assert_eq!(read_detached_request_id(&mut reader).unwrap(), request_id);
-
-        let mut payload = Vec::new();
-        reader.read_to_end(&mut payload).unwrap();
-        assert_eq!(payload, b"{}");
-    }
-
-    #[test]
-    fn bounded_detached_request_id_rejects_an_unterminated_line() {
-        use std::io::Cursor;
-
-        let mut reader = BufReader::new(Cursor::new(b"550e8400-e29b-41d4-a716-446655440000"));
-        let error = read_detached_request_id(&mut reader).unwrap_err();
-        assert_eq!(error.to_string(), "detached request id is missing newline delimiter");
-    }
-
-    #[test]
-    fn bounded_detached_request_id_rejects_an_oversized_line() {
-        use std::io::Cursor;
-
-        let mut input = vec![b'x'; MAX_REQUEST_ID_BYTES + 1];
-        input.push(b'\n');
-        let mut reader = BufReader::new(Cursor::new(input));
-        let error = read_detached_request_id(&mut reader).unwrap_err();
-        assert_eq!(
-            error.to_string(),
-            format!("detached request id exceeds {MAX_REQUEST_ID_BYTES} bytes")
-        );
-    }
-}
+#[path = "cmux-tui-hook/tests.rs"]
+mod tests;

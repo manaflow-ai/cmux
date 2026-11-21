@@ -102,6 +102,58 @@ pub enum Control {
     StreamClose {
         stream: u16,
     },
+    /// Viewer to host, after `welcome` lists `link.udp`: a UDP media link
+    /// (cmux-rd-link, Noise_XX) next to the stream. The offer rides the stream,
+    /// which the carrier already authenticated, so the stream vouches for both
+    /// keys. `session` is the link's Noise prologue; `key` is the viewer's link
+    /// key (64 hex characters); `candidates` are `"<kind> <addr>"`.
+    LinkOffer {
+        session: String,
+        key: String,
+        #[serde(default)]
+        candidates: Vec<String>,
+    },
+    /// Host to viewer: the host's link key; its candidates follow as `link_candidate`.
+    LinkAnswer {
+        key: String,
+    },
+    /// Either side: one more link candidate, `"<kind> <addr>"`.
+    LinkCandidate {
+        candidate: String,
+    },
+    /// Host to viewer: media datagrams now ride the link (`up`), or went back
+    /// to the stream (`reason` says why). Control always stays on the stream.
+    LinkState {
+        up: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+    },
+    /// Host to viewer, with the `cursor` cap: one cursor shape, sent once before the first
+    /// `CursorPos` that names it (`crate::cursor`). `rgba` is base64 of `width * height`
+    /// premultiplied RGBA8 pixels, rows top first; the hotspot and size are stream pixels
+    /// (the shape is as large as the remote screen shows it in the stream).
+    CursorShape {
+        shape: u32,
+        width: u32,
+        height: u32,
+        hot_x: u32,
+        hot_y: u32,
+        rgba: String,
+    },
+    /// Either side, with the `clipboard.text` cap: the sender's clipboard text changed
+    /// (`crate::clipboard`). `seq` grows per sender. A text whose JSON would not fit one
+    /// control record travels in parts of one `seq`: `offset` is the UTF-8 byte offset of
+    /// this part's `text` in the whole and `total` the whole text's UTF-8 length (at most
+    /// [`crate::clipboard::MAX_CLIPBOARD_TEXT`]). Without them the message is the whole text.
+    /// The host applies it only in a control session and sends its own only to one.
+    Clipboard {
+        seq: u64,
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        offset: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        total: Option<u64>,
+    },
     Stats {
         kbps: u32,
         frames: u64,
@@ -141,6 +193,25 @@ impl StreamKind {
             Self::Audio | Self::UpAudio => Some("opus"),
             Self::Video | Self::Popup | Self::UpVideo => Some("h264"),
             Self::Tiles | Self::Unknown => None,
+        }
+    }
+}
+
+impl From<crate::clipboard::ClipboardPart> for Control {
+    fn from(part: crate::clipboard::ClipboardPart) -> Self {
+        let crate::clipboard::ClipboardPart { seq, text, offset, total } = part;
+        Self::Clipboard { seq, text, offset, total }
+    }
+}
+
+impl Control {
+    /// The clipboard part this message carries, if it is a `clipboard` message.
+    pub fn into_clipboard_part(self) -> Option<crate::clipboard::ClipboardPart> {
+        match self {
+            Self::Clipboard { seq, text, offset, total } => {
+                Some(crate::clipboard::ClipboardPart { seq, text, offset, total })
+            }
+            _ => None,
         }
     }
 }

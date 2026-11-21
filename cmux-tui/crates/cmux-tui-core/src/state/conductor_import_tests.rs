@@ -130,18 +130,19 @@ fn conductor_import_plan_adopts_then_records_pending_and_done() {
     assert_eq!(lima(&first)["disposition"], json!({"kind": "adopt"}));
     assert_eq!(lima(&first)["checked"], true);
 
+    // The app records the key before it makes the workspace with it.
+    let cmux_workspace = open_workspace(&mux);
     let pending = mutate(
         &mux,
         "conductor_import.record",
-        json!({"workspace": "w-lima", "stage": "pending", "cmux_workspace": "ws-half"}),
+        json!({"workspace": "w-lima", "stage": "pending", "cmux_workspace": cmux_workspace}),
         "lima-pending",
     );
     assert_eq!(
         pending,
-        json!({"workspace": "w-lima", "stage": "pending", "cmux_workspace": "ws-half", "runs": 0})
+        json!({"workspace": "w-lima", "stage": "pending", "cmux_workspace": cmux_workspace, "runs": 0})
     );
 
-    let cmux_workspace = open_workspace(&mux);
     let done = mutate(
         &mux,
         "conductor_import.record",
@@ -222,4 +223,118 @@ fn conductor_import_leaves_a_newer_ledger_alone() {
     );
     assert_eq!(error_code(refused), "validation.invalid");
     assert_eq!(stored_ledger(&mux).as_deref(), Some(newer));
+}
+
+/// A ledger that parses but has a done workspace naming no cmux workspace
+/// is damaged: the plan shows no plan and says why, and a record is refused,
+/// as for a ledger that does not parse, so nothing is made twice from it.
+#[test]
+fn conductor_import_refuses_a_damaged_ledger() {
+    let mux = Mux::new_for_test("conductor-import-damaged", SurfaceOptions::default());
+    let home = home();
+    let damaged = r#"{"version":1,"runs":0,"workspaces":{"w-lima":{"stage":"done"}}}"#;
+    mux.write_registry_meta(|transaction| {
+        transaction.execute(
+            "INSERT INTO conductor_import_ledger(id, ledger_json) VALUES(1, ?1)",
+            [damaged],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+
+    let result = plan(&mux, &home);
+    assert_eq!(result["plan"], Value::Null);
+    assert_eq!(result["error"], "ledger unreadable: done workspace w-lima names no cmux workspace");
+
+    let refused = send(
+        &mux,
+        "conductor_import.record",
+        json!({"workspace": "w-lima", "stage": "pending", "cmux_workspace": "ws-new"}),
+        Some("over-damaged"),
+    );
+    assert_eq!(error_code(refused), "validation.invalid");
+    assert_eq!(stored_ledger(&mux).as_deref(), Some(damaged));
+}
+
+/// Two runs that overlap both plan `w-lima` as one to adopt. Once the first
+/// records it done while its workspace is open, the second run's pending and
+/// done records are refused and the ledger keeps the first. The same
+/// workspace recorded again, pending over pending, and a done entry whose
+/// workspace was closed since all still record.
+#[test]
+fn conductor_import_record_keeps_an_open_done_workspace() {
+    let mux = Mux::new_for_test("conductor-import-overlap", SurfaceOptions::default());
+
+    // Pending replaces pending: a cut-off run's entry is made again.
+    for (cmux_workspace, key) in [("ws-first", "a-pending"), ("ws-again", "b-pending")] {
+        let pending = mutate(
+            &mux,
+            "conductor_import.record",
+            json!({"workspace": "w-lima", "stage": "pending", "cmux_workspace": cmux_workspace}),
+            key,
+        );
+        assert_eq!(pending["cmux_workspace"], cmux_workspace);
+    }
+
+    // Two runs both recorded pending: the earlier run's done, naming the
+    // workspace it made instead of the one pending names now, is refused.
+    let earlier = send(
+        &mux,
+        "conductor_import.record",
+        json!({"workspace": "w-lima", "stage": "done", "cmux_workspace": "ws-first"}),
+        Some("a-done-earlier"),
+    );
+    let earlier = earlier.expect_err("a done record over another run's pending one");
+    assert_eq!(earlier.code, "validation.invalid");
+    assert_eq!(earlier.details["field"], "cmux_workspace", "{earlier:?}");
+
+    let first = open_workspace(&mux);
+    mutate(
+        &mux,
+        "conductor_import.record",
+        json!({"workspace": "w-lima", "stage": "pending", "cmux_workspace": first}),
+        "a-pending-made",
+    );
+    mutate(
+        &mux,
+        "conductor_import.record",
+        json!({"workspace": "w-lima", "stage": "done", "cmux_workspace": first}),
+        "a-done",
+    );
+    let kept = stored_ledger(&mux);
+
+    // The second run, with its own keys and its own workspace.
+    for (stage, key) in [("pending", "b-pending-2"), ("done", "b-done")] {
+        let refused = send(
+            &mux,
+            "conductor_import.record",
+            json!({"workspace": "w-lima", "stage": stage, "cmux_workspace": "ws-second"}),
+            Some(key),
+        );
+        assert_eq!(error_code(refused), "validation.invalid", "{stage}");
+    }
+    assert_eq!(stored_ledger(&mux), kept);
+
+    // The same workspace by its public id, under another key: no conflict.
+    let public_id = mux.with_state(|state| {
+        let workspace = state.workspaces.iter().find(|w| w.key == first);
+        workspace.map(|w| w.public_id.to_string())
+    });
+    mutate(
+        &mux,
+        "conductor_import.record",
+        json!({"workspace": "w-lima", "stage": "done", "cmux_workspace": public_id}),
+        "a-done-again",
+    );
+
+    // Closed in cmux since: offered again, and recorded over.
+    let id = mux.with_state(|state| state.workspaces.iter().find(|w| w.key == first).map(|w| w.id));
+    assert!(mux.close_workspace(id.unwrap()));
+    let again = mutate(
+        &mux,
+        "conductor_import.record",
+        json!({"workspace": "w-lima", "stage": "pending", "cmux_workspace": "ws-third"}),
+        "c-pending",
+    );
+    assert_eq!(again["cmux_workspace"], "ws-third");
 }

@@ -726,6 +726,59 @@ fn layout_a_resize_drag_anchors_the_camera_on_the_dragged_column() {
     assert_eq!(screen_x(&state, "1"), before);
 }
 
+// MARK: ColumnScrollAnchorClampTests
+
+/// The camera on `before` at rest at `offset`, focus on p0; then one animated
+/// sync to `after`, anchored on c1 (Swift `anchoredSync`).
+fn anchored_sync(before: &ColumnStrip, after: &ColumnStrip, offset: f64) -> ColumnScrollState {
+    let mut state = settled_never(before, "0");
+    state.spring.value = offset;
+    state.spring.target = offset;
+    state.reduce(ColumnScrollEvent::Sync {
+        strip: after.clone(),
+        focused: Some(p("0")),
+        source: ColumnFocusSource::Programmatic,
+        animated: true,
+        reveals: false,
+        anchor: Some(c("1")),
+    });
+    state
+}
+
+/// A strip that fits gives the camera no anchor shift it cannot keep: its value
+/// takes no more of the shift than its target, so it does not spring back and
+/// the anchored column does not slide on after the change.
+#[test]
+fn anchor_a_strip_that_fits_gives_the_camera_no_shift_it_cannot_keep() {
+    let state =
+        anchored_sync(&make_strip(&[300., 300., 300.]), &make_strip(&[330., 300., 300.]), 0.);
+    assert_eq!(state.spring.target, 0.);
+    assert_eq!(
+        state.spring.value, state.spring.target,
+        "the camera springs back to the fitting strip's offset"
+    );
+}
+
+/// A camera with room takes the whole shift (the behavior the clamp keeps).
+#[test]
+fn anchor_a_camera_with_room_keeps_the_anchor_in_place() {
+    let state =
+        anchored_sync(&make_strip(&[600., 600., 600.]), &make_strip(&[630., 600., 600.]), 100.);
+    assert_eq!((state.spring.value, state.spring.target), (130., 130.));
+}
+
+/// A camera 10 pt from the strip's start takes 10 pt of a -30 pt shift.
+#[test]
+fn anchor_a_camera_at_the_start_takes_only_the_shift_it_has_room_for() {
+    let state =
+        anchored_sync(&make_strip(&[600., 600., 600.]), &make_strip(&[570., 600., 600.]), 10.);
+    assert_eq!(state.spring.target, 0.);
+    assert_eq!(
+        state.spring.value, state.spring.target,
+        "the camera springs back to the strip's start"
+    );
+}
+
 // MARK: BesideColumnRevealTests
 
 /// A strip behind a 400 pt chat dock on a 1000 pt window: two 600 pt

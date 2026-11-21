@@ -43,11 +43,11 @@ struct AgentTurnRingTests {
         defer { design.attention = before }
         design.attention = AttentionSettings()
         let service = NotificationCenterService()
-        service.agentTurnEnded(session: "s1", in: store.workspaces)
+        service.agentTurnEnded(session: "s1", in: store)
         #expect(service.agentFinished.isEmpty, "a finished turn was recorded for a ring by default")
         #expect(service.attentionMarks(for: workspace).isEmpty, "a finished reply rang its pane by default")
         design.attention.agentChatRing = .ring
-        service.agentTurnEnded(session: "s1", in: store.workspaces)
+        service.agentTurnEnded(session: "s1", in: store)
         #expect(service.attentionMarks(for: workspace).count == 1, "the opt-in ring did not ring")
         design.attention.agentChatRing = .none
         #expect(service.attentionMarks(for: workspace).isEmpty, "turning agent chat rings off left the ring")
@@ -84,6 +84,43 @@ struct AgentTurnRingTests {
         design.attention = AttentionSettings()
         service.acknowledge(tab)
         #expect(service.attentionMarks(for: workspace).isEmpty, "reading the chat left its ring")
+    }
+
+    /// Leo (2026-11-06): "why would it be doing anything inside a chat if the chat itself is
+    /// thinking?" A chat whose turn runs draws no attention ring: not its unread notification, not
+    /// the opt-in turn-end ring, not an agent's earlier mark. When the turn stops, the ring is back.
+    @Test func aThinkingChatDrawsNoRing() throws {
+        _ = NSApplication.shared
+        let host = "install:thinking", turns = AgentTurnStateStore.shared
+        var chat = TabSnapshot(surface: SurfaceID(rawValue: 1), kind: .conversation, cwd: nil)
+        chat.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: host, session: "thinking-s1", harness: "claude"))
+        chat.notification = TabNotification(notification: NotificationID(rawValue: 9), unread: true, level: .info, source: "agent")
+        let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [chat])])
+        let store = DaemonStore()
+        store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [screen])]))
+        let workspace = try #require(store.workspaces.first)
+        let tab = try #require(workspace.screens.first?.panes.first?.tabs.first)
+        let design = DesignSettings.shared
+        let before = design.attention
+        turns.mirroredHosts.insert(host)
+        defer {
+            design.attention = before
+            turns.setState(nil, session: "thinking-s1")
+            turns.mirroredHosts.remove(host)
+        }
+        design.attention = AttentionSettings()
+        design.attention.agentChatRing = .ring
+        let service = NotificationCenterService()
+        service.agentFinished[tab.id] = 1 << 62
+        #expect(service.attentionMarks(for: workspace).count == 1, "the fixture's chat has no ring to stop")
+        turns.setState(.working, session: "thinking-s1")
+        #expect(service.attentionMarks(for: workspace).isEmpty, "a chat that is thinking drew a ring")
+        service.agentFinished[tab.id] = nil
+        #expect(service.attentionMarks(for: workspace).isEmpty, "a thinking chat's unread notification drew a ring")
+        turns.setState(.needsInput, session: "thinking-s1")
+        #expect(service.attentionMarks(for: workspace).count == 1, "a chat waiting on the person lost its ring")
+        turns.setState(nil, session: "thinking-s1")
+        #expect(service.attentionMarks(for: workspace).count == 1, "the ring did not come back when the turn stopped")
     }
 
     /// One agent chat whose turn ended, with the opt-in agent chat ring on (the turn-end ring

@@ -1,0 +1,3 @@
+# Whole-list reads per file in row components from before the rule (scripts/check-whole-list-rows.ts). Only moves down.
+src/agent-session/acpmux/conversation/WhoElseCard.tsx	1
+src/agent-session/acpmux/summary/SummaryCard.tsx	2

@@ -3,11 +3,10 @@
 
 Run from scripts/measure/rust-dev-loop.sh (which sets up the checkout). For each variant it
 keeps its own target directory, builds it once from nothing (the clean build), then loops n
-times: for each of cmux-tui-core, cmux-tui and acpmux it makes a one-line edit (an anonymous
-`const _: u32 = N;` appended to the crate root, a new N each time) and times the dev build of
-the cmux-tui and acpmux binaries. Variants run interleaved inside each round, so drift on the
-worker lands on every variant alike. Output: DEVLOOP lines (p50/p95 per variant and scenario)
-and a JSON file with every sample.
+times over an acpmux leaf body edit, a shared Formula struct edit, and an acpmux test-only
+edit. Check, build, and test-run commands are timed separately. Variants run interleaved inside
+each round, so drift on the worker lands on every variant alike. Output: DEVLOOP lines (p50/p95
+per variant and scenario) and a JSON file with every sample.
 """
 from __future__ import annotations
 
@@ -28,12 +27,15 @@ from pathlib import Path
 # variant changes only the flags it names; nightly-2026-11-01 (1.101) no longer compiles acpmux.
 NIGHTLY = "nightly-2026-02-20"
 EDITS = {
-    "core": "crates/cmux-tui-core/src/lib.rs",
-    "tui": "crates/cmux-tui/src/main.rs",
-    "acpmux": "crates/acpmux/src/lib.rs",
+    "acpmux_leaf": "crates/acpmux/src/harness_icon_set.rs",
+    "shared_struct": "crates/cmux-host-budget/src/lib.rs",
+    "test_only": "crates/acpmux/src/harness_icon_set.rs",
 }
 BUILD = ["build", "--locked", "-p", "cmux-tui", "-p", "acpmux", "--bins"]
-MARK = "// cmux dev-loop measurement edit\n"
+CHECK = ["check", "--locked", "-p", "cmux-tui", "-p", "acpmux"]
+TEST = ["test", "--locked", "-p", "acpmux", "--lib", "--no-fail-fast"]
+MARK_BEGIN = "// cmux dev-loop measurement edit begin\n"
+MARK_END = "// cmux dev-loop measurement edit end\n"
 
 
 def pct(xs: list[float], p: float) -> float:
@@ -43,6 +45,17 @@ def pct(xs: list[float], p: float) -> float:
     k = (len(xs) - 1) * p
     lo, hi = int(k), min(int(k) + 1, len(xs) - 1)
     return xs[lo] + (xs[hi] - xs[lo]) * (k - lo)
+
+
+def tree_usage(path: Path) -> dict[str, int]:
+    logical = allocated = 0
+    if path.is_dir():
+        for p in path.rglob("*"):
+            if p.is_file() and not p.is_symlink():
+                st = p.stat()
+                logical += st.st_size
+                allocated += st.st_blocks * 512
+    return {"logical_bytes": logical, "allocated_bytes": allocated}
 
 
 def find_lld(tools: Path) -> str | None:
@@ -191,28 +204,37 @@ class PeakRss:
         self.peak_mb = max(self.peak_mb, blaze_rss_mb())
 
 
-def blaze_reset(log) -> None:
+def blaze_reset(log, env: dict | None = None) -> None:
     """Stop the daemon and remove blaze's build state, keeping its downloaded toolchain, so the
     next blaze build is cold."""
     subprocess.run(["blaze", "stop"], capture_output=True, text=True)
     home = Path(os.environ.get("BLAZE_HOME", "")).resolve() if os.environ.get("BLAZE_HOME") else None
-    if home is None or ".build" not in home.parts:
-        raise SystemExit("blaze variant: BLAZE_HOME must be set under .build (rust-dev-loop.sh sets it); "
-                         "refusing to reset any other blaze home")
+    if home is None or not home.name.startswith("cmux-rust-dev-loop-blaze-home-"):
+        raise SystemExit("blaze variant: BLAZE_HOME must be this run's cmux-rust-dev-loop-blaze-home-* "
+                         "(rust-dev-loop.sh sets it); refusing to reset any other blaze home")
     for child in home.iterdir() if home.is_dir() else []:
         if child.name in ("toolchains", "native"):
             continue
         size = subprocess.run(["du", "-sk", str(child)], capture_output=True, text=True).stdout.split()[:1]
         log(f"DEVLOOP-BLAZE-RESET rm {child.name} {size[0] if size else '?'}KB")
         shutil.rmtree(child, ignore_errors=True) if child.is_dir() else child.unlink(missing_ok=True)
-    blaze_start(log)
+    blaze_start(log, env)
 
 
-def blaze_start(log) -> None:
+def blaze_env(target: Path) -> dict:
+    """clean_env without the empty wrapper and rustflags overrides: blaze refuses any set
+    wrapper variable, empty included ("blaze runs no rustc wrapper"), and reads no rustflags."""
+    env = clean_env(target)
+    for name in ("RUSTC_WRAPPER", "CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER", "CARGO_ENCODED_RUSTFLAGS"):
+        env.pop(name, None)
+    return env
+
+
+def blaze_start(log, env: dict | None = None) -> None:
     """Start the daemon before a timed build. A client that starts it itself can find its socket
     not ready ("v2.sock changed and can't be read: No such device or address", Linux, 0.20261105.1)."""
     for attempt in range(10):
-        r = subprocess.run(["blaze", "status"], capture_output=True, text=True)
+        r = subprocess.run(["blaze", "status"], capture_output=True, text=True, env=env)
         if r.returncode == 0:
             log(f"DEVLOOP-BLAZE-START ready after {attempt + 1} status call(s)")
             return
@@ -226,6 +248,7 @@ LAST_PEAK: dict[str, float] = {}
 def cargo(spec: dict, target: Path, args: list[str], log_path: Path) -> tuple[float, int, int]:
     env = clean_env(target)
     if spec.get("blaze"):
+        env = blaze_env(target)
         # blaze takes cargo's flags but refuses --locked; its build directory is under BLAZE_HOME.
         cmd = ["blaze", *[x for x in args if x != "--locked"]]
         t0 = time.monotonic()
@@ -238,7 +261,7 @@ def cargo(spec: dict, target: Path, args: list[str], log_path: Path) -> tuple[fl
         dt = time.monotonic() - t0
         LAST_PEAK["blaze"] = peak.peak_mb
         if r.returncode != 0:
-            for line in r.stderr.strip().splitlines()[-15:]:
+            for line in r.stderr.strip().splitlines()[-25:]:
                 print(f"DEVLOOP-LOG {line}", flush=True)
         return dt, r.returncode, len(re.findall(r"^\s+Compiling ", r.stderr, re.M))
     env["CARGO_ENCODED_RUSTFLAGS"] = "\x1f".join(spec.get("rustflags", []))
@@ -274,19 +297,41 @@ def cargo(spec: dict, target: Path, args: list[str], log_path: Path) -> tuple[fl
     return dt, r.returncode, compiled
 
 
-def edit(path: Path, n: int) -> None:
+def edit(path: Path, n: int, scenario: str) -> None:
+    restore(path)
     text = path.read_text()
-    i = text.find(MARK)
-    if i >= 0:
-        text = text[:i]
-    path.write_text(text + MARK + f"const _: u32 = {n};\n")
+    if scenario == "acpmux_leaf":
+        needle = "fn is_own_copy(id: &str, name: &str) -> bool {\n"
+        insert = MARK_BEGIN + f"    let _measurement_marker = {n}u32;\n    let _ = _measurement_marker;\n" + MARK_END
+    elif scenario == "shared_struct":
+        needle = "pub struct Formula {\n"
+        insert = MARK_BEGIN + f"    #[serde(skip)]\n    pub measurement_marker: [u8; {n}],\n" + MARK_END
+        text = text.replace(
+            "            load1_per_core: 1.0,\n",
+            f"            load1_per_core: 1.0,\n            measurement_marker: [0; {n}],\n",
+            1,
+        )
+    elif scenario == "test_only":
+        needle = "mod tests {\n    use super::*;\n"
+        insert = MARK_BEGIN + f"    const _: u32 = {n};\n" + MARK_END
+    else:
+        raise ValueError(f"unknown edit scenario: {scenario}")
+    if needle not in text:
+        raise RuntimeError(f"edit anchor missing for {scenario}: {path}")
+    path.write_text(text.replace(needle, needle + insert, 1))
 
 
 def restore(path: Path) -> None:
     text = path.read_text()
-    i = text.find(MARK)
-    if i >= 0:
-        path.write_text(text[:i])
+    start = text.find(MARK_BEGIN)
+    if start < 0:
+        return
+    end = text.find(MARK_END, start)
+    if end < 0:
+        raise RuntimeError(f"measurement edit end marker missing: {path}")
+    text = text[:start] + text[end + len(MARK_END):]
+    text = re.sub(r"            measurement_marker: \[0; \d+\],\n", "", text, count=1)
+    path.write_text(text)
 
 
 def main() -> int:
@@ -296,8 +341,11 @@ def main() -> int:
     ap.add_argument("--variants", default="base")
     ap.add_argument("--n", type=int, default=8)
     ap.add_argument("--clean-n", type=int, default=1, help="clean builds per variant (the first warms it)")
-    ap.add_argument("--scenarios", default="core,tui,acpmux,switch")
+    ap.add_argument("--scenarios", default="acpmux_leaf,shared_struct,test_only")
     ap.add_argument("--tests", default="", help="packages to time cargo test vs cargo nextest on (base variant)")
+    ap.add_argument("--custom", action="append", default=[],
+                    help="NAME:CONFIG[;CONFIG...] a variant of cargo --config entries (repeatable)")
+    ap.add_argument("--timings", action="store_true", help="after the rounds, per-unit --timings of one edit per crate (base)")
     ap.add_argument("--zig-packages", default="", help="a zig global cache p/ already holding Ghostty's packages")
     ap.add_argument("--target-root", default="", help="where the per-variant target directories go (default OUT/target)")
     a = ap.parse_args()
@@ -313,6 +361,11 @@ def main() -> int:
         print(msg, flush=True)
 
     allv = variants(out / "tools")
+    for c in a.custom:
+        name, _, cfg = c.partition(":")
+        allv[name] = {"config": [x for x in cfg.split(";") if x]}
+        if name not in a.variants.split(","):
+            a.variants += f",{name}"
     names = [x for x in a.variants.split(",") if x]
     chosen: dict[str, dict] = {}
     for name in names:
@@ -344,6 +397,10 @@ def main() -> int:
     log(f"DEVLOOP-HOST {json.dumps(host)}")
     samples: list[dict] = []
     scen = [s for s in a.scenarios.split(",") if s]
+    unknown = sorted(set(scen) - set(EDITS) - {"switch"})
+    if not scen or unknown or not any(s in EDITS for s in scen):
+        raise SystemExit(f"scenarios must include an edit from {','.join(EDITS)}; unknown={unknown}")
+    disk_records: dict[str, dict] = {"clean": {}, "final": {}}
 
     def rec(variant: str, scenario: str, dt: float, rc: int, compiled: int, i: int) -> None:
         smp = {"variant": variant, "scenario": scenario, "seconds": round(dt, 3), "exit": rc,
@@ -360,9 +417,13 @@ def main() -> int:
     if "blaze" in chosen:
         # blaze fetches its own toolchain on its first build (v2 has no `blaze toolchain`): a tiny
         # untimed build takes that download out of the timed clean build.
-        blaze_start(log)
-        r = subprocess.run(["blaze", "build", "-p", "acpmux-build-id"], capture_output=True, text=True)
-        log(f"DEVLOOP-BLAZE-WARMUP exit {r.returncode} {r.stderr.strip().splitlines()[-1:]}")
+        warm_env = blaze_env(Path(a.target_root or out / "target").resolve() / "blaze-warmup")
+        blaze_start(log, warm_env)
+        r = subprocess.run(["blaze", "build", "-p", "acpmux-build-id"], capture_output=True, text=True, env=warm_env)
+        log(f"DEVLOOP-BLAZE-WARMUP exit {r.returncode}")
+        if r.returncode != 0:
+            for line in r.stderr.strip().splitlines()[-25:]:
+                log(f"DEVLOOP-LOG {line}")
         v = subprocess.run(["blaze", "--version"], capture_output=True, text=True)
         log(f"DEVLOOP-TOOLCHAIN blaze: {v.stdout.strip() or v.stderr.strip()} (its own pinned nightly)")
     troot = Path(a.target_root).resolve() if a.target_root else out / "target"
@@ -371,17 +432,27 @@ def main() -> int:
     targets = {k: troot / re.sub(r"[^A-Za-z0-9_.-]", "_", k) for k in chosen}
     for c in range(a.clean_n):
         for k, spec in chosen.items():
-            if spec.get("blaze"):
-                blaze_reset(log)
             shutil.rmtree(targets[k], ignore_errors=True)
+            if spec.get("blaze"):
+                # The daemon starts here, untimed and in the variant's clean env: the clean blaze
+                # time is its build, not its startup.
+                blaze_reset(log, blaze_env(targets[k]))
             for p in EDITS.values():
                 restore(ws / p)
+            dt, rc, comp = cargo(spec, targets[k], CHECK, out / f"{targets[k].name}.log")
+            rec(k, "clean-check", dt, rc, comp, c)
             dt, rc, comp = cargo(spec, targets[k], BUILD, out / f"{targets[k].name}.log")
             rec(k, "clean", dt, rc, comp, c)
+            if rc == 0:
+                disk_records["clean"][k] = tree_usage(targets[k])
             if rc != 0:
                 log(f"DEVLOOP-FAIL {k} clean build exit {rc}; dropped (log {targets[k].name}.log)")
                 spec["skip"] = "clean build failed"
         chosen = {k: s for k, s in chosen.items() if not s.get("skip")}
+
+    for k, spec in chosen.items():
+        dt, rc, comp = cargo(spec, targets[k], TEST, out / f"{targets[k].name}.log")
+        rec(k, "baseline-test", dt, rc, comp, 0)
 
     try:
         # Round -> scenario -> variant: one edit, then every variant builds it, so each target
@@ -389,13 +460,17 @@ def main() -> int:
         # variants share this source tree).
         for i in range(a.n):
             for s in scen:
+                for p in set(EDITS.values()):
+                    restore(ws / p)
                 if s in EDITS:
-                    edit(ws / EDITS[s], i + 1)
+                    edit(ws / EDITS[s], i + 1, s)
                 for k, spec in chosen.items():
                     lp = out / f"{targets[k].name}.log"
                     if s in EDITS:
-                        dt, rc, comp = cargo(spec, targets[k], BUILD, lp)
-                        rec(k, s, dt, rc, comp, i)
+                        commands = [("test", TEST)] if s == "test_only" else [("check", CHECK), ("build", BUILD)]
+                        for kind, command in commands:
+                            dt, rc, comp = cargo(spec, targets[k], command, lp)
+                            rec(k, f"{s}-{kind}", dt, rc, comp, i)
                     elif s == "switch" and i == 0 and not spec.get("blaze"):
                         # Feature unification: build one package alone after the pair. Any
                         # dependency recompiled here is what a workspace-hack crate would save.
@@ -404,6 +479,8 @@ def main() -> int:
                             rec(k, f"switch-{pk}", dt, rc, comp, i)
                         dt, rc, comp = cargo(spec, targets[k], BUILD, lp)
                         rec(k, "switch-back", dt, rc, comp, i)
+                for p in set(EDITS.values()):
+                    restore(ws / p)
     finally:
         for p in EDITS.values():
             restore(ws / p)
@@ -411,6 +488,39 @@ def main() -> int:
             st = subprocess.run(["blaze", "status", "--json"], capture_output=True, text=True)
             log(f"DEVLOOP-BLAZE-STATUS {st.stdout.strip()[:2000]}")
             subprocess.run(["blaze", "stop"], capture_output=True, text=True)
+            # BLAZE_HOME can be a /tmp link to the run's home (blaze-home.sh): measure and remove the home.
+            home = str(Path(os.environ["BLAZE_HOME"]).resolve()) if os.environ.get("BLAZE_HOME") else ""
+            if Path(home).name.startswith("cmux-rust-dev-loop-blaze-home-"):
+                size = subprocess.run(["du", "-sk", home], capture_output=True, text=True).stdout.split()[:1]
+                log(f"DEVLOOP-BLAZE-HOME {size[0] if size else '?'}KB")
+                shutil.rmtree(home, ignore_errors=True)
+
+    if a.timings and "base" in chosen:
+        # Where one edit's time goes: cargo's --timings report for one more edit of each crate,
+        # per unit (crate or build script): total seconds and seconds to its metadata (rmeta).
+        env_t = targets["base"]
+        cargo({}, env_t, BUILD, out / "timings.log")  # the restored tree, untimed
+        for s_name, rel in EDITS.items():
+            edit(ws / rel, 9999, s_name)
+            html = []
+            try:
+                cargo({}, env_t, [*BUILD, "--timings"], out / "timings.log")
+                html = sorted((env_t / "cargo-timings").glob("cargo-timing-*.html"))
+            finally:
+                restore(ws / rel)
+            cargo({}, env_t, BUILD, out / "timings.log")  # so the next report holds only its own edit
+            if not html:
+                log(f"DEVLOOP-UNIT {s_name} no timing report")
+                continue
+            m = re.search(r"const UNIT_DATA = (\[.*?\]);", html[-1].read_text(), re.S)
+            try:
+                units = json.loads(m.group(1)) if m else []
+            except ValueError:
+                units = []
+            for u in sorted(units, key=lambda u: -u.get("duration", 0))[:8]:
+                log(f"DEVLOOP-UNIT {s_name} {u.get('name')} {u.get('target', '').strip() or 'lib'} "
+                    f"total={u.get('duration', 0):.2f}s rmeta={u.get('rmeta_time') or 0:.2f}s "
+                    f"mode={u.get('mode')}")
 
     if a.tests and "base" in chosen:
         lp = out / "tests.log"
@@ -420,7 +530,7 @@ def main() -> int:
         cargo({}, targets["base"], ["test", "--locked", "--no-run", *pk], lp)
         have_nextest = shutil.which("cargo-nextest") is not None
         for i in range(a.n):
-            dt, rc, _ = cargo({}, targets["base"], ["test", "--locked", *pk], lp)
+            dt, rc, _ = cargo({}, targets["base"], ["test", "--locked", "--no-fail-fast", *pk], lp)
             rec("base", "test-cargo", dt, rc, 0, i)
             if have_nextest:
                 dt, rc, _ = cargo({}, targets["base"], ["nextest", "run", "--locked", "--no-fail-fast", *pk], lp)
@@ -440,7 +550,19 @@ def main() -> int:
         log(f"DEVLOOP {v} {s} {len(ok)} {pct(ok, .5):.2f} {pct(ok, .95):.2f} "
             f"{min(ok, default=float('nan')):.2f} {max(ok, default=float('nan')):.2f} {comp:g} {fails}"
             + (f" rss_max_mb={max(rss)}" if rss else ""))
-    return 1 if any(x["exit"] != 0 for x in samples if not x["scenario"].startswith("test")) else 0
+    # Every timed command is part of the acceptance result, including test-only edits and
+    # baseline tests. A failed test edit must never disappear from the harness exit status.
+    disk = shutil.disk_usage(out)
+    for k, target in targets.items():
+        disk_records["final"][k] = tree_usage(target)
+    disk_record = {
+        "out": tree_usage(out),
+        "variants": disk_records,
+        "filesystem_free_bytes": disk.free,
+    }
+    log(f"DEVLOOP-DISK {json.dumps(disk_record, sort_keys=True)}")
+    (out / "samples.json").write_text(json.dumps({"host": host, "disk": disk_record, "samples": samples}, indent=1))
+    return 1 if any(x["exit"] != 0 for x in samples) else 0
 
 
 if __name__ == "__main__":

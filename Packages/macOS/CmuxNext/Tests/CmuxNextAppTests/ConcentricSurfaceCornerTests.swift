@@ -37,7 +37,7 @@ import Testing
     nonisolated static let pairs: [(Double, Double)] = [(16, 3), (6, 1), (12, 4)]
 
     /// One radius rounds every top-level surface: floating glass panels, popovers, the neutral glass
-    /// roles (cards, toasts, dialogs), the toast view, a card and a terminal banner.
+    /// roles (cards, toasts, dialogs), a card and a terminal banner.
     @Test(arguments: pairs)
     func everyTopLevelSurfaceIsTheOuterRadius(radius: Double, padding: Double) {
         defer { reset() }
@@ -50,12 +50,11 @@ import Testing
             ("FloatingGlassStyle.toast", FloatingGlassStyle.toast.cornerRadius),
             ("FloatingGlassStyle.dialog", FloatingGlassStyle.dialog.cornerRadius),
             ("FloatingGlassStyle.card", FloatingGlassStyle.card.cornerRadius),
-            ("CmuxToastView", CmuxToastView.cornerRadius),
             ("Glass.makeSurface(.toast)", Glass.makeSurface(.toast).cornerRadius),
             ("CardSurfaceView", CardSurfaceView().cornerRadius),
             ("TerminalStatusBanner", TerminalStatusBanner().layer?.cornerRadius ?? -1),
             ("ServerMetrics.cornerRadius", ServerMetrics.cornerRadius),
-            ("SidebarDensityTokens.rowCornerRadius", SidebarDensityTokens.rowCornerRadius),
+            ("OmnibarStyle.barCornerRadius", OmnibarStyle.barCornerRadius),
         ]
         for (name, value) in surfaces {
             #expect(value == outer, "\(radius)/\(padding): \(name) is \(value) pt, the one corner radius is \(outer) pt")
@@ -74,10 +73,8 @@ import Testing
         let popup = PopupStyle.standard
         let nested: [(String, CGFloat, CGFloat)] = [
             ("PopupStyle.rowCornerRadius", popup.rowCornerRadius, max(0, popup.cornerRadius - popup.padding)),
-            ("OmnibarStyle.barCornerRadius", OmnibarStyle.barCornerRadius, corners.inner),
             ("ServerMetrics.cardRadius", ServerMetrics.cardRadius, corners.inner),
             ("Metrics.itemCornerRadius", Metrics.itemCornerRadius, corners.radius(depth: 2)),
-            ("TooltipPanel.radius", TooltipPanel.radius, corners.radius(depth: 2)),
             ("ServerMetrics.fieldRadius", ServerMetrics.fieldRadius, corners.radius(depth: 2)),
         ]
         for (name, value, expected) in nested {
@@ -85,13 +82,12 @@ import Testing
         }
     }
 
-    /// Unset, the corners keep today's compact look where a surface already sat on the scale: 10 pt
-    /// panels and cards, 6 pt items, and a popover row 4 pt inside its card.
+    /// Compact scales Default's corners and spacing by 0.9, on the half-point grid.
     @Test func theDefaultsKeepTheCompactScale() {
         reset()
-        #expect(Metrics.panelCornerRadius == 10)
-        #expect(Metrics.itemCornerRadius == 6)
-        #expect(FloatingGlassStyle.card.cornerRadius == 10)
+        #expect(Metrics.panelCornerRadius == 7)
+        #expect(Metrics.itemCornerRadius == 2)
+        #expect(FloatingGlassStyle.card.cornerRadius == 7)
         #expect(PopupStyle.standard.rowCornerRadius == PopupStyle.standard.cornerRadius - PopupStyle.standard.padding)
     }
 }

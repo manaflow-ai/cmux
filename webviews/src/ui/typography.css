@@ -1,0 +1,27 @@
+/* Inline figures next to words (Typography.tsx). */
+
+/* A sign before figures ("+3 more"): the font centres "+" on the lowercase (the x-height's middle),
+   half the cap height less the x-height under the digits' middle, so it reads as dropped beside them.
+   It rises by exactly that gap in the font in use; 0.09em is SF Pro's gap (cap 0.705em, x 0.527em)
+   where the `cap` unit is missing. A translate moves no layout. */
+.ui-sign {
+  display: inline-block;
+  translate: 0 -0.09em;
+  translate: 0 calc((1ex - 1cap) / 2);
+}
+
+/* A ticking duration: tabular figures, in a box as wide as the widest text of its shape. The hidden
+   `data-clock-size` is a zero-height line under the text: it widens the box and adds no height, and
+   a range over the element still measures the time's own text alone. */
+.ui-clock {
+  display: inline-block;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ui-clock::after {
+  content: attr(data-clock-size);
+  display: block;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+}

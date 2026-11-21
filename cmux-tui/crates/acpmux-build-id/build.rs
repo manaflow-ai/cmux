@@ -98,6 +98,22 @@ fn main() {
             .unwrap_or_default(),
     };
     println!("cargo:rustc-env=ACPMUX_BUILD={hash}{dirty_tag} {date}");
+    // The commit's committer time (Unix seconds), which a host's install
+    // script compares so a push never replaces a binary of a newer commit
+    // with one of an older one (acpmux `cli/hosts.rs`, `DOWNGRADE_CHECK`):
+    // git's, else SOURCE_DATE_EPOCH (reproducible builds pin it to the
+    // commit), else 0 (unknown). A dirty build keeps its commit's time.
+    let commit_time = git_hash
+        .as_ref()
+        .and_then(|_| git(&["log", "-1", "--format=%ct", "HEAD"]))
+        .and_then(|t| t.parse::<u64>().ok())
+        .or_else(|| {
+            std::env::var("SOURCE_DATE_EPOCH")
+                .ok()
+                .and_then(|raw| source_date_epoch::parse(&raw).ok())
+        })
+        .unwrap_or(0);
+    println!("cargo:rustc-env=ACPMUX_COMMIT_TIME={commit_time}");
     // The commit: HEAD, the branch ref it names, packed-refs, and logs/HEAD
     // (every commit, amend, reset, rebase and checkout appends to it, also
     // when the branch ref is packed and no loose ref file exists yet). Not

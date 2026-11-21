@@ -41,11 +41,11 @@ import Testing
         tabs.localHost = host
         tabs.holdsTabs = { _ in true }
         tabs.reachable = { _ in true }
-        tabs.locate = { [weak services] _ in services.map { (pane: PaneID(rawValue: 1), daemon: $0.daemon) } }
+        tabs.locateScoped = { [weak services] _ in services.map { (pane: PaneID(rawValue: 1), daemon: $0.daemon) } }
         // Nothing on the chat's right, and the chat is wide enough to halve: a split right.
-        tabs.rightColumn = { _ in .init(sourceWidth: 1400) }
-        tabs.serially = { _, turn in turn({}); return true }
-        tabs.openInMainPane = { _, _, _, _, _ in nil }
+        tabs.rightColumnScoped = { _ in .init(sourceWidth: 1400) }
+        tabs.seriallyScoped = { _, turn in turn({}); return true }
+        tabs.openInMainPaneScoped = { _, _, _, _, _ in nil }
         let creates = Creates()
         tabs.create = { _, _, _, _, _, split in
             creates.splits.append(split)
@@ -95,6 +95,25 @@ import Testing
         if creates.splits.isEmpty { for await _ in creates.heard { break } }
         try #require(creates.splits.count == 1)
         #expect(creates.splits[0]?.direction == .right, "the subagent was made in the chat's pane, to be moved")
+        withExtendedLifetime(model) {}
+    }
+
+    /// #36226 review: the subagent's tab decides at its first show (`view(for:)`) whether it takes the warm spare, from
+    /// its reveal (`pendingTurns`). The split, and its provisional tab, show as the open returns, before the store has
+    /// answered the create; the reveal recorded only once it answered (`created`) could come after that first show, and
+    /// the pane then opened cold. Here the create never answers: the reveal is on the provisional tab all the same.
+    @Test(.timeLimit(.minutes(1))) func aSubagentsRevealIsOnItsTabBeforeTheStoreAnswers() async throws {
+        let (services, tabs, chat, creates) = try Self.chat(capabilities: Self.served)
+        let model = AgentPaneModel(host: NoHost(), sessionId: "s-chat")
+        tabs.wireHeader(model, key: chat)
+        let header = try #require(model.header)
+
+        #expect(header.openSubagent("s-chat-\(UUID().uuidString.prefix(8))", "reviewer", true))
+
+        #expect(services.daemon.store.pendingIntents.contains { if case .splitPane = $0 { true } else { false } })
+        #expect(tabs.pendingTurns.values.contains(AgentSubagentPanes.reveal("reviewer")),
+                "the provisional tab can show (view(for:)) with no reveal, so it opens cold: \(tabs.pendingTurns)")
+        if creates.splits.isEmpty { for await _ in creates.heard { break } }
         withExtendedLifetime(model) {}
     }
 

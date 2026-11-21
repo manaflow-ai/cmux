@@ -97,9 +97,33 @@ class FreshState(unittest.TestCase):
     def test_the_bench_app_uses_the_same_root(self):
         self.assertEqual(bl.tag_state_root("split-spring"), str(self.base / "tags/split-spring"))
 
+    def test_without_a_base_next_s_folder_comes_first_and_an_older_builds_folder_is_found(self):
+        from unittest import mock
+        support = self.base / "Library/Application Support"
+        new, old = support / "cmux-next/tags/split-spring", support / "cmux/tags/split-spring"
+        with mock.patch.dict(os.environ), mock.patch.object(bl, "account_home", lambda: str(self.base)):
+            del os.environ["BENCH_LAUNCH_STATE_BASE"]
+            self.assertEqual(bl.tag_state_root("split-spring"), str(new))  # nothing yet: NEXT's own folder
+            write(old / "tui/run-old")  # a base build from before NEXT's folder
+            self.assertEqual(bl.tag_state_root("split-spring"), str(old))
+            write(new / "tui/run-new")
+            self.assertEqual(bl.tag_state_root("split-spring"), str(new))
+            bl.start_fresh_state("split-spring")  # both go aside, or the new build would adopt the old one
+            self.assertFalse(new.exists() or old.exists())
+            self.assertTrue((support / "cmux-next/tags/split-spring.bench-prev/tui/run-new").exists())
+            self.assertTrue((support / "cmux/tags/split-spring.bench-prev/tui/run-old").exists())
+            # A new build's link at the old path goes (it would dangle, and a base build could not make its state
+            # under it); NEXT's folder it names moves.
+            write(new / "tui/run-2")
+            old.symlink_to(new)
+            bl.start_fresh_state("split-spring")
+            self.assertFalse(os.path.lexists(old))
+            (old / "tui").mkdir(parents=True)  # a base build from before NEXT's folder starts its state
+            self.assertTrue((support / "cmux-next/tags/split-spring.bench-prev/tui/run-2").exists())
+
 
 def followed(held=0, frames=120, lagging=0, key="tab-1", first=None):
-    """One terminal's pane check, as DebugTerminalPaneFollow reports it."""
+    """One terminal's pane check, as TerminalPaneFollowProbe reports it."""
     first = first if first is not None else [{"frame": 3, "area": [590, 400], "asked": [600, 400], "shown": [600, 400]}][:held]
     return {key: {"frames": frames, "held": held, "lagging": lagging, "first_held": first, "first_lagging": []}}
 
@@ -194,12 +218,25 @@ class PaneCheck(unittest.TestCase):
         entry = dict(drag_round(), follow=pane_check(followed(frames=0), frames=0))
         self.assertIn("sampled no frame", verdict.problems({"layout": "light", "rounds": [entry]})[0])
 
+    def test_a_terminal_not_sampled_in_the_motion_fails(self):
+        # Review of #36109, finding 2: a terminal shown at the start with 0 sampled frames (its window ticked no frame,
+        # or it left its window) judged nothing, and the round passed on the other terminals' frames.
+        entry = drag_round(follow=pane_check(followed(frames=120, key="left"), followed(frames=0, key="right")))
+        found = verdict.problems({"layout": "light", "rounds": [entry]})
+        self.assertEqual(len(found), 1, found)
+        self.assertIn("right was not sampled", found[0])
+        self.assertIn("1 of 2 terminals", found[0])
+
     def test_follow_takes_the_check_out_of_the_stop_reply(self):
-        display = {"calls": 12, "follow_frames": 90,
-                   "terminals_followed": {**followed(held=2, frames=90, lagging=5, key="a"), **followed(frames=90, lagging=1, key="b")}}
+        a = followed(held=2, frames=90, lagging=5, key="a")
+        a["a"]["in_flight"] = 4
+        presenter = {"presented": 30, "keeps": 7, "group_waits": 1, "long_keeps": 0, "passes": 40}
+        display = {"calls": 12, "follow_frames": 90, "follow_presenter": presenter,
+                   "terminals_followed": {**a, **followed(frames=90, lagging=1, key="b")}}
         checked = verdict.follow(display)
         self.assertEqual(display, {"calls": 12}, "the per-terminal record moves to the round's `follow`")
         self.assertEqual((checked["frames"], checked["held_frames"], checked["held_terminals"], checked["lagging_frames"]), (90, 2, 1, 6))
+        self.assertEqual((checked["in_flight_frames"], checked["presenter"]), (4, presenter))
         self.assertIsNone(verdict.follow({"calls": 3}))
 
     def test_holds_terminals_is_data(self):

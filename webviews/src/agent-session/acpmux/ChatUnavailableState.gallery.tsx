@@ -68,5 +68,9 @@ export default componentEntry<ComponentProps<typeof ChatUnavailableState>>({
       note: "A tab whose id is no chat's here and names more than one chat: it says the session no longer exists, with Resume from Transcript and Close Tab, never Reconnecting forever.",
       props: { ...base, session: "demo-lane", unavailable: { reason: "gone" } },
     },
+    unreached: {
+      note: "A sender chip's tab for a chat on a machine this Mac does not connect to: it says so, with no Reconnect that could never work.",
+      props: { ...base, session: "demo-box/lane", unavailable: { reason: "unreached", machine: "demo-box" } },
+    },
   },
 });

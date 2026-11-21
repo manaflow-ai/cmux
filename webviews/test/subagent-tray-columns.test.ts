@@ -8,6 +8,7 @@ import { GALLERY_NOW } from "../src/gallery/clock";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { openRunningTray } from "./support/openRunningTray";
+import { RUNNING_TRAY_LINE, RUNNING_TRAY_LIST_LINE } from "../src/agent-session/acpmux/subagents/subagentSelectors";
 
 await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -248,7 +249,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         const collapsedHeaderText = (await collapsedTime.textContent())?.trim() ?? "";
         expect(collapsedHeaderText).toMatch(/^(?:\d+h(?: \d+m)?(?: \d+s)?|\d+m(?: \d+s)?|\d+s)$/);
         if ((await head.getAttribute("aria-expanded")) !== "true") await head.click();
-        await page.locator(".acpmux-running-tray__list .acpmux-agent-line").first().waitFor();
+        await page.locator(RUNNING_TRAY_LIST_LINE).first().waitFor();
         await page.evaluate(() => {
           for (const animation of document.getAnimations()) {
             if (Number.isFinite(animation.effect?.getComputedTiming().endTime as number)) animation.finish();
@@ -264,52 +265,55 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           });
         }
 
-        const columns = await page.evaluate(() => {
-          const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
-          const head = tray.querySelector<HTMLElement>(".acpmux-running-tray__head")!;
-          const rows = [...tray.querySelectorAll<HTMLElement>(".acpmux-running-tray__list .acpmux-agent-line")];
-          const rect = (selector: string, root: ParentNode) => {
-            const node = root.querySelector<HTMLElement>(selector);
-            if (!node) throw new Error(`missing ${selector}`);
-            const box = node.getBoundingClientRect();
-            return { left: box.left, right: box.right, width: box.width };
-          };
-          // cmux#31492: the state word and the time end the line beside Stop's track, never a status
-          // track's slack away; on a line with no Stop the track stays empty, so every time ends on one
-          // x (Leo, 2026-11-03: "let's align the right"). The state comes first, then the time ("Done ·
-          // 36s", Leo 2026-11-02).
-          const trail = (row: HTMLElement) => {
-            const state = row.querySelector<HTMLElement>(".acpmux-agent-line__meta")!.getBoundingClientRect();
-            const time = row.querySelector<HTMLElement>(".acpmux-agent-line__time")!;
-            const range = document.createRange();
-            range.selectNodeContents(time);
-            const digits = [...range.getClientRects()].at(0);
-            const next = row.querySelector<HTMLElement>(".acpmux-agent-line__stop-track")!;
-            const end = digits ? time.getBoundingClientRect() : state;
-            return {
-              stateToNext: next.getBoundingClientRect().left - end.right,
-              timeToState: digits ? digits.left - state.right : null,
+        const columns = await page.evaluate(
+          ({ RUNNING_TRAY_LIST_LINE }) => {
+            const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
+            const head = tray.querySelector<HTMLElement>(".acpmux-running-tray__head")!;
+            const rows = [...tray.querySelectorAll<HTMLElement>(RUNNING_TRAY_LIST_LINE)];
+            const rect = (selector: string, root: ParentNode) => {
+              const node = root.querySelector<HTMLElement>(selector);
+              if (!node) throw new Error(`missing ${selector}`);
+              const box = node.getBoundingClientRect();
+              return { left: box.left, right: box.right, width: box.width };
             };
-          };
-          return {
-            rows: rows.map((row) => ({
-              time: rect(".acpmux-agent-line__time", row),
-              status: rect(".acpmux-agent-line__stop-track", row),
-              stop: rect(".acpmux-agent-line__stop-slot", row),
-              chevron: rect(".acpmux-agent-line__chevron > svg", row),
-              hasStop: Boolean(row.querySelector(".acpmux-agent-line__stop-slot > button")),
-              trail: trail(row),
-            })),
-            footer: tray.querySelector(".acpmux-running-tray__finished")
-              ? rect(".acpmux-running-tray__finished > svg", tray)
-              : undefined,
-            head: {
-              title: rect(".acpmux-running-tray__title", head),
-              time: rect(".acpmux-running-tray__time", head),
-              chevron: rect(".acpmux-running-tray__status > svg", head),
-            },
-          };
-        });
+            // cmux#31492: the state word and the time end the line beside Stop's track, never a status
+            // track's slack away; on a line with no Stop the track stays empty, so every time ends on one
+            // x (Leo, 2026-11-03: "let's align the right"). The state comes first, then the time ("Done ·
+            // 36s", Leo 2026-11-02).
+            const trail = (row: HTMLElement) => {
+              const state = row.querySelector<HTMLElement>(".acpmux-agent-line__meta")!.getBoundingClientRect();
+              const time = row.querySelector<HTMLElement>(".acpmux-agent-line__time")!;
+              const range = document.createRange();
+              range.selectNodeContents(time);
+              const digits = [...range.getClientRects()].at(0);
+              const next = row.querySelector<HTMLElement>(".acpmux-agent-line__stop-track")!;
+              const end = digits ? time.getBoundingClientRect() : state;
+              return {
+                stateToNext: next.getBoundingClientRect().left - end.right,
+                timeToState: digits ? digits.left - state.right : null,
+              };
+            };
+            return {
+              rows: rows.map((row) => ({
+                time: rect(".acpmux-agent-line__time", row),
+                status: rect(".acpmux-agent-line__stop-track", row),
+                stop: rect(".acpmux-agent-line__stop-slot", row),
+                chevron: rect(".acpmux-agent-line__chevron > svg", row),
+                hasStop: Boolean(row.querySelector(".acpmux-agent-line__stop-slot > button")),
+                trail: trail(row),
+              })),
+              footer: tray.querySelector(".acpmux-running-tray__finished")
+                ? rect(".acpmux-running-tray__finished > svg", tray)
+                : undefined,
+              head: {
+                title: rect(".acpmux-running-tray__title", head),
+                time: rect(".acpmux-running-tray__time", head),
+                chevron: rect(".acpmux-running-tray__status svg", head),
+              },
+            };
+          },
+          { RUNNING_TRAY_LIST_LINE },
+        );
         expect(columns.rows.length).toBeGreaterThanOrEqual(3);
         const [first, ...rest] = columns.rows;
         expect(rest.every((row) => row.status.left === first!.status.left)).toBe(true);
@@ -336,78 +340,81 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         expect(columns.rows.some((row) => !row.hasStop)).toBe(true);
 
         const measure = () =>
-          page.evaluate(() => {
-            const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
-            const trayBox = tray.getBoundingClientRect();
-            const rect = (selector: string, root: ParentNode) => {
-              const node = root.querySelector<HTMLElement>(selector);
-              if (!node) throw new Error(`missing ${selector}`);
-              const box = node.getBoundingClientRect();
-              return {
-                left: box.left,
-                right: box.right,
-                top: box.top,
-                bottom: box.bottom,
-                width: box.width,
-                height: box.height,
-              };
-            };
-            const textRect = (node: HTMLElement) => {
-              const range = document.createRange();
-              range.selectNodeContents(node);
-              const boxes = [...range.getClientRects()];
-              const box = node.getBoundingClientRect();
-              const style = getComputedStyle(node);
-              return {
-                text: node.textContent?.trim() ?? "",
-                lineCount: boxes.length,
-                textRight: boxes.length === 0 ? null : boxes[0]!.right,
-                boxRight: box.right,
-                height: box.height,
-                scrollWidth: node.scrollWidth,
-                clientWidth: node.clientWidth,
-                whiteSpace: style.whiteSpace,
-                fontVariantNumeric: style.fontVariantNumeric,
-              };
-            };
-            const rows = [...tray.querySelectorAll<HTMLElement>(".acpmux-running-tray__list .acpmux-agent-line")];
-            const head = tray.querySelector<HTMLElement>(".acpmux-running-tray__head");
-            if (!head) throw new Error("missing tray head");
-            return {
-              tray: { left: trayBox.left, right: trayBox.right, width: trayBox.width },
-              rows: rows.map((row) => {
-                const time = row.querySelector<HTMLElement>(".acpmux-agent-line__time");
-                if (!time) throw new Error("missing row time");
+          page.evaluate(
+            ({ RUNNING_TRAY_LIST_LINE }) => {
+              const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
+              const trayBox = tray.getBoundingClientRect();
+              const rect = (selector: string, root: ParentNode) => {
+                const node = root.querySelector<HTMLElement>(selector);
+                if (!node) throw new Error(`missing ${selector}`);
+                const box = node.getBoundingClientRect();
                 return {
-                  name: rect(".acpmux-summary-agent__name", row),
-                  summary: rect(".acpmux-summary-text", row),
-                  time: { ...rect(".acpmux-agent-line__time", row), ...textRect(time) },
-                  status: rect(".acpmux-agent-line__stop-track", row),
-                  chevron: row.querySelector<HTMLElement>(".acpmux-agent-line__chevron > svg")
-                    ? rect(".acpmux-agent-line__chevron > svg", row)
-                    : null,
-                  stop: rect(".acpmux-agent-line__stop-slot", row),
-                  hasStop: Boolean(row.querySelector(".acpmux-agent-line__stop-slot > button")),
-                  // How far the cluster (the state word, then the time) ends from Stop's track,
-                  // empty or not (Leo, 2026-11-03: "let's align the right").
-                  stateToNext: (() => {
-                    const end = time.getBoundingClientRect();
-                    const next = row.querySelector<HTMLElement>(".acpmux-agent-line__stop-track")!;
-                    return next.getBoundingClientRect().left - end.right;
-                  })(),
+                  left: box.left,
+                  right: box.right,
+                  top: box.top,
+                  bottom: box.bottom,
+                  width: box.width,
+                  height: box.height,
                 };
-              }),
-              head: (() => {
-                const time = head.querySelector<HTMLElement>(".acpmux-running-tray__time");
-                if (!time) throw new Error("missing header time");
+              };
+              const textRect = (node: HTMLElement) => {
+                const range = document.createRange();
+                range.selectNodeContents(node);
+                const boxes = [...range.getClientRects()];
+                const box = node.getBoundingClientRect();
+                const style = getComputedStyle(node);
                 return {
-                  title: rect(".acpmux-running-tray__title", head),
-                  time: { ...rect(".acpmux-running-tray__time", head), ...textRect(time) },
-                  chevron: rect(".acpmux-running-tray__status > svg", head),
+                  text: node.textContent?.trim() ?? "",
+                  lineCount: boxes.length,
+                  textRight: boxes.length === 0 ? null : boxes[0]!.right,
+                  boxRight: box.right,
+                  height: box.height,
+                  scrollWidth: node.scrollWidth,
+                  clientWidth: node.clientWidth,
+                  whiteSpace: style.whiteSpace,
+                  fontVariantNumeric: style.fontVariantNumeric,
                 };
-              })(),
-            };
-          });
+              };
+              const rows = [...tray.querySelectorAll<HTMLElement>(RUNNING_TRAY_LIST_LINE)];
+              const head = tray.querySelector<HTMLElement>(".acpmux-running-tray__head");
+              if (!head) throw new Error("missing tray head");
+              return {
+                tray: { left: trayBox.left, right: trayBox.right, width: trayBox.width },
+                rows: rows.map((row) => {
+                  const time = row.querySelector<HTMLElement>(".acpmux-agent-line__time");
+                  if (!time) throw new Error("missing row time");
+                  return {
+                    name: rect(".acpmux-summary-agent__name", row),
+                    summary: rect(".acpmux-summary-text", row),
+                    time: { ...rect(".acpmux-agent-line__time", row), ...textRect(time) },
+                    status: rect(".acpmux-agent-line__stop-track", row),
+                    chevron: row.querySelector<HTMLElement>(".acpmux-agent-line__chevron > svg")
+                      ? rect(".acpmux-agent-line__chevron > svg", row)
+                      : null,
+                    stop: rect(".acpmux-agent-line__stop-slot", row),
+                    hasStop: Boolean(row.querySelector(".acpmux-agent-line__stop-slot > button")),
+                    // How far the cluster (the state word, then the time) ends from Stop's track,
+                    // empty or not (Leo, 2026-11-03: "let's align the right").
+                    stateToNext: (() => {
+                      const end = time.getBoundingClientRect();
+                      const next = row.querySelector<HTMLElement>(".acpmux-agent-line__stop-track")!;
+                      return next.getBoundingClientRect().left - end.right;
+                    })(),
+                  };
+                }),
+                head: (() => {
+                  const time = head.querySelector<HTMLElement>(".acpmux-running-tray__time");
+                  if (!time) throw new Error("missing header time");
+                  return {
+                    title: rect(".acpmux-running-tray__title", head),
+                    time: { ...rect(".acpmux-running-tray__time", head), ...textRect(time) },
+                    chevron: rect(".acpmux-running-tray__status svg", head),
+                  };
+                })(),
+              };
+            },
+            { RUNNING_TRAY_LIST_LINE },
+          );
         const initial = await measure();
         expect(initial.rows.length).toBeGreaterThanOrEqual(3);
         const [initialFirst, ...initialRest] = initial.rows;
@@ -557,23 +564,26 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         }
         await page.setViewportSize({ width: 300, height: 560 });
 
-        await page.evaluate(() => {
-          const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
-          const rows = [...tray.querySelectorAll<HTMLElement>(".acpmux-running-tray__list .acpmux-agent-line")];
-          const noStop = rows.find((row) => !row.querySelector(".acpmux-agent-line__stop-slot > button"));
-          const withStop = rows.find((row) => row.querySelector(".acpmux-agent-line__stop-slot > button"));
-          if (!noStop || !withStop) throw new Error("missing stop and no-stop rows");
-          noStop.dataset.testTarget = "no-stop";
-          withStop.dataset.testTarget = "stop";
-          const clicks = window as typeof window & { __trayClicks?: string[] };
-          clicks.__trayClicks = [];
-          noStop
-            .querySelector(".acpmux-agent-line__button")
-            ?.addEventListener("click", () => clicks.__trayClicks?.push("open"));
-          withStop
-            .querySelector(".acpmux-agent-line__stop-slot > button")
-            ?.addEventListener("click", () => clicks.__trayClicks?.push("stop"));
-        });
+        await page.evaluate(
+          ({ RUNNING_TRAY_LIST_LINE }) => {
+            const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
+            const rows = [...tray.querySelectorAll<HTMLElement>(RUNNING_TRAY_LIST_LINE)];
+            const noStop = rows.find((row) => !row.querySelector(".acpmux-agent-line__stop-slot > button"));
+            const withStop = rows.find((row) => row.querySelector(".acpmux-agent-line__stop-slot > button"));
+            if (!noStop || !withStop) throw new Error("missing stop and no-stop rows");
+            noStop.dataset.testTarget = "no-stop";
+            withStop.dataset.testTarget = "stop";
+            const clicks = window as typeof window & { __trayClicks?: string[] };
+            clicks.__trayClicks = [];
+            noStop
+              .querySelector(".acpmux-agent-line__button")
+              ?.addEventListener("click", () => clicks.__trayClicks?.push("open"));
+            withStop
+              .querySelector(".acpmux-agent-line__stop-slot > button")
+              ?.addEventListener("click", () => clicks.__trayClicks?.push("stop"));
+          },
+          { RUNNING_TRAY_LIST_LINE },
+        );
         // The open list is newest first and scrolls (#33364): the row with no Stop can sit below the
         // list's fold, so each target is scrolled into the list's view before its point is read.
         const clickPoint = (target: "no-stop" | "stop") =>
@@ -638,7 +648,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           await page.clock.setFixedTime(new Date(GALLERY_NOW));
           const head = page.locator(".acpmux-running-tray__head");
           if ((await head.count()) > 0 && (await head.getAttribute("aria-expanded")) !== "true") await head.click();
-          await page.locator(".acpmux-running-tray .acpmux-agent-line").first().waitFor();
+          await page.locator(RUNNING_TRAY_LINE).first().waitFor();
           // Captured before the checks, so the same capture also records a base (before) tree.
           if (process.env.CMUX_TRAY_CAPTURE_DIR) {
             await mkdir(process.env.CMUX_TRAY_CAPTURE_DIR, { recursive: true });
@@ -672,12 +682,15 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
               rows: [...tray.querySelectorAll<HTMLElement>(".acpmux-agent-line")].map((row) => {
                 const button = row.querySelector<HTMLElement>(".acpmux-agent-line__button")!;
                 const name = row.querySelector<HTMLElement>(".acpmux-summary-agent__name")!.getBoundingClientRect();
-                // Every drawn glyph before the title; the gap is measured from the glyph slot, the
-                // box the glyph (spinner, icon or mark) is centred in.
-                const glyphs = [...button.querySelectorAll<SVGElement>("svg")].filter((svg) => {
-                  const box = svg.getBoundingClientRect();
-                  return box.width > 0 && box.right <= name.left + 0.5;
-                });
+                // One leading icon composition: a harness logo and its badge share one slot.
+                const glyphs = new Set(
+                  [...button.querySelectorAll<SVGElement>("svg")]
+                    .filter((svg) => {
+                      const box = svg.getBoundingClientRect();
+                      return box.width > 0 && box.right <= name.left + 0.5;
+                    })
+                    .map((svg) => svg.closest(".cv-sender-icon") ?? svg),
+                );
                 const slot = button.querySelector<HTMLElement>(".acpmux-lineage__icon")!.getBoundingClientRect();
                 const time = row.querySelector<HTMLElement>(".acpmux-agent-line__time")!.getBoundingClientRect();
                 const meta = row.querySelector<HTMLElement>(".acpmux-agent-line__meta")?.getBoundingClientRect();
@@ -687,13 +700,15 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
                   .map((node) => node.textContent?.trim() ?? "")
                   .filter(Boolean);
                 return {
-                  glyphs: glyphs.length,
+                  glyphs: glyphs.size,
+                  harnessMark: Boolean(button.querySelector(".acpmux-lineage__icon .agent-mark")),
                   gap: name.left - slot.right,
                   subtitle: Boolean(row.querySelector(".acpmux-summary-agent__kind, .acpmux-agent-line__kind-icon")),
                   words: visibleText,
                   stats: row.querySelector(".acpmux-summary-text > .acpmux-agent-line__stats")?.textContent ?? null,
                   state: row.querySelector(".acpmux-summary-agent__state")?.textContent ?? null,
                   timed: row.hasAttribute("data-timed"),
+                  done: Boolean(row.querySelector("[data-hat-done]")),
                   statsBelow: Boolean(row.querySelector(".acpmux-summary-text > .acpmux-agent-line__progress")),
                   timeLeft,
                   metaRight: meta?.right,
@@ -705,12 +720,15 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           expect(anatomy.rows.length).toBeGreaterThan(0);
           for (const row of anatomy.rows) {
             expect(row.glyphs).toBe(1);
+            expect(row.harnessMark).toBe(true);
             expect(row.gap).toBeGreaterThanOrEqual(anatomy.token - 0.5);
             expect(row.subtitle).toBe(false);
             expect(row.words).not.toContain("general-purpose");
             expect(row.words).not.toContain("Explore");
             // A running line with its time shows no state word (Leo, 2026-11-03); every other says it.
             if (row.timed) expect(row.state).toBeNull();
+            // A done line ends in a check; its word is for screen readers (DoneMark.tsx).
+            else if (row.done) expect(row.state).toBeNull();
             else {
               expect(row.state).not.toBeNull();
               expect(row.words).toContain(row.state!);
@@ -734,8 +752,8 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
             // A long state word stays in its fixed track, cut before Stop.
             const long = await page.evaluate(() => {
               const state = document.querySelector<HTMLElement>(".acpmux-running-tray .acpmux-summary-agent__state");
-              if (!state) throw new Error("the failed line says Failed");
-              state.textContent = "A very long localized failure state that must stay in its track";
+              if (!state) throw new Error("the stopped line says Cancelled");
+              state.textContent = "A very long localized stopped state that must stay in its track";
               const row = state.closest(".acpmux-agent-line")!;
               const style = getComputedStyle(state);
               return {
@@ -766,17 +784,20 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
         await page.locator(".acpmux-running-tray .acpmux-agent-line .acpmux-summary-agent__name").first().waitFor();
         // The line has no kind glyph since #29608: the state icon, then the title.
-        const gaps = await page.evaluate(() => {
-          const line = document.querySelector<HTMLElement>(".acpmux-running-tray .acpmux-agent-line")!;
-          const box = (selector: string) => line.querySelector<HTMLElement>(selector)!.getBoundingClientRect();
-          const state = box(".acpmux-lineage__icon");
-          const name = box(".acpmux-summary-agent__name");
-          return {
-            narrow: document.querySelector(".acpmux-running-tray")!.hasAttribute("data-narrow"),
-            kindIcons: line.querySelectorAll(".acpmux-agent-line__kind-icon").length,
-            iconToTitle: name.left - state.right,
-          };
-        });
+        const gaps = await page.evaluate(
+          ({ RUNNING_TRAY_LINE }) => {
+            const line = document.querySelector<HTMLElement>(RUNNING_TRAY_LINE)!;
+            const box = (selector: string) => line.querySelector<HTMLElement>(selector)!.getBoundingClientRect();
+            const state = box(".acpmux-lineage__icon");
+            const name = box(".acpmux-summary-agent__name");
+            return {
+              narrow: document.querySelector(".acpmux-running-tray")!.hasAttribute("data-narrow"),
+              kindIcons: line.querySelectorAll(".acpmux-agent-line__kind-icon").length,
+              iconToTitle: name.left - state.right,
+            };
+          },
+          { RUNNING_TRAY_LINE },
+        );
         expect(gaps.narrow).toBe(width <= 400);
         expect(gaps.kindIcons).toBe(0);
         expect(gaps.iconToTitle).toBeCloseTo(8, 0);

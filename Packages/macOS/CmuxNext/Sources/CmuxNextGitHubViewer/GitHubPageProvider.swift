@@ -15,6 +15,20 @@ public import CmuxNextSettings
 ///   the pull request, and kept until the pull request's `updatedAt` moves, so the click opens it at once.
 ///   It is read from the pull request's commits on this Mac when a chat folder has them
 ///   (``GitHubLocalDiff``), else from GitHub.
+/// - `diff.file {url, file}`: one file's part of that same diff (`{patch}`, null when the diff has
+///   no such file or it is too long to draw inline), for a file the page expands in place. No
+///   gesture: it reads only what `diff.open` would show.
+/// - `pr.details {url}`: the body, conversation, reviewers, closed issues, label colours, head
+///   commit and merge state (``GitHubPullRequestDetails``): one read per pull request kept until
+///   its `updatedAt` moves, and never more than one a minute, however often the page asks.
+/// - `pr.merge {url, head}`: merges the pull request through GitHub's normal merge path, pinned
+///   to `head`, the commit the page showed (``AgentPaneGitPullRequest/mergeShown(url:head:)``).
+///   Spends the gesture.
+/// - `checks.read {url, head?}`: the CI dashboard's jobs (``GitHubChecks``) at `head`, the commit
+///   the page shows, from the App's one checks cache (``GitHubChecksCache``), read again only when
+///   stale for its state or kept for another head; never another head's checks.
+/// - `checks.rerun {url, runs}`: re-runs the failed jobs of those Actions runs (`gh run rerun
+///   --failed`), only runs the dashboard showed with a failed job. Spends the gesture.
 @MainActor
 public final class GitHubPageProvider: PageProvider {
     public static let namespace = "cmux.github."
@@ -34,6 +48,22 @@ public final class GitHubPageProvider: PageProvider {
     private let openWeb: @MainActor (URL, NSView?) -> Bool
     private let openDiff: @MainActor (_ text: String, _ link: GitHubLink, _ file: String?, _ from: NSView?) -> Bool
     private var diffs: [URL: Diff] = [:]
+    private let detailsReader: @Sendable (GitHubLink) async -> GitHubPullRequestDetails?
+    private let merger: @Sendable (_ url: String, _ head: String) async -> AgentPaneGitPullRequest.PageMerge
+    /// A pull request's details, read once per `updatedAt` (and at most once per ``detailsFreshness``).
+    private struct Details {
+        let updatedAt: String
+        let began: ContinuousClock.Instant
+        let read: Task<GitHubPullRequestDetails?, Never>
+        /// The read answered: kept while `updatedAt` stays.
+        var good = false
+    }
+    private var details: [URL: Details] = [:]
+    private let checksCache: GitHubChecksCache
+    private let rerunner: @Sendable (_ repository: String, _ run: Int) async -> String?
+    static let detailsFreshness: Duration = .seconds(60)
+    /// The longest one file's patch drawn inline; a longer one opens in the diff viewer.
+    static let maximumInlinePatch = 512 * 1024
     /// The gesture the last open spent: one key or click opens one thing.
     private var spentGesture: TimeInterval?
     /// The page drew `url`: its pull request when `content`, else its loading or failure state.
@@ -47,11 +77,21 @@ public final class GitHubPageProvider: PageProvider {
     public init(cache: AgentReplyPullRequests = .shared,
                 diffReader: @escaping @Sendable (URL) async -> String?,
                 localDiff: GitHubLocalDiff? = nil,
+                detailsReader: (@Sendable (GitHubLink) async -> GitHubPullRequestDetails?)? = nil,
+                merger: (@Sendable (_ url: String, _ head: String) async -> AgentPaneGitPullRequest.PageMerge)? = nil,
+                checks: GitHubChecksCache? = nil,
+                rerunner: (@Sendable (_ repository: String, _ run: Int) async -> String?)? = nil,
                 openWeb: @escaping @MainActor (URL, NSView?) -> Bool,
                 openDiff: @escaping @MainActor (_ text: String, _ link: GitHubLink, _ file: String?, _ from: NSView?) -> Bool) {
         self.cache = cache
         self.diffReader = diffReader
         self.localDiff = localDiff
+        // Nil: the user's gh (tests pass their own).
+        self.detailsReader = detailsReader ?? { await GitHubPullRequestDetails.read($0) }
+        self.merger = merger ?? { await AgentPaneGitPullRequest.mergeShown(url: $0, head: $1) }
+        // Nil: a cache of its own (tests); the App passes its one cache so pages share reads.
+        checksCache = checks ?? GitHubChecksCache()
+        self.rerunner = rerunner ?? { await AgentPaneGitPullRequest.rerunFailed(repository: $0, run: $1) }
         self.openWeb = openWeb
         self.openDiff = openDiff
         let links = AgentPaneReplyLinks()
@@ -64,6 +104,11 @@ public final class GitHubPageProvider: PageProvider {
         guard op.hasPrefix(Self.namespace) else { throw PageError.unknownOp(op) }
         let method = String(op.dropFirst(Self.namespace.count))
         if method == "diff.open" { return try await openDiff(params, context: context) }
+        if method == "diff.file" { return try await diffFile(params) }
+        if method == "pr.details" { return try await readDetails(params) }
+        if method == "pr.merge" { return try await merge(params, context: context) }
+        if method == "checks.read" { return try await readChecks(params) }
+        if method == "checks.rerun" { return try await rerun(params, context: context) }
         if method == "shown" {
             onShown(params["url"]?.stringValue ?? "", params["content"]?.boolValue == true)
             return .null
@@ -128,6 +173,131 @@ public final class GitHubPageProvider: PageProvider {
             throw PageError(code: "cmux.github.diff_unavailable", message: Self.diffUnavailable, retryable: true)
         }
         return ["opened": .bool(openDiff(text, link, file, anchor()))]
+    }
+
+    /// The link a call names, or invalid params.
+    private func link(_ params: JSONValue, _ op: String) throws -> GitHubLink {
+        guard let address = params["url"]?.stringValue, let url = URL(string: address), let link = GitHubLink(url) else {
+            throw PageError.invalidParams("cmux.github.\(op) needs a pull request url")
+        }
+        return link
+    }
+
+    /// One file's part of the pull request's diff, for the page's inline expand.
+    private func diffFile(_ params: JSONValue) async throws -> JSONValue {
+        let link = try link(params, "diff.file")
+        guard let file = params["file"]?.stringValue, !file.isEmpty, file.utf8.count <= 4096 else {
+            throw PageError.invalidParams("cmux.github.diff.file needs a file")
+        }
+        prefetchDiff(link)
+        let text = await diffs[link.url]?.read.value
+        try Task.checkCancellation()
+        guard let text, text.hasPrefix("diff --git ") else {
+            diffs[link.url] = nil
+            throw PageError(code: "cmux.github.diff_unavailable", message: Self.diffUnavailable, retryable: true)
+        }
+        // Detached: the diff can be 16 MB, never scanned on the main thread.
+        let patch = await Task.detached(priority: .userInitiated) { Self.patch(of: file, in: text) }.value
+        guard let patch else { return ["patch": .null] }
+        guard patch.utf8.count <= Self.maximumInlinePatch else { return ["patch": .null, "tooLarge": .bool(true)] }
+        return ["patch": .string(patch)]
+    }
+
+    /// `file`'s section of the unified diff `text` (from its `diff --git` line to the next), nil
+    /// when no section names it: by its `+++ b/` or `--- a/` line (a deleted file), a rename's
+    /// `rename to`, or a plain `diff --git a/<file> b/<file>` header (a mode-only or binary change).
+    nonisolated static func patch(of file: String, in text: String) -> String? {
+        let marker = "\ndiff --git "
+        var sections: [Substring] = []
+        var rest = Substring(text)
+        while let range = rest.range(of: marker) {
+            sections.append(rest[rest.startIndex..<rest.index(after: range.lowerBound)])
+            rest = rest[rest.index(after: range.lowerBound)...]
+        }
+        sections.append(rest)
+        let names = ["+++ b/\(file)", "--- a/\(file)", "rename to \(file)"]
+        for section in sections {
+            var header = true
+            for line in section.split(separator: "\n", omittingEmptySubsequences: false) {
+                if header, line.hasPrefix("diff --git ") {
+                    if line == "diff --git a/\(file) b/\(file)" { return String(section) }
+                    continue
+                }
+                // The hunks begin: past the header, a line is the file's text, not its name.
+                if line.hasPrefix("@@") { break }
+                header = false
+                if names.contains(where: { line == $0 }) { return String(section) }
+            }
+        }
+        return nil
+    }
+
+    /// The pull request's details, from the one read kept for its `updatedAt`.
+    private func readDetails(_ params: JSONValue) async throws -> JSONValue {
+        let link = try link(params, "pr.details")
+        let updatedAt = cache.answer(link.url, read: false).pullRequest?.updatedAt ?? ""
+        let now = ContinuousClock.now
+        let kept = details[link.url]
+        let entry: Details
+        // A new updatedAt (a comment, a push) reads again at once; the same one reuses a good read, or a
+        // failed one for a minute. The cache's updatedAt moves at most once a minute, so this does too.
+        if let kept, kept.updatedAt == updatedAt, kept.good || now - kept.began < Self.detailsFreshness {
+            entry = kept
+        } else {
+            let reader = detailsReader
+            // task-owner: one details read per pull request and updatedAt; pr.details awaits it, a newer one replaces it.
+            entry = Details(updatedAt: updatedAt, began: now, read: Task.detached(priority: .userInitiated) { await reader(link) })
+            details[link.url] = entry
+            while details.count > Self.maximumDiffs, let other = details.keys.first(where: { $0 != link.url }) { details[other] = nil }
+        }
+        let value = await entry.read.value
+        try Task.checkCancellation()
+        if value != nil, details[link.url]?.began == entry.began { details[link.url]?.good = true }
+        return ["details": value?.json ?? .null]
+    }
+
+    /// Merges the pull request the page showed, pinned to the head it showed.
+    private func merge(_ params: JSONValue, context: PageCallContext) async throws -> JSONValue {
+        let link = try link(params, "pr.merge")
+        guard let head = params["head"]?.stringValue, AgentPaneGitPullRequest.isCommit(head) else {
+            throw PageError.invalidParams("cmux.github.pr.merge needs the head commit the page showed")
+        }
+        guard spendGesture(context) else { throw PageError(code: "cmux.github.gesture_required", message: "Click to merge") }
+        switch await merger(link.url.absoluteString, head) {
+        case .merged(let queued):
+            // What the page shows next is read again: its state, its checks, its conversation.
+            details[link.url] = nil
+            _ = cache.answer(link.url)
+            return ["merged": .bool(true), "queued": .bool(queued)]
+        case .refused(let message):
+            throw PageError(code: "cmux.github.merge_refused", message: message)
+        }
+    }
+
+    /// The CI dashboard's jobs at the page's head, from the App's one checks cache.
+    private func readChecks(_ params: JSONValue) async throws -> JSONValue {
+        let link = try link(params, "checks.read")
+        let answer = await checksCache.answer(link, head: params["head"]?.stringValue ?? "")
+        try Task.checkCancellation()
+        return ["checks": answer.checks?.json ?? .null, "reading": .bool(answer.reading)]
+    }
+
+    /// Re-runs the failed jobs of the runs the dashboard showed failing.
+    private func rerun(_ params: JSONValue, context: PageCallContext) async throws -> JSONValue {
+        let link = try link(params, "checks.rerun")
+        let asked = Set((params["runs"]?.arrayValue ?? []).compactMap(\.intValue))
+        let runs = asked.intersection(checksCache.failedRuns(link)).sorted()
+        guard !asked.isEmpty, runs.count == asked.count else {
+            throw PageError.invalidParams("cmux.github.checks.rerun names only runs the page showed failing")
+        }
+        guard spendGesture(context) else { throw PageError(code: "cmux.github.gesture_required", message: "Click to re-run") }
+        var refusal: String?
+        for run in runs {
+            if let message = await rerunner(link.repository, run) { refusal = message }
+        }
+        checksCache.expire(link)
+        if let refusal { throw PageError(code: "cmux.github.rerun_refused", message: refusal) }
+        return ["rerun": JSONValue(runs.count)]
     }
 
     /// Spends the person's key or click in the page view (the host's record, never the page's word).

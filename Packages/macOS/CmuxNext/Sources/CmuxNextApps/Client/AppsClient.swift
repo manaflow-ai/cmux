@@ -86,6 +86,21 @@ public final class AppsClient {
         catch { throw .refused(error) }
     }
 
+    /// The composer's extension places, as the daemon answers them (`apps.composer.list`).
+    public func composerPlaces() async throws(AppsClientError) -> AppJSON {
+        if case .unavailable(let reason) = availability { throw .unavailable(reason) }
+        do throws(AppsTransportError) { return try await transport.composerPlaces() }
+        catch { throw .refused(error) }
+    }
+
+    /// The installed extensions' `@` items for `{query, prefix?, limit?}`, as the daemon ranks them
+    /// (`apps.composer.mentions`).
+    public func composerMentions(_ args: AppJSON) async throws(AppsClientError) -> AppJSON {
+        if case .unavailable(let reason) = availability { throw .unavailable(reason) }
+        do throws(AppsTransportError) { return try await transport.composerMentions(args) }
+        catch { throw .refused(error) }
+    }
+
     /// Adds bundled package directories (loaded once off the main actor at
     /// launch); a directory already known for an app stays.
     public func useBundledDirectories(_ directories: [String: URL]) {
@@ -144,6 +159,12 @@ public final class AppsClient {
         }
     }
 
+    /// A key no other call of this client used (an App Store op's `idempotency_key`).
+    func nextIdempotencyKey() -> String {
+        nextKey += 1
+        return "\(keyPrefix)-\(nextKey)"
+    }
+
     public func install(_ app: String) async throws(AppsClientError) { try await set(app, .install(true), origin: .user) }
     public func remove(_ app: String) async throws(AppsClientError) { try await set(app, .install(false), origin: .user) }
 
@@ -182,8 +203,20 @@ public final class AppsClient {
             mounts[mountID]?.model.status = .failed(reason)
         case let .host(app, state, reason):
             hostStates[app] = (state, reason)
+        case let .reloadFailed(app, reason):
+            // The supervisor kept the app's host: a drawn view keeps its scene and says the save was not taken.
+            for mount in mounts.values where mount.appID == app && mount.model.status == .ready {
+                mount.model.reloadFailure = reason
+            }
         case let .log(app, level, message, date):
             appendLog(app, level: level, message: message, date: date)
+        case .widgetsChanged:
+            // Each widget area showing the place reads it again (the New Tab page through
+            // AppsPanelsPageProvider, the sidebar through `observeEvents`).
+            break
+        case let .widgetHealth(mountID, stale, reason, _):
+            // Let it crash: the tile keeps its last scene, marked stale until a render answers again.
+            mounts[mountID]?.model.staleReason = stale ? (reason ?? AppsStrings.mountFailed) : nil
         }
         eventListeners.removeAll { $0.owner.object == nil }
         for entry in eventListeners { entry.listener(event) }
@@ -198,6 +231,7 @@ public final class AppsClient {
             guard let reply = try? await transport.list(), !Task.isCancelled else { return }
             self?.projection.applyList(reply.apps, revision: reply.revision, request: request)
             self?.hasList = true
+            self?.remountListedFailures()
         }
     }
 

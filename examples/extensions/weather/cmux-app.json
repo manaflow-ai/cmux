@@ -1,0 +1,37 @@
+{
+  "$schema": "../../../cmux-tui/crates/cmux-app-host/schema/v2/cmux-app.schema.json",
+  "manifestVersion": 2,
+  "id": "local/showcase-weather",
+  "name": { "en": "Weather" },
+  "version": "1.0.0",
+  "description": { "en": "An example extension built only on cmux-extension-sdk: the current weather for a place you choose, in a sidebar section." },
+  "publisher": { "name": "cmux examples", "url": "https://cmux.com" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": { "symbol": "cloud.sun" },
+  "categories": ["sidebar"],
+  "keywords": ["weather", "forecast", "example"],
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "dist/main.js" },
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderWeather",
+      "title": { "en": "Weather" },
+      "symbol": "cloud.sun",
+      "options": { "defaultRegion": "bottom", "maxRows": 4 }
+    }
+  },
+  "scopes": {
+    "net:geocoding-api.open-meteo.com": "Find the place you type on the map (Open-Meteo, no account).",
+    "net:api.open-meteo.com": "Read the current weather for that place (Open-Meteo, no account)."
+  },
+  "settings": {
+    "type": "object",
+    "properties": {
+      "place": { "type": "string", "title": "Place", "description": "A city or town, for example Lisbon or Austin, Texas.", "default": "" },
+      "units": { "type": "string", "title": "Units", "enum": ["celsius", "fahrenheit"], "default": "celsius" }
+    }
+  },
+  "activation": ["onInterface:cmux.section/1"],
+  "files": ["dist/"]
+}

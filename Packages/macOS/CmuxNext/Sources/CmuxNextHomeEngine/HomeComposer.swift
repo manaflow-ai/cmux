@@ -1,5 +1,5 @@
 public import CmuxHomeCore
-public import CmuxNextHome
+public import CmuxNextHomeModel
 import Foundation
 
 /// New Message and Invite as Home ops (home-messaging.md 4.1 and 16.10),

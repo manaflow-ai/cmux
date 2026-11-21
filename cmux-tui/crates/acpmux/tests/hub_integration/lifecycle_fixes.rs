@@ -521,6 +521,12 @@ async fn an_agent_that_never_answers_its_start_fails_with_a_deadline() {
         .await
         .expect_err("a prompt whose agent never started succeeded");
     assert!(refused.contains("agent_start did not finish within"), "{refused}");
+    // Its start was tried again before the turn failed, and says how often (`start_retry.rs`).
+    assert!(refused.contains("its start was tried 4 times"), "{refused}");
+    let events = hub.events(&id, 0, 100_000).unwrap();
+    let count = |kind: &str| events.iter().filter(|e| e.kind == kind).count();
+    assert_eq!(count("agent_start_retrying"), 3);
+    assert_eq!(count("agent_start_timed_out"), 4);
     // The agent answers from now on: the same session prompts normally.
     std::fs::write(&gate, b"").unwrap();
     hub.config.write().await.agent_start_timeout_ms = None;
@@ -539,6 +545,16 @@ fn agent_client(hub: &Arc<Hub>) -> TestClient {
 
 /// A hub with two harnesses: `fake`, and `gated`, whose agent starts only once `gate` exists.
 async fn gated_hub(gate: &std::path::Path, extra: &[(&str, &str)]) -> (Arc<Hub>, TestClient) {
+    let cfg = gated_config(gate, extra);
+    let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    hold_person_key(&hub);
+    let c = connect(&hub).await;
+    (hub, c)
+}
+
+/// [`gated_hub`]'s config, in memory.
+fn gated_config(gate: &std::path::Path, extra: &[(&str, &str)]) -> Config {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let profile = |env: BTreeMap<String, String>| HarnessProfile {
         kind: Default::default(),
@@ -561,11 +577,7 @@ async fn gated_hub(gate: &std::path::Path, extra: &[(&str, &str)]) -> (Arc<Hub>,
     let mut cfg = Config { harnesses, default_harness: Some("fake".into()), ..Default::default() };
     cfg.store.mode = StoreMode::Memory;
     cfg.permission_policy = PermissionPolicy::ApproveAll;
-    let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
-    let hub = Hub::new(cfg, store);
-    hold_person_key(&hub);
-    let c = connect(&hub).await;
-    (hub, c)
+    cfg
 }
 
 fn new_params(name: &str, harness: &str) -> Value {
@@ -642,6 +654,54 @@ async fn a_chiefs_slow_start_waits_on_its_harness_past_the_start_budget() {
         .expect("the Chief's slow start failed");
     assert!(created["sessionId"].is_string(), "{created}");
     let _ = std::fs::remove_file(&gate);
+}
+
+/// #36028: a Chief session's later starts wait on its harness too. A kept Chief session
+/// hibernates between turns; after a daemon restart (several on 2026-11-04) its wake died at the
+/// 90 s deadline again, because the ask lived only in the first daemon's memory.
+#[tokio::test]
+async fn a_chiefs_session_still_waits_on_its_harness_after_a_daemon_restart() {
+    let gate = std::env::temp_dir().join(format!("acpmux-chief-wake-{}", uuid::Uuid::now_v7()));
+    let dir = std::env::temp_dir().join(format!("acpmux-chief-store-{}", uuid::Uuid::now_v7()));
+    let mut cfg = gated_config(&gate, &[]);
+    cfg.store.mode = StoreMode::Local;
+    cfg.agent_start_timeout_ms = Some(300);
+    // The first start is quick: its gate is open.
+    std::fs::write(&gate, b"").unwrap();
+    let hub = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, &dir).unwrap());
+    hold_person_key(&hub);
+    let mut chief = agent_client(&hub);
+    let params = json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {
+        "name": "chief-kept", "harness": "gated", "waitStart": true,
+    }}});
+    let created = chief.request(method::SESSION_NEW, params).await.expect("the first start");
+    let id = created["sessionId"].as_str().unwrap().to_owned();
+    hub.shutdown_all().await;
+    drop(hub);
+    // The next daemon reads the session back; its agent is slow to start now.
+    std::fs::remove_file(&gate).unwrap();
+    let hub = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, &dir).unwrap());
+    hold_person_key(&hub);
+    let mut chief = agent_client(&hub);
+    // The first start may have logged its own waits; only the wake's count.
+    let before = start_waits(&hub, "chief-kept");
+    let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": "the next turn"}]});
+    let turn = tokio::spawn(async move { chief.request(method::SESSION_PROMPT, prompt).await });
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    while start_waits(&hub, "chief-kept") < before + 3 {
+        assert!(!turn.is_finished(), "the wake ended at its deadline: {:?}", turn.await);
+        assert!(std::time::Instant::now() < deadline, "the wake never said it still waits");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    std::fs::write(&gate, b"").unwrap();
+    let answered = tokio::time::timeout(Duration::from_secs(20), turn)
+        .await
+        .expect("the turn never ended once its agent answered")
+        .unwrap();
+    answered.expect("the woken Chief turn failed");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_file(&gate);
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// Nor for a connection that says it runs in a session, an agent's or a lane's.

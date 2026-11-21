@@ -33,6 +33,30 @@ extension HomeStore {
         return true
     }
 
+    /// The Chief's agents that have a session now (its acpmux's `optchat-sub-<home>-a<n>` sessions), told on
+    /// each change of that list. An agent the spawn answer or a tell queued starts later with no word in the
+    /// chat; from this call its pill and its chat say Working, with no tell, report or session read. An agent
+    /// stays started when its session ends, so a list without it changes nothing.
+    ///
+    /// Each agent's session start in `startedAt` is when its pill counts from (an agent queued or slow to spawn starts
+    /// later than the Chief's message to it); a start not in a later call is kept.
+    ///
+    /// - Parameters:
+    ///   - peers: The agent ids (`a<n>`) that have a session.
+    ///   - startedAt: When each agent's newest session began, by agent id (acpmux's session `createdMs`).
+    /// - Returns: True when an agent not started before is in `peers`, or an agent's session start changed (the
+    ///   loaded transcripts redraw).
+    @discardableResult
+    public func agentsStarted(_ peers: Set<String>, startedAt: [String: Date] = [:]) -> Bool {
+        let new = peers.subtracting(startedAgents)
+        let moved = startedAt.filter { agentSessionStarts[$0.key] != $0.value }
+        guard !new.isEmpty || !moved.isEmpty else { return false }
+        startedAgents.formUnion(new)
+        agentSessionStarts.merge(moved) { _, now in now }
+        for conversation in agentMessages.keys { bumpTranscript(conversation) }
+        return true
+    }
+
     /// Where agent `peer` of `conversation` runs, as last followed: the session its Chief link names, else
     /// any session of that agent. Nil before a read named it.
     public func agentSession(_ peer: String, in conversation: ConversationID) -> HomeAgentSessionRef? {

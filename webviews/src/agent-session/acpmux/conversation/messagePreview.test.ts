@@ -1,6 +1,6 @@
 // l10n-allow-file: message preview regression inputs, not shipped UI.
 import { expect, test } from "bun:test";
-import { messagePreview as sentPreview } from "./AgentMessageRow";
+import { messagePreview as sentPreview } from "./agentMessageRowModel";
 import { messagePreview as receivedPreview } from "./incomingMessage";
 
 for (const [direction, preview] of [

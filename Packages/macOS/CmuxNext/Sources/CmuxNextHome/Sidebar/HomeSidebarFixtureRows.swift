@@ -39,6 +39,19 @@ public struct HomeSidebarFixtureRows: Sendable {
         })
     }
 
+    /// One channel per title (plans/cmux-next/chief-channels-DESIGN.md), each a group with its own
+    /// Chief and two teammates, two minutes apart; the first is unread.
+    /// - Parameter titles: The channels' names.
+    public func channelRows(_ titles: [String]) -> [InboxRow] {
+        inbox(titles.enumerated().map { i, title in
+            let at = now.addingTimeInterval(Double(-120 * (i + 1)))
+            let chief = Participant(id: ParticipantID("agent_fixture_channel_\(i)"), kind: .agent, displayName: "\(title) Chief", agentClass: .chief)
+            let people = Self.names.prefix(2).enumerated().map { j, name in Participant(id: ParticipantID("user_fixture_channel_\(i)_\(j)"), kind: .human, displayName: name) }
+            return ConversationSummary(id: ConversationID("conv_fixture_channel_\(i)"), title: title, participants: [me, chief] + people,
+                                       lastSeq: i == 0 ? 3 : 0, createdAt: at, updatedAt: at, declaredKind: .group, channelChief: chief.id)
+        })
+    }
+
     private func summary(_ id: String, _ title: String, _ other: Participant, back seconds: Int) -> ConversationSummary {
         let at = now.addingTimeInterval(Double(-seconds))
         return ConversationSummary(id: ConversationID(id), title: title, participants: [me, other], createdAt: at, updatedAt: at)

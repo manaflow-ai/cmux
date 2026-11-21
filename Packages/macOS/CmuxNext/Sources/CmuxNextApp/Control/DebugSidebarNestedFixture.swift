@@ -78,7 +78,6 @@ extension DebugSidebarNestedFixture {
                 return .object(["error": .string("unknown state"), "available": .array(DaemonUpdateEvent.State.fixtureNames.map { .string($0) })])
             }
             services.daemonUpdates.board.apply(DaemonUpdateEvent(id: id, displayName: name, sshHost: host, state: state,
-                                                             notify: params["notify"]?.boolValue ?? false,
                                                              build: params["build"]?.stringValue))
             answer["state"] = .string(raw)
         }

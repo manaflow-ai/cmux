@@ -21,7 +21,7 @@ export function frameTime(ms: number): string {
 }
 
 /// A video's length as the note says it: `m:ss`, or `h:mm:ss`.
-function lengthOf(ms: number): string {
+export function lengthOf(ms: number): string {
   const total = Math.max(1, Math.round(ms / 1000));
   const h = Math.floor(total / 3600);
   const m = Math.floor((total % 3600) / 60);

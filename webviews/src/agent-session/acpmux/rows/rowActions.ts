@@ -1,6 +1,6 @@
 import { type QueueEdit } from "../model";
 import type { IncomingMessage } from "../conversation/incomingMessage";
-import { markSentNow } from "../conversation/PendingSteer";
+import { markSentNow } from "../conversation/pendingSteerModel";
 import { callNative } from "../callNative";
 
 /// Resumes the chat's paused messages with another agent (conversation/AgentPairNote.tsx).
@@ -14,8 +14,24 @@ export const editQueued = (promptId: string, edit: QueueEdit) =>
     return ok;
   });
 
-/// The recap's ×: the client drops its row (direct.ts dismissRecap), so no empty slot stays.
-export const dismissRecap = (rowId: string) => void window.cmuxAcpmuxActions?.["chat.recap.dismiss"]?.({ rowId });
+/// The recap's ×: the client drops its row (direct.ts dismissRecap), so no empty slot stays. The key
+/// names the chat, so a press on a chat a switch still shows never drops the next chat's recap.
+export const dismissRecap = (rowId: string, key: string) =>
+  void window.cmuxAcpmuxActions?.["chat.recap.dismiss"]?.({ rowId, key });
+
+/// Accept or Dismiss on a memory offer's facts: the daemon writes the instructions file
+/// (`_acpmux/memory_resolve`, direct.ts resolveMemory); the row settles from its answer.
+export const resolveMemory = (offerId: string, accept: string[], dismiss: string[]) =>
+  void window.cmuxAcpmuxActions?.["chat.memory.resolve"]?.({ offerId, accept, dismiss });
+
+/// The prompt coach card's ×: the chat never draws a coach card again on this device, and its row
+/// goes (direct.ts dismissPromptCoach).
+export const dismissPromptCoach = (rowId: string, sessionId: string) =>
+  void window.cmuxAcpmuxActions?.["chat.coach.dismiss"]?.({ rowId, sessionId });
+/// Approve or Not now on a no-prompt preset's card: acpmux records the person's answer
+/// (`_acpmux/presets`, direct.ts answerPresetApproval); the row closes from its answer.
+export const answerPresetApproval = (rowId: string, approve: boolean) =>
+  void window.cmuxAcpmuxActions?.["chat.presetApproval.answer"]?.({ rowId, approve });
 
 /// Opens a chat started from an offer (`chat.offer.open`): beside this one, else here.
 export const openOfferChat = (sessionId: string) =>

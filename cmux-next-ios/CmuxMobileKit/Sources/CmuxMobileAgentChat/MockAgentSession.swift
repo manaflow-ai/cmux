@@ -128,6 +128,8 @@ public final class MockAgentSession: AgentSessionSource {
             emit(.dequeued(promptId: promptID))
         case .resumeQueue:
             emit(.queuePaused(false, reason: nil))
+        case .answerElevation(let ask, _):
+            emit(.elevationDecision(id: ask.id))
         }
     }
 
@@ -189,6 +191,7 @@ public final class MockAgentSession: AgentSessionSource {
         let turnID = "history-1"
         emit(.userMessage(text: "What does the link framing look like today?", promptId: "p-h1", turnId: turnID, attachments: [], at: start))
         emit(.turnStarted(turnId: turnID, at: start))
+        replayWhoElseCall()
         emit(.update(.toolCall(ACPToolCall(
             id: "h-read", title: "Read frame.rs", kind: .read, status: .completed,
             content: [.content(.text("pub struct Frame { len: u32, channel: u32, kind: FrameKind, payload: Bytes }"))],
@@ -266,7 +269,10 @@ public final class MockAgentSession: AgentSessionSource {
         running = Task { [weak self] in
             guard let self else { return }
             do {
-                if ListStressSettings.shared.streams {
+                if ListStressSettings.shared.holdsTurn {
+                    // The rig's running chat: the turn stays open, with no output, until stopped.
+                    try await Task.sleep(for: .seconds(24 * 3600))
+                } else if ListStressSettings.shared.streams {
                     try await self.stream(MockStressContent.streamedAnswer, messageID: "stress-stream-\(turnID)")
                 } else if rich {
                     try await self.richTurn()

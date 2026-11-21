@@ -56,7 +56,7 @@ import Testing
         var tracks: Set<String> = []
         for stage in stages {
             let notice = Self.notice(stage)
-            card.frame = NSRect(x: 0, y: 0, width: 240, height: SidebarNoticeCardView.height(for: notice))
+            card.frame = NSRect(x: 0, y: 0, width: 240, height: SidebarNoticeCardView.height(for: notice, width: 240))
             card.configure(notice)
             card.layoutSubtreeIfNeeded()
             tracks.insert(NSStringFromRect(card.track.frame))

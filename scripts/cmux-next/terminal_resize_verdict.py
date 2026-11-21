@@ -7,9 +7,10 @@ records it in the layout's result and exits non-zero after writing its report.
 
 A drag or a key resize also fails when a terminal does not change size with its pane (Lead, cmux-ad m16 (b),
 2026-11-05): in every frame of the motion, the size the host asks of each shown terminal must be its pane's size.
-`debug.terminal_display` samples each terminal once per display frame (``follow``): `held` frames are frames in which
+`debug.terminal_display` samples each terminal once per frame of its window (``follow``): `held` frames are frames in which
 the host asked another size (a surface held through a drag by `terminalDrag.holdSurface`, or through a key resize's
-spring), `lagging` frames are frames in which the layer still showed another size. Held frames fail the round;
+spring), `lagging` frames are frames in which the layer still showed another size. Held frames fail the round, and so
+does a terminal shown at the round's start that was never sampled (0 frames: it judged nothing);
 lagging frames are data only (the frame owner keeps a frame for 1-4 refreshes by design; films judge that). A held
 drag used to pass on laid-out views alone (`holds_terminals`, still reported as data): it fails now.
 """
@@ -42,17 +43,20 @@ def resized(before, after):
 
 
 def follow(display):
-    """Takes `debug.terminal_display`'s pane check out of its stop reply `display` (``DebugTerminalPaneFollow``): the
-    frames sampled and, per terminal (by tab key), frames, held and lagging frames and the first 3 of each, with the
-    round's totals. None when the build has no pane check."""
+    """Takes `debug.terminal_display`'s pane check out of its stop reply `display` (``TerminalPaneFollowProbe`` in
+    CmuxNextTerminal/TerminalPaneFollow.swift): the frames sampled, per terminal (by tab key) its frames, held, lagging
+    and in-flight frames and the first 3 held and lagging ones, the frame presenters' counts in the run (`presenter`,
+    builds with it), and the round's totals. None when the build has no pane check."""
     terminals = display.pop("terminals_followed", None)
     frames = display.pop("follow_frames", None)
+    presenter = display.pop("follow_presenter", None)
     if terminals is None:
         return None
-    return {"frames": int(frames or 0), "terminals": terminals,
+    return {"frames": int(frames or 0), "terminals": terminals, "presenter": presenter,
             "held_frames": sum(int(t.get("held") or 0) for t in terminals.values()),
             "held_terminals": sum(1 for t in terminals.values() if t.get("held")),
-            "lagging_frames": sum(int(t.get("lagging") or 0) for t in terminals.values())}
+            "lagging_frames": sum(int(t.get("lagging") or 0) for t in terminals.values()),
+            "in_flight_frames": sum(int(t.get("in_flight") or 0) for t in terminals.values())}
 
 
 def _size(pair):
@@ -61,24 +65,32 @@ def _size(pair):
 
 def held_problem(entry, motion):
     """Why the round's terminals did not follow their panes, or None: a terminal held another size than its pane's in
-    some frame, or the round has no pane check to judge."""
+    some frame, a terminal shown at the start was never sampled (0 frames), or the round has no pane check to judge."""
     checked = entry.get("follow")
     if not checked or not checked.get("terminals"):
         return f"no terminal was checked against its pane in the {motion} (no terminals_followed from debug.terminal_display)"
     if not checked.get("frames"):
         return f"the pane check sampled no frame in the {motion}"
-    held = sorted(((key, t) for key, t in checked["terminals"].items() if t.get("held")),
+    terminals = checked["terminals"]
+    unsampled = sorted(key for key, t in terminals.items() if not t.get("frames"))
+    found = []
+    if unsampled:
+        # Shown at the start but never sampled: its window ticked no frame, or it left its window. It judged nothing.
+        found.append(f"{len(unsampled)} of {len(terminals)} terminals were not checked against their pane in the {motion}: "
+                     + ", ".join(f"{key} was not sampled (0 frames)" for key in unsampled))
+    held = sorted(((key, t) for key, t in terminals.items() if t.get("held")),
                   key=lambda item: (-int(item[1]["held"]), item[0]))
     if not held:
-        return None
+        return "; ".join(found) or None
     named = []
     for key, terminal in held[:3]:
         first = ", ".join(f"frame {m.get('frame')}: pane {_size(m.get('area'))}, asked {_size(m.get('asked'))}, "
                           f"shown {_size(m.get('shown'))}" for m in terminal.get("first_held") or [])
         named.append(f"{key} held {terminal['held']} of {terminal.get('frames')} frames ({first})")
     more = f"; and {len(held) - 3} more" if len(held) > 3 else ""
-    return (f"{len(held)} of {len(checked['terminals'])} terminals did not change size with their pane in the {motion}: "
-            + "; ".join(named) + more)
+    found.append(f"{len(held)} of {len(terminals)} terminals did not change size with their pane in the {motion}: "
+                 + "; ".join(named) + more)
+    return "; ".join(found)
 
 
 def problems(result):

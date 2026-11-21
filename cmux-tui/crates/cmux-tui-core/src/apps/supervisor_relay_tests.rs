@@ -153,6 +153,77 @@ fn relay_lines_reach_the_credential_provider_and_its_answers_reach_the_server() 
     );
 }
 
+/// The Cloud server's carrier ask (`relay.carrier {machine}`) reaches the
+/// Mac app as `credential.carrier_socket {machine}` and nothing else; the
+/// app's answer, the path of its own `cmux carrier serve` socket, reaches
+/// the server as a `relay.result`, and its refusal keeps the carrier's step
+/// code. A line without a usable machine id never reaches the app.
+#[test]
+fn a_carrier_ask_reaches_the_credential_provider_and_only_its_socket_comes_back() {
+    let lines = vec![
+        json!({ "type": "relay.carrier", "id": "r1", "machine": "vm_0123456789abcdefghij", "token": "never-forwarded" }),
+        json!({ "type": "relay.carrier", "id": "r2", "machine": "vm_0123456789abcdefghij" }),
+        json!({ "type": "relay.carrier", "id": "r3", "machine": "../vm" }),
+        json!({ "type": "relay.carrier", "id": "r4" }),
+    ];
+    let (f, outs) = setup(&[Probe::new("relay", true, lines)]);
+    let rx = credential_provider(&f);
+    f.install("cmux/relay");
+    let out = &outs[0];
+    let first = next_event(&rx, "apps-provider-request");
+    let second = next_event(&rx, "apps-provider-request");
+    for call in [&first, &second] {
+        assert_eq!(
+            (call["app"].clone(), call["op"].clone(), call["params"].clone()),
+            (
+                json!("cmux/relay"),
+                json!("credential.carrier_socket"),
+                json!({ "machine": "vm_0123456789abcdefghij" })
+            ),
+            "only the machine id goes to the app"
+        );
+        assert!(call.get("origin").is_none(), "a carrier ask carries no origin: {call}");
+    }
+    f.supervisor
+        .provider_result(
+            PROVIDER,
+            first["request_id"].as_u64().unwrap(),
+            true,
+            json!({ "value": { "socket": "/tmp/cmux-501/cmux-link-0123456789ab.sock" } }),
+        )
+        .unwrap();
+    f.supervisor
+        .provider_result(
+            PROVIDER,
+            second["request_id"].as_u64().unwrap(),
+            false,
+            json!({ "code": "parked_timeout", "message": "the machine's daemon never registered", "retryable": true }),
+        )
+        .unwrap();
+    let answers = frames(out, 4);
+    let by_id = |id: &str| answers.iter().find(|a| a["id"] == id).cloned().unwrap();
+    assert_eq!(
+        by_id("r1"),
+        json!({ "type": "relay.result", "id": "r1", "ok": true, "value": { "socket": "/tmp/cmux-501/cmux-link-0123456789ab.sock" } })
+    );
+    assert_eq!(
+        by_id("r2"),
+        json!({ "type": "relay.result", "id": "r2", "ok": false, "error": { "code": "parked_timeout", "message": "the machine's daemon never registered", "retryable": true } })
+    );
+    for id in ["r3", "r4"] {
+        assert_eq!(
+            (by_id(id)["type"].clone(), by_id(id)["code"].clone()),
+            (json!("relay.error"), json!("validation.invalid")),
+            "{id}"
+        );
+    }
+    assert!(
+        rx.recv_timeout(Duration::from_millis(200))
+            .iter()
+            .all(|e| e["event"] != "apps-provider-request")
+    );
+}
+
 #[test]
 fn relay_errors_keep_the_contract_shapes() {
     let lines = vec![

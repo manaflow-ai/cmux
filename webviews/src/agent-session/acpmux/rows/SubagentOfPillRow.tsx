@@ -1,11 +1,12 @@
 import { memo } from "react";
-import { SubagentOfRow } from "../subagents/SubagentGroup";
-import { type RowProps } from "./rowProps";
 
-/// The child view's "Subagent of" pill; a click goes back to the parent's view.
+/// The child view's "Subagent of" pill's place in the transcript: VirtualTranscript draws the pill
+/// itself, pinned over the top, so this row only keeps its room (model.ts SUBAGENT_OF).
 export const SubagentOfPillRow = memo(
-  function SubagentOfPillRow({ row }: RowProps) {
-    return <SubagentOfRow row={row} />;
+  function SubagentOfPillRow() {
+    return <div className="cv-subagent-of-slot" aria-hidden="true" />;
   },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.row.text === b.row.text,
+  () => true,
 );
+/// The pill's row height (model.ts: 28px with 8px above and below).
+export const SUBAGENT_OF_HEIGHT = 44;

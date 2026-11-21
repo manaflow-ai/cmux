@@ -146,6 +146,19 @@ impl Inotify {
         cvt(unsafe { libc::inotify_add_watch(self.raw(), path.as_ptr(), mask) })
     }
 
+    /// [`Self::watch_dir`], plus a name leaving the directory (deleted or
+    /// renamed away): for a file whose absence is itself a state.
+    pub fn watch_dir_with_removals(&self, dir: &Path) -> io::Result<i32> {
+        let path = CString::new(dir.as_os_str().as_bytes()).map_err(io::Error::other)?;
+        let mask = libc::IN_CLOSE_WRITE
+            | libc::IN_MOVED_TO
+            | libc::IN_DELETE
+            | libc::IN_MOVED_FROM
+            | libc::IN_ONLYDIR;
+        // SAFETY: `path` is NUL-terminated and outlives the call.
+        cvt(unsafe { libc::inotify_add_watch(self.raw(), path.as_ptr(), mask) })
+    }
+
     pub fn read_events(&self) -> io::Result<Vec<InotifyEvent>> {
         let mut out = Vec::new();
         let mut buf = [0u8; 4096];

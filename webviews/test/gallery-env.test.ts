@@ -92,3 +92,37 @@ test("a load reads and writes as its name, none as nothing", () => {
   }
   expect(writeEnv({ ...readEnv(new URLSearchParams()), load: "none" }).toString()).toBe("");
 });
+
+// The title area tone axis (TitleAreaTone.swift, web only): absent and `one-color` are the app's
+// default; WebTheme's contract variables follow it, and One Color leaves the chrome as it was.
+test("a title area tone reads and writes as its name, one color as nothing", () => {
+  const env = readEnv(new URLSearchParams("titleAreaTone=subtle-tone"));
+  expect(env.titleAreaTone).toBe("subtle-tone");
+  expect(writeEnv(env).toString()).toBe("titleAreaTone=subtle-tone");
+  for (const query of ["", "titleAreaTone=one-color", "titleAreaTone=loud"]) {
+    const plain = readEnv(new URLSearchParams(query));
+    expect(plain.titleAreaTone).toBeUndefined();
+    expect(writeEnv(plain).toString()).toBe("");
+  }
+});
+
+test("the tone, the folder fill, the chrome shade and the divider follow WebTheme's contract", () => {
+  const tokens = themeTokens({ name: "test", background: "#1e1e1e", foreground: "#e6e6e6", palette: [] } as never);
+  const one = webThemePayload(tokens).variables;
+  expect(one["--cmux-chrome-tone"]).toBe("0");
+  expect(one["--cmux-folder-fill"]).toBe("transparent");
+  expect(one["--cmux-sidebar-surface"]).toBe("transparent");
+  // The separator (the text at 8% on a dark theme) times the divider strength, 1.75.
+  expect(one["--cmux-chrome-divider"]).toBe("rgba(230, 230, 230, 0.14)");
+  expect(one["--cmux-sidebar-line"]).toBe(one["--cmux-chrome-divider"]);
+  const subtle = webThemePayload(tokens, undefined, false, { titleAreaTone: "subtle-tone" }).variables;
+  expect(subtle["--cmux-chrome-tone"]).toBe("1");
+  expect(subtle["--cmux-folder-fill"]).toBe("rgba(30, 30, 30, 1.0)");
+  // Half the flush corner's dark shade (0.28).
+  expect(subtle["--cmux-sidebar-surface"]).toBe("rgba(0, 0, 0, 0.14)");
+  const picture = webThemePayload(tokens, undefined, true, { titleAreaTone: "subtle-tone" }).variables;
+  expect(picture["--cmux-folder-fill"]).toBe("rgba(30, 30, 30, 0.0)");
+  const none = webThemePayload(tokens, undefined, false, { borders: "none", titleAreaTone: "subtle-tone" }).variables;
+  expect(none["--cmux-chrome-divider"]).toBe("transparent");
+  expect(none["--cmux-sidebar-line"]).toBe("transparent");
+});

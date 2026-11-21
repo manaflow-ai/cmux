@@ -13,14 +13,9 @@ import { Expand } from "./icons";
 import type { AcpmuxActivity } from "../model";
 import { ranRenders, useRenderFrame } from "./renderFrame";
 import { RenderPages, renderCall, type RenderCall } from "./renderCall";
-
-export const RENDER_FRAME_URL = "cmux-agent://render/frame";
+import { RENDER_FRAME_URL } from "./renderCardModel";
 /// The tallest a card draws until the reader expands it.
 const COLLAPSED_MAX_HEIGHT = 560;
-
-/// Whether this page can frame renders: only the bundled pane has the render origin.
-export const canRender = () => typeof location !== "undefined" && location.protocol === "cmux-agent:";
-export { ranRenders, useRenderFrame } from "./renderFrame";
 
 /// `card` is a render tool call's card key (renderCall.ts `renderPages`): Open hands it with the page.
 export function RenderCard({ call, card, actions }: { call: RenderCall; card?: string; actions?: ReactNode }) {

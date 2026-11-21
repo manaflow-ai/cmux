@@ -14,7 +14,8 @@ import { ChevronRight, ToolGroup } from "./icons";
 import { CmuxExecDetails, McpCallDetails, McpCallRows } from "./McpCallRows";
 import { mcpCall, mcpLabel, mcpRawName } from "./mcpCalls";
 import { ToolLabel, ToolVerbColumn } from "./ToolVerb";
-import { TranscriptDisclosureProvider, resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 
 type Look = "before" | "after" | "running";
 type Props = { look: Look; mode: "light" | "dark" };

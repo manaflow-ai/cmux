@@ -29,24 +29,25 @@ struct DaemonDiagnosticKnobsTests {
         #expect(knobs.daemonEnvironment == ["CMUX_TUI_RDS_INPUT": "1"])
     }
 
-    /// R-LIFECYCLE ORPHANS: the keepers rule is on by default; a dogfood report of an owner that stopped too soon
-    /// turns it off on the app's launch, and the app strips the daemon's own `CMUX_TUI_OWNER_KEEPERS`.
-    @Test func theOwnerKeepersSwitchReachesTheDaemon() {
-        let knobs = DaemonDiagnosticKnobs(processEnvironment: ["CMUX_NEXT_TUI_OWNER_KEEPERS": "0"])
-        #expect(knobs.daemonEnvironment == ["CMUX_TUI_OWNER_KEEPERS": "0"])
+    /// CMUX-571: the client send buffer's override reaches the daemon (the app strips the daemon's own name), or the
+    /// throughput A/B's base arm (`0`, the OS default) measures the new buffer in both arms.
+    @Test func theClientSendBufferReachesTheDaemon() {
+        let knobs = DaemonDiagnosticKnobs(processEnvironment: ["CMUX_NEXT_TUI_CLIENT_SEND_BUFFER": "0"])
+        #expect(knobs.daemonEnvironment == ["CMUX_TUI_CLIENT_SEND_BUFFER": "0"])
     }
 
-    /// The Chief owner (`cmux-chief-*`) follows the same keepers rule, so the off switch must reach its `ensure` too;
-    /// the Chief launch keeps only a short list of variables (`DaemonLauncher.chiefEnvironment`).
-    @Test func theOwnerKeepersSwitchReachesTheChiefOwner() {
-        let environment = DaemonLauncher.chiefEnvironment(["HOME": "/h", "CMUX_NEXT_TUI_OWNER_KEEPERS": "0",
-                                                           "CMUX_NEXT_TRACE_FLOWS": "/tmp/x"])
-        #expect(environment == ["HOME": "/h", "CMUX_TUI_OWNER_KEEPERS": "0"])
+    /// PERF FLAGS: the R-LIFECYCLE keepers switch is deleted, so an old `CMUX_NEXT_TUI_OWNER_KEEPERS=0` on the
+    /// app's launch reaches neither the app's daemon nor the Chief owner: the keepers rule always runs.
+    @Test func aStaleOwnerKeepersKnobReachesNoDaemon() {
+        let knobs = DaemonDiagnosticKnobs(processEnvironment: ["CMUX_NEXT_TUI_OWNER_KEEPERS": "0"])
+        #expect(knobs.daemonEnvironment.isEmpty)
+        let environment = DaemonLauncher.chiefEnvironment(["HOME": "/h", "CMUX_NEXT_TUI_OWNER_KEEPERS": "0"])
+        #expect(environment == ["HOME": "/h"])
     }
 
     /// R-DAEMON-STATE S1.7 (#35413 review): the input lane is on by default in every cmux-tui daemon, the Chief
     /// owner's too, so its off switch for the fallback night (`CMUX_NEXT_TUI_RDS_INPUT=0`) must reach the Chief
-    /// owner's `ensure` as the keepers switch does; the Chief launch keeps only a short list of variables.
+    /// owner's `ensure`; the Chief launch keeps only a short list of variables.
     @Test func theInputLaneSwitchReachesTheChiefOwner() {
         let environment = DaemonLauncher.chiefEnvironment(["HOME": "/h", "CMUX_NEXT_TUI_RDS_INPUT": "0",
                                                            "CMUX_NEXT_TRACE_FLOWS": "/tmp/x"])
@@ -55,5 +56,27 @@ struct DaemonDiagnosticKnobsTests {
 
     @Test func noKnobsPassNothing() {
         #expect(DaemonDiagnosticKnobs(processEnvironment: ["CMUX_TRACE_FLOWS": "/tmp/x"]).daemonEnvironment.isEmpty)
+    }
+}
+
+/// The user: "prevent the Chief conversation process from talking to the nightly's backend space in dev builds".
+/// The Chief owner's filtered environment keeps the build's cloud space, so its conversations, automations and
+/// hands go to the dev build's own space; another build's identity still never reaches it.
+struct ChiefOwnerBuildSpaceEnvironmentTests {
+    @Test func theChiefOwnerKeepsTheBuildsSpace() {
+        let environment = DaemonLauncher.chiefEnvironment(["HOME": "/h", "CMUX_BUILD_SPACE": "dev:my-tag",
+                                                           "CMUX_BUNDLE_ID": "com.cmuxterm.app.debug.my-tag",
+                                                           "CMUX_SOCKET_PATH": "/tmp/x.sock"])
+        #expect(environment["CMUX_BUILD_SPACE"] == "dev:my-tag")
+        #expect(environment["CMUX_BUNDLE_ID"] == nil)
+        #expect(environment["CMUX_SOCKET_PATH"] == nil)
+    }
+
+    @Test func aRefusingValueReachesTheChiefOwnerToo() {
+        #expect(DaemonLauncher.chiefEnvironment(["CMUX_BUILD_SPACE": "unusable"])["CMUX_BUILD_SPACE"] == "unusable")
+    }
+
+    @Test func nightlysChiefOwnerGetsNoSpace() {
+        #expect(DaemonLauncher.chiefEnvironment(["HOME": "/h"])["CMUX_BUILD_SPACE"] == nil)
     }
 }

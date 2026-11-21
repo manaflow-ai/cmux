@@ -32,17 +32,18 @@ test("a group title that is its page's title is not drawn; one that starts with 
   expect(shownGroupTitle("Updates", undefined)).toBe("Updates");
 });
 
-test("Settings > Updates draws its title once and its advanced group as Advanced", async () => {
+test("Settings > Updates draws its title once, and its advanced rows join the one Updates card", async () => {
   page = await renderPage({ path: "/settings/updates" });
   await settle();
   const section = page.container.querySelector('[data-section="updates"]');
   expect(section?.querySelector(".section-title")?.textContent).toBe("Updates");
-  expect(groupTitles(section)).toEqual(["Advanced"]);
-  // The rows stay, in their groups.
+  // rowLevelsData.ts merges the advanced group into the Updates card, whose title is the page's.
+  expect(groupTitles(section)).toEqual([]);
+  // The rows stay in the one card; an advanced row the levels hide is off the page (search has it).
   expect(
     section?.querySelector('[data-group="settings.group.updates"] [data-row-key="updates.channel"]'),
   ).not.toBeNull();
-  expect(section?.querySelector('[data-row-key="updates.idleInstallQuietSeconds"]')).not.toBeNull();
+  expect(section?.querySelector('[data-row-key="updates.idleInstallQuietSeconds"]')).toBeNull();
 });
 
 test("no category page draws a group title that is its own title", async () => {

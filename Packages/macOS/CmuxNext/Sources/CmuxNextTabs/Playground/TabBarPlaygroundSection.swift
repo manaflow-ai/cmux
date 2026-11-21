@@ -12,6 +12,16 @@ enum TabBarPlaygroundSection: Int, CaseIterable {
     case pinnedGap
     /// One radius for tabs and panes, nested corners concentric (Lawrence 2026-11-04).
     case cornerRadius
+    /// A hovered tab's x in its status's slot (Leo 2026-11-05).
+    case hoverClose
+    /// A busy tab with unread output: one mark or the dot beside the spinner (Leo 2026-10-22).
+    case busyUnread
+    /// Where a tab's trailing spinner or dot sits beside its title (Leo 2026-10-22, "the spacing is off").
+    case statusSpacing
+    /// A tab's hover card: its width and how it first shows (Leo 2026-11-07).
+    case hoverCard
+    /// The flush corner's tab row under One Color and Subtle Tone: every corner (Leo 2026-11-12).
+    case folderCorners
 
     var title: String {
         switch self {
@@ -20,6 +30,11 @@ enum TabBarPlaygroundSection: Int, CaseIterable {
         case .trailingControls: String(localized: "tabs.playground.section.trailing", defaultValue: "Trailing Controls", bundle: .module)
         case .pinnedGap: String(localized: "tabs.playground.section.pinnedGap", defaultValue: "Pinned Tabs Gap", bundle: .module)
         case .cornerRadius: String(localized: "tabs.playground.section.cornerRadius", defaultValue: "Corner Radius", bundle: .module)
+        case .hoverClose: String(localized: "tabs.playground.section.hoverClose", defaultValue: "Hover Close", bundle: .module)
+        case .busyUnread: String(localized: "tabs.playground.section.busyUnread", defaultValue: "Busy + Unread", bundle: .module)
+        case .statusSpacing: String(localized: "tabs.playground.section.statusSpacing", defaultValue: "Status Spacing", bundle: .module)
+        case .hoverCard: String(localized: "tabs.playground.section.hoverCard", defaultValue: "Hover Card", bundle: .module)
+        case .folderCorners: String(localized: "tabs.playground.section.folderCorners", defaultValue: "Folder Corners", bundle: .module)
         }
     }
 
@@ -30,6 +45,11 @@ enum TabBarPlaygroundSection: Int, CaseIterable {
         case .trailingControls: TrailingControlsPlaygroundVariants().all
         case .pinnedGap: PinnedGapPlaygroundVariants().all
         case .cornerRadius: ConcentricCornerPlaygroundVariants().all
+        case .hoverClose: HoverClosePlaygroundVariants().all
+        case .busyUnread: BusyUnreadPlaygroundVariants().all
+        case .statusSpacing: StatusSpacingPlaygroundVariants().all
+        case .hoverCard: HoverCardEntrancePlaygroundVariants().all
+        case .folderCorners: FolderCornerPlaygroundVariants().all
         }
     }
 }

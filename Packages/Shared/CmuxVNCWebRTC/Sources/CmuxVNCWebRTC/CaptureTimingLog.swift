@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import os
 
 /// Where each captured screen frame's time went, for the screen stream eval
 /// (`scripts/measure/screen-stream-eval`; measurement only). When `CMUX_VNC_TIMING_LOG` names a file,
@@ -8,10 +9,10 @@ import Foundation
 /// capture handed it over, which is also when it goes to the encoder (ScreenStream pushes it in that
 /// callback). All in µs of mach absolute time, so only their differences mean anything.
 /// Unset, nothing is recorded.
-final class CaptureTimingLog: @unchecked Sendable {
+final class CaptureTimingLog: Sendable {
     private let handle: FileHandle
-    private let lock = NSLock()
-    private var inputUs: UInt64?
+    /// The last viewer input not yet written with a frame (µs); the lock also orders the file writes.
+    private let pendingInputUs = OSAllocatedUnfairLock<UInt64?>(initialState: nil)
     private let timebase: mach_timebase_info_data_t
 
     /// The log `CMUX_VNC_TIMING_LOG` names in `environment`; nil when it is unset or can't be opened.
@@ -39,17 +40,17 @@ final class CaptureTimingLog: @unchecked Sendable {
     /// A viewer input was posted now.
     func input() {
         let now = microseconds(mach_absolute_time())
-        lock.withLock { inputUs = now }
+        pendingInputUs.withLock { $0 = now }
     }
 
     /// A complete frame arrived now; `displayTime` is ScreenCaptureKit's, in mach absolute time.
     func frame(displayTime: UInt64?) {
         let arrived = microseconds(mach_absolute_time())
         let shown = displayTime.map { microseconds($0) }
-        lock.withLock {
+        pendingInputUs.withLock { [handle] inputUs in
             var line: [String: Any] = ["arrived_us": arrived]
             if let shown { line["shown_us"] = shown }
-            if let inputUs { line["input_us"] = inputUs }
+            if let input = inputUs { line["input_us"] = input }
             inputUs = nil
             guard let data = try? JSONSerialization.data(withJSONObject: line, options: [.sortedKeys]) else { return }
             handle.write(data + Data("\n".utf8))

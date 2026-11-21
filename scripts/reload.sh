@@ -35,16 +35,13 @@ NATIVE_ARCH=""
 TAG=""
 LAUNCH=0
 BUILD_ONLY=0
+KEEP_APP=""
 CMUX_DEBUG_LOG=""
 CMUX_DEV_PORT=""
 CMUX_DEV_PORT_END=""
 CMUX_DEV_PORT_RANGE=""
 CMUX_DEV_ORIGIN=""
 CMUX_DEV_API_BASE_URL_VALUE=""
-CMUX_IROH_BROKER_BASE_URL_VALUE=""
-CMUX_IROH_V2_ENVIRONMENT_VALUE=""
-CMUX_IROH_V2_BASE_URL_VALUE=""
-CMUX_IROH_V2_FORCE_RELAY_VALUE="0"
 CMUX_AUTH_WWW_ORIGIN_VALUE=""
 CMUX_WWW_ORIGIN_VALUE=""
 PROD_AUTH=0
@@ -619,8 +616,9 @@ publish_reload_cli_path() {
   fi
 
   # Legacy pointer (plans/cmux-next/version-skew.md step 7). The app writes
-  # ~/Library/Application Support/cmux/last-app-cli at launch, and the dev
-  # shim and cleanup-dev-builds.sh read that first. This writer stays for one
+  # ~/Library/Application Support/cmux-next/last-app-cli at launch (an older
+  # build: cmux/last-app-cli), and the dev shim and cleanup-dev-builds.sh
+  # read that first. This writer stays for one
   # release only because readers outside this repo still read /tmp: the
   # cmuxterm-hq Tag Opener, local-build-guards and keep-devs.sh, plus app
   # builds older than the app pointer. Remove it once those read last-app-cli.
@@ -730,11 +728,16 @@ Options:
   --build-only           Build and validate a tagged app without replacing or
                          stopping the running tagged app, daemon, or tag state.
                          Cannot be combined with --launch.
+  --keep-app <path>      With --build-only: keep the tagged bundle at <path> instead of
+                         deleting it, its LSEnvironment pointing at the tag's installed path
+                         (CMUX_RELOAD_INSTALLED_APP, default this derived data's), so it can
+                         replace the running tagged app later (live mode,
+                         scripts/live-code/live-mode.py). Prints it as the App path.
   --direct-backend       Use the tag's shared GCP dev web stack (scripts/dev-backend.sh,
                          direct Tailscale transport). cmux-next builds default to local
                          backend mode without it, and Cloud is then unavailable.
-  --prod-auth            Point this tagged Debug build at production Stack auth,
-                         cmux APIs, and the production Iroh broker.
+  --prod-auth            Point this tagged Debug build at production Stack auth
+                         and cmux APIs.
                          Without it, tagged builds use the shared dev backend, which
                          needs a cmuxterm-hq checkout. Outside one, set
                          CMUX_DEV_BACKEND_MODE=local to use http://localhost:<port>.
@@ -912,6 +915,17 @@ measurement_derived_data_path() {
   echo "$(cd "$SCRIPT_DIR/.." && pwd -P)/.build/DerivedData/cmux-measure"
 }
 
+# The command that builds: xcodebuild. A measurement step's kept DerivedData can hold a module of the app
+# FFI that is older than its header, and that build fails with exit 65 ("has been modified since the module
+# file ... was built"), so its xcodebuild runs through stale-module-second-build.sh: after that failure it
+# clears the folder's build state and builds one more time. The helper runs inside the xcodebuild lock.
+set_xcodebuild_command() {
+  XCODEBUILD_COMMAND=(xcodebuild)
+  if reload_is_measurement_step && [[ "$DERIVED_DATA" == "$(measurement_derived_data_path)" ]]; then
+    XCODEBUILD_COMMAND=("$SCRIPT_DIR/cmux-next/stale-module-second-build.sh" "$DERIVED_DATA" "$RELOAD_LOG" xcodebuild)
+  fi
+}
+
 # A tag only changes the bundle id, names, socket and state files. None of those
 # are compiler inputs, so a new tag built into a DerivedData that is already warm
 # for this checkout recompiles nothing, while a fresh per-tag DerivedData is a full
@@ -1056,7 +1070,7 @@ print_tag_cleanup_commands() {
   local -a roots=()
   [[ -z "$derived" || "$derived" == "$link" || "${derived%/}" == "$own" ]] || roots+=("${derived%/}")
   roots+=("$own")
-  for root in "${roots[@]}"; do
+  for root in ${roots[@]+"${roots[@]}"}; do
     for config in Debug Release; do
       bin="${root}/Build/Products/${config}/cmux DEV ${tag}.app/Contents/Resources/bin/cmux-tui"
       printf '  [ -x %q ] && %q --session %q server stop\n' "$bin" "$bin" "cmux-app-${tag}"
@@ -1113,11 +1127,11 @@ print_tag_cleanup_reminder() {
     echo "  stale cleanup: not needed"
   else
     echo "  stale tags:"
-    for tag in "${stale_tags[@]}"; do
+    for tag in ${stale_tags[@]+"${stale_tags[@]}"}; do
       echo "    - ${tag}"
     done
     echo "Cleanup stale tags only:"
-    for tag in "${stale_tags[@]}"; do
+    for tag in ${stale_tags[@]+"${stale_tags[@]}"}; do
       print_tag_cleanup_commands "$tag"
     done
   fi
@@ -1165,6 +1179,14 @@ while [[ $# -gt 0 ]]; do
     --build-only)
       BUILD_ONLY=1
       shift
+      ;;
+    --keep-app)
+      KEEP_APP="${2:-}"
+      if [[ -z "$KEEP_APP" ]]; then
+        echo "error: --keep-app requires a path" >&2
+        exit 1
+      fi
+      shift 2
       ;;
     --prod-auth)
       PROD_AUTH=1
@@ -1261,6 +1283,10 @@ done
 
 if [[ "$BUILD_ONLY" -eq 1 && "$LAUNCH" -eq 1 ]]; then
   echo "error: --build-only cannot be combined with --launch" >&2
+  exit 1
+fi
+if [[ -n "$KEEP_APP" && ( "$BUILD_ONLY" -ne 1 || -z "$TAG" ) ]]; then
+  echo "error: --keep-app needs --tag and --build-only" >&2
   exit 1
 fi
 
@@ -1408,8 +1434,8 @@ fi
 if [[ -z "${CMUX_DEV_BACKEND_MODE:-}" && -z "${CMUX_DEV_BACKEND_URL:-}" ]]; then
   export CMUX_DEV_BACKEND_MODE=local
 fi
-# The cmuxterm-hq local build guard refuses xcodebuild/cargo below 500 GiB
-# free on the home volume unless CMUX_ALLOW_LOW_SPACE_BUILD=1. That floor is
+# The cmuxterm-hq local build guard refuses xcodebuild/cargo below its own floor
+# (CMUX_BUILD_MIN_FREE_GIB) of free space on the home volume unless CMUX_ALLOW_LOW_SPACE_BUILD=1. That floor is
 # sized for the legacy app and many agents at once. A cold cmux-next tagged
 # build (2026-09-29, tag nxpipe) left 5.8 GiB of DerivedData and lowered
 # free space by at most 10.6 GiB while it ran, so cmux-next reloads use their
@@ -1417,6 +1443,10 @@ fi
 # build. Its default (40 GiB, about 4x that peak) is the one number in
 # cmux-next/tour-requirements.json, so the runners that take tours read the
 # same floor instead of copying it.
+# The floor warns and the build runs anyway: a busy machine makes things
+# slower, never makes them fail (2026-11-06: a fleet try-pr --live-code run
+# with 33 GiB free was refused here). Under the floor it says the free space,
+# the floor and the host, and still lifts the guard's floor for this build.
 cmux_next_requirements="$SCRIPT_DIR/cmux-next/tour-requirements.json"
 cmux_next_default_min_free_gib="$(python3 -c '
 import json, sys
@@ -1428,14 +1458,18 @@ print(value)' "$cmux_next_requirements" 2>/dev/null)" \
 cmux_next_min_free_gib="${CMUX_NEXT_MIN_FREE_GIB:-$cmux_next_default_min_free_gib}"
 [[ "$cmux_next_min_free_gib" =~ ^[0-9]+$ ]] \
   || { echo "error: CMUX_NEXT_MIN_FREE_GIB must be a whole number of GiB" >&2; exit 1; }
-cmux_next_free_gib="$(df -Pk "$HOME" | awk 'NR==2{print int($4/1048576)}')"
-if (( cmux_next_free_gib < cmux_next_min_free_gib )); then
-  echo "error: cmux-next build needs ${cmux_next_min_free_gib} GiB free on the home volume; ${cmux_next_free_gib} GiB free." >&2
-  echo "       Free space (skills/build-release/cleanup-dev-builds in cmuxterm-hq) or build on the fleet with cmux-ci." >&2
-  exit 1
+cmux_next_free_gib="$(df -Pk "$HOME" 2>/dev/null | awk 'NR==2{print int($4/1048576)}')" || cmux_next_free_gib=""
+cmux_next_host="$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo unknown)"
+if ! [[ "$cmux_next_free_gib" =~ ^[0-9]+$ ]]; then
+  echo "warning: cmux-next floor: cannot read the home volume's free space on ${cmux_next_host} (floor ${cmux_next_min_free_gib} GiB); building anyway" >&2
+elif (( cmux_next_free_gib < cmux_next_min_free_gib )); then
+  echo "warning: cmux-next floor: ${cmux_next_free_gib} GiB free on the home volume of ${cmux_next_host}, under the ${cmux_next_min_free_gib} GiB floor; building anyway" >&2
+  echo "         If the build runs out of space: skills/build-release/cleanup-dev-builds in cmuxterm-hq, or build on the fleet with cmux-ci." >&2
+else
+  echo "==> cmux-next floor: ${cmux_next_free_gib} GiB free >= ${cmux_next_min_free_gib} GiB on ${cmux_next_host}"
 fi
 if [[ "${CMUX_ALLOW_LOW_SPACE_BUILD:-}" != "1" ]]; then
-  echo "==> cmux-next floor: ${cmux_next_free_gib} GiB free >= ${cmux_next_min_free_gib} GiB; lifting the local build guard's 500 GiB floor for this build"
+  echo "==> cmux-next: lifting the local build guard's floor for this build"
   export CMUX_ALLOW_LOW_SPACE_BUILD=1
 fi
 if [[ -n "${CMUX_NEXT_TUI_BIN:-}" ]]; then
@@ -1476,22 +1510,14 @@ fi
 
 # cmux-next's agent pane starts the acpmux daemon from Resources/bin. A miss
 # builds it on a build host (CI, fleet, nx-remote: build-acpmux.sh
-# --check-build-allowed decides); a developer machine reuses the
-# commit-addressed cache but never runs Cargo.
+# --check-build-allowed decides); anywhere else it fetches the acpmux published
+# for this checkout's cmux-tui tree, and never runs Cargo (resolve-acpmux.sh).
 if [[ -n "${CMUX_NEXT_ACPMUX_BIN:-}" ]]; then
   echo "==> cmux-next: bundling acpmux from CMUX_NEXT_ACPMUX_BIN=$CMUX_NEXT_ACPMUX_BIN"
-elif [[ -x "$PWD/scripts/cmux-next/build-acpmux.sh" ]]; then
-  if acpmux_cached="$("$PWD/scripts/cmux-next/build-acpmux.sh" --cached-only --print-path 2>/dev/null)"; then
-    export CMUX_NEXT_ACPMUX_BIN="$acpmux_cached"
-    echo "==> cmux-next: bundling cached acpmux from $CMUX_NEXT_ACPMUX_BIN"
-  elif "$PWD/scripts/cmux-next/build-acpmux.sh" --check-build-allowed; then
-    "$PWD/scripts/cmux-next/build-acpmux.sh" || exit 1
-    export CMUX_NEXT_ACPMUX_BIN="$("$PWD/scripts/cmux-next/build-acpmux.sh" --cached-only --print-path)"
-    echo "==> cmux-next: bundling acpmux built on this host from $CMUX_NEXT_ACPMUX_BIN"
-  else
-    echo "error: no cached acpmux for this checkout, and this machine never runs Cargo; build through nx-remote or the fleet, or set CMUX_NEXT_ACPMUX_BIN" >&2
-    exit 1
-  fi
+elif [[ -x "$PWD/scripts/cmux-next/resolve-acpmux.sh" ]]; then
+  CMUX_NEXT_ACPMUX_BIN="$("$PWD/scripts/cmux-next/resolve-acpmux.sh" --repo "$PWD")" || exit 1
+  export CMUX_NEXT_ACPMUX_BIN
+  echo "==> cmux-next: bundling acpmux from $CMUX_NEXT_ACPMUX_BIN"
 fi
 
 # The Home Chief's brain host (Native/OptChat/optchat-chief, see
@@ -1528,7 +1554,26 @@ if [[ -z "${CMUX_NEXT_MOBILE_HOST_BIN:-}" && -x "$PWD/scripts/cmux-next/build-mo
 fi
 [[ -n "${CMUX_NEXT_MOBILE_HOST_BIN:-}" ]] && echo "==> cmux-next: bundling cmux-mobile-host from $CMUX_NEXT_MOBILE_HOST_BIN"
 
-# The web bundles (agent pane, pages, Agent Activity, palette ranker, webviews
+# The Screen Sharing helper (plans/cmux-next/screen-sharing-helper.md): the cmux.rd/1 host in
+# its own signed app, which holds the Screen Recording and Accessibility grants so a grant
+# never relaunches cmux. Same rule as cmux-mobile-host: fleet and CI builds compile it on a
+# miss and require it; a local reload bundles a cached build when one exists and otherwise
+# builds an app that shares its screen from its own process (never Cargo on the developer Mac).
+if [[ "$BUILD_CONFIGURATION" == "Release" || "$NATIVE_ARCH" -eq 1 ]]; then
+  export CMUX_NEXT_SCREEN_HELPER_ARCHS="${CMUX_NEXT_SCREEN_HELPER_ARCHS:-$RELOAD_HELPER_ARCHS}"
+fi
+if [[ -z "${CMUX_NEXT_SCREEN_HELPER_BIN:-}" && -x "$PWD/scripts/cmux-next/build-screen-sharing-helper.sh" ]]; then
+  if cmux_screen_helper_cached="$("$PWD/scripts/cmux-next/build-screen-sharing-helper.sh" --cached-only --print-path 2>/dev/null)"; then
+    export CMUX_NEXT_SCREEN_HELPER_BIN="$cmux_screen_helper_cached"
+  elif "$PWD/scripts/cmux-next/build-screen-sharing-helper.sh" --check-build-allowed; then
+    "$PWD/scripts/cmux-next/build-screen-sharing-helper.sh" || exit 1
+    export CMUX_NEXT_SCREEN_HELPER_BIN="$("$PWD/scripts/cmux-next/build-screen-sharing-helper.sh" --cached-only --print-path)"
+    export CMUX_NEXT_REQUIRE_SCREEN_HELPER=1
+  fi
+fi
+[[ -n "${CMUX_NEXT_SCREEN_HELPER_BIN:-}" ]] && echo "==> cmux-next: bundling the Screen Sharing helper from $CMUX_NEXT_SCREEN_HELPER_BIN"
+
+# The web bundles (agent pane, pages, Agent Activity, webviews
 # app) are build output, not committed: they are built from the sources before
 # the compile, so the app never ships a stale or missing copy (cx-vn5). A warm
 # tree skips the build in about a second. The Xcode "Verify web bundles" phase
@@ -1545,16 +1590,12 @@ CMUX_DEV_ORIGIN="http://localhost:${CMUX_DEV_PORT}"
 if [[ -n "$TAG" && "$PROD_AUTH" -eq 0 ]]; then
   source "$PWD/scripts/lib/dev-backend-origin.sh"
   CMUX_DEV_ORIGIN="$(cmux_resolve_tagged_backend "$TAG_SLUG" "$PWD" "$CMUX_DEV_ORIGIN")" || exit 1
-  # Local mode has no shared backend to bake into the app or the Iroh broker default.
+  # Local mode has no shared backend to bake into the app.
   if [[ "${CMUX_DEV_BACKEND_MODE:-remote}" != "local" ]]; then
     export CMUX_DEV_BACKEND_URL="$CMUX_DEV_ORIGIN"
   fi
 fi
 CMUX_DEV_API_BASE_URL_VALUE="$(cmux_attach_resolve_dev_api_base_url "$CMUX_DEV_ORIGIN")"
-CMUX_IROH_BROKER_BASE_URL_VALUE="${CMUX_DEV_BACKEND_URL:-${CMUX_IROH_BROKER_BASE_URL:-https://cmux-staging.vercel.app}}"
-CMUX_IROH_V2_ENVIRONMENT_VALUE="${CMUX_IROH_V2_ENVIRONMENT:-development}"
-CMUX_IROH_V2_BASE_URL_VALUE="${CMUX_IROH_V2_BASE_URL:-https://cmux-v2-development.debussy.workers.dev}"
-CMUX_IROH_V2_FORCE_RELAY_VALUE="${CMUX_IROH_V2_FORCE_RELAY:-0}"
 CMUX_AUTH_WWW_ORIGIN_VALUE="$CMUX_DEV_ORIGIN"
 CMUX_WWW_ORIGIN_VALUE="$CMUX_DEV_ORIGIN"
 if [[ "$PROD_AUTH" -eq 1 ]]; then
@@ -1562,12 +1603,7 @@ if [[ "$PROD_AUTH" -eq 1 ]]; then
     echo "error: --prod-auth cannot use API origin '$CMUX_DEV_API_BASE_URL'; production builds must use https://cmux.com" >&2
     exit 1
   fi
-  if [[ -n "${CMUX_IROH_BROKER_BASE_URL:-}" && "$CMUX_IROH_BROKER_BASE_URL" != "https://cmux.com" ]]; then
-    echo "error: --prod-auth cannot use Iroh broker origin '$CMUX_IROH_BROKER_BASE_URL'; production builds must use https://cmux.com" >&2
-    exit 1
-  fi
   CMUX_DEV_API_BASE_URL_VALUE="https://cmux.com"
-  CMUX_IROH_BROKER_BASE_URL_VALUE="https://cmux.com"
   CMUX_AUTH_WWW_ORIGIN_VALUE="https://cmux.com"
   CMUX_WWW_ORIGIN_VALUE="https://cmux.com"
 fi
@@ -1635,8 +1671,6 @@ reload_finalize() {
     echo "  $CMUX_DEV_ORIGIN"
     echo "Dev API origin:"
     echo "  $CMUX_DEV_API_BASE_URL_VALUE"
-    echo "Iroh broker origin:"
-    echo "  $CMUX_IROH_BROKER_BASE_URL_VALUE"
     if [[ -n "${TAG_SLUG:-}" ]]; then
       echo "Dev web command:"
       echo "  cd web && CMUX_PORT=$CMUX_DEV_PORT CMUX_PORT_RANGE=$CMUX_DEV_PORT_RANGE CMUX_PORT_END=$CMUX_DEV_PORT_END CMUX_AUTH_CALLBACK_SCHEME=cmux-dev-$TAG_SLUG bun dev"
@@ -1665,7 +1699,17 @@ reload_finalize() {
     echo "Swift workaround:"
     echo "  batch mode, debug symbols, and AArch64 GlobalISel disabled for this reload"
   fi
-  if [[ "$BUILD_ONLY" -eq 1 ]]; then
+  if [[ "$BUILD_ONLY" -eq 1 && -n "$KEEP_APP" && -n "${TAG_APP_STAGING_PATH:-}" && -e "$TAG_APP_STAGING_PATH" ]]; then
+    # Live mode's build (--keep-app): the staged bundle is the product. It moves to KEEP_APP,
+    # beside nothing the running tagged app uses, and is printed as the App path.
+    rm -rf "$KEEP_APP"
+    mkdir -p "$(dirname "$KEEP_APP")"
+    mv "$TAG_APP_STAGING_PATH" "$KEEP_APP"
+    echo
+    echo "Build-only: kept the tagged app for a later swap. The running tagged app, cmuxd, and tag state were left unchanged."
+    echo "App path:"
+    echo "  $KEEP_APP"
+  elif [[ "$BUILD_ONLY" -eq 1 ]]; then
     echo
     echo "Build-only validation complete. The running tagged app, cmuxd, and tag state were left unchanged."
     if [[ -n "${TAG_APP_STAGING_PATH:-}" && -e "$TAG_APP_STAGING_PATH" ]]; then
@@ -1769,10 +1813,6 @@ XCODEBUILD_ARGS+=(MARKETING_VERSION="$CMUX_NEXT_VERSION")
 if [[ "$BUILD_CONFIGURATION" == Release ]]; then
   XCODEBUILD_ARGS+=(CODE_SIGN_ENTITLEMENTS=)
 fi
-# The helper is assembled before Xcode emits the host's processed Info.plist.
-# Pass the final tagged display name explicitly so its TCC entry matches the
-# app the user is dogfooding instead of falling back to the untagged product.
-XCODEBUILD_ARGS+=(CMUX_CUA_HELPER_DISPLAY_NAME="cmux Computer Use")
 if [[ "$PROD_AUTH" -eq 1 ]]; then
   XCODEBUILD_ARGS+=(-xcconfig "$SCRIPT_DIR/../config/IrohRelayPolicyProduction.xcconfig")
 fi
@@ -1798,6 +1838,12 @@ if [[ "$BENCH_HOOKS" -eq 1 ]]; then
   source "$(dirname "${BASH_SOURCE[0]}")/cmux-next/lib/bench-swift-defines.sh"
   SWIFT_OTHER_FLAGS+=" $CMUX_BENCH_SWIFT_DEFINES"
   echo "==> bench configuration: Release optimization with $CMUX_BENCH_SWIFT_DEFINES (no DEBUG)"
+fi
+if [[ "$BUILD_CONFIGURATION" == "Release" && "${CMUX_LIVE_CODE_BUILD:-0}" != "1" ]]; then
+  # Release Swift for size, hot targets at -O, as the NIGHTLY builds it (scripts/cmux-next/lib/swift-size-opt.sh).
+  # shellcheck source=scripts/cmux-next/lib/swift-size-opt.sh
+  source "$SCRIPT_DIR/cmux-next/lib/swift-size-opt.sh"
+  while IFS= read -r arg; do XCODEBUILD_ARGS+=("$arg"); done < <(swift_size_opt_xcodebuild_args)
 fi
 if [[ "${CMUX_LIVE_CODE_BUILD:-0}" == "1" ]]; then
   # Live code: every CmuxNext target unoptimized, testable and a file at a time, linked so a patch
@@ -1893,6 +1939,7 @@ build_dirty=false
 # xcodebuild invocations can trample that daemon, so cap reload.sh builds at
 # five per user while still allowing useful parallel tagged builds.
 XCODEBUILD_STARTED=1
+set_xcodebuild_command
 python3 -c '
 import array
 import fcntl
@@ -2031,7 +2078,7 @@ try:
     os.execvp(command[0], command)
 except OSError as exc:
     raise SystemExit(f"error: exec: {exc}")
-' "$XCODEBUILD_LOCK_DIR" "$XCODEBUILD_LOCK_CONCURRENCY" "$XCODEBUILD_LOCK_WAIT_SECONDS" xcodebuild "${XCODEBUILD_ARGS[@]}"
+' "$XCODEBUILD_LOCK_DIR" "$XCODEBUILD_LOCK_CONCURRENCY" "$XCODEBUILD_LOCK_WAIT_SECONDS" "${XCODEBUILD_COMMAND[@]}" "${XCODEBUILD_ARGS[@]}"
 sleep 0.2
 if LC_ALL=C grep -q 'BUILD INTERRUPTED' "$RELOAD_LOG"; then
   echo "error: xcodebuild reported ** BUILD INTERRUPTED **; refusing to reuse DerivedData app artifacts" >&2
@@ -2083,6 +2130,9 @@ fi
 if [[ -z "${APP_PATH}" || ! -d "${APP_PATH}" ]]; then
   echo "${APP_NAME}.app not found in DerivedData" >&2
   exit 1
+fi
+if [[ "${CMUX_LIVE_CODE_BUILD:-0}" == "1" ]]; then
+  live_code_copy_resource_bundles "$APP_PATH"
 fi
 validate_app_bundle "$APP_PATH" "$APP_EXECUTABLE_NAME"
 XCODEBUILD_OUTPUT_VALID=1
@@ -2153,13 +2203,22 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       esac
       /usr/libexec/PlistBuddy -c 'Delete :CMUXCloudDogfoodEnabled' "$INFO_PLIST" 2>/dev/null || true
       /usr/libexec/PlistBuddy -c "Add :CMUXCloudDogfoodEnabled bool ${CMUX_DEV_CLOUD_ENABLED:-1}" "$INFO_PLIST"
+      # Swift live mode's mark (LiveCode.isLive): only a live code build (scripts/live-code/build.sh) has it.
+      /usr/libexec/PlistBuddy -c 'Delete :CMUXLiveCodeBuild' "$INFO_PLIST" 2>/dev/null || true
+      if [[ "${CMUX_LIVE_CODE_BUILD:-0}" == "1" ]]; then
+        /usr/libexec/PlistBuddy -c "Add :CMUXLiveCodeBuild bool true" "$INFO_PLIST"
+      fi
       set_plist_env "$INFO_PLIST" CMUX_AUTH_CALLBACK_SCHEME "$CMUX_AUTH_CALLBACK_SCHEME_VALUE"
       set_plist_env "$INFO_PLIST" CMUX_SOCKET_ENABLE "1"
       set_plist_env "$INFO_PLIST" CMUX_SOCKET_MODE "allowAll"
       set_plist_env "$INFO_PLIST" CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD "1"
       set_plist_env "$INFO_PLIST" CMUXTERM_REPO_ROOT "$PWD"
       BUNDLED_APP_PATH="$TAG_APP_FINAL_PATH"
-      if [[ "$BUILD_ONLY" -eq 1 ]]; then
+      # --keep-app: the kept bundle will be swapped into the installed tagged app's path
+      # (CMUX_RELOAD_INSTALLED_APP, when it is built in other derived data), so it names that one.
+      if [[ "$BUILD_ONLY" -eq 1 && -n "$KEEP_APP" ]]; then
+        BUNDLED_APP_PATH="${CMUX_RELOAD_INSTALLED_APP:-$TAG_APP_FINAL_PATH}"
+      elif [[ "$BUILD_ONLY" -eq 1 ]]; then
         BUNDLED_APP_PATH="$TAG_APP_STAGING_PATH"
       fi
       set_plist_env "$INFO_PLIST" CMUX_BUNDLED_CLI_PATH "$BUNDLED_APP_PATH/Contents/Resources/bin/cmux"
@@ -2177,10 +2236,6 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       fi
       set_plist_env "$INFO_PLIST" CMUX_API_BASE_URL "$CMUX_DEV_API_BASE_URL_VALUE"
       set_plist_env "$INFO_PLIST" CMUX_VM_API_BASE_URL "$CMUX_DEV_API_BASE_URL_VALUE"
-      set_plist_env "$INFO_PLIST" CMUX_IROH_BROKER_BASE_URL "$CMUX_IROH_BROKER_BASE_URL_VALUE"
-      set_plist_env "$INFO_PLIST" CMUX_IROH_V2_ENVIRONMENT "$CMUX_IROH_V2_ENVIRONMENT_VALUE"
-      set_plist_env "$INFO_PLIST" CMUX_IROH_V2_BASE_URL "$CMUX_IROH_V2_BASE_URL_VALUE"
-      set_plist_env "$INFO_PLIST" CMUX_IROH_V2_FORCE_RELAY "$CMUX_IROH_V2_FORCE_RELAY_VALUE"
       if [[ "$PROD_AUTH" -eq 1 ]]; then
         set_plist_env "$INFO_PLIST" CMUX_AUTH_ENVIRONMENT production
       fi
@@ -2217,16 +2272,20 @@ if [[ -d "$PWD/ghostty" ]]; then
     "$PWD/scripts/build-ghostty-cli-helper.sh" --output "$GHOSTTY_HELPER_DEST"
   fi
 fi
-CMUX_CUA_HELPER_APP="$APP_PATH/Contents/Library/cmux Computer Use.app"
-if [[ -x "$CMUX_CUA_HELPER_APP/Contents/MacOS/cmux-cua" ]]; then
-  echo "Preserving Xcode-built cmux Computer Use helper at $CMUX_CUA_HELPER_APP"
-else
-  "$PWD/scripts/build-cmux-cua.sh" --output "$PWD/build/cmux-cua/cmux-cua" \
-    --helper-app "$CMUX_CUA_HELPER_APP"
+# The Screen Sharing helper, when this build has its binary (CMUX_NEXT_SCREEN_HELPER_BIN, above)
+# but the app came out without it: the Xcode phase's only declared output is its stamp in
+# TARGET_TEMP_DIR, so a reused DerivedData (fleet slots) whose app bundle was removed or rebuilt
+# while the stamp stayed skips the phase, and the app falls back to sharing from its own process.
+# Bundle the same binary into the final app here, named and signed as the phase would.
+cmux_screen_helper_bins=("$APP_PATH/Contents/Library/"*" Screen Sharing.app/Contents/MacOS/cmux-screen-sharing")
+if [[ -x "${cmux_screen_helper_bins[0]}" ]]; then
+  echo "Preserving Xcode-built Screen Sharing helper at ${cmux_screen_helper_bins[0]%/Contents/MacOS/*}"
+elif [[ -n "${CMUX_NEXT_SCREEN_HELPER_BIN:-}" && -x "$PWD/scripts/cmux-next/bundle-screen-sharing-helper.sh" ]]; then
+  echo "==> cmux-next: the Bundle Screen Sharing helper phase did not run; bundling it into $APP_PATH"
+  env CONFIGURATION="$BUILD_CONFIGURATION" CMUX_NEXT_REQUIRE_SCREEN_HELPER=1 \
+    EXPANDED_CODE_SIGN_IDENTITY="${CMUX_DEV_SIGN_IDENTITY:-}" CMUX_TIMESTAMP=none \
+    "$PWD/scripts/cmux-next/bundle-screen-sharing-helper.sh" --app "$APP_PATH" || exit 1
 fi
-# A dev build uses a Developer ID helper from an installed release, NIGHTLY or
-# RC, or none. Drop an ad-hoc helper an older build left in this app.
-"$PWD/scripts/cmux-cua-helper-trust.sh" drop-unsigned "$APP_PATH"
 # The Bundle cmux-tui phase already placed the same-tree cmux-tui (or the pin
 # with CMUX_NEXT_TUI_MODE=pin, or CMUX_NEXT_TUI_BIN); refuse anything else.
 cmux_next_tui_version="$APP_PATH/Contents/Resources/bin/cmux-tui.version"
@@ -2427,10 +2486,6 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     CMUX_WWW_ORIGIN="$CMUX_WWW_ORIGIN_VALUE"
     CMUX_API_BASE_URL="$CMUX_DEV_API_BASE_URL_VALUE"
     CMUX_VM_API_BASE_URL="$CMUX_DEV_API_BASE_URL_VALUE"
-    CMUX_IROH_BROKER_BASE_URL="$CMUX_IROH_BROKER_BASE_URL_VALUE"
-    CMUX_IROH_V2_ENVIRONMENT="$CMUX_IROH_V2_ENVIRONMENT_VALUE"
-    CMUX_IROH_V2_BASE_URL="$CMUX_IROH_V2_BASE_URL_VALUE"
-    CMUX_IROH_V2_FORCE_RELAY="$CMUX_IROH_V2_FORCE_RELAY_VALUE"
   )
   if [[ "$PROD_AUTH" -eq 1 ]]; then
     TAG_LAUNCH_ENV+=(CMUX_AUTH_ENVIRONMENT=production)
@@ -2538,9 +2593,9 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     fi
   fi
 
-  if [[ "${#LAUNCH_CMD[@]}" -gt 0 ]] && ! "${LAUNCH_CMD[@]}"; then
+  if [[ "${#LAUNCH_CMD[@]}" -gt 0 ]] && ! ${LAUNCH_CMD[@]+"${LAUNCH_CMD[@]}"}; then
     echo "warning: open -g failed; retrying launch with open -n -g" >&2
-    "${LAUNCH_RETRY_CMD[@]}"
+    ${LAUNCH_RETRY_CMD[@]+"${LAUNCH_RETRY_CMD[@]}"}
   fi
 
   # Safety: ensure only one instance is running.

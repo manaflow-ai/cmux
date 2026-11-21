@@ -24,10 +24,16 @@ public struct MobileHostPairRequest: Sendable, Equatable, Hashable {
     /// What asks: `phone`, or another of the person's machines (`mac`, `linux`), which gets
     /// grants instead of a phone's lanes and has no approval key (docs/multi-machine-sessions.md).
     public var kind: String
+    /// The phone app's bundle id as the phone states it (hostd's `bundle_id`), e.g.
+    /// `dev.cmux.mobile.<tag>`; nil from an older phone or hostd, and for every machine. A claim,
+    /// not a proof: only the DEBUG dev auto-approve reads it (``IPhoneDevAutoApprove``).
+    public var bundleID: String?
 
     public init(phoneDeviceID: String, name: String, identityKey: String, approvalKey: String, registeredAt: Date? = nil,
-                pairToken: String? = nil, transport: MobileHostPairedDevice.Transport = .hostd, kind: String = "phone") {
+                pairToken: String? = nil, transport: MobileHostPairedDevice.Transport = .hostd, kind: String = "phone",
+                bundleID: String? = nil) {
         self.kind = kind
+        self.bundleID = bundleID
         self.phoneDeviceID = phoneDeviceID
         self.name = name
         self.identityKey = identityKey
@@ -91,6 +97,17 @@ public struct MobileHostPairedDevice: Sendable, Equatable, Codable, Identifiable
         transport = try values.decodeIfPresent(Transport.self, forKey: .transport) ?? .hostd
         kind = try values.decodeIfPresent(String.self, forKey: .kind) ?? "phone"
         grants = try values.decodeIfPresent([String].self, forKey: .grants) ?? []
+    }
+
+    /// The same device, of the same kind, with the same keys.
+    public func sameKeys(as other: MobileHostPairedDevice) -> Bool {
+        transport == other.transport && kind == other.kind && id == other.id && identityKey == other.identityKey && approvalKey == other.approvalKey
+    }
+
+    /// The request that allowed this device (its name, kind and keys), to allow it again in another list.
+    public var request: MobileHostPairRequest {
+        MobileHostPairRequest(phoneDeviceID: id, name: name, identityKey: identityKey, approvalKey: approvalKey,
+                              transport: transport, kind: kind)
     }
 
     /// The first 8 bytes of the approval key's SHA-256 as hex, as acpmux lists it.
@@ -424,8 +441,25 @@ public final class MobileHostPairedDevicesFile: Sendable {
     /// one a build before the seal wrote, or one saved while the Keychain refused) trusts no
     /// phone: each pairs again, which the person approves.
     public func load(userID: String) -> MobileHostPairedDevices {
+        read(userID: userID) ?? MobileHostPairedDevices(userID: userID)
+    }
+
+    /// The stored list of `userID` as the file says, without its seal: never trusted, only consulted to
+    /// decide what a run whose seal is refused must write (``MobileHostPairedStore``).
+    func unsealed(userID: String) -> MobileHostPairedDevices? {
+        guard let data = try? Data(contentsOf: file),
+              let stored = try? JSONDecoder().decode(MobileHostPairedDevices.self, from: data), stored.userID == userID else { return nil }
+        return stored
+    }
+
+    /// ``load(userID:)``, or nil when a stored list exists and the Keychain refused to read its seal:
+    /// that says nothing about the list (a launch right after an update can be refused for a while),
+    /// so the caller reads again instead of asking the person to allow every phone again.
+    public func read(userID: String) -> MobileHostPairedDevices? {
         guard let data = try? Data(contentsOf: file) else { return MobileHostPairedDevices(userID: userID) }
-        guard let sealed = seal.digest(), sealed == MobileHostPairingSeal.digest(data),
+        let sealRead = seal.read()
+        if sealRead == .refused { return nil }
+        guard case .digest(let sealed) = sealRead, sealed == MobileHostPairingSeal.digest(data),
               inForce.withLock({ $0.map { $0 == sealed } ?? true }) else {
             Self.logger.error("iPhone pairing: paired-devices.json is not the list this app saved; no phone is trusted until it pairs again")
             return MobileHostPairedDevices(userID: userID)

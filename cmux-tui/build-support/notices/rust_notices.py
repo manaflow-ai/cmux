@@ -4,7 +4,7 @@
 """Third-party notices for the Rust crates that one binary links.
 
 Shared by manaflow-ai/cmux (cmux-next app bundle) and manaflow-ai/cmux-browser
-(which copies cmux-tui/build-support at its cmux-tui.pin). Python 3.11+
+(which copies cmux-tui/build-support at its cmux-tui.pin). Python 3.11.4+
 standard library only; cargo is optional.
 
 Modules: cargo_inputs.py (Cargo.lock, cfg(), manifests, source directories),

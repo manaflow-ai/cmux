@@ -5,12 +5,12 @@ import CoreGraphics
 /// unset is the divider hairline). A bad value is skipped with a diagnostic.
 public nonisolated struct SidebarBorderSetting {
     public nonisolated init() {}
-    public static let borderPath = ["sidebar", "border"]
-    public static let widthPath = ["sidebar", "borderWidth"]
+    // The paths, the default and the width range are generated from schemas/settings/source/sidebar.json.
 
     /// `defaultShows` is the border when `sidebar.border` is unset (the
     /// `appearance.chromeStyle` default).
-    static func parse(_ root: JSONValue, defaultShows: Bool = false, diagnostics: inout [SettingsDiagnostic]) -> SidebarBorder {
+    static func parse(_ root: JSONValue, defaultShows: Bool = SidebarBorderSetting.borderDefault,
+                      diagnostics: inout [SettingsDiagnostic]) -> SidebarBorder {
         var border = SidebarBorder(shows: defaultShows)
         if let value = root.value(at: borderPath) {
             if let shows = value.boolValue {
@@ -20,7 +20,7 @@ public nonisolated struct SidebarBorderSetting {
             }
         }
         if let value = root.value(at: widthPath) {
-            let range = SidebarBorder.widthRange
+            let range = CGFloat(widthRange.lowerBound)...CGFloat(widthRange.upperBound)
             if let number = value.doubleValue, number.isFinite {
                 let width = CGFloat(number)
                 if !range.contains(width) {

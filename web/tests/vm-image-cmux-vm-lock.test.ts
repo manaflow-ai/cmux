@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   aptClosureProblems,
   basePackageProblems,
@@ -223,6 +224,14 @@ describe("reproducibility diff and helpers", () => {
     const result = diffFileManifests(a, b);
     expect(result.allowed).toHaveLength(1);
     expect(result.diffs).toEqual(["/usr/local/bin/x: F bbb vs F ddd"]);
+  });
+
+  test("the repro diff allows the npm download cache by directory, and only under it", () => {
+    const a = new Map([["/home/cmux/.npm/_cacache/index-v5/aa/bb", "F 1"], ["/home/cmux/.npm/_cacache/content-v2/sha512/x", "F 2"], ["/home/cmux/.npm/_logs/1.log", "F 3"], ["/home/cmux/.npmrc", "F 4"]]);
+    const b = new Map([["/home/cmux/.npm/_cacache/index-v5/aa/bb", "F 9"], ["/home/cmux/.npm/_cacache/content-v2/sha512/y", "F 2"], ["/home/cmux/.npm/_logs/1.log", "F 8"], ["/home/cmux/.npmrc", "F 7"]]);
+    const result = diffFileManifests(a, b);
+    expect(result.allowed).toHaveLength(3);
+    expect(result.diffs.map((l) => l.split(":")[0])).toEqual(["/home/cmux/.npm/_logs/1.log", "/home/cmux/.npmrc"]);
   });
 
   test("names: branch resources carry cmuxnp-dev-", () => {
@@ -539,11 +548,38 @@ describe("cmux-rd (the cmux.rd/1 Linux host, role desktop; release cmux-rd-v<V> 
     }
   });
 
-  test("0.1.0 is pinned from release cmux-rd-v0.1.0 (#36433, run 42028500138) by URL, sha256, size and checksums.txt, baked in role desktop", () => {
+  test("0.2.7 is pinned from release cmux-rd-v0.2.7 (#45503, run 44184934311) by URL, sha256, size and checksums.txt, baked in role desktop", () => {
     const pinned = readInputsLock().programs.find((p) => p.name === "cmux-rd")!;
-    expect(pinned).toMatchObject({ ...cmuxRdReleaseShape("0.1.0"), sha256: "8118a53a809e9204e68bb692e88ec1f429c897380c558b98604046dca2d29e73", size: 6868976 });
+    expect(pinned).toMatchObject({ ...cmuxRdReleaseShape("0.2.7"), sha256: "92961c9ebd6b1e7370a6dc1687a3ea864da9c133720daaf51a117aad2f45553d", size: 9392448 });
     expect(pinned.firstUse).toBeUndefined();
     expect(bakedPrograms(readInputsLock()).map((p) => p.name)).toContain("cmux-rd");
+  });
+
+  // A joined or Cloud Linux machine runs the cmux-rd these pins name, and the viewer speaks the
+  // crate's version: a pin left behind the crate hands the machine a host many fixes old (0.2.3
+  // against 0.2.7, screen share part 9). Every cmux-rd pin (this lock, and any acpmux source that
+  // names a cmux-rd-v<V> release URL) must be at least cmux-rd-host's crate version.
+  test("no cmux-rd pin falls behind cmux-rd-host's crate version", () => {
+    const repo = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+    const cargo = readFileSync(path.join(repo, "cmux-tui/crates/cmux-rd-host/Cargo.toml"), "utf8");
+    const packageTable = cargo.split(/^\[package\]\s*$/m)[1]?.split(/^\[/m)[0] ?? "";
+    const crate = /^version\s*=\s*"(\d+\.\d+\.\d+[^"]*)"/m.exec(packageTable)?.[1];
+    expect(crate).toBeDefined();
+    const parts = (v: string) => v.split(/[-+]/)[0]!.split(".").map(Number);
+    const behind = (pin: string, want: string) => {
+      const [a, b] = [parts(pin), parts(want)];
+      for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i]! < b[i]!;
+      return false;
+    };
+    const pins = [{ where: "images/cmux-vm/inputs.lock.json", version: readInputsLock().programs.find((p) => p.name === "cmux-rd")!.version }];
+    const acpmux = path.join(repo, "cmux-tui/crates/acpmux/src");
+    const sources = readdirSync(acpmux, { recursive: true, encoding: "utf8" }).filter((file) => file.endsWith(".rs"));
+    for (const file of sources) {
+      for (const m of readFileSync(path.join(acpmux, file), "utf8").matchAll(/releases\/download\/cmux-rd-v(\d+\.\d+\.\d+[^/"]*)\//g)) {
+        pins.push({ where: `cmux-tui/crates/acpmux/src/${file}`, version: m[1]! });
+      }
+    }
+    expect(pins.filter((p) => behind(p.version, crate!)).map((p) => `${p.where}: cmux-rd ${p.version} is behind the crate's ${crate}`)).toEqual([]);
   });
 
   test("another URL, no checksums.txt, no desktop role or a first-use entry is refused", () => {

@@ -23,6 +23,8 @@ as a control. Writes report.json and app.log to DIR and exits 1 when a check
 fails. Kills only the app it started.
 """
 import argparse, glob, json, os, plistlib, signal, socket, subprocess, sys, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -161,7 +163,7 @@ for mode in modes:
             time.sleep(1.5)
             control["after"] = frame()
             report["zoom_action_control"] = control
-            print(json.dumps({"zoom_action_control": control}), flush=True)
+            safe_print(json.dumps({"zoom_action_control": control}), flush=True)
         for name, x, y, moves in points():
             report["cases"].append(check(mode if moves else "none", name, x, y))
             if mode == "minimize":

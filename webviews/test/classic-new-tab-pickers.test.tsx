@@ -6,6 +6,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
+import { settleReact } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, { had: boolean; value: unknown }>();
@@ -73,7 +74,8 @@ afterEach(async () => {
   delete paneWindow().cmuxAcpmuxActions;
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   dom.window.close();
   for (const [key, entry] of saved) {
     if (entry.had) scope[key] = entry.value;
@@ -231,8 +233,10 @@ test("a classic New Tab starts its deferred chat before changing model", async (
 test("a classic New Tab holds its effort and Fast mode picks on a deferred chat", async () => {
   const { chatCalls } = await mount();
   await open();
-  // The columns stay open: the level, then Fast, each land as they are clicked.
+  // The level lands and closes the menu (David Beyer 2026-11-20); Fast, in the menu opened again,
+  // lands as it is clicked.
   await pick("High");
+  await open();
   await pick("Fast");
   expect(chatCalls()).toEqual([
     { method: "chat.new", params: deferred },
@@ -363,7 +367,7 @@ test("a classic model pick starts in the project selected on the page", async ()
   ]);
 });
 
-test("classic Add Project keeps a failed browse open and applies the retried folder", async () => {
+test("classic Add folder… shows a failed browse with Retry and applies the retried folder", async () => {
   const { chatCalls } = await mount({ plugin: ({ cwd }) => <span data-plugin-folder>{cwd}</span> });
   let attempts = 0;
   paneWindow().cmuxAcpmuxActions!["project.browse"] = async () => {
@@ -373,29 +377,23 @@ test("classic Add Project keeps a failed browse open and applies the retried fol
   };
   await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-project-button")!.click());
   const add = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-project-menu [role=option]")].find((row) =>
-    row.textContent?.includes("New project"),
+    row.textContent?.includes("Add folder…"),
   );
   expect(add).toBeDefined();
   await act(async () => add!.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, button: 0 })));
-  const choose = async (label: string) => {
-    const option = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-add-project li")].find((row) =>
-      row.textContent?.includes(label),
-    );
-    expect(option).toBeDefined();
-    await act(async () => option!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, button: 0 })));
-  };
-  await choose("This Mac");
-  await choose("Local folder");
-  expect(dom.window.document.querySelector(".acpmux-add-project")?.textContent).toContain("Folder access was denied.");
+  await act(async () => Promise.resolve());
+  expect(attempts).toBe(1);
+  // No dialog in between: the menu's row is the host's folder panel itself.
+  expect(dom.window.document.querySelector(".acpmux-add-project")).toBeNull();
+  expect(host.textContent).toContain("Folder access was denied.");
   expect(host.querySelector("[data-plugin-folder]")?.textContent).toBe("/tmp/classic-project");
   expect(chatCalls()).toEqual([]);
-  const retry = [...dom.window.document.querySelectorAll<HTMLButtonElement>(".acpmux-add-project button")].find(
+  const retry = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-folder-choice-button")].find(
     (button) => button.textContent === "Retry",
   );
   expect(retry).toBeDefined();
   await act(async () => retry!.click());
   expect(attempts).toBe(2);
-  expect(dom.window.document.querySelector(".acpmux-add-project")).toBeNull();
   expect(host.querySelector("[data-plugin-folder]")?.textContent).toBe("/tmp/retried-project");
   expect(chatCalls()).toEqual([]);
 });

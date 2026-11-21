@@ -16,12 +16,20 @@ public nonisolated struct HoverTarget: Hashable, Sendable {
     public var window: Int
     public var delay: Duration
     public var leave: HoverCardLeave
+    /// Whether the pointer may move onto the shown card and keep it there (a sidebar row's card, whose
+    /// rows and "Show details" take clicks). False: the card is only a preview, and the pointer on it
+    /// counts as off its target, so moving off the target onto the card hides it as leaving does
+    /// anywhere else (a horizontal tab's card, as in Chrome; user 2026-11-16: "for horizontal tabs i
+    /// should not be able to hover mouse over horiztonal tab preview popover thing. for vertical tab
+    /// preview, yes tho").
+    public var enterable: Bool
 
-    public init(id: HoverTargetID, window: Int, delay: Duration, leave: HoverCardLeave = .lingers) {
+    public init(id: HoverTargetID, window: Int, delay: Duration, leave: HoverCardLeave = .lingers, enterable: Bool = true) {
         self.id = id
         self.window = window
         self.delay = delay
         self.leave = leave
+        self.enterable = enterable
     }
 }
 

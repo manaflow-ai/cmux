@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
+import CmuxNextCompat
 import CmuxNextAgentPane
 import CmuxNextSettings
 import WebKit
@@ -21,10 +22,10 @@ enum DebugAgentPaneClick {
         return false;
         """
 
-    /// After the click: the page's events (`?` marks an untrusted one), its visibility and focus.
+    /// After the click: the page's events (`?` marks an untrusted one), the `buttons` its pointer and mouse events carried, its visibility and focus.
     private static let report = """
         await new Promise((resolve) => setTimeout(resolve, 300));
-        return JSON.stringify({ events: window.__cmuxDebugClick ?? [], visibility: document.visibilityState, focus: document.hasFocus() });
+        return JSON.stringify({ events: window.__cmuxDebugClick ?? [], buttons: window.__cmuxDebugClickButtons ?? [], visibility: document.visibilityState, focus: document.hasFocus() });
         """
 
     /// The element `params` names (`selector` or `text`) in the page `view` shows: its center (`x`, `y`, CSS pixels) and
@@ -94,28 +95,27 @@ enum DebugAgentPaneClick {
             // it goes to the web view as for a window that is not key. A click AppKit gave another view stays there.
             let pageSawIt = (try? await view.callPageScript(arrived, arguments: ["ms": 500])) as? Bool
             if path != "app", pageSawIt == false, hit?.isDescendant(of: webView) == true {
-                webView.mouseDown(with: down); webView.mouseUp(with: up)
+                SyntheticInput.click(webView, down: down, up: up)
                 delivered = "app, then view"
             }
         } else {
             DebugNativeInput.runPaneMonitors(down, in: window, services: services) // the local monitor sees mouse downs only
-            SyntheticInput.register([down, up])
             // As AppKit's click does, inside an input event: the clicked web view takes the keyboard (AgentPaneView.refusesSelfFocus).
             let app = NSApp as? CmuxApplication, outer = app?.isHandlingSendEvent() ?? false; app?.setHandlingSendEvent(true)
             if hit?.isDescendant(of: webView) == true { window.makeFirstResponder(webView) }
-            webView.mouseDown(with: down); webView.mouseUp(with: up); app?.setHandlingSendEvent(outer)
+            SyntheticInput.click(webView, down: down, up: up); app?.setHandlingSendEvent(outer)
             delivered = "view"
         }
-        let gestures = view.model.transport.gestures.debugState
         let page = (try? await view.callPageScript(report)) as? String
         let pageObject = page.flatMap { (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any] }
         return .object([
             "pane": .string(pane), "clicked": .bool(true), "tag": (found["tag"] as? String).map(JSONValue.string) ?? .null,
             "window_x": .number(Double(point.x)), "window_y": .number(Double(point.y)), "delivered": .string(delivered),
-            "gesture_available": .bool(gestures.available),
+            "gesture_available": .bool(view.model.transport.gestures.debugState.available),
             "hit": hit.map { .string(String(describing: type(of: $0))) } ?? .null,
             "hit_in_page": .bool(hit?.isDescendant(of: webView) == true),
             "page_events": .array(((pageObject?["events"] as? [String]) ?? []).map(JSONValue.string)),
+            "page_buttons": .array(((pageObject?["buttons"] as? [String]) ?? []).map(JSONValue.string)),
             "page_visibility": (pageObject?["visibility"] as? String).map(JSONValue.string) ?? .null,
             "page_focus": (pageObject?["focus"] as? Bool).map(JSONValue.bool) ?? .null,
         ])
@@ -135,11 +135,11 @@ enum DebugAgentPaneClick {
     /// Moves the page's pointer to `x`,`y` in CSS pixels: pointer and mouse out of the element it
     /// leaves, over the one it enters, and a move, as the page sees a real pointer (untrusted).
     private static let hoverScript = """
-        const now = document.elementFromPoint(x, y);
+        const now = document.elementFromPoint(x, y), has = (...names) => names.some((name) => mods.includes(name));
         const was = window.__cmuxDebugHover ?? null;
         const fire = (target, type, related) => {
             if (!target) return;
-            const init = { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, relatedTarget: related };
+            const init = { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, relatedTarget: related, altKey: has('option', 'alt'), metaKey: has('command', 'cmd'), ctrlKey: has('control', 'ctrl'), shiftKey: has('shift') };
             target.dispatchEvent(type.startsWith('pointer') ? new PointerEvent(type, { ...init, pointerType: 'mouse', isPrimary: true }) : new MouseEvent(type, init));
         };
         if (was !== now) {
@@ -154,7 +154,7 @@ enum DebugAgentPaneClick {
     /// `debug.agent_pane {action: "hover", x, y}`: the page's pointer moves to window point `x`,`y`
     /// (top-left origin, as `debug.mouse`): the page gets the pointer events a real move there
     /// fires (untrusted, and no CSS `:hover`). WebKit takes no mouse moves in a window that is not
-    /// key, and a capture slot's never is: recordings of the page's tooltips and hints there.
+    /// key, and a capture slot's never is: recordings of the page's tooltips and hints there. `modifiers` (`option`, `command`, `control`, `shift`) ride on the events, so a capture can hold Option.
     static func hover(_ params: [String: JSONValue], pane: String, view: AgentPaneView) async -> JSONValue {
         guard let window = view.window, let x = params["x"]?.doubleValue, let y = params["y"]?.doubleValue else {
             return .object(["pane": .string(pane), "error": .string("pass x and y; the pane must be in a window")])
@@ -167,7 +167,7 @@ enum DebugAgentPaneClick {
         let cssX = local.x / scale
         let cssY = (shown.isFlipped ? local.y : shown.bounds.height - local.y) / scale
         do {
-            let hit = try await view.callPageScript(hoverScript, arguments: ["x": Double(cssX), "y": Double(cssY)]) as? String
+            let hit = try await view.callPageScript(hoverScript, arguments: ["x": Double(cssX), "y": Double(cssY), "mods": (params["modifiers"]?.arrayValue ?? []).compactMap { $0.stringValue?.lowercased() }]) as? String
             return .object(["pane": .string(pane), "x": .number(x), "y": .number(y), "element": .string(hit ?? "")])
         } catch {
             return .object(["pane": .string(pane), "error": .string(String(describing: error))])

@@ -102,20 +102,33 @@ async fn who_else_finds_the_session_that_edits_the_same_file_in_another_worktree
     assert_eq!(rows[0]["branch"], "lane/x");
 
     // Raw files from the local socket, and keyed ones from anyone; a raw path from a remote
-    // caller is not read.
+    // caller is refused, even beside a session whose own files would answer.
     let raw = json!({"files": [f.main.join("src/b.rs").to_str().unwrap()]});
     let local = f.hub.who_else(&raw, true, false).await.unwrap();
     assert_eq!(local["sessions"][0]["sessionId"], json!(b.id));
-    assert!(f.hub.who_else(&raw, false, false).await.is_err(), "nothing to look for");
+    let refused = f.hub.who_else(&raw, false, false).await.unwrap_err();
+    assert!(refused.message.contains("name keys"), "{}", refused.message);
+    let beside = json!({"sessionId": a.id, "files": raw["files"]});
+    assert!(f.hub.who_else(&beside, false, false).await.is_err());
+    let cwd = json!({"cwd": f.main.to_str().unwrap()});
+    assert!(f.hub.who_else(&cwd, false, false).await.is_err());
+    // A query beside a raw path does not let the path through unread.
+    let with_query = json!({"files": raw["files"], "query": {"files": []}});
+    assert!(f.hub.who_else(&with_query, false, false).await.is_err());
     let keyed = json!({"keys": [{"repo": "github.com/o/r", "path": "src/b.rs"}]});
     let remote = f.hub.who_else(&keyed, false, false).await.unwrap();
     assert_eq!(remote["sessions"][0]["sessionId"], json!(b.id));
+    // A peer's forward is the query alone, and is answered.
+    let forward = json!({"query": {"files": keyed["keys"]}, "peers": false});
+    let answered = f.hub.who_else(&forward, false, true).await.unwrap();
+    assert_eq!(answered["sessions"][0]["sessionId"], json!(b.id));
     // B is not someone else to itself.
     let own = json!({"sessionId": b.id, "keys": keyed["keys"]});
     assert_eq!(f.hub.who_else(&own, false, false).await.unwrap()["sessions"], json!([]));
 }
 
 /// Waits until session `id` streams text containing `want`, and answers with that text.
+#[cfg(unix)]
 async fn said(
     events: &mut tokio::sync::broadcast::Receiver<HubEvent>,
     id: &str,
@@ -134,6 +147,8 @@ async fn said(
     .unwrap_or_else(|_| panic!("{id} never said {want:?}"))
 }
 
+// The turn waits on a FIFO gate (mkfifo is Unix-only).
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn an_edit_of_a_file_another_running_session_edits_steers_one_notice_into_its_turn() {
     let f = fixture().await;
@@ -170,6 +185,8 @@ async fn an_edit_of_a_file_another_running_session_edits_steers_one_notice_into_
     turn.await.unwrap().unwrap();
 }
 
+// The turn waits on a FIFO gate (mkfifo is Unix-only).
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_notice_for_a_turn_that_ended_is_refused_not_steered_into_the_next() {
     let f = fixture().await;

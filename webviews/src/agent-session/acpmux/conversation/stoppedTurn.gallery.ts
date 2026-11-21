@@ -8,6 +8,7 @@
 // `stopped-turn-look` experiment's three footers.
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, row, summary, user } from "../../../gallery/fixtures/acpmux";
+import type { PlayContext } from "../../../gallery/play";
 import { stoppedTurnLook } from "./stoppedTurn.experiment";
 
 const prompt = "Migrate the parser to the new token stream";
@@ -33,6 +34,11 @@ const stoppedTurn = (fields: Parameters<typeof summary>[1] = {}) => [
   summary(5.3, { status: "cancelled", durationMs: 41_000, ...fields }),
 ];
 
+const resumeReady = async (ctx: PlayContext) => {
+  await ctx.waitFor(() => ctx.document.querySelector('button[aria-label="Resume"]'));
+  if (ctx.document.querySelector(".cv-turn-continue")) throw new Error("Stopped turns resume from the composer");
+};
+
 export default agentPaneEntry({
   id: "agent-pane.stopped-turn",
   title: "Stopped turn",
@@ -50,14 +56,35 @@ export default agentPaneEntry({
       snapshot: chat(stoppedTurn()),
     },
     "forced-stop-message-after": {
-      note: "Another agent's message steered in after the Stop never reached the agent: it draws below the stop, and a prompt after the stop takes Continue away.",
+      note: "Another agent's message steered in after the Stop never reached the agent: it draws below the stop, and a prompt after the stop takes Resume away.",
       snapshot: chat([...stoppedTurn({ stopForced: true }), coordinator(5.2, { afterStop: true })]),
     },
     "forced-stop-queued-next": {
-      note: "acpmux queued that message to run next: its waiting card, and no Continue beside it.",
+      note: "acpmux queued that message to run next: its waiting card, and no idle Resume while it hands over.",
       snapshot: chat(stoppedTurn({ stopForced: true }), {
-        queue: [{ id: "p-late", prompt: "Status check: are you still on the parser migration?", next: true }],
+        queue: [
+          {
+            id: "p-late",
+            prompt: "Status check: are you still on the parser migration?",
+            next: true,
+          },
+        ],
       }),
+    },
+    "footer-before": {
+      note: "The stopped turn uses its empty composer's play Resume control. The historical footer URL remains available.",
+      snapshot: chat(stoppedTurn()),
+      play: resumeReady,
+    },
+    "footer-chosen": {
+      note: "Resume lives in the primary composer slot; the footer keeps its normal message actions.",
+      snapshot: chat(stoppedTurn()),
+      play: resumeReady,
+    },
+    "footer-roomy": {
+      note: "The stopped turn retains its usual footer spacing with Resume in the composer.",
+      snapshot: chat(stoppedTurn()),
+      play: resumeReady,
     },
     before: {
       note: "Before (for comparison): the old notice line under Continue. Not drawn any more.",

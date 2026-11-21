@@ -41,11 +41,24 @@ pub struct TouchedFile {
     /// When it was last touched, Unix ms. A file a query names (`{repo, path}`) has none.
     #[serde(default)]
     pub at: u64,
+    /// When it was last edited, Unix ms: a later read moves `at` on, not this. An index kept
+    /// before this field has none, and its `at` stands in.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub edited_at: u64,
+}
+
+fn is_zero(n: &u64) -> bool {
+    *n == 0
 }
 
 impl TouchedFile {
     fn key(&self) -> (&str, &str) {
         (&self.repo, &self.path)
+    }
+
+    /// It was edited at or after `since`, Unix ms.
+    pub fn edited_since(&self, since: u64) -> bool {
+        self.edited && (if self.edited_at == 0 { self.at } else { self.edited_at }) >= since
     }
 }
 
@@ -201,15 +214,22 @@ pub fn paths_of(update: &Value) -> (Vec<String>, Option<bool>) {
     (out, edited)
 }
 
-/// Adds `file` to `files`, or moves its time on (an edit stays an edit). Past [`MAX_FILES`] the
+/// Adds `file` to `files`, or moves its time on (an edit stays an edit, at the time it was made). Past [`MAX_FILES`] the
 /// least recently touched goes.
 pub fn merge(files: &mut Vec<TouchedFile>, file: TouchedFile) {
+    let edited_at = if file.edited { file.edited_at.max(file.at) } else { 0 };
     if let Some(old) = files.iter_mut().find(|f| f.key() == file.key()) {
+        // An edit kept before `edited_at` existed was made at its `at`: pin it there before a
+        // read moves `at` on.
+        if old.edited && old.edited_at == 0 {
+            old.edited_at = old.at;
+        }
         old.at = old.at.max(file.at);
         old.edited |= file.edited;
+        old.edited_at = old.edited_at.max(edited_at);
         return;
     }
-    files.push(file);
+    files.push(TouchedFile { edited_at, ..file });
     if files.len() > MAX_FILES
         && let Some((oldest, _)) = files.iter().enumerate().min_by_key(|(_, f)| f.at)
     {
@@ -300,7 +320,8 @@ pub fn row(q: &Query, c: &Candidate, now: u64) -> Option<Value> {
         .iter()
         .filter(|f| f.at >= q.since && q.files.iter().any(|w| w.key() == f.key()))
         .collect();
-    common.sort_by(|a, b| b.edited.cmp(&a.edited).then(b.at.cmp(&a.at)));
+    let edit = |f: &TouchedFile| f.edited_since(q.since);
+    common.sort_by(|a, b| edit(b).cmp(&edit(a)).then(b.at.cmp(&a.at)));
     let same_worktree = q.worktree.is_some() && q.worktree == c.worktree;
     let same_branch = !same_worktree
         && q.repo.is_some()
@@ -326,8 +347,8 @@ pub fn row(q: &Query, c: &Candidate, now: u64) -> Option<Value> {
     if common.is_empty() && !same_worktree && !same_branch && topic.is_empty() {
         return None;
     }
-    let edited = common.iter().filter(|f| f.edited).count();
-    // Edits in common first, then reads, then the rest; recency breaks ties (`rank`).
+    let edited = common.iter().filter(|f| edit(f)).count();
+    // Edits in common first, then reads, then the same place, then topic words (`rank`).
     let score = edited * 100
         + (common.len() - edited) * 10
         + usize::from(same_worktree) * 50
@@ -336,7 +357,7 @@ pub fn row(q: &Query, c: &Candidate, now: u64) -> Option<Value> {
     let files: Vec<Value> = common
         .iter()
         .take(MAX_ROW_FILES)
-        .map(|f| json!({"repo": f.repo, "path": f.path, "edited": f.edited, "at": f.at}))
+        .map(|f| json!({"repo": f.repo, "path": f.path, "edited": edit(f), "at": f.at}))
         .collect();
     Some(json!({
         "sessionId": c.session_id,
@@ -360,15 +381,28 @@ pub fn row(q: &Query, c: &Candidate, now: u64) -> Option<Value> {
     }))
 }
 
-/// Answer rows best first: score, then the most recently active.
+/// Answer rows best first: edits in common, then reads, then the same worktree or branch, then
+/// topic words, each level ahead of any count of the next (eleven reads never beat one edit);
+/// then the most recently active. Read from each row's own counts, not its `score`, so a peer's
+/// row ranks the same whatever version of the score its daemon sends.
 pub fn rank(rows: &mut [Value]) {
     let n = |r: &Value, k: &str| r.get(k).and_then(Value::as_u64).unwrap_or(0);
-    rows.sort_by(|a, b| {
-        n(b, "score").cmp(&n(a, "score")).then(n(b, "lastActiveAt").cmp(&n(a, "lastActiveAt")))
-    });
+    let yes = |r: &Value, k: &str| u64::from(r.get(k).and_then(Value::as_bool).unwrap_or(false));
+    let key = |r: &Value| {
+        let edited = n(r, "editedInCommon");
+        let topic = r.get("topicWords").and_then(Value::as_array).map_or(0, Vec::len);
+        (
+            edited,
+            n(r, "filesInCommon").saturating_sub(edited),
+            yes(r, "sameWorktree") + yes(r, "sameBranch"),
+            topic,
+            n(r, "lastActiveAt"),
+        )
+    };
+    rows.sort_by_key(|r| std::cmp::Reverse(key(r)));
 }
 
-/// The one-line text of an answer row: `lane-x (codex on big-red, lane/x, #123): edited
+/// The one-line text of an answer row: `lane-x (codex on my-vm, lane/x, #123): edited
 /// src/a.rs, read src/b.rs; 12m ago`.
 pub fn row_line(r: &Value) -> String {
     let s = |k: &str| r.get(k).and_then(Value::as_str).unwrap_or("");
@@ -414,9 +448,16 @@ pub fn row_line(r: &Value) -> String {
     if r.get("sameBranch").and_then(Value::as_bool) == Some(true) {
         what.push("on this branch".to_owned());
     }
-    if let Some(words) = r.get("topicWords").and_then(Value::as_array).filter(|w| !w.is_empty()) {
-        let words: Vec<&str> = words.iter().filter_map(Value::as_str).collect();
-        what.push(format!("topic: {}", words.join(", ")));
+    // A topic match says what the session works on, never the matched words (Leo, 2026-11-21, on
+    // "topic: above, background, message, rows, summary, tasks, wait": "we cannot afford to have
+    // this kind of formatting").
+    if r.get("topicWords").and_then(Value::as_array).is_some_and(|w| !w.is_empty()) {
+        let title = s("title").trim();
+        what.push(if title.is_empty() {
+            "working on something similar".to_owned()
+        } else {
+            format!("working on \"{title}\"")
+        });
     }
     let ago = r.get("agoMs").and_then(Value::as_u64).unwrap_or(0);
     format!("{} ({}): {}; {}", s("name"), about.join(", "), what.join("; "), ago_text(ago))

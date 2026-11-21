@@ -77,10 +77,11 @@ impl AppError {
         Self::new(Code::Timeout, "timeout", message)
     }
     pub fn no_session(key: &str) -> Self {
+        let program = crate::cli::entry::program();
         Self::new(
             Code::NoSession,
             "no_session",
-            format!("no session matches {key:?}; run `acpmux ls` or `acpmux ensure {key}`"),
+            format!("no session matches {key:?}; run `{program} ls` or `{program} ensure {key}`"),
         )
     }
     /// [`Self::no_session`] for a daemon refusal of `key`, with the names the daemon said
@@ -97,7 +98,7 @@ impl AppError {
         let field = |k: &str| data.and_then(|d| d.get(k)?.as_str()).filter(|v| !v.is_empty());
         if let (Some(host), Some(name)) = (field("host"), field("name")) {
             let tail = if candidates.is_empty() {
-                "run `acpmux ls` for its sessions".to_owned()
+                format!("run `{} ls` for its sessions", crate::cli::entry::program())
             } else {
                 format!("did you mean: {}", candidates.join(", "))
             };
@@ -116,8 +117,9 @@ impl AppError {
             Code::NoSession,
             "no_session",
             format!(
-                "no session matches {key:?}; close matches: {}; use one of those names, or run `acpmux ls`",
-                crate::session_name::candidate_list(&candidates)
+                "no session matches {key:?}; close matches: {}; use one of those names, or run `{} ls`",
+                crate::session_name::candidate_list(&candidates),
+                crate::cli::entry::program()
             ),
         )
         .with_data(serde_json::json!({"candidates": candidates}))
@@ -233,8 +235,13 @@ pub fn classify(e: &anyhow::Error) -> AppError {
 /// The exit code and detail an error's message gives.
 fn classify_message(e: &anyhow::Error, msg: String) -> AppError {
     let lower = msg.to_lowercase();
-    if e.is::<crate::client::TransportClosed>() {
-        return AppError::new(Code::Runtime, "daemon_closed", msg).retryable();
+    if let Some(closed) = e.downcast_ref::<crate::client::TransportClosed>() {
+        // Why it closed, as codes (`client::closed_cause`): a panic stays told apart from a restart.
+        let mut data = serde_json::json!({"cause": closed.cause});
+        if let Some(panic) = &closed.panic {
+            data["panic"] = panic.clone();
+        }
+        return AppError::new(Code::Runtime, "daemon_closed", msg).retryable().with_data(data);
     }
     if lower.contains("no session matches")
         || lower.contains("unknown session")

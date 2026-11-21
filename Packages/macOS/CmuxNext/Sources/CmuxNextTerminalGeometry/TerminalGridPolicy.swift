@@ -60,6 +60,10 @@ public nonisolated struct TerminalGridPolicy: Sendable {
         return grid
     }
 
+    /// The next report goes even at the grid the owner has (a new owner: `TerminalSession.init`), whichever
+    /// path makes it: a view shown while it joins a pane on a spring reports through ``finalSized(_:)``.
+    public mutating func forceNextReport() { heldForce = true }
+
     /// Whether a grid waits for ``releaseHeld()``.
     public private(set) var held = false
     private var heldForce = false
@@ -84,8 +88,8 @@ public nonisolated struct TerminalGridPolicy: Sendable {
     /// Whether the surface may draw its reflow preview (the view's grid, before the owner announces
     /// it).
     ///
-    /// `followingPane`: the view takes its pane's size in every frame of the spring (a key resize with
-    /// `motion.frameOwner.terminals` on, cmux-ad m14). The preview then stays on: each frame draws
+    /// `followingPane`: the view takes its pane's size in every frame of the spring (a key resize, cmux-ad
+    /// m14 and m18). The preview then stays on: each frame draws
     /// the grid its size fits, with the cursor row in view, whatever grid the owner has.
     ///
     /// Otherwise not while a final grid was reported that the view does not fit yet (a size the view

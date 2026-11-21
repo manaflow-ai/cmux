@@ -18,7 +18,7 @@ await requireBrowserLane("thread-rail-other-chats-arms.test.ts", async () => {
   setDefaultTimeout(240_000);
   const ENTRY = "agent-pane.thread-minimap-incoming-fold";
   const EXPERIMENT = "thread-minimap-incoming";
-  const ARMS = ["as-now", "secondary", "folded", "folded-secondary"] as const;
+  const ARMS = ["as-now", "secondary", "folded", "folded-faint", "folded-secondary"] as const;
   const WIDTH = 1040;
 
   try {
@@ -106,7 +106,7 @@ await requireBrowserLane("thread-rail-other-chats-arms.test.ts", async () => {
 
   for (const arm of ARMS) {
     const fold = arm.startsWith("folded");
-    const dim = arm.endsWith("secondary");
+    const dim = arm.endsWith("secondary") || arm === "folded-faint";
     test(`${arm}: every tick at rest shares one x and one width`, async () => {
       const { ticks } = await of(arm);
       // 14 turns: 8 of the person's and 6 from other chats (a run of three, a single, a run of two).
@@ -125,7 +125,7 @@ await requireBrowserLane("thread-rail-other-chats-arms.test.ts", async () => {
     });
     test(`${arm}: the first run's card`, async () => {
       const { card } = await of(arm);
-      expect(card!.from).toBe("From lane-box-1/ux-owner");
+      expect(card!.from).toBe("lane-box-1/ux-owner · Other session");
       if (fold) expect(card!.prompt).toBe("Received 3 messages");
       else expect(card!.prompt).toContain("Status 4");
     });
@@ -134,11 +134,14 @@ await requireBrowserLane("thread-rail-other-chats-arms.test.ts", async () => {
   test("a side-by-side sheet of every arm", async () => {
     const all = await Promise.all(ARMS.map((arm) => of(arm)));
     if (!out) return;
-    const page = await browser.newPage({ viewport: { width: 4 * 540, height: 2 * 660 + 40 }, deviceScaleFactor: 1 });
+    const page = await browser.newPage({
+      viewport: { width: ARMS.length * 540, height: 2 * 660 + 40 },
+      deviceScaleFactor: 1,
+    });
     try {
       const cells = ARMS.map(
         (arm, i) =>
-          `<figure><figcaption>${arm}${arm === "folded-secondary" ? " (default)" : ""}</figcaption>${all[i]!.shots.map(
+          `<figure><figcaption>${arm}${arm === "folded" ? " (default)" : ""}</figcaption>${all[i]!.shots.map(
             (shot) => `<img src="data:image/png;base64,${shot.toString("base64")}">`,
           ).join("")}</figure>`,
       ).join("");

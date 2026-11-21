@@ -17,6 +17,8 @@ struct HomeAgentPills {
         let state: String
         /// The unread dot: a report newer than the one the person last opened.
         let unread: Bool
+        /// How long the agent has worked, or its task's total ("" for none), after its title.
+        let time: String
         let rect: CGRect
     }
 
@@ -37,11 +39,13 @@ struct HomeAgentPills {
         for (i, peer) in p.peers.enumerated() {
             let title = titles[checked: i] ?? peer
             let state = p.states[checked: i] ?? "told"
-            let w = min(Self.contentWidth(title, shape: shape), max(120, width - 8))
+            let time = p.times[checked: i] ?? ""
+            let w = min(Self.contentWidth(title, time: time, shape: shape), max(120, width - 8))
             // Chips keep one row (the row's height does not depend on its width): the rest are left out.
             if shape == .chip, x > 0, x + w > width - 8 { break }
             let unread = p.unread[checked: i] ?? (state == "reported")
-            out.append(Pill(peer: peer, title: title, state: state, unread: unread, rect: CGRect(x: x, y: y, width: w, height: tall)))
+            out.append(Pill(peer: peer, title: title, state: state, unread: unread, time: time,
+                            rect: CGRect(x: x, y: y, width: w, height: tall)))
             if shape == .chip { x += w + Self.gap } else { y += tall + Self.gap }
         }
         pills = out
@@ -84,17 +88,32 @@ struct HomeAgentPills {
         }
     }
 
-    /// Icon, title, dot and chevron with their paddings.
-    private static func contentWidth(_ title: String, shape: Shape) -> CGFloat {
+    /// Icon, title, time, dot and chevron with their paddings.
+    private static func contentWidth(_ title: String, time: String, shape: Shape) -> CGFloat {
         let text = NSAttributedString(string: title, attributes: [.font: titleFont(shape)])
         let side = side(shape)
-        // Icon, gap, title, then the dot's and the chevron's room (``draw(_:origin:)``).
-        return side + iconSize(shape) + 8 + min(320, HomeTableGrid.lineWidth(text)) + 30 + side
+        // Icon, gap, title, the time and its gap, then the dot's and the chevron's room (``draw(_:origin:)``).
+        return side + iconSize(shape) + 8 + min(320, HomeTableGrid.lineWidth(text)) + timeRoom(time, shape: shape) + 30 + side
+    }
+
+    /// The time's font: the title's size less one, tabular figures, so a new minute never jiggles its digits.
+    private static func timeFont(_ shape: Shape) -> NSFont {
+        let base = titleFont(shape)
+        return HomeFonts.monospacedDigit(ofSize: base.pointSize - 1, weight: .regular)
+    }
+
+    /// The time's width and the gap before it; 0 for no time.
+    private static func timeRoom(_ time: String, shape: Shape) -> CGFloat {
+        guard !time.isEmpty else { return 0 }
+        return 8 + HomeTableGrid.lineWidth(NSAttributedString(string: time, attributes: [.font: timeFont(shape)]))
     }
 
     /// The agent whose pill holds `point` (row coordinates), or nil.
-    func peer(at point: CGPoint) -> String? {
-        pills.first { $0.rect.insetBy(dx: -2, dy: -2).contains(point) }?.peer
+    func peer(at point: CGPoint) -> String? { pill(at: point)?.peer }
+
+    /// The pill that holds `point` (row coordinates), or nil.
+    func pill(at point: CGPoint) -> Pill? {
+        pills.first { $0.rect.insetBy(dx: -2, dy: -2).contains(point) }
     }
 
     func draw(_ ctx: CGContext, origin: CGPoint) {
@@ -129,7 +148,14 @@ struct HomeAgentPills {
             chevron(ctx, center: CGPoint(x: right - 4, y: shape == .twoLine ? r.midY : mid), color: muted)
             let unread = pill.unread
             if unread { dot(ctx, center: CGPoint(x: right - 20, y: mid), radius: 3.5, color: NSColor.systemBlue) }
-            let titleRoom = right - (unread ? 30 : 16) - textX
+            let trailing = right - (unread ? 30 : 16)
+            let timeRoom = Self.timeRoom(pill.time, shape: shape)
+            if timeRoom > 0 {
+                // The time ends where the dot's or chevron's room begins, muted beside the title's ink.
+                let time = NSAttributedString(string: pill.time, attributes: [.font: Self.timeFont(shape), .foregroundColor: muted])
+                line(ctx, time, x: trailing - (timeRoom - 8), mid: mid, width: timeRoom)
+            }
+            let titleRoom = trailing - timeRoom - textX
             let title = NSAttributedString(string: pill.title, attributes: [.font: Self.titleFont(shape), .foregroundColor: ink])
             line(ctx, title, x: textX, mid: mid, width: titleRoom)
             #if DEBUG
@@ -138,6 +164,7 @@ struct HomeAgentPills {
                 let status = switch pill.state {
                 case "reported": "Reported · \(pill.peer)"
                 case "stopped": "Stopped without a report · \(pill.peer)"
+                case "queued": "Queued · \(pill.peer)"
                 default: "Working · \(pill.peer)"
                 }
                 let sub = NSAttributedString(string: status, attributes: [.font: HomeFonts.system(ofSize: 12, weight: .regular), .foregroundColor: muted])
@@ -184,7 +211,8 @@ private func chevron(_ ctx: CGContext, center c: CGPoint, color: NSColor) {
     ctx.restoreGState()
 }
 
-/// The status icon: a check (reported), a cross (stopped), else a spinner arc (working).
+/// The status icon: a check (reported), a cross (stopped), a clock (queued: waiting for a free slot, not started),
+/// else a spinner arc (working).
 private func icon(_ ctx: CGContext, state: String, center c: CGPoint, size: CGFloat, color: NSColor) {
     let r = size / 2 - 1.5
     ctx.saveGState()
@@ -204,6 +232,13 @@ private func icon(_ ctx: CGContext, state: String, center c: CGPoint, size: CGFl
         let k = r * 0.38
         ctx.move(to: CGPoint(x: c.x - k, y: c.y - k)); ctx.addLine(to: CGPoint(x: c.x + k, y: c.y + k))
         ctx.move(to: CGPoint(x: c.x + k, y: c.y - k)); ctx.addLine(to: CGPoint(x: c.x - k, y: c.y + k))
+        ctx.strokePath()
+    case "queued":
+        // A still clock, not the turning arc: nothing runs yet (user 2026-11-05: a queued agent said Working).
+        ctx.strokeEllipse(in: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r))
+        ctx.move(to: CGPoint(x: c.x, y: c.y - r * 0.55))
+        ctx.addLine(to: CGPoint(x: c.x, y: c.y))
+        ctx.addLine(to: CGPoint(x: c.x + r * 0.42, y: c.y + r * 0.3))
         ctx.strokePath()
     default:
         ctx.setStrokeColor(color.withAlphaComponent(0.25).cgColor)

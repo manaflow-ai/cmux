@@ -122,7 +122,7 @@ export const chiefOwnedBy = async (env: Env, agent: string, principal: Principal
 }
 
 /** The chief's record as its owner's UserDO holds it (chief.list, as the owner), or null for an unknown or archived chief. */
-type ChiefRecord = { display_name: string; brain_place: unknown; is_default: boolean; is_hosted_default: boolean; harness: string | null; cloud_machine: DefaultChiefMachine | null } | null
+type ChiefRecord = { display_name: string; brain_place: unknown; is_default: boolean; is_hosted_default: boolean; harness: string | null; cloud_machine: DefaultChiefMachine | null; channel: string | null } | null
 const records = new Map<string, { at: number; record: ChiefRecord }>()
 /** How long a turn admission may reuse a chief record it read: an archive or a placement stops new turns within this time. */
 const RECORD_MS = 10_000
@@ -147,7 +147,7 @@ export const chiefRecord = async (env: Env, owner: string, agent: string, requir
     if (requireRead) throw new Error("owner.unreachable")
     return null
   }
-  const chiefs = (r.value as { chiefs?: Array<{ id: string; display_name: string; archived_at: string | null; brain_place?: unknown; is_default?: boolean; is_hosted_default?: boolean; harness?: string | null; cloud_machine?: DefaultChiefMachine | null }> }).chiefs ?? []
+  const chiefs = (r.value as { chiefs?: Array<{ id: string; display_name: string; archived_at: string | null; brain_place?: unknown; is_default?: boolean; is_hosted_default?: boolean; harness?: string | null; cloud_machine?: DefaultChiefMachine | null; channel?: { conversation: string } }> }).chiefs ?? []
   const c = chiefs.find((x) => x.id === agent && x.archived_at === null)
-  return c ? { display_name: c.display_name, brain_place: c.brain_place ?? null, is_default: c.is_default === true, is_hosted_default: c.is_hosted_default === true, harness: c.harness ?? null, cloud_machine: c.cloud_machine ?? null } : null
+  return c ? { display_name: c.display_name, brain_place: c.brain_place ?? null, is_default: c.is_default === true, is_hosted_default: c.is_hosted_default === true, harness: c.harness ?? null, cloud_machine: c.cloud_machine ?? null, channel: c.channel?.conversation ?? null } : null
 }

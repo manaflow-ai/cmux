@@ -4,7 +4,8 @@
  *   - the newest `--keep` of each layer (by creation time),
  *   - every snapshot a channel file, backend/apps/api/wrangler.jsonc or workers/cmux-vm/wrangler.jsonc
  *     (VM_BOOT_IMAGES) names, by id or slug, at this checkout,
- *   - every snapshot a recently booted one (`--recent-hours`, a bake in flight) is,
+ *   - every layer booted or made in the last `--recent-hours` (a bake in flight), or made in the last 7 days
+ *     when the list does not say when it was last booted,
  *   - and every layer any kept snapshot or any dev image still on the account was built on, following the parent
  *     layer each layered snapshot's label records (layers.ts layerLabel), so no image loses its parent.
  * A snapshot with no recorded parent (baked before labels) keeps every layer older than itself. Only layer
@@ -42,6 +43,9 @@ export function referencedTokens(root: string): Set<string> {
   return tokens;
 }
 
+/** How long a layer whose last boot the list does not say stays after it was made. */
+export const UNKNOWN_USE_MS = 7 * 24 * 3600_000;
+
 /** The plan: which layer snapshots stay (with why) and which go. Pure, for the tests. */
 export function planLayerGc(all: readonly GcSnapshot[], refs: ReadonlySet<string>, options: { keep: number; recentMs: number; now: number }): { keep: Map<string, string>; remove: GcSnapshot[] } {
   const byId = new Map(all.map((s) => [s.id, s]));
@@ -55,9 +59,13 @@ export function planLayerGc(all: readonly GcSnapshot[], refs: ReadonlySet<string
   }
   for (const s of all) {
     if (refs.has(s.id) || (s.slug && refs.has(s.slug))) mark(s.id, "referenced");
-    // The list may not carry lastUsedAt; a layer made inside the window counts as in use too (a bake in flight).
-    const used = Math.max(s.lastUsedAt ? Date.parse(s.lastUsedAt) : Number.NEGATIVE_INFINITY, Date.parse(s.createdAt));
-    if (layerOf(s) && options.now - used < options.recentMs) mark(s.id, "booted or made recently");
+    // A layer made inside the window counts as in use too (a bake in flight). The list may not carry lastUsedAt;
+    // then a layer's last boot is unknown (an old layer a bake of an older commit boots today), so it stays for
+    // UNKNOWN_USE_MS after it was made rather than the short window.
+    const created = Date.parse(s.createdAt);
+    const used = s.lastUsedAt ? Math.max(Date.parse(s.lastUsedAt), created) : created;
+    const window = s.lastUsedAt ? options.recentMs : Math.max(options.recentMs, UNKNOWN_USE_MS);
+    if (layerOf(s) && options.now - used < window) mark(s.id, s.lastUsedAt ? "booted or made recently" : "last boot unknown, made recently");
   }
   // Every ancestor of a kept snapshot, and of every image still on the account: deleting a layer under a live
   // image is never this tool's call. A label names the parent layer by slug (layers.ts layerLabel). A snapshot

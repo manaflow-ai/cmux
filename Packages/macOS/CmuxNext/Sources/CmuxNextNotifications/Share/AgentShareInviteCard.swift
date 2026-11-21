@@ -60,7 +60,9 @@ package final class AgentShareInviteCard: NSView, NSTextFieldDelegate {
             content.topAnchor.constraint(equalTo: holder.topAnchor),
             content.bottomAnchor.constraint(equalTo: holder.bottomAnchor)
         ])
-        let surface = Glass.makeSurface(.sheet, content: holder)
+        // Concentric with its buttons, `Metrics.space5` in (Lawrence 2026-11-15: "all dialogs needs concentric padding
+        // with buttons inside").
+        let surface = Glass.makeSurface(.sheet, content: holder, cornerRadius: Metrics.buttonContainer(padding: Metrics.space5).outerRadius)
         surface.translatesAutoresizingMaskIntoConstraints = true
         surface.frame = NSRect(origin: .zero, size: size)
         surface.autoresizingMask = [.width, .height]
@@ -120,6 +122,10 @@ package final class AgentShareInviteCard: NSView, NSTextFieldDelegate {
         let link = model.inviteLink
         if linkLabel.stringValue != (link ?? "") { linkLabel.stringValue = link ?? "" }
         linkRow.alphaValue = link == nil ? 0 : 1
+        // The row stays laid out with no link (the card keeps its size), so VoiceOver must skip it too.
+        for view in [linkRow, linkLabel, copyButton] as [NSView] where view.isAccessibilityHidden() != (link == nil) {
+            view.setAccessibilityHidden(link == nil)
+        }
         copyButton.isEnabled = link != nil
         let copyTitle = model.copied ? model.copiedTitle : model.copyLinkTitle
         if copyButton.button.title != copyTitle { copyButton.retitle(copyTitle) }
@@ -280,7 +286,7 @@ package final class AgentShareInviteCard: NSView, NSTextFieldDelegate {
         let document = Document()
         document.translatesAutoresizingMaskIntoConstraints = false
         document.addSubview(rowStack)
-        let scroll = NSScrollView()
+        let scroll = OverlayScrollView()
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true

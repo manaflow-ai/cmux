@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileAuth
 import CmuxMobileDesign
+import CmuxSpinner
 import SwiftUI
 
 private let theme = CmuxMobileTheme.standard
@@ -141,18 +142,19 @@ struct EmailCodeStep: View {
                 .padding(.top, 6)
             CodeBoxes(text: $code, groups: [entry.length], characters: entry.characters)
                 .modifier(ShakeEffect(trigger: shakes))
-                .animation(.linear(duration: theme.motion.shakeDuration), value: shakes)
+                .animation(.linear(duration: theme.motion.shakeDuration).unlessReduceMotion, value: shakes)
                 .disabled(isVerifying)
                 // Verifying: the boxes dim and the spinner sits on them.
                 .opacity(isVerifying ? 0.4 : 1)
-                .overlay { if isVerifying { ProgressView() } }
+                .overlay { if isVerifying { CmuxSpinner() } }
                 .frame(maxWidth: .infinity)
                 .padding(.top, 24)
             if let error {
                 Text(error).font(theme.type.meta).foregroundStyle(theme.colors.dangerText)
                     .frame(maxWidth: .infinity).padding(.top, 14)
             }
-            TimelineView(.periodic(from: .now, by: 1)) { context in
+            // Once a second until the resend is available, then no more: "Resend code" stays.
+            TimelineView(CountdownSchedule(from: .now, until: resendAvailableAt)) { context in
                 let remaining = max(0, Int(resendAvailableAt.timeIntervalSince(context.date).rounded(.up)))
                 HStack {
                     Spacer()

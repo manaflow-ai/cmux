@@ -1,7 +1,9 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowserImport
+import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextWakeups
 import Foundation
 import UniformTypeIdentifiers
 
@@ -19,6 +21,7 @@ struct BrowserFileImport {
 
     func run(profile: String) {
         let services = services
+        let reader = services.browserDataReader
         services.registry.track(Task { @MainActor in
             guard let source = await Self.chooseBrowser(), await Self.showSteps(source),
                   let urls = await services.viewers.picker.open(.init(choose: .files, allowsMultiple: true,
@@ -27,7 +30,7 @@ struct BrowserFileImport {
             else { return nil }
             var failures: [String] = []
             for url in urls {
-                switch await Task.detached(operation: { Self.kind(of: url) }).value {
+                switch await reader.exportKind(of: url) {
                 case .bookmarks?: BookmarkFiles(services: services).importFile(url, profile: profile)
                 case .passwords?:
                     if let failure = await PasswordCSVFiles(services: services).importFile(url, profile: profile) {
@@ -52,40 +55,25 @@ struct BrowserFileImport {
         _ = CmuxToastCenter.shared.show(CmuxToast(id: id, message: message, duration: .seconds(12)), in: window)
     }
 
-    nonisolated enum FileKind: Sendable {
-        case passwords
-        case bookmarks
-        /// A zip: Safari's Export Browsing Data, or Google Takeout.
-        case archive
-        /// Safari's History.json or Takeout's Chrome history.
-        case history
-    }
-
-    /// By content, not name: a zip archive; JSON with a history list; a
-    /// Netscape bookmarks file is HTML with a `<DL>` list; any other text
-    /// with commas goes to the CSV import, which names a file without
-    /// website and password columns.
-    nonisolated static func kind(of url: URL) -> FileKind? {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
-        defer { try? handle.close() }
-        let bytes = (try? handle.read(upToCount: 4096)) ?? Data()
-        if ExportArchive.isArchive(bytes) { return .archive }
-        let head = String(decoding: bytes, as: UTF8.self)
-        let text = head.drop(while: { $0.isWhitespace || $0 == "\u{FEFF}" })
-        if ExportedHistory.looksLikeHistory(String(text)) { return .history }
-        if text.first == "<" {
-            let upper = text.uppercased()
-            return upper.contains("NETSCAPE-BOOKMARK-FILE") || upper.contains("<DL") ? .bookmarks : nil
-        }
-        return text.contains(",") ? .passwords : nil
-    }
-
     private static var scope: CmuxDialogScope { (NSApp.keyWindow ?? NSApp.mainWindow).map { .window($0) } ?? .app }
 
+    /// The bundled browser-export-steps.json rows (Package.swift is frozen: the file stays an App resource).
+    nonisolated static func exportRows() -> [BrowserExportSource] {
+        let url = Bundle.module.url(forResource: "browser-export-steps", withExtension: "json")
+        return url.flatMap { try? Data(blockingContentsOf: $0) }.map(BrowserExportSource.rows(in:)) ?? []
+    }
+
     private static func chooseBrowser() async -> BrowserExportSource? {
-        let sources = BrowserExportSource.all
-        guard let first = sources.first else { return nil }
-        let spec = CmuxDialogSpec(
+        // This Mac's browsers first, the default web browser chosen (Launch Services only).
+        let menu = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) {
+            let ws = NSWorkspace.shared, https = URL(string: "https://example.com")
+            let defaultID = https.flatMap { ws.urlForApplication(toOpen: $0) }.flatMap { Bundle(url: $0)?.bundleIdentifier }
+            return BrowserExportMenu(rows: exportRows(), isInstalled: { ws.urlForApplication(withBundleIdentifier: $0) != nil },
+                                     defaultBrowserBundleID: defaultID)
+        }.value
+        let sources = menu.rows
+        guard let first = menu.selected else { return nil }
+        let spec = CmuxDialogSpec(usesTransientMaterial: true,
             title: BrowserFileImportStrings.title, lines: [BrowserFileImportStrings.message],
             fields: [.choice(id: browserField, label: BrowserFileImportStrings.browserLabel,
                              options: sources.map { CmuxDialogOption(label: $0.name, value: $0.id) }, selected: first.id)],
@@ -99,7 +87,7 @@ struct BrowserFileImport {
 
     /// Whether the person went on to choose the files.
     private static func showSteps(_ source: BrowserExportSource) async -> Bool {
-        let spec = CmuxDialogSpec(
+        let spec = CmuxDialogSpec(usesTransientMaterial: true,
             title: BrowserFileImportStrings.stepsTitle(source.name),
             lines: BrowserFileImportStrings.steps(source) + [BrowserFileImportStrings.lastStep],
             buttons: [CmuxDialogButton(id: "cancel", title: PasswordCSVGuideStrings.cancel, role: .cancel),

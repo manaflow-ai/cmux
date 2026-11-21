@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import CmuxConversationCore
+import CmuxSpinner
 import UIKit
 
 enum AudioMessageStrings {
@@ -164,7 +165,7 @@ final class AudioMessageView: UIView {
     let playButton = UIButton(type: .custom)
     let waveform = AudioWaveformView()
     let durationLabel = UILabel()
-    private let spinner = UIActivityIndicatorView(style: .medium)
+    private let spinner = CmuxSpinnerView(side: 20)
     private var displayLink: CADisplayLink?
     private var observer: UUID?
     private weak var player: ConversationAudioPlayer?

@@ -27,7 +27,6 @@ SOURCES = "Packages/macOS/CmuxNext/Sources"
 GRID = "CmuxNextDesign/MenuMetrics.swift"
 # Menus not yet on the grid: each moves to MenuMetrics in its own follow-up and leaves this list.
 DEBT = {
-    "CmuxNextSidebar/Views/GroupEditor/SidebarGroupEditorControls.swift",
     "CmuxNextTabs/Groups/Editor/TabGroupEditorControls.swift",
     "CmuxNextPalette/PaletteActionsMenuView.swift",
     "CmuxNextDesign/Overlay/PopupRowView.swift",

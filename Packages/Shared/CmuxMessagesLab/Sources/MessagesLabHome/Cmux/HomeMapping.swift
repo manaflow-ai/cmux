@@ -109,6 +109,9 @@ enum HomeMapping {
         message.parent = parent(item, roots: roots)
         // The Chief's messages to its agents and their reports: asides under its reply (no avatar, no name).
         if item.agentMessage != nil { message.cmuxAside = true }
+        // A Feed row (an update, a merged pull request) is a line from the Feed, not a message: no
+        // sender's name or avatar over it, and it never joins the Chief's run (HomeFeedRow.author).
+        if item.feedRow != nil { message.cmuxAside = true }
         if item.isRetracted, hidesRetracted(summary, me: me) {
             // A Chief chat shows no "unsent" row: a deleted message is gone (#36019).
             message.deletedAt = message.retractedAt
@@ -165,6 +168,13 @@ enum HomeMapping {
             let shown: [Part]
             if summary?.owner == .local, isChief(item.author, summary), case .question(let question) = p,
                let card = HomeApprovalRowProvider.part(question) { shown = [card] }
+            // A failed Chief turn's "(turn failed on …: …)" tail is a card in plain words, after what it said.
+            else if isChief(item.author, summary), case .text(let text, _) = p, let failure = HomeTurnFailure(text: text),
+                    let card = HomeTurnFailureRowProvider.part(failure) {
+                let lead = failure.lead.isEmpty ? [] : self.parts(.text(failure.lead), media: media, progress: item.attachmentProgress,
+                                                                   markdown: markdown, links: links)
+                shown = lead + [card]
+            }
             else { shown = self.parts(p, media: media, progress: item.attachmentProgress, markdown: markdown, links: links) }
             parts += shown
             owners += Array(repeating: i, count: shown.count)
@@ -225,11 +235,16 @@ enum HomeMapping {
         // A work part shows its preview; its session id is no text (`WorkRef.shownText`).
         if case .work(let work) = p, work.shownText == nil { return [] }
         // An agent's pipe tables are cards of their own (HomeTableRowProvider), between its text.
-        func text(_ piece: String) -> [Part] {
+        func tabled(_ piece: String) -> [Part] {
             if markdown, let split = tableParts(piece, media: media, { textParts(.text($0), media: media, progress: progress, markdown: markdown, links: links) }) {
                 return split
             }
             return textParts(.text(piece), media: media, progress: progress, markdown: markdown, links: links)
+        }
+        // Its pictures alone on a line (the Chief's screenshots) are picture bubbles, between its text.
+        func text(_ piece: String) -> [Part] {
+            if markdown, let split = pictureParts(piece, media: media, tabled) { return split }
+            return tabled(piece)
         }
         if case .text(let whole, let mentions) = p, mentions.isEmpty, let diagrams = HomeDiagramRowProvider.installed,
            let split = diagramParts(whole, diagrams: diagrams, text) {
@@ -242,14 +257,14 @@ enum HomeMapping {
     }
 
     /// `text` cut at its pipe tables: the text pieces by `textParts`, each table a table or plan card.
-    /// nil when it has no table, or tables are off (Debug Settings > Home > Rich tables), or no provider
-    /// is installed: the text then maps as it always did, tables as written in the bubble.
+    /// nil when it has no table or no provider is installed: the text then maps as it always did,
+    /// tables as written in the bubble.
     /// A table's pictures (`![alt](source)` in its cells) resolve to local files with `media`: a
     /// `cmux-attachment:<hash>` source is the message's attachment of that hash (the Chief's uploads,
     /// `media(hash)`); a local path, `file:` or `https` URL is its thumbnail (`media(source)`,
     /// ``HomeTablePictures``); any other source, or one without a file yet, shows its alt text.
     static func tableParts(_ text: String, media: Media = { _ in nil }, _ textParts: (String) -> [Part]) -> [Part]? {
-        guard HomeTableRowProvider.isOn, HomeTableRowProvider.installed != nil else { return nil }
+        guard HomeTableRowProvider.installed != nil else { return nil }
         let segments = HomeTableSplitter().segments(in: text)
         guard segments.contains(where: { if case .table = $0 { return true } else { return false } }) else { return nil }
         var out: [Part] = []
@@ -265,6 +280,7 @@ enum HomeMapping {
                 pending += pending.isEmpty ? piece : "\n" + piece
             case .table(var table, let raw):
                 table.pictures = pictures(of: table, media: media)
+                table.loading = loadingPictures(of: table, media: media)
                 if let card = HomeTableRowProvider.part(table, raw: raw) {
                     flush()
                     out.append(card)
@@ -277,6 +293,70 @@ enum HomeMapping {
         return out
     }
 
+    /// The id prefix of a picture bubble an agent's Markdown names (`cmux-picture:<source>`), not an attachment.
+    static let pictureIDPrefix = "cmux-picture:"
+
+    /// The source of a picture bubble ``pictureParts(_:media:_:)`` made, from its id; nil for an attachment's id.
+    static func pictureSource(_ id: ID) -> String? {
+        id.hasPrefix(pictureIDPrefix) ? String(id.dropFirst(pictureIDPrefix.count)) : nil
+    }
+
+    /// `text` cut at its lines that hold only pictures (`![alt](source)`: the Chief puts a screenshot on a line of its
+    /// own) whose file this Mac can show (a local path, `file:` or `https` URL, through `media`, ``HomeTablePictures``):
+    /// each is a picture bubble in its place (its alt text as its name, still loading at its own size), the text before
+    /// and after by `textParts`. nil when no line does, or the text holds a code fence: the text then maps as it always
+    /// did, each picture as its alt text (HomeMarkdown). A `cmux-attachment:` picture is the message's attachment,
+    /// which shows as one already.
+    static func pictureParts(_ text: String, media: Media, _ textParts: (String) -> [Part]) -> [Part]? {
+        guard text.contains("!["), !text.contains("```"), !text.contains("~~~") else { return nil }
+        var out: [Part] = []
+        var pending: [Substring] = []
+        var drew = false
+        func flush() {
+            let piece = pending.joined(separator: "\n").trimmingCharacters(in: .newlines)
+            pending = []
+            if !piece.trimmingCharacters(in: .whitespaces).isEmpty { out += textParts(piece) }
+        }
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            guard let pictures = pictureLine(line, media: media) else {
+                pending.append(line)
+                continue
+            }
+            flush()
+            out += pictures.map { .attachment($0) }
+            drew = true
+        }
+        flush()
+        return drew ? out : nil
+    }
+
+    /// `line`'s pictures as picture bubbles when it holds only pictures and `media` has a file (or a loading mark)
+    /// for each; nil otherwise.
+    private static func pictureLine(_ line: Substring, media: Media) -> [Attachment]? {
+        guard line.contains("![") else { return nil }
+        let cell = HomeTableCell(markdown: String(line))
+        guard !cell.images.isEmpty, cell.text.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        var out: [Attachment] = []
+        for image in cell.images {
+            guard HomeTablePictures.handles(image.source), let asset = media(image.source) else { return nil }
+            let loading = asset.hasPrefix(HomeTablePictures.loadingPrefix)
+            // While loading, the original's pixel size holds its place; once made, the thumbnail's own size (same aspect).
+            let size = loading ? asset.dropFirst(HomeTablePictures.loadingPrefix.count).split(separator: "x").compactMap { Int($0, radix: 10) } : []
+            let known = size.count == 2 && size.allSatisfy { $0 > 0 }
+            let alt = image.alt.trimmingCharacters(in: .whitespaces)
+            let name = alt.isEmpty ? (HomeTablePictures.original(image.source)?.lastPathComponent ?? image.source) : alt
+            out.append(Attachment(id: pictureIDPrefix + image.source, kind: "image", fileName: name, mimeType: "image/png", byteSize: 0,
+                                  asset: loading ? nil : fileAsset(asset), poster: nil,
+                                  width: known ? size.first : nil, height: known ? size.last : nil, durationSeconds: nil, transfer: .done))
+        }
+        return out
+    }
+
+    /// A thumbnail path as the `file:` URL string MessagesLab's picture bubbles read (``HomeMedia``'s form).
+    static func fileAsset(_ asset: String) -> String {
+        asset.hasPrefix("/") ? URL(fileURLWithPath: asset).absoluteString : asset
+    }
+
     /// The scheme of a table picture that is one of the message's attachments (`cmux-attachment:<hash>`).
     static let tableAttachmentScheme = "cmux-attachment:"
 
@@ -287,10 +367,24 @@ enum HomeMapping {
         var out: [String: String] = [:]
         for source in sources {
             let key = source.hasPrefix(tableAttachmentScheme) ? String(source.dropFirst(tableAttachmentScheme.count)) : source
-            guard source.hasPrefix(tableAttachmentScheme) || HomeTablePictures.handles(source), let asset = media(key) else { continue }
+            guard source.hasPrefix(tableAttachmentScheme) || HomeTablePictures.handles(source), let asset = media(key),
+                  !asset.hasPrefix(HomeTablePictures.loadingPrefix) else { continue }
             out.updateValue(localPath(asset), forKey: source)
         }
         return out
+    }
+
+    /// `table`'s pictures still loading (`media` gave ``HomeTablePictures/loadingMark(_:)``), with their pixel
+    /// sizes; nil when none is.
+    static func loadingPictures(of table: HomeTable, media: Media) -> [String: [Int]]? {
+        var out: [String: [Int]] = [:]
+        for source in ([table.header] + table.rows).flatMap({ $0 }).flatMap({ HomeTableCell(markdown: $0).images.map(\.source) })
+        where HomeTablePictures.handles(source) {
+            guard let mark = media(source), mark.hasPrefix(HomeTablePictures.loadingPrefix) else { continue }
+            let size = mark.dropFirst(HomeTablePictures.loadingPrefix.count).split(separator: "x").compactMap { Int($0, radix: 10) }
+            out.updateValue(size.count == 2 ? size : [0, 0], forKey: source)
+        }
+        return out.isEmpty ? nil : out
     }
 
     /// A picture asset as a path: ``HomeMedia`` hands out `file:` URL strings (MessagesLab's bubbles read
@@ -302,7 +396,7 @@ enum HomeMapping {
 
     /// The attachment hashes `text`'s tables show in their cells (each one draws there, not again below).
     static func tableAttachmentHashes(_ text: String) -> Set<String> {
-        guard text.contains(tableAttachmentScheme), HomeTableRowProvider.isOn, HomeTableRowProvider.installed != nil else { return [] }
+        guard text.contains(tableAttachmentScheme), HomeTableRowProvider.installed != nil else { return [] }
         var out: Set<String> = []
         for case .table(let table, _) in HomeTableSplitter().segments(in: text) {
             for cell in ([table.header] + table.rows).flatMap({ $0 }) {
@@ -459,8 +553,15 @@ enum HomeMapping {
     /// hash; an image's picture is its asset, a video's its poster (the row
     /// drawing reads `poster ?? asset`, so a video never loads the movie);
     /// an upload in flight is MessagesLab's `.uploading` transfer.
+    /// cmux: a picture HomeMedia cannot get (`HomeMedia.unavailableAsset`) shows the part as a file card
+    /// (its type's icon, name and size), not the empty gray box it was (user 2026-11-16).
     static func attachment(_ ref: AttachmentRef, picture: String?, progress: Double?) -> Attachment {
-        let kind = kind(of: ref)
+        var kind = kind(of: ref)
+        var picture = picture
+        if picture == HomeMedia.unavailableAsset {
+            if kind == "image" || kind == "video" { kind = "file" }
+            picture = nil
+        }
         return Attachment(id: ref.hash, kind: kind, fileName: ref.name, mimeType: ref.mimeType, byteSize: ref.byteCount,
                           asset: kind == "image" ? picture : nil, poster: kind == "video" ? picture : nil,
                           width: ref.width, height: ref.height, durationSeconds: ref.durationMs.map { Double($0) / 1000 },

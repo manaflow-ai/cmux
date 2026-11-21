@@ -7,8 +7,6 @@ import Foundation
 /// Settings page and the palette write it; the App applies it
 /// as a Ghostty override, so terminals and chrome follow live.
 public struct AppThemeSetting: Sendable {
-    public let configPath = ["appearance", "theme"]
-
     public init() {}
 
     /// Whether `text` is a theme spec Ghostty can take (`ThemeSpec`): no
@@ -22,7 +20,7 @@ public struct AppThemeSetting: Sendable {
     /// build does not ship (a newer Ghostty's, a user's own theme file)
     /// loads as written.
     func parse(_ root: JSONValue) -> (String?, SettingsDiagnostic?) {
-        guard let value = root.value(at: configPath) else { return (nil, nil) }
+        guard let value = root.value(at: Self.configPath) else { return (nil, nil) }
         let problem = SettingsDiagnostic(kind: .invalidValue, path: "appearance.theme",
                                          message: "expected a Ghostty theme name or \"light:<theme>,dark:<theme>\"")
         guard let text = value.stringValue else { return (nil, problem) }

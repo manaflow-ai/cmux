@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { b64u, beginPairing, call, op, read, runAlarm, sessionPrincipal, sessionToken, testEnv, waitFor, worker } from "./pairing-harness.ts"
+import { b64u, beginPairing, call, inDO, op, read, runAlarm, sessionPrincipal, sessionToken, testEnv, waitFor, worker } from "./pairing-harness.ts"
 
 /**
  * Unpair and revoke for servers paired through an invite (workerd): `server.revoke` (the inviter,
@@ -148,6 +148,66 @@ describe("a removal committed outside the HTTP route (a TeamDO socket frame)", {
     const team = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(p.owner.team)) as any
     const res = await team.submit(p.owner.team, sessionPrincipal(p.owner.user, p.owner.team), { t: "op", op: "server.revoke", params: { host: p.result.host }, idempotency_key: crypto.randomUUID(), origin: "user" })
     expect(res.frames.some((f: { t: string }) => f.t === "result")).toBe(true)
+    await runAlarm(team)
+    await expectSpent(p)
+    expect((await team.debug(p.owner.team)).state.pairing_spends ?? {}).toEqual({})
+  })
+})
+
+/**
+ * An op sent as a frame on an owner object's WebSocket (the path the review found bypassing the HTTP
+ * hook): opens the socket as `principal`, sends the op, answers its result or reject frame.
+ */
+const socketOp = async (stub: any, entity: string, principal: Record<string, unknown>, name: string, params: unknown) => {
+  const res = await stub.fetch("https://do/", { headers: { Upgrade: "websocket", "x-cmux-entity": entity, "x-cmux-principal": JSON.stringify(principal) } })
+  expect(res.status).toBe(101)
+  const ws = res.webSocket as WebSocket
+  const key = crypto.randomUUID()
+  const frames: Array<any> = []
+  let wake: (() => void) | null = null
+  ws.addEventListener("message", (e) => {
+    frames.push(JSON.parse(e.data as string))
+    wake?.()
+  })
+  ws.addEventListener("close", () => wake?.())
+  ws.accept()
+  ws.send(JSON.stringify({ t: "op", op: name, params, idempotency_key: key, origin: "user" }))
+  const reply = () => frames.find((f) => (f.t === "result" || f.t === "reject") && f.idempotency_key === key)
+  for (let i = 0; i < 200 && !reply(); i++) await Promise.race([new Promise<void>((r) => (wake = r)), new Promise((r) => setTimeout(r, 20))])
+  try {
+    ws.close(1000)
+  } catch {}
+  return reply()
+}
+
+describe("removals sent as WebSocket frames (no HTTP hook runs)", { timeout: 60_000 }, () => {
+  for (const name of ["server.revoke", "host.remove"] as const) {
+    it(`${name} on a TeamDO socket spends the pairing and invite, and the host is gone`, async () => {
+      const p = await pairedThroughInvite(`stack-invite-ws-${name.replace(".", "-")}`)
+      const team = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(p.owner.team)) as any
+      const reply = await socketOp(team, p.owner.team, sessionPrincipal(p.owner.user, p.owner.team), name, { host: p.result.host })
+      expect(reply).toMatchObject({ t: "result" })
+      await runAlarm(team)
+      await expectSpent(p)
+      const state = (await team.debug(p.owner.team)).state
+      expect(state.pairing_spends ?? {}).toEqual({})
+      expect(state.server_pairings?.[p.result.host]).toBeUndefined()
+    })
+  }
+
+  it("install.sign_out on the server install's UserDO socket removes the host and spends the pairing and invite", async () => {
+    const p = await pairedThroughInvite("stack-invite-ws-sign-out")
+    const userStub = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(p.result.user)) as any
+    let grant = ""
+    await inDO(userStub, async (i) => {
+      grant = i.boundEngine.currentState.installs[p.result.install].grant as string
+    })
+    const principal = { kind: "install", identity: p.result.install, user: p.result.user, team: p.owner.team, install: p.result.install, grant, expires_at: Date.now() + 600_000 }
+    const reply = await socketOp(userStub, p.result.user, principal, "install.sign_out", {})
+    expect(reply).toMatchObject({ t: "result", value: { id: p.result.install } })
+    // Nothing else was called: UserDO's revocation notice (its alarm) tells TeamDO, which removes the host and spends.
+    await runAlarm(userStub)
+    const team = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(p.owner.team)) as any
     await runAlarm(team)
     await expectSpent(p)
     expect((await team.debug(p.owner.team)).state.pairing_spends ?? {}).toEqual({})

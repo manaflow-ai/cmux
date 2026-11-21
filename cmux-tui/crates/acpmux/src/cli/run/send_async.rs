@@ -76,7 +76,7 @@ pub(super) async fn queue(
         let Some(app) = error.downcast_ref::<errors::AppError>() else { return error };
         if app.code != errors::Code::Timeout { return error; }
         let recovery = match &delivery_id {
-            Some(delivery) => format!("Delivery {delivery} is recorded; check it with acpmux send --status {delivery}, or resend with --prompt-id {} to reuse the same delivery.", prompt_id.id),
+            Some(delivery) => format!("Delivery {delivery} is recorded; check it with {} send --status {delivery}, or resend with --prompt-id {} to reuse the same delivery.", crate::cli::entry::program(), prompt_id.id),
             None => format!("The prompt may have been accepted; resend with --prompt-id {} to recover its outcome without running it twice.", prompt_id.id),
         };
         let mut data = json!({"resend": true, "recovery": recovery});
@@ -178,9 +178,12 @@ async fn queue_once(
             println!("{line}");
         }
     } else if unreachable {
-        println!("queued; host unreachable, will retry (delivery {id}; acpmux send --status {id})");
+        println!(
+            "queued; host unreachable, will retry (delivery {id}; {} send --status {id})",
+            crate::cli::entry::program()
+        );
     } else {
-        println!("queued for delivery {id} (acpmux send --status {id})");
+        println!("queued for delivery {id} ({} send --status {id})", crate::cli::entry::program());
     }
     Ok(())
 }
@@ -245,20 +248,31 @@ pub(super) async fn status(
         print_json(&v);
         return Ok(());
     }
+    println!("{}", status_line(&v));
+    Ok(())
+}
+
+/// One delivery's `send_status` answer as `--status ID` prints it: its state, target, attempts,
+/// the turn that took it, and the last error.
+pub(crate) fn status_line(v: &Value) -> String {
     let field = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or_default();
     let attempts = v.get("attempts").and_then(Value::as_u64).unwrap_or(0);
-    let mut line = format!("{}  {}  attempt {attempts}", state_label(&v), field("target"));
+    let mut line = format!("{}  {}  attempt {attempts}", state_label(v), field("target"));
     if let Some(turn) = v.pointer("/accepted/turnId").and_then(Value::as_str) {
         line.push_str(&format!("  turn {turn}"));
     }
     if v.pointer("/accepted/steer") == Some(&json!(true)) {
         line.push_str("  (steered)");
     }
+    if v.pointer(&format!("/accepted/{}", super::super::output::HELD_IN_INBOX))
+        == Some(&json!(true))
+    {
+        line.push_str(&format!("  ({})", super::super::output::HELD_LINE));
+    }
     if let Some(error) = v.get("error").and_then(Value::as_str) {
         line.push_str(&format!("  last error: {error}"));
     }
-    println!("{line}");
-    Ok(())
+    line
 }
 
 /// `acpmux send --status` with no id: every message this daemon was handed to deliver (or only

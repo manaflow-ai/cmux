@@ -8,7 +8,8 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxActivity } from "../model";
 import { AgentCallCard } from "./AgentCallCard";
 import { agentCall } from "./agentCalls";
-import { resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -45,6 +46,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
   resetTranscriptDisclosure();
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

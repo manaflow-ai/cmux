@@ -5,6 +5,7 @@ import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -43,12 +44,9 @@ const window = dom.window;
 const host = window.document.getElementById("root")!;
 let root: Root | undefined;
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const button = (label: string) =>
@@ -212,7 +210,14 @@ test("Save hands the document to the host's save panel under its title, and says
 // A document's versions (cx-ncc.64, Claude parity): a reply that rewrites a document the chat already
 // has (same kind, same title) is its next version; the panel steps between them.
 test("a document's versions are the chat's documents of its kind and title, oldest first", async () => {
-  const { artifactVersions } = await import("../src/agent-session/acpmux/conversation/artifactVersions");
+  const { artifactVersions: versionsIn, replyDocuments } =
+    await import("../src/agent-session/acpmux/conversation/artifactVersions");
+  type Opened = Parameters<typeof versionsIn>[1];
+  const artifactVersions = (texts: readonly string[], opened: Opened) =>
+    versionsIn(
+      texts.flatMap((text) => replyDocuments({ text })),
+      opened,
+    );
   const replies = [
     "Here it is:\n\n```html\n<title>Pricing</title><p>One plan</p>\n```\n",
     "And notes:\n\n```md\n# Pricing\n\nNot HTML.\n```\n\n```html\n<title>Signup</title>\n```",

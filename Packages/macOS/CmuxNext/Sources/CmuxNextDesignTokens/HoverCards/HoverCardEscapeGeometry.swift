@@ -26,7 +26,7 @@ public import CoreGraphics
 /// `RowAlignment.middle` keeps the earlier layout (#22473, Leo 2026-10-20 "trapped by the
 /// preview"): the card's top on the row's middle, so right of the row's upper half is an empty
 /// escape slot that dismisses the card. It flips above the row's middle near the screen's bottom.
-/// Debug Settings turns it back on (`escapeSlotTunable`). Coordinates are screen points, y up.
+/// The sidebar uses `.top`. Coordinates are screen points, y up.
 public nonisolated struct HoverCardEscapeGeometry: Hashable, Sendable {
     /// What a point is, for a shown card.
     public enum Zone: Hashable, Sendable {
@@ -96,15 +96,6 @@ public nonisolated struct HoverCardEscapeGeometry: Hashable, Sendable {
         guard top > bottom else { return screen }
         return CGRect(x: screen.minX, y: bottom, width: screen.width, height: top - bottom)
     }
-
-    /// Debug Settings: the escape-slot layout (`RowAlignment.middle`) instead of the top-aligned one.
-    public static let escapeSlotTunable = Tunable<Bool>.toggle(
-        "sidebar.hoverCardEscapeSlot", .sidebar, "Workspace card below the row's middle",
-        help: "The workspace hover card starts at its row's middle, leaving an empty slot beside the row's upper half that dismisses it, instead of lining its top up with the row's top.",
-        default: false, code: "HoverCardEscapeGeometry.escapeSlotTunable")
-
-    /// The alignment the sidebar uses now: top, or middle while the Debug Settings switch is on.
-    public static var currentAlignment: RowAlignment { escapeSlotTunable.value ? .middle : .top }
 
     /// The card for `anchor` (a workspace's fill, or a group/rail band) at `size`,
     /// kept inside `visible` (the screen's visible frame, already inset by any margin) when given,

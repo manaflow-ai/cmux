@@ -19,6 +19,8 @@ import Testing
        "shadowOf":null,"signedIn":true,"plan":null,"email":null,"enabled":true,"builtin":false},
       {"id":"claude-3","family":"claude","name":"Claude 3","home":"/Users/alex/.cmux/accounts/claude-3",
        "shadowOf":null,"signedIn":false,"plan":null,"email":null,"enabled":true,"builtin":false},
+      {"id":"claude-key","family":"claude","name":"Work key","home":null,"shadowOf":null,"signedIn":true,
+       "plan":null,"email":null,"enabled":true,"builtin":false,"key":true},
       {"id":"claude-login","family":"claude","name":"Claude Code login","home":null,"shadowOf":null,
        "signedIn":true,"plan":null,"email":"alex@example.com","enabled":true,"builtin":true}
     ]}
@@ -34,7 +36,7 @@ import Testing
         let harnesses = SettingsHarnesses(environment: { environment },
             fetch: { _ in [.init(id: "claude", kind: "claude-stdio", source: "path")] },
             fetchHealth: { _, _ in Data(health.utf8) },
-            openTerminal: { _ in },
+            openTerminal: { _ in true },
             accountsCall: { _, method, _ in method == .accounts ? Self.accountsReply : Data("{}".utf8) },
             claudeStatus: { program, home in
                 asked.withLock { $0.append(Asked(program: program, home: home)) }
@@ -53,6 +55,7 @@ import Testing
         #expect(plans["claude-2"] == .string("pro"))
         #expect(plans["claude-login"] == .string("max"))
         #expect(plans["claude-3"] == .null, "a signed-out login is not asked")
+        #expect(plans["claude-key"] == .null, "an API-key route is not a claude.ai login")
         let asked = h.asked.withLock { $0 }.sorted { ($0.home ?? "") < ($1.home ?? "") }
         #expect(asked == [Asked(program: "/opt/homebrew/bin/claude", home: nil),
                           Asked(program: "/opt/homebrew/bin/claude", home: "/Users/alex/.cmux/accounts/claude-2")])

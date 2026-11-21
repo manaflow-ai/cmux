@@ -199,10 +199,14 @@ struct SidebarPriorityRowActionsTests {
         let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.control, .option, .function, .numericPad],
                                                   timestamp: 1, windowNumber: 0, context: nil, characters: character,
                                                   charactersIgnoringModifiers: character, isARepeat: false, keyCode: up ? 126 : 125))
-        let router = KeyRouter(registry: ActionRegistry.standard())
+        // The router holds its registry unowned: the test keeps it alive (a temporary was freed before `decide`).
+        let registry = ActionRegistry.standard()
+        let router = KeyRouter(registry: registry)
         var focus = FocusState()
         focus.resolved = .sidebar
-        #expect(String(describing: router.decide(event, focus: focus, keyWindow: .content)) == "deliver")
+        withExtendedLifetime(registry) {
+            #expect(String(describing: router.decide(event, focus: focus, keyWindow: .content)) == "deliver")
+        }
     }
 
     /// With the Priority view off its rows' actions do not run, Archive Chat on a row's chat

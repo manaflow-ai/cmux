@@ -1,0 +1,176 @@
+[
+ {
+  "name": "default root: no handoff, no state dir",
+  "op": "cloud_link_ensure_arguments",
+  "request": {
+   "install": "inst_1"
+  },
+  "expect": [
+   "link",
+   "ensure",
+   "--install",
+   "inst_1"
+  ]
+ },
+ {
+  "name": "release: the default root, the shared port",
+  "op": "cloud_link_ensure_arguments",
+  "request": {
+   "install": "inst_1",
+   "stateRoot": "/L/cmux-tui/sessions",
+   "credentialSocket": "/T/cl-a.sock",
+   "tagged": false
+  },
+  "expect": [
+   "link",
+   "ensure",
+   "--install",
+   "inst_1",
+   "--handoff",
+   "--state-dir",
+   "/L/cmux-tui/sessions/link",
+   "--credential-socket",
+   "/T/cl-a.sock"
+  ]
+ },
+ {
+  "name": "a build with its own state: any port, its own server.json",
+  "op": "cloud_link_ensure_arguments",
+  "request": {
+   "install": "inst_1",
+   "stateRoot": "/A/cmux/tags/nightly/tui",
+   "tagged": true
+  },
+  "expect": [
+   "link",
+   "ensure",
+   "--install",
+   "inst_1",
+   "--handoff",
+   "--state-dir",
+   "/A/cmux/tags/nightly/tui/link",
+   "--port",
+   "0",
+   "--server-config",
+   "/A/cmux/tags/nightly/tui/server.json"
+  ]
+ },
+ {
+  "name": "stop",
+  "op": "cloud_link_stop_arguments",
+  "request": {
+   "stateRoot": "/S"
+  },
+  "expect": [
+   "link",
+   "stop",
+   "--state-dir",
+   "/S/link"
+  ]
+ },
+ {
+  "name": "archive",
+  "op": "cloud_link_archive_arguments",
+  "request": {},
+  "expect": [
+   "link",
+   "archive"
+  ]
+ },
+ {
+  "name": "the link's environment keeps only the allow-list",
+  "op": "cloud_link_environment",
+  "request": {
+   "stateRoot": "/S",
+   "runtimeBase": "/T",
+   "base": {
+    "HOME": "/h",
+    "PATH": "/p",
+    "CMUX_NEXT_X": "1",
+    "DYLD_INSERT_LIBRARIES": "x",
+    "GITHUB_TOKEN": "t"
+   }
+  },
+  "expect": {
+   "HOME": "/h",
+   "PATH": "/p",
+   "CMUX_TUI_STATE_DIR": "/S",
+   "TMPDIR": "/T"
+  }
+ },
+ {
+  "name": "the link's state directory",
+  "op": "cloud_link_state_directory",
+  "request": {
+   "stateRoot": "/S"
+  },
+  "expect": "/S/link"
+ },
+ {
+  "name": "the answer is the last stdout line",
+  "op": "cloud_link_parse_ensure",
+  "request": {
+   "stdout": "noise\n{\"status\":\"started\",\"pid\":9,\"socket\":\"/T/l.sock\"}\n",
+   "needsPid": true
+  },
+  "expect": {
+   "ok": {
+    "status": "started",
+    "pid": 9,
+    "socket": "/T/l.sock"
+   }
+  }
+ },
+ {
+  "name": "a credential socket needs the link's pid",
+  "op": "cloud_link_parse_ensure",
+  "request": {
+   "stdout": "{\"status\":\"running\"}",
+   "needsPid": true
+  },
+  "expect": {
+   "error": "link did not report a pid"
+  }
+ },
+ {
+  "name": "not an answer",
+  "op": "cloud_link_parse_ensure",
+  "request": {
+   "stdout": "x"
+  },
+  "expect": {
+   "error": "bad_answer"
+  }
+ },
+ {
+  "name": "a failure's detail is the last stderr line",
+  "op": "cloud_link_last_line",
+  "request": {
+   "text": "a\nb\n"
+  },
+  "expect": "b"
+ },
+ {
+  "name": "a build with its own state directory runs the link there",
+  "op": "cloud_link_state_root",
+  "request": {
+   "own": "/A/cmux/tags/nightly/tui",
+   "defaultRoot": "/A/cmux-tui/sessions"
+  },
+  "expect": {
+   "root": "/A/cmux/tags/nightly/tui",
+   "own": true
+  }
+ },
+ {
+  "name": "release uses the default root",
+  "op": "cloud_link_state_root",
+  "request": {
+   "defaultRoot": "/A/cmux-tui/sessions"
+  },
+  "expect": {
+   "root": "/A/cmux-tui/sessions",
+   "own": false
+  }
+ }
+]

@@ -32,13 +32,30 @@ extension MockAgentSession {
         """
         let named: JSONValue = .object(["kind": .string("agent_message"), "from": .string("fromAgent"),
                                         "fromName": .string("build-box/lane-3")])
+        // As hub/digest.rs `digest_provenance` writes it: each part's own provenance names its
+        // sending chat. Two of these sessions' ids hash to one tone, so the chat moves the second to
+        // the next (AgentTones), as the Mac does.
+        let part = { (from: String, session: String?) -> JSONValue in
+            var part: [String: JSONValue] = ["from": .string(from)]
+            if let session {
+                part["provenance"] = .object(["kind": .string("agent_message"), "from": .string("acp:\(session)"),
+                                              "fromName": .string(from)])
+            }
+            return .object(part)
+        }
         let digested: JSONValue = .object(["kind": .string("agent_digest"), "messages": .array([
-            .object(["from": .string("build-box/lane-3")]), .object(["from": .string("coordinator")]),
-            .object(["from": .string("studio-mac/codex-1")]),
+            part("build-box/lane-3", "0193a6f2-7c41-7e0b-9d2a-5f1e8c3b4a02"),
+            part("coordinator", "0193a6f2-7c41-7e0b-9d2a-5f1e8c3b4a09"),
+            part("studio-mac/codex-1", nil),
         ])])
+        // A Chief's turn sending this chat a task (acpmux `stamp_chief`): the Chief's blue bubble (CMUX-51).
+        let fromChief: JSONValue = .object(["kind": .string("session_message"), "from": .string("optchat-home-12"),
+                                            "fromName": .string("Chief"), "fromChief": .string("agent_mux")])
         for (index, (text, provenance, answer)) in [
             (report, named, "Noted: #36125 lands once its base-only reds are confirmed."),
             (digest, digested, "Taking the iOS half; the review's SHIP is at the head."),
+            ("Please rebase **#36125** on `feat-cmux-next` and post the exact-head build.", fromChief,
+             "Rebasing now; I'll post the build when it is green."),
         ].enumerated() {
             let turnID = "history-agent-\(index)"
             let at = start.addingTimeInterval(Double(index) * 120)
@@ -113,6 +130,53 @@ extension MockAgentSession {
         ))))
         emit(.update(.agentMessageChunk(text: S.subagentAnswer, messageId: "h2-m1")))
         emit(.turnResult(turnId: turnID, status: .completed, errorText: nil, at: start.addingTimeInterval(41)))
+    }
+
+    /// Claude's acpmux `who_else` MCP call (`mcp__acpmux__who_else`) before it reads a file: three
+    /// other sessions, a peer's named with its machine, one matched by topic, and one machine that did
+    /// not answer (the Mac's `WhoElseCard.gallery.ts` claude state). Draws as the who-else card.
+    func replayWhoElseCall() {
+        let minute = 60_000.0
+        func file(_ path: String, _ edited: Bool) -> JSONValue {
+            .object(["path": .string("cmux-next-ios/rust/cmux-mobile-link/src/\(path)"), "edited": .bool(edited)])
+        }
+        func session(_ id: String, name: String, host: String? = nil, harness: String, live: Bool, branch: String, pulls: [String],
+                     ago: Double, files: [JSONValue], inCommon: Int, topic: [String] = []) -> JSONValue {
+            var object: [String: JSONValue] = [
+                "sessionId": .string(id), "name": .string(name), "ref": .string(host.map { "\($0)/\(name)" } ?? name),
+                "harness": .string(harness), "status": .string(live ? "running" : "idle"), "live": .bool(live),
+                "branch": .string(branch), "pullRequests": .array(pulls.map { .string("https://github.com/manaflow-ai/cmux/pull/\($0)") }),
+                "agoMs": .number(ago), "filesInCommon": .number(Double(inCommon)),
+                "editedInCommon": .number(Double(files.count(where: { $0["edited"] == .bool(true) }))),
+                "files": .array(files), "sameWorktree": .bool(false), "sameBranch": .bool(false),
+                "topicWords": .array(topic.map(JSONValue.string)),
+            ]
+            if let host { object["host"] = .string(host) }
+            return .object(object)
+        }
+        let answer: JSONValue = .object([
+            "schema": .string(WhoElseCall.schema),
+            "query": .object(["files": .array([.string("cmux-next-ios/rust/cmux-mobile-link/src/frame.rs")]), "fileCount": .number(1),
+                              "topic": .string("link framing")]),
+            "sessions": .array([
+                session("who-dialer", name: "transport-switch", harness: "codex", live: true, branch: "lane/transport-switch",
+                        pulls: ["36001"], ago: 4 * minute, files: [file("frame.rs", true), file("dial.rs", true), file("wg.rs", false)],
+                        inCommon: 4),
+                session("who-relay", name: "relay-probe", host: "my-vm", harness: "opencode", live: true, branch: "lane/relay-probe",
+                        pulls: [], ago: 3 * 60 * minute, files: [file("frame.rs", false)], inCommon: 1),
+                session("who-framing", name: "framing-docs", harness: "claude", live: false, branch: "lane/framing-docs",
+                        pulls: ["35880"], ago: 26 * 60 * minute, files: [], inCommon: 0, topic: ["link", "framing"]),
+            ]),
+            "more": .number(0),
+            "unreached": .array([.object(["host": .string("cosmic-gray"), "error": .string("no answer in 5 s")])]),
+            "lines": .array([]),
+        ])
+        emit(.update(.toolCall(ACPToolCall(
+            id: "h-who", title: "mcp__acpmux__who_else", kind: .other, status: .completed,
+            content: [.content(.text("transport-switch (codex) edited frame.rs 4m ago"))],
+            rawInput: .object(["files": .array([.string("cmux-next-ios/rust/cmux-mobile-link/src/frame.rs")]), "topic": .string("link framing")]),
+            rawOutput: .object(["content": .array([.object(["type": .string("text"), "text": .string("…")])]), "structuredContent": answer])
+        ))))
     }
 
     private func emitSub(_ id: String, _ update: ACPSessionUpdate) {

@@ -20,6 +20,7 @@
 // drafts (`release`).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ComposerAttachment } from "./attachments";
+import type { SendGesture } from "./heldPrompt";
 import { attachedImages } from "./direct";
 import type { QueueEdit, QueuedPrompt } from "./model";
 
@@ -245,16 +246,24 @@ export function useTrustHeldPrompts({
 
   /// Holds a prompt sent now, with its send's gesture, in the chat shown, or in `sentFrom`: the chat
   /// and folder it was sent in, for a refusal that came after the person moved on. `waking`: it
-  /// waits for the chat's Cloud machine to wake instead (cloudWake.ts), with no ticket.
+  /// waits for the chat's Cloud machine to wake instead (cloudWake.ts), with no ticket. `gesture`: a
+  /// send the composer held for its files bound its Enter or click then (Composer
+  /// `onBindSendGesture`); the prompt keeps that id and ticket and reserves none (the host may have
+  /// no grant left: a pasted image's upload spends it).
   const hold = useCallback(
     (
       text: string,
       attachments: ComposerAttachment[],
       sentFrom?: { chat: string | undefined; cwd: string | undefined },
       waking = false,
+      gesture?: SendGesture,
     ) => {
-      const id = crypto.randomUUID();
-      const ticket = waking ? Promise.resolve(undefined) : reserve(id).catch(() => undefined);
+      const id = gesture?.promptId ?? crypto.randomUUID();
+      const ticket = gesture
+        ? gesture.ticket.catch(() => undefined)
+        : waking
+          ? Promise.resolve(undefined)
+          : reserve(id).catch(() => undefined);
       const entry: TrustHeldPrompt = {
         id,
         ...(sentFrom ?? { chat, cwd }),

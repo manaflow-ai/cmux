@@ -6,6 +6,18 @@
 
 export type IdleProbeOptions = { ms?: number };
 
+/**
+ * The deadline of one page-script call in Chromium: `debug.agent_pane` runs this probe through
+ * `PageWebView.callPageScript`, one `Runtime.evaluate` on `CEFTab.devTools`' default timeout
+ * (`.seconds(5)` in CEFTab+Events.swift; agent-pane-idle-probe-timeout.test.ts reads it from there).
+ * A window at or past it never answers.
+ */
+export const CHROMIUM_SCRIPT_DEADLINE_MS = 5000;
+/** The longest window: 1 s under the deadline for the hook lookup, the summary and the reply. */
+export const IDLE_PROBE_MAX_MS = CHROMIUM_SCRIPT_DEADLINE_MS - 1000;
+/** The window when the caller names none (bench_power.py idle-chats asks for the same). */
+export const IDLE_PROBE_DEFAULT_MS = 3500;
+
 type Site = { count: number; sample: string };
 
 const SITE_FRAMES = 3;
@@ -49,7 +61,7 @@ export async function idleProbe(options: IdleProbeOptions = {}): Promise<Record<
 }
 
 async function probe(options: IdleProbeOptions): Promise<Record<string, unknown>> {
-  const ms = Math.max(100, Math.min(30_000, options.ms ?? 10_000));
+  const ms = Math.max(100, Math.min(IDLE_PROBE_MAX_MS, options.ms ?? IDLE_PROBE_DEFAULT_MS));
   const frames = new Map<string, Site>();
   const timeouts = new Map<string, Site>();
   const intervals = new Map<string, Site>();

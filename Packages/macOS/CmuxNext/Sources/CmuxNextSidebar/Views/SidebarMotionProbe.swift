@@ -38,6 +38,10 @@ public struct SidebarMotionFrame: Sendable {
     public var revision: UInt64
     /// A dropped drag still shows its look (`SidebarListView.settling`).
     public var settling: Bool
+    /// The keys whose row is closing its slot this frame (`SidebarRowView.closingEnd`: it left the list and
+    /// `RowMotion` shrinks it to its run top and fades it): their `views` entry is the closing view, so a film
+    /// sees a removed row shrink instead of vanish at the change.
+    public var closing: [String] = []
 }
 
 /// Samples the list once per display frame while on. Off by default; one
@@ -63,8 +67,20 @@ final class SidebarMotionProbe {
 
     func stop() -> [SidebarMotionFrame] {
         client?.deactivate()
-        defer { frames.removeAll() }
+        defer { frames.removeAll(); names.removeAll() }
         return frames
+    }
+
+    /// Each row key's report name, made once per key: `String(describing:)` of an enum with payloads reflects
+    /// (`Mirror`), and four calls per row per frame were most of the probe's main-thread time (Time Profiler,
+    /// cmux21 at 120 Hz: 400-720 ms of `String(describing:)` over 5 sidebar row presses, SIDEBAR ROWS STATUS 15277).
+    private var names: [SidebarRowKey: String] = [:]
+
+    private func name(of key: SidebarRowKey) -> String {
+        if let name = names[key] { return name }
+        let name = String(describing: key)
+        names[key] = name
+        return name
     }
 
     private func sample(_ time: CFTimeInterval, _ tick: FrameTick) -> Bool {
@@ -74,11 +90,18 @@ final class SidebarMotionProbe {
         var identity: [String: UInt] = [:]
         var selected: (key: String, frame: CGRect)?
         let fading = list.fadingRows.values.map { (key: $0.key, view: $0) }
-        for (key, view) in fading + list.rowViews.map({ (key: $0.key, view: $0.value) }) { // a live row wins over a fading one
-            views[String(describing: key)] = Self.presented(view)
-            opacity[String(describing: key)] = view.layer?.presentation()?.opacity ?? Float(view.alphaValue)
-            identity[String(describing: key)] = UInt(bitPattern: ObjectIdentifier(view).hashValue)
-            if view.showsSelection { selected = (String(describing: key), Self.presented(view)) } // a live row wins
+        // A row RowMotion closes leaves `rowViews` at the change and stays a subview until its close ends.
+        let closingViews = list.subviews.compactMap { $0 as? SidebarRowView }.filter { $0.closingEnd != nil && !$0.isHidden }
+        let closing = closingViews.map { (key: $0.key, view: $0) }
+        // A key listed again (a reopen) shows its live row: only keys with no live row are closing.
+        let closingKeys = closing.filter { list.rowViews[$0.key] == nil }.map { name(of: $0.key) }
+        for (key, view) in closing + fading + list.rowViews.map({ (key: $0.key, view: $0.value) }) { // a live row wins over a fading or closing one
+            let name = name(of: key)
+            let shown = Self.presented(view)
+            views[name] = shown
+            opacity[name] = view.layer?.presentation()?.opacity ?? Float(view.alphaValue)
+            identity[name] = UInt(bitPattern: ObjectIdentifier(view).hashValue)
+            if view.showsSelection { selected = (name, shown) } // a live row wins
             guard let block = view as? SidebarBlockRowView else { continue }
             let origin = Self.presented(view).origin
             for (id, item) in block.region.itemViews where !id.isTransient {
@@ -92,7 +115,8 @@ final class SidebarMotionProbe {
                                          linkTimestamp: tick.timestamp, targetTimestamp: tick.targetTimestamp,
                                          refreshInterval: tick.refreshInterval, selectedKey: selected?.key, selection: selected?.frame,
                                          scale: list.window?.backingScaleFactor ?? 1, dragWorkMs: list.lastDragWorkMs,
-                                         revision: list.model.sectionsRevision, settling: list.settling != nil))
+                                         revision: list.model.sectionsRevision, settling: list.settling != nil,
+                                         closing: closingKeys))
         return true
     }
 

@@ -7,7 +7,9 @@ frames, so an occluded or unlit console (the PR scheme lane's runner) times none
 "timed 0 of 40" failures; with --frames required (the GUI host) it still fails, and a window
 that draws but times nothing still fails.
 """
+import contextlib
 import importlib.util
+import io
 import itertools
 import os
 import sys
@@ -61,6 +63,12 @@ class UnlitWindowTests(unittest.TestCase):
     def setUp(self):
         del perf_gate.failures[:], perf_gate.warnings[:]
         perf_gate.report.update({"checks": [], "phases": {}})
+        # In CI, warn() prints a ::warning:: workflow command; this suite runs in the cmux-next
+        # checks job, so the fixture's would show as a real annotation on the green step.
+        self.out = io.StringIO()
+        redirect = contextlib.redirect_stdout(self.out)
+        redirect.__enter__()
+        self.addCleanup(redirect.__exit__, None, None, None)
 
     def gate(self, lit, frames="auto"):
         gate = perf_gate.Gate(FakeApp(lit), types.SimpleNamespace(frames=frames, only=None))
@@ -75,6 +83,7 @@ class UnlitWindowTests(unittest.TestCase):
         self.run_timed(self.gate(lit=False))
         self.assertEqual(perf_gate.failures, [])
         self.assertTrue(any("draws no frames" in w for w in perf_gate.warnings), perf_gate.warnings)
+        self.assertIn("draws no frames", self.out.getvalue())
 
     def test_an_unlit_window_fails_when_frames_are_required(self):
         self.run_timed(self.gate(lit=False, frames="required"))

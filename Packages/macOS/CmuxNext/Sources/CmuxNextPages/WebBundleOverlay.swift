@@ -160,6 +160,21 @@ public final class WebBundleServedViews {
 
     private let webViews = NSHashTable<WKWebView>.weakObjects()
     private var pins = WebBundlePins()
+    /// Views that keep the update they loaded with until they close (``keepLoadedTree(_:)``).
+    private let keepsLoaded = NSHashTable<WKWebView>.weakObjects()
+
+    /// `webView` keeps the update it loaded with until it closes: a newer update never reloads it in
+    /// place (``behind(_:)`` skips it), and its tree stays on disk while it is open (``pinnedTrees``).
+    /// For a small page that is always in sight and has nothing to gain from a swap: the sidebar's
+    /// Updated card reloaded, blank for a few frames and then its words again, at every merge the
+    /// every-merge channel published (Leo 2026-11-07: "this updated to nightly thing also sometimes
+    /// flickers"). It takes the newer web the next time it opens.
+    public func keepLoadedTree(_ webView: WKWebView) {
+        keepsLoaded.add(webView)
+    }
+
+    /// Whether `webView` keeps the update it loaded with until it closes (``keepLoadedTree(_:)``).
+    public func keepsLoadedTree(_ webView: WKWebView) -> Bool { keepsLoaded.contains(webView) }
 
     /// Whether no handler served a view yet (a launch that shows no page).
     public var isEmpty: Bool { webViews.allObjects.isEmpty }
@@ -185,11 +200,12 @@ public final class WebBundleServedViews {
     /// The served views that show a document.
     public var shown: [WKWebView] { webViews.allObjects.filter { $0.url != nil } }
 
-    /// The shown views that still read another tree than `tree` (nil: the bundle).
+    /// The shown views that still read another tree than `tree` (nil: the bundle), less the ones that
+    /// keep their tree until they close (``keepLoadedTree(_:)``).
     public func behind(_ tree: URL?) -> [WKWebView] {
         let live = webViews.allObjects
         pins.keep(Set(live.map(ObjectIdentifier.init)))
-        return live.filter { $0.url != nil && pins.isBehind(ObjectIdentifier($0), tree) }
+        return live.filter { $0.url != nil && !keepsLoaded.contains($0) && pins.isBehind(ObjectIdentifier($0), tree) }
     }
 
     /// The update trees open pages read now (they stay on disk until those pages reload).

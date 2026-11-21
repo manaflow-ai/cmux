@@ -18,7 +18,9 @@ import Testing
                   .closesItsWindows)
 struct NewTabSpareHiddenFitTests {
     /// Two key resizes in a split, the second right after the first landed: the parked spare is never laid out while
-    /// the layout moves, and is at its pane's final size once the second lands, before any Cmd-T.
+    /// the layout moves, and is at its pane's final size once the second lands, before any Cmd-T. Each spring's frames
+    /// are judged against the size the spare had when its key came: a fit while the layout was still between the two
+    /// (the first landing's, `fitSettle` after it) is the designed one, not a layout in motion.
     @Test func aKeyResizeFitsNoParkedSpareInItsFramesAndTheSpareIsAtThePanesSizeAfterItLands() async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-spare-motion-fit")
@@ -42,23 +44,26 @@ struct NewTabSpareHiddenFitTests {
             // Every frame of the two springs: the spare's size, while the layout moves.
             var sizesInMotion: [CGSize] = []
             var sawMotion = false
-            let start = spare.frame.size
+            var start = spare.frame.size
             let watch = layout.observeOverlaySync {
                 guard layout.isInLayoutMotion else { return }
                 sawMotion = true
                 if spare.frame.size != start, sizesInMotion.last != spare.frame.size { sizesInMotion.append(spare.frame.size) }
             }
             defer { watch.cancel() }
+            // Per key: the spare's size in its turn, then the pane's content and the spare's size once it landed.
+            var steps: [String] = []
             for action in ["resizePaneLeft", "resizePaneRight"] as [ActionID] {
+                start = spare.frame.size // in the key's turn: the layout is still until the action springs
                 #expect(services.registry.perform(action, invocation: ActionInvocation(origin: .user)), "\(action) was refused")
                 try await PasswordManagerRouteTests.until({ layout.isInLayoutMotion }, within: .seconds(2), report: { "\(action) did not spring" })
                 try await PasswordManagerRouteTests.until({ !layout.isInLayoutMotion }, within: .seconds(3), report: { "\(action) never landed" })
+                steps.append("\(action): spare \(start), landed pane \(NewTabSparePool.newTabContentSize(in: pane)) spare \(spare.frame.size)")
             }
             #expect(sawMotion, "no frame of the springs was seen")
-            #expect(sizesInMotion.isEmpty, "the hidden spare was laid out while the layout moved: \(start) -> \(sizesInMotion)")
-            let final = NewTabSparePool.newTabContentSize(in: pane)
-            try await PasswordManagerRouteTests.until({ spare.frame.size == final }, within: .seconds(2),
-                                                      report: { "after the landing the spare is \(spare.frame.size), its pane's content is \(final)" })
+            #expect(sizesInMotion.isEmpty, "the hidden spare was laid out while the layout moved: \(start) -> \(sizesInMotion); \(steps)")
+            try await PasswordManagerRouteTests.until({ spare.frame.size == NewTabSparePool.newTabContentSize(in: pane) }, within: .seconds(2),
+                                                      report: { "after the landing the spare is \(spare.frame.size), its pane's content is \(NewTabSparePool.newTabContentSize(in: pane)); \(steps)" })
         }
     }
 

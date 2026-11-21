@@ -1,5 +1,5 @@
 import type React from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   applyDictation,
   type DictationAnchor,
@@ -8,8 +8,11 @@ import {
   type DictationUpdate,
 } from "./dictationText";
 import type { MarkdownFieldHandle } from "./MarkdownField";
+import { composerSettingsSnapshot } from "./composerSettings";
+import { handoffFailure } from "./dictationSources";
 import { useT } from "./i18n";
 import { NativeError } from "./nativeError";
+import { focusRoute } from "../../ui/focusRoute";
 
 /// Native dictation for the composer. Swift owns the microphone and speech engine
 /// (CmuxNextAgentPane `AgentPaneDictation`); this splices its text at the prompt's cursor,
@@ -24,6 +27,15 @@ const listeners = new Set<(update: DictationUpdate) => void>();
 export function deliverDictation(update: DictationUpdate): void {
   setLevel(update.level, isActive(update.state));
   for (const listener of listeners) listener(update);
+}
+
+const handoffListeners = new Set<(code: string) => void>();
+/// The host's `dictationHandoff {code}`: the Toggle Dictation shortcut's hand-off to the picked app
+/// did not happen; each composer shows why, as for the mic's click (dictationSources.ts).
+export function deliverHandoffFailure(value: unknown): void {
+  const code = (value as { code?: unknown } | null | undefined)?.code;
+  if (typeof code !== "string") return;
+  for (const listener of handoffListeners) listener(code);
 }
 
 let autoSend = false;
@@ -167,7 +179,8 @@ export function useDictation(
         else if (update.audioOmitted) omitAudio.current?.(update.audioOmitted);
       }
       // A session the shortcut started writes where the user will type, as undoable edits.
-      if (update.state === "starting" && document.hasFocus() && !field.focused()) field.focus();
+      if (update.state === "starting" && document.hasFocus() && !field.focused())
+        focusRoute(field, "system", "dictation started");
       const splice = applyDictation(field.text(), anchor.current, update);
       if (!splice) return;
       anchor.current = splice.anchor;
@@ -234,6 +247,22 @@ export function useDictation(
     };
   }, [prompt, call]);
 
+  // A hand-off the shortcut asked for and the host could not make.
+  useEffect(() => {
+    const listener = (code: string) =>
+      setNotice({
+        state: "failed",
+        text: "",
+        level: 0,
+        cancelled: false,
+        message: handoffFailure(code, composerSettingsSnapshot().dictationSource, t),
+      });
+    handoffListeners.add(listener);
+    return () => {
+      handoffListeners.delete(listener);
+    };
+  }, [t]);
+
   // Esc cancels, only while a session runs; idle composers keep every key.
   const active = isActive(state);
   useEffect(() => {
@@ -259,44 +288,57 @@ export function useDictation(
     [call],
   );
 
-  return {
-    state,
-    notice,
-    toggle() {
-      if (!active) prompt.current?.focus();
-      requested.current = true;
-      void call("dictation.toggle").catch((error: unknown) => {
-        requested.current = false;
-        setNotice({
-          state: "failed",
-          text: "",
-          level: 0,
-          cancelled: false,
-          // A page with no host to ask says so plainly rather than "Request failed".
-          message:
-            error instanceof Error &&
-            error.message &&
-            !(error instanceof NativeError && error.code === "native.not_connected")
-              ? error.message
-              : t("dictation.unavailable"),
+  // The same object while its state and notice are: the composer, memoized, is not drawn again for it.
+  return useMemo<Dictation>(
+    () => ({
+      state,
+      notice,
+      toggle() {
+        if (!active) focusRoute(prompt.current, "system", "dictation ended");
+        // A dictation app the person picked gets the press (dictationSources.ts); a session of cmux's
+        // own that still runs is stopped by it as before.
+        const source = composerSettingsSnapshot().dictationSource;
+        if (source !== "cmux" && !active) {
+          setNotice(null);
+          void call("dictation.handoff").catch((error: unknown) => {
+            const code = error instanceof NativeError ? error.code : undefined;
+            setNotice({
+              state: "failed",
+              text: "",
+              level: 0,
+              cancelled: false,
+              message: handoffFailure(code, source, t),
+            });
+          });
+          return;
+        }
+        requested.current = true;
+        void call("dictation.toggle").catch((error: unknown) => {
+          requested.current = false;
+          // The host's refusal reads as "Dictation is not available." (its words go to the log);
+          // a page with no host to ask says the same, never "Request failed".
+          if (!(error instanceof NativeError && error.code === "native.not_connected"))
+            console.warn("agent pane: dictation did not start", error);
+          setNotice({ state: "failed", text: "", level: 0, cancelled: false, message: t("dictation.unavailable") });
         });
-      });
-    },
-    finish(then) {
-      // The keyboard stays in (or returns to) the prompt, where the words are.
-      prompt.current?.focus();
-      if (then) afterFinish.current = then;
-      // Already finalizing: the last words are on their way, and `then` waits for them.
-      if (state !== "finalizing") void call("dictation.stop").catch(() => {});
-    },
-    cancel() {
-      void call("dictation.cancel").catch(() => {});
-    },
-    openSettings() {
-      if (notice?.permission) void call("dictation.openSettings", { permission: notice.permission }).catch(() => {});
-    },
-    dismiss() {
-      setNotice(null);
-    },
-  };
+      },
+      finish(then) {
+        // The keyboard stays in (or returns to) the prompt, where the words are.
+        focusRoute(prompt.current, "system", "dictation");
+        if (then) afterFinish.current = then;
+        // Already finalizing: the last words are on their way, and `then` waits for them.
+        if (state !== "finalizing") void call("dictation.stop").catch(() => {});
+      },
+      cancel() {
+        void call("dictation.cancel").catch(() => {});
+      },
+      openSettings() {
+        if (notice?.permission) void call("dictation.openSettings", { permission: notice.permission }).catch(() => {});
+      },
+      dismiss() {
+        setNotice(null);
+      },
+    }),
+    [state, notice, active, prompt, call, t],
+  );
 }

@@ -13,6 +13,10 @@ mod daemon_env;
 mod detach;
 #[path = "lane_reports/reads.rs"]
 mod reads;
+#[path = "lane_reports/subagent_mcp.rs"]
+mod subagent_mcp;
+#[path = "lane_reports/subagents.rs"]
+mod subagents;
 // This process runs stand-in agents (the fake agents under tests/).
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 

@@ -7,7 +7,7 @@ to Lawrence until every P0 journey passes on that exact build, the earlier dogfo
 all in it, and an independent QA agent says ship (`dogfood-gate.py`).
 
 The lead runs journeys at the moments that matter (a dogfood build, a fix for a journey's bug,
-before a handoff). They are not a CI job, step or gate, and must not become one.
+before a handoff). They are not a CI job, step or gate (written under the 2026-10-23 no-new-CI rule, since lifted).
 
 ## Run
 
@@ -248,7 +248,7 @@ truecolor cells under its text line, and reads it back from the snapshot's pixel
   {"daemon_line": "ok-${nonce}-42"}, {"app_text_line": "ok-${nonce}-42"}, {"frame_marker": "ok-${nonce}-42"}]}
 ```
 
-`marker_install` writes the program to `/tmp/jr-m-<nonce>` and binds `${marker}`; the program prints the token as a
+`marker_install` writes the program to `/tmp/jr-m-<nonce>-<random>` (made exclusively) and binds `${marker}`; the program prints the token as a
 text line (the daemon and app checks see what `echo` printed), a blank line, the marker and a blank line (no glyph of
 a text line can reach a marker pixel row). It needs the pane's own width to be at least 30 columns (it reads the
 terminal's size, not an exported `COLUMNS`; it exits 3 when the pane is narrower and 4 when its output is no
@@ -309,7 +309,8 @@ input-principles.md, hold-shortcuts-ux.md, repeat-runoff.md). Keys go out on the
 each, stamped with their scheduled time, so a main thread that falls behind sees a queue of old repeats as with a
 real held key; `debug.key {repeat: true}` sends an auto-repeat (the app's repeat gate reads that key as down).
 Steps: `spam_remember`, `hold_key` (one press, repeats every 33 ms from 250 ms, then the key is up; keeps the counts
-one frame after the key-up as `AS_release`), `hammer_key` (N physical presses within T seconds). Conditions:
+one frame after the key-up as `AS_release`), `hammer_key` (N physical presses within T seconds), `hammer_keys` (a pattern of
+shortcuts, such as Cmd-T then Cmd-W, played N times within T seconds). Conditions:
 `spam_counts` (tabs, panes, the focused pane's tabs, workspaces against a remembered count, by a delta or by the
 runs a hold reported), `spam_unchanged` (negative: nothing changed after the key-up, with `settle`),
 `spam_selected` (the selection moved N places, for Ctrl-Tab and Cmd-Shift-[ ]), `spam_runs`. The docstring has

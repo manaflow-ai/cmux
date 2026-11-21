@@ -28,6 +28,18 @@ public nonisolated struct CloudAppOpFailure: Error, Equatable, Sendable, CustomS
     public var description: String { message.isEmpty ? code : message }
 }
 
+public extension JSONValue {
+    /// The id of an app op's answer's `record` (`{"snapshot": {"id"}}`, `{"machine": {"id"}}`); nil when
+    /// `record` is nil. An answer with no such id is `cmux.cloud.bad_response`.
+    func recordID(_ record: String?, op: String) throws -> String? {
+        guard let record else { return nil }
+        guard let id = self[record]?["id"]?.stringValue, !id.isEmpty else {
+            throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "\(op) answered no \(record)")
+        }
+        return id
+    }
+}
+
 /// One Cloud app op: `op`, JSON `args`, an idempotency key for a mutation
 /// (nil for a read), and the wire origin.
 public typealias CloudAppOp = @Sendable (_ op: String, _ args: JSONValue, _ key: String?, _ origin: AppsRunRequest.Origin) async throws -> JSONValue
@@ -35,7 +47,8 @@ public typealias CloudAppOp = @Sendable (_ op: String, _ args: JSONValue, _ key:
 /// A machine's pause or start on the app-server link (`cloud.machine.pause`, `cloud.machine.start`; cmux#32708), never
 /// the classic `/api/vm`, which cannot reach a CloudDO machine. CloudDO answers once the provider call landed, so a
 /// pause's answer means its active slot is free; a call longer than CloudDO's wait answers `mutation.indeterminate`,
-/// asked again with the same key (it joins the call in flight), at most `attempts` times in all.
+/// asked again with the same key (it joins the call in flight) while Rust says so
+/// (`cloud_power_retries`, cmux-cloud-start-core `machine_create`), at most `attempts` times in all.
 public nonisolated struct CloudMachinePower {
     public nonisolated init() {}
     public static let indeterminate = "cmux.cloud.indeterminate"
@@ -48,7 +61,7 @@ public nonisolated struct CloudMachinePower {
             do {
                 _ = try await ops(op, .object(["machine": .string(machine)]), key, origin)
                 return
-            } catch let failure as CloudAppOpFailure where failure.code == indeterminate && attempt < tries {}
+            } catch let failure as CloudAppOpFailure where CloudStartCore().powerRetries(code: failure.code, attempt: attempt, attempts: tries) {}
         }
     }
 }

@@ -2,15 +2,15 @@ import CmuxNextActions
 
 /// The tab strip's "+" (a click): one
 /// registry action on the strip's pane, so it matches every other entry
-/// point of that action.
+/// point of that action. Its tab goes where `tabs.newTabButtonPosition` says (the end by default), not Cmd-T's setting.
 enum StripNewTab {
-    static let action: ActionID = "newTab.default"
+    static let action: ActionID = "newTab.default", button = "newTabButton" // the argument marking the + (TabLifecycle)
     /// Option-click on the +: New <Kind> Tab, the selected tab's kind, picked on purpose.
     static let sameKindAction: ActionID = "newTab.ofKind"
 
     static func request(pane: String, machineID: String? = nil, opensWorkspace: Bool = false, sameKind: Bool = false,
                         perform: (ActionID, ActionInvocation) -> Void) {
-        var invocation = ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane)).onMachine(machineID)
+        var invocation = ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane), arguments: [button: .bool(true)]).onMachine(machineID)
         if opensWorkspace { invocation.arguments["toggleWorkspace"] = .bool(true) }
         perform(sameKind ? sameKindAction : action, invocation)
     }

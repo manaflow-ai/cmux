@@ -15,7 +15,7 @@ import { call, callOp, callRead, catalogOps, idsIn, makeTenant, post, samplePara
  * rotated key, a pending approval). They are covered by their own tests; the existence-oracle comparison
  * would only report B's own state change.
  */
-const OWN_STATE: ReadonlySet<string> = new Set(["install.sign_out", "install.register", "chief.create", "integration.connect", "team_vm.rebuild", "team_vm.ssh_ca.rotate", "cloud.machine.resize"])
+const OWN_STATE: ReadonlySet<string> = new Set(["install.sign_out", "install.register", "chief.create", "channel.create", "integration.connect", "team_vm.rebuild", "team_vm.ssh_ca.rotate", "cloud.machine.resize"])
 /**
  * ACCEPTED RISK R1 (tenant-isolation-DESIGN.md 7): an op that CREATES at a client-chosen id answers `conversation_exists` for an id that exists,
  * whoever owns it. A creating call with a free id succeeds, so no answer can hide the difference. The id is a 130-bit random value that

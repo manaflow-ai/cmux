@@ -52,6 +52,8 @@ export interface BrainConfig extends ChiefProfile {
   readonly brain_impl: string
   /** The `chiefs` grant (brain-chiefs.ts): see, make and edit other Chiefs. Missing = on. */
   readonly chiefs: boolean
+  /** The channel conversation of a channel Chief (channel-scope.ts), from the owner's record when it is turned on; null otherwise. */
+  readonly channel: string | null
 }
 
 export const PROFILE_LIMITS = { role: 200, personality: 4_000, instructions: 32_000 } as const
@@ -81,6 +83,7 @@ export const readConfig = (sql: SqlStorage, defaults: { model: string; compactor
     brain_impl: get("brain_impl") ?? "pi",
     compactor_model: get("compactor_model") ?? defaults.compactor_model,
     chiefs: String(get("chiefs") ?? "1") !== "0",
+    channel: get("channel") ?? null,
     display_name: get("display_name") ?? "Chief",
     role: get("role") ?? "",
     personality: get("personality") ?? "",

@@ -6,24 +6,26 @@
 // (session-info/scheduled.ts), latest first. The lists, their order and their words come from the page's
 // own helpers, so both panels say the same thing.
 import { useState } from "react";
-import { formatDuration } from "../../conversation/turns";
+import { formatDuration, spanDuration } from "../../conversation/turns";
 import type { StringKey, Translate } from "../../i18n";
 import { openCommand } from "../../processTerminal";
 import { modelName, phaseAgents, phaseState, tally, workflowDetailRequest } from "../../summary/foldWorkflows";
 import type { SummaryBackgroundTask, SummaryWakeup } from "../../summary/sessionSummary";
 import type { WorkflowAgent, WorkflowSummary } from "../../summary/workflow";
+import { agentLine, agentModelLabel, outputLine, sharedModel } from "../../summary/workflowView";
 import {
   arrivalKey,
   sessionInfoLists,
   sendLabel,
+  serverUrl,
   splitCommands,
   type BackgroundCommand,
   type SessionInfoProcess,
 } from "../processes";
-import { COMMAND_STATE } from "../TasksSection";
+import { COMMAND_STATE } from "../tasksSectionModel";
 import { scheduledTrailing, splitScheduled, type ScheduledEntry } from "../scheduled";
 import { TASK_ICONS } from "../taskIcons";
-import { compactTokens } from "../../conversation/CompactionNote";
+import { compactTokens } from "../../conversation/compactionNoteModel";
 import type { NativeInfoActions, NativeInfoButton, NativeInfoRow, NativeInfoSection, NativeInfoTone } from "./model";
 import { nativeExternalUrl } from "./links";
 
@@ -117,7 +119,7 @@ export function tasksSection(
   // Servers, newest first: the command, the ports it names (each explicit port is its own button)
   // and how long it has run. The row itself stays plain, like ServersSection.tsx.
   for (const server of [...servers].sort((a, b) => b.startedAt - a.startedAt)) {
-    const urls = server.ports.map((port) => `http://localhost:${port}`);
+    const urls = server.ports.map((port) => serverUrl(server, port));
     const buttons: NativeInfoButton[] = [];
     if (urls.length > 0)
       for (const url of urls)
@@ -176,6 +178,7 @@ export function tasksSection(
       ),
     );
   const { active, finished: ended } = splitScheduled(scheduled, now);
+  const showCall = input.onShowCall;
   const scheduledRow = (entry: ScheduledEntry): NativeInfoRow => {
     const trailing = scheduledTrailing(t, input.language ?? "en", entry);
     const ended = entry.status.state !== "scheduled";
@@ -185,6 +188,13 @@ export function tasksSection(
       title: entry.item.text,
       ...(trailing ? { trailing } : {}),
       ...(ended ? { tone: SCHEDULED_TONE[entry.status.state] } : {}),
+      // The call that made it (sessionSummary `scheduled`, keyed by the call): while the loaded
+      // transcript holds it, a click shows it, and with an action the App lights the row on hover as
+      // it does a command's (Leo, 2026-11-06: the "Fallback heartbeat ... doesn't get highlighted in
+      // the same way that the other ones do").
+      ...(showCall && input.calls?.has(entry.item.id)
+        ? { action: actions.add(`tasks.showCall:${entry.item.id}`, () => void showCall(entry.item.id)) }
+        : {}),
       help: entry.item.cron && !ended ? `${entry.item.text} (${entry.item.cron})` : entry.item.text,
     };
   };
@@ -192,7 +202,7 @@ export function tasksSection(
   const finishedCommand = (item: BackgroundCommand): NativeInfoRow => {
     const time =
       item.endedAt !== undefined && item.startedAt !== undefined
-        ? formatDuration(Math.max(0, item.endedAt - item.startedAt))
+        ? spanDuration(t, item.endedAt - item.startedAt)
         : undefined;
     return command(item, [time, t(COMMAND_STATE[item.state])].filter(Boolean).join(" · "));
   };
@@ -326,9 +336,14 @@ function workflowRows(
       item.tokens !== undefined ? [t("subagents.tokens", { n: item.tokens, tokens: compactTokens(item.tokens) })] : [];
     const status =
       item.state === "completed" ? (both ? undefined : t("bgTask.state.completed")) : workflowStateWord(t, item.state);
+    // The workflow's model and effort, named once here: an agent row names its own only where it differs.
+    const sharedRun = sharedModel(item.agents);
+    const model = sharedRun.model
+      ? [[modelName(sharedRun.model), sharedRun.effort].filter((value): value is string => Boolean(value)).join(" · ")]
+      : [];
     const meta = live
-      ? [...workflowCounts(t, item.agents), ...tokens]
-      : [...(status ? [status] : []), t("subagents.pill", { n: counts.total }), ...tokens];
+      ? [...workflowCounts(t, item.agents), ...tokens, ...model]
+      : [...(status ? [status] : []), t("subagents.pill", { n: counts.total }), ...tokens, ...model];
     const onStop = input.onStopWorkflow;
     rows.push({
       id: `workflow:${item.id}`,
@@ -370,12 +385,18 @@ function workflowRows(
           : {}),
       });
       if (!open) continue;
+      const shared = sharedModel(item.agents);
       for (const agent of agents) {
-        const modelEffort = [agent.model ? modelName(agent.model) : undefined, agent.effort]
-          .filter((value): value is string => Boolean(value))
-          .join(" · ");
-        const model = modelEffort ? t("workflow.model", { model: modelEffort }) : undefined;
-        const message = (agent.state === "failed" ? agent.error : undefined) ?? agent.lastMessage ?? agent.doing;
+        // The web row's rule (summary/workflowView.ts `agentModelLabel`).
+        const own = agentModelLabel(agent, shared);
+        const model = own?.model
+          ? t("workflow.model", {
+              model: [modelName(own.model), own.effort].filter((value): value is string => Boolean(value)).join(" · "),
+            })
+          : own?.effort;
+        // In words, never its last shell command or a JSON result (summary/workflowView.ts). This row
+        // has no output to open, so one that finished well says its output's first line.
+        const message = agentLine(agent) ?? (agent.state === "completed" ? outputLine(agent) : undefined);
         const elapsed =
           agent.elapsedMs ??
           (agent.state === "running" && agent.startedAt !== undefined

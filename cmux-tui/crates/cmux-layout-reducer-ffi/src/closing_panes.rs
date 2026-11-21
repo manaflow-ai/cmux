@@ -6,7 +6,8 @@
 //! call allocates nothing once the handle's buffers have grown to the screen's size (it reuses them per frame).
 //!
 //! Return codes: `begin` and `remove` return 1 when they answer (the pane starts closing; the pane was closing) and 0
-//! when they do not, with nothing written. 1 and 0 are answers, not `CMUX_LAYOUT_REDUCER_OK` (also 0): a caller checks
+//! when they do not, with nothing written; `landing_moves` returns 1 (a landing now would move a closing side more
+//! than `snap`) or 0. 1 and 0 are answers, not `CMUX_LAYOUT_REDUCER_OK` (also 0): a caller checks
 //! for 1. `settle` and `rects` return `CMUX_LAYOUT_REDUCER_OK` and write a list that borrows the handle's buffer, valid
 //! until the next call on the same handle. Every call returns `ERR_NULL` (a null pointer where the call reads or
 //! writes), `ERR_INVALID` (an unknown handle kind) or `ERR_PANIC` with nothing written.
@@ -65,7 +66,8 @@ pub struct CmuxClosingHandle {
     pub reserved: [u8; 3],
 }
 
-/// A live pane's frame this frame (`CmuxClosingFrame`): `moving` is 1 while its spring moves.
+/// A live pane's frame this frame (`CmuxClosingFrame`): `moving` is 1 while its spring moves; `fixed` is 1 for a pane
+/// that does not scroll with the strip (its x is in the view's coordinates, a strip pane's in the strip's).
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct CmuxClosingFrame {
@@ -77,7 +79,8 @@ pub struct CmuxClosingFrame {
     pub vw: f64,
     pub vh: f64,
     pub moving: u8,
-    pub reserved: [u8; 7],
+    pub fixed: u8,
+    pub reserved: [u8; 6],
 }
 
 /// Where a row column's scroll is and rests (`CmuxClosingRow`).
@@ -147,6 +150,7 @@ impl CmuxClosingPanes {
             vy: f.vy,
             vw: f.vw,
             vh: f.vh,
+            scrolls: f.fixed == 0,
         }));
     }
 
@@ -192,7 +196,8 @@ pub unsafe extern "C" fn cmux_closing_panes_free(closing: *mut CmuxClosingPanes)
 
 /// Starts `pane` closing: `shown` is where it shows in the new layout's coordinates, `panes` the layout it left (the
 /// order its sides list their neighbours in), `handles` that layout's handles, `max_gap` the widest gap between two
-/// neighbours, `view_shift` the strip's view shift before the camera moves (read only when `has_view_shift` is 1).
+/// neighbours, `view_shift` the strip's view shift before the camera moves (read only when `has_view_shift` is 1),
+/// `strip_shift` that layout's view shift at the close's camera (a pane of the other scroll kind is read moved by it).
 /// Returns 1 (it starts closing) or 0 (it was not in that layout).
 ///
 /// # Safety
@@ -210,6 +215,7 @@ pub unsafe extern "C" fn cmux_closing_panes_begin(
     max_gap: f64,
     has_view_shift: u8,
     view_shift: f64,
+    strip_shift: f64,
 ) -> i32 {
     if closing.is_null() || shown.is_null() {
         return ERR_NULL;
@@ -261,6 +267,7 @@ pub unsafe extern "C" fn cmux_closing_panes_begin(
             handles.as_slice(),
             max_gap,
             view_shift,
+            strip_shift,
         ))
     }))
     .unwrap_or(ERR_PANIC)
@@ -310,7 +317,8 @@ pub unsafe extern "C" fn cmux_closing_panes_settle(
 }
 
 /// Where every closing pane shows this frame, in the order they were placed: writes the list to `out`; returns `OK`.
-/// Per display frame during a close: no allocation once the buffers have grown.
+/// `strip` is the strip's view shift now and `rest_strip` where it rests (a neighbour of the other scroll kind is read
+/// moved by them). Per display frame during a close: no allocation once the buffers have grown.
 ///
 /// # Safety
 /// See the module.
@@ -321,6 +329,8 @@ pub unsafe extern "C" fn cmux_closing_panes_rects(
     frame_count: usize,
     rows: *const CmuxClosingRow,
     row_count: usize,
+    strip: f64,
+    rest_strip: f64,
     out: *mut CmuxClosingPlacedList,
 ) -> i32 {
     if closing.is_null() || out.is_null() {
@@ -341,7 +351,7 @@ pub unsafe extern "C" fn cmux_closing_panes_rects(
         placed.clear();
         placed.extend(
             rules
-                .rects(frames.as_slice(), rows.as_slice())
+                .rects(frames.as_slice(), rows.as_slice(), strip, rest_strip)
                 .iter()
                 .map(|&(pane, rect)| CmuxClosingPlaced { pane, rect }),
         );
@@ -355,6 +365,36 @@ pub unsafe extern "C" fn cmux_closing_panes_rects(
         }
         Err(_) => ERR_PANIC,
     }
+}
+
+/// The land rule's question (`ClosingPanes::landing_moves`): would a landing now, which puts every live frame on its
+/// target, move a side of a closing pane more than `snap`? `frames` are where this frame's step put the live panes;
+/// `rest_strip` is where the strip's view shift rests (the cameras are taken at rest). Returns 1 (it would: hold the
+/// landing) or 0 (it would not, or nothing is closing). The closing panes' state is not changed: the two placements
+/// run on copies. Per motion frame while a pane closes and the live frames are near rest.
+///
+/// # Safety
+/// See the module.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_closing_panes_landing_moves(
+    closing: *mut CmuxClosingPanes,
+    frames: *const CmuxClosingFrame,
+    frame_count: usize,
+    rest_strip: f64,
+    snap: f64,
+) -> i32 {
+    if closing.is_null() {
+        return ERR_NULL;
+    }
+    // SAFETY: module Safety.
+    let Some(frames) = (unsafe { slice(frames, frame_count) }) else { return ERR_NULL };
+    // SAFETY: non-null and live (module Safety).
+    let closing = unsafe { &mut *closing };
+    catch_unwind(AssertUnwindSafe(|| {
+        closing.read_frames(frames);
+        i32::from(closing.rules.landing_moves(&closing.frames, rest_strip, snap))
+    }))
+    .unwrap_or(ERR_PANIC)
 }
 
 /// A new layout carried the strip by `drift`; `view_shift` (read only when `has_view_shift` is 1) is the new layout's
@@ -417,7 +457,7 @@ pub unsafe extern "C" fn cmux_closing_panes_shift_y(
 }
 
 /// Takes `pane` out (its close was taken back): returns 1 and writes where it shows now with its sides' velocities to
-/// `out`, or 0 (it was not closing) with nothing written.
+/// `out`, or 0 (it was not closing) with nothing written. `strip` is the strip's view shift now.
 ///
 /// # Safety
 /// See the module.
@@ -427,6 +467,7 @@ pub unsafe extern "C" fn cmux_closing_panes_remove(
     pane: u64,
     frames: *const CmuxClosingFrame,
     frame_count: usize,
+    strip: f64,
     out: *mut CmuxClosingTaken,
 ) -> i32 {
     if closing.is_null() || out.is_null() {
@@ -438,7 +479,7 @@ pub unsafe extern "C" fn cmux_closing_panes_remove(
     let closing = unsafe { &mut *closing };
     let answer = catch_unwind(AssertUnwindSafe(|| {
         closing.read_frames(frames);
-        closing.rules.remove(pane, &closing.frames)
+        closing.rules.remove(pane, &closing.frames, strip)
     }));
     match answer {
         Ok(Some(t)) => {

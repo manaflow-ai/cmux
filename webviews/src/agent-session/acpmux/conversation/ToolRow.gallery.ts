@@ -64,7 +64,7 @@ export default agentPaneEntry({
       },
     },
     grouped: {
-      note: "An image-bearing step preserves the opened group's quiet icon and disclosure treatment.",
+      note: "An image-bearing step keeps the opened group's icon and disclosure treatment: every step shows its glyph (Codex parity).",
       play: async (ctx) => {
         const group = ctx.document.querySelector(".cv-tool.is-run");
         if (group?.getAttribute("aria-expanded") === "false") await ctx.click({ selector: ".cv-tool.is-run" });
@@ -72,19 +72,17 @@ export default agentPaneEntry({
         const icons = ctx.document.querySelectorAll(".cv-steps .cv-step .cv-tool__icon");
         if (
           icons.length !== 2 ||
-          [...icons].some((icon) => ctx.document.defaultView!.getComputedStyle(icon).visibility !== "hidden")
+          [...icons].some((icon) => ctx.document.defaultView!.getComputedStyle(icon).visibility === "hidden")
         )
-          throw new Error("Capture step must preserve its group's hidden icon treatment");
+          throw new Error("Capture step must show its glyph as the group's other steps do");
       },
       snapshot: chat([
-        user("Read the captures", 3),
+        user("Capture the page and its metadata", 3),
+        // Two searches group (reads never do since 2026-11-17, readPath.ts); the first returned an image.
         activity(
           [
-            tool("Read first capture", "read", "completed", {
-              images: [CAPTURE],
-              output: "Captured page",
-            }),
-            tool("Read second capture", "read", "completed", { output: "Read the page metadata" }),
+            tool("Search the captures", "search", "completed", { images: [CAPTURE], output: "Captured page" }),
+            tool("Search the page metadata", "search", "completed", { output: "Read the page metadata" }),
           ],
           2,
         ),

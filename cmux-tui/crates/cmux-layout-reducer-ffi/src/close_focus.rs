@@ -27,11 +27,15 @@ fn id(value: u32) -> Option<u32> {
     (value != NONE).then_some(value)
 }
 
-/// The tab to select after `selected` (`CMUX_FOCUS_NONE`: none was) closed:
-/// `old` is the strip order before the close, `surviving` the tabs left,
-/// `shown` the surviving tabs that are not hidden, and the opener relations
-/// are `opener_children[i]` opened by `opener_parents[i]`. Returns the tab,
-/// or `CMUX_FOCUS_NONE` when none is left (or an array is null).
+/// The tab to select after `selected` (`CMUX_FOCUS_NONE`: none was) closed
+/// by 2026-11-08's rule (`close_focus::tab_before`: the shown tab before it,
+/// else the one after it): `old` is the strip order before the close,
+/// `surviving` the tabs left, `shown` the surviving tabs that are not
+/// hidden. Returns the tab, or `CMUX_FOCUS_NONE` when none is left (or an
+/// array is null). The opener arrays are read for the null check only. Kept
+/// unchanged for the pinned app build; the app moves to
+/// [`cmux_close_focus_tab_chrome`] after the re-pin, and this goes with the
+/// next ABI change.
 ///
 /// # Safety
 ///
@@ -61,14 +65,78 @@ pub unsafe extern "C" fn cmux_close_focus_tab(
             ids(opener_parents, opener_count),
         )
     };
-    let (Some(old), Some(surviving), Some(shown), Some(children), Some(parents)) = arrays else {
+    let (Some(old), Some(surviving), Some(shown), Some(_), Some(_)) = arrays else {
         return NONE;
     };
     catch_unwind(AssertUnwindSafe(|| {
         let shown: HashSet<u32> = shown.iter().copied().collect();
-        let opener: HashMap<u32, u32> =
-            children.iter().copied().zip(parents.iter().copied()).collect();
-        close_focus::tab(id(selected).as_ref(), old, surviving, &shown, &opener).unwrap_or(NONE)
+        close_focus::tab_before(id(selected).as_ref(), old, surviving, &shown).unwrap_or(NONE)
+    }))
+    .unwrap_or(NONE)
+}
+
+/// The tab to select after `selected` (`CMUX_FOCUS_NONE`: none was) closed,
+/// by Chrome's rule (`close_focus::tab`: a child it opened, a sibling, its
+/// opener, its group's neighbor, else the shown tab after it, else before
+/// it). `old` is the strip order before the close, `surviving` the tabs
+/// left, `shown` the surviving tabs that are not hidden; `opener_children[i]`
+/// was opened by `opener_parents[i]`, and `group_tabs[i]` is in group
+/// `group_ids[i]` (any numbering of the groups). Returns the tab, or
+/// `CMUX_FOCUS_NONE` when none is left (or an array is null).
+///
+/// # Safety
+///
+/// Each pointer points to its count of readable ids (or its count is 0);
+/// both opener arrays hold `opener_count` ids and both group arrays
+/// `group_count`.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments, reason = "a flat C signature: each array with its count")]
+pub unsafe extern "C" fn cmux_close_focus_tab_chrome(
+    selected: u32,
+    old: *const u32,
+    old_count: usize,
+    surviving: *const u32,
+    surviving_count: usize,
+    shown: *const u32,
+    shown_count: usize,
+    opener_children: *const u32,
+    opener_parents: *const u32,
+    opener_count: usize,
+    group_tabs: *const u32,
+    group_ids: *const u32,
+    group_count: usize,
+) -> u32 {
+    // SAFETY: the caller's contract.
+    let arrays = unsafe {
+        (
+            ids(old, old_count),
+            ids(surviving, surviving_count),
+            ids(shown, shown_count),
+            ids(opener_children, opener_count),
+            ids(opener_parents, opener_count),
+            ids(group_tabs, group_count),
+            ids(group_ids, group_count),
+        )
+    };
+    let (
+        Some(old),
+        Some(surviving),
+        Some(shown),
+        Some(children),
+        Some(parents),
+        Some(tabs),
+        Some(groups),
+    ) = arrays
+    else {
+        return NONE;
+    };
+    catch_unwind(AssertUnwindSafe(|| {
+        let shown: HashSet<u32> = shown.iter().copied().collect();
+        let relations = close_focus::TabRelations {
+            opener: children.iter().copied().zip(parents.iter().copied()).collect(),
+            group: tabs.iter().copied().zip(groups.iter().copied()).collect(),
+        };
+        close_focus::tab(id(selected).as_ref(), old, surviving, &shown, &relations).unwrap_or(NONE)
     }))
     .unwrap_or(NONE)
 }

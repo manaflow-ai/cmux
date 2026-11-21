@@ -21,6 +21,14 @@ struct AgentSessionShareRequestTests {
         ]))
     }
 
+    /// `cmux share chat --view-only`: a link where nobody sends goes to the daemon as both roles.
+    @Test func createCarriesTheLinkRoleAndTheSignedInRole() throws {
+        #expect(try fields(AgentSessionShareCreateRequest(surface: 3, role: "view", signedInRole: "view")) == .object([
+            "id": .number(1), "cmd": .string("agent-session-share-create"), "surface": .number(3),
+            "role": .string("view"), "signed_in_role": .string("view"),
+        ]))
+    }
+
     @Test func listRevokeAndKickNameWhatTheyAct() throws {
         #expect(try fields(AgentSessionShareListRequest()) == .object(["id": .number(1), "cmd": .string("agent-session-share-list")]))
         #expect(try fields(AgentSessionShareRevokeRequest(shareId: "s1")) == .object([
@@ -52,6 +60,21 @@ struct AgentSessionShareRequestTests {
         ]))
         #expect(try fields(AgentSessionShareUninviteRequest(shareId: "s1", account: "@theo")) == .object([
             "id": .number(1), "cmd": .string("agent-session-share-uninvite"), "share_id": .string("s1"), "account": .string("@theo"),
+        ]))
+    }
+
+    /// `agent-session-share-invite-chat` names the chat (its surface and the session the caller saw) and
+    /// the account; the share's terms and the owner token go only when given.
+    @Test func inviteChatNamesTheChatAndTheAccount() throws {
+        let full = AgentSessionShareInviteChatRequest(surface: 3, session: "acp-1", account: "leo@cmux.com", role: "view",
+                                                      ttlSecs: 3600, createId: "req-1", ownerToken: "jwt")
+        #expect(try fields(full) == .object([
+            "id": .number(1), "cmd": .string("agent-session-share-invite-chat"), "surface": .number(3),
+            "session": .string("acp-1"), "account": .string("leo@cmux.com"), "role": .string("view"),
+            "ttl_secs": .number(3600), "create_id": .string("req-1"), "owner_token": .string("jwt"),
+        ]))
+        #expect(try fields(AgentSessionShareInviteChatRequest(surface: 3, account: "@theo")) == .object([
+            "id": .number(1), "cmd": .string("agent-session-share-invite-chat"), "surface": .number(3), "account": .string("@theo"),
         ]))
     }
 

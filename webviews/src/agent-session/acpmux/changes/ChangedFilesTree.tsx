@@ -43,9 +43,7 @@ export function ChangedFilesTree({
   // The tree keeps the renderer it was built with; it reads the current files through a ref.
   const filesRef = useRef(byDisplay);
   filesRef.current = byDisplay;
-  const [measureStats] = useState(() =>
-    createTextMeasure('"Inter", system-ui, -apple-system, BlinkMacSystemFont, sans-serif'),
-  );
+  const [measureStats] = useState(() => createTextMeasure("-apple-system, BlinkMacSystemFont, system-ui, sans-serif"));
   const statsSpriteSheet = useMemo(
     () =>
       diffStatSpriteSheet(

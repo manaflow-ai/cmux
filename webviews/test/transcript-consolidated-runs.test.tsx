@@ -6,7 +6,8 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { runStretches, ToolRows } from "../src/agent-session/acpmux/conversation/TurnRows";
+import { runStretches } from "../src/agent-session/acpmux/conversation/toolGroups";
+import { ToolRows } from "../src/agent-session/acpmux/conversation/TurnRows";
 import { toolGroupLabel, toolGroups } from "../src/agent-session/acpmux/conversation/toolGroups";
 import { toolRunSummary } from "../src/agent-session/acpmux/conversation/toolRunSummary";
 import { translate } from "../src/agent-session/acpmux/i18n";
@@ -66,20 +67,21 @@ test("reads, searches and commands with thoughts between them are one counted li
     command("git log -3"),
   ];
   const html = drawn(run(items));
-  expect(html).toContain("Read 2 files, ran a search, ran 2 commands");
+  expect(html).toContain("Read 2 files, ran 2 commands, and performed 1 other action");
   expect(lines(run(items))).toBe(1);
   // Closed until opened: no call shows under the line.
   expect(html).not.toContain("bun test retry");
 });
 
 test("a thought between two calls of one kind stays inside their group", () => {
-  const items = [read("a.ts"), longThought("b"), read("b.ts"), longThought("c"), read("c.ts")];
+  // Searches, since reads stay flat rows since the 2026-11-14 change.
+  const items = [search("a"), longThought("b"), search("b"), longThought("c"), search("c")];
   const groups = toolGroups(items);
   expect(groups).toHaveLength(1);
-  expect(groups[0]).toMatchObject({ type: "group", kind: "reads" });
+  expect(groups[0]).toMatchObject({ type: "group", kind: "searches" });
   const group = groups[0] as Extract<(typeof groups)[number], { type: "group" }>;
   expect(group.items).toEqual(items);
-  expect(toolGroupLabel(translate, "reads", group.items)).toBe("Read 3 files");
+  expect(toolGroupLabel(translate, "searches", group.items)).toBe("Ran 3 searches");
   // A thought after the last call ends the group, in its place.
   const trailing = toolGroups([command("ls"), command("pwd"), longThought("next")]);
   expect(trailing.map((entry) => entry.type)).toEqual(["group", "item"]);
@@ -107,7 +109,7 @@ test("an edit folds with the work around it, named on the line in the order it c
   const stretches = runStretches(run(items), toolGroups(items));
   expect(stretches.map((stretch) => stretch.fold)).toEqual([true]);
   const html = drawn(run(items));
-  expect(html).toContain("Read 2 files, ran a search, ran 2 commands, edited a file");
+  expect(html).toContain("Ran 2 commands, edited a file, and performed 3 other actions");
   expect(lines(run(items))).toBe(1);
 });
 
@@ -116,9 +118,9 @@ test("a coordination card stays in sight; the calls around it still fold", () =>
   const stretches = runStretches(run(items), toolGroups(items));
   expect(stretches.map((stretch) => stretch.fold)).toEqual([true, false, true]);
   const html = drawn(run(items));
-  expect(html).toContain("Read a file, ran a command");
+  expect(html).toContain("Read a file and ran a command");
   // Named in the order the run did them: the command came before the reads.
-  expect(html).toContain("Ran a command, read 2 files");
+  expect(html).toContain("Ran a command and read 2 files");
 });
 
 test("a failed call is counted on the run's line", () => {
@@ -135,7 +137,7 @@ test("a run that is not folded keeps every entry on its own line", () => {
 
 test("the summary counts distinct files read, and searches apart from reads", () => {
   const items = [read("a.ts"), read("a.ts"), read("b.ts"), search("x"), search("y")];
-  expect(toolRunSummary(translate, items)).toBe("Read 2 files, ran 2 searches");
+  expect(toolRunSummary(translate, items)).toBe("Read 2 files and ran 2 searches");
 });
 
 test("an ended turn's opened Worked for folds a run that edited, edit and all", () => {
@@ -152,13 +154,13 @@ test("an ended turn's opened Worked for folds a run that edited, edit and all", 
     { id: "done", kind: "assistant", version: 1, at: at(3), text: "Retries are in." },
     { id: "s", kind: "turnSummary", version: 1, at: at(4), status: "completed", toolCount: 5 },
   ];
-  const work = turnView(rows, new Set(["worked-u"]), { liveRuns: true }).find(
+  const work = turnView(rows, new Set(["worked-u"])).find(
     (entry) => entry.kind === "activity" && entry.id.startsWith("work") && entry.settled,
   )!;
   expect(work.foldRun).toBe(true);
   const html = drawn(work);
-  expect(html).toContain("Read 2 files, ran a search, edited a file, ran a command");
+  expect(html).toContain("Edited a file, ran a command, and performed 3 other actions");
   expect(lines(work)).toBe(1);
   // The reply is never folded: it stays its own row after the fold.
-  expect(turnView(rows, new Set(), { liveRuns: true }).some((entry) => entry.id === "done")).toBe(true);
+  expect(turnView(rows, new Set()).some((entry) => entry.id === "done")).toBe(true);
 });

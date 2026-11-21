@@ -47,7 +47,10 @@ import CmuxNextTestSupport
         let panel = presenter.panel
         #expect(panel.isVisible)
         #expect(Self.same(try #require(panel.text.textColor), scope.perform { Palette.textPrimary }))
-        #expect(Self.same(try #require(panel.hint.textColor), scope.perform { Palette.textSecondary }))
+        // The shortcut's keys on the keycap plate, in the secondary ink (TooltipDesignTests holds its shape).
+        let keycap = try #require(panel.content.keycap)
+        #expect(keycap.label.stringValue == "⌘T")
+        #expect(Self.same(try #require(keycap.label.textColor), scope.perform { Palette.textSecondary }))
         // The shared overlay glass, drawn in the button's theme scope (Leo 2026-10-21: glass, never solid).
         #expect(panel.glass.themeScope === scope.fullStrength)
         #expect(!panel.glass.isCard)
@@ -63,7 +66,7 @@ import CmuxNextTestSupport
         #expect(presenter.shown?.text == "New Window")
         button.themedToolTip = nil
         #expect(presenter.shown == nil)
-        #expect(!panel.isVisible || panel.isFadingOut)
+        #expect(!panel.isVisible, "the tooltip lingered: it goes in one frame")
         window.closeAfterTest()
     }
 

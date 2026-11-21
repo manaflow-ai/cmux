@@ -34,6 +34,7 @@ const NOTICE_SENDER: &str = "acpmux who-else";
 /// (an agent's message waits for that turn to end, `turns.rs` `persons_held`).
 pub const NOTICE_KIND: &str = "who_else";
 /// How long a peer may take to answer before the answer goes on without it.
+// timeout: a peer that does not answer is left out; the answer goes on without it.
 const PEER_DEADLINE: Duration = Duration::from_secs(5);
 /// The most rows one answer carries.
 const MAX_ROWS: usize = 50;
@@ -57,7 +58,7 @@ pub(super) fn absorb(session: &Session, update: &Value, m: &mut SessionMeta, rep
         if edited {
             queued.push((repo.clone(), path.clone()));
         }
-        tf::merge(&mut m.touched_files, TouchedFile { repo, path, edited, at });
+        tf::merge(&mut m.touched_files, TouchedFile { repo, path, edited, at, edited_at: 0 });
     }
     if !queued.is_empty() {
         session.touch_queue.lock().unwrap_or_else(|e| e.into_inner()).extend(queued);
@@ -131,8 +132,7 @@ impl Hub {
                 let m = {
                     let m = s.meta.lock().unwrap_or_else(|e| e.into_inner());
                     let shares = m.touched_files.iter().any(|f| {
-                        f.edited
-                            && f.at >= since
+                        f.edited_since(since)
                             && edited.iter().any(|(r, p)| *r == f.repo && *p == f.path)
                     });
                     shares.then(|| m.clone())?
@@ -153,6 +153,7 @@ impl Hub {
                     path: path.clone(),
                     edited: true,
                     at: 0,
+                    edited_at: 0,
                 })
                 .collect(),
             since,
@@ -171,7 +172,7 @@ impl Hub {
             self.overlap_notice(session, &other.id, &row);
             // The other side hears about this session: its row against the other's files.
             let back = Query {
-                files: c.files.iter().filter(|f| f.edited).cloned().collect(),
+                files: c.files.iter().filter(|f| f.edited_since(query.since)).cloned().collect(),
                 since: query.since,
                 exclude_root: Some(c.root.clone()),
                 ..Query::default()
@@ -235,6 +236,14 @@ impl Hub {
     /// The query `params` ask (`_acpmux/who_else`). `local`: the caller is the local socket, the
     /// only one whose raw `files` and `cwd` are read from disk.
     fn who_else_query(&self, params: &Value, local: bool) -> Result<Query, RpcError> {
+        // A path is read from this machine's disk: only the local socket's mean anything here. A
+        // remote caller names keys, and hears so rather than an answer about other files, a
+        // `query` beside them included (a peer's forward carries only the query).
+        if !local && ["files", "cwd"].iter().any(|k| params.get(*k).is_some()) {
+            return Err(RpcError::invalid_params(
+                "files and cwd are read only from this machine; name keys ([{repo, path}]) instead",
+            ));
+        }
         if let Some(q) = params.get("query").filter(|q| q.is_object()) {
             return serde_json::from_value(q.clone())
                 .map_err(|e| RpcError::invalid_params(format!("query: {e}")));
@@ -252,7 +261,7 @@ impl Hub {
             None => None,
         };
         let asker = asker.map(|s| self.candidate(&s.meta()));
-        let raw = |k: &str| params.get(k).filter(|_| local);
+        let raw = |k: &str| params.get(k);
         let cwd: Option<PathBuf> = raw("cwd")
             .and_then(Value::as_str)
             .map(PathBuf::from)
@@ -262,7 +271,7 @@ impl Hub {
         {
             if let Some(abs) = canonical_path(f, cwd.as_deref()) {
                 let (repo, path) = tf::key_of(&abs);
-                q.files.push(TouchedFile { repo, path, edited: false, at: 0 });
+                q.files.push(TouchedFile { repo, path, edited: false, at: 0, edited_at: 0 });
             }
         }
         // Keyed files any caller may name: `[{repo, path}]`.
@@ -278,8 +287,10 @@ impl Hub {
                 // Nothing named: what the asker itself edited (else read) lately.
                 let recent: Vec<&TouchedFile> =
                     a.files.iter().filter(|f| f.at >= q.since).collect();
-                let edited = recent.iter().any(|f| f.edited);
-                q.files = recent.into_iter().filter(|f| f.edited || !edited).cloned().collect();
+                let since = q.since;
+                let edit = |f: &&TouchedFile| f.edited_since(since);
+                let edited = recent.iter().any(edit);
+                q.files = recent.into_iter().filter(|f| edit(f) || !edited).cloned().collect();
             }
         }
         if !named {

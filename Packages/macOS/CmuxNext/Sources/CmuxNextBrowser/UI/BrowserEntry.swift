@@ -7,6 +7,10 @@ public final class BrowserEntry {
     public let tab: any BrowserTab
     public let state = BrowserChromeTabState()
     @MainActor public var chrome: BrowserChromeView? { state.chrome }
+    /// The id of the tab this page shows, as the daemon, the focus model and the tab cache name it: the
+    /// cache's key (`state.tabKey`), not the page's own id, which a person's new tab keeps from its stand-in
+    /// (`pending_tab_…`) after it moves to the daemon tab, and an adopted popup's page never shares.
+    @MainActor public var key: String { state.tabKey ?? tab.id.rawValue }
     /// Owns the chrome's (weak) Extensions menu handler.
     public var extensionMenuHandler: (any ExtensionMenuHandling)?
 
@@ -24,6 +28,14 @@ public final class BrowserEntry {
         // finished when installed (a restored one, marked by the cache right after) is not a new visit (as before).
         state.loads.follow(tab)
         state.history = history
+    }
+
+    /// A window's focus moved: `focusedTab` is the key of the browser tab that has its keyboard (nil when a
+    /// terminal, chat, Home or the sidebar has it) and `key` is this tab's. A tab shown in another window keeps
+    /// what that window's focus gave it; a tab shown nowhere does not have the keyboard.
+    @MainActor public func followKeyboard(focusedTab: String?, key: String, window: NSWindow?) {
+        guard let shownIn = chrome?.window else { state.hasKeyboard = false; return }
+        if shownIn === window { state.hasKeyboard = key == focusedTab }
     }
 
     public func close() {

@@ -1,0 +1,37 @@
+{
+  "$schema": "../../../cmux-tui/crates/cmux-app-host/schema/v2/cmux-app.schema.json",
+  "manifestVersion": 2,
+  "id": "local/showcase-agent-pet",
+  "name": { "en": "Agent pet" },
+  "version": "1.0.0",
+  "description": { "en": "An example extension built only on cmux-extension-sdk: a small cat in the sidebar whose mood follows your agents, and that opens the chat waiting for you." },
+  "publisher": { "name": "cmux examples", "url": "https://cmux.com" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": { "symbol": "cat.fill" },
+  "categories": ["sidebar"],
+  "keywords": ["pet", "mascot", "agents", "example"],
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "dist/main.js" },
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderPet",
+      "title": { "en": "Agent pet" },
+      "symbol": "cat.fill",
+      "options": { "defaultRegion": "bottom", "maxRows": 3 }
+    }
+  },
+  "scopes": {
+    "agent:read": "See whether your agents are working.",
+    "agent_chat:read": "See which chats wait for your answer or stopped.",
+    "actions:run": "Open the chat that waits for you when you click the pet."
+  },
+  "settings": {
+    "type": "object",
+    "properties": {
+      "name": { "type": "string", "title": "Pet's name", "default": "Byte" }
+    }
+  },
+  "activation": ["onInterface:cmux.section/1"],
+  "files": ["dist/"]
+}

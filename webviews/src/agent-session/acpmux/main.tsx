@@ -1,3 +1,3 @@
-import { mountAcpmux } from "./mount";
+import { mountAcpmux } from "./mountModel";
 
 mountAcpmux();

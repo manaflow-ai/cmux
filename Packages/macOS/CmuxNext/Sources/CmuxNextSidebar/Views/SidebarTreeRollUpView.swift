@@ -88,7 +88,7 @@ final class SidebarTreeRollUpView: NSView {
     /// finished unread in its highlight (the unseen blue).
     static func color(_ state: SidebarAgentState) -> NSColor {
         switch state {
-        case .blocked: Palette.attention
+        case .blocked: Palette.statusAttention
         case .failed: Palette.danger
         case .running, .idle: Palette.textSecondary
         case .finishedUnread: Palette.highlight

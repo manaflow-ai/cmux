@@ -1,15 +1,14 @@
 //! Byte-level segment work for the cleanup: inflate a sealed segment and
 //! find its records without decoding their payloads, and encode the new
-//! segments in the same `gzip-json-v1` form that sealing writes.
+//! segments in the codec sealing writes (`segment_codec`).
 
-use std::io::{Read, Write};
 use std::ops::Range;
 
 use anyhow::Context as _;
-use flate2::read::GzDecoder;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
+use super::super::segment_codec;
 use super::super::session_journal::{
     MAX_JOURNAL_SEGMENT_COMPRESSED_BYTES, MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES,
 };
@@ -38,7 +37,10 @@ pub(super) fn inflate_segment(
     uncompressed_bytes: i64,
     sha256: &[u8],
 ) -> anyhow::Result<Vec<u8>> {
-    anyhow::ensure!(codec == "gzip-json-v1", "journal segment {segment_id} codec is invalid");
+    anyhow::ensure!(
+        segment_codec::is_known(codec),
+        "journal segment {segment_id} codec is invalid"
+    );
     anyhow::ensure!(
         compressed.len() <= MAX_JOURNAL_SEGMENT_COMPRESSED_BYTES,
         "journal segment {segment_id} exceeds the compressed size limit"
@@ -48,10 +50,7 @@ pub(super) fn inflate_segment(
         expected <= MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES,
         "journal segment {segment_id} exceeds the uncompressed size limit"
     );
-    let mut json = Vec::with_capacity(expected);
-    GzDecoder::new(compressed)
-        .take(u64::try_from(expected)?.saturating_add(1))
-        .read_to_end(&mut json)
+    let json = segment_codec::decode(codec, compressed, expected)
         .with_context(|| format!("inflate journal segment {segment_id}"))?;
     anyhow::ensure!(json.len() == expected, "journal segment {segment_id} length is invalid");
     anyhow::ensure!(
@@ -148,11 +147,8 @@ impl SegmentWriter {
     pub(super) fn finish(mut self) -> anyhow::Result<EncodedSegment> {
         self.json.push(b']');
         let digest: [u8; 32] = Sha256::digest(&self.json).into();
-        let mut encoder =
-            flate2::GzBuilder::new().mtime(0).write(Vec::new(), flate2::Compression::fast());
-        encoder.write_all(&self.json)?;
         Ok(EncodedSegment {
-            compressed: encoder.finish()?,
+            compressed: segment_codec::encode(&self.json)?,
             uncompressed_bytes: self.json.len(),
             digest,
         })

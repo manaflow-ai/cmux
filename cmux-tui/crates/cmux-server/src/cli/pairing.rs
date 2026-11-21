@@ -42,6 +42,13 @@ pub(super) fn status(ctx: &Context<'_>) -> Result<Output> {
     pairing::status(&path(ctx, false)?).map(|value| output(value, None))
 }
 
+/// The pairing entry of `server status --json`; an unreadable identity reads as unpaired.
+pub(super) fn app_view(ctx: &Context<'_>) -> Value {
+    path(ctx, false)
+        .and_then(|path| pairing::app_view(&path, ctx.now_ms))
+        .unwrap_or_else(|_| json!({"state": "unpaired"}))
+}
+
 pub(super) fn begin(ctx: &Context<'_>, args: &Args) -> Result<Output> {
     // Validate before creating a directory, key, HTTP client or socket.
     let api = pairing::api_origin(args.value("api-origin").unwrap_or(pairing::DEFAULT_API))?;
