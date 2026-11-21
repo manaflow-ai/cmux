@@ -156,6 +156,14 @@ function tsType(t: TypeIR | undefined, depth = 0): string {
     case "map": return `Record<string, ${tsType(t.values as TypeIR, depth + 1)}>`
     case "nullable": return `${tsType((t.value as TypeIR) ?? (t.inner as TypeIR), depth + 1)} | null`
     case "enum": return (t.values as string[]).map((v) => JSON.stringify(v)).join(" | ") || "string"
+    case "union": {
+      const variants = t.variants as TypeIR[] | undefined
+      // Preserve a discriminated result when the catalog names each variant.
+      if (typeof t.discriminator === "string" && variants?.length && variants.every((v) => v.kind === "ref")) {
+        return variants.map((v) => tsType(v, depth + 1)).join(" | ")
+      }
+      return "unknown"
+    }
     case "object": return objectType(t.fields as Record<string, Field> | undefined, depth)
     case "apply": return `Cmux.${t.name as string}<${((t.arguments as TypeIR[]) ?? []).map((a) => tsType(a, depth + 1)).join(", ")}>`
     case "parameter": case "generic": case "param": return (t.name as string) ?? "unknown"

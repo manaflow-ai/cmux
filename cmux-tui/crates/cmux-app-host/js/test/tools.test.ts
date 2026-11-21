@@ -120,6 +120,10 @@ describe("generator", () => {
     expect(generate()).toEqual(a)
     for (const [name, content] of Object.entries(a)) expect(readFileSync(join(root, "generated", name), "utf8")).toBe(content)
   })
+  test("pane splits return a terminal or browser path", () => {
+    const declaration = generate()["cmux-app.d.ts"]!.split("\n").find((line) => line.trimStart().startsWith("split: CmuxOp<"))
+    expect(declaration).toContain("Cmux.MutationResult<Cmux.CreatedTerminalPath | Cmux.CreatedBrowserPath>")
+  })
   test("scope derivation", () => {
     expect(scopeFor("workspace.list", { class: "read" })).toBe("workspace:read")
     expect(scopeFor("tab.focus", { class: "mutation" })).toBe("workspace:write")
