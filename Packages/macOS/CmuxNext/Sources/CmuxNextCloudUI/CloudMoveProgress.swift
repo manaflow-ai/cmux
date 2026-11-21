@@ -1,3 +1,4 @@
+public import CmuxNextCloud
 public import Foundation
 import CmuxNextWakeups
 

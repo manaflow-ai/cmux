@@ -1,4 +1,5 @@
-@testable import CmuxNextCloud
+import CmuxNextCloud
+@testable import CmuxNextCloudUI
 import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
