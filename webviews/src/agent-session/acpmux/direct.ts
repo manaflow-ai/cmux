@@ -10884,7 +10884,7 @@ export class AcpmuxDirectClient {
       // segment. Discovery plumbing gets an activity row for pending/failed states, but a
       // completed one is filtered from presentation and must not split one assistant message.
       // A new call under a carried id is another call (cx-jzhka); an update finds its running call.
-      if (event.kind === "tool_call") this.openCalls.delete(callId);
+      if (event.kind === "tool_call" && this.foldingBelow === undefined) this.openCalls.delete(callId);
       const known =
         this.toolRows.get(callId) ??
         (event.kind === "tool_call_update" && this.foldingBelow === undefined ? this.openCalls.get(callId) : undefined);
@@ -10934,7 +10934,8 @@ export class AcpmuxDirectClient {
       };
       this.rows.set(id, row, itemIndex < 0 || !row.streaming || summaryChanged);
       this.toolRows.set(callId, id);
-      if (!row.streaming || item.tool?.status === "stopped") this.openCalls.delete(callId);
+      if (this.foldingBelow === undefined && (!row.streaming || item.tool?.status === "stopped"))
+        this.openCalls.delete(callId);
       // A call folded before any prompt or turn start of its page (an older page cut mid-turn) has
       // no known scope: paging reconciliation may join it to that call's row in any turn.
       if (!this.toolRowScopes.has(id) && this.currentToolScope !== undefined)
