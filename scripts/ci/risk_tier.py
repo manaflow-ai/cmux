@@ -69,7 +69,7 @@ AUTHOR_AGENT = re.compile(r"^[\s>*_`-]*author-agent[*_`]*\s*:[\s*_`]*(?P<id>[^\s
 # The aid in the `Agent session:` footer `agent-identity footer` writes at the end of every lane PR body
 # (`[...](https://cmux.com/deeplink/agent?id=aid-<20 hex>)`) names the author agent too. leo-workspace
 # tools/review_model.py reads both forms; reading only Author-agent here refused #42066's review-service SHIP
-# (the body carried the footer alone) after merge_hold and router-review had both read it as independent.
+# (the body carried the footer alone) after land-judge and router-review had both read it as independent.
 FOOTER_AGENT = re.compile(r"^[\s>*_`-]*agent session[*_`]*\s*:[^\n]*?[?&]id=(?P<id>aid-[0-9a-f]{20})(?![0-9a-f])",
                           re.I | re.M)
 HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
@@ -189,7 +189,7 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("high", "socket or relay access policy", (
         NEXT + "CmuxNextControl/ControlAuthorizer.swift", NEXT + "CmuxNextControl/ControlPeer*.swift",
         NEXT + "CmuxNextControl/CheckedAccess.swift", NEXT + "CmuxNextControl/ControlSocketPath.swift",
-        NEXT + "CmuxNextWakeups/UnixSocketPeer.swift", "*/CmuxCuaHelperCore/PeerInspector.swift",
+        NEXT + "CmuxNextWakeups/UnixSocketPeer.swift",
         "cmux-tui/crates/*relay*/*", "cmux-tui/relays/*", "cmux-tui/crates/cmux-tui-core/src/server/remote_relay/*",
         "services/iroh-relay-minter/*", "web/services/relay/*", "daemon/remote/cmd/cmuxd-remote/*peer*",
         r"re:(?i)relay[-_]?(command[-_]?)?polic", r"re:(?i)(socket|control)[-_]?(access|auth)",
@@ -197,30 +197,21 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # Who answers or connects on a local socket or XPC service, and which code may run, decided by
     # the peer's uid, executable or code signature: the Chief's acpmux peer check and its
     # kernel-signature rule for a moved acpmux (code_signature.rs), the app's acpmux server peer
-    # check, cmux-link's caller and containing-app checks, the Computer Use helper's admission rule,
-    # state and control pipe (where the app's admission values arrive), host check and the two
-    # socket servers that call them, the app's check of the helper on that socket, the requirement
-    # or cdhash, the acpmux daemon and executable and the per-launch secret the app gives the helper
-    # for acpmux bridges, which acpmux executable the app runs and trusts (its team-signature
-    # refusal, and the DEBUG override), the requirement of the helper the app or acpmux may
-    # launch (Swift, Rust and shell copies) and the check of its staged copy, the root server
+    # check, cmux-link's caller and containing-app checks, which acpmux executable the app runs and trusts (its team-signature
+    # refusal, and the DEBUG override), who the Computer Use worker's agent socket admits
+    # (cmux-computer-use server.rs: same uid, then the per-launch secret), the root server
     # helper's XPC requirements (its clients', and the app's of it), and the signature checks of a
     # downloaded browser runtime. A wrong time or anchor here lets another process take the socket
     # (#29072 changed which time a signing chain is valid at and graded normal).
     ("high", "peer identity or code-signature trust", (
         "Native/OptChat/optchat-chief/src/acpmux_peer.rs", NEXT + "CmuxNextAgentPane/AcpmuxServerPeer.swift",
         "cmux-tui/crates/cmux-link/src/caller.rs", "cmux-tui/crates/cmux-link/src/caller_macos.rs",
-        "cmux-tui/crates/cmux-link/src/app_caller.rs", "*/CmuxCuaHelperCore/HostVerifier.swift",
-        NEXT + "CmuxNextAgentActivity/CuaHelperIdentity.swift", "*/CmuxCuaHelperCore/Admission.swift",
-        "*/CmuxCuaHelperCore/AdmissionState.swift", "*/CmuxCuaHelperCore/HelperController.swift",
-        "*/CmuxCuaHelperCore/HelperSocketServer.swift", "*/CmuxCuaHelperCore/HostConsentServer.swift",
-        NEXT + "CmuxNextComputerUse/ComputerUseHelperV2+Secret.swift", NEXT + "CmuxNextApp/AgentTabs+PaneSource.swift",
+        "cmux-tui/crates/cmux-link/src/app_caller.rs",
+        NEXT + "CmuxNextApp/AgentTabs+PaneSource.swift",
         NEXT + "CmuxNextAgentPane/AcpmuxEnvironment+Resolve.swift",
         NEXT + "CmuxNextAgentPane/AcpmuxEnvironment+DebugOverride.swift",
-        "cmux-tui/crates/acpmux/src/agent_tools/cua_helper.rs", "scripts/cmux-cua-helper-trust.sh",
-        NEXT + "CmuxNextComputerUse/ComputerUseHelperStaging.swift",
-        NEXT + "CmuxNextComputerUse/ComputerUseHelperV2HostLink.swift",
-        NEXT + "CmuxNextComputerUse/ComputerUseHelperV2+Admission.swift",
+        # The Computer Use worker socket's admission (same uid, then the per-launch secret).
+        "cmux-tui/crates/cmux-computer-use/src/server.rs",
         NEXT + "CmuxNextServerHelper/ServerHelperListener.swift", NEXT + "CmuxNextServerHelper/ServerHelperProtocol.swift",
         NEXT + "CmuxNextApp/Server/ServerHelperClient.swift",
         # A file named for a code-signature check: code_signature.rs, *CodeSignatureChecker.swift.
@@ -696,7 +687,7 @@ def missing_evidence(tier: str, human_ok: bool = False, body: str = "",
 
 def takeback_fix(numbers: list[int]) -> str:
     """What clears an unowned takeback of NUMBERS, the lines to paste with their numbers filled in. The summary and
-    the check's error annotation (risk-tier.yml, through `takes_back_fix`) both say it: merge_hold and the lander
+    the check's error annotation (risk-tier.yml, through `takes_back_fix`) both say it: land-judge and the lander
     quote the annotation, so a refused revert names the line without anyone opening the job summary (a revert is
     the fast route; on cmux#41154 the refusal said only "the job summary says how")."""
     lines = " and ".join(f"`Takes back #{n}: <why>`" for n in numbers)
