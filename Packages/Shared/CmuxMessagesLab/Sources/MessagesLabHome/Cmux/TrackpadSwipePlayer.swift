@@ -75,8 +75,8 @@ import AppKit
         event.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
         event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: Double(dy))
         event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: Double(dx))
-        event.setIntegerValueField(.scrollWheelEventPointDeltaAxis1, value: Int64(dy))
-        event.setIntegerValueField(.scrollWheelEventPointDeltaAxis2, value: Int64(dx))
+        event.setIntegerValueField(.scrollWheelEventPointDeltaAxis1, value: Int64(clamping: dy))
+        event.setIntegerValueField(.scrollWheelEventPointDeltaAxis2, value: Int64(clamping: dx))
         event.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
         guard let e = NSEvent(cgEvent: event) else { return }
         let how = deliver(e)
