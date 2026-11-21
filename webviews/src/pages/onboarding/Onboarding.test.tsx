@@ -153,7 +153,8 @@ describe("computer use", () => {
   test("off: the note", () => {
     expect(text(render(computerUseState("off")))).toContain("Computer Use is off.");
   });
-  const footnote = "Computer Use runs in its own helper app. You can quit or reopen it without closing cmux or your terminals.";
+  const footnote =
+    "Computer Use runs in its own helper app. You can quit or reopen it without closing cmux or your terminals.";
   test("the footnote under the grants says the helper runs on its own", () => {
     expect(text(render(computerUseState("fresh")))).toContain(footnote);
     expect(text(render(computerUseState("allGranted")))).toContain(footnote);

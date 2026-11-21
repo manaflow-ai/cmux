@@ -435,7 +435,11 @@ impl Outcome {
                 "computer_use_off",
                 format!(
                     "Computer Use is off{}. {OFF_NEXT}",
-                    if reason.is_empty() { " on this machine".to_owned() } else { format!(": {reason}") }
+                    if reason.is_empty() {
+                        " on this machine".to_owned()
+                    } else {
+                        format!(": {reason}")
+                    }
                 ),
             )
             .to_mcp(),
