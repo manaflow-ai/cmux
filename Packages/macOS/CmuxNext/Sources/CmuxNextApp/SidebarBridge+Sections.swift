@@ -96,21 +96,21 @@ extension SidebarBridge {
         let home = services.home
         // A band item's page face (the list rows' own), read in the observation so a favicon that loads replaces the item's globe.
         let pageFace = { [weak services] (workspace: WorkspaceModel, tab: TabModel, work: TabModel?) in services?.sidebarPageFace(workspace, tab: tab, work: work) ?? .init() }, faces = faceBuffers
-        typealias Inputs = (SidebarLayoutDocument, Int, Int, [ActionID: String], [LayoutItemRef: SidebarItemInfo], URL?)
+        typealias Inputs = (SidebarLayoutDocument, Int, Int, [ActionID: String], [LayoutItemRef: SidebarItemInfo], URL?, Bool)
         let hold = SidebarLaunchOrderHold(home: store, document: { [weak services] in services?.sidebarDoc.store }).follow(model)
         // The first pass runs in this call, in the turn that makes the sidebar; the pass's task follows the later changes.
-        // Also observed: the apps client (installs, hides), the unread count, Home's unread conversations, the built-ins' shortcuts (tooltips) and
+        // Also observed: Labs (the App Store item shows only with it on), the apps client (installs, hides), the unread count, Home's unread conversations, the built-ins' shortcuts (tooltips) and
         // the workspaces tiles and top rows name. The selected item comes from the one selection.
         sectionsPass = SidebarSectionsPass(model: model, hold: hold, read: { () -> Inputs in
             _ = (apps.apps, ChiefSidebar.shared.status)
             return (service.document, NotificationCenterService.unreadCount(store), home.unreadConversations.count,
-                    Self.builtInShortcuts(registry), SidebarWorkspaceItems.workspaceInfos(service.document, refs: refs, autoNames: settings?.snapshot.sidebarSections.autoNamesWorkspaces ?? true, pageFace: pageFace, faces: faces), chiefPicture())
+                    Self.builtInShortcuts(registry), SidebarWorkspaceItems.workspaceInfos(service.document, refs: refs, autoNames: settings?.snapshot.sidebarSections.autoNamesWorkspaces ?? true, pageFace: pageFace, faces: faces), chiefPicture(), settings?.snapshot.showsAppStore == true)
         }, values: { (inputs: Inputs) in
-            let (layout, unread, homeUnread, shortcuts, workspaces, picture) = inputs
+            let (layout, unread, homeUnread, shortcuts, workspaces, picture, showsStore) = inputs
             // `model.layout` is written with the rows it projects (SidebarBridge.show).
             let infos = Self.itemInfo(for: SidebarRows.visibleLayout(layout), registered: { registry.action(for: $0) != nil },
                                       unread: unread, homeUnread: homeUnread,
-                                      app: { SidebarAppItemInfo.info($0, client: apps) }, shortcut: { shortcuts[$0] },
+                                      app: SidebarAppItemInfo(client: apps, showsStore: showsStore).info, shortcut: { shortcuts[$0] },
                                       workspace: { workspaces[$0] }, chiefFavicon: pictures.favicon(still: picture, image: picture.flatMap(uploads.image(at:))))
             return (infos, AppPresence(apps.apps).suppressed)
         })

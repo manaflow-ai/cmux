@@ -17,7 +17,7 @@ name: cmux-next terminal suites
 # skips.
 
 # Pull requests into feat-cmux-next run the two Linux jobs too, on the same paths, as advisory checks: no ruleset
-# requires them, and their names end "(advisory)" on a pull request, so merge_hold and next-autoland never wait on or
+# requires them, and their names end "(advisory)" on a pull request, so land-judge and next-autoland never wait on or
 # refuse for them; a red is a follow-up (ci-oops soft class), not a merge block. The push run stays as it was, so the
 # base keeps its verdict while the pull request copy proves itself. The macOS job stays push-only (owned minis).
 on:
@@ -36,6 +36,9 @@ on:
       - Packages/Shared/CmuxTerminalSizing/**
       - Packages/Shared/CmuxTerminalStream/**
       - .github/workflows/cmux-next-terminal.yml
+      # A README or notes file alone starts nothing here (tests/test_ci_docs_only_prs.py); no build reads them.
+      - "!**/README.md"
+      - "!**/COORDINATION.md"
   pull_request:
     branches: [feat-cmux-next]
     paths:
