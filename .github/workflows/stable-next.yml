@@ -38,7 +38,9 @@ name: cmux NEXT Stable
 #   smoke-26      Blacksmith macOS 26
 # The std side lane (CI_SIDE_LANE_RUNNER) is not used: PR side lanes fill it (54 queued on 2026-10-31).
 #
-# This workflow adds no job to any push, pull request or nightly run (the 2026-10-23 no-new-CI rule, since lifted, kept it off them).
+# This workflow adds no job to any push, pull request or nightly run. The 2026-10-23 no-new-CI rule, since
+# lifted, kept it off them; Lawrence's perf decision (no perf run blocks or slows a push, a pull request merge
+# or a nightly; perf-lead.md F9), which still stands, keeps its perf-budgets --gate step off them.
 # It runs only on its schedule, a dispatch, or a push to the stable-next-dry-run branch. A dry run
 # (mode dry-run, or that branch) plans, runs every gate, re-signs ad hoc and smokes the result, and
 # publishes nothing; it needs no secret.
