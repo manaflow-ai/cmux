@@ -481,6 +481,10 @@ path = "tests/test_ci_parallel_artifact_transport.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_pool_snapshot_job_cache.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_portable_job_placement.py"
 lane = "linux-guard"
 
@@ -828,6 +832,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_tip_test_compile.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_tooling_steps.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests; linux-guard needs a workflow step that runs the file, and none does. Pins scripts/ci/tooling_steps.py's per-step selection and that every tooling-tests run step in cmux-next-guards.yml is a setup step or carries its tt- id and selection if:; run python3 -m unittest tests/test_ci_tooling_steps.py yourself after changing tooling_steps.py, workflow_paths_cover_inputs.py or a tooling-tests step (about 5 s, no build)."
 
 [[test]]
 path = "tests/test_ci_tree_result.py"
