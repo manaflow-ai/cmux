@@ -160,6 +160,25 @@ jobs:
           sparse-checkout: ${{ env.DEFAULTS_DATA }}
           sparse-checkout-cone-mode: false
 
+      # A skipped judge would leave an earlier head's sticky comment naming an approver for a change
+      # this head no longer has (a reverted default). The base's own guard rewrites that section to
+      # "No defaults change at <head>", and writes nothing on a pull request that never had one.
+      - name: Clear an earlier head's default changes
+        if: ${{ steps.inputs.outputs.touched == 'false' && github.event.action != 'closed' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 -c 'import os, sys
+          sys.path.insert(0, "scripts/ci")
+          try:
+              import defaults_guard as guard
+              guard.post_comment(os.environ["REPO"], int(os.environ["PR"]), {}, guard.comment_body([], None, os.environ["HEAD_SHA"]), [])
+          except Exception as error:  # a comment that cannot be written never fails the guard
+              print(f"::warning title=Defaults comment not cleared::{error}")'
+
       - name: Judge the default changes
         if: ${{ steps.inputs.outputs.touched != 'false' }}
         env:
