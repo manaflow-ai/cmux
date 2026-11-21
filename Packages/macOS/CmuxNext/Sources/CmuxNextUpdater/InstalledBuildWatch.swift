@@ -7,7 +7,8 @@ import CmuxNextCompat
 /// 11-16). The running app compares its own `CFBundleVersion` with the one in its bundle's
 /// `Info.plist` on disk (``newerInstalledBuild(running:installed:)``); a newer one shows the
 /// existing Restart to Update (``UpdaterService/installedBuild``). Pure and unit-tested.
-nonisolated public enum InstalledBuildWatch {
+nonisolated public struct InstalledBuildWatch {
+    public nonisolated init() {}
     /// The build in the `Info.plist` of the bundle at `bundleURL` (`Contents/Info.plist`),
     /// nil when the bundle is gone or unreadable.
     public static func read(bundleURL: URL) -> InstalledBuild? {
