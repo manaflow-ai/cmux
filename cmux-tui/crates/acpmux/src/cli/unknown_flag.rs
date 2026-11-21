@@ -290,6 +290,23 @@ mod tests {
         explain(&e, &cli, &argv, at, "acpmux")
     }
 
+    /// `repair`'s reading of `args`: the argv to run, the spelling given, the one it took.
+    fn repaired(args: &[&str]) -> Option<(Vec<String>, String, String)> {
+        let mut cli = crate::cli::command::Cli::command();
+        let argv: Vec<OsString> =
+            std::iter::once("acpmux").chain(args.iter().copied()).map(Into::into).collect();
+        let e = cli.try_get_matches_from_mut(argv.clone()).err()?;
+        let at = argv.iter().skip(1).position(|a| a != "--json").map(|i| i + 1)?;
+        match repair(&e, &cli, &argv, at, "acpmux")? {
+            Repair::Took { argv, given, canonical } => Some((
+                argv.iter().map(|a| a.to_string_lossy().into_owned()).collect(),
+                given,
+                canonical,
+            )),
+            Repair::Ambiguous(_) => None,
+        }
+    }
+
     #[test]
     fn send_prompt_file_names_new_and_reads_the_file_on_stdin() {
         let e = refusal(&["send", "--no-wait", "--prompt-file", "my brief.md", "lane"]).unwrap();
@@ -326,10 +343,104 @@ mod tests {
         }
     }
 
+    /// A long flag no command takes is named, with this command's help, and never with a
+    /// nearest spelling. Deliberately changed 2026-11-21: this used to assert the call fell
+    /// through to clap, whose tip for `send --file` was the unrelated `--title`.
     #[test]
-    fn a_flag_no_command_takes_keeps_clap_s_error() {
-        assert!(refusal(&["send", "lane", "--no-such-flag"]).is_none());
+    fn a_flag_no_command_takes_is_named_with_this_command_s_help() {
+        let e = refusal(&["send", "lane", "--no-such-flag"]).unwrap();
+        let data = e.data.clone().unwrap();
+        assert_eq!(data["reason"], "usage.unknown_flag", "{data}");
+        assert_eq!(data["flag"], "--no-such-flag", "{data}");
+        assert_eq!(data["takenBy"], json!([]), "{data}");
+        assert_eq!(data["try"], "acpmux send --help", "{data}");
+        assert!(e.message.ends_with("Try: acpmux send --help"), "{}", e.message);
+        // A short flag has no case convention to read: clap's own error still.
         assert!(refusal(&["send", "lane", "-Z"]).is_none());
         assert!(refusal(&["--json", "send", "lane"]).is_none(), "parses");
+    }
+
+    /// The incident this page of work is named for. `acpmux send --file FILE` got clap's
+    /// `tip: a similar argument exists: '--title'`, and `--title` is the title of a notice:
+    /// following it would have been wrong. `send` has `--attach FILE` too, a third meaning.
+    /// So `--file` must be refused honestly and never aliased to either.
+    #[test]
+    fn send_file_is_refused_and_never_read_as_title_or_attach() {
+        let e = refusal(&["send", "--file", "/tmp/brief.md"]).unwrap();
+        assert!(e.message.contains("--file"), "{}", e.message);
+        assert!(!e.message.contains("--title"), "never the notice title: {}", e.message);
+        assert!(!e.message.contains("--attach"), "never the attachment: {}", e.message);
+        // And no fold reaches them either, so the call is never silently rerouted.
+        assert!(repaired(&["send", "--file", "/tmp/brief.md"]).is_none());
+    }
+
+    /// Case and separators fold, so the call the caller meant runs.
+    #[test]
+    fn a_case_convention_spelling_is_read_as_the_flag_it_spells() {
+        for given in ["--no_wait", "--noWait", "--NO-WAIT", "--nowait"] {
+            let (argv, was, now) = repaired(&["send", "lane", given, "hi"])
+                .unwrap_or_else(|| panic!("{given}"));
+            assert_eq!(was, given, "names the spelling it took");
+            assert_eq!(now, "--no-wait");
+            assert!(argv.iter().any(|a| a == "--no-wait"), "{argv:?}");
+            assert!(argv.iter().all(|a| a != given), "the given spelling is gone: {argv:?}");
+        }
+        // A value keeps its place, in both spellings.
+        let (argv, _, now) = repaired(&["send", "lane", "--on_permission", "deny"]).unwrap();
+        assert_eq!(now, "--on-permission");
+        assert_eq!(argv.last().unwrap(), "deny");
+        let (argv, _, _) = repaired(&["send", "lane", "--onPermission=deny"]).unwrap();
+        assert!(argv.iter().any(|a| a == "--on-permission=deny"), "{argv:?}");
+    }
+
+    /// A fold is the whole name, so it never reaches a flag the caller did not spell: no
+    /// prefix, no edit distance. These are near misses in clap's sense and misses in ours.
+    #[test]
+    fn a_near_spelling_is_not_a_fold_and_is_not_read() {
+        for given in ["--no-wai", "--no-waiting", "--wait-no", "--attach-file", "--titl"] {
+            assert!(repaired(&["send", "lane", given, "hi"]).is_none(), "{given}");
+        }
+    }
+
+    /// The one place where failing is correct. Two real flags whose meanings differ must never
+    /// be aliased together, so a spelling both answer to is refused naming each, never picked.
+    /// Built on a parser of its own: a fold cannot collide two of acpmux's real flags today,
+    /// and this must keep holding the day one could.
+    #[test]
+    fn a_spelling_two_real_flags_answer_to_is_refused_naming_both() {
+        let command = clap::Command::new("acpmux").subcommand(
+            clap::Command::new("post")
+                // Two real flags, different meanings, same fold: inline text and a path.
+                .arg(clap::Arg::new("body_file").long("body-file"))
+                .arg(clap::Arg::new("bodyfile").long("bodyfile")),
+        );
+        let argv: Vec<OsString> =
+            ["acpmux", "post", "--body_file", "/tmp/b"].iter().map(Into::into).collect();
+        let e = command.clone().try_get_matches_from(argv.clone()).unwrap_err();
+        let Some(Repair::Ambiguous(refusal)) = repair(&e, &command, &argv, 1, "acpmux") else {
+            panic!("a spelling two real flags answer to must be refused, never picked");
+        };
+        let data = refusal.data.clone().unwrap();
+        assert_eq!(data["reason"], "usage.ambiguous_flag", "{data}");
+        assert_eq!(data["couldBe"], json!(["--body-file", "--bodyfile"]), "{data}");
+        assert!(refusal.message.contains("`--body-file`"), "{}", refusal.message);
+        assert!(refusal.message.contains("`--bodyfile`"), "{}", refusal.message);
+        assert!(refusal.message.contains("not guessed"), "{}", refusal.message);
+    }
+
+    /// Purely additive: every spelling that worked before still parses, unrepaired.
+    #[test]
+    fn the_real_spellings_are_untouched() {
+        for args in [
+            ["send", "lane", "--no-wait"].as_slice(),
+            ["send", "lane", "--on-permission", "deny"].as_slice(),
+            ["send", "lane", "--attach", "/tmp/a.png"].as_slice(),
+            ["send", "--notice", "--severity", "info", "--title", "t", "lane", "b"].as_slice(),
+        ] {
+            let mut cli = crate::cli::command::Cli::command();
+            let argv: Vec<OsString> =
+                std::iter::once("acpmux").chain(args.iter().copied()).map(Into::into).collect();
+            assert!(cli.try_get_matches_from_mut(argv).is_ok(), "{args:?}");
+        }
     }
 }
