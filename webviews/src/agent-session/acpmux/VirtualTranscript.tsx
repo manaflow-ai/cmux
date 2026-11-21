@@ -756,7 +756,8 @@ function roomUnderRows(
     : reader.kept?.prompt === pass.prompt
       ? reader.kept
       : undefined;
-  return { room: Math.max(pass.followedRoom, kept?.room ?? 0), kept };
+  // No room kept: the stack's room as it is, below zero too (what an opened tray lies over, `trayHold`).
+  return { room: kept ? Math.max(pass.followedRoom, kept.room) : pass.followedRoom, kept };
 }
 
 /// The newest prompt's row id (a user row that is no line), or undefined: the turn the room the reader
