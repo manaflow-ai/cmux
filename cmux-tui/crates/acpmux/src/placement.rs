@@ -25,7 +25,8 @@
 //! than the `max_swap_used_fraction` its entry sets (none by default: a Linux
 //! host often keeps a small swap full with plenty of RAM free, which is not
 //! pressure); it is refused when its role forbids the work. When every host
-//! is passed over for room, load or swap, the one with the most room takes
+//! is passed over for room, load or swap, the one least far past its limits
+//! (lanes over its cap, RAM under its floor, counted in lanes) takes
 //! the work anyway and the verdict says so (`overloaded`): load, swap and lane
 //! caps only warn, and no launch is refused for them (Leo's rulebook, as
 //! lane-place does). A host whose resources are unknown (an old build, no reading yet,
@@ -41,6 +42,8 @@
 //!
 //! Without a registry (acpmux outside the fleet) every connected peer is a
 //! candidate and the defaults below size it.
+
+pub(crate) mod move_targets;
 
 use serde_json::{Value, json};
 use std::path::PathBuf;
@@ -563,6 +566,10 @@ struct Weighed {
     local: bool,
     lanes: Lanes,
     room: Option<f64>,
+    /// How far its tightest term is past its limit, in lanes (0 or less; 0 with room or no
+    /// reading): `-32` for a host 32 sessions over its lane cap. Room is clamped at 0, so this
+    /// is what tells two hosts with no room apart in the overloaded fallback (`place`).
+    short: f64,
     /// Live agents from the reading; `None` when it has none (unknown, never 0).
     live: Option<u64>,
     refused: Option<String>,
@@ -621,6 +628,7 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
         local: c.local,
         lanes: lanes.clone().unwrap_or_default(),
         room: None,
+        short: 0.0,
         live,
         refused: None,
         load: false,
@@ -680,6 +688,7 @@ fn weigh(c: &Candidate, lanes: Option<Lanes>) -> Weighed {
     }
     w.why = parts.join(", ");
     w.room = room;
+    w.short = tightest.map_or(0.0, |(_, r)| r.min(0.0));
     if over_budget {
         let over: Vec<&str> = h
             .pointer("/pressure/over")
@@ -800,13 +809,16 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
             .cmp(&cap_rank(b))
             .then(best(a).cmp(&best(b)))
             .then(room(b).total_cmp(&room(a)))
+            // With no room, the host least far past its limits first: one 32 sessions over its
+            // cap never ties with one at it (a lane host ran 38 against a cap of 6 on 2026-11-20).
+            .then(b.short.total_cmp(&a.short))
             .then(a.lanes.rank.total_cmp(&b.lanes.rank))
             .then(a.live.unwrap_or(u64::MAX).cmp(&b.live.unwrap_or(u64::MAX)))
     });
     let pick = order.first();
     let why = match pick {
         Some(w) if overloaded => format!(
-            "{}: {} ({}; no host has room, so the one with the most takes it: load and lane caps only warn)",
+            "{}: {} ({}; no host has room, so the one least far past its limits takes it: load and lane caps only warn)",
             w.name,
             w.why,
             w.refused.as_deref().unwrap_or_default()

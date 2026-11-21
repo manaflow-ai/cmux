@@ -55,7 +55,9 @@ const LENGTHS = (flag("--lengths") ?? "60,1500,6000").split(",").map(Number);
 const KEYS = Number(flag("--keys") ?? 60);
 const GAP_MS = Number(flag("--gap") ?? 80);
 const MODES = (flag("--mode") ?? flag("--modes") ?? "idle").split(",");
-const ENGINES = (flag("--engines") ?? "chromium").split(",");
+// `--engine webkit` (one engine) and `--engines chromium,webkit` (each in turn) name the same thing: without
+// --engines the single run takes --engine's, so `--engine webkit` alone types in WebKit and not, as it did, in Chromium.
+const ENGINES = (flag("--engines") ?? flag("--engine") ?? "chromium").split(",");
 const STREAM = Number(flag("--stream") ?? 60);
 const TOOL_LINES = Number(flag("--tool-lines") ?? 2000);
 if (
@@ -86,9 +88,9 @@ const ARMS = parseArms(flag("--arms"), webviews);
 const ROUNDS = Number(flag("--rounds") ?? 6);
 const FLOOR = !argv.includes("--no-floor");
 const COLD = argv.includes("--cold");
-const ENGINE = flag("--engine") ?? "chromium";
+const ENGINE = flag("--engine") ?? (ENGINES.length === 1 ? ENGINES[0]! : "chromium");
 if (ENGINE !== "chromium" && ENGINE !== "webkit") throw new Error(`--engine must be chromium or webkit, not ${ENGINE}`);
-if (ENGINE === "webkit" && (PROFILE || TRACE))
+if (ENGINES.includes("webkit") && (PROFILE || TRACE))
   throw new Error("--profile and --trace read Chromium's DevTools protocol");
 /// Prompts waiting in the chat's queue while the keys are typed (0: none).
 const QUEUED = Number(flag("--queue") ?? 0);
@@ -231,10 +233,10 @@ async function measure(
     }
     await page.addInitScript(longTaskProbe);
     const rows = await openChat(page, port, Math.max(1, Math.round(length / 3)));
-    const cdp = engine === "webkit" ? undefined : await page.context().newCDPSession(page);
-    await cdp?.send("Performance.enable");
+    // WebKit returned above (runComposerLoad): this run is Chromium's, with its DevTools session.
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Performance.enable");
     const metrics = async (): Promise<Record<string, number>> => {
-      if (!cdp) return {};
       const { metrics: list } = (await cdp.send("Performance.getMetrics")) as {
         metrics: { name: string; value: number }[];
       };
@@ -256,7 +258,7 @@ async function measure(
       debug.resetTyping();
       debug.renders();
     });
-    if (PROFILE && cdp) {
+    if (PROFILE) {
       await cdp.send("Profiler.enable");
       await cdp.send("Profiler.setSamplingInterval", { interval: 100 });
       await cdp.send("Profiler.start");
@@ -298,7 +300,7 @@ async function measure(
         () => (window as unknown as { __longTasks?: { at: number; ms: number }[] }).__longTasks ?? [],
       )) as { at: number; ms: number }[]
     ).filter((task) => task.at + task.ms >= since && task.at <= until);
-    if (PROFILE && cdp) {
+    if (PROFILE) {
       const { profile } = (await cdp.send("Profiler.stop")) as { profile: CpuProfile };
       printProfile(length, profile);
     }
@@ -307,14 +309,14 @@ async function measure(
       return { renders: debug.renders(), typing: debug.typingStats() };
     })) as { renders: Record<string, number>; typing: Record<string, any> };
     await streaming;
-    if (typedEvents && cdp) {
+    if (typedEvents) {
       await cdp.send("DOM.getDocument", { depth: 0 });
       await reportTrace(`${mode}-typing ${rows}rows`, typedEvents, { keys: KEYS }, mapUrl, cdp);
       console.log(
         `STYLE-TRACE ${mode}-typing ${rows}rows WINDOW ${JSON.stringify({ keys: KEYS, window_ms: Math.round(typedMs) })}`,
       );
     }
-    if (TRACE && cdp && mode === "stream") {
+    if (TRACE && mode === "stream") {
       let run: Record<string, any> = {};
       const events = await traceWindow(browser, page, async () => {
         run = (await page.evaluate(() =>
@@ -414,8 +416,8 @@ async function measure(
 
 try {
   const cases = LENGTHS.flatMap((length) => MODES.map((mode) => ({ length, mode })));
-  if (ARMS && ENGINES.some((engine) => engine === "webkit"))
-    throw new Error("--engines webkit cannot be combined with --arms; run WebKit as a single source tree");
+  if (ARMS && ENGINES.length > 1)
+    throw new Error("--arms measures one engine: pass --engine chromium or --engine webkit, not a list");
   if (ARMS) {
     // Two source trees in one run: each built and served once, then every case interleaved (composer-arms.ts).
     const ports = new Map<string, number>();
@@ -430,7 +432,7 @@ try {
           label: `${mode} ${length} rows`,
           metrics: ARM_METRICS,
           ports,
-          run: (port) => measure(port, length, mode),
+          run: (port) => measure(port, length, mode, ENGINES[0] as "chromium" | "webkit"),
         })),
       );
     console.log(`COMPOSER-TYPING ${JSON.stringify(runs)}`);

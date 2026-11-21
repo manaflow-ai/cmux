@@ -131,6 +131,88 @@ impl Brain {
             .count()
     }
 
+    /// The earliest wall-clock time (ms) one of the cloud checks has work:
+    /// the same rules as `cloud_tick`, `cloud_reap_tick`, `agent_key_tick` and
+    /// `fleet_tick` below (keep them together). A wait not started yet is due
+    /// now (its check starts it). `None`: no check waits for anything.
+    pub(super) fn cloud_due_ms(&self) -> Option<u64> {
+        if self.cloud_vms.is_none() && self.agent_keys.is_none() {
+            return None;
+        }
+        let now = now_ms();
+        let live = |s: &crate::state::SubRecord| {
+            matches!(
+                s.status,
+                SubStatus::Starting | SubStatus::Queued | SubStatus::Running
+            )
+        };
+        let subs = || self.state.spawns.values().flat_map(|r| r.subs.iter());
+        let mut due: Vec<u64> = Vec::new();
+        if self.chief.cloud_auto_pause && self.cloud_vms.is_some() {
+            let mut peers: Vec<String> = subs()
+                .filter(|s| !s.vm_deleted)
+                .filter_map(|s| s.peer.clone())
+                .filter(|p| !self.cloud_reaping.contains(p))
+                .collect();
+            peers.sort_unstable();
+            peers.dedup();
+            for peer in peers {
+                if self.live_on(&peer) > 0 || self.state.cloud_paused.contains(&peer) {
+                    continue;
+                }
+                if let Some(retry) = self.cloud_pause_retry.get(&peer) {
+                    due.push(retry.next_ms);
+                    continue;
+                }
+                let wait = if crate::subagents::is_agent_peer(&peer) {
+                    0
+                } else {
+                    self.cloud_idle.as_millis() as u64
+                };
+                let since = self.cloud_idle_since.get(&peer).copied().unwrap_or(now);
+                due.push(since.saturating_add(wait));
+            }
+        }
+        if self.cloud_vms.is_some() {
+            let reap = self.cloud_reap.as_millis() as u64;
+            for sub in subs().filter(|s| !s.vm_deleted && !live(s)) {
+                if let Some(peer) = sub.peer.as_deref()
+                    && crate::subagents::is_agent_peer(peer)
+                    && !self.cloud_reaping.contains(peer)
+                {
+                    due.push(sub.vm_idle_since.unwrap_or(now).saturating_add(reap));
+                }
+            }
+        }
+        if self.agent_keys.is_some() {
+            let grace = self.agent_key_grace.as_millis() as u64;
+            for sub in subs().filter(|s| s.agent_key.is_some() && !live(s)) {
+                if !self.agent_key_revoking.contains(&sub.id) {
+                    let since = self
+                        .agent_key_done_since
+                        .get(&sub.id)
+                        .copied()
+                        .unwrap_or(now);
+                    due.push(since.saturating_add(grace));
+                }
+            }
+        }
+        if self.fleet.is_some()
+            && subs().any(|s| {
+                !s.fleet_wait.is_empty()
+                    && !s.vm_deleted
+                    && matches!(s.status, SubStatus::Done | SubStatus::Reported)
+                    && !self.fleet_polling.contains(&s.id)
+            })
+        {
+            due.push(
+                self.fleet_polled_ms
+                    .saturating_add(self.fleet_every.as_millis() as u64),
+            );
+        }
+        due.into_iter().min()
+    }
+
     /// B4: pauses each cloud peer's VM after `cloud_idle`
     /// (`cloud.autoPauseIdleSeconds`, 60 s) with no live subagent on it,
     /// once; [`CLOUD_TICK`](super::control::CLOUD_TICK) runs it. A subagent
@@ -1455,6 +1537,15 @@ impl Brain {
             }),
         );
         (self.log)(&format!("subagent {id} finished"));
+        // A loop that waits for this run's final report closes now, by code
+        // (memory.rs `close_loops`): only this run's own report, and never a
+        // stopped, held or unlanded one.
+        if !stopped && !held && !resuming && crate::check_in::report_is_final(&report) {
+            self.close_loops(
+                &crate::check_in::CloseWhen::AgentDone(id.to_owned()),
+                &format!("{id} reported its result"),
+            );
+        }
         if land_followup {
             (self.log)(&format!("subagent {id}: not landed, followed up"));
             self.trace.emit("subagent.land_followup", json!({"id": id}));
