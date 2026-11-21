@@ -119,6 +119,7 @@ jobs:
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
 
       - name: Link the macOS daemon family on Linux (framework stubs)
+        id: link
         env:
           XC_CARGO_TARGET_DIR: ${{ github.workspace }}/cmux-tui/target
         run: |
@@ -129,6 +130,6 @@ jobs:
           echo "### macOS cross link: $(( $(date +%s) - start )) s (toolchain and link)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Name the fix for a missing stub
-        if: failure()
+        if: failure() && steps.link.outcome == 'failure'
         run: |
           echo "::error title=macOS cross link failed::An 'undefined symbol' or 'framework not found' above is an Apple import with no stub in scripts/ci/macos-stubs. Add it to that framework's .tbd (or a new .tbd beside them), or regenerate the stubs from Mac-built binaries as scripts/ci/macos_stubs.py's docstring says. Run it locally: scripts/ci/macos-cross.sh toolchain 26.5 && XC_TARGETS=aarch64-apple-darwin scripts/ci/macos-cross.sh link-check"
