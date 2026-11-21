@@ -78,21 +78,34 @@ class GitHub:
                          "--job", str(job["id"]), "--log"])
 
 
-def latest_checks(repo: str, sha: str, github: GitHub) -> dict:
-    """The newest check run of each name on SHA: its last real attempt. Every attempt is read (filter=all), since
-    GitHub's default lists only each check suite's newest attempt, and one that ended in startup_failure ran no
-    jobs, so a red before it vanished from that list (cmux#35906, 2026-11-05). Such an attempt is no result: the
-    newest check run of a name is the last attempt that ran it, red or green."""
-    checks = {}
+def check_runs_at(repo: str, sha: str, github: GitHub) -> dict:
+    """Every check run of each name on SHA, newest first: one per check suite, its last real attempt. Every attempt is
+    read (filter=all), since GitHub's default lists only each check suite's newest attempt, and one that ended in
+    startup_failure ran no jobs, so a red before it vanished from that list (cmux#35906, 2026-11-05). Such an attempt
+    is no result: the newest check run of a name is the last attempt that ran it, red or green.
+    A name is several check runs whenever several workflows have a job of that name -- three were named `tests` at
+    hq#17005's head -- so they are kept apart by check suite, the run each belongs to (spelled_check tells them
+    apart by its workflow). Keying by name alone kept the highest id and read the name as that one check run, so a
+    caller naming another of them was answered about a check it had not asked about (2026-11-21)."""
+    newest: dict[tuple, dict] = {}
     for page in github.json(f"repos/{repo}/commits/{sha}/check-runs?filter=all&per_page=100", paginate=True):
         for check in page["check_runs"]:
             # A third-party app cannot provide compile or test evidence.
             if check.get("app", {}).get("slug") != "github-actions":
                 continue
-            previous = checks.get(check["name"], {})
-            if check["id"] > previous.get("id", -1):
-                checks[check["name"]] = check
-    return checks
+            key = (check["name"], (check.get("check_suite") or {}).get("id"))
+            if check["id"] > newest.get(key, {}).get("id", -1):
+                newest[key] = check
+    by_name: dict[str, list[dict]] = {}
+    for check in sorted(newest.values(), key=lambda found: found["id"], reverse=True):
+        by_name.setdefault(check["name"], []).append(check)
+    return by_name
+
+
+def latest_checks(repo: str, sha: str, github: GitHub) -> dict:
+    """The newest check run of each name on SHA (check_runs_at), for a caller that asks only that. A caller that must
+    not answer about a sibling of the name reads check_runs_at itself."""
+    return {name: found[0] for name, found in check_runs_at(repo, sha, github).items()}
 
 
 def _parent_shas(repo: str, sha: str, github: GitHub) -> list[str]:
