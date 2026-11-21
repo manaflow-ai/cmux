@@ -6,6 +6,8 @@
 
 #[cfg(unix)]
 mod action_hint;
+#[cfg(unix)]
+mod agent_config;
 mod agent_input_hint;
 mod agent_message;
 #[cfg(unix)]
@@ -621,7 +623,7 @@ pub(crate) fn early_usage_error(args: &[String], message: &str) -> i32 {
 /// Scopes `main` routes by their first word, before the cmux global options
 /// are read, whose own parser takes `--json` right after the scope word:
 /// acpmux's (`--json` is a global clap option there).
-const JSON_AFTER_SCOPE: &[&str] = &["acp", "harness", "chats"];
+const JSON_AFTER_SCOPE: &[&str] = &["acp", "agent", "harness", "chats"];
 
 /// `cmux --json <scope> …` for a scope `main` routes by its first word: the
 /// leading `--json` moves to just after the scope word (to the end for `host`
@@ -705,6 +707,40 @@ pub(crate) fn acp_scope_args(raw_args: &[String]) -> Vec<std::ffi::OsString> {
     let skip =
         usize::from(raw_args.first().is_some_and(|head| matches!(head.as_str(), "acp" | "agent")));
     raw_args.iter().skip(skip).map(std::ffi::OsString::from).collect()
+}
+
+/// The acpmux-owned aliases under `cmux agent`. Existing app actions keep their
+/// current parser and semantics, while these verbs share the acpmux implementation
+/// without duplicating its command logic in the app CLI.
+#[cfg(unix)]
+pub(crate) fn agent_acp_scope_args(raw_args: &[String]) -> Option<Vec<std::ffi::OsString>> {
+    let [head, rest @ ..] = raw_args else { return None };
+    if head != "agent" {
+        return None;
+    }
+    let globals = rest
+        .iter()
+        .take_while(|word| matches!(word.as_str(), "--json" | "--suppress-reads"))
+        .count();
+    let verb = rest.get(globals)?;
+    if matches!(
+        verb.as_str(),
+        "list"
+            | "start"
+            | "resume"
+            | "open"
+            | "open-tab"
+            | "message"
+            | "inbox"
+            | "hook"
+            | "plugin"
+            | "view"
+            | "report"
+    ) || !acpmux::cli::command::owns_word(verb)
+    {
+        return None;
+    }
+    Some(raw_args.iter().skip(1).map(std::ffi::OsString::from).collect())
 }
 
 /// The agent-caller refusal of a plan that writes a Chief by the raw or
@@ -866,6 +902,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
     };
     #[cfg(unix)]
     if let Some(code) = agent_start::run_if_requested(args)
+        .or_else(|| agent_config::run_if_requested(args))
         .or_else(|| chat_start::run_if_requested(args))
         .or_else(|| mcp::run_if_requested(args))
         .or_else(|| workflow::run_if_requested(args))
@@ -1798,6 +1835,15 @@ USAGE
 
 const AGENT_HELP: &str = "\
 USAGE
+  cmux agent ls [PATTERN...] [--machine HOST] [--all] [--json]
+  cmux agent send SESSION [OPTIONS] [--] TEXT...
+  cmux agent history SESSION [-n N]
+  cmux agent search QUERY... [--role user|assistant|tool] [--since DURATION] [-n N]
+  cmux agent resolve QUERY
+  cmux agent register NAME [--code CODE]
+  cmux agent bg start 'COMMAND' [--cwd DIR] [--description TEXT] [--session SESSION] [--no-notify]
+  cmux agent bg list [--session SESSION] [--all]
+  cmux agent notices [SESSION] [-n N]
   cmux agent start NAME [--cmd <launcher>] [--harness H] [--pane <selector>]
                   [--split right|down|left|up] [--cwd DIR] [--no-focus]
                   [--timeout 90s] [--no-wait] [-- ARGS...]
