@@ -158,3 +158,5 @@ Or ask: "make cmux look and work like the Claude desktop app's Code tab"
 - Apply and discard are the person's call.
 - A recipe is a profile file, the format `cmux customize save NAME` writes. Save your own setup
   the same way to share it.
+- To share a whole customization as a git repo that others install from its URL, see
+  [setup repos](setup-repos.md); `cmux setup check DIR` checks one before you push it.
