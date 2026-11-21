@@ -4,10 +4,10 @@
 //! the pings, and a hidden or quiet app arms nothing.
 
 use super::*;
-use crate::RepairAction::{EndRenderer, Ping};
+use crate::RepairAction::{self, EndRenderer, Ping};
 use crate::State;
 use crate::policy::{
-    LIVENESS_HUNG_MS, LIVENESS_LATE_MS, LIVENESS_PING_EVERY_MS, LIVENESS_QUIET_MS,
+    LIVENESS_HUNG_MS, LIVENESS_LATE_MS, LIVENESS_PING_EVERY_MS, LIVENESS_QUIET_MS, REPAIR_WINDOW_MS,
 };
 
 const ID: &str = "liveness:7";
@@ -142,16 +142,20 @@ fn a_late_tick_voids_the_pings_out() {
 #[test]
 fn a_renderer_that_stays_hung_is_ended_at_most_three_times_then_fails() {
     let mut h = resting_renderer();
-    let ends: Vec<_> = run(&mut h, 1_000_000)
-        .into_iter()
-        .filter(|&(_, action, _)| action == EndRenderer)
-        .collect();
+    let ends = |actions: Vec<(u64, RepairAction, u32)>| -> Vec<_> {
+        actions.into_iter().filter(|&(_, action, _)| action == EndRenderer).collect()
+    };
+    // Three ends in the repair window, then failed.
+    let window_end = 45_000 + REPAIR_WINDOW_MS;
     assert_eq!(
-        ends,
+        ends(run(&mut h, window_end - 1)),
         vec![(45_000, EndRenderer, 1), (75_000, EndRenderer, 2), (105_000, EndRenderer, 3)]
     );
     assert_eq!(part(&h, ID).map(|p| p.state), Some(State::Failed));
-    assert_eq!(h.next_tick_ms(), None, "a failed part waits for the click");
+    // The cap holds only within the window: once the first end leaves it, the part tries again by
+    // itself, from step 1, with no click.
+    assert_eq!(h.next_tick_ms(), Some(window_end), "a failed part re-arms when its window frees");
+    assert_eq!(ends(run(&mut h, window_end)), vec![(window_end, EndRenderer, 1)]);
 }
 
 #[test]
