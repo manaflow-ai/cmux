@@ -12,6 +12,7 @@ import { runSimulation, type SimResult } from "../src/agent-session/acpmux/sim/r
 import { parseRecords, sanitizeRecords, scrubText } from "../src/agent-session/acpmux/sim/sanitize";
 import { replayScenario, SIM_SESSION } from "../src/agent-session/acpmux/sim/script";
 import { SCENARIOS, longRun } from "../src/agent-session/acpmux/sim/scenarios";
+import { ROW_GAP_LOOKS } from "../src/agent-session/acpmux/transcriptGrid";
 
 const FIXTURES = join(import.meta.dir, "fixtures", "chat-sim");
 const broken = (result: SimResult, prefix: string) =>
@@ -19,11 +20,10 @@ const broken = (result: SimResult, prefix: string) =>
     .filter((violation) => violation.rule.startsWith(prefix))
     .map((violation) => `${violation.label}: ${violation.detail}`);
 
-// Rule (a) holds in every scenario. Two of them reproduce Leo's screenshot until its fix lands: a turn that
-// another agent's notice or message opens drew "Working for" flush (0px) under it, and the live "Thinking"
-// line 16px under it, where a person's prompt gives both the block gap (24). The cause: transcriptGrid.ts
-// rowMark makes a received row a one-line MARK_OTHER, and transcriptGap's "two one-line rows sit flush"
-// rule then gives the head 0. #48597 gives Working for the gap; the live Thinking line is still 16px there.
+// Rule (a) holds in every scenario. Two of them reproduce Leo's screenshot: a turn that another agent's
+// notice or message opens drew "Working for" flush (0px) under it (transcriptGap's "two one-line rows sit
+// flush" rule). Now "Working for", the "Worked for" that replaces it and the live "Thinking" line all stand
+// the gap "Worked for" stands under any one-line row (ROW_GAP_LOOKS.shipped.workedAfterLine, 16, #48591).
 describe("chat simulator: (a) a turn's first rows keep their gaps, (b) nothing folds before its turn ends", () => {
   for (const [name, make] of Object.entries(SCENARIOS)) {
     for (const rule of ["a-", "b-"]) {
@@ -43,10 +43,12 @@ const headGaps = (name: string) => {
 };
 
 for (const name of ["incoming-notice-turn", "incoming-message-turn"])
-  test(`chat simulator: ${name}: Thinking and Working for stand the block gap under another agent's line (Leo's screenshot)`, () => {
+  test(`chat simulator: ${name}: Thinking and Working for stand the head gap under another agent's line (Leo's screenshot)`, () => {
     const gaps = headGaps(name);
     expect(Object.keys(gaps)).toEqual(expect.arrayContaining(["thinking", "working"]));
-    expect({ thinking: gaps.thinking! >= 24, working: gaps.working! >= 24 }).toEqual({ thinking: true, working: true });
+    const want = ROW_GAP_LOOKS.shipped.workedAfterLine;
+    expect(want).toBeGreaterThan(0);
+    expect({ thinking: gaps.thinking, working: gaps.working }).toEqual({ thinking: want, working: want });
   });
 
 test("chat simulator: a person's prompt keeps the block gap over Working for", () => {
@@ -64,7 +66,6 @@ const replayed = () => {
 test("chat simulator: a sanitized replay of a recorded lane chat keeps rule b", () => {
   expect(broken(replayed(), "b-")).toEqual([]);
 });
-// Red until the turn gap fix lands: the recorded chat's turns that other agents' messages open (#48597).
 test("chat simulator: a sanitized replay of a recorded lane chat keeps rule a", () => {
   expect(broken(replayed(), "a-")).toEqual([]);
 });

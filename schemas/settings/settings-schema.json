@@ -1430,6 +1430,7 @@
           "text" : "Agents"
         },
         "trail" : [
+          "agentCustomization",
           "agentTools",
           "harnesses",
           "agentHarnesses",
@@ -103253,7 +103254,7 @@
       },
       "help" : {
         "key" : "settings.labs.previewFeatures.help",
-        "text" : "Unfinished surfaces, such as the agent session's coverage label and Pull requests view."
+        "text" : "Unfinished surfaces, such as the App Store and the agent session's coverage label and Pull requests view."
       },
       "kept_on_reset_all" : false,
       "key" : "labs.previewFeatures",
@@ -103262,7 +103263,10 @@
         "preview",
         "experimental",
         "beta",
-        "prototype"
+        "prototype",
+        "app store",
+        "apps",
+        "extensions"
       ],
       "kind" : "toggle",
       "page_hidden" : false,
