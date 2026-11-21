@@ -317,7 +317,8 @@ def rows_many_chats(rep):
             continue
         rows = result.get("many_chats") or {}
         for key, name in (("main_thread_pct", "main_thread_pct"), ("hangs_over_100ms", "hangs_over_100ms"),
-                          ("hangs_over_250ms", "hangs_over_250ms"), ("hang_max_ms", "hang_max_ms")):
+                          ("hangs_over_250ms", "hangs_over_250ms"), ("hang_max_ms", "hang_max_ms"),
+                          ("hidden_push_bytes_per_s", "hidden_push_bytes_per_s")):
             if isinstance(rows.get(key), (int, float)):
                 out[f"many_chats.{name}"] = (rows[key], rows[key])
     return out

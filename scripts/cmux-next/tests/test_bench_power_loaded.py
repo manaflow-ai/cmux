@@ -279,6 +279,24 @@ class ManyChatsTests(unittest.TestCase):
         self.assertEqual((summary["count"], summary["over_100ms"], summary["over_250ms"], summary["max_ms"]), (3, 2, 1, 300))
         self.assertEqual(calls[-1]["after"], 3)
 
+    def test_page_pushes_split_shown_and_hidden(self):
+        def reads(counts):
+            def call(_sock, method, params, timeout=30):
+                if params["action"] == "list":
+                    return {"pages": [{"page": "cmux.agent", "instance": 1, "window_number": 7},
+                                      {"page": "cmux.agent", "instance": 2, "window_number": None},
+                                      {"page": "cmux.agent", "instance": 3, "parked": True}]}
+                return {"pushes": counts[params["instance"]]}
+            return bp.page_pushes("sock", call)
+        before = reads({1: {"scripts": 1, "batches": 1, "bytes": 100}, 2: {"scripts": 0, "batches": 0, "bytes": 0}})
+        after = reads({1: {"scripts": 11, "batches": 5, "bytes": 1100}, 2: {"scripts": 4, "batches": 2, "bytes": 400}})
+        summary = bp.push_summary(before, after, 10)
+        self.assertEqual(summary["groups"]["cmux.agent (shown)"]["bytes_per_s"], 100.0)
+        self.assertEqual(summary["groups"]["cmux.agent (hidden)"]["scripts"], 4)
+        self.assertEqual((summary["bytes_per_s"], summary["hidden_bytes_per_s"]), (140.0, 40.0))
+        self.assertIsNone(bp.page_pushes("sock", lambda *a, **k: {"pages": [{"page": "x", "instance": 1}]}))
+        self.assertIsNone(bp.push_summary(None, after, 10))
+
     def test_seeded_idle_ids_are_open_chats_not_closed(self):
         ids = load.seeded_idle_ids(10, 0.6, 3)
         self.assertEqual(ids, [load.seeded_id(9), load.seeded_id(8), load.seeded_id(7)])

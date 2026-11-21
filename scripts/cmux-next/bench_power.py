@@ -514,6 +514,57 @@ def hang_summary(records: list[dict], installed=None, threshold_ms=None, read_er
     return out
 
 
+def page_pushes(sock: str, call=None) -> dict | None:
+    """{"page#instance": {page, hidden, scripts, batches, bytes}} for every live page that reports its bridge's
+    push counters (`debug.page` `list`, then `state` per instance: a build with `pushes`), or None on a build
+    without them. Hidden: the page is in no window. Read outside the measured window: a `state` read runs
+    script in the page."""
+    call = call or rpc
+    listed = call(sock, "debug.page", {"action": "list"}, timeout=30)
+    out, any_counter = {}, False
+    for page in (listed or {}).get("pages") or [] if isinstance(listed, dict) else []:
+        if page.get("parked"):
+            continue
+        state = call(sock, "debug.page", {"action": "state", "page": page.get("page"), "instance": page.get("instance")},
+                     timeout=30)
+        pushes = state.get("pushes") if isinstance(state, dict) else None
+        if not isinstance(pushes, dict):
+            continue
+        any_counter = True
+        out[f"{page.get('page')}#{page.get('instance')}"] = {
+            "page": page.get("page"), "hidden": page.get("window_number") is None,
+            **{key: pushes.get(key) or 0 for key in ("scripts", "batches", "bytes")}}
+    return out if any_counter else None
+
+
+def push_summary(before: dict | None, after: dict | None, seconds: float) -> dict | None:
+    """Per page id, shown and hidden apart: pages, and the scripts, batches and bytes pushed per second
+    between the two reads (pages in both reads only), plus the busiest page. None when a read had no counters."""
+    if before is None or after is None or seconds <= 0:
+        return None
+    groups: dict[str, dict] = {}
+    busiest = None
+    for key, end in after.items():
+        start = before.get(key)
+        if start is None:
+            continue
+        delta = {name: max(0, end[name] - start[name]) for name in ("scripts", "batches", "bytes")}
+        group = groups.setdefault(f"{end['page']} ({'hidden' if end['hidden'] else 'shown'})",
+                                  {"pages": 0, "scripts": 0, "batches": 0, "bytes": 0})
+        group["pages"] += 1
+        for name, value in delta.items():
+            group[name] += value
+        if busiest is None or delta["bytes"] > busiest["bytes"]:
+            busiest = {"key": key, "hidden": end["hidden"], **delta}
+    for group in groups.values():
+        for name in ("scripts", "batches", "bytes"):
+            group[f"{name}_per_s"] = round(group[name] / seconds, 1)
+    total = sum(group["bytes"] for group in groups.values())
+    hidden = sum(group["bytes"] for name, group in groups.items() if name.endswith("(hidden)"))
+    return {"seconds": round(seconds, 1), "groups": groups, "bytes_per_s": round(total / seconds, 1),
+            "hidden_bytes_per_s": round(hidden / seconds, 1), "busiest": busiest}
+
+
 def many_chats_rows(result: dict) -> dict:
     """The many-chats numbers of one result: the app's main-thread CPU % (busy %) and CPU %, and the
     window's stalls (hang_summary)."""
@@ -522,6 +573,8 @@ def many_chats_rows(result: dict) -> dict:
     return {"main_thread_pct": app.get("main_thread_pct"), "app_cpu_pct": app.get("cpu_pct"),
             "hangs_over_100ms": hangs.get("over_100ms"), "hangs_over_250ms": hangs.get("over_250ms"),
             "hang_max_ms": hangs.get("max_ms"), "hang_total_ms": hangs.get("total_ms"),
+            "push_bytes_per_s": (result.get("pushes") or {}).get("bytes_per_s"),
+            "hidden_push_bytes_per_s": (result.get("pushes") or {}).get("hidden_bytes_per_s"),
             "seconds": result.get("seconds")}
 
 
@@ -626,7 +679,8 @@ def perf_rows(before: dict, after: dict | None, harness: str) -> list[str]:
 
 MANY_CHATS_METRICS = (("main_thread_pct", "main thread busy % (CPU)"), ("hangs_over_100ms", "stalls > 100 ms"),
                       ("hangs_over_250ms", "stalls > 250 ms"), ("hang_max_ms", "longest stall ms"),
-                      ("hang_total_ms", "stall time ms"))
+                      ("hang_total_ms", "stall time ms"), ("push_bytes_per_s", "page push bytes/s (all pages)"),
+                      ("hidden_push_bytes_per_s", "page push bytes/s (hidden pages)"))
 
 
 def loaded_result(path: str) -> dict:
@@ -836,12 +890,17 @@ def run_loaded(args):
         time.sleep(args.settle)  # test script: let the app settle
         pages = (rpc(sock, "debug.cef_pages") or {}).get("pages")
         roles = renderer_roles(pages or [], bm.owned(pid, args.app))
+        pushes_before = page_pushes(sock) if label == "many-chats" else None
+        pushes_at = time.monotonic()
         time.sleep(5)  # test script: the debug read's own work ends before the window
         hangs = HangWatch(sock).start() if label == "many-chats" else None
         result = measure_processes(pid, args.app, label, args.measure, roles, peer.pids())
         result["load"] = reached
         if hangs:
             result["hangs"] = hangs.finish()
+            # The page bridges' push counters across the window (and the 5 s before it); None on a build without them.
+            result["pushes"] = push_summary(pushes_before, page_pushes(sock), time.monotonic() - pushes_at)
+            print(f"PERF-MANY-CHATS-PUSHES {json.dumps(result['pushes'])}", flush=True)
             rows = many_chats_rows(result)
             result["many_chats"] = rows
             print(f"PERF-MANY-CHATS {json.dumps({**rows, 'hangs': result['hangs'], 'load': reached})}", flush=True)
