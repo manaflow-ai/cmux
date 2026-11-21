@@ -43,7 +43,8 @@ export type AcpmuxDebug = {
   /// "subagents", or with three steers waiting under a running turn (waitingSteersFixture.ts) when it is
   /// "waiting-steers", or with the worked turn under a running goal, the Goal banner over the composer
   /// (goalFixture.ts), when it is "goal", or with two finished subagents whose report cards a capture opens
-  /// (subagentReportFixture.ts) when it is "subagent-report".
+  /// (subagentReportFixture.ts) when it is "subagent-report", or with a reply holding the user's ```mermaid
+  /// chart (mermaidFixture.ts) when it is "mermaid".
   seedRows(count?: number, fixture?: string, agents?: number): Promise<Record<string, unknown>>;
   startFling(seconds?: number, options?: FlingOptions): Promise<Record<string, unknown>>;
   flingStats(): Record<string, unknown>;
@@ -188,6 +189,7 @@ export function createAcpmuxDebug(
         linkRows,
         LINKED_GITHUB_PULL_REQUEST,
         selectionRows,
+        mermaidRows,
         organizationRows,
         toolSummaryRows,
         SUBAGENT_TRAY_STEPS,
@@ -219,17 +221,19 @@ export function createAcpmuxDebug(
                 ? linkRows(Date.now() - 30_000, fixture === "link" ? undefined : LINKED_GITHUB_PULL_REQUEST)
                 : fixture === "selection"
                   ? selectionRows(Date.now() - 60_000)
-                  : fixture === "organization"
-                    ? organizationRows(Date.now() - 120_000)
-                    : fixture === "tool-summary"
-                      ? toolSummaryRows(Date.now() - 60_000)
-                      : fixture === "shared"
-                        ? sharedRows(Date.now() - 1_020_000)
-                        : fixture === "waiting-steers"
-                          ? waitingSteersRows(Date.now() - 90_000)
-                          : fixture === "subagent-report"
-                            ? subagentReportRows(Date.now() - 5_000_000)
-                            : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
+                  : fixture === "mermaid"
+                    ? mermaidRows(Date.now() - 60_000)
+                    : fixture === "organization"
+                      ? organizationRows(Date.now() - 120_000)
+                      : fixture === "tool-summary"
+                        ? toolSummaryRows(Date.now() - 60_000)
+                        : fixture === "shared"
+                          ? sharedRows(Date.now() - 1_020_000)
+                          : fixture === "waiting-steers"
+                            ? waitingSteersRows(Date.now() - 90_000)
+                            : fixture === "subagent-report"
+                              ? subagentReportRows(Date.now() - 5_000_000)
+                              : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
       const start = performance.now();
       const committed = acpmuxPerf.nextCommit();
       host.replaceRows(

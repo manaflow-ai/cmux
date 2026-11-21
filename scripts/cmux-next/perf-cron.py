@@ -101,6 +101,12 @@ TIP_EVERY_HOURS = 6
 # as not run ('no_tree'). 2026-11-17 07:13Z: none of the 10 commits since the last tip had a tree, so no tip started,
 # and the web-ui rows of new Linux benches (cmux#44534) waited on a prerequisite only the Mac parts have.
 TREE_WAIT_HOURS = 2
+# Judging whether the bisect can measure a commit (its parts, its split-spring.sh version, its cmux-tui tree) costs
+# about 30 git reads, some fetching a blob, and a tree lookup. A plan tick judges at most this many commits across
+# every range, and a range keeps its place (looked) so the next tick goes on from there: on 2026-11-19 sixteen culprit
+# ranges of 300 to 1,900 commits had no measurable commit near their middle, the bisect judged every one of them each
+# tick, and the plan job hit its 75 min timeout every tick, so no part ran for two days.
+BISECT_JUDGED_PER_TICK = 40
 # The plan's checkout is shallow (fetch-depth 300): a culprit range older than that is deepened this many commits at
 # a time, at most DEEPEN_ROUNDS times, before its commits are listed.
 DEEPEN_STEP = 500
@@ -1445,15 +1451,27 @@ def decide(state, t, candidate, bisect, supported_parts, github_busy, measurable
 def bisect_midpoint(commits, measurable, skip=()):
     """commits: first-parent commits strictly between good and bad, oldest first. The measurable one nearest
     the middle that is not in skip (commits a bisect step could not judge: `git bisect skip`), or None."""
-    commits = [c for c in commits if c not in set(skip)]
-    if not commits:
-        return None
+    return bisect_next(commits, measurable, skip)[0]
+
+
+def bisect_next(commits, measurable, skip=(), start=0, budget=None):
+    """bisect_midpoint from a place in its order, judging at most budget commits (None: no bound). The order is
+    every commit's, nearest the middle first, skip included, so a place stays valid when a step adds to skip; a
+    commit in skip costs nothing. start: how far earlier ticks got (the commits before it were not measurable).
+    Returns (the commit or None, the place after the last commit judged)."""
     mid = len(commits) // 2
     order = sorted(range(len(commits)), key=lambda i: (abs(i - mid), i))
-    for i in order:
-        if measurable(commits[i]):
-            return commits[i]
-    return None
+    skip, judged, place = set(skip), 0, start
+    for place in range(start, len(order)):
+        c = commits[order[place]]
+        if c in skip:
+            continue
+        if budget is not None and judged >= budget:
+            return None, place
+        judged += 1
+        if measurable(c):
+            return c, place
+    return None, len(order)
 
 
 def bisect_measurable(rows, mac_measurable, supported_parts):
@@ -3123,9 +3141,14 @@ def plan(o):
             print(f"perf-cron: no commit since the last tip has a published cmux-tui tree; the tip is {newest[:12]}, "
                   f"its Mac parts wait for its tree (at most {TREE_WAIT_HOURS} h)")
     bisect = None
+    budget = BISECT_JUDGED_PER_TICK
     if not state.get("current") and not (candidate and tip_due(state, t)):
         for group in bisect_groups(state):
             rng = group["range"]
+            if budget <= 0:
+                print(f"perf-cron: the bisect judged {BISECT_JUDGED_PER_TICK} commits this tick; the range "
+                      f"{rng['good'][:12]}...{rng['bad'][:12]} and the rest wait for the next tick")
+                break
             if any(host_avoided(state, h, t) or host_gone(state, h, t) for h in {mac_host(n) for n in group["rows"]} - {None}):
                 # A gone host (the controller has no such worker) would answer every step with host_gone: its rows
                 # close at the next tip measurement elsewhere instead.
@@ -3140,9 +3163,16 @@ def plan(o):
                 if name_culprit(state, group, named, git("log", "-1", "--format=%s", rng["bad"]).strip(), t):
                     print(f"perf-cron: PERF_CULPRIT={json.dumps(state['culprits'][-1], sort_keys=True)}")
                 continue
-            ok = bisect_measurable(group["rows"], lambda c: fleet_runs(c, tip_version) and tree_published(c),
+            ok = bisect_measurable(group["rows"], lambda c: fleet_runs(c, tip_version) and tree_ready(c),
                                    supported_parts_at)
-            sha = bisect_midpoint(between, ok, rng.get("skip") or [])
+            judged = []
+            looked = rng.get("looked") if isinstance(rng.get("looked"), dict) else {}
+            start = looked.get("place", 0) if (looked.get("good"), looked.get("bad")) == (rng["good"], rng["bad"]) else 0
+            sha, place = bisect_next(between, lambda c: judged.append(c) or ok(c), rng.get("skip") or [],
+                                     start if isinstance(start, int) else 0, budget)
+            budget -= len(judged)
+            # Where this range's walk stopped, for the next tick; a narrowed range (new good or bad) starts over.
+            rng["looked"] = {"good": rng["good"], "bad": rng["bad"], "place": place}
             if sha:
                 bisect = {"sha": sha, "range": rng, "rows": group["rows"]}
                 break
@@ -3157,11 +3187,30 @@ def plan(o):
         state["current"].setdefault("measure_version", tip_version)
     if measurement_id(state.get("current")) != loaded_id:
         clear_parts(o.dir)  # a dropped or replaced measurement's part files must never be read as the new one's
-    for requested in (d.get("part"), d.get("linux_part")):
+    linux_request, route = "", ""
+    if d.get("linux_part") and state.get("current"):
+        route = linux_route(state["current"], d["linux_part"], t, bool(getattr(o, "linux_controller", False)),
+                            commit_has(d["sha"], LINUX_SCRIPT))
+        if route != "runner":
+            linux_request = d["linux_part"] if route == "request" else ""
+            print(f"perf-cron: Linux part {d['linux_part']}: "
+                  + ("asked of the build controller" if linux_request else "its request to the build controller waits for an answer"))
+            d["linux_part"] = ""
+    cur = state.get("current")
+    if cur and route == "wait" and not d.get("part"):
+        # Only the controller's answer is awaited: the wait does not count against ABANDON_HOURS (review of
+        # cmux#48328: two unanswered windows of a part are about 4 h).
+        if not cur.get("yield_since"):
+            start_yield(cur, t)
+            cur["linux_wait_yield"] = True
+    elif cur and cur.pop("linux_wait_yield", None):
+        end_yield(cur, t)
+    for requested in (d.get("part"), d.get("linux_part"), linux_request):
         if requested and state.get("current"):
             # What this file asks the part to measure with: its rows carry it (a later tick may run a newer file).
             state["current"].setdefault("configs", {})[requested] = part_config(requested)
     out = {"action": d["action"], "sha": d.get("sha", ""), "part": d.get("part", ""), "linux_part": d.get("linux_part", ""),
+           "linux_request": linux_request,
            "worker": d.get("worker", ""), "reason": d["reason"], "stale_hours": round(stale_hours(state, t), 1),
            "not_measuring": state.get("not_measuring") or ""}
     if d.get("linux_part"):
@@ -3691,6 +3740,23 @@ def record_part(cur, part, result, run_url, t=None):
     failure: the next part builds the app itself (split-spring.sh --app-cache builds on a cache miss)."""
     if t is not None and not is_linux_part(part):
         end_yield(cur, t)
+    if is_linux_part(part) and t is not None and cur.pop("linux_wait_yield", None):
+        end_yield(cur, t)  # the wait for the controller's answer (plan) ends with the answer
+    asks = cur.get("linux_requests") if isinstance(cur.get("linux_requests"), dict) else {}
+    ask = asks.get(part) if is_linux_part(part) else None
+    if isinstance(ask, dict) and not ask.get("fell_back_at") and result["state"] == "yielded":
+        # The controller answered without running the part (not queued: no idle Linux worker; pre-empted; the step's
+        # queue timeout; a setup failure of perf-cron-linux.sh): one unanswered request now, no answer window
+        # (linux_route), and no yield of the part, so the runner job is the last try before yielded_out (review of
+        # cmux#48328: three such answers ended the part yielded_out and the runner never ran it).
+        ask["answered_at"] = iso(t or now_utc())
+        entry = dict(cur["parts"].get(part) or {"yields": 0})
+        entry.update({"state": "yielded", "step_id": result.get("step_id"), "run_url": run_url,
+                      "seconds": result.get("seconds")})
+        cur["parts"][part] = entry
+        return entry
+    if is_linux_part(part):
+        asks.pop(part, None)  # answered (a run, or the runner's yield): the next ask starts a new count
     if not is_linux_part(part) and (not cur.get("host") or result.get("worker") in (None, cur.get("host"))):
         cur.pop("host_asked_since", None)  # the host answered (any result): give_up_host's wait starts again
     entry = dict(cur["parts"].get(part) or {"yields": 0})
@@ -4052,6 +4118,80 @@ def next_now(state, fleet_done):
     return bool(bisect_groups(state))
 
 
+# The Linux parts on the build controller (Leo, 2026-11-19, on Blacksmith: "stop ... relying on it"; Blacksmith stays
+# only as an overflow fallback). With vars.CMUX_NEXT_PERF_CRON_LINUX_CONTROLLER=1 the plan asks for the Linux part with
+# the job `perf cron request <sha> <part>` (the Mac parts' route, cmuxterm-hq perf_cron.go perfCronLinuxParts): the
+# controller runs LINUX_SCRIPT on an idle Linux pool worker of one machine type, which calls run-linux-part unchanged
+# and returns its report and result as LINUX_STEP_ARTIFACT. The rows carry LINUX_FLEET_CLASS, never the VM's name
+# (each pool VM is new, so its rows would never have a reference). A request with no answer within
+# linux_answer_minutes is unanswered, and so is a yielded answer at once (the controller found no idle Linux worker,
+# the step was pre-empted or timed out in its queue, or its setup failed); after LINUX_REQUESTS_MAX of them the part
+# runs on the runner job once, and then the controller is asked again.
+LINUX_SCRIPT = "scripts/measure/perf-cron-linux.sh"
+LINUX_STEP_ARTIFACT = "artifacts/perf-cron-linux/step.json"
+LINUX_FLEET_CLASS = "fleet-linux-c4d-32"
+LINUX_REQUESTS_MAX = 2
+# Past the part's own cap: the controller keeps a request until a worker is idle (perfCronWaitFor), and the result
+# reaches the state through a result run or replay-results.
+LINUX_ANSWER_SLACK_MINUTES = 60
+
+
+def linux_answer_minutes(part):
+    """How long a Linux part's request may go unanswered before it counts as such (pure)."""
+    return linux_job_minutes(part) + LINUX_ANSWER_SLACK_MINUTES
+
+
+def linux_route(cur, part, t, controller, has_script):
+    """Where this tick runs Linux part PART: 'request' (ask the build controller), 'wait' (a request is in its answer
+    window: nothing else runs it) or 'runner' (the linux job). Keeps cur['linux_requests'][part]; record_part clears
+    it. Without the controller route, or at a commit without LINUX_SCRIPT, always 'runner'."""
+    if not controller or not has_script:
+        return "runner"
+    asks = cur.setdefault("linux_requests", {})
+    ask = asks.get(part) if isinstance(asks.get(part), dict) else None
+    if ask is None:
+        asks[part] = {"asked_at": iso(t), "unanswered": 0}
+        return "request"
+    asked = parse_started(ask.get("asked_at"))
+    if asked and (t - asked).total_seconds() < linux_answer_minutes(part) * 60 and not ask.get("answered_at"):
+        return "wait"
+    ask.pop("answered_at", None)  # a yielded answer (record_part): unanswered now
+    if ask.get("fell_back_at"):
+        # The runner had its window too: back to the controller, a new count.
+        asks[part] = {"asked_at": iso(t), "unanswered": 0}
+        return "request"
+    ask["unanswered"] = int(ask.get("unanswered") or 0) + 1
+    ask["asked_at"] = iso(t)
+    if ask["unanswered"] >= LINUX_REQUESTS_MAX:
+        ask["fell_back_at"] = iso(t)
+        return "runner"
+    return "request"
+
+
+def commit_has(sha, path):
+    """Whether commit SHA has PATH (the clone the plan runs in)."""
+    return bool(sha) and subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{path}"],
+                                        capture_output=True).returncode == 0
+
+
+def linux_step_files(artifact, result):
+    """(report, result) of a Linux part's controller step from its LINUX_STEP_ARTIFACT (pure): run-linux-part's own
+    report and result, the result's worker the fleet class. An artifact without both is a failed part, no report."""
+    inner = artifact.get("result") if isinstance(artifact, dict) else None
+    report = artifact.get("report") if isinstance(artifact, dict) else None
+    if isinstance(inner, dict) and inner.get("state") == "yielded" and report is None:
+        # perf-cron-linux.sh's setup failed: a yield (record_part counts it as an unanswered request), no rows.
+        tail = [str(x) for x in inner.get("tail") or []][-40:]
+        return None, {**result, "state": "yielded", "worker": LINUX_FLEET_CLASS, "tail": [*result.get("tail", []), *tail]}
+    if not isinstance(inner, dict) or not isinstance(report, dict):
+        return None, {**result, "state": "failed", "tail": [*result.get("tail", []), "the Linux step's artifact has no report and result"]}
+    worker = inner.get("worker") if isinstance(inner.get("worker"), str) and HOST_RE.match(inner["worker"]) else LINUX_FLEET_CLASS
+    state = inner.get("state") if inner.get("state") in ("done", "failed") else "failed"
+    tail = [str(x) for x in inner.get("tail") or []][-40:]
+    return report, {**result, "state": state, "worker": worker, "seconds": inner.get("seconds", result.get("seconds")),
+                    "tail": [*result.get("tail", []), *tail]}
+
+
 # The controller route (cmuxterm-hq build-fleet/cmd/controller/perf_cron.go, CMUX_CI_PERF_CRON=1): the plan's job
 # `perf cron request <sha> <part>[ on <worker>]` asks the controller for the part; it queues the background step on an
 # idle measure worker (the named one, else cmux20-bench first, then the others), and dispatches this workflow with
@@ -4067,7 +4207,7 @@ def controller_result(raw):
         return None
     # A field of the wrong type (a feed entry's "part": []) is no result, not a TypeError (review of cmux#47673).
     if not isinstance(value, dict) or not is_sha(str(value.get("sha") or "")) or not isinstance(value.get("part"), str) \
-            or value.get("part") not in PART_BY_NAME or is_linux_part(value.get("part")) \
+            or value.get("part") not in PART_BY_NAME \
             or not isinstance(value.get("state"), str) or value.get("state") not in RESULT_STATES \
             or not isinstance(value.get("step_id"), (str, int, type(None))):
         return None
@@ -4116,7 +4256,8 @@ def result_files(value):
     parts (build_failed), a step past its cap is timed out, a pre-empted or unstarted one yielded."""
     tail = [line for line in (value.get("error"),) if line]
     return {"state": value["state"], "step_id": value.get("step_id"), "seconds": value.get("seconds"),
-            "exit": value.get("exit_code"), "yielded_to": value.get("preempted_by"), "worker": value.get("worker"),
+            "exit": value.get("exit_code"), "yielded_to": value.get("preempted_by"),
+            "worker": LINUX_FLEET_CLASS if is_linux_part(value.get("part")) else value.get("worker"),
             "timed_out": bool(value.get("timed_out")), "tail": tail, "host_gone": bool(value.get("host_gone")),
             "build_failed": value.get("part") == "build" and value["state"] == "failed" and not value.get("timed_out")}
 
@@ -4137,8 +4278,11 @@ def cmd_fetch_result(o):
                 raise ValueError("no https artifact URL")
             with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "cmux-perf-cron"}), timeout=120) as r:
                 report = json.load(r)
-            with open(os.path.join(o.out, "report.json"), "w") as f:
-                json.dump(report, f)
+            if is_linux_part(value["part"]):
+                report, result = linux_step_files(report, result)
+            if report is not None:
+                with open(os.path.join(o.out, "report.json"), "w") as f:
+                    json.dump(report, f)
         except (OSError, ValueError, urllib.error.URLError) as error:
             result.update(state="failed", tail=result["tail"] + [f"artifact not read: {error!r}"])
     with open(os.path.join(o.out, "result.json"), "w") as f:
@@ -4245,6 +4389,8 @@ def main(argv=None):
     s.add_argument("--tip", default="HEAD")
     s.add_argument("--yield-mode", default="queued", choices=["queued", "running"])
     s.add_argument("--no-mac", action="store_true", help="no route for the Mac parts: plan only the Linux part")
+    s.add_argument("--linux-controller", action="store_true",
+                   help="ask the build controller for the Linux part first (vars.CMUX_NEXT_PERF_CRON_LINUX_CONTROLLER=1)")
     s.add_argument("--controller", action="store_true",
                    help="the Mac parts go through the build controller's request route: a request has no answer until "
                         "its result run, so that wait is a yield, not active time")

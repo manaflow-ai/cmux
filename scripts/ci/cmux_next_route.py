@@ -366,6 +366,9 @@ NATIVE_SCRIPT_INPUTS = (
     # The acpmux build reload.sh runs for the dev app's bundled acpmux: its shipping feature list and the
     # Go toolchain it sources.
     "scripts/ci/acpmux-build-features.sh", "scripts/ci/tailnet-go.sh",
+    # The Screen Sharing helper identity check sign-cmux-bundle.sh runs, and the stall bound
+    # ensure-cef.sh wraps its CEF download in.
+    "scripts/ci/check-screen-share-identity.sh", "scripts/ci/timeout.sh",
 )
 # The CI files that route themselves (the router reads them; the replay checks them).
 CI_SELF = (".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py", "scripts/ci/select_package_tests.py")
@@ -629,6 +632,26 @@ import re  # noqa: E402 - the Cargo and Xcode project readers below
 CMUX_TUI = "cmux-tui/"
 # The routing replay (cmux_next_route_replay.py) accepts dropped native and scheme tiers with this reason.
 NO_SWIFT_COMPILE_REASON = "(no Swift compile reads it)"
+# Top-level trees no Swift compile of the app reads. The pull request compiles (the build fleet's SwiftPM app
+# compile, `app-compile-fleet`, and its Release -Onone compile, `compile-status`) build Packages/ only: the
+# recipe (cmuxterm-hq build-fleet/swift-linux-builder/pool/recipe-swift-check.sh --app) keys its verdict on
+# Packages/macOS/CmuxNext, its local packages, App/, cmux.xcodeproj and the ghostty gitlinks, runs no script of
+# this repository and copies no resource; every Package.swift reads only files under Packages/. These trees are
+# build and packaging scripts, tests, Rust the scheme's build phases build (Native/), other apps and services:
+# the app scheme compile (`scheme`) still runs for them, `native` does not. A file here that the build or its
+# packaging names keeps `native` through NATIVE_SCRIPT_INPUTS, MAC_RELEASE_INPUTS or BUNDLE_INPUTS, which are
+# read first. Any other top-level path still runs `native`.
+# Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period".
+NO_SWIFT_COMPILE_ROOTS = (
+    "scripts/", "tests/", "Native/", ".github/", "backend/", "examples/", "experiments/", "samples/", "evals/",
+    "first-party-apps/", "cmux-next-ios/", "ios/",
+)
+
+
+def no_swift_compile_root(path: str) -> bool:
+    return path.startswith(NO_SWIFT_COMPILE_ROOTS)
+
+
 APP_FFI_CRATE = "cmux-tui/crates/cmux-app-ffi"
 APP_PROJECT = "cmux.xcodeproj/project.pbxproj"
 CARGO_PATH = re.compile(r'path\s*=\s*"([^"]+)"')
@@ -1375,6 +1398,16 @@ def path_route(root: Path, event: str, changed: list[str] | None, labels: set[st
                 result.reasons.append(f"{path} is bundled by the app scheme's build phases {NO_SWIFT_COMPILE_REASON}")
             else:
                 result.reasons.append(f"{path} is Rust the daemon tier builds {NO_SWIFT_COMPILE_REASON}")
+        elif ci_only(path) or linux_only_test(path, linux_tests):
+            # Alone it runs no Mac tier (above); beside other files it adds none either.
+            result.reasons.append(f"{path} is a CI file or a Linux-lane test {NO_SWIFT_COMPILE_REASON}")
+        elif mac_release_input(path) or any(fnmatch.fnmatch(path, pattern) for pattern in BUNDLE_INPUTS):
+            result.native = result.scheme = True
+        elif no_swift_compile_root(path):
+            # A build or packaging script, a test, Rust a build phase builds: the scheme compile reads it.
+            result.scheme = True
+            result.reasons.append(f"{path} is outside every Swift compile's inputs (NO_SWIFT_COMPILE_ROOTS): "
+                                  f"only the app scheme compile runs {NO_SWIFT_COMPILE_REASON}")
         elif not path.startswith("Packages/"):
             # App host, Xcode project, CLI, resources and build scripts: only
             # the app scheme compiles them.

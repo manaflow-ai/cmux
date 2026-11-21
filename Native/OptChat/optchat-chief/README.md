@@ -116,9 +116,10 @@ id). With `OPTCHAT_GROUP_WAKE` set, a person's message in another local
 conversation the Chief takes part in is a wake of that conversation, read and
 answered as a cloud wake is (`brain/side.rs`); another Chief's message wakes
 it too (never its own; other agents never do). Loop guard: the owner's
-per-thread budget (`cmux_conversation::MAX_AGENT_TURNS`, 6): at most 6 agent
-texts in one thread (the replies of one root, or the top level) since a
-person's text in that thread; the owner refuses more (`agent_budget`), and a
+per-thread budget (`cmux_conversation::MAX_AGENT_TURNS`, 6): in a
+conversation with two or more agents, at most 6 agent texts in one thread
+(the replies of one root, or the top level) since a person's text in that
+thread (the person's own Chief chat, with one agent, has no cap); the owner refuses more (`agent_budget`), and a
 Chief pre-checks it from the messages it read (`thread_agent_streak` on the
 thread its reply goes into) so it stays quiet instead of running that turn.
 A person's text resets its own thread only. The outbox drops a refused
