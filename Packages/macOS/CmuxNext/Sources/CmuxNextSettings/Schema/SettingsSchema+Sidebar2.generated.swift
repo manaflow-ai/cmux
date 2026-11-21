@@ -367,8 +367,9 @@ extension SidebarSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.sidebar.groupHeader.background", "Group Background"),
-                help: SettingsText.keyed("settings.sidebar.groupHeader.background.help", "How a group's background draws. Sections shows plain headings instead."),
+                help: SettingsText.keyed("settings.sidebar.groupHeader.background.help", "How a group draws. Folders shows plain folders; Sections shows plain headings."),
                 kind: .choice([
+                    SettingChoice(SidebarGroupBackgroundStyle.folder.rawValue, SettingsText.keyed("settings.choice.groupBackgroundFolder", "Folders")),
                     SettingChoice(SidebarGroupBackgroundStyle.auto.rawValue, SettingsText.keyed("settings.choice.groupBackgroundAuto", "Automatic")),
                     SettingChoice(SidebarGroupBackgroundStyle.glass.rawValue, SettingsText.keyed("settings.choice.groupBackgroundGlass", "Glass")),
                     SettingChoice(SidebarGroupBackgroundStyle.solid.rawValue, SettingsText.keyed("settings.choice.groupBackgroundSolid", "Solid")),
