@@ -39,6 +39,15 @@ import Testing
             "https://cmux-dev-backend-1.tail137216.ts.net?x=1",
             "https://user@cmux-dev-backend-1.tail137216.ts.net",
             "https://cmux_dev.tail137216.ts.net",
+            // Another tailnet's machine (a Funnel name is public) or a name under ours that is no machine.
+            "https://cmux-dev-backend-1.tail9999.ts.net:3850",
+            "https://evil.ts.net",
+            "https://a.b.tail137216.ts.net",
+            // Under cmux.dev but no tag stack's API host.
+            "https://mobile.s7.wdev.cmux.dev",
+            "https://api.s7.wdev.cmux.dev:8443",
+            "https://api.s7.other.cmux.dev",
+            "https://cmux.dev",
             "https://cmux-api-development.debussy.workers.dev:444",
             "preview-0",
             "preview-x",

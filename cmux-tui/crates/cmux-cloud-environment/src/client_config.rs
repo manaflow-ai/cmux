@@ -253,23 +253,26 @@ pub(crate) fn is_loopback_origin(value: &str) -> bool {
     })
 }
 
-/// A tailnet backend: `https://<host>.<tailnet>.ts.net[:port]`, the name Tailscale Serve gives a
-/// dev VM's per-tag stack. HTTPS only (Serve's certificate); a bare `ts.net` or an IP never matches.
+/// A tailnet backend: `https://<machine>.tail137216.ts.net[:port]` ([`TEAM_TAILNET_SUFFIX`]), the
+/// name Tailscale Serve gives a dev VM's per-tag stack on the team's tailnet. HTTPS only (Serve's
+/// certificate); another tailnet's name, a bare `ts.net` or an IP never matches.
 pub(crate) fn is_tailnet_origin(value: &str) -> bool {
     url::Url::parse(value).is_ok_and(|url| {
         url.scheme() == "https"
             && matches!(url.host(), Some(url::Host::Domain(_)))
             && url.host_str().is_some_and(|host| {
-                host.strip_suffix(".ts.net").is_some_and(|name| {
-                    name.split('.').count() >= 2
-                        && name.split('.').all(|label| {
-                            !label.is_empty()
-                                && label.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
-                        })
+                host.strip_suffix(TEAM_TAILNET_SUFFIX).is_some_and(|machine| {
+                    !machine.is_empty()
+                        && machine.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
                 })
             })
     })
 }
+
+/// The team's tailnet (its MagicDNS suffix): a tailnet origin is one machine of it,
+/// `https://<machine>.tail137216.ts.net[:port]`. Any other `*.ts.net` name is refused: a Tailscale
+/// Funnel name of another tailnet is public, so it is no dev stack of ours.
+pub(crate) const TEAM_TAILNET_SUFFIX: &str = ".tail137216.ts.net";
 
 /// The public suffix of a tag stack's origins (scripts/cmux-next/cloud-dev-stack/gateway).
 const PUBLIC_STACK_SUFFIX: &str = ".wdev.cmux.dev";

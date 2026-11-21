@@ -364,7 +364,10 @@ class BackendTests(unittest.TestCase):
                       self.STACK + '?x=1', 'https://user@cmux-dev-backend-1.tail137216.ts.net', 'https://a_b.tail.ts.net',
                       'https://100.70.231.80', 'preview-0', 'http://localhost:8787', '',
                       'https://mobile.s7.wdev.cmux.dev', 'https://api.s7.wdev.cmux.dev:8443', 'http://api.s7.wdev.cmux.dev',
-                      'https://api.s7777.wdev.cmux.dev', 'https://api.s7.wdev.cmux.dev.attacker.example', 'https://wdev.cmux.dev']:
+                      'https://api.s7777.wdev.cmux.dev', 'https://api.s7.wdev.cmux.dev.attacker.example', 'https://wdev.cmux.dev',
+                      # another tailnet's machine (a Funnel name is public), or a name under ours that is no machine
+                      'https://cmux-dev-backend-1.tail9999.ts.net:3850', 'https://evil.ts.net', 'https://a.b.tail137216.ts.net',
+                      'https://api.s7.other.cmux.dev', 'https://cmux.dev']:
             with self.assertRaises(ValueError, msg=value):
                 m.backend_origin(value)
 

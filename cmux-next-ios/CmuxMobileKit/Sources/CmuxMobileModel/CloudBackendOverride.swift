@@ -6,7 +6,8 @@ import Foundation
 /// `default`) clears it: the build's own Cloud service again.
 ///
 /// Allowed: the shared development deployment (`dev`, its API origin, a `preview-N` Worker), a
-/// tailnet origin (`https://<host>.<tailnet>.ts.net[:port]`, one tag's stack on the dev VM) and a tag
+/// tailnet origin (`https://<machine>.tail137216.ts.net[:port]`, one tag's stack on the dev VM, on the
+/// team's tailnet only) and a tag
 /// stack's public origin (`https://api.s<N>.wdev.cmux.dev`, the same stack behind the authenticating
 /// gateway, for a phone off the tailnet; SECURITY.md). Anything else is refused and changes nothing.
 /// The Mac's Rust resolver (`cmux-cloud-environment`) holds the same list.
@@ -81,7 +82,7 @@ public struct CloudBackendOverride: Sendable, Equatable {
         if let slot = Self.publicStackSlot(host), url.port == nil {
             return URL(string: "https://\(label).\(slot).wdev.cmux.dev")
         }
-        guard host.hasSuffix(".ts.net"), let port = url.port, port + offset <= 65_535 else { return nil }
+        guard host.hasSuffix(Self.teamTailnetSuffix), let port = url.port, port + offset <= 65_535 else { return nil }
         return URL(string: "https://\(host):\(port + offset)")
     }
 
@@ -124,7 +125,7 @@ public struct CloudBackendOverride: Sendable, Equatable {
         if let slot = Self.publicStackSlot(host), host.hasPrefix("api."), port.isEmpty {
             return URL(string: "https://api.\(slot).wdev.cmux.dev")
         }
-        guard let name = host.dropSuffix(".ts.net"), isTailnetMachine(name) else { return nil }
+        guard let name = host.dropSuffix(teamTailnetSuffix), isTailnetMachine(name) else { return nil }
         return URL(string: "https://\(host)\(port)")
     }
 
@@ -152,12 +153,14 @@ public struct CloudBackendOverride: Sendable, Equatable {
         return URL(string: "https://cmux-api-preview-\(value).debussy.workers.dev")
     }
 
-    /// `host.tailnet`: at least two non-empty DNS labels of letters, digits and hyphens.
+    /// The team's tailnet (its MagicDNS suffix): a tailnet origin is one machine of it. Any other
+    /// `*.ts.net` name is refused: a Tailscale Funnel name of another tailnet is public. Rust
+    /// `TEAM_TAILNET_SUFFIX` and `review_mac.py` hold the same.
+    static let teamTailnetSuffix = ".tail137216.ts.net"
+
+    /// One machine name of the team's tailnet: a single non-empty DNS label of letters, digits and hyphens.
     private static func isTailnetMachine(_ name: String) -> Bool {
-        let labels = name.split(separator: ".", omittingEmptySubsequences: false)
-        return labels.count >= 2 && labels.allSatisfy { label in
-            !label.isEmpty && label.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }
-        }
+        !name.isEmpty && name.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }
     }
 }
 
