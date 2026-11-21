@@ -133,7 +133,7 @@ jobs:
           FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
           CMUX_WEB_TEST_DURATIONS: ${{ runner.temp }}/webviews-durations/manifest.json
           CMUX_WEB_TEST_JOBS: "8"
-          CMUX_WEB_TEST_DEV_JOBS: "4"
+          CMUX_WEB_TEST_DEV_JOBS: ${{ github.base_ref == 'feat-cmux-next' && '6' || '4' }}
           CMUX_WEB_TEST_SHARD_HEAD_START: "1:120"
         run: |
           picked=""
