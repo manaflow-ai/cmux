@@ -36,6 +36,7 @@ dependencies = [
  "cmux-config",
  "cmux-device-kind",
  "cmux-embed",
+ "cmux-fault",
  "cmux-file-lock",
  "cmux-git",
  "cmux-host",
@@ -1801,6 +1802,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-fault"
+version = "0.1.0"
+dependencies = [
+ "cmux-scope",
+ "libc",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-feed-core"
 version = "0.1.0"
 dependencies = [
@@ -2264,6 +2274,7 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-build-identity",
+ "cmux-fault",
  "cmux-json",
  "cmux-link",
  "cmux-netwatch",
