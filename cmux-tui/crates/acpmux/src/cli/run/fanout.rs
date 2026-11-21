@@ -49,7 +49,9 @@ pub(crate) async fn targets_via(
     let sessions = match source {
         Some(mut source) => source.rows(acpmux_client::wire::ListView::Live, &|_| true).await?,
         None => {
-            let listed = client.whole_list(method::MUX_SESSIONS, json!({})).await?;
+            // Live sessions only, as `tag_targets` keeps.
+            let live = json!({"excludeStatus": ["closed"]});
+            let listed = client.whole_list(method::MUX_SESSIONS, live).await?;
             listed.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default()
         }
     };

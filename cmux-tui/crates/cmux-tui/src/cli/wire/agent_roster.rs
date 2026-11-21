@@ -107,7 +107,9 @@ pub(super) fn with_terminals(
                 .ok()
                 .and_then(|messages| messages.as_array().cloned())
                 .unwrap_or_default();
-        let sessions = super::super::agent_message::acp::sessions().unwrap_or_default();
+        let state = plan.params.get("state").and_then(Value::as_str);
+        let sessions =
+            super::super::agent_message::acp::sessions_in_state(state).unwrap_or_default();
         merge_sources(
             result,
             &sessions,
@@ -259,8 +261,9 @@ pub(in crate::cli) fn across(
 ) -> Value {
     let ResponseView::AgentRoster(view) = view else { return agents };
     let agents = if params.get("terminal_id").is_none() {
-        let sessions = super::super::agent_message::acp::sessions().unwrap_or_default();
         let state = params.get("state").and_then(Value::as_str);
+        let sessions =
+            super::super::agent_message::acp::sessions_in_state(state).unwrap_or_default();
         merge_sources(agents, &sessions, &[], state, None)
     } else {
         agents

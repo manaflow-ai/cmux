@@ -34,7 +34,15 @@ pub async fn resolve_session(client: &Client, key: &str) -> Result<(String, Stri
 /// (`Client::whole_list`: a list past one reply comes as pages with a `nextCursor`). This call
 /// never starts acpmux; callers that cannot connect simply omit the acpmux rows.
 pub async fn sessions(client: &Client) -> Result<Vec<Value>> {
-    let listed = client.whole_list(method::MUX_SESSIONS, json!({})).await?;
+    sessions_filtered(client, json!({})).await
+}
+
+/// [`sessions`] narrowed by the daemon before it is read (`status`, `excludeStatus`, `name`,
+/// `localOnly`: `hub/session_pages.rs`), so a caller that shows only open chats is not sent
+/// every closed one. An older daemon ignores a filter it does not know: a caller still filters
+/// what it gets.
+pub async fn sessions_filtered(client: &Client, filters: Value) -> Result<Vec<Value>> {
+    let listed = client.whole_list(method::MUX_SESSIONS, filters).await?;
     Ok(listed.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default())
 }
 

@@ -531,6 +531,60 @@ async fn a_task_with_notify_tells_its_chat_once_when_it_ends() {
     assert_eq!(statuses, [&json!("ok"), &json!("failed")], "{list}");
 }
 
+/// This process's threads named `name` (Linux: `/proc/self/task/*/comm`).
+#[cfg(target_os = "linux")]
+fn threads_named(name: &str) -> usize {
+    let tasks = std::fs::read_dir("/proc/self/task").into_iter().flatten().flatten();
+    tasks
+        .filter(|t| std::fs::read_to_string(t.path().join("comm")).is_ok_and(|c| c.trim() == name))
+        .count()
+}
+
+/// Detector: a watched task's end is a kernel event, not a thread in `flock` (a 10K-session Mac
+/// had 16 `acpmux-bg-watch` threads sat idle while their tasks ran, 2026-11-18). Sixteen running
+/// `notify` tasks hold no watch thread, and each end still reaches the chat once.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn watched_tasks_hold_no_thread_while_they_run() {
+    // Two tasks in each of eight chats: each end is a turn of its chat, and a chat's turns go one
+    // after another.
+    const CHATS: usize = 8;
+    const EACH: usize = 2;
+    let mut r = rig(PermissionPolicy::ApproveAll).await;
+    r.hub.set_bg_runner(crate::daemon_env::bg_runner(), acpmux::bg_run::SEGMENT);
+    let gate = std::env::temp_dir().join(format!("acpmux-bg-gate-{}", uuid::Uuid::now_v7()));
+    let command = format!("while [ ! -e '{}' ]; do sleep 0.05; done; echo done", gate.display());
+    let mut tasks = Vec::new();
+    for chat in 0..CHATS {
+        let id = new_session(&mut r.c, &format!("watched-{chat}")).await;
+        for _ in 0..EACH {
+            let start = json!({"sessionId": id, "command": command, "notify": true});
+            let task = r.c.request(method::MUX_BG_START, start).await.unwrap();
+            tasks.push((id.clone(), task["id"].as_str().unwrap().to_owned()));
+        }
+    }
+    r.until("the tasks never ran", || tasks.iter().all(|(id, t)| state(&r, id, t) == "running"))
+        .await;
+    // Time for a watch thread to start, which must not.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(threads_named("acpmux-bg-watch"), 0, "a running task holds a watch thread");
+    std::fs::write(&gate, b"").unwrap();
+    let chats: std::collections::BTreeSet<&String> = tasks.iter().map(|(id, _)| id).collect();
+    let sent = || chats.iter().map(|id| ends(&r.hub, id).len()).collect::<Vec<_>>();
+    let deadline = std::time::Instant::now() + Duration::from_secs(60);
+    while sent().iter().any(|n| *n < EACH) {
+        let states: Vec<String> = tasks.iter().map(|(id, t)| state(&r, id, t)).collect();
+        assert!(
+            std::time::Instant::now() < deadline,
+            "ends sent per chat {:?} of {EACH} each; task states {states:?}",
+            sent()
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(sent().iter().all(|n| *n == EACH), "an end went twice: {:?}", sent());
+    let _ = std::fs::remove_file(&gate);
+}
+
 /// Waits up to 20 s for `done`.
 async fn until_true(what: &str, done: impl Fn() -> bool) {
     let deadline = std::time::Instant::now() + Duration::from_secs(20);

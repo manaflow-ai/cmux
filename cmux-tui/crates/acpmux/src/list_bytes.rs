@@ -10,6 +10,10 @@ use std::sync::Mutex;
 
 use serde_json::{Value, json};
 
+/// `_meta.acpmux` field of a CLI's `initialize`: its command word (`cli::entry::command_word`),
+/// so a CLI's share is counted by command (`acpmux-cli ls (Local)`).
+pub const CLI_COMMAND_FIELD: &str = "cliCommand";
+
 /// At most this many clients remembered (a name comes from the client).
 const CLIENTS: usize = 128;
 

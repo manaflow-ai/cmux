@@ -788,10 +788,21 @@ pub(super) mod acp {
     }
 
     /// The running daemon's session summaries, without starting it.
-    pub(in crate::cli) fn sessions() -> Result<Vec<Value>, String> {
+    /// The daemon's sessions a roster that shows only `state` (`working`, `idle`, ... or `done`) reads:
+    /// for any state but `done` the daemon leaves the closed chats out before the list is read
+    /// (thousands on a busy Mac), which the roster would drop anyway.
+    pub(in crate::cli) fn sessions_in_state(state: Option<&str>) -> Result<Vec<Value>, String> {
+        let open_only = state.is_some_and(|state| state != "done");
+        let filters = if open_only {
+            serde_json::json!({"excludeStatus": ["closed"]})
+        } else {
+            serde_json::json!({})
+        };
         runtime()?.block_on(async {
             let client = acpmux::deliver::connect().await.map_err(|error| format!("{error:#}"))?;
-            acpmux::deliver::sessions(&client).await.map_err(|error| format!("{error:#}"))
+            acpmux::deliver::sessions_filtered(&client, filters)
+                .await
+                .map_err(|error| format!("{error:#}"))
         })
     }
 }
@@ -806,7 +817,7 @@ pub(super) mod acp {
         Err(UNSUPPORTED.to_owned())
     }
 
-    pub(in crate::cli) fn sessions() -> Result<Vec<Value>, String> {
+    pub(in crate::cli) fn sessions_in_state(_state: Option<&str>) -> Result<Vec<Value>, String> {
         Err(UNSUPPORTED.to_owned())
     }
 }

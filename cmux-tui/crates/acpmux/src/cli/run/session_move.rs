@@ -246,7 +246,10 @@ pub(crate) async fn move_off_interactive(src: &Client, id: &str) -> Result<Moved
 
 /// Every chat here that is open and between turns: not closed, not running, not being moved.
 async fn idle_chats(src: &Client) -> Result<Vec<String>> {
-    let list = src.whole_list(method::MUX_SESSIONS, json!({})).await?;
+    // This daemon's open chats between turns only, filtered before the list is read: never every
+    // closed chat and every peer's (10,000 rows on a busy Mac). The checks below still apply.
+    let between = json!({"localOnly": true, "excludeStatus": ["closed", "running", "waiting"]});
+    let list = src.whole_list(method::MUX_SESSIONS, between).await?;
     let rows = list.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
     Ok(rows
         .iter()

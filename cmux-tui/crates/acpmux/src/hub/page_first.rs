@@ -81,6 +81,16 @@ impl PageRow for Unbuilt {
             Source::Peer(row) => row.summary.status(),
         }
     }
+
+    fn named(&self, name: &str) -> bool {
+        match &self.source {
+            Source::Own(session) => session.read_meta(|m| m.name == name),
+            // As the list shows it (`PEER/NAME`), as `PageRow for Value` reads a built row.
+            Source::Peer(row) => {
+                crate::session_order::name_matches(row.summary.name(), row.summary.peer(), name)
+            }
+        }
+    }
 }
 
 /// Every row a list read may show, in list order, none built yet: what a read with no `limit` picks
