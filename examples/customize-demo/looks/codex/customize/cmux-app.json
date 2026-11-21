@@ -19,7 +19,7 @@
       "export": "renderLimits",
       "title": "Rate limits",
       "symbol": "gauge.with.dots.needle.50percent",
-      "options": { "maxRows": 6 }
+      "options": { "maxRows": 7 }
     }
   },
   "scopes": {

@@ -244,7 +244,8 @@ function renderLimits(context) {
         bar("Weekly limit", () => limits().weekly),
         Text(() => `${limits().usable} of ${limits().accounts} Codex account${limits().accounts === 1 ? "" : "s"} can take work`).font("caption").color(cmux.theme.text.tertiary)
       ])
-    }
+    },
+    Button("Settings…", () => run("openSettings"))
   ]).contextMenu([Button("Read limits now", () => loadLimits(true))])
 }
 

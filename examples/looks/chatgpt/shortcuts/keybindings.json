@@ -1,0 +1,52 @@
+[
+  {
+    "key": "cmd+,",
+    "command": "openSettings"
+  },
+  {
+    "key": "cmd+slash",
+    "command": "keybindings.open"
+  },
+  {
+    "key": "cmd+b",
+    "command": "toggleSidebar"
+  },
+  {
+    "key": "cmd+shift+p",
+    "command": "commandPalette"
+  },
+  {
+    "key": "cmd+shift+o",
+    "command": "palette.newAgentChat",
+    "args": {
+      "harness": "codex"
+    }
+  },
+  {
+    "key": "cmd+shift+a",
+    "command": "agentPane.archiveChat",
+    "when": "agentPaneFocused"
+  },
+  {
+    "key": "cmd+shift+leftbracket",
+    "command": "prevSidebarTab"
+  },
+  {
+    "key": "cmd+shift+rightbracket",
+    "command": "nextSidebarTab"
+  },
+  {
+    "key": "ctrl+shift+m",
+    "command": "agentPane.switchModel",
+    "when": "agentPaneFocused"
+  },
+  {
+    "key": "ctrl+shift+g",
+    "command": "openDiffViewer"
+  },
+  {
+    "key": "cmd+alt+shift+o",
+    "command": "agentPane.composer.chooseFolder",
+    "when": "agentPaneFocused"
+  }
+]
