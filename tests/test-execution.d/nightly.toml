@@ -225,6 +225,11 @@ path = "tests/test_nightly_next_recovery.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_signer_pick.py"
+lane = "manual"
+reason = "Run python3 -m unittest tests.test_nightly_next_signer_pick after changing the signer pick, its fallback, or its workflow wiring; uses local runner and job fixtures."
+
+[[test]]
 path = "tests/test_nightly_next_release_notes_fetch.py"
 lane = "linux-guard"
 
