@@ -23,6 +23,11 @@
 //! its one timer after any call (a `crashed` event or a show arms a deadline
 //! too); `null` means no timer. An op on an unknown id changes nothing (a
 //! beat racing an unregister).
+//!
+//! A `liveness` part (ABI 3) takes `beat` for every beat of its pages and for
+//! each answered `ping`, and `event` `void` when its time did not count (sleep,
+//! wake, a debugger); `tick` answers its `ping` (`attempt` and `token` 0, no
+//! `repairResult` expected) and its `endRenderer` (with `hungMs`).
 
 use crate::model::Health;
 use crate::{Kind, RepairAction};

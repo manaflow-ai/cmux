@@ -24,6 +24,16 @@
 //! part is `failed` and waits for the user's click, which clears the cap and
 //! starts again at step 1. The episode ends only when the signal comes back
 //! (a beat, `responsive`, `connected`, `loaded`), never on a result alone.
+//!
+//! Liveness (one renderer of visible agent chats, [`Kind::Liveness`]): a page beats only while
+//! something happens in it, and a page at rest beats no more, so a renderer whose main thread
+//! never runs again reads as resting. Its part answers to every beat of its pages (the host
+//! forwards them) and, once quiet for [`policy::LIVENESS_QUIET_MS`], `tick` asks the host for a
+//! `ping` (one round trip to that renderer), then a second one [`policy::LIVENESS_PING_EVERY_MS`]
+//! later. Hung means both unanswered and [`policy::LIVENESS_HUNG_MS`] since the first, all of it
+//! visible and awake: the ladder's `endRenderer`. Pings out are void (and the quiet wait starts
+//! again) when the part is hidden or shown, on the host's `void` (sleep, wake, a debugger), and
+//! when a tick comes [`policy::LIVENESS_LATE_MS`] after its deadline (the host did not run).
 
 use crate::detail::{self, Cause};
 use crate::policy;
@@ -106,6 +116,26 @@ struct Signals {
     last_progress: u64,
     size: u64,
     roster_since: Option<u64>,
+    /// Liveness: when each unanswered ping went out, oldest first (at most [`policy::LIVENESS_PINGS`]).
+    pings: Vec<u64>,
+}
+
+/// When a liveness part's next ping is due: quiet since its last answer, or its last ping
+/// unanswered; none once [`policy::LIVENESS_PINGS`] are out (it waits to be hung).
+fn ping_due(s: &Signals) -> Option<u64> {
+    match s.pings.last() {
+        None => s.last_beat.map(|beat| beat + policy::LIVENESS_QUIET_MS),
+        Some(&last) if s.pings.len() < policy::LIVENESS_PINGS => {
+            Some(last + policy::LIVENESS_PING_EVERY_MS)
+        }
+        Some(_) => None,
+    }
+}
+
+/// The pings out are void: the renderer gets a new quiet wait from `now`.
+fn void_pings(s: &mut Signals, now: u64) {
+    s.pings.clear();
+    s.last_beat = Some(now);
 }
 
 /// The repair episode of a part.
@@ -281,6 +311,17 @@ fn evaluate(part: &mut Part, now: u64) -> Cond {
             };
             looping.or(restore).or(size)
         }
+        Kind::Liveness => match s.pings.first() {
+            Some(&first) if s.pings.len() >= policy::LIVENESS_PINGS => {
+                if now.saturating_sub(first) >= policy::LIVENESS_HUNG_MS {
+                    let ms = s.last_beat.map_or(0, |beat| now.saturating_sub(beat));
+                    stuck(Cause::RendererHung { ms }, Mode::Ladder(policy::LIVENESS_LADDER))
+                } else {
+                    healthy.until(first + policy::LIVENESS_HUNG_MS)
+                }
+            }
+            _ => ping_due(s).map_or(healthy, |due| healthy.until(due)),
+        },
         Kind::Roster => s.roster_since.map_or(healthy, |since| {
             let ms = now.saturating_sub(since);
             if ms >= policy::ROSTER_STUCK_MS {
@@ -402,6 +443,7 @@ impl Health {
             s.resting = resting;
             s.crashed = false;
             s.disconnected = false;
+            s.pings.clear();
         });
     }
 
@@ -427,6 +469,8 @@ impl Health {
                 return;
             }
             part.visible = visible;
+            // A ping out while the renderer could not be seen, or from before it was hidden, says nothing.
+            part.signals.pings.clear();
             let r = &mut part.repair;
             (r.attempt, r.next_at, r.failed, r.action) = (0, None, false, RepairAction::None);
             if visible {
@@ -514,6 +558,8 @@ impl Health {
                     s.roster_since.get_or_insert(now);
                 }
                 "restoreFinished" => s.roster_since = None,
+                // The host's time did not count (sleep, wake, a debugger on the page or the app).
+                "void" => void_pings(s, now),
                 _ => {}
             }
         });
@@ -581,16 +627,23 @@ impl Health {
             }
             let live = self.is_live(slot, generation);
             if live {
-                due.push(slot);
+                due.push((slot, deadline));
             }
         }
         // Disarm all of them first, so a heap rebuild while one is refreshed
         // cannot bring back another's expired entry.
-        for &slot in &due {
+        for &(slot, _) in &due {
             self.set_deadline(slot, None);
         }
         let mut actions = Vec::new();
-        for slot in due {
+        for (slot, deadline) in due {
+            // A liveness tick long after its deadline: the host did not run meanwhile, so neither
+            // did its pings' answers get read. Never judged on that time.
+            if now.saturating_sub(deadline) > policy::LIVENESS_LATE_MS
+                && let Some(part) = self.part(slot).filter(|p| p.kind == Kind::Liveness)
+            {
+                void_pings(&mut part.signals, now);
+            }
             self.refresh(slot, now, Some(&mut actions));
         }
         actions
@@ -666,9 +719,28 @@ impl Health {
     fn refresh(&mut self, slot: usize, now: u64, mut actions: Option<&mut Vec<Action>>) {
         let mut receipts: Vec<ReceiptParts> = Vec::new();
         let Some(part) = self.part(slot) else { return };
-        let cond = evaluate(part, now);
+        let mut cond = evaluate(part, now);
+        // A quiet liveness part outside a repair episode: its ping is due. Only `tick` sends one;
+        // any other op arms the part at `now`, so the host's timer fires at once.
+        let quiet = part.kind == Kind::Liveness && part.visible && part.repair.attempt == 0;
+        if quiet
+            && cond.level == State::Healthy
+            && ping_due(&part.signals).is_some_and(|at| at <= now)
+        {
+            if let Some(out) = actions.as_deref_mut() {
+                part.signals.pings.push(now);
+                let id = part.id.clone();
+                let (action, kind) = (RepairAction::Ping, Kind::Liveness);
+                out.push(Action { id, kind, action, attempt: 0, token: 0, hung_ms: None });
+                cond = evaluate(part, now);
+            } else {
+                cond.next = Some(now);
+            }
+        }
         let mut deadline = cond.next;
         let kind = part.kind;
+        let hung_ms = (kind == Kind::Liveness)
+            .then(|| part.signals.last_beat.map_or(0, |beat| now.saturating_sub(beat)));
         let r = &mut part.repair;
         let state = match (cond.level, cond.mode) {
             (State::Stuck, Mode::Ladder(ladder)) => {
@@ -691,7 +763,8 @@ impl Health {
                         r.next_at = Some(now + policy::wait_after(r.action, r.attempt));
                         r.sent += 1;
                         let (action, attempt, token) = (r.action, r.attempt, r.sent);
-                        out.push(Action { id: part.id.clone(), kind, action, attempt, token });
+                        let id = part.id.clone();
+                        out.push(Action { id, kind, action, attempt, token, hung_ms });
                         let words =
                             detail::receipt_started(kind, action, attempt, policy::MAX_REPAIRS);
                         receipts.push((action, Outcome::Started, words));
@@ -710,7 +783,8 @@ impl Health {
                         r.action = RepairAction::HoldReplace;
                         r.sent += 1;
                         let (id, token) = (part.id.clone(), r.sent);
-                        out.push(Action { id, kind, action: r.action, attempt: r.attempt, token });
+                        let (action, attempt) = (r.action, r.attempt);
+                        out.push(Action { id, kind, action, attempt, token, hung_ms: None });
                         let words = detail::receipt_started(kind, r.action, r.attempt, 0);
                         receipts.push((r.action, Outcome::Started, words));
                     } else {
