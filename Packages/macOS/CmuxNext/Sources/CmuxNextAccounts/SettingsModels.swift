@@ -21,9 +21,25 @@ import Observation
 @MainActor
 @Observable
 public final class SettingsModels {
-    /// acpmux's connection kinds and providers the page draws (`ModelConnection`).
+    /// acpmux's connection kinds the page draws (`ModelConnection`). Providers are acpmux's catalog
+    /// (`ConnectionsState.providers`, cmux-tui/docs/model-connections.md "Revision 3"): any id of its shape.
     nonisolated static let kinds: Set<String> = ["codex-login", "claude-login", "subscription", "chatgpt-plan", "claude-token", "api-key"]
-    nonisolated static let providers: Set<String> = ["openai", "anthropic", "openrouter", "google", "xai"]
+
+    /// The providers an acpmux that lists no catalog (one before cmux#48428) takes a key for.
+    nonisolated static let listedBeforeCatalog: Set<String> = ["openai", "anthropic", "openrouter", "google", "xai"]
+
+    /// Whether Add a Connection may store a key for `id`: a provider of acpmux's catalog that takes a key here,
+    /// or one of ``listedBeforeCatalog`` from an acpmux with no catalog. Any other id never reaches the Keychain.
+    func takesKey(_ id: String) -> Bool {
+        guard Self.isProviderID(id) else { return false }
+        guard !providers.isEmpty else { return Self.listedBeforeCatalog.contains(id) }
+        return providers.contains { $0["id"]?.stringValue == id && $0["unavailable"]?.stringValue == nil }
+    }
+
+    /// A provider id as acpmux's catalog writes one: lowercase letters, digits and `-`.
+    nonisolated static func isProviderID(_ id: String) -> Bool {
+        (1...64).contains(id.utf8.count) && id.utf8.allSatisfy { ($0 >= 0x61 && $0 <= 0x7A) || ($0 >= 0x30 && $0 <= 0x39) || $0 == 0x2D }
+    }
     /// `chatgpt.wait` rounds (each up to 25 s) before an attempt is given up: about 15 minutes.
     nonisolated static let chatgptRounds = 36
     /// Failed `chatgpt.wait` calls in a row (no answer) before the attempt is given up.
@@ -32,6 +48,8 @@ public final class SettingsModels {
 
     /// The page's connections (`ModelConnection`), in acpmux's order.
     private(set) var connections: [JSONValue] = []
+    /// acpmux's provider catalog (`ModelProviderInfo`), which Add a Connection lists.
+    private(set) var providers: [JSONValue] = []
     /// acpmux's `spread`; the page shows the setting's value when there is one.
     private(set) var daemonSpread = true
     /// Whether acpmux answered `_acpmux/connections` at the last read.
@@ -100,6 +118,7 @@ public final class SettingsModels {
         } ?? .null
         return [
             "personal": ["connections": .array(connections), "spread": .bool(spread), "available": .bool(available)],
+            "providers": .array(providers),
             "organization": [
                 "team": active.map { team -> JSONValue in ["id": .string(team.id), "name": .string(team.name)] } ?? .null,
                 "canEdit": .bool(active != nil && agentKeys?.canManage == true),
@@ -154,6 +173,7 @@ public final class SettingsModels {
     /// An acpmux `ConnectionsState`: its connections as the page draws them, and its spread.
     func apply(_ reply: JSONValue) {
         connections = (reply["connections"]?.arrayValue ?? []).compactMap(Self.connection)
+        if let listed = reply["providers"]?.arrayValue { providers = listed.compactMap(Self.provider) }
         if let on = reply["spread"]?.boolValue { daemonSpread = on }
         available = true
         onConnections?()
@@ -167,7 +187,7 @@ public final class SettingsModels {
             .array((value[key]?.arrayValue ?? value[camel]?.arrayValue ?? []).compactMap { $0.stringValue.map(JSONValue.string) })
         }
         let text = { (key: String) -> JSONValue in value[key]?.stringValue.map(JSONValue.string) ?? .null }
-        let provider = value["provider"]?.stringValue.flatMap { providers.contains($0) ? $0 : nil }
+        let provider = value["provider"]?.stringValue.flatMap { isProviderID($0) ? $0 : nil }
             ?? (kind == "claude-login" || kind == "claude-token" ? "anthropic" : "openai")
         return [
             "id": .string(id), "kind": .string(kind), "provider": .string(provider),
@@ -177,6 +197,22 @@ public final class SettingsModels {
             "enabled": .bool(value["enabled"]?.boolValue ?? false),
             "defaultFor": strings("default_for", "defaultFor"),
             "servesCloud": .bool(value["serves_cloud"]?.boolValue ?? value["servesCloud"]?.boolValue ?? false),
+        ]
+    }
+
+    /// One acpmux catalog provider as the page's `ModelProviderInfo` (camelCase); nil for a malformed one.
+    nonisolated static func provider(_ value: JSONValue) -> JSONValue? {
+        guard let id = value["id"]?.stringValue, isProviderID(id), let label = value["label"]?.stringValue,
+              let group = value["group"]?.stringValue, ["subscription", "api-key", "custom"].contains(group) else { return nil }
+        let strings = { (key: String) -> JSONValue in .array((value[key]?.arrayValue ?? []).compactMap { $0.stringValue.map(JSONValue.string) }) }
+        let console = value["console"]?.stringValue.flatMap { $0.hasPrefix("https://") ? $0 : nil }
+        return [
+            "id": .string(id), "label": .string(label), "group": .string(group),
+            "console": console.map(JSONValue.string) ?? .null,
+            "fields": strings("fields"), "families": strings("families"), "protocols": strings("protocols"),
+            "checked": .bool(value["checked"]?.boolValue ?? false),
+            "servesCloud": .bool(value["serves_cloud"]?.boolValue ?? false),
+            "unavailable": value["unavailable"]?.stringValue.map(JSONValue.string) ?? .null,
         ]
     }
 
@@ -267,8 +303,10 @@ public final class SettingsModels {
         case "addClaudeToken":
             try await addClaudeToken(params["token"]?.stringValue ?? "", label: params["label"]?.stringValue)
         case "addKey":
-            try await addKey(provider: params["provider"]?.stringValue ?? "", key: params["key"]?.stringValue ?? "",
-                             label: params["label"]?.stringValue)
+            return try await addKey(provider: params["provider"]?.stringValue ?? "", key: params["key"]?.stringValue ?? "",
+                                    label: params["label"]?.stringValue,
+                                    fields: ["baseUrl": params["baseUrl"]?.stringValue, "protocol": params["protocol"]?.stringValue,
+                                             "region": params["region"]?.stringValue])
         case "orgKey":
             // `key: null` removes; a missing key is a mistake, not a removal.
             guard let key = params["key"] else { throw PageError.invalidParams("orgKey needs key (a key, or null to remove)") }

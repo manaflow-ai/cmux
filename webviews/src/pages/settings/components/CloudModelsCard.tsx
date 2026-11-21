@@ -20,7 +20,14 @@ import { Icon } from "../icons";
 import { revealRow } from "../keyboard";
 import type { ModelConnection, ModelProvider, ModelsRun, ModelsState } from "../ops";
 import { t } from "../strings";
-import { AddConnectionSheet, ChatGPTStatus, PROVIDERS, useModelsRun, type Run, type SheetStart } from "./ModelsCard";
+import {
+  AddConnectionSheet,
+  ChatGPTStatus,
+  providerCatalog,
+  useModelsRun,
+  type Run,
+  type SheetStart,
+} from "./ModelsCard";
 
 /** The rows, in order; each is the focus that opens the page on it (`cloud.<row>`). */
 export const CLOUD_ROWS = ["claude", "chatgpt", "apiKey"] as const;
@@ -29,8 +36,11 @@ export type CloudRow = (typeof CLOUD_ROWS)[number];
 /** Product names, shown as they are in every language. */
 const ROW_NAMES: Record<Exclude<CloudRow, "apiKey">, string> = { claude: "Claude", chatgpt: "ChatGPT" };
 const AGENT_NAMES: Record<"claude" | "codex", string> = { claude: "Claude", codex: "Codex" };
-/** The API-key providers whose keys reach Cloud chats (acpmux connections.rs `serves_cloud`). */
-const CLOUD_KEY_PROVIDERS: ModelProvider[] = ["anthropic", "openai"];
+/** The providers whose keys reach Cloud chats (acpmux's catalog `servesCloud`; Anthropic and OpenAI from an
+ * acpmux before it). */
+function cloudKeyProviders(models: ModelsState): { id: ModelProvider; label: string }[] {
+  return providerCatalog(models).filter((info) => info.servesCloud && !info.unavailable);
+}
 
 /** One row's state: `ready` (a Cloud chat starts on `via`), `off` (`connection` would serve it but is
  * turned off or signed out), `missing` (nothing serves it). Only connections that serve Cloud count. */
@@ -127,6 +137,7 @@ export function CloudModelsCard({ focus }: { focus: string | null }) {
         <AddConnectionSheet
           models={models}
           busy={busy}
+          error={error}
           run={sheetRun}
           start={sheet.start}
           onClose={() => setSheet(null)}
@@ -255,9 +266,9 @@ function CloudModelRow({
                 {t("settingsWindow.cloud.apiKey.add")}
               </MenuButton>
               <MenuPopup align="end">
-                {CLOUD_KEY_PROVIDERS.map((provider) => (
-                  <MenuItem key={provider} data-value={provider} onSelect={() => onSetUp(provider)}>
-                    {PROVIDERS[provider]}
+                {cloudKeyProviders(models).map((provider) => (
+                  <MenuItem key={provider.id} data-value={provider.id} onSelect={() => onSetUp(provider.id)}>
+                    {provider.label}
                   </MenuItem>
                 ))}
               </MenuPopup>
@@ -335,11 +346,7 @@ function ManageMenu({
 }) {
   const plan = connection.kind === "chatgpt-plan";
   const replaceStart: SheetStart =
-    connection.kind === "claude-token"
-      ? "claude"
-      : connection.kind === "api-key" && CLOUD_KEY_PROVIDERS.includes(connection.provider as ModelProvider)
-        ? (connection.provider as ModelProvider)
-        : null;
+    connection.kind === "claude-token" ? "claude" : connection.kind === "api-key" ? connection.provider : null;
   if (!plan && !replaceStart) return null;
   return (
     <Menu>

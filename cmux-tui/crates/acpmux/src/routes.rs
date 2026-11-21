@@ -17,6 +17,8 @@
 //! in [`SCRUBBED`] is removed from the profile env AND from the environment the
 //! harness inherits (agent.rs reads [`UNSET_KEY`]), then the route sets its own.
 //! So switching from route A to route B never leaks A's key into B's process.
+mod catalog_env;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -287,14 +289,11 @@ pub struct RouteFile {
     /// so. A chat bound to it still runs on it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub disabled: bool,
-    /// The provider an API-key route's key is for (`anthropic`, `openai`, `openrouter`,
-    /// `google`, `xai`; [`PROVIDERS`]). Absent: its family's (claude: anthropic, else openai).
+    /// The provider an API-key route's key is for (an id of `crate::providers::PROVIDERS`).
+    /// Absent: its family's (claude: anthropic, else openai).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
 }
-
-/// The providers an API-key connection may name (`_acpmux/connections/key.add`).
-pub const PROVIDERS: &[&str] = &["anthropic", "openai", "openrouter", "google", "xai"];
 
 impl RouteFile {
     /// The provider this route pays: its own `provider`, a ChatGPT plan's OpenAI, else its
@@ -474,7 +473,7 @@ fn valid_id(id: &str) -> bool {
         && !id.starts_with('-')
 }
 
-fn is_reference(value: &str) -> bool {
+pub(crate) fn is_reference(value: &str) -> bool {
     value.starts_with("keychain:")
         || value.starts_with("env:")
         || value.strip_prefix("file:").is_some_and(|p| Path::new(p).is_absolute())
@@ -562,11 +561,11 @@ pub fn validate(file: &RouteFile) -> Result<(), RouteError> {
         return Err(RouteError::BadParams("a custom-openai route needs openaiBaseUrl".into()));
     }
     if let Some(p) = &file.provider
-        && !PROVIDERS.contains(&p.as_str())
+        && crate::providers::find(p).is_none()
     {
         return Err(RouteError::BadParams(format!(
             "unknown provider {p:?}: one of {}",
-            PROVIDERS.join(", ")
+            crate::providers::ids().join(", ")
         )));
     }
     if file.kind == RouteKind::ChatgptPlan && (file.secret.is_some() || !file.headers.is_empty()) {
@@ -1087,6 +1086,9 @@ pub fn env_for_on(
         set: BTreeMap::new(),
         unset: SCRUBBED.iter().map(|k| (*k).to_owned()).collect(),
     };
+    if catalog_env::fill(route, family, &mut out) {
+        return Ok(out);
+    }
     let anthropic = is_anthropic_family(family);
     let (mut base, mut secret_value): (Option<String>, Option<String>) = (
         if anthropic {
