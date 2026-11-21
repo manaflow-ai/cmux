@@ -310,6 +310,19 @@ class MainTwinPushTests(unittest.TestCase):
         self.assertEqual(self.remote_head(), before)
         self.assertIn("jobs or crons now differ", output)
 
+    def test_a_branch_cut_from_main_adding_its_scheduled_file_passes(self):
+        # The main twin PR itself (cmux#48672, 2026-11-21): a branch off main that adds a scheduled shim is main's
+        # copy, the one that fires, so it needs no trailer naming a twin.
+        self.base_with_twins()
+        self.git("checkout", "--quiet", "-b", "lane/main-shim", "origin/main")
+        self.write(SCHEDULED, SWEEP.format(cron="11,41 * * * *", timeout="5"))
+        self.commit("sweep: a scheduled shim on main")
+
+        result = self.push_ref("HEAD:refs/heads/lane/main-shim")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("lane/main-shim", result.stdout + result.stderr)
+
     # Every job is bounded (boneheaded-designs section 11).
 
     def test_a_job_with_no_timeout_is_refused(self):
