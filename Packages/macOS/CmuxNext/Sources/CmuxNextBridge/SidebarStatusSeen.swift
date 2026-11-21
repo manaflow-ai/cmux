@@ -1,6 +1,6 @@
 import CmuxNextCompat
 public import CmuxNextDesign
-import Observation
+public import Observation
 
 /// Client-side view state for status symbols that belong to a workspace row.
 /// The daemon keeps the report until its owner replaces or clears it. A row
