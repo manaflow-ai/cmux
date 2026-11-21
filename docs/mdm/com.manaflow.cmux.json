@@ -3686,7 +3686,7 @@
     },
     "labs.previewFeatures" : {
       "default" : false,
-      "description" : "Unfinished surfaces, such as the agent session's coverage label and Pull requests view.",
+      "description" : "Unfinished surfaces, such as the App Store and the agent session's coverage label and Pull requests view.",
       "title" : "Show Preview Features",
       "type" : "boolean"
     },
@@ -5156,7 +5156,7 @@
       "type" : "boolean"
     },
     "sidebar.showSpaces" : {
-      "default" : true,
+      "default" : false,
       "description" : "sidebar.showSpaces",
       "title" : "Show Spaces",
       "type" : "boolean"

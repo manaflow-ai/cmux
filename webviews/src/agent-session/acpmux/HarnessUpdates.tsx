@@ -4,6 +4,9 @@
 // the same list for Claude Code and every other harness. David Beyer (Nov 20 call) found it messy:
 // the versions and Skip This Version show only while Option is held (useOptionHeld.ts), and a
 // failed row says so in its name's place, so no row carries more than its name and one action.
+// Lawrence (Nov 21): Update all is what most people do, so it is the footer's default button, in the
+// accent; a row's Update is a quiet secondary unless it is the only row. The reason ("New models
+// often need the latest version.") is the heading's tooltip, not a line of its own.
 import type { ComponentProps, KeyboardEvent, Ref } from "react";
 import { AgentMark } from "../shared/AgentMark";
 import { Spinner } from "./conversation/icons";
@@ -70,13 +73,16 @@ export function HarnessUpdatesSection({
   return (
     <section className="acpmux-harness-updates" aria-label={title} data-harness-updates={updates.rows.length}>
       <div className="acpmux-harness-updates-head">
-        <span className="acpmux-harness-updates-title">{title}</span>
+        <span className="acpmux-harness-updates-title" title={t("harness.updatesHint")}>
+          {title}
+        </span>
         {all && (
           <button
             ref={firstAction}
             onKeyDown={onFirstKeyDown}
             type="button"
             className="acpmux-harness-updates-all"
+            data-default=""
             disabled={updates.rows.every((row) => row.phase === "updating")}
             onClick={() => {
               updates.updateAll();
@@ -114,13 +120,13 @@ export function HarnessUpdatesSection({
             )}
             <HarnessUpdateButton
               {...(!all && index === 0 ? { ref: firstAction, onKeyDown: onFirstKeyDown } : {})}
+              data-default={!all ? "" : undefined}
               row={row}
               onOwnUpdate={onOwnUpdate}
             />
           </li>
         ))}
       </ul>
-      <p className="acpmux-harness-updates-hint">{t("harness.updatesHint")}</p>
     </section>
   );
 }
