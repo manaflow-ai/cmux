@@ -476,6 +476,11 @@ final class AgentChatTranscriptService {
             tailer = resolvedTailer
         }
         await tailer.start()
+        // The session ended while this tailer was still reading, which cancelled
+        // the read. Its removal from `tailers` makes the retry build a new one.
+        if await tailer.didAbandonInitialLoad {
+            return await history(sessionID: sessionID, beforeSeq: beforeSeq, limit: limit)
+        }
         let page = await tailer.history(beforeSeq: beforeSeq, limit: limit)
         if record.title == nil, let title = await tailer.title {
             registry.update(sessionID: sessionID) { $0.title = title }
