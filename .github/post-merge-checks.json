@@ -214,6 +214,14 @@
       "kind": "publish",
       "why": "a scheduled eval of the live Chief, a score and not a verdict on a change"
     },
+    "gallery-advisory.yml": {
+      "kind": "check",
+      "why": "the before/after gallery receipt of a direct push; cut from pull requests (#48517: advisory, ~2.4k runner-min a day), it warns only and reddens nothing"
+    },
+    "gallery-health.yml": {
+      "kind": "check",
+      "why": "renders gallery states per merge; a display check no ruleset requires (#48553)"
+    },
     "gateway-e2e.yml": {
       "kind": "publish",
       "why": "a manual trip against the live development backend with its stack credentials, started only by an edit of .github/gateway-e2e/request or a dispatch; a probe of a live system"

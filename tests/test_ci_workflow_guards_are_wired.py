@@ -327,6 +327,30 @@ UNWIRED: set[str] = {
     # and curl in nightly.yml's nightly- next-one job has its own bound and the ones that fail it retry (nightly run
     # 44232805509). Run it by hand after changing a fetch or download there. Exit: as above.
     "tests/test_nightly_next_network_bounds.py",
+    # No new CI tests (CLAUDE.md). It checks scripts/ci/post_merge_batch.py (tick, plan, judge, bisect, revert) and
+    # that .github/post-merge-batch.json, cmux-next-post-merge.yml's caller jobs and the callees stay in step (#48662).
+    # Run it by hand after changing any of them. Exit: as above.
+    "tests/test_ci_post_merge_batch.py",
+    # No new CI tests (CLAUDE.md). It checks scripts/ci/pr_ran_line.py on fixture .github/workflows trees: the status
+    # comment's ran line names the workflows a diff starts and why (#47361). Run it by hand after changing
+    # pr_ran_line.py. Exit: as above.
+    "tests/test_ci_pr_ran_line.py",
+    # No new CI tests (CLAUDE.md); scripts/ci/pr_trigger_paths.py says the same. It checks every pull request
+    # workflow has trigger paths or an every_pr reason, and derived paths match their decider (#49072). Run it by hand
+    # after changing a PR workflow's trigger or a decider's source. Exit: as above.
+    "tests/test_ci_pr_trigger_paths.py",
+    # lane = "manual" (tests/test-execution.d/ci.toml; no new CI tests, CLAUDE.md). It pins tooling_steps.py's per-step
+    # selection and that each tooling-tests run step of cmux-next-guards.yml carries its selection (#47388). Run it by
+    # hand after changing tooling_steps.py or a tooling-tests step. Exit: as above.
+    "tests/test_ci_tooling_steps.py",
+    # No new CI tests (CLAUDE.md). It checks that a re-run cmux-tui build leg rereads the runner pool instead of a 2 or
+    # 4 vCPU label its plan baked in (#48691). Run it by hand after changing cmux-tui-artifacts.yml's build runs-on.
+    # Exit: as above.
+    "tests/test_ci_tui_rerun_leg_rereads_pool.py",
+    # lane = "manual" (tests/test-execution.d/cmux.toml; no new CI tests, CLAUDE.md). It checks that a same-repo pull
+    # request's cmux-next control hops take the reserved PR control JIT label on attempt 1 (#48405). Run it by hand
+    # after changing those jobs' runs-on. Exit: as above.
+    "tests/test_cmux_next_pr_control_on_jit.py",
 }
 
 

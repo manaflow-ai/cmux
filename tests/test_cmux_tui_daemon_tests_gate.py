@@ -123,7 +123,7 @@ class DaemonTestsGateTests(unittest.TestCase):
         self.assertNotIn(SHADOW, WORKFLOW.read_text(encoding="utf-8").split("\njobs:\n", 1)[1].replace(
             "cmux-next-daemon-macos-shadow.yml", ""))
         doc = shadow_workflow()
-        # workflow_dispatch only since 2026-11-21 (ci-time-map: nothing waits for it).
+        # Dispatch only since #48520 (Leo, 2026-11-21, ci-time-map: nothing waits for it, ~0.8k Mac-min a day).
         self.assertEqual(set(doc["on"]), {"workflow_dispatch"})
         self.assertEqual(doc["permissions"], {})
         self.assertEqual(doc["concurrency"]["cancel-in-progress"], "false")
