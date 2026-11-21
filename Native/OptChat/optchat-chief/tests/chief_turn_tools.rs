@@ -186,7 +186,11 @@ fn turn_tools_send_with_reply_to_goes_into_that_messages_thread() {
         ..send("Green on every Mac mini.")
     };
     let answer = run(&mut h, move || sp.send(call)).expect("send answers");
-    assert!(answer.starts_with("outcome: done"), "{answer}");
+    // Taken: posted now, or queued behind an upload or the gap.
+    assert!(
+        answer.starts_with("outcome: done") || answer.starts_with("outcome: queued"),
+        "{answer}"
+    );
     let posted = wait_send(&mut h, "Green on every Mac mini.");
     assert_eq!(posted[0].3.as_deref(), Some("msg_1"), "{posted:?}");
     assert_eq!(
@@ -209,7 +213,11 @@ fn turn_tools_send_attaches_any_file_and_refuses_a_missing_one() {
         ..send("Here is the report.")
     };
     let answer = run(&mut h, move || sp.send(call)).expect("send answers");
-    assert!(answer.starts_with("outcome: done"), "{answer}");
+    // Taken: posted now, or queued behind an upload or the gap.
+    assert!(
+        answer.starts_with("outcome: done") || answer.starts_with("outcome: queued"),
+        "{answer}"
+    );
     let posted = wait_send(&mut h, "REPORT.pdf");
     let parts = &posted[0].1;
     assert!(
@@ -343,7 +351,11 @@ fn turn_tools_send_a_refused_upload_goes_as_a_file_link() {
         ..send("The test alarm rang.")
     };
     let answer = run(&mut h, move || sp.send(call)).expect("send answers");
-    assert!(answer.starts_with("outcome: done"), "{answer}");
+    // Taken: posted now, or queued behind an upload or the gap.
+    assert!(
+        answer.starts_with("outcome: done") || answer.starts_with("outcome: queued"),
+        "{answer}"
+    );
     let posted = wait_send(&mut h, "Attachment upload failed:");
     let text = texts(&posted[0].1);
     assert_eq!(
