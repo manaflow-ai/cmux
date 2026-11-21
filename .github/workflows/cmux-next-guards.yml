@@ -520,6 +520,13 @@ jobs:
     permissions:
       contents: read
     steps:
+      # The guard step's bounds count from here, the job's own clock, not from the step: the checkouts and setup before it
+      # took 1.5 to 3 minutes, so a bound counted from the step let the job pass its 25 minutes in the post steps and end
+      # "cancelled" (139 of 452 cancels in 24 h ended at 25 minutes, each masking the step's own verdict).
+      - name: Note when the job started
+        shell: bash
+        run: echo "GUARD_JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
+
       # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
       # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
@@ -677,12 +684,14 @@ jobs:
           CMUX_GUARDS_BASE_SHA: ${{ steps.changes.outputs.base }}
           GUARDS_AT_TIP: ${{ steps.changes.outputs.tip }}
         run: |
-          # The job ends at 25 minutes; the base pass gets what the head pass leaves of 23, so a slow base ends in a
+          # The job ends at 25 minutes; the base pass gets what the head pass leaves of 22 minutes of the job, so a slow base ends in a
           # verdict (with unfinished base steps deferred to the merge gate) instead of a cancelled job that land-judge waits on.
           # The head pass is bound too, to 15 minutes, so a slow head leaves 8 for the base's re-run and the verdict. Unbound,
           # a head pass still running 23 minutes into the step (442 steps, 4 workers) was cancelled by the job timeout with
           # no verdict. A cut head is red, never green: its unfinished steps have no result to compare.
           step_started=$(date +%s)
+          # Both passes and the verdict end by minute 22 of the job (3 minutes left for the post steps and the runner's clean-up).
+          job_deadline=$(( ${GUARD_JOB_STARTED:-$step_started} + 22 * 60 ))
           # The base checkout is untracked in this workspace; the workload profile refuses a dirty checkout.
           echo "/.guard-base/" >> .git/info/exclude
           # The same call on a pull request and a push: a push has no changed-files list, so --feat-routes routes every group.
@@ -693,7 +702,9 @@ jobs:
           if [ -f "$RUNNER_TEMP/changed-files.txt" ] && [ -n "$CMUX_GUARDS_BASE_SHA" ]; then
             affected=(--affected "$CMUX_GUARDS_BASE_SHA")
           fi
-          head_budget=$(( 15 * 60 ))
+          head_budget=$(( job_deadline - $(date +%s) ))
+          if [ "$head_budget" -gt $(( 15 * 60 )) ]; then head_budget=$(( 15 * 60 )); fi
+          if [ "$head_budget" -lt 60 ]; then head_budget=60; fi
           head_status=0
           timeout --kill-after=10 "$head_budget" \
             scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --feat-routes "$RUNNER_TEMP/changed-files.txt" "${affected[@]}" --results "$RUNNER_TEMP/guards-head.json" || head_status=$?
@@ -715,7 +726,7 @@ jobs:
           done < <(python3 scripts/ci/guards_new_reds.py --red-steps "$RUNNER_TEMP/guards-head.json")
           if [ -d .guard-base ] && [ "${#steps[@]}" -gt 0 ]; then
             echo "re-running the head's $(( ${#steps[@]} / 2 )) red steps on the base"
-            budget=$(( 23 * 60 - ( $(date +%s) - step_started ) ))
+            budget=$(( job_deadline - $(date +%s) ))
             if [ "$budget" -lt 60 ]; then budget=60; fi
             timeout --kill-after=10 "$budget" \
               scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --feat-routes "$RUNNER_TEMP/changed-files.txt" "${steps[@]}" --root .guard-base \
