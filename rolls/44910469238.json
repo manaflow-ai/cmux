@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44910469238",
+  "recorded_at": "2026-11-21T14:00:20Z",
+  "reason": "cmux-tui 8ea551ab4bbf changes the image's cmux-tui (pinned c21056f56c59)",
+  "dry_run": false,
+  "cmux_tui": "8ea551ab4bbf3e2709fa54a2dccd804ebe43d0cc",
+  "fixes": [
+    {
+      "sha": "8ea551ab4bbf3e2709fa54a2dccd804ebe43d0cc",
+      "mergedAt": "2026-11-21T04:29:18-08:00",
+      "subject": "fix(cloud): run a long direct exec-await as a Freestyle background request"
+    },
+    {
+      "sha": "21581a5b74a23be5609841544eddf1dae959227e",
+      "mergedAt": "2026-11-21T04:29:18-08:00",
+      "subject": "test(cloud): a direct exec-await over the provider edge's ~125 s cut (red)"
+    },
+    {
+      "sha": "f9c0ec0313923084a25c6a19e8ed851fa050ba3c",
+      "mergedAt": "2026-11-21T12:25:08Z",
+      "subject": "Computer Use (Rust engine): a locked Mac answers mac_locked before any input; opt-in whileLocked keeps window-scoped calls (#48965)"
+    },
+    {
+      "sha": "7d366623b24d8f088ef4830e23a017beebcc74e2",
+      "mergedAt": "2026-11-21T12:23:12Z",
+      "subject": "Cloud model connections: one sentence for where a token or key goes; setup's cloud_chat points at Settings > Cloud (#48925)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-21T14:00:20Z",
+    "snapshot_id": "sh-34ba2662ee1e4e1da2c4e0ca51afa883",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44910469238): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "4b212800a7349f2d42fe7a8b80dd6efd807c408a",
+    "image": "cloud-native-auto-8ea551ab-44910469238-1",
+    "revision": "ci-44910469238-1",
+    "at": "2026-11-21T14:00:20Z"
+  },
+  "rolled_back": false
+}
