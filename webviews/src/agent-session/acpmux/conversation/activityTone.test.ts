@@ -8,9 +8,11 @@ const gallery = readFileSync(join(import.meta.dir, "transcript.gallery.ts"), "ut
 test("background activity has one secondary tone; a row's words light on hover or keyboard focus, never its glyph; a received message never", () => {
   expect(css).toContain("--cv-activity-text: color-mix(in srgb, var(--cv-fg) 58%, transparent);");
   // Codex parity (Lucas, 2026-11-06): only the words light, under the pointer or keyboard focus; a
-  // click or an opened row leaves no white behind. A sent message's row keeps one steady tone.
+  // click or an opened row leaves no white behind. A sent message's row keeps one steady tone. An
+  // activity row's words light by the same rule, all the way through (Leo, 2026-11-09: "this
+  // scheduled check thing isn't highlighted all the way through like other tool calls are").
   expect(css).toMatch(
-    /button\.cv-tool:not\(\.cv-sent, \.cv-agent-activity__control\):is\(:hover, :focus-visible\)\s*> :is\(\.cv-tool__text, \.cv-command__text\) \{\s*color: var\(--cv-text\);/,
+    /button\.cv-tool:not\(\.cv-sent, :disabled\):is\(:hover, :focus-visible\):not\(:has\(\.cv-agent-tag\.is-open:is\(:hover, :focus\)\)\)\s*> :is\(\.cv-tool__text, \.cv-command__text, \.cv-agent-activity__sentence\),[\s\S]*?\{\s*color: var\(--cv-text\);/,
   );
   expect(css).not.toContain(".cv-tool:focus-within");
   expect(css).not.toMatch(/\.cv-tool:not\([^)]*\):focus-within:not/);

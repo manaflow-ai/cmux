@@ -15,6 +15,7 @@
     { "name": "meshes", "method": "GET", "path": "/v1/meshes", "expect": [401], "sources": ["src/api/mesh.ts", "src/handlers/mesh.ts", "src/db/mesh*.ts", "src/mesh/**", "src/upstream/*mesh*.ts"] },
     { "name": "agent keys", "method": "POST", "path": "/v1/agent-keys", "body": "{}", "expect": [401], "sources": ["src/api/agents.ts", "src/handlers/agents.ts", "src/handlers/agent-sandboxes.ts", "src/db/agents.ts", "src/agents/**"] },
     { "name": "client sessions", "method": "POST", "path": "/v1/vms/vm_smoke/client-session", "body": "{}", "expect": [401], "sources": ["src/api/agents.ts", "src/handlers/agents.ts", "src/upstream/live-client-sessions.ts"] },
-    { "name": "device peers", "method": "GET", "path": "/v1/devices/dev_smoke/peers", "expect": [401], "sources": ["src/api/mesh.ts", "src/handlers/mesh.ts", "src/proofs/device-*.ts"] }
+    { "name": "device peers", "method": "GET", "path": "/v1/devices/dev_smoke/peers", "expect": [401], "sources": ["src/api/mesh.ts", "src/handlers/mesh.ts", "src/proofs/device-*.ts"] },
+    { "name": "device intent revoke", "method": "POST", "path": "/v1/meshes/mesh_smoke/device-intents/smoke/revoke", "body": "{}", "expect": [401], "sources": ["src/api/mesh.ts", "src/handlers/mesh.ts", "src/db/mesh-intents.ts"], "why": "migration 0018: a missing mesh_device_intents table answers 503 at the schema gate" }
   ]
 }

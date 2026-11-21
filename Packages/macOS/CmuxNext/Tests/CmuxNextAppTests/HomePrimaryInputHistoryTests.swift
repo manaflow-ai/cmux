@@ -109,6 +109,27 @@ import CmuxNextTestSupport
         #expect(h.window.firstResponder === h.box, "\(container): the box did not take the keyboard")
     }
 
+    /// A focused button on the Set Up cmux card keeps Space and the arrows (Full Keyboard Access: Tab,
+    /// then Space presses it); the box does not take them.
+    @Test(arguments: Container.allCases)
+    func theSetupCardKeepsItsKeys(_ container: Container) async throws {
+        let h = try await Self.harness(container)
+        defer { h.close() }
+        let target = try #require(h.content.primaryInput)
+        let card = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 120))
+        let button = CardButton(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
+        card.addSubview(button)
+        h.home.transcript.setSetupCard(card, height: 120)
+        h.window.makeFirstResponder(button)
+        #expect(h.window.firstResponder === button)
+        let space = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                                     characters: " ", charactersIgnoringModifiers: " ", isARepeat: false, keyCode: 49)!
+        #expect(!Self.routes(space, target), "\(container): Space left the card's button")
+        #expect(!Self.routes(Self.key(126), target), "\(container): Up left the card's button")
+        h.window.makeFirstResponder(nil)
+        #expect(Self.routes(Self.key(126), target), "\(container): outside the card Up still recalls")
+    }
+
     /// The box recalls through its own keys (first-line rule); the conversation list keeps arrows.
     @Test(arguments: Container.allCases)
     func theBoxAndTheListKeepTheirArrows(_ container: Container) async throws {
@@ -125,4 +146,9 @@ import CmuxNextTestSupport
             }
         }
     }
+}
+
+/// A card button that takes the keyboard whatever Full Keyboard Access says (an `NSButton` does only with it on).
+private final class CardButton: NSView {
+    override var acceptsFirstResponder: Bool { true }
 }

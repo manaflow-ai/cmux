@@ -7,18 +7,25 @@
 // Two more tabs sit beside it where the pane can read them: Waiting on you (queue/QueueScreen.tsx,
 // every ask across agents and machines) and Costs (ledger/LedgerScreen.tsx, what agents spent).
 // They live here because this page is one the app already opens; they need no host of their own.
+// Team (teamAudit/TeamAuditScreen.tsx, the team's shared agent spend) joins them while the
+// `team-audit` experiment is on.
 import type { ComponentProps } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Tabs, TabsList, TabsTrigger } from "../../../ui/Tabs";
+import { experimentArm } from "../../../experiments/experiment";
 import { useT } from "../i18n";
 import { LedgerScreen } from "../ledger/LedgerScreen";
 import { QueueScreen } from "../queue/QueueScreen";
+import { createQueueCache } from "../queue/useQueue";
+import { createLedgerCache } from "../ledger/LedgerScreen";
+import { teamAudit } from "../teamAudit/teamAudit.experiment";
+import { TeamAuditScreen } from "../teamAudit/TeamAuditScreen";
 import { AllChatsList } from "./AllChatsList";
 import { type LoadChatsPage } from "./allChatsListModel";
 import { useNoEntryMotion } from "./noEntryMotion";
 import { useNt } from "./strings";
 
-export type HistoryTab = "history" | "queue" | "ledger";
+export type HistoryTab = "history" | "queue" | "ledger" | "team";
 
 export function HistoryScreen({
   load,
@@ -28,6 +35,7 @@ export function HistoryScreen({
   now,
   queue,
   ledger,
+  team: teamProps,
   initialTab = "history",
 }: {
   load: LoadChatsPage;
@@ -39,6 +47,8 @@ export function HistoryScreen({
   queue?: ComponentProps<typeof QueueScreen>;
   /// Costs' read; no tab without it.
   ledger?: ComponentProps<typeof LedgerScreen>;
+  /// Team's read; no tab without it, or while the `team-audit` experiment is off.
+  team?: ComponentProps<typeof TeamAuditScreen>;
   initialTab?: HistoryTab;
 }) {
   const nt = useNt();
@@ -46,8 +56,19 @@ export function HistoryScreen({
   // A New Tab page too: what it shows or opens appears at once (noEntryMotion.ts).
   useNoEntryMotion();
   const [tab, setTab] = useState<HistoryTab>(initialTab);
-  const tabbed = Boolean(queue || ledger);
-  const shown: HistoryTab = (tab === "queue" && !queue) || (tab === "ledger" && !ledger) ? "history" : tab;
+  // What Waiting on you and Costs last showed, kept while another tab shows: a return paints it
+  // at once, and Waiting on you reads again only when what it lists changed meanwhile.
+  const [queueCache] = useState(createQueueCache);
+  const [ledgerCache] = useState(createLedgerCache);
+  // Every key the queue would read at, while it shows or not: a change while hidden reads on return.
+  const queueKey = queue?.refreshKey;
+  useEffect(() => {
+    if (queueKey !== undefined) queueCache.note(queueKey);
+  }, [queueCache, queueKey]);
+  const team = experimentArm(teamAudit) === "on" ? teamProps : undefined;
+  const tabbed = Boolean(queue || ledger || team);
+  const shown: HistoryTab =
+    (tab === "queue" && !queue) || (tab === "ledger" && !ledger) || (tab === "team" && !team) ? "history" : tab;
   return (
     <div className="nt-history" data-tab={shown}>
       {/* The page's title stays on every tab, with the tabs under it, so switching moves nothing above. */}
@@ -63,13 +84,16 @@ export function HistoryScreen({
             <TabsTrigger value="history">{nt("history")}</TabsTrigger>
             {queue && <TabsTrigger value="queue">{t("waiting.title")}</TabsTrigger>}
             {ledger && <TabsTrigger value="ledger">{t("ledger.title")}</TabsTrigger>}
+            {team && <TabsTrigger value="team">{t("teamAudit.title")}</TabsTrigger>}
           </TabsList>
         </Tabs>
       )}
       {shown === "queue" && queue ? (
-        <QueueScreen {...queue} {...(now !== undefined ? { now } : {})} />
+        <QueueScreen {...queue} cache={queueCache} {...(now !== undefined ? { now } : {})} />
       ) : shown === "ledger" && ledger ? (
-        <LedgerScreen {...ledger} {...(now !== undefined ? { now } : {})} />
+        <LedgerScreen {...ledger} cache={ledgerCache} {...(now !== undefined ? { now } : {})} />
+      ) : shown === "team" && team ? (
+        <TeamAuditScreen {...team} {...(now !== undefined ? { now } : {})} />
       ) : (
         <AllChatsList
           load={load}

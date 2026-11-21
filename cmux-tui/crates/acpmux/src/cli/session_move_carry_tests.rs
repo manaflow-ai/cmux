@@ -213,3 +213,22 @@ fn a_base_that_moved_refuses() {
     assert!(check_base(&carry, &"a".repeat(40)).is_ok());
     assert!(check_base(&carry, &"b".repeat(40)).is_err());
 }
+
+/// Uncommitted work of any size goes with the chat: a move never refuses it for its size. The
+/// file is random bytes, which do not compress, so its patch is past the 64 MiB a move once
+/// refused at; it arrives byte for byte.
+#[test]
+fn uncommitted_work_of_any_size_is_carried_whole() {
+    let src = tempfile::tempdir().unwrap();
+    let dst = tempfile::tempdir().unwrap();
+    repo(src.path());
+    sh(src.path(), "mkdir -p data && head -c 62914560 /dev/urandom > data/large.bin");
+    let carry = snapshot(&here, src.path(), true).unwrap();
+    assert!(carry.patch.len() > 64 * 1024 * 1024, "{}", carry.patch.len());
+    assert_eq!(carry.files, 1);
+    sh(dst.path(), &format!("git clone -q --branch lane/t {} .", src.path().display()));
+    let out = apply(dst.path(), &carry);
+    assert!(out.ok, "{}", out.stderr);
+    let read = |d: &Path| std::fs::read(d.join("data/large.bin")).unwrap();
+    assert!(read(dst.path()) == read(src.path()), "the large file arrives byte for byte");
+}

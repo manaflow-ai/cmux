@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextWakeups
 import Darwin
 public import Foundation
@@ -12,7 +13,9 @@ import os
 /// The target is the copy that holds the claim, read from its owner record (`SingleInstanceGuard.runningCopy`),
 /// never whatever the bundle id resolves to: on a Mac with an older copy registered under the same id, `open -b`
 /// started that older copy (no guard, so its Chromium failed and its tabs fell back to WebKit). When the running
-/// copy cannot be resolved by ``deadline``, nothing is launched and the hand-off logs it. Delivery is
+/// copy cannot be resolved by ``deadline``, or its bundle is gone from disk, the URLs go in the second-copy note
+/// (``SecondCopyNote``), which the running copy opens. Either way the running copy hears which copy was opened and
+/// says so (``AppCopyGuide``). Delivery is
 /// LaunchServices' own once this copy is gone: the running copy gets the URLs and files and comes forward (a bare
 /// launch reopens it, as a Dock click does). If that copy quit in the meantime, LaunchServices starts that same
 /// bundle again, which takes the claim like any launch. An agent launch (`CMUX_NEXT_NO_ACTIVATE=1`) hands nothing
@@ -95,39 +98,60 @@ import os
         let handedBefore = handed
         handed = urls.count
         starting = true
-        let pid = getpid()
-        let ownerURL = Bundle.main.bundleIdentifier
+        let pid = getpid(), first = handedBefore == nil, closing = self.closing
+        let bundleIdentifier = Bundle.main.bundleIdentifier, openedPath = Bundle.main.bundlePath
+        let ownerURL = bundleIdentifier
             .flatMap { SingleInstanceGuard.lockURL(bundleIdentifier: $0) }
             .map(SingleInstanceGuard.ownerURL(lockURL:))
         // task-owner: the hand-off process; `helperEnded` settles, retries or exits after it.
         Task.detached(priority: .userInitiated) { [weak self] in
-            guard let owner = ownerURL.flatMap({ SingleInstanceGuard.runningCopy(at: $0, selfPID: pid) }) else {
+            let route = Self.route(owner: ownerURL.flatMap { SingleInstanceGuard.runningCopy(at: $0, selfPID: pid) },
+                                   bundleExists: { FileManager.checked.fileExists(atPath: $0) }, closing: closing)
+            switch route {
+            case .retry:
                 await self?.helperEnded(delivered: false, handedBefore: handedBefore)
                 return
+            case .launchServices(let owner):
+                Self.spawn(Self.reopenCommand(pid: pid, appPath: owner.bundlePath, urls: batch))
+                Self.logger.notice(
+                    "launch: \(batch.count, privacy: .public) URL(s) go to pid \(owner.pid, privacy: .public) at \(owner.bundlePath, privacy: .public) after exit")
+                // The running copy says which copy was opened (``AppCopyGuide``); the URLs went to LaunchServices.
+                if first, let bundleIdentifier { SecondCopyNote(openedPath: openedPath).post(bundleIdentifier: bundleIdentifier) }
+            case .note:
+                // LaunchServices cannot reach the running copy (its bundle is gone, or its owner record never
+                // resolved): the note carries the URLs, and the running copy opens them.
+                Self.logger.notice("launch: \(batch.count, privacy: .public) URL(s) go to the running copy in the second-copy note")
+                if let bundleIdentifier {
+                    for note in SecondCopyNote.notes(openedPath: openedPath, urls: batch) { note.post(bundleIdentifier: bundleIdentifier) }
+                }
             }
-            let target = owner.bundlePath, ownerPID = owner.pid, count = batch.count
-            Self.spawn(Self.reopenCommand(pid: pid, appPath: target, urls: batch))
-            Self.logger.notice(
-                "launch: \(count, privacy: .public) URL(s) go to pid \(ownerPID, privacy: .public) at \(target, privacy: .public) after exit")
             await self?.helperEnded(delivered: true, handedBefore: handedBefore)
         }
     }
 
+    /// How a batch reaches the running copy.
+    nonisolated enum Route: Equatable, Sendable {
+        /// The owner record does not resolve yet: try again at the next settle.
+        case retry
+        /// `open -a` the owner's bundle once this process exits.
+        case launchServices(SingleInstanceGuard.Owner)
+        /// The second-copy note carries the URLs (``SecondCopyNote``): the owner's bundle is gone from disk (moved or
+        /// deleted while it ran, so `open -a` would find nothing), or the record never resolved by the deadline.
+        case note
+    }
+
+    nonisolated static func route(owner: SingleInstanceGuard.Owner?, bundleExists: (String) -> Bool, closing: Bool) -> Route {
+        guard let owner else { return closing ? .note : .retry }
+        return bundleExists(owner.bundlePath) ? .launchServices(owner) : .note
+    }
+
     /// After a helper attempt. One whose running copy is not resolvable yet (its owner may be between taking
     /// the claim and writing its record) is retried at the next ``settle``, until ``deadline``; after the
-    /// deadline its URLs are dropped and nothing is launched. Never `open -b`: the bundle id may resolve to an
-    /// older copy with no guard (nightly proof, 2026-10-27).
+    /// deadline its URLs go in the second-copy note (``Route/note``), never dropped. Never `open -b`: the bundle
+    /// id may resolve to an older copy with no guard (nightly proof, 2026-10-27).
     private func helperEnded(delivered: Bool, handedBefore: Int?) {
         starting = false
-        if !delivered {
-            guard !closing else {
-                let dropped = urls.count - (handedBefore ?? 0)
-                Self.logger.error(
-                    "launch: the running copy is not resolvable from its owner record; \(dropped, privacy: .public) URL(s) dropped, nothing launched")
-                exit(0)
-            }
-            handed = handedBefore  // the same URLs go again at the next settle
-        }
+        if !delivered { handed = handedBefore }  // the same URLs go again at the next settle
         if closing { finish(deadline: true) } else { scheduleFinish() }
     }
 

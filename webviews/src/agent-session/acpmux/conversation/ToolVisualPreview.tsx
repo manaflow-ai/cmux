@@ -4,13 +4,25 @@ import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
 import { useHoverCard } from "../chips/useHoverCard";
 import "./toolVisualPreview.css";
 import { isStillVisual } from "./toolVisualPreviewModel";
-export function ToolVisualRow({ sources, label, children }: { sources: string[]; label: string; children: ReactNode }) {
+/// `opened`: the row shows its images under it, so the small one at its edge steps aside. The wrapper
+/// stays, so the row's button is the same element open or closed (its focus and its fold's anchor).
+export function ToolVisualRow({
+  sources,
+  label,
+  opened = false,
+  children,
+}: {
+  sources: string[];
+  label: string;
+  opened?: boolean;
+  children: ReactNode;
+}) {
   const source = sources.find(isStillVisual);
   if (!source) return <>{children}</>;
   return (
     <div className="cv-tool-with-visual">
       {children}
-      <ToolVisualPreview source={source} label={label} />
+      {!opened && <ToolVisualPreview source={source} label={label} />}
     </div>
   );
 }

@@ -114,13 +114,13 @@ describe("cloud environment editing", () => {
   test("cancel writes nothing and reopening never restores a typed secret", async () => {
     const { store, writes } = fake();
     await store.open();
-    expect(store.getSnapshot().draft?.secrets).toEqual([{ name: "PACKAGE_TOKEN", value: "" }]);
+    expect(store.getSnapshot().draft?.secrets).toEqual([{ id: expect.any(String), name: "PACKAGE_TOKEN", value: "" }]);
     store.edit({ secrets: [{ name: "PACKAGE_TOKEN", value: "test-write-only-value" }], script: "echo unsaved" });
     store.close();
     expect(store.getSnapshot().draft).toBeUndefined();
     expect(writes).toEqual([]);
     await store.open();
-    expect(store.getSnapshot().draft?.secrets).toEqual([{ name: "PACKAGE_TOKEN", value: "" }]);
+    expect(store.getSnapshot().draft?.secrets).toEqual([{ id: expect.any(String), name: "PACKAGE_TOKEN", value: "" }]);
     expect(store.getSnapshot().draft?.script).toBeNull();
   });
 
@@ -236,6 +236,45 @@ describe("cloud environment editing", () => {
     store.edit({ script: null, variables: [{ name: "NODE_ENV", value: "test" }] });
     await store.save();
     expect(writes[0]?.patch).toEqual({ env_vars: [{ name: "NODE_ENV", value: "test" }] });
+  });
+
+  test("every row has an id of the editor's own; it is never diffed or sent", async () => {
+    const { store, writes } = fake();
+    await store.open();
+    const draft = store.getSnapshot().draft!;
+    const ids = [...draft.variables, ...draft.secrets].map((row) => row.id);
+    expect(ids.every(Boolean)).toBe(true);
+    expect(new Set(ids).size).toBe(ids.length);
+    // Ids alone change nothing.
+    expect(environmentPatch(store.getSnapshot().original!, draft)).toEqual({});
+    // A restated list keeps each place's id; a new row gets its own.
+    store.edit({
+      variables: [
+        { name: "NODE_ENV", value: "test" },
+        { name: "DEBUG", value: "1" },
+      ],
+      secrets: [
+        { name: "PACKAGE_TOKEN", value: "tok" },
+        { name: "NEW_TOKEN", value: "new" },
+      ],
+    });
+    const edited = store.getSnapshot().draft!;
+    expect(edited.variables[0]?.id).toBe(draft.variables[0]!.id);
+    expect(edited.secrets[0]?.id).toBe(draft.secrets[0]!.id);
+    expect(edited.secrets[1]?.id).toBeString();
+    expect(edited.secrets[1]?.id).not.toBe(edited.secrets[0]?.id);
+    await store.save();
+    expect(writes[0]?.patch).toEqual({
+      env_vars: [
+        { name: "NODE_ENV", value: "test" },
+        { name: "DEBUG", value: "1" },
+      ],
+      set_secrets: [
+        { name: "PACKAGE_TOKEN", value: "tok" },
+        { name: "NEW_TOKEN", value: "new" },
+      ],
+    });
+    expect(JSON.stringify(writes[0]?.patch)).not.toContain('"id"');
   });
 
   test("late derived response cannot leak into a different sheet", async () => {
@@ -416,9 +455,15 @@ describe("secret delivery hosts and header", () => {
     await store.open({ environmentId: "env_personal" });
     const secrets = store.getSnapshot().draft?.secrets;
     expect(secrets).toEqual([
-      { name: "PACKAGE_TOKEN", value: "", hosts: "registry.example.com" },
-      { name: "GITHUB_TOKEN", value: "", hosts: "api.github.com" },
-      { name: "SEARCH_KEY", value: "", hosts: "search.example.com", header: { name: "x-api-key", format: "{value}" } },
+      { id: expect.any(String), name: "PACKAGE_TOKEN", value: "", hosts: "registry.example.com" },
+      { id: expect.any(String), name: "GITHUB_TOKEN", value: "", hosts: "api.github.com" },
+      {
+        id: expect.any(String),
+        name: "SEARCH_KEY",
+        value: "",
+        hosts: "search.example.com",
+        header: { name: "x-api-key", format: "{value}" },
+      },
     ]);
     expect(JSON.stringify(store.getSnapshot())).not.toContain("server-leaked-value");
   });
@@ -661,7 +706,11 @@ describe("secret delivery hosts and header", () => {
     const { store, writes } = fake({ list: async () => [legacy()] });
     await store.open();
     const draft = store.getSnapshot().draft!;
-    expect(draft.secrets.find((row) => row.name === "PACKAGE_TOKEN")).toEqual({ name: "PACKAGE_TOKEN", value: "" });
+    expect(draft.secrets.find((row) => row.name === "PACKAGE_TOKEN")).toEqual({
+      id: expect.any(String),
+      name: "PACKAGE_TOKEN",
+      value: "",
+    });
     expect(validateEnvironment(draft, { routes: true })).toBe("hostless");
     // An unrelated edit still can't save around it.
     store.edit({ name: "Renamed" });
@@ -730,7 +779,7 @@ describe("only a service that keeps where secrets go gets delivery", () => {
     await store.save();
     expect(writes).toHaveLength(1);
     expect(store.getSnapshot()).toMatchObject({ open: true, saving: false, error: "dropped" });
-    expect(store.getSnapshot().draft?.secrets).toEqual([{ name: "PACKAGE_TOKEN", value: "" }]);
+    expect(store.getSnapshot().draft?.secrets).toEqual([{ id: expect.any(String), name: "PACKAGE_TOKEN", value: "" }]);
     expect(JSON.stringify(store.getSnapshot())).not.toContain("npm-token");
   });
 

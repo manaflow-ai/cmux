@@ -9,7 +9,9 @@
 # the fast one cut DROP_AT seconds in. `longest_frame_gap_ms` is the stall a
 # cut costs; `final_path` is the path index carrying the stream at the end.
 #
-# Env: FAST_RTT, SLOW_RTT (ms), SECONDS_PER_RUN, DROP_AT, REPEAT, BULK_BYTES.
+# Env: FAST_RTT, SLOW_RTT (ms), SECONDS_PER_RUN, DROP_AT, REPEAT, BULK_BYTES,
+# BENCH_PATH (wg-tcp: one multipath underlay; wg-mesh: two `WgMesh` ends, the
+# `cmux link` and acpmux engine), BENCH_BIN (a prebuilt bench binary).
 set -euo pipefail
 
 out_dir="${FAST_CHECKS_OUT:-}"
@@ -25,18 +27,23 @@ secs="${SECONDS_PER_RUN:-12}"
 drop="${DROP_AT:-4}"
 repeat="${REPEAT:-3}"
 bulk="${BULK_BYTES:-16000000}"
+path="${BENCH_PATH:-wg-tcp}"
 
-cargo build --release -p cmux-wg --example remote_stream_bench >&2
-# CARGO_TARGET_DIR (set on the fleet) moves the binary; ask cargo where it is.
-target_dir="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
-bench="$target_dir/release/examples/remote_stream_bench"
+if [ -n "${BENCH_BIN:-}" ]; then
+  bench="$BENCH_BIN" # a binary built earlier (a before/after pair in one job)
+else
+  cargo build --release -p cmux-wg --example remote_stream_bench >&2
+  # CARGO_TARGET_DIR (set on the fleet) moves the binary; ask cargo where it is.
+  target_dir="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
+  bench="$target_dir/release/examples/remote_stream_bench"
+fi
 [ -x "$bench" ] || { echo "no bench binary at $bench" >&2; exit 1; }
 
 run() { # label, args...
   local label="$1"
   shift
   local line
-  line="$(timeout 200 "$bench" --path wg-tcp --seconds "$secs" --bulk-bytes "$bulk" "$@" 2>/dev/null || true)"
+  line="$(timeout 200 "$bench" --path "$path" --seconds "$secs" --bulk-bytes "$bulk" "$@" 2>/dev/null || true)"
   [ -n "$line" ] || line='{"error":"no output"}'
   printf '{"row":"%s",%s\n' "$label" "${line#\{}" | tee -a "$out"
 }

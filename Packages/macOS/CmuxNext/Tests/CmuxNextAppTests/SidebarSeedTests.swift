@@ -88,6 +88,53 @@ struct SidebarSeedTests {
         let bars = SidebarSection(kind: .machine(machine), nodes: SidebarSeed.placeholders(machine: local).map(SidebarNode.workspace))
         #expect(!seed.isReadyForReveal([bars], launching: true), "placeholder bars alone are not the sidebar's rows")
     }
+
+    /// A restored sidebar never steps back (Leo, 2026-11-09: "It shows me a glimpse of the past thing, and then
+    /// it regresses into the skeletons and placeholders, and then it gets back to the true thing"). A section's
+    /// saved rows stand in until its machine's rows are loaded: its header turning connected, or the launch
+    /// ending, before the machine's first tree arrived drew the section empty between the saved rows and the live
+    /// ones. The trace records what the section shows at each stage and fails on a step down to nothing.
+    @Test func savedRowsStayUntilTheMachinesRowsAreLoaded() {
+        let cloud = Self.machineID
+        let row = SidebarWorkspace(id: WorkspaceID("w1"), machineID: cloud, title: "w1", rowState: .stale)
+        func section(_ status: SidebarMachine.Status, rows: [SidebarWorkspace] = []) -> SidebarSection {
+            SidebarSection(kind: .machine(SidebarMachine(id: cloud, name: "Cloud test", kind: .cloud, status: status)),
+                           nodes: rows.map(SidebarNode.workspace))
+        }
+        var seed = SidebarSeed(sections: [section(.connecting, rows: [row])])
+        let live = SidebarWorkspace(id: WorkspaceID("w1"), machineID: cloud, title: "w1")
+        let stages: [(String, [SidebarSection])] = [
+            ("snapshot", seed.merge([section(.connecting)], launching: true, unloaded: [cloud])),
+            ("connected, rows not loaded", seed.merge([section(.connected)], launching: true, unloaded: [cloud])),
+            ("launch ended, rows not loaded", seed.merge([section(.connected)], launching: false, unloaded: [cloud])),
+            ("live", seed.merge([section(.connected, rows: [live])], launching: false)),
+            ("live, later empty", seed.merge([section(.connected)], launching: false)),
+        ]
+        let trace = stages.map { stage, shown in "\(stage): \(shown.flatMap(\.workspaces).map(\.id.rawValue))" }
+        #expect(trace == [
+            "snapshot: [\"w1\"]",
+            "connected, rows not loaded: [\"w1\"]",
+            "launch ended, rows not loaded: [\"w1\"]",
+            "live: [\"w1\"]",
+            // Live rows the machine took away are gone: saved rows never come back once spent.
+            "live, later empty: []",
+        ])
+    }
+
+    /// The local machine's saved rows stay past the launch's end while its daemon has not answered (it restores
+    /// after Restart to Update, or its startup said unavailable): an empty sidebar beside the connecting view
+    /// is a step down from the rows the person already saw.
+    @Test func localSavedRowsStayPastTheLaunchUntilTheDaemonAnswers() {
+        let local = MachineID.local
+        let machine = SidebarMachine(id: local, name: "This Mac", kind: .local, status: .connected)
+        let row = SidebarWorkspace(id: WorkspaceID("w1"), machineID: local, title: "w1", rowState: .stale)
+        var seed = SidebarSeed(sections: [SidebarSection(kind: .machine(machine), nodes: [.workspace(row)])])
+        let empty = SidebarSection(kind: .machine(machine), nodes: [])
+        #expect(seed.merge([empty], launching: true, unloaded: [local]).flatMap(\.workspaces).map(\.id) == [row.id])
+        #expect(seed.merge([empty], launching: false, unloaded: [local]).flatMap(\.workspaces).map(\.id) == [row.id],
+                "the launch ended before the daemon's first tree: the saved rows went")
+        #expect(seed.merge([empty], launching: false).flatMap(\.workspaces).isEmpty, "a loaded, empty machine shows empty")
+    }
 }
 
 /// A clock whose sleeps complete on the next task turn.

@@ -30,10 +30,13 @@ import {
   INLINE_RE,
 } from "./markdownModel";
 import { proseText } from "./proseText";
+import type { ClaimCheck } from "../model";
 
 /* ---------------- Inline ---------------- */
 
 export type InlineOptions = {
+  /** A finished reply's checked claims: each phrase draws inside its mark (ClaimMark.tsx). */
+  claims?: readonly ClaimCheck[];
   /** Icon drawn before a link's text; default `linkIcon` below. */
   linkIcon?: (href: string) => ReactNode | null;
   /** The reply's footnotes: each id's number and the element id of its note. */
@@ -166,7 +169,13 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
       // A local path is a path chip; a link the pane will not open draws as its text; a web
       // link is a chip with its site's mark (chips/LinkChips.tsx).
       const path = linkPath(lm[2]);
-      const labelOpts = { ...opts, githubRepository: undefined, linkGithubReferences: false, started: undefined };
+      const labelOpts = {
+        ...opts,
+        githubRepository: undefined,
+        linkGithubReferences: false,
+        started: undefined,
+        claims: undefined,
+      };
       // A link to a session (`cmux://session/<id>`) the open chat started opens that chat.
       const linked = /^[a-z][\w+.-]*:\/\/session\/([\w-]+)$/i.exec(lm[2])?.[1];
       const named = linked ? opts.started?.mentions.find((mention) => mention.sessionId === linked) : undefined;
@@ -324,7 +333,13 @@ export function InlineImage({ source, opts }: { source: string; opts: InlineOpti
   const foreign = foreignFileId(src);
   if (foreign) return <ForeignFileRef id={foreign} />;
   const name = alt || src.split(/[?#]/)[0]!.split("/").filter(Boolean).at(-1) || src;
-  const labelOpts = { ...opts, githubRepository: undefined, linkGithubReferences: false, started: undefined };
+  const labelOpts = {
+    ...opts,
+    githubRepository: undefined,
+    linkGithubReferences: false,
+    started: undefined,
+    claims: undefined,
+  };
   const href = safeHref(src);
   const fallback = !href ? (
     <span className="cv-link is-image">
@@ -352,7 +367,7 @@ function OversizedImage({ alt, opts }: { alt: string; opts: InlineOptions }) {
     >
       <ImageIcon size={16} className="cv-link__icon" />
       {alt
-        ? renderInline(alt, { ...opts, githubRepository: undefined, linkGithubReferences: false })
+        ? renderInline(alt, { ...opts, githubRepository: undefined, linkGithubReferences: false, claims: undefined })
         : t("markdown.imageTooLarge")}
     </span>
   );

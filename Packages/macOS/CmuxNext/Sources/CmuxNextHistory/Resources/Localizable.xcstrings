@@ -1453,134 +1453,134 @@
         }
       }
     },
-    "history.refusal.needsSite" : {
-      "comment" : "Refusal: Forget Site ran without a site.",
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Type a site, such as example.com"
+    "status.stillLoading": {
+      "comment": "Palette row shown under a History list that is not complete yet: the app reads the list again by itself.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جارٍ تحميل السجل…"
           }
         },
-        "ar" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "اكتب موقعًا، مثل example.com"
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Historija se još učitava…"
           }
         },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Upiši stranicu, npr. example.com"
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Historikken indlæses stadig…"
           }
         },
-        "da" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Skriv et websted, fx example.com"
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verlauf wird noch geladen…"
           }
         },
-        "de" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Gib eine Website ein, etwa example.com"
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still loading history…"
           }
         },
-        "es" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Escribe un sitio, como example.com"
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El historial aún se está cargando…"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Saisissez un site, par exemple example.com"
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chargement de l’historique en cours…"
           }
         },
-        "it" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Scrivi un sito, ad esempio example.com"
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cronologia ancora in caricamento…"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "example.com のようにサイトを入力してください"
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "履歴をまだ読み込んでいます…"
           }
         },
-        "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "វាយគេហទំព័រ ដូចជា example.com"
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងផ្ទុកប្រវត្តិនៅឡើយ…"
           }
         },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "example.com과 같은 사이트를 입력하세요"
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "기록을 아직 불러오는 중…"
           }
         },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Skriv et nettsted, for eksempel example.com"
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Historikken lastes fortsatt inn…"
           }
         },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Wpisz witrynę, np. example.com"
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Historia nadal się wczytuje…"
           }
         },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Digite um site, como example.com"
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O histórico ainda está carregando…"
           }
         },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Введите сайт, например example.com"
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "История ещё загружается…"
           }
         },
-        "th" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "พิมพ์เว็บไซต์ เช่น example.com"
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังโหลดประวัติอยู่…"
           }
         },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "example.com gibi bir site yazın"
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Geçmiş hâlâ yükleniyor…"
           }
         },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Введіть сайт, наприклад example.com"
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Історія ще завантажується…"
           }
         },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Nhập một trang web, chẳng hạn example.com"
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vẫn đang tải lịch sử…"
           }
         },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "请输入网站,例如 example.com"
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仍在加载历史记录…"
           }
         },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "請輸入網站,例如 example.com"
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仍在載入歷史記錄…"
           }
         }
       }

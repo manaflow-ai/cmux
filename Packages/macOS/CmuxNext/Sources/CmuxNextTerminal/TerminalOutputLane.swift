@@ -34,6 +34,14 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     /// `ghostty_surface_local_history_result_e`; read after ``drained()``).
     private let localHistoryResult = Atomic<Int32>(Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_ERROR.rawValue))
     var lastLocalHistoryResult: Int32 { localHistoryResult.load(ordering: .acquiring) }
+    /// Ghostty's alternate screen was active after the last parsed chunk that could change it (``noteScreen(_:after:)``).
+    private let alternateScreen = Atomic<Bool>(false)
+    /// Which parsed chunks need the alternate-screen read (``noteScreen(_:after:)``). Touched only on `queue`.
+    private var screenWatch = TerminalScreenSwitchWatch()
+    /// Whether a full-screen program draws the screen (Ghostty's alternate screen is active), as of the last parsed
+    /// output. Lock-free, any thread: the resize hold reads it on main (``TerminalSurfaceView/programHoldTicks``, RESIZE
+    /// P0 15), where Ghostty's own read (`ghostty_surface_grid_metrics`) would wait for the renderer-state mutex.
+    var showsAlternateScreen: Bool { alternateScreen.load(ordering: .acquiring) }
 
     private struct Backlog {
         var bytes = 0
@@ -43,10 +51,15 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     private let backlog = Mutex(Backlog())
     /// The layer whose frames show this lane's output (the typing probe's ``TypingLatencyProbe/Mark/contents``).
     let frameLayer: ObjectIdentifier?
+    /// The terminal's predictive echo engine (nil: it does not predict). It sees each chunk right after Ghostty
+    /// parsed it, in stream order, so the overlay never reads a cursor that has not moved for bytes the engine saw.
+    let prediction: TerminalEchoPrediction?
 
-    init(surface: ghostty_surface_t, label: String, highWater: Int = 2 << 20, frameLayer: ObjectIdentifier? = nil) {
+    init(surface: ghostty_surface_t, label: String, highWater: Int = 2 << 20, frameLayer: ObjectIdentifier? = nil,
+         prediction: TerminalEchoPrediction? = nil) {
         self.surface = surface
         self.frameLayer = frameLayer
+        self.prediction = prediction
         self.highWater = highWater
         self.queue = DispatchQueue(label: label, qos: .userInteractive)
     }
@@ -54,7 +67,9 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     /// Bytes queued but not parsed yet.
     var pendingBytes: Int { backlog.withLock { $0.bytes } }
 
-    func processOutput(_ data: Data) {
+    /// `replacesScreen`: a VT replay of the whole screen, not output the remote sent after the keys typed (the echo
+    /// engine starts over once it is parsed).
+    func processOutput(_ data: Data, replacesScreen: Bool = false) {
         guard !data.isEmpty else { return }
         backlog.withLock { $0.bytes += data.count }
         queue.async { [self] in
@@ -64,7 +79,13 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
                 guard let base = buffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
                 ghostty_surface_process_output(surface, base, UInt(buffer.count))
             }
+            if let prediction {
+                // A replay starts the engine over, then its bytes set the modes they leave on (conceal, say).
+                if replacesScreen { prediction.missedOutput(alternateScreen: Self.readsAlternateScreen(surface)) }
+                prediction.output(data)
+            }
             TypingLatencyProbe.shared.mark(.outputParsed, source: .object(ObjectIdentifier(self)), next: frameLayer.map(TypingLatencyProbe.Source.object))
+            noteScreen(surface, after: data)
             #if DEBUG || CMUX_BENCH_HOOKS
             if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.parsed(lane: ObjectIdentifier(self), data) }
             #endif
@@ -88,6 +109,10 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
                 return ghostty_surface_restore_snapshot(surface, base, buffer.count, phase)
             }
             if ready { readyRestored.store(restored, ordering: .releasing) }
+            if restored {
+                noteScreen(surface, after: nil)
+                prediction?.restoredSnapshot(alternateScreen: ready ? Self.readsAlternateScreen(surface) : nil)
+            }
             #if DEBUG || CMUX_BENCH_HOOKS
             if NewTerminalTrace.shared.isArmed, restored { NewTerminalTrace.shared.parsed(lane: ObjectIdentifier(self), nil) }
             #endif
@@ -122,6 +147,8 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
             }
             // A local READY replaces the old one: no history chunk may follow it.
             readyRestored.store(false, ordering: .releasing)
+            noteScreen(surface, after: nil)
+            prediction?.restoredSnapshot(alternateScreen: Self.readsAlternateScreen(surface))
             if result != Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_RESTORED.rawValue) {
                 Self.logger.error("local-history restore result \(result) (\(data.count) bytes)")
             }
@@ -180,6 +207,25 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
             surface = nil
             MainDelivery().run { teardown.run() }
         }
+    }
+
+    /// Whether a full-screen program owns the parsed screen (read on the lane, after the parse).
+    private static func readsAlternateScreen(_ surface: ghostty_surface_t) -> Bool {
+        var metrics = ghostty_surface_grid_metrics_s()
+        return ghostty_surface_grid_metrics(surface, &metrics) && metrics.alternate_screen
+    }
+
+    /// On `queue`, after `surface` parsed `data` (nil: a snapshot restore, which can change anything): reads whether
+    /// Ghostty's alternate screen is active when the chunk could have changed it (``TerminalScreenSwitchWatch``), so a
+    /// chunk that cannot switch the screen (typed echo, plain output) costs one byte scan and no lock.
+    private func noteScreen(_ surface: ghostty_surface_t, after data: Data?) {
+        guard screenWatch.needsRead(after: data) else { return }
+        var metrics = ghostty_surface_grid_metrics_s()
+        // False while an unlocked grid's resize is in flight: the screen did not change then.
+        let read = ghostty_surface_grid_metrics(surface, &metrics)
+        screenWatch.readFinished(read)
+        guard read else { return }
+        alternateScreen.store(metrics.alternate_screen, ordering: .releasing)
     }
 
     private func parsed(_ count: Int) {

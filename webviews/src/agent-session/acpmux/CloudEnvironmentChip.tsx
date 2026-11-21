@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useLocationShortcut } from "./composerControls";
 import type { CloudEnvironment } from "../../pages/cloud/environmentModel";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../../ui/Menu";
 import { ChevronIcon } from "./ComposerPickers";
@@ -100,8 +101,14 @@ export function useChatCloudEnvironment(chat: string): {
   // Another chat: back to Auto in this render, before anything reads the old chat's pick.
   const current = held.chat === chat ? held.current : AUTO_ENVIRONMENT;
   if (held.chat !== chat) setHeld({ chat, current: AUTO_ENVIRONMENT });
+  // The same pick object while the chat and its pick stay: the composer takes it in its run mode
+  // rows, and a new object each render drew the composer again on every pane event.
+  const pick = useMemo<CloudEnvironmentPick>(
+    () => ({ current, onPick: (id) => setHeld({ chat, current: id }) }),
+    [chat, current],
+  );
   return {
-    pick: { current, onPick: (id) => setHeld({ chat, current: id }) },
+    pick,
     forSend: (explicit) => {
       const environment = cloudStartEnvironment(explicit, current);
       setHeld({ chat, current: AUTO_ENVIRONMENT });
@@ -153,6 +160,7 @@ export function CloudEnvironmentChip({
   const { control: box, anchor, open: popoverOpen, setOpen } = useLocationPopover();
   const open = popoverOpen && active;
   useLocationOpener(active ? "Environment" : undefined, () => setOpen(true));
+  const shortcut = useLocationShortcut(active ? "Environment" : undefined);
   const auto = t("composer.envAuto");
   const value = cloudEnvironmentValue(control, auto);
   // The visible name ("Environment: Auto") and, for the tooltip and accessible name, one that never
@@ -237,6 +245,7 @@ export function CloudEnvironmentChip({
       data-kind="cloud-environment"
       data-testid="cloud-environment-chip"
       title={`${name}: ${value}`}
+      data-tooltip-shortcut={shortcut}
     >
       <Menu
         open={open}

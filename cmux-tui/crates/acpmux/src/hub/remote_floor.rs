@@ -101,7 +101,8 @@ impl Hub {
     /// cancelled this turn, its Web control ended (the sticky flag), or its
     /// current mode does not ask.
     pub(super) fn remote_floor_breach(&self, session: &Session) -> Option<&'static str> {
-        let turn = session.turn().map(|t| t.turn_id);
+        let (turn, device) = session.turn().map(|t| (t.turn_id, t.device)).unzip();
+        let device = device.flatten();
         if turn.is_some()
             && *session.floor.floor_cancelled_turn.lock().unwrap_or_else(|e| e.into_inner()) == turn
         {
@@ -109,6 +110,13 @@ impl Hub {
         }
         if session.floor.unsandboxed.load(Ordering::SeqCst) {
             return Some("remote.unsandboxed_agent");
+        }
+        // The owner's own phone with Full access on drives the chat in the mode it has
+        // (`Hub::owner_phone_full_access`), read again here, so removing the phone or turning
+        // its setting off holds the turn at its next request. The device is the turn's own,
+        // read with its id (`TurnInfo::device`).
+        if self.owner_phone_full_access(device.as_deref()) {
+            return None;
         }
         if session.web_control_ended.load(Ordering::SeqCst) {
             return Some("remote.mode_left_asking_table");
@@ -128,14 +136,15 @@ impl Hub {
             return self.cloud_mobile_mode_asks(meta);
         }
         let table = self.web_modes();
-        if !table.session_asks(meta) {
+        let modes_of = self.trusted_mode_family(meta);
+        if !table.session_asks_as(meta, &modes_of) {
             return false;
         }
         if crate::web_modes::mode_of(meta).is_some() {
             return true;
         }
         match session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()).as_deref() {
-            Some(mode) => table.modes(&crate::web_modes::family_of(meta)).iter().any(|m| m == mode),
+            Some(mode) => table.modes(&modes_of).iter().any(|m| m == mode),
             None => true,
         }
     }
@@ -266,8 +275,8 @@ pub(super) fn open_read_target(_t: &ReadTarget) -> std::io::Result<std::fs::File
 #[cfg(unix)]
 pub(super) fn write_approved(target: &Path, content: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-    let mut file = std::fs::OpenOptions::new()
+    use std::os::unix::fs::MetadataExt;
+    let mut file = crate::home_fs::OpenOptions::new()
         .write(true)
         .create(true)
         .truncate(false)

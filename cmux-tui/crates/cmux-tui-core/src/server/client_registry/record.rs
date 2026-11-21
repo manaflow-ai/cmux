@@ -50,4 +50,8 @@ pub(in crate::server) struct ClientRecord {
     pub(in crate::server) owner_plugin: bool,
     #[cfg(unix)]
     pub(in crate::server) machine_catalog: Option<super::machine_catalog::Publication>,
+    /// The tabs whose chat this connection's own `agent-session-start` bound: a phone's channel
+    /// may close these (hostd's cleanup past its session limit, phone_carrier.rs).
+    #[cfg(unix)]
+    pub(in crate::server) started_tabs: HashSet<SurfaceId>,
 }

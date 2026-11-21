@@ -18,6 +18,9 @@ public protocol ChiefPanelContent: AnyObject {
     /// Whether the view leaves its own background clear so the workspace shows through (the see-through styles,
     /// ``ChiefPanelStyle/isSeeThrough``); bubbles, text and the composer still draw. False by default.
     var chiefShowsThrough: Bool { get set }
+    /// The height of the view's own header at its top (the Chief's name and picture), which the see-through styles
+    /// keep a glass plate behind so it reads over any workspace. 0 by default: no header.
+    var chiefHeaderHeight: CGFloat { get }
 }
 
 extension ChiefPanelContent {
@@ -26,4 +29,7 @@ extension ChiefPanelContent {
         get { false }
         set {}
     }
+
+    /// A view with no header of its own: the see-through plate covers only the panel's bar.
+    public var chiefHeaderHeight: CGFloat { 0 }
 }

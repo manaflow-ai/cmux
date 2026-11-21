@@ -1,7 +1,7 @@
 # Server cards: one floating card family
 
-The cards that pair and add machines (Pair Another Machine now; Add Device, Add Server, the
-approver, Add Machine and the join consent next) are one family: one floating panel, one React
+The cards that pair and add machines (Pair Another Machine and Add Machine now; Add Device, Add Server, the
+approver and the join consent next) are one family: one floating panel, one React
 page, one card per route. Swift keeps the panel and the services that touch the system (the cloud
 calls, the invite socket, the clipboard); every card's look and every step it walks are React
 (`webviews/src/pages/server-cards`).
@@ -95,6 +95,51 @@ confirmation that swaps a button's label for a moment.
 
 Picked: **side**: the shortest card, the code first, and the QR in reach for a camera without a
 second column of text.
+
+## Add Machine (`#/add-machine`)
+
+Type a host you reach with ssh, or pick a machine on your tailnet, and cmux enrolls it
+(plans/cmux-next/add-machine-DESIGN.md); Check Machine runs the same checklist for a machine the
+app has, with Fix. Swift keeps the runs (`AddMachineRuns`: the `cmux-tui acp host enroll|doctor`
+runs, the app's own install when enroll cannot put its build on the host, connect, the Machines
+section's health record); the card folds each run's events into its checklist
+(`add-machine/model.ts`, `checklist.ts`). A destination from the CLI or MCP only fills the field:
+Add and Fix run only from the person's own click or key in the card (`userGesture`).
+
+| Phase | Shows | Buttons |
+| --- | --- | --- |
+| pick | the title and help line, the host field (focused), Name (its placeholder the short host, or a picked agent peer's name), the tailnet's machines (greyed with why: Added, Offline, ssh off; an agent peer says so and stays pickable) | Cancel ⎋, Add ↩ (off until the field is a host ssh takes) |
+| running | "Adding dev-box" (or "Checking dev-box"), one line "Step 3 of 9: Start the agent daemon" with Show Details, a working glyph in the footer | Cancel ⎋, Adding… (off) |
+| ready | the done glyph, "dev-box is ready", its help line | Done ⎋, Open Workspace ↩ |
+| failed | the error glyph, "dev-box could not be added", every step with its glyph; the failed one open with its whole detail and fix | Copy Details, Change Host, Try Again ↩ |
+| check, failed | "dev-box needs attention", the same list | Copy Details, Fix ↩ |
+| joined check | only the steps the joined machine's check sends | Cancel ⎋ / Copy Details, Done ↩ |
+
+- **Start → end:** Add (pick → running): the field and the list leave and the checklist takes
+  their place in the same frame; the header and the footer stay put, and the card shrinks or grows
+  from its bottom edge. A step that fails or warns opens the whole list (running → failed, or a
+  warning while it runs): the card grows downward. Change Host (failed → pick) brings the fields
+  back as they were typed. A reopen while a run goes shows that run; any other reopen starts on
+  fresh fields.
+- **Size:** 460 px wide; the tailnet list scrolls inside at about five rows (168 px), so a long
+  tailnet keeps the card's size and draws only the rows in view.
+- The running step and the list's loading show a still working glyph, never a spinner.
+
+### Variants (gallery `pages.server-cards.add-machine`)
+
+References: setup checklists that collapse to one line while all goes well, step rails, and full
+step lists.
+
+- **progress** (shipped): one line while the run goes well ("Step 3 of 9: …", Show Details), the
+  whole list only when a step needs the person. People asked for exactly this: a ready card that
+  listed every step, skips and warnings included, read as a problem (2026-10-31).
+- **list**: every step with its glyph from the start. Honest, but nine rows for a run that needs
+  nothing from the person, and the card grows on every Add.
+- **rail**: one glyph per step in a row, the running step named under it. Compact, but the glyphs
+  alone do not say which step is which, and a failure still needs the list.
+
+**Pick: progress.** It keeps the card one size while nothing needs the person, and opens the list
+exactly when something does, so the only growth is the one the person must read.
 
 ## The server panel, pairing code, Health and Add Server
 

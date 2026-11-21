@@ -394,6 +394,7 @@ impl ClientRegistry {
         &self,
         client: u64,
         surface: SurfaceId,
+        routes: &crate::route_table::RouteGenerations,
     ) -> Option<(Arc<crate::Surface>, bool)> {
         let state = self.state.lock().recover_poison();
         let attached = state.clients.get(&client)?.attached.get(&surface)?;
@@ -401,7 +402,7 @@ impl ClientRegistry {
         let can_type = attached.can_type();
         // A change of this id's route since it was kept (respawn, close, move): the id may name another terminal now.
         // Only this id's route counts: a tab created or closed elsewhere keeps it (TYPING FIX 2).
-        if *generation != crate::route_table::route_generation(surface) {
+        if *generation != routes.of(surface) {
             return None;
         }
         let input = kept.upgrade()?;
@@ -707,5 +708,23 @@ impl ClientRegistry {
     /// Drop the attach epoch of a surface that no longer exists.
     pub(crate) fn forget_surface_attach_epoch(&self, surface: SurfaceId) {
         self.state.lock().recover_poison().attach_epochs.remove(&surface);
+    }
+}
+
+#[cfg(test)]
+impl ClientRegistry {
+    /// Tests outside `server`: a new local client with an attach stream on
+    /// `surface`. Returns the client id.
+    pub(crate) fn attach_test_stream(&self, surface: SurfaceId) -> u64 {
+        let writer = super::MessageWriter::new(super::QueuedSink {
+            outbound: Arc::new(super::BoundedOutbound::default()),
+            control: None,
+        });
+        let client = self.register(super::ClientTransport::Unix, writer.clone());
+        let stream = writer
+            .start_stream(&super::terminal_snapshot::attach_overflow_json(surface))
+            .expect("start the test attach stream");
+        self.attach_surface(client, surface, stream).expect("attach the test stream");
+        client
     }
 }

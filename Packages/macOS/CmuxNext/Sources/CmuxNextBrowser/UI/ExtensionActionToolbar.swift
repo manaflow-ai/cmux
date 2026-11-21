@@ -30,6 +30,7 @@ final class ExtensionActionToolbar {
         let button = ChromeIconButton(icon: .browserToolbarExtensions, label: Strings.extensions,
                                       action: #selector(MenuTrampoline.fire), target: trampoline, toolbar: true)
         button.setAccessibilityIdentifier(Identifier.menuButton)
+        button.iconSide = { OmnibarStyle.extensionsIconSize }
         // Chrome opens the Extensions menu on the press, not the release; its bubble is made when the pointer first comes.
         button.sendAction(on: [.leftMouseDown])
         button.onPointerEnter = { [weak self] in if self?.menuControllerIfMade == nil { self?.schedulePrepare() } }
@@ -142,7 +143,7 @@ final class ExtensionActionToolbar {
         let pinsChanged = actions.filter(\.isPinned).map(\.id) != lastActions.filter(\.isPinned).map(\.id)
         // Chrome animates a pin or an unpin (about 0.2 s): the icon fades and the neighbours
         // slide. Not on a tab's first render, not under Reduce Motion.
-        let animate = hasRendered && pinsChanged && Motion.overlays.animatesMovement && slot.window != nil
+        let animate = hasRendered && pinsChanged && Motion.overlays.animatesMovement(in: slot.window) && slot.window != nil
         hasRendered = true
         let update = { [self] () -> [() -> Void] in
             let pinnedBefore = pinnedCount
@@ -358,13 +359,13 @@ final class ExtensionActionToolbar {
     func dragTarget(_ id: String, dx: CGFloat) -> Int? {
         let shown = visibleIDs
         guard let from = shown.firstIndex(of: id) else { return nil }
-        let step = OmnibarStyle.buttonSize + OmnibarStyle.buttonSpacing
+        let step = OmnibarStyle.buttonSize(scale: OmnibarStyle.scale(of: slot)) + OmnibarStyle.buttonSpacing(scale: OmnibarStyle.scale(of: slot))
         return min(max(from + Int((dx / step).rounded()), 0), shown.count - 1)
     }
 
     private func dragMoved(_ id: String, dx: CGFloat) {
         guard let target = dragTarget(id, dx: dx), let from = visibleIDs.firstIndex(of: id) else { return }
-        let step = OmnibarStyle.buttonSize + OmnibarStyle.buttonSpacing
+        let step = OmnibarStyle.buttonSize(scale: OmnibarStyle.scale(of: slot)) + OmnibarStyle.buttonSpacing(scale: OmnibarStyle.scale(of: slot))
         for (index, other) in visibleIDs.enumerated() {
             var shift: CGFloat = 0
             if other == id {

@@ -9,6 +9,7 @@ import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("new-tab-picker-clip.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -49,7 +50,7 @@ await requireBrowserLane("new-tab-picker-clip.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 560 } });
     await page.goto(`http://127.0.0.1:${port}/test/browser/new-tab-picker.html`);
     await page.addStyleTag({ content: utilities });
-    const chip = page.locator(".acpmux-model .acpmux-picker-button").first();
+    const chip = page.locator(MODEL_PICKER).first();
     await chip.waitFor();
     await chip.click();
     const menu = page.locator(".acpmux-cols");
@@ -61,7 +62,14 @@ await requireBrowserLane("new-tab-picker-clip.test.ts", async () => {
     const geometry = await page.evaluate(() => {
       const menu = document.querySelector(".acpmux-cols")!.getBoundingClientRect();
       const frame = document.querySelector(".acpmux-cols-frame")!.getBoundingClientRect();
-      const lists = [...document.querySelectorAll<HTMLElement>(".acpmux-cols-body > .acpmux-cols-list")];
+      // The menu's scrolling columns, as QuickModelColumns.tsx reads them for its fades: the rail and the
+      // model list (in .acpmux-cols-lists) and the options column, which scrolls in its tune-scroll.
+      const lists = [
+        ...document.querySelectorAll<HTMLElement>(
+          ".acpmux-cols-body .acpmux-cols-lists > .acpmux-cols-list, .acpmux-cols-body .acpmux-cols-tune-scroll",
+        ),
+      ];
+      const frameNode = document.querySelector<HTMLElement>(".acpmux-cols-frame")!;
       const screenNode = document.querySelector<HTMLElement>(".nt-screen")!;
       const screen = screenNode.getBoundingClientRect();
       return {
@@ -69,6 +77,8 @@ await requireBrowserLane("new-tab-picker-clip.test.ts", async () => {
         menuBottom: menu.bottom,
         menuHeight: menu.height,
         frameHeight: frame.height,
+        // The default height the menu measured: six effort levels and Fast (#41212).
+        fitHeight: Number(frameNode.dataset.fitHeight),
         columns: lists.map((list) => ({
           overflow: getComputedStyle(list).overflowY,
           height: list.getBoundingClientRect().height,
@@ -83,7 +93,10 @@ await requireBrowserLane("new-tab-picker-clip.test.ts", async () => {
     const { menuTop, menuBottom, menuHeight, screenTop, screenBottom, scrollable } = geometry;
     // Never collapsed: it lists its rows.
     expect(menuHeight).toBeGreaterThan(60);
-    expect(geometry.frameHeight, "the columns stay within their height cap").toBeLessThanOrEqual(259);
+    expect(Number.isFinite(geometry.fitHeight), "the menu measured its default height").toBe(true);
+    expect(geometry.frameHeight, "the columns stay within their default height").toBeLessThanOrEqual(
+      geometry.fitHeight + 0.5,
+    );
     expect(geometry.columns).toHaveLength(3);
     for (const column of geometry.columns) {
       // `scroll` on the Model and options columns: their lane is always kept (cmuxterm-hq#7707).

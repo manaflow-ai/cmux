@@ -70,6 +70,14 @@ export function tabRowStyle(row: TabRow): CSSProperties | undefined {
   } as CSSProperties;
 }
 
+/// The top of a viewer over the whole pane (the image viewer, the video player, the chat's gallery): it is portaled
+/// outside the shell that carries the row's height, and the row draws over the page's top, so it starts below the row
+/// and its name never sits under the tabs (Leo, 2026-11-05: "the file nameis also way at the top"). None outside it.
+export function belowTabRowStyle(row: TabRow): CSSProperties | undefined {
+  if (row.height <= 0) return undefined;
+  return { "--acpmux-image-viewer-top": `${row.height}px` } as CSSProperties;
+}
+
 /// The document root's mark that a chat shell sits in the tab row (header.css, src/styles.css: the page's own
 /// background stays clear in the row). An attribute the shell sets, not `html:has(.acpmux-shell[data-tab-row])`:
 /// a `:has()` on the root is checked again for every node a streamed chunk inserts into the transcript, and

@@ -3,7 +3,7 @@
 
 use serde_json::{Value, json};
 
-use super::{CloudConversations, CloudError};
+use super::{CloudConversations, CloudError, HttpReply};
 
 fn invalid() -> CloudError {
     CloudError::BadRequest(
@@ -19,6 +19,40 @@ fn identifier(value: Option<&Value>) -> Result<&str, CloudError> {
                 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
         })
         .ok_or_else(invalid)
+}
+
+/// A refused reply as the error the sheet sees. Effect HttpApi returns a flat
+/// `{_tag, code, message}` object (or one under `error`). A code the sheet maps
+/// (cmux-platform's `cloud_environment.*` refusals and, since cmux-platform#1046, the vault's
+/// `vault.*` save failures) is forwarded alone, shape and length checked, even for a 503. Any
+/// other 4xx code becomes `http_<status>`. The message is always ours, never the upstream's: a
+/// validation service can quote a submitted write-only value.
+fn refused(reply: &HttpReply) -> Result<(), CloudError> {
+    if (200..=299).contains(&reply.status) {
+        return Ok(());
+    }
+    let error = reply.body.get("error").unwrap_or(&reply.body);
+    if let Some(code) = error.get("code").and_then(Value::as_str).filter(|code| {
+        (code.starts_with("cloud_environment.") || code.starts_with("vault."))
+            && code.len() <= 128
+            && code.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"._".contains(&byte))
+    }) {
+        return Err(CloudError::Rejected {
+            code: code.into(),
+            message: "Could not save or load the cloud environment. Try again.".into(),
+            retryable: reply.status >= 500 || reply.status == 429,
+        });
+    }
+    super::contract::classify(reply).map_err(|error| match error {
+        CloudError::Rejected { retryable, .. } => CloudError::Rejected {
+            code: format!("http_{}", reply.status),
+            message:
+                "Could not save or load the cloud environment. Check the fields and try again."
+                    .into(),
+            retryable,
+        },
+        other => other,
+    })
 }
 
 impl CloudConversations {
@@ -104,37 +138,7 @@ impl CloudConversations {
             }
             _ => return Err(invalid()),
         };
-        // Effect HttpApi returns a flat {_tag, code, message} object. Preserve
-        // its typed environment failures even for 503 (secret storage unavailable).
-        // Never forward messages, which may reflect a submitted write-only value.
-        if !(200..=299).contains(&reply.status) {
-            let error = reply.body.get("error").unwrap_or(&reply.body);
-            if let Some(code) = error.get("code").and_then(Value::as_str).filter(|code| {
-                code.starts_with("cloud_environment.")
-                    && code.len() <= 128
-                    && code
-                        .bytes()
-                        .all(|byte| byte.is_ascii_alphanumeric() || b"._".contains(&byte))
-            }) {
-                return Err(CloudError::Rejected {
-                    code: code.into(),
-                    message: "Could not save or load the cloud environment. Try again.".into(),
-                    retryable: reply.status >= 500 || reply.status == 429,
-                });
-            }
-        }
-        super::contract::classify(&reply).map_err(|error| match error {
-            // A validation service can quote an invalid submitted value. Never echo one
-            // from a request that may contain a write-only secret; the UI maps the code.
-            CloudError::Rejected { code, retryable, .. } => CloudError::Rejected {
-                code,
-                message:
-                    "Could not save or load the cloud environment. Check the fields and try again."
-                        .into(),
-                retryable,
-            },
-            other => other,
-        })?;
+        refused(&reply)?;
         let mut body = reply.body;
         if let Some(environments) = body.as_array_mut() {
             environments.iter_mut().for_each(redact);
@@ -179,6 +183,49 @@ fn redact(environment: &mut Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A save answered with `status` and `body`.
+    fn save_refused(status: u16, body: Value) -> CloudError {
+        refused(&HttpReply { status, body }).expect_err("a refused save fails")
+    }
+
+    #[test]
+    fn a_vault_code_reaches_the_sheet_and_an_upstream_message_never_does() {
+        for status in [400, 503] {
+            let error = save_refused(
+                status,
+                json!({"_tag": "MachineBadRequest", "code": "vault.secret_without_host",
+                       "message": "TOKEN=hunter2 has no host"}),
+            );
+            let CloudError::Rejected { code, message, retryable } = &error else {
+                panic!("{status}: {error:?}");
+            };
+            assert_eq!(code, "vault.secret_without_host");
+            assert_eq!(*retryable, status >= 500);
+            assert!(!message.contains("hunter2"), "{message}");
+        }
+    }
+
+    #[test]
+    fn a_code_outside_the_sheets_prefixes_is_not_forwarded_nor_its_message() {
+        for (status, body) in [
+            (400, json!({"code": "other.thing", "message": "hunter2"})),
+            (400, json!({"error": {"code": "other.thing", "message": "hunter2"}})),
+            (400, json!({"code": "vault.has space", "message": "hunter2"})),
+            (400, json!({"code": format!("vault.{}", "a".repeat(128)), "message": "hunter2"})),
+            (503, json!({"code": "other.thing", "message": "hunter2"})),
+        ] {
+            let error = save_refused(status, body);
+            let text = format!("{error:?}");
+            assert!(!text.contains("other.thing") && !text.contains("vault."), "{text}");
+            assert!(!text.contains("hunter2"), "{text}");
+            match error {
+                CloudError::Rejected { code, .. } => assert_eq!(code, format!("http_{status}")),
+                CloudError::Unavailable(_) => assert_eq!(status, 503),
+                other => panic!("{other:?}"),
+            }
+        }
+    }
 
     #[test]
     fn redact_keeps_only_a_secrets_name_dates_hosts_and_header_name_and_format() {

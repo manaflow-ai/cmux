@@ -1,4 +1,4 @@
-//! The plugin copy of Claude Code's hooks stands down when another copy runs.
+//! The plugin copy of Claude Code's hooks stands down when it must not report.
 //!
 //! A cmux-tui pane names the build's Claude Code plugin in
 //! `CLAUDE_CODE_PLUGIN_DIRS`, so Claude gets the session's hooks however it
@@ -10,15 +10,37 @@
 //! such a run does nothing when the installed copy runs too. The `claude`
 //! shim's wrapper removes the plugin from the folders it passes on, since its
 //! own `--settings` carries the hooks.
+//!
+//! Claude Code passes its environment, the plugin folder and the terminal's
+//! variables too, to the commands its tools run, so a Claude that such a
+//! command starts (`claude -p` in a Bash tool call) would report to the same
+//! terminal and take the messages queued for the terminal's agent, through the
+//! plugin, the installed hooks or the shim's hooks. So the copy of the hooks
+//! that reports `SessionStart` claims the terminal for its session: it
+//! appends `export CMUX_TUI_CLAUDE_OWNER=<terminal>/<session>` to Claude
+//! Code's `CLAUDE_ENV_FILE`, which Claude Code sources before each Bash tool
+//! command (its own hooks do not see it: Claude Code 2.1.319 names the file
+//! and leaves creating it to the hook). Any copy of a Claude hook that finds a
+//! claim for its terminal by another session does nothing. A Claude in
+//! another terminal (`cmux agent start` from a tool command) reports to its
+//! own terminal.
 
 use std::ffi::OsString;
-use std::io::Read as _;
+use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
 
 /// Set by the plugin's hook commands (cmux_tui_hooks::CLAUDE_PLUGIN_ORIGIN_ENV).
 const ORIGIN_ENV: &str = "CMUX_TUI_HOOK_ORIGIN";
 /// The plugin's value of [`ORIGIN_ENV`] (cmux_tui_hooks::CLAUDE_PLUGIN_ORIGIN).
 const PLUGIN_ORIGIN: &str = "claude-plugin";
+/// The terminal and session of the Claude whose tool commands run in this
+/// environment (`<terminal>/<session>`).
+const OWNER_ENV: &str = "CMUX_TUI_CLAUDE_OWNER";
+/// The file a `SessionStart` hook may append `export` lines to; Claude Code
+/// sources it before each Bash tool command.
+const CLAUDE_ENV_FILE: &str = "CLAUDE_ENV_FILE";
+/// The cmux-tui terminal the hook runs in.
+const TERMINAL_ENV: &str = "CMUX_TUI_TERMINAL_ID";
 /// Ends every hook command cmux-tui writes (cmux_tui_hooks COMMAND_MARKER).
 const COMMAND_MARKER: &str = "cmux-tui-journal-hook";
 /// `1` turns cmux-tui's Claude hooks off (claude_wrapper.rs).
@@ -26,15 +48,24 @@ const HOOKS_DISABLED_ENV: &str = "CMUX_TUI_CLAUDE_HOOKS_DISABLED";
 /// Settings files are small; a larger one is not read.
 const MAX_SETTINGS_BYTES: u64 = 16 * 1024 * 1024;
 
-/// Whether this run is the plugin copy of a Claude hook that must do nothing:
-/// cmux-tui's Claude hooks are turned off, or the installed copy of the same
-/// event runs in this Claude too.
+/// Whether this run of a Claude hook must do nothing: another session's
+/// Claude claimed this terminal (this Claude runs under its tool), or it is
+/// the plugin copy and cmux-tui's Claude hooks are turned off or the installed
+/// copy of the same event runs in this Claude too. `session` is the hook's
+/// `session_id`.
 pub(super) fn stands_down(
     source: &str,
     native_event: &str,
+    session: Option<&str>,
     getenv: impl Fn(&str) -> Option<OsString>,
 ) -> bool {
-    if source != "claude" || getenv(ORIGIN_ENV).is_none_or(|origin| origin != PLUGIN_ORIGIN) {
+    if source != "claude" {
+        return false;
+    }
+    if claimed_by_another(session, &getenv) {
+        return true;
+    }
+    if !is_plugin_copy(source, &getenv) {
         return false;
     }
     if getenv(HOOKS_DISABLED_ENV).is_some_and(|value| value == "1") {
@@ -42,6 +73,77 @@ pub(super) fn stands_down(
     }
     installed_copy_runs(&getenv)
         && user_settings(&getenv).is_some_and(|path| installs_event(&path, native_event))
+}
+
+/// Whether this run is a Claude hook whose environment claims its terminal
+/// for another session (the part of [`stands_down`] that also holds for the
+/// installed and the shim's copies).
+pub(super) fn claimed_elsewhere(
+    source: &str,
+    session: Option<&str>,
+    getenv: impl Fn(&str) -> Option<OsString>,
+) -> bool {
+    source == "claude" && claimed_by_another(session, &getenv)
+}
+
+/// Whether this environment claims its terminal for a session other than
+/// `session`.
+fn claimed_by_another(session: Option<&str>, getenv: &impl Fn(&str) -> Option<OsString>) -> bool {
+    claim(getenv).is_some_and(|(terminal, owner)| {
+        terminal_of(getenv).as_deref() == Some(terminal.as_str()) && session != Some(owner.as_str())
+    })
+}
+
+/// After a Claude `SessionStart` that reports (any copy: the plugin, the
+/// installed hooks or the shim's): claims the terminal for `session` in
+/// `CLAUDE_ENV_FILE`, created when missing, so the Claudes its tool commands
+/// start stand down (a later claim, after `/clear`, replaces it). Does nothing
+/// when an id holds anything but letters, digits, `-` and `_`.
+pub(super) fn claim_terminal(
+    source: &str,
+    native_event: &str,
+    session: Option<&str>,
+    getenv: impl Fn(&str) -> Option<OsString>,
+) {
+    if source != "claude" || native_event != "SessionStart" {
+        return;
+    }
+    let plain = |id: &&str| {
+        !id.is_empty()
+            && id.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+    };
+    let (Some(terminal), Some(session), Some(file)) = (
+        terminal_of(&getenv),
+        session.filter(plain),
+        getenv(CLAUDE_ENV_FILE).filter(|file| !file.is_empty()),
+    ) else {
+        return;
+    };
+    if !plain(&terminal.as_str()) {
+        return;
+    }
+    let line = format!("export {OWNER_ENV}={terminal}/{session}\n");
+    let _ = std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(file)
+        .and_then(|mut file| file.write_all(line.as_bytes()));
+}
+
+/// Whether this run is the plugin's copy of a Claude hook.
+fn is_plugin_copy(source: &str, getenv: &impl Fn(&str) -> Option<OsString>) -> bool {
+    source == "claude" && getenv(ORIGIN_ENV).is_some_and(|origin| origin == PLUGIN_ORIGIN)
+}
+
+fn terminal_of(getenv: &impl Fn(&str) -> Option<OsString>) -> Option<String> {
+    getenv(TERMINAL_ENV).and_then(|terminal| terminal.into_string().ok()).filter(|t| !t.is_empty())
+}
+
+/// The terminal and session of the claim in this environment.
+fn claim(getenv: &impl Fn(&str) -> Option<OsString>) -> Option<(String, String)> {
+    let claim = getenv(OWNER_ENV)?.into_string().ok()?;
+    let (terminal, session) = claim.split_once('/')?;
+    Some((terminal.to_owned(), session.to_owned()))
 }
 
 /// Whether an installed command finds a helper: `CMUX_TUI_HOOK`, or inside
@@ -98,78 +200,5 @@ fn installs_event(path: &Path, event: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::collections::HashMap;
-    use std::fs;
-
-    use super::*;
-
-    fn env(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<OsString> {
-        let map: HashMap<String, OsString> =
-            pairs.iter().map(|(key, value)| ((*key).to_owned(), OsString::from(value))).collect();
-        move |name| map.get(name).cloned()
-    }
-
-    #[test]
-    fn any_launcher_plugin_copy_constants_match_the_command_writer() {
-        assert_eq!(ORIGIN_ENV, cmux_tui_hooks::CLAUDE_PLUGIN_ORIGIN_ENV);
-        assert_eq!(PLUGIN_ORIGIN, cmux_tui_hooks::CLAUDE_PLUGIN_ORIGIN);
-    }
-
-    #[test]
-    fn any_launcher_plugin_copy_stands_down_only_beside_an_installed_copy() {
-        let dir = tempfile::tempdir().unwrap();
-        let installed = dir.path().join("installed");
-        let other = dir.path().join("other");
-        let home = dir.path().join("home");
-        for folder in [installed.clone(), other.clone(), home.join(".claude")] {
-            fs::create_dir_all(folder).unwrap();
-        }
-        let installed_command = r#"h=${CMUX_TUI_HOOK:-x};"${h:-:}" 'claude' 'Stop' 2>/dev/null||:;echo {};#cmux-tui-journal-hook"#;
-        let settings = |command: &str| {
-            serde_json::json!({"hooks": {"Stop": [{"hooks": [{"type": "command", "command": command}]}]}})
-                .to_string()
-        };
-        fs::write(installed.join("settings.json"), settings(installed_command)).unwrap();
-        // A user hook of its own, and a copied plugin command, are not installs.
-        fs::write(other.join("settings.json"), settings("echo mine; echo {}")).unwrap();
-        fs::write(
-            home.join(".claude/settings.json"),
-            settings(&format!("export {ORIGIN_ENV}={PLUGIN_ORIGIN};{installed_command}")),
-        )
-        .unwrap();
-        let (installed, other, home) =
-            (installed.to_str().unwrap(), other.to_str().unwrap(), home.to_str().unwrap());
-        let plugin = (ORIGIN_ENV, PLUGIN_ORIGIN);
-        let hook = ("CMUX_TUI_HOOK", "/opt/cmux-tui-hook");
-        // The installed copy runs: the plugin copy stands down, for that event only.
-        assert!(stands_down(
-            "claude",
-            "Stop",
-            env(&[plugin, hook, ("CLAUDE_CONFIG_DIR", installed)])
-        ));
-        assert!(!stands_down(
-            "claude",
-            "SessionStart",
-            env(&[plugin, hook, ("CLAUDE_CONFIG_DIR", installed)])
-        ));
-        // The installed command finds no helper: it is a no-op, the plugin reports.
-        assert!(!stands_down("claude", "Stop", env(&[plugin, ("CLAUDE_CONFIG_DIR", installed)])));
-        // Another config directory without the install, or the default one.
-        assert!(!stands_down("claude", "Stop", env(&[plugin, hook, ("CLAUDE_CONFIG_DIR", other)])));
-        assert!(!stands_down("claude", "Stop", env(&[plugin, hook, ("HOME", home)])));
-        // Not the plugin copy: the installed run itself always reports.
-        assert!(!stands_down("claude", "Stop", env(&[hook, ("CLAUDE_CONFIG_DIR", installed)])));
-        assert!(!stands_down(
-            "codex",
-            "Stop",
-            env(&[plugin, hook, ("CLAUDE_CONFIG_DIR", installed)])
-        ));
-        // Hooks turned off: the plugin copy does nothing.
-        assert!(stands_down(
-            "claude",
-            "Stop",
-            env(&[plugin, (HOOKS_DISABLED_ENV, "1"), ("CLAUDE_CONFIG_DIR", other)])
-        ));
-    }
-}
+#[path = "plugin_copy_tests.rs"]
+mod tests;

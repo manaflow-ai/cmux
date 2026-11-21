@@ -71,6 +71,9 @@ export interface ReplicaAttachment {
   readonly id: string
   /** Streams this reader subscribed to (at most MAX_READER_STREAMS). */
   streams: Array<string>
+  /** When HostDO accepted the socket and last got a frame from it (liveness, host-do.ts STALE_AFTER_MS). */
+  readonly at?: number
+  readonly seen?: number
 }
 
 /** Streams one reader socket follows; the stream name limit keeps the attachment small. */

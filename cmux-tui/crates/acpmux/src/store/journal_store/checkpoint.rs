@@ -33,7 +33,7 @@ pub(super) fn read_checkpoint(home: &Path) -> Result<Lsn> {
 /// Whether the freeze marker (`<home>/journal-frozen`) is there: a previous run's freeze whose
 /// `frozen` record may not have reached the journal.
 pub(super) fn frozen_marker(home: &Path) -> bool {
-    std::fs::symlink_metadata(home.join(FROZEN_NAME)).is_ok()
+    crate::home_fs::symlink_metadata(home.join(FROZEN_NAME)).is_ok()
 }
 
 /// Removes the temporary files of checkpoints and freeze markers a crash interrupted
@@ -49,7 +49,7 @@ pub(super) fn remove_checkpoint_temporaries(home: &Path) {
         }
         let path = entry.path();
         if let Err(error) = crate::config::refuse_lost_home(&path)
-            .and_then(|()| std::fs::remove_file(&path).map_err(anyhow::Error::from))
+            .and_then(|()| crate::home_fs::remove_file(&path).map_err(anyhow::Error::from))
         {
             tracing::warn!("remove {}: {error:#}", path.display());
         }
@@ -70,20 +70,19 @@ fn write_checkpoint(home: &Path, lsn: Lsn) -> Result<()> {
 /// folder synced; an error at any step is returned.
 fn write_home_file(home: &Path, name: &str, bytes: &[u8]) -> Result<()> {
     let path = home.join(name);
+    // Through the folder this daemon holds (`home_fs`): a home replaced after the check never
+    // gets the file.
     crate::config::refuse_lost_home(&path)?;
     let tmp = home.join(format!("{name}.tmp-{}", std::process::id()));
-    let mut options = OpenOptions::new();
-    options.write(true).create(true).truncate(true);
+    let mut options = crate::home_fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true).mode(0o600);
     #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
-    }
+    options.custom_flags(libc::O_NOFOLLOW);
     let mut file = options.open(&tmp).with_context(|| format!("write {}", tmp.display()))?;
     file.write_all(bytes)?;
     log_sync::sync_full(&file)?;
     drop(file);
-    std::fs::rename(&tmp, &path).with_context(|| format!("rename to {}", path.display()))?;
+    crate::home_fs::rename(&tmp, &path).with_context(|| format!("rename to {}", path.display()))?;
     sync_directory(home)
 }
 
@@ -427,7 +426,7 @@ impl Inner {
             order.marker = false;
             let path = self.home.join(FROZEN_NAME);
             crate::config::refuse_lost_home(&path)
-                .and_then(|()| std::fs::remove_file(&path).map_err(anyhow::Error::from))
+                .and_then(|()| crate::home_fs::remove_file(&path).map_err(anyhow::Error::from))
         };
         match removed {
             Ok(()) => {

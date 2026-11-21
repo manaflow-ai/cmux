@@ -24,7 +24,6 @@ extension AppServices {
         }
         hibernation.workspaceTabs = { [weak self] workspace, window in self?.windows.controller(for: window)?.shownTabsIfSelected(workspace) ?? [] }
         hibernation.agentPages = AgentPageHibernation(services: self)
-        hibernation.agentPages?.pages.followDiscard { [weak settings] in settings?.snapshot.workspaceHibernation.hiddenChatDiscardSetting ?? .off }
         hibernation.follow(settings)
         hibernation.start()
     }
@@ -49,8 +48,8 @@ extension AppServices {
     /// A window opened or closed (`WindowManager.controllers`): none left means background mode (cx-ghagp), and a
     /// close can hide a space, so workspace hibernation re-plans (#30854).
     func windowsDidChange() {
-        background.windowsDidChange()
-        workspaceHibernation.windowsDidChange()
+        background.windowsDidChange(); workspaceHibernation.windowsDidChange()
+        chiefSidePanel.windowsDidChange(dockFrames) // a new window gets Chief in Side Panel
     }
 
     /// Unmounts workspace `id` in every window, then frees its tabs' surfaces and pages.

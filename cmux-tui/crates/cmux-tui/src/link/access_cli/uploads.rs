@@ -81,8 +81,17 @@ pub(super) fn upload_with_id(
         };
         let copied = if let Some(identity) = *folder {
             let keep = |relative: &str, git: bool| folder_file(file, relative, git);
-            sync_cli::copy_folder_with_progress(socket, file, identity, &at, &keep, &mut heartbeat)
-                .map(|(files, skipped)| json!({"folder": true, "files": files, "skipped": skipped}))
+            let enter = |relative: &str| relative.split('/').all(goes_by_name);
+            sync_cli::copy_folder_with_progress(
+                socket,
+                file,
+                identity,
+                &at,
+                &enter,
+                &keep,
+                &mut heartbeat,
+            )
+            .map(|(files, skipped)| json!({"folder": true, "files": files, "skipped": skipped}))
         } else {
             sync_cli::copy_file_with_progress(socket, file, &at, &mut heartbeat).map(|()| json!({}))
         };
@@ -106,14 +115,19 @@ pub(super) fn upload_with_id(
 /// folder's would ([`super::shared_file`]), and with no dot file or folder,
 /// credential folder or `Keychains` folder anywhere on its path, so a folder
 /// that holds a home's worth of files (a backup's `Library/Keychains`,
-/// `.config`) sends none of those.
+/// `.config`) sends none of those. Such a folder is not even listed, so one
+/// this Mac's user cannot read is skipped, not a failed upload.
 fn folder_file(folder: &Path, relative: &str, git: bool) -> bool {
-    relative.split('/').all(|name| {
-        let lower = name.to_ascii_lowercase();
-        !name.starts_with('.')
-            && !super::SECRET_FOLDERS.contains(&lower.as_str())
-            && lower != "keychains"
-    }) && super::shared_file(folder, relative, git)
+    relative.split('/').all(goes_by_name) && super::shared_file(folder, relative, git)
+}
+
+/// Whether a file or folder of this name inside an uploaded folder may go:
+/// not a dot, credential or `Keychains` name.
+fn goes_by_name(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    !name.starts_with('.')
+        && !super::SECRET_FOLDERS.contains(&lower.as_str())
+        && lower != "keychains"
 }
 
 /// Only the random transfer directory can be removed, never an arbitrary relative path.

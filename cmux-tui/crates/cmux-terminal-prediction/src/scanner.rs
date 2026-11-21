@@ -16,6 +16,10 @@ pub enum OutputSignal {
     /// Entered (`true`) or left (`false`) the alternate screen. A full reset
     /// (`ESC c`) leaves it too: the terminal is back on a cleared primary screen.
     AlternateScreen(bool),
+    /// Turned concealed text (SGR 8) on (`true`) or off (`false`: SGR 0 or 28,
+    /// or a full reset). Concealed cells print nothing visible, so a glyph drawn
+    /// over one would show what the remote is hiding.
+    Concealed(bool),
     /// Moved the cursor exactly one cell left: BS, `CSI D` or `CSI 1 D`.
     /// Disruptive unless the engine waits for the erase of a glyph the user
     /// backspaced over; this is the first half of every common form.
@@ -98,6 +102,161 @@ pub struct TerminalOutputScanner {
     /// past the cap count as overflow rather than being stored.
     parameters: Vec<u8>,
     parameters_overflowed: bool,
+    /// Whether printed text is concealed (SGR 8), read from every SGR whatever
+    /// its length.
+    is_concealed: bool,
+    /// The conceal state each screen's cursor save holds (primary, alternate):
+    /// the terminal keeps one saved cursor, attributes included, per screen.
+    saved_concealed: [bool; 2],
+    /// Which screen saves and restores act on, and whether that is known: after
+    /// missed output it is not until a seed or a switch says.
+    is_on_alternate_screen: bool,
+    is_screen_known: bool,
+    /// XTPUSHSGR's stack, as far as conceal goes (bounded like xterm's).
+    pushed_concealed: Vec<bool>,
+    sgr: SgrScan,
+    modes: ModeScan,
+}
+
+/// Reads a private mode list (`CSI ? a ; b h`) as it arrives for the modes
+/// that save, restore or switch the pen, in order and whatever its length.
+#[derive(Clone, Debug, Default)]
+struct ModeScan {
+    value: Option<u16>,
+    /// The first byte was `?`.
+    is_private: bool,
+    /// Any byte read yet.
+    started: bool,
+    /// Another marker, a colon or an intermediate: not a plain mode list.
+    is_other: bool,
+    /// 47, 1047, 1048 and 1049, in order, up to `MAXIMUM_TRACKED_MODES`.
+    modes: Vec<u16>,
+    /// More of those than fit: their order is unknown.
+    is_lost: bool,
+    /// A screen switch among those past the limit.
+    lost_switch: bool,
+}
+
+const MAXIMUM_TRACKED_MODES: usize = 16;
+
+impl ModeScan {
+    fn byte(&mut self, byte: u8) {
+        let first = !std::mem::replace(&mut self.started, true);
+        match byte {
+            b'?' if first => self.is_private = true,
+            b'0'..=b'9' => {
+                let digit = u16::from(byte - b'0');
+                self.value = Some(self.value.unwrap_or(0).saturating_mul(10).saturating_add(digit));
+            }
+            b';' => self.end_mode(),
+            _ => self.is_other = true,
+        }
+    }
+
+    fn end_mode(&mut self) {
+        if let Some(mode @ (47 | 1047 | 1048 | 1049)) = self.value.take() {
+            if self.modes.len() < MAXIMUM_TRACKED_MODES {
+                self.modes.push(mode);
+            } else {
+                self.is_lost = true;
+                self.lost_switch |= mode != 1048;
+            }
+        }
+    }
+
+    /// The modes the list named, or `None` when it is not a plain private list.
+    fn finish(mut self) -> Option<(Vec<u16>, bool, bool)> {
+        self.end_mode();
+        (self.is_private && !self.is_other).then_some((self.modes, self.is_lost, self.lost_switch))
+    }
+}
+
+const MAXIMUM_PUSHED_SGR: usize = 10;
+
+/// Reads an SGR's parameters as they arrive for what they do to concealment,
+/// so a long one (a truecolour prompt) is never cut off by the parameter cap.
+/// Colour operands (`38;5;8`, `48;2;r;g;b`) and colon subparameters are
+/// skipped, so a colour number 8 or 28 is not taken for conceal or reveal.
+#[derive(Clone, Copy, Debug, Default)]
+struct SgrScan {
+    /// The current parameter's value, if it has digits yet.
+    value: Option<u16>,
+    /// Past a colon: the rest of the parameter is subparameters.
+    in_subparameters: bool,
+    /// A private marker or an intermediate: not a plain SGR.
+    is_other: bool,
+    /// Operands still to skip after `38`, `48` or `58`.
+    colour: ColourOperands,
+    /// The last conceal (`true`) or reveal (`false`) the sequence asks for.
+    effect: Option<bool>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum ColourOperands {
+    #[default]
+    None,
+    /// The next parameter says which form: 5 (one index) or 2 (three channels).
+    Selector,
+    Skip(u8),
+}
+
+impl SgrScan {
+    fn byte(&mut self, byte: u8) {
+        match byte {
+            b'0'..=b'9' if !self.in_subparameters => {
+                let digit = u16::from(byte - b'0');
+                self.value = Some(self.value.unwrap_or(0).saturating_mul(10).saturating_add(digit));
+            }
+            b'0'..=b'9' => {}
+            b':' => {
+                // `38:5:8` and `4:3` carry their operands in the one parameter.
+                if !self.in_subparameters && matches!(self.value, Some(38 | 48 | 58)) {
+                    self.value = None;
+                }
+                self.in_subparameters = true;
+            }
+            b';' => self.end_parameter(),
+            _ => self.is_other = true,
+        }
+    }
+
+    fn end_parameter(&mut self) {
+        // An empty parameter is 0, a reset.
+        let value = self.value.take().unwrap_or(0);
+        let had_subparameters = std::mem::take(&mut self.in_subparameters);
+        match self.colour {
+            ColourOperands::Selector => {
+                self.colour = match value {
+                    5 => ColourOperands::Skip(1),
+                    2 => ColourOperands::Skip(3),
+                    _ => ColourOperands::None,
+                };
+                return;
+            }
+            ColourOperands::Skip(count) => {
+                self.colour =
+                    if count > 1 { ColourOperands::Skip(count - 1) } else { ColourOperands::None };
+                return;
+            }
+            ColourOperands::None => {}
+        }
+        if had_subparameters {
+            // A colon colour carries its operands; `38:` with none read as 38.
+            return;
+        }
+        match value {
+            38 | 48 | 58 => self.colour = ColourOperands::Selector,
+            0 | 28 => self.effect = Some(false),
+            8 => self.effect = Some(true),
+            _ => {}
+        }
+    }
+
+    /// The conceal state after the SGR this scan read, given the state before.
+    fn finish(mut self, before: bool) -> bool {
+        self.end_parameter();
+        if self.is_other { before } else { self.effect.unwrap_or(before) }
+    }
 }
 
 impl Default for TerminalOutputScanner {
@@ -116,7 +275,158 @@ impl TerminalOutputScanner {
             detour_bytes: None,
             parameters: Vec::with_capacity(MAXIMUM_PARAMETER_BYTES),
             parameters_overflowed: false,
+            is_concealed: false,
+            saved_concealed: [false; 2],
+            is_on_alternate_screen: false,
+            is_screen_known: true,
+            pushed_concealed: Vec::new(),
+            sgr: SgrScan::default(),
+            modes: ModeScan::default(),
         }
+    }
+
+    /// Whether text the remote prints now is concealed (SGR 8).
+    pub fn is_concealed(&self) -> bool {
+        self.is_concealed
+    }
+
+    /// A fresh parse state that keeps the conceal state and the copy a cursor
+    /// save holds: output went missing (a resize, a replaced screen), the
+    /// terminal kept both, and only output the scanner reads can change them.
+    ///
+    /// The missed output may have saved a concealing pen, or switched screens,
+    /// unseen, so until a save is seen each saved pen counts as concealing, and
+    /// the screen is unknown until [`Self::seed_screen`] or a switch.
+    pub fn restarted(&self) -> Self {
+        Self {
+            is_concealed: self.is_concealed,
+            saved_concealed: [true; 2],
+            is_on_alternate_screen: self.is_on_alternate_screen,
+            is_screen_known: false,
+            pushed_concealed: self.pushed_concealed.iter().map(|_| true).collect(),
+            ..Self::new()
+        }
+    }
+
+    /// The host read which screen the terminal shows.
+    pub fn seed_screen(&mut self, is_alternate: bool) {
+        self.is_on_alternate_screen = is_alternate;
+        self.is_screen_known = true;
+    }
+
+    fn switch_screen(&mut self, is_alternate: bool) {
+        self.is_on_alternate_screen = is_alternate;
+        self.is_screen_known = true;
+    }
+
+    fn saved_slot(&self) -> usize {
+        usize::from(self.is_on_alternate_screen)
+    }
+
+    fn save_cursor(&mut self) {
+        if !self.is_screen_known {
+            // Either screen's save: neither may count as revealing for it.
+            for saved in &mut self.saved_concealed {
+                *saved |= self.is_concealed;
+            }
+            return;
+        }
+        let slot = self.saved_slot();
+        if let Some(saved) = self.saved_concealed.get_mut(slot) {
+            *saved = self.is_concealed;
+        }
+    }
+
+    fn restore_cursor(&mut self) -> OutputSignal {
+        let saved = if self.is_screen_known {
+            self.saved_concealed.get(self.saved_slot()).copied().unwrap_or(true)
+        } else {
+            self.saved_concealed.iter().any(|&saved| saved)
+        };
+        self.set_concealed(saved)
+    }
+
+    /// The other sequences that save, restore or switch the pen. In a private
+    /// mode list (`CSI ? a ; b h`) each mode applies in order: `1049` saves the
+    /// cursor and enters the alternate screen on `h`, and leaves it and
+    /// restores on `l`; `1048` saves or restores on the current screen; `47`
+    /// and `1047` switch screens. XTPUSHSGR / XTPOPSGR (`CSI # {` / `CSI # }`,
+    /// or `p` / `q`) keep a stack, and a pop never reveals, in case the
+    /// terminal ignored the push. Modes are read as they stream in,
+    /// past the parameter cap; past `MAXIMUM_TRACKED_MODES` of them, saves
+    /// mark every slot and restores conceal if any save might. Answers whether
+    /// the list switched screens (entered or left). The sequences stay
+    /// disruptive, which withdraws what is drawn.
+    fn track_attribute_saves(&mut self, final_byte: u8) -> Option<bool> {
+        let modes = std::mem::take(&mut self.modes).finish();
+        if let Some((modes, is_lost, lost_switch)) = modes {
+            if final_byte != b'h' && final_byte != b'l' {
+                return None;
+            }
+            let set = final_byte == b'h';
+            let mut switched = None;
+            for &mode in &modes {
+                match (mode, set) {
+                    (1049, true) => {
+                        self.save_cursor();
+                        self.switch_screen(true);
+                    }
+                    (1049, false) => {
+                        self.switch_screen(false);
+                        let _ = self.restore_cursor();
+                    }
+                    (1048, true) => self.save_cursor(),
+                    (1048, false) => {
+                        let _ = self.restore_cursor();
+                    }
+                    _ => self.switch_screen(set),
+                }
+                if mode != 1048 {
+                    switched = Some(set);
+                }
+            }
+            if is_lost {
+                // Saves and restores past the tracked ones, in an unknown order.
+                if set {
+                    for saved in &mut self.saved_concealed {
+                        *saved |= self.is_concealed;
+                    }
+                } else {
+                    self.is_concealed |= self.saved_concealed.iter().any(|&saved| saved);
+                }
+                if lost_switch {
+                    self.switch_screen(set);
+                    switched = Some(set);
+                }
+            }
+            return switched;
+        }
+        if self.parameters_overflowed || self.parameters.last() != Some(&b'#') {
+            return None;
+        }
+        match final_byte {
+            b'{' | b'p' => {
+                if self.pushed_concealed.len() == MAXIMUM_PUSHED_SGR {
+                    self.pushed_concealed.remove(0);
+                }
+                self.pushed_concealed.push(self.is_concealed);
+            }
+            b'}' | b'q' => {
+                if let Some(pushed) = self.pushed_concealed.pop() {
+                    self.is_concealed |= pushed;
+                }
+            }
+            _ => {}
+        }
+        None
+    }
+
+    fn set_concealed(&mut self, concealed: bool) -> OutputSignal {
+        if concealed == self.is_concealed {
+            return OutputSignal::Ignorable;
+        }
+        self.is_concealed = concealed;
+        OutputSignal::Concealed(concealed)
     }
 
     /// Classifies one chunk: one signal per byte-or-sequence, in order.
@@ -128,7 +438,7 @@ impl TerminalOutputScanner {
     pub fn next(&mut self, byte: u8) -> Option<OutputSignal> {
         let signal = self.consume(byte);
         let Some(bytes) = self.detour_bytes else { return signal };
-        if let Some(OutputSignal::AlternateScreen(_)) = signal {
+        if let Some(OutputSignal::AlternateScreen(_) | OutputSignal::Concealed(_)) = signal {
             return signal;
         }
         if bytes >= MAXIMUM_DETOUR_BYTES {
@@ -158,7 +468,7 @@ impl TerminalOutputScanner {
             let Some((&byte, after)) = rest.split_first() else { break };
             rest = after;
             match self.next(byte) {
-                None | Some(OutputSignal::Ignorable) => {}
+                None | Some(OutputSignal::Ignorable | OutputSignal::Concealed(_)) => {}
                 Some(OutputSignal::AlternateScreen(entered)) => {
                     skim.alternate_screen = Some(entered);
                     skim.touched_the_screen = true;
@@ -215,6 +525,8 @@ impl TerminalOutputScanner {
                     self.state = State::ControlSequence;
                     self.parameters.clear();
                     self.parameters_overflowed = false;
+                    self.sgr = SgrScan::default();
+                    self.modes = ModeScan::default();
                     None
                 }
                 b']' => {
@@ -228,14 +540,16 @@ impl TerminalOutputScanner {
                     None
                 }
                 b'7' => {
+                    // DECSC saves the attributes with the cursor, conceal included.
                     self.state = State::Ground;
                     self.detour_bytes = Some(0);
+                    self.save_cursor();
                     None
                 }
                 b'8' => {
                     self.state = State::Ground;
                     self.detour_bytes = None;
-                    Some(OutputSignal::Ignorable)
+                    Some(self.restore_cursor())
                 }
                 b'c' => {
                     // RIS, a full reset: the terminal clears both screens and
@@ -244,6 +558,10 @@ impl TerminalOutputScanner {
                     // snapshot, which may be of the primary screen.
                     self.state = State::Ground;
                     self.detour_bytes = None;
+                    self.is_concealed = false;
+                    self.saved_concealed = [false; 2];
+                    self.switch_screen(false);
+                    self.pushed_concealed.clear();
                     Some(OutputSignal::AlternateScreen(false))
                 }
                 // Another ESC restarts the escape, as it does in ghostty.
@@ -288,6 +606,8 @@ impl TerminalOutputScanner {
             State::ControlSequence => {
                 // Parameter and intermediate bytes accumulate; 0x40..=0x7E ends it.
                 if (0x20..=0x3F).contains(&byte) {
+                    self.sgr.byte(byte);
+                    self.modes.byte(byte);
                     if self.parameters.len() < MAXIMUM_PARAMETER_BYTES {
                         self.parameters.push(byte);
                     } else {
@@ -295,19 +615,65 @@ impl TerminalOutputScanner {
                     }
                     return None;
                 }
+                match byte {
+                    // ESC restarts the escape; CAN and SUB abort the sequence.
+                    0x1B => {
+                        self.state = State::Escape;
+                        return None;
+                    }
+                    0x18 | 0x1A => {
+                        self.state = State::Ground;
+                        return Some(OutputSignal::Disruptive);
+                    }
+                    // DEL is ignored inside a sequence.
+                    0x7F => return None,
+                    // Any other C0 control runs where it stands (BEL, CR, LF)
+                    // and the sequence goes on, as in Ghostty's parser.
+                    0x00..=0x1F => return Some(OutputSignal::Disruptive),
+                    _ => {}
+                }
                 self.state = State::Ground;
                 if !(0x40..=0x7E).contains(&byte) {
                     return Some(OutputSignal::Disruptive);
                 }
+                // Ghostty reads a bare `CSI s` / `CSI u` as DECSC / DECRC, which
+                // save and restore the attributes too, conceal included.
                 if self.parameters.is_empty() && byte == b's' {
                     self.detour_bytes = Some(0);
+                    self.save_cursor();
                     return None;
                 }
                 if self.parameters.is_empty() && byte == b'u' {
                     self.detour_bytes = None;
-                    return Some(OutputSignal::Ignorable);
+                    return Some(self.restore_cursor());
                 }
-                Some(classify_control_sequence(&self.parameters, self.parameters_overflowed, byte))
+                if byte == b'm' {
+                    let concealed = std::mem::take(&mut self.sgr).finish(self.is_concealed);
+                    return Some(self.set_concealed(concealed));
+                }
+                let was_concealed = self.is_concealed;
+                let switched = self.track_attribute_saves(byte);
+                if self.parameters == b"!" && byte == b'p' && !self.parameters_overflowed {
+                    // DECSTR, a soft reset, sets the rendition back to normal.
+                    self.is_concealed = false;
+                }
+                let signal =
+                    classify_control_sequence(&self.parameters, self.parameters_overflowed, byte);
+                Some(match switched {
+                    // A list too long for the classifier still switched screens.
+                    Some(entered) if signal == OutputSignal::Disruptive => {
+                        OutputSignal::AlternateScreen(entered)
+                    }
+                    // A restore or pop that conceals says so, even inside a
+                    // cursor-save detour, so what is drawn goes.
+                    _ if self.is_concealed
+                        && !was_concealed
+                        && !matches!(signal, OutputSignal::AlternateScreen(_)) =>
+                    {
+                        OutputSignal::Concealed(true)
+                    }
+                    _ => signal,
+                })
             }
             State::ControlString(kind) => match byte {
                 0x07 if kind == ControlString::OperatingSystemCommand => {
@@ -402,8 +768,13 @@ fn classify_control_sequence(parameters: &[u8], overflowed: bool, final_byte: u8
     }
     // 1049 is the modern alternate screen; 47 and 1047 are the older forms
     // still emitted by some remotes.
-    if [b"?1049".as_slice(), b"?47", b"?1047"].contains(&parameters) {
-        return OutputSignal::AlternateScreen(final_byte == b'h');
+    if let Some(modes) = parameters.strip_prefix(b"?") {
+        let switches_screen = modes
+            .split(|&byte| byte == b';')
+            .any(|mode| [b"1049".as_slice(), b"47", b"1047"].contains(&mode));
+        if switches_screen {
+            return OutputSignal::AlternateScreen(final_byte == b'h');
+        }
     }
     // Any other private mode change (bracketed paste, mouse reporting,
     // application cursor keys) means the remote is switching input

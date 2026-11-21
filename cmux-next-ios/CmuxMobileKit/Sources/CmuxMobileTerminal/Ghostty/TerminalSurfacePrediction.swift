@@ -30,6 +30,13 @@ final class TerminalSurfacePrediction {
     private var expiry: Timer?
     private var enabled: Bool
 
+    /// Draws predicted glyphs in the terminal's colors (its Mac's terminal theme).
+    func setColors(background: UIColor, foreground: UIColor) {
+        overlay.background = background
+        overlay.foreground = foreground
+        overlay.setNeedsDisplay()
+    }
+
     init(view: TerminalSurfaceView, alternateScreen: Bool) {
         enabled = CmuxMobilePreferences.predictiveEcho()
         engine = TerminalPrediction(enabled: enabled, remote: true)
@@ -71,9 +78,10 @@ final class TerminalSurfacePrediction {
         if engine.presentedFrame(nowUs: Self.now()) || !overlay.isHidden { refresh() }
     }
 
-    /// The grid or the font changed under the glyphs: start over.
+    /// The grid or the font changed under the glyphs: what is drawn goes. No
+    /// output was lost, so what the engine knows of the screen stays.
     func gridChanged() {
-        _ = engine.missedOutput(nowUs: Self.now())
+        _ = engine.layoutChanged(nowUs: Self.now())
         refresh()
     }
 
@@ -147,7 +155,9 @@ final class TerminalPredictionOverlayView: UIView {
     private var fontSize: CGFloat = 0
     private var cellWidth: CGFloat = 0
 
-    private static let foreground = UIColor(red: 0xE6 / 255, green: 0xE6 / 255, blue: 0xE6 / 255, alpha: 1)
+    /// The terminal's colors (its Mac's terminal theme, ``TerminalSurfaceView/applyHostTheme()``).
+    var background = CmuxMobileGhosttyApp.background
+    var foreground = CmuxMobileGhosttyApp.foreground
 
     func hide() {
         guard !isHidden else { return }
@@ -172,7 +182,7 @@ final class TerminalPredictionOverlayView: UIView {
 
     override func draw(_ rect: CGRect) {
         guard let layout, let context = UIGraphicsGetCurrentContext() else { return }
-        context.setFillColor(CmuxMobileGhosttyApp.background.cgColor)
+        context.setFillColor(background.cgColor)
         context.fill(bounds)
         let font = UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
         let baselineInset = (bounds.height - font.lineHeight) / 2
@@ -180,13 +190,13 @@ final class TerminalPredictionOverlayView: UIView {
             let cell = CGRect(x: CGFloat(glyph.offset - layout.leadingOffset) * cellWidth, y: 0, width: cellWidth, height: bounds.height)
             guard glyph.standing != 2 else { continue }
             let text = String(UnicodeScalar(glyph.character))
-            var attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: Self.foreground]
+            var attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: foreground]
             if glyph.standing == 0 { attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue }
             (text as NSString).draw(at: CGPoint(x: cell.minX, y: baselineInset), withAttributes: attributes)
         }
         if let caret = layout.caretOffset {
             let cell = CGRect(x: CGFloat(caret - layout.leadingOffset) * cellWidth, y: 0, width: cellWidth, height: bounds.height)
-            context.setFillColor(Self.foreground.cgColor)
+            context.setFillColor(foreground.cgColor)
             context.fill(cell)
         }
     }

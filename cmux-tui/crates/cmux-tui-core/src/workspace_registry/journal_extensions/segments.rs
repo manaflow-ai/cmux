@@ -4,30 +4,85 @@
 
 use super::*;
 
+/// The seal's delete of the journal rows it moved into a segment, without
+/// the zero pages of `secure_delete=ON`.
+///
+/// The registry connection zeroes what a delete frees, so removed data does
+/// not stay readable in free pages. The rows a seal deletes are not removed
+/// data: the segment the same transaction inserts holds every one of them.
+/// Zeroing them wrote each overflow page they left (37% of the registry WAL
+/// frames on one Mac, 2026-11-13), then the checkpoint wrote it again.
+/// `FAST` still clears the cells in the pages the delete writes anyway and
+/// leaves the freed pages alone. Dropping the guard turns `ON` back on, on
+/// the error paths too, so every other delete zeroes as before.
+struct DeleteOfKeptRows<'connection>(&'connection Connection);
+
+impl<'connection> DeleteOfKeptRows<'connection> {
+    fn begin(connection: &'connection Connection) -> anyhow::Result<Self> {
+        connection.execute_batch("PRAGMA secure_delete=FAST;")?;
+        Ok(Self(connection))
+    }
+}
+
+impl Drop for DeleteOfKeptRows<'_> {
+    fn drop(&mut self) {
+        if let Err(error) = self.0.execute_batch("PRAGMA secure_delete=ON;") {
+            eprintln!("cmux-tui: secure_delete was not turned back on after a seal: {error:#}");
+        }
+    }
+}
+
+/// Free pages one [`WorkspaceRegistry::incremental_journal_vacuum`] step
+/// returns (1 MiB): what bounds the time the step holds the registry.
+const JOURNAL_VACUUM_STEP_PAGES: u64 = 256;
+
 impl WorkspaceRegistry {
     pub(crate) fn migrate_journal_auto_vacuum(&self) -> anyhow::Result<AutoVacuumMigration> {
         migrate_journal_auto_vacuum(&self.connection.get())
     }
 
-    /// Returns up to 256 free pages; true while an incremental-vacuum
-    /// registry still has free pages for a later call.
-    pub(crate) fn incremental_journal_vacuum(&self) -> anyhow::Result<bool> {
+    /// Returns [`JOURNAL_VACUUM_STEP_PAGES`] free pages to the file system
+    /// when at least that many are free over `keep_free_pages`, else
+    /// nothing (no write); true while a later call has a whole step to
+    /// return.
+    ///
+    /// The registry keeps `keep_free_pages` because a returned page is not
+    /// free of charge: the vacuum moves the live pages at the end of the
+    /// file into free ones and rewrites what points at them, in a commit of
+    /// its own (measured, `mux/tests/journal_vacuum_backlog.rs`: 1.03 WAL
+    /// bytes per byte returned when live pages move, 0.01 when the free
+    /// pages end the file), while a free page a new row reuses costs
+    /// nothing. Only whole steps, so a free list that sits at the reserve
+    /// is not trimmed a few pages a commit.
+    pub(crate) fn incremental_journal_vacuum(&self, keep_free_pages: u64) -> anyhow::Result<bool> {
+        let db = self.connection.get();
+        // A legacy registry (auto_vacuum 0) keeps its free pages until it is
+        // converted, so they are no work for this call or a later one.
+        let mode: i64 = db.query_row("PRAGMA auto_vacuum", [], |row| row.get(0))?;
+        if mode != 2 {
+            return Ok(false);
+        }
+        // Reads the database header only.
+        let step_due = || -> anyhow::Result<bool> {
+            let free: i64 = db.query_row("PRAGMA freelist_count", [], |row| row.get(0))?;
+            let over = u64::try_from(free).unwrap_or(0).saturating_sub(keep_free_pages);
+            Ok(over >= JOURNAL_VACUUM_STEP_PAGES)
+        };
+        if !step_due()? {
+            return Ok(false);
+        }
         // Fresh registries opt into SQLite's incremental auto-vacuum. This is
         // intentionally a small step: journal sealing must release the
         // registry writer quickly even when a busy VM has many free pages.
-        let db = self.connection.get();
         // SQLite frees one page per step of this pragma, so it must be stepped
         // until done: `execute_batch` steps once and freed a single page.
-        let mut vacuum = db.prepare("PRAGMA incremental_vacuum(256)")?;
+        let mut vacuum =
+            db.prepare(&format!("PRAGMA incremental_vacuum({JOURNAL_VACUUM_STEP_PAGES})"))?;
         let mut steps = vacuum.raw_query();
         while steps.next()?.is_some() {}
         drop(steps);
         drop(vacuum);
-        // A legacy registry (auto_vacuum 0) keeps its free pages until it is
-        // converted, so they are no work for a later call.
-        let mode: i64 = db.query_row("PRAGMA auto_vacuum", [], |row| row.get(0))?;
-        let free: i64 = db.query_row("PRAGMA freelist_count", [], |row| row.get(0))?;
-        Ok(mode == 2 && free > 0)
+        step_due()
     }
 
     pub(crate) fn journal_segments(&self) -> anyhow::Result<Vec<JournalSegment>> {
@@ -73,6 +128,31 @@ impl WorkspaceRegistry {
             |row| row.get::<_, i64>(0),
         )?;
         Ok(u64::try_from(end)?)
+    }
+
+    /// Deletes up to `JOURNAL_CHECKPOINT_PRUNE_BATCH` checkpoints that a
+    /// sealed segment already covers and that are not among the newest
+    /// `JOURNAL_CHECKPOINTS_KEPT`. Each one holds the whole reduced state, so
+    /// keeping all of them grew the registry by about 1.5 MB per checkpoint.
+    /// The newest checkpoints stay for restore (terminal respawn reads the
+    /// newest 16) and every unsealed one stays for the next seal. Returns how
+    /// many it deleted.
+    pub(crate) fn prune_journal_checkpoints(&mut self) -> anyhow::Result<usize> {
+        let deleted = self.connection.get().execute(
+            "DELETE FROM journal_checkpoints WHERE checkpoint_id IN (
+               SELECT checkpoint_id FROM journal_checkpoints
+               WHERE source_sequence
+                       <= (SELECT COALESCE(MAX(end_sequence), 0) FROM journal_segments)
+                 AND source_sequence < (
+                   SELECT source_sequence FROM journal_checkpoints
+                   ORDER BY source_sequence DESC LIMIT 1 OFFSET ?1)
+               ORDER BY source_sequence ASC LIMIT ?2)",
+            params![
+                JOURNAL_CHECKPOINT_OLDEST_KEPT_OFFSET as i64,
+                JOURNAL_CHECKPOINT_PRUNE_BATCH as i64
+            ],
+        )?;
+        Ok(deleted)
     }
 
     pub(crate) fn begin_journal_segment_seal(
@@ -191,7 +271,7 @@ impl WorkspaceRegistry {
                 "INSERT INTO journal_segments(
                    segment_id, start_sequence, end_sequence, record_count, codec, content,
                    uncompressed_bytes, sha256, sealed_at_ms, actors_json
-                 ) VALUES(?1, ?2, ?3, ?4, 'gzip-json-v1', ?5, ?6, ?7, ?8, ?9)",
+                 ) VALUES(?1, ?2, ?3, ?4, ?10, ?5, ?6, ?7, ?8, ?9)",
                 params![
                     segment.metadata.segment_id,
                     i64::try_from(segment.metadata.start_sequence)?,
@@ -206,6 +286,7 @@ impl WorkspaceRegistry {
                         segment.metadata.start_sequence,
                         segment.metadata.end_sequence,
                     )?,
+                    segment.metadata.codec,
                 ],
             )?;
             for kind in kinds {
@@ -214,12 +295,20 @@ impl WorkspaceRegistry {
                     params![segment.metadata.segment_id, kind],
                 )?;
             }
+            session_journal::reducer_records::insert_reducer_records(
+                &tx,
+                &segment.metadata.segment_id,
+                &segment.reducer_records,
+            )?;
         }
         tx.execute_batch("DROP TRIGGER IF EXISTS session_journal_reject_delete;")?;
-        let deleted = tx.execute(
-            "DELETE FROM session_journal WHERE sequence > ?1 AND sequence <= ?2",
-            params![i64::try_from(plan.archived_end)?, i64::try_from(plan.through_sequence)?],
-        )?;
+        let deleted = {
+            let _kept = DeleteOfKeptRows::begin(&tx)?;
+            tx.execute(
+                "DELETE FROM session_journal WHERE sequence > ?1 AND sequence <= ?2",
+                params![i64::try_from(plan.archived_end)?, i64::try_from(plan.through_sequence)?],
+            )?
+        };
         anyhow::ensure!(
             deleted == usize::try_from(plan.through_sequence - plan.archived_end)?,
             "journal segment source range changed before commit"
@@ -300,6 +389,7 @@ impl JournalSegmentSealPlan {
             let mut start_sequence = None;
             let mut record_count = 0_u64;
             let mut kinds = BTreeSet::new();
+            let mut reducer_records = Vec::new();
             'segment: while cursor < self.through_sequence
                 && record_count < u64::try_from(JOURNAL_SEGMENT_RECORD_LIMIT)?
             {
@@ -334,6 +424,13 @@ impl JournalSegmentSealPlan {
                     {
                         break 'segment;
                     }
+                    if session_journal::reducer_records::kept_for_reducers(&kind) {
+                        reducer_records.push((
+                            sequence,
+                            kind.clone(),
+                            std::str::from_utf8(&record_bytes)?.to_owned(),
+                        ));
+                    }
                     kinds.insert(kind);
                     if separator != 0 {
                         uncompressed.push(b',');
@@ -357,10 +454,7 @@ impl JournalSegmentSealPlan {
                 start_sequence.context("journal segment range contains no records")?;
             let digest: [u8; 32] = Sha256::digest(&uncompressed).into();
             let digest_hex = encode_hex(&digest);
-            let mut encoder =
-                flate2::GzBuilder::new().mtime(0).write(Vec::new(), flate2::Compression::fast());
-            encoder.write_all(&uncompressed)?;
-            let compressed = encoder.finish()?;
+            let compressed = segment_codec::encode(&uncompressed)?;
             let segment_id = format!("segment_{start_sequence}_{cursor}_{digest_hex}");
             segments.push(PreparedJournalSegment {
                 metadata: JournalSegment {
@@ -368,7 +462,7 @@ impl JournalSegmentSealPlan {
                     start_sequence,
                     end_sequence: cursor,
                     record_count,
-                    codec: "gzip-json-v1".into(),
+                    codec: segment_codec::SEAL_CODEC.into(),
                     uncompressed_bytes: u64::try_from(uncompressed.len())?,
                     sha256: digest_hex,
                     sealed_at_ms,
@@ -376,6 +470,7 @@ impl JournalSegmentSealPlan {
                 compressed,
                 digest,
                 kinds: kinds.into_iter().collect(),
+                reducer_records,
             });
         }
         validate_prepared_journal_segments(&self, &segments)?;
@@ -401,7 +496,7 @@ fn validate_prepared_journal_segments(
             "prepared journal segment record count is invalid"
         );
         anyhow::ensure!(
-            metadata.codec == "gzip-json-v1"
+            metadata.codec == segment_codec::SEAL_CODEC
                 && metadata.sha256 == encode_hex(&segment.digest)
                 && metadata.uncompressed_bytes
                     <= u64::try_from(MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES)?,

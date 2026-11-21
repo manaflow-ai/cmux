@@ -8,14 +8,14 @@ use std::collections::{HashMap, HashSet};
 use cmux_tui_core::AgentStatus;
 use serde_json::{Value, json};
 
-/// What a terminal agent does now, in the older CLI words (`state` in the
-/// JSON rows, `send` receipts). The shared vocabulary is
-/// [`AgentStatus`] (`status` in the JSON rows, the table's STATE column).
+/// What a terminal agent does now, as the send wait and its receipt see it.
+/// The words are the shared status words ([`AgentStatus`]) plus `ended`:
+/// a list row and a send receipt say the same word for one agent (W5-Q).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(in crate::cli) enum AgentState {
     /// A permission dialog, a question or an error waits for an answer.
-    WaitingForInput,
-    Busy,
+    Blocked,
+    Working,
     Idle,
     /// The harness reported its session ended; a shell may run there now.
     Ended,
@@ -24,8 +24,8 @@ pub(in crate::cli) enum AgentState {
 impl AgentState {
     pub(in crate::cli) fn as_str(self) -> &'static str {
         match self {
-            Self::WaitingForInput => "waiting-for-input",
-            Self::Busy => "busy",
+            Self::Blocked => "blocked",
+            Self::Working => "working",
             Self::Idle => "idle",
             Self::Ended => "ended",
         }
@@ -35,8 +35,8 @@ impl AgentState {
     /// program status state.
     pub(in crate::cli) fn from_record(state: &str) -> Option<Self> {
         Some(match state {
-            "working" => Self::Busy,
-            "blocked" | "input" | "waiting" | "attention" => Self::WaitingForInput,
+            "working" => Self::Working,
+            "blocked" | "input" | "waiting" | "attention" => Self::Blocked,
             "idle" | "done" | "unknown" => Self::Idle,
             "ended" | "exited" => Self::Ended,
             _ => return None,
@@ -80,8 +80,10 @@ impl AgentRow {
         json!({
             "terminal": self.terminal,
             "harness": self.harness,
-            "state": self.state.as_str(),
-            "status": self.status.map(AgentStatus::as_str),
+            // `status` is `ended` for a session that ended, as in the send
+            // receipt; `state` is its deprecated alias.
+            "state": self.status_word(),
+            "status": self.status_word(),
             "title": self.title,
             "workspace_id": self.workspace_id,
             "workspace": self.workspace,
@@ -142,16 +144,41 @@ fn unseen_terminals(snapshot: &Value) -> HashSet<&str> {
     super::super::wire::unseen_terminals(notifications.unwrap_or_default())
 }
 
+/// Whether `terminal` carries an unread notification in `snapshot`: its
+/// finished turn is `done` until somebody views it.
+pub(in crate::cli) fn unseen(snapshot: &Value, terminal: &str) -> bool {
+    unseen_terminals(snapshot).contains(terminal)
+}
+
 /// The shared status of a status word: a daemon agent record's state or an
 /// OSC 7501 program status state. `done` there is a finished turn
 /// (program status) and `idle` an agent at its prompt; either one is `done`
 /// while its terminal is `unseen`.
-fn status_of(word: &str, unseen: bool) -> Option<AgentStatus> {
+pub(in crate::cli) fn status_of(word: &str, unseen: bool) -> Option<AgentStatus> {
     match AgentStatus::parse(word)? {
         AgentStatus::Done | AgentStatus::Idle if unseen => Some(AgentStatus::Done),
         AgentStatus::Done => Some(AgentStatus::Idle),
         status => Some(status),
     }
+}
+
+/// Whether an agent record is the agent's own report (its hooks, or a
+/// report over the socket), not a guess from the screen (the screen-detection
+/// plugin, `plugin`, or the older `detected`). Only an own report says when
+/// an agent accepts a message or took one (W5-R: a screen record said idle
+/// before Claude Code had started).
+pub(in crate::cli) fn reported_by_agent(record: &Value) -> bool {
+    !matches!(record.get("source").and_then(Value::as_str), Some("plugin" | "detected"))
+}
+
+/// Whether the hooks cmux installs for `harness` (any alias,
+/// cmux-tui-hooks `provider_events`) include one that `kind` matches, a
+/// cmux-tui-core `agent_hook_event_*` predicate. A harness with no such hook
+/// never reports that event, so no wait may depend on it.
+pub(in crate::cli) fn harness_hooks_report(harness: &str, kind: fn(&str, &str) -> bool) -> bool {
+    let harness = super::super::agent_vocabulary::harness_name(harness);
+    cmux_tui_hooks::provider_events(&harness)
+        .is_some_and(|events| events.iter().any(|event| kind(&harness, event)))
 }
 
 /// The agent of one terminal record, from the daemon's agent records of
@@ -225,7 +252,7 @@ pub(in crate::cli) fn agent_rows(snapshot: &Value) -> Vec<AgentRow> {
         .as_array()
         .into_iter()
         .flatten()
-        .filter(|terminal| terminal["lifecycle"] != "exited")
+        .filter(|terminal| super::super::terminal_lifecycle::is_live(terminal))
         .filter_map(|terminal| {
             let unseen = terminal["id"].as_str().is_some_and(|id| unseen.contains(id));
             agent_of_terminal(terminal, agents, unseen)

@@ -19,7 +19,7 @@ import Testing
             "home.setChiefEffort": ("chief", ActionSuggestions.localChiefs),
             "home.adoptChief": ("agent", ActionSuggestions.adoptableAgents),
         ]
-        for id in Array(picks.keys) + ["history.removeSite", "help.clearErrorLog"] {
+        for id in Array(picks.keys) {
             let descriptor = try #require(registry.descriptor(for: id), "\(id)")
             #expect(descriptor.isPaletteVisible, "\(id)")
             #expect(descriptor.surfacePlan.cli == .exempt(.ownerVerb), "\(id)")
@@ -47,14 +47,10 @@ import Testing
         #expect(HomeChiefPicks(rows).adoptableAgents() == [ActionEnumCase(value: "agent_codex_1", title: "Codex")])
     }
 
-    @Test func idsAndSitesAreReadTheWayTheOwnerTakesThem() {
+    @Test func idsAreReadTheWayTheOwnerTakesThem() {
         #expect(HomeChiefRegistryActions.id(" agent_muse ") == "agent_muse")
         #expect(HomeChiefRegistryActions.id("agent/../x") == nil)
         #expect(HomeChiefRegistryActions.id("") == nil)
-        #expect(HistorySite("Example.com")?.host == "example.com")
-        #expect(HistorySite("https://news.example.com/a?b=1")?.host == "news.example.com")
-        #expect(HistorySite("not a host")?.host == nil)
-        #expect(HistorySite(nil)?.host == nil)
     }
 
     private func row(_ id: String, _ participants: [Participant]) -> CmuxHomeCore.ConversationSummary {

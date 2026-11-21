@@ -33,8 +33,10 @@ impl PtyTerminalRuntime {
         self.journal_output_gap(mux, "screen_cleared");
     }
 
-    /// Queue the marker on the terminal lane (after this terminal's earlier
-    /// resizes). False when this terminal is not journaled.
+    /// Offer the marker to the terminal lane (after this terminal's earlier
+    /// resizes) without a wait; a full lane owes it and queues it later
+    /// (journal_ingress/terminal_offer.rs). False when this terminal is not
+    /// journaled.
     fn journal_output_gap(&self, mux: &Arc<Mux>, reason: &'static str) -> bool {
         if !mux.terminal_journal_enabled() || !self.journal_capture_supported {
             return false;

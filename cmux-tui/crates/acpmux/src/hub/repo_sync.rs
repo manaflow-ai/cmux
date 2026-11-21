@@ -13,8 +13,10 @@ pub(super) type Ready = cmux_git::sync_barrier::Ready;
 #[cfg(not(unix))]
 pub(super) type Ready = ();
 
-/// Only an active sync retries. Failure, cancellation, unreadable state and the
-/// deadline refuse the operation; none turns a partial checkout into ready.
+/// Only an active sync retries, for as long as it runs: its producer holds the marker's lock
+/// while it lives, and a failed or dead one leaves the checkout incomplete. Failure,
+/// cancellation and unreadable state refuse the operation; none turns a partial checkout into
+/// ready. No deadline fails a wait while the seed is alive (the timer rule).
 pub(super) async fn wait(
     session: &Session,
     path: std::path::PathBuf,
@@ -45,10 +47,16 @@ pub(super) fn gates_its_tools(kind: crate::config::HarnessKind) -> bool {
 }
 
 /// [`gates_its_tools`] for a running agent, from what it speaks rather than the profile: a
-/// reload may change the profile's harness without replacing the agent. Only a stream it
-/// translates itself registers the callback; a hosted agent's is not known here, so it waits.
+/// reload may change the profile's harness without replacing the agent. Only Claude Code's
+/// translator registers the callback: the daemon's own for a direct child, or the one in its
+/// `__agent-host` (the same `Translator`, `agent_host/host.rs`), which its host record names.
+/// A host that does not say (an older build) waits.
+///
+/// Before, a hosted Claude counted as an agent that does not gate its tools: every Cloud start
+/// (agents run under hosts) waited for the whole copy in its first `child_for` (`set_model`,
+/// `set_mode` of `session/new`), though `ensure_child` had started it at the head.
 pub(super) fn child_gates_its_tools(child: &crate::agent::ChildAgent) -> bool {
-    cfg!(unix) && child.translator.is_some()
+    cfg!(unix) && child.runs_claude_translator()
 }
 
 async fn wait_until(
@@ -66,7 +74,6 @@ async fn wait_until(
     {
         use cmux_git::sync_barrier::{Probe, probe};
         let started = tokio::time::Instant::now();
-        let deadline = started + std::time::Duration::from_secs(10 * 60);
         loop {
             if cancelled() {
                 return Err(super::turns::stopped_before_prompt());
@@ -102,9 +109,6 @@ async fn wait_until(
                     ));
                 }
                 Probe::HeadReady | Probe::Syncing => {}
-            }
-            if tokio::time::Instant::now() >= deadline {
-                return Err(refusal("repository sync is still running; retry when it finishes"));
             }
             // No timer remains after ready/cancel/failure. Unlike a blocking
             // flock, this wait cannot strand a worker after the turn is stopped.
