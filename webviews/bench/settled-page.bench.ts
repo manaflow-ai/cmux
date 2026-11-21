@@ -291,7 +291,7 @@ function installFrameReader() {
       this.addEventListener("message", (event) => {
         try {
           const msg = JSON.parse(String(event.data)) as { id?: unknown; method?: string; params?: { kind?: string } };
-          const what = msg.method ?? `answer ${asked.get(msg.id) ?? msg.id}`;
+          const what = msg.method ?? `answer ${String(asked.get(msg.id) ?? msg.id)}`;
           mark(`in ${what}${msg.params?.kind ? ` ${msg.params.kind}` : ""} ${String(event.data).length}B`);
         } catch {
           mark("in ?");
