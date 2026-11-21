@@ -1,3 +1,4 @@
+import Bonsplit
 import CMUXAgentLaunch
 import CmuxCore
 import CmuxFoundation
@@ -8056,5 +8057,333 @@ extension SessionPersistenceTests {
         XCTAssertNil(MarkdownPanelFileLinkResolver.resolve(rawPath: "missing.md", relativeToMarkdownFile: openedFile.path))
         XCTAssertNil(MarkdownPanelFileLinkResolver.resolve(rawPath: "notes.txt", relativeToMarkdownFile: openedFile.path))
         XCTAssertNil(MarkdownPanelFileLinkResolver.resolve(rawPath: "https://example.com/notes.md", relativeToMarkdownFile: openedFile.path))
+    }
+
+    /// A workspace with one panel past `maxPanelsPerWorkspace` must say so on
+    /// the snapshot. The cap already keeps the first 512 panels; the missing
+    /// piece is a record that the rest were dropped, including when the
+    /// dropped panel was focused.
+    @MainActor
+    func testWorkspaceSnapshotRecordsPanelsOmittedPastTheCap() throws {
+        let workspace = Workspace()
+        defer { closePanels(in: workspace) }
+        try seedFilePreviewPanels(
+            count: SessionPersistencePolicy.maxPanelsPerWorkspace,
+            workspaceId: workspace.id,
+            paneId: try XCTUnwrap(workspace.bonsplitController.allPaneIds.first),
+            insert: { workspace.panels[$0] = $1 },
+            createTab: { panel, paneId in
+                workspace.bonsplitController.createTab(
+                    title: panel.displayTitle,
+                    icon: panel.displayIcon,
+                    kind: panel.panelType.rawValue,
+                    isDirty: panel.isDirty,
+                    inPane: paneId
+                )
+            },
+            bind: { workspace.bindSurface($0, toPanelId: $1) }
+        )
+
+        let ordered = workspace.sidebarOrderedPanelIds()
+        XCTAssertEqual(ordered.count, workspace.panels.count)
+        XCTAssertEqual(ordered.count, SessionPersistencePolicy.maxPanelsPerWorkspace + 1)
+        let omittedId = try XCTUnwrap(ordered.last)
+        workspace.focusPanel(omittedId)
+        XCTAssertEqual(workspace.focusedPanelId, omittedId, "the omitted panel must hold focus before the snapshot")
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let savedIds = Set(snapshot.panels.map(\.id))
+        let json = try jsonObject(encoding: snapshot)
+
+        XCTAssertEqual(snapshot.panels.count, SessionPersistencePolicy.maxPanelsPerWorkspace)
+        XCTAssertFalse(savedIds.contains(omittedId))
+        XCTAssertFalse(layoutPanelIds(snapshot.layout).contains(omittedId))
+        XCTAssertTrue(Set(layoutPanelIds(snapshot.layout)).isSubset(of: savedIds))
+        XCTAssertEqual(snapshot.omittedPanelCount, 1)
+        XCTAssertEqual(omittedPanelCount(in: json), 1)
+        XCTAssertNotEqual(snapshot.focusedPanelId, omittedId)
+        if let focused = snapshot.focusedPanelId {
+            XCTAssertTrue(savedIds.contains(focused))
+        }
+    }
+
+    /// A Dock with one panel past the cap keeps the first panels, leaves the
+    /// last one out of `panels` and the layout, and records `omittedPanelCount`.
+    @MainActor
+    func testDockSnapshotRecordsPanelsOmittedPastTheCap() throws {
+        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        defer { dock.closeAllPanels() }
+        try seedFilePreviewPanels(
+            count: SessionPersistencePolicy.maxPanelsPerWorkspace + 1,
+            workspaceId: dock.workspaceId,
+            paneId: try XCTUnwrap(dock.bonsplitController.allPaneIds.first),
+            insert: { dock.panels[$0] = $1 },
+            createTab: { panel, paneId in
+                dock.bonsplitController.createTab(
+                    title: panel.displayTitle,
+                    icon: panel.displayIcon,
+                    kind: panel.panelType.rawValue,
+                    isDirty: panel.isDirty,
+                    inPane: paneId
+                )
+            },
+            bind: { dock.bindSurface($0, toPanelId: $1) }
+        )
+
+        let ordered = dock.bonsplitController.allPaneIds.flatMap { paneId in
+            dock.bonsplitController.tabs(inPane: paneId).compactMap { tab in
+                dock.surfaceIdToPanelId[tab.id]
+            }
+        }
+        XCTAssertEqual(ordered.count, dock.panels.count)
+        let omittedId = try XCTUnwrap(ordered.last)
+        let snapshot = dock.sessionSnapshot(includeScrollback: false)
+        let savedIds = Set(snapshot.panels.map(\.id))
+
+        XCTAssertEqual(snapshot.panels.count, SessionPersistencePolicy.maxPanelsPerWorkspace)
+        XCTAssertFalse(savedIds.contains(omittedId))
+        XCTAssertFalse(layoutPanelIds(snapshot.layout).contains(omittedId))
+        XCTAssertTrue(Set(layoutPanelIds(snapshot.layout)).isSubset(of: savedIds))
+        XCTAssertEqual(snapshot.omittedPanelCount, 1)
+        XCTAssertEqual(omittedPanelCount(in: try jsonObject(encoding: snapshot)), 1)
+    }
+
+    /// Restore reads the omission recorded on the snapshot. Injecting the
+    /// field into an otherwise small snapshot keeps the assertion on the
+    /// restore warning, not on rebuilding 512 panels.
+    @MainActor
+    func testRestoreSurfacesOmittedPanelCountsFromTheSnapshot() throws {
+        let workspace = Workspace()
+        defer { closePanels(in: workspace) }
+        let dock = DockSplitStore(workspaceId: workspace.id, baseDirectoryProvider: { nil })
+        defer { dock.closeAllPanels() }
+
+        var workspaceJSON = try jsonObject(encoding: workspace.sessionSnapshot(includeScrollback: false))
+        var dockJSON = try jsonObject(encoding: dock.sessionSnapshot(includeScrollback: false))
+        workspaceJSON["omittedPanelCount"] = 3
+        dockJSON["omittedPanelCount"] = 4
+        workspaceJSON["dock"] = dockJSON
+        let snapshot = try JSONDecoder().decode(
+            SessionWorkspaceSnapshot.self,
+            from: JSONSerialization.data(withJSONObject: workspaceJSON)
+        )
+
+        let restored = Workspace()
+        defer { closePanels(in: restored) }
+        restored.restoreSessionSnapshot(snapshot)
+
+        let warnings = restored.logEntries.filter {
+            $0.source == Workspace.sessionPersistenceOmissionLogSource && $0.level == .warning
+        }
+        XCTAssertEqual(warnings.count, 2)
+        XCTAssertTrue(warnings.contains { $0.message.contains("3") })
+        XCTAssertTrue(warnings.contains { $0.message.contains("4") })
+        XCTAssertTrue(warnings.allSatisfy {
+            $0.message.contains(String(SessionPersistencePolicy.maxPanelsPerWorkspace))
+        })
+
+        let resaved = restored.sessionSnapshot(includeScrollback: false)
+        XCTAssertFalse(resaved.logEntries.contains { $0.source == Workspace.sessionPersistenceOmissionLogSource })
+    }
+
+    /// Under the cap the snapshot writes no `omittedPanelCount`, and restoring
+    /// it adds no omission warning to the workspace log.
+    @MainActor
+    func testWorkspaceSnapshotUnderThePanelCapDoesNotRecordAnOmission() throws {
+        let workspace = Workspace()
+        defer { closePanels(in: workspace) }
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        XCTAssertLessThanOrEqual(
+            snapshot.panels.count,
+            SessionPersistencePolicy.maxPanelsPerWorkspace
+        )
+        XCTAssertNil(snapshot.omittedPanelCount)
+        XCTAssertNil(omittedPanelCount(in: try jsonObject(encoding: snapshot)))
+
+        let restored = Workspace()
+        defer { closePanels(in: restored) }
+        restored.restoreSessionSnapshot(snapshot)
+        XCTAssertFalse(restored.logEntries.contains { $0.source == Workspace.sessionPersistenceOmissionLogSource })
+    }
+
+    /// Pruning canvas panes for the snapshot keeps each tabbed pane's
+    /// identity. A pane's `panelId` is its founding panel's UUID (or a fresh
+    /// id after a tab tear-out), not its first tab, so neither reordered tabs
+    /// nor a pruned tab may rewrite it.
+    func testCanvasPanePruningKeepsThePaneIdentity() throws {
+        let founding = try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-0000000000A1"))
+        let second = try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-0000000000A2"))
+        let tornOutPane = try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-0000000000B1"))
+        let tornOutPanel = try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-0000000000B2"))
+        let reordered = SessionCanvasPaneSnapshot(
+            panelId: founding, x: 0, y: 0, width: 400, height: 300,
+            panelIds: [second, founding], selectedPanelId: founding
+        )
+        let tornOut = SessionCanvasPaneSnapshot(
+            panelId: tornOutPane, x: 500, y: 0, width: 400, height: 300,
+            panelIds: [tornOutPanel], selectedPanelId: tornOutPanel
+        )
+
+        let unpruned = try XCTUnwrap(Workspace.canvasPanesKeepingPersistedPanels(
+            [reordered, tornOut],
+            persistedPanelIds: [founding, second, tornOutPanel]
+        ))
+        XCTAssertEqual(unpruned, [reordered, tornOut])
+
+        let pruned = try XCTUnwrap(Workspace.canvasPanesKeepingPersistedPanels(
+            [reordered, tornOut],
+            persistedPanelIds: [second, tornOutPanel]
+        ))
+        XCTAssertEqual(pruned.count, 2)
+        XCTAssertEqual(pruned[0].panelId, founding)
+        XCTAssertEqual(pruned[0].panelIds, [second])
+        XCTAssertEqual(pruned[0].selectedPanelId, second)
+        XCTAssertEqual(pruned[1], tornOut)
+    }
+
+    /// Repeated restores of the same omission log one warning, and a zero or
+    /// missing count logs none.
+    @MainActor
+    func testWindowDockOmissionWarningIsRecordedOnTheSelectedWorkspace() {
+        let workspace = Workspace()
+        defer { closePanels(in: workspace) }
+        Workspace.recordOmittedPanelRestore(2, container: .windowDock, on: workspace)
+        Workspace.recordOmittedPanelRestore(2, container: .windowDock, on: workspace)
+        Workspace.recordOmittedPanelRestore(0, container: .windowDock, on: workspace)
+        Workspace.recordOmittedPanelRestore(nil, container: .workspace, on: workspace)
+
+        let warnings = workspace.logEntries.filter { $0.source == Workspace.sessionPersistenceOmissionLogSource }
+        XCTAssertEqual(warnings.count, 1)
+        XCTAssertEqual(warnings[0].level, .warning)
+        XCTAssertTrue(warnings[0].message.contains("2"))
+        XCTAssertTrue(warnings[0].message.contains(String(SessionPersistencePolicy.maxPanelsPerWorkspace)))
+    }
+
+    /// Drives the window-Dock restore entry point, not only the shared
+    /// helper, so a lost or misrouted `omittedPanelCount` on a window Dock
+    /// snapshot fails here.
+    @MainActor
+    func testWindowDockRestoreRecordsItsOmissionOnTheSelectedWorkspace() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let tabManager = TabManager()
+        defer { tabManager.closeWorkspacesForTesting() }
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: tabManager)
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+        let context = try XCTUnwrap(
+            appDelegate.mainWindowContexts.values.first { $0.windowId == windowId }
+        )
+        defer { context.teardownWindowDock() }
+        let selected = try XCTUnwrap(tabManager.selectedWorkspace)
+
+        let sourceDock = DockSplitStore(workspaceId: windowId, baseDirectoryProvider: { nil })
+        defer { sourceDock.closeAllPanels() }
+        var dockJSON = try jsonObject(encoding: sourceDock.sessionSnapshot(includeScrollback: false))
+        dockJSON["omittedPanelCount"] = 5
+        let dockSnapshot = try JSONDecoder().decode(
+            SessionSplitContainerSnapshot.self,
+            from: JSONSerialization.data(withJSONObject: dockJSON)
+        )
+        let windowSnapshot = SessionWindowSnapshot(
+            frame: nil,
+            display: nil,
+            tabManager: SessionTabManagerSnapshot(
+                selectedWorkspaceIndex: 0,
+                workspaces: [selected.sessionSnapshot(includeScrollback: false)]
+            ),
+            sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil),
+            dock: dockSnapshot
+        )
+
+        context.restoreWindowDockSessionSnapshot(windowSnapshot, notificationStore: nil)
+
+        let warnings = selected.logEntries.filter {
+            $0.source == Workspace.sessionPersistenceOmissionLogSource
+        }
+        XCTAssertEqual(warnings.count, 1)
+        XCTAssertEqual(warnings.first?.level, .warning)
+        XCTAssertEqual(
+            warnings.first?.message,
+            SessionSnapshotOmittedPanelContainer.windowDock.warning(omittedCount: 5)
+        )
+    }
+
+    /// Snapshots written before `omittedPanelCount` existed still decode, with
+    /// the field read as nil.
+    @MainActor
+    func testLegacyWorkspaceSnapshotWithoutOmittedPanelCountDecodes() throws {
+        let workspace = Workspace()
+        defer { closePanels(in: workspace) }
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        var object = try jsonObject(encoding: snapshot)
+        object.removeValue(forKey: "omittedPanelCount")
+        let decoded = try JSONDecoder().decode(
+            SessionWorkspaceSnapshot.self,
+            from: JSONSerialization.data(withJSONObject: object)
+        )
+        XCTAssertEqual(decoded.panels.map(\.id), snapshot.panels.map(\.id))
+        XCTAssertNil(decoded.omittedPanelCount)
+    }
+
+    /// Adds `count` image file-preview panels as tabs in `paneId`. File
+    /// previews skip terminal start-up, so a test can pass the cap cheaply.
+    @MainActor
+    private func seedFilePreviewPanels(
+        count: Int,
+        workspaceId: UUID,
+        paneId: PaneID,
+        insert: (UUID, FilePreviewPanel) -> Void,
+        createTab: (FilePreviewPanel, PaneID) -> TabID?,
+        bind: (TabID, UUID) -> Void
+    ) throws {
+        for index in 0..<count {
+            let panel = FilePreviewPanel(
+                workspaceId: workspaceId,
+                filePath: "/tmp/cmux-panel-cap-\(workspaceId.uuidString)-\(index).png",
+                startFileWatcher: false,
+                textLoader: { _ in .unavailable },
+                modeResolver: { _ in .image }
+            )
+            insert(panel.id, panel)
+            let tabId = try XCTUnwrap(
+                createTab(panel, paneId),
+                "file preview tab \(index) should be created"
+            )
+            bind(tabId, panel.id)
+        }
+    }
+
+    /// Closes every panel in `workspace` so seeded panels do not outlive the test.
+    @MainActor
+    private func closePanels(in workspace: Workspace) {
+        for panel in workspace.panels.values {
+            panel.close()
+        }
+    }
+
+    /// Encodes `value` and returns it as a top-level JSON object.
+    private func jsonObject(encoding value: some Encodable) throws -> [String: Any] {
+        let data = try JSONEncoder().encode(value)
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    /// Reads `omittedPanelCount` from encoded snapshot JSON. Nil when the key
+    /// is absent or null.
+    private func omittedPanelCount(in json: [String: Any]) -> Int? {
+        guard let value = json["omittedPanelCount"], !(value is NSNull) else { return nil }
+        return (value as? NSNumber)?.intValue
+    }
+
+    /// Every panel id the layout tree references, in tree order.
+    private func layoutPanelIds(_ layout: SessionWorkspaceLayoutSnapshot) -> [UUID] {
+        switch layout {
+        case .pane(let pane):
+            return pane.panelIds
+        case .split(let split):
+            return layoutPanelIds(split.first) + layoutPanelIds(split.second)
+        }
     }
 }

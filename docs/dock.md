@@ -22,6 +22,8 @@ The Dock toolbar `+` menu and an empty Dock pane offer the same New Terminal / N
 
 After a Dock has been saved in a session, cmux restores that snapshot instead of seeding it again. Restore includes the split and tab layout, divider positions, tab order and selection, terminal session metadata and agent resume state, and browser navigation, zoom, profile, developer tools, and mute state. An intentionally empty saved Dock also stays empty after relaunch.
 
+A workspace and a Dock each keep at most 512 panels in that snapshot. Panels past the first 512 are left out, the saved layout only refers to the panels that were kept, and the snapshot records how many were omitted. After restore, the workspace log warns with that count. See [Session snapshots](session-snapshots.md).
+
 When a Dock pane has keyboard focus, the standard creation/split shortcuts act on the Dock instead of the main content area: New Browser (Cmd+Shift+L), New Surface (Cmd+T), and Split Right / Split Down (Cmd+D / Cmd+Shift+D) create or split inside the focused Dock pane. When the main area is focused, the same shortcuts behave as usual.
 
 ## CLI / socket
