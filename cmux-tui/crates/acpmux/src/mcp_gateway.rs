@@ -59,11 +59,12 @@ pub const OFF_ENV: &str = "ACPMUX_MCP_GATEWAY";
 /// How often the idle servers are looked for.
 const REAP_EVERY: Duration = Duration::from_secs(30);
 /// A started server's replayed `initialize`.
+// timeout: a local `cmux mcp serve` child answering one replayed `initialize`; a server that cannot is not started.
 const START_TIMEOUT: Duration = Duration::from_secs(20);
 /// After its stdin closes, a server has this long to end its own children and exit.
+// timeout: how long a closed server may take to end its own children before it is killed; no request waits on it.
 const STOP_GRACE: Duration = Duration::from_secs(3);
 const MAX_HEAD: usize = 64 * 1024;
-const MAX_BODY: usize = 32 * 1024 * 1024;
 /// The id of the `initialize` the gateway replays to a server it started for a later request.
 const REPLAY_ID: &str = "acpmux-gateway-initialize";
 
@@ -990,9 +991,6 @@ async fn read_request(stream: &mut TcpStream) -> Result<Request> {
     if headers.iter().any(|(k, v)| k == "transfer-encoding" && !v.eq_ignore_ascii_case("identity"))
     {
         return Err(anyhow!("chunked bodies are not taken; send content-length"));
-    }
-    if length > MAX_BODY {
-        return Err(anyhow!("body too long"));
     }
     let mut body = buf.get(head_end + 4..).unwrap_or_default().to_vec();
     while body.len() < length {

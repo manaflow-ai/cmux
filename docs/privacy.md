@@ -165,6 +165,8 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `upload.wikimedia.org` | connects | museum art for backgrounds, when you search for art |
 | `formulae.brew.sh` | connects | checks for a newer cmux CLI when installed with Homebrew |
 | `www.notion.so` | connects | the Notion integration, only when an agent uses it in your signed-in browser |
+| `*.*.wdev.cmux.dev` | connects | the iPhone app's Cloud services on a public dev stack, only when a dev backend override names one |
+| `api.*.wdev.cmux.dev` | connects | the iPhone app's Cloud API on a public dev stack, only when a dev backend override names one |
 
 ### Pages the app opens when you ask
 
@@ -341,6 +343,10 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `mini.tail1234.ts.net` | example | a placeholder in a settings field |
 | `*.example.ts.net` | example | a device address in the Debug menu's sample device list |
 | `r.org` | example | a value in a self-check |
+| `api.datadoghq.com` | example | a sample secret's host in the Env Secrets playground |
+| `http-intake.logs.datadoghq.com` | example | a sample secret's host in the Env Secrets playground |
+| `hooks.stripe.com` | example | a sample pending host change in the Env Secrets playground |
+| `maps.googleapis.com` | example | a sample secret's host in the Env Secrets playground |
 
 ### Text that looks like a host name
 

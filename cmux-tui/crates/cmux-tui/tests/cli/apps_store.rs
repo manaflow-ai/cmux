@@ -1187,6 +1187,7 @@ fn the_customize_folder_installs_when_its_missing_parent_is_made_later() {
 #[test]
 fn the_documented_customize_template_installs_as_is() {
     let apps = Apps::new("customize-template");
+    // affected-reads: docs/cmux-next/sidebar-customization samples/apps first-party-apps
     let template =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../docs/cmux-next/sidebar-customization");
     let target = apps.dir.join("customize");

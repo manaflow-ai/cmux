@@ -20,6 +20,7 @@ use serde_json::{Value, json};
 use super::{GlobalArgs, OutputMode};
 
 /// How long the one `identify` read waits. A slow app is not this CLI's business.
+// timeout: the one `identify` read; a slow app is reported as not answering, the command still ends.
 const IDENTIFY_WAIT: Duration = Duration::from_secs(1);
 
 /// What `identify` says about the running app.

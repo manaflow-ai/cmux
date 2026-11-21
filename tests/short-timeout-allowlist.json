@@ -153,7 +153,7 @@
     "cmux-tui/crates/cmux-tui/src/cli/automation.rs:rust-duration": {"count": 1, "reason": "bound: an automation's done notification spawns `cmux notify` fire-and-forget and waits at most 5 s for it, so a cmux that is not answering never holds the automation run"},
     "cmux-tui/crates/cmux-tui/src/cli/billing.rs:rust-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "cmux-tui/crates/cmux-tui/src/cli/chief/link.rs:rust-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
-    "cmux-tui/crates/cmux-tui/src/cli/cloud_client_session.rs:rust-duration": {"count": 2, "reason": "bound: the 15 s is slack added to the caller's own timeout_ms for create and exec, so the HTTP request outlives the machine-side timeout; it is not a short cap of its own"},
+    "cmux-tui/crates/cmux-tui/src/cli/cloud_client_session.rs:rust-duration": {"count": 1, "reason": "bound: the 15 s is slack added to the caller's own timeout_ms for create and exec, so the HTTP request outlives the machine-side timeout; it is not a short cap of its own"},
     "cmux-tui/crates/cmux-tui/src/cli/cloud_machines.rs:rust-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "cmux-tui/crates/cmux-tui/src/cli/coderouter.rs:rust-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "cmux-tui/crates/cmux-tui/src/cli/codex_app_server.rs:rust-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
