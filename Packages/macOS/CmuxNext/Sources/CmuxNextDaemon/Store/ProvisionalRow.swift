@@ -18,7 +18,4 @@ public struct ProvisionalRow: Sendable, Hashable {
         handle = RowID(rawValue: Self.handleBase | paneHandle.rawValue)
         self.height = height
     }
-
-    /// The first row's handle of a column that had no rows (it gets two at once).
-    var firstHandle: RowID { RowID(rawValue: handle.rawValue | (1 << 61)) }
 }
