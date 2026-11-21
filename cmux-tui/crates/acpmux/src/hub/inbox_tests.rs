@@ -44,6 +44,7 @@ fn item(
         text: text.to_owned(),
         details: None,
         tool_notice: None,
+        fire: false,
         noticed: false,
         read: false,
         answer: None,
@@ -570,6 +571,36 @@ async fn with_the_surge_preview_off_a_burst_is_not_held() {
     assert_eq!(hub.inbox_threads(&session)["surge"]["held"], 1, "only the restored hold");
 }
 
+/// A fire notice wakes and skips the FYI wait only with the surge preview on: off, it is its class
+/// alone, as before the surge inbox (router review of #48220 at 2d7dfc02, F1).
+#[tokio::test]
+async fn a_fire_notice_wakes_only_with_the_surge_preview_on() {
+    for on in [false, true] {
+        let (hub, session) = hub_with_chat(if on { "fire-on" } else { "fire-off" });
+        hub.set_surge_inbox(Some(on));
+        let provenance = crate::prompt_provenance::notice(
+            &json!({"sender":"watcher","severity":"fire","title":"Runner failure"}),
+            "chat",
+        );
+        hub.append(
+            &session,
+            "mux",
+            "inbox",
+            json!({
+                "promptId":"fire", "threadId":"watcher", "from":"watcher", "class":"fyi",
+                "text":"Runner failure", "_meta": {"provenance": provenance}
+            }),
+        );
+        *session.inbox() = Default::default();
+        hub.restore_inbox(&session);
+        let inbox = session.inbox();
+        let item = inbox.items.iter().find(|i| i.prompt_id == "fire").expect("restored");
+        assert!(item.tool_notice.is_some(), "the notice is kept either way");
+        assert_eq!(wakes(&session.meta(), item), on, "preview {on}");
+        assert_eq!(ordinary_fyi(item), !on, "preview {on}");
+    }
+}
+
 #[tokio::test]
 async fn surge_receipt_restores_the_same_held_message_and_searches_its_original_text() {
     let (hub, session) = hub_with_chat("busy-chat");
@@ -625,6 +656,7 @@ async fn surge_receipt_restores_the_same_held_message_and_searches_its_original_
     );
     let mut urgent = item("fire", "runner", "watcher", PromptClass::Fyi, now_ms(), "fire");
     urgent.tool_notice = tool_notice_of(opts.provenance.as_ref());
+    urgent.fire = fire_notice(urgent.tool_notice.as_ref());
     assert!(wakes(&session.meta(), &urgent));
     assert!(!ordinary_fyi(&urgent));
 }

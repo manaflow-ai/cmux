@@ -539,6 +539,37 @@ export interface HarnessesParams {
   cwd?: unknown;
 }
 
+export interface InboxSubscriptionGrantParams {
+  _meta?: RequestMeta;
+  ownerSessionId?: unknown;
+  sessionId?: unknown;
+  threadId?: unknown;
+}
+
+export interface InboxSubscriptionRemoveParams {
+  _meta?: RequestMeta;
+  sessionId?: unknown;
+  threadId?: unknown;
+}
+
+export interface InboxSubscriptionRevokeParams {
+  _meta?: RequestMeta;
+  ownerSessionId?: unknown;
+  sessionId?: unknown;
+  threadId?: unknown;
+}
+
+export interface InboxSubscriptionSetParams {
+  _meta?: RequestMeta;
+  sessionId?: unknown;
+  threadId?: unknown;
+}
+
+export interface InboxSubscriptionsParams {
+  _meta?: RequestMeta;
+  sessionId?: unknown;
+}
+
 export interface InboxThreadParams {
   _meta?: RequestMeta;
   markRead?: unknown;
