@@ -179,7 +179,7 @@
         "consumers": "1 run on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 24 job-minutes",
         "rust-msrv": "1 run on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 14 job-minutes",
         "code-mode": "15 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 26 job-minutes",
-        "conformance": "2026-11-21 19:00-21:55Z: 192 pull request jobs on 68 merged pull requests, 38.0 runner-min per merged pull request, 51 red; the CI 10x replay (cmux#48480): 0.05% of heads it alone caught"
+        "conformance": "192 runs on 68 merged pull requests (2026-11-21 19:00-21:55Z), 51 with a red, 38.0 runner-min per merged pull request; the CI 10x replay (cmux#48480): 0.05% of heads it alone caught"
       },
       ".github/workflows/swift-linux-packages.yml": {
         "swift-linux-packages": "10 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 178 job-minutes"
