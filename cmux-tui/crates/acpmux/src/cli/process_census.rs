@@ -150,14 +150,84 @@ async fn session_info(client: Option<&Client>, id: &str) -> SessionInfo {
             status: v.get("status").and_then(Value::as_str).map(str::to_owned),
             updated_at: v.get("updatedAt").and_then(Value::as_u64),
         },
-        // The daemon's refusal for an id it does not have (`session_name::not_found`).
         Err(e)
-            if ["no session matches", "no_session"].iter().any(|w| e.to_string().contains(w)) =>
+            if e.downcast_ref::<crate::client::DaemonError>()
+                .is_some_and(|d| is_no_session(&d.0)) =>
         {
             SessionInfo::gone()
         }
         Err(_) => SessionInfo::default(),
     }
+}
+
+/// Whether the daemon's refusal says it has no such session: `session_name::not_found`, a
+/// not-found whose message starts "no session matches", read from the refusal itself, never a
+/// word inside the quoted name. That session reads `gone`, as the socket census reads one its
+/// hub does not hold. Any other failure (a timeout, a daemon gone) leaves the status unknown.
+pub(crate) fn is_no_session(e: &crate::rpc::RpcError) -> bool {
+    e.code == crate::rpc::RpcError::not_found("").code
+        && e.message.starts_with("no session matches ")
+}
+
+/// The most of one argument a trimmed census row keeps, and the most arguments it keeps.
+const ARG_KEEP_BYTES: usize = 256;
+const ARGS_KEPT: usize = 8;
+
+/// Fits a census (what [`build`] returns) in `budget` bytes for one socket reply: each `argv`,
+/// largest first, is cut to its first [`ARGS_KEPT`] arguments of at most [`ARG_KEEP_BYTES`]
+/// each, plus a last `"... (N bytes omitted)"`, until the census fits. Every row keeps its pid,
+/// owner, state and reason, so nothing a judgment rests on goes. The cut rows are counted in
+/// `omitted: {reason: "too_large", argvTrimmed, bytes}`. False when even the cut census does
+/// not fit: the caller refuses and points to `acpmux ps --json`, which has no reply limit.
+pub(crate) fn fit_census(census: &mut Value, budget: usize) -> bool {
+    let size = |v: &Value| serde_json::to_string(v).map_or(usize::MAX, |t| t.len());
+    let before = size(census);
+    if before <= budget {
+        return true;
+    }
+    let mut pointers = Vec::new();
+    for list in ["/processes", "/gc/candidates", "/gc/refused"] {
+        let rows = census.pointer(list).and_then(Value::as_array).map_or(0, Vec::len);
+        pointers.extend((0..rows).map(|i| format!("{list}/{i}/argv")));
+    }
+    let trimmed =
+        crate::hub::reply_fit::shrink_largest(census, before, budget, pointers, |argv, _| {
+            let args: Vec<String> = argv
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect();
+            let total: usize = args.iter().map(String::len).sum();
+            let mut kept: Vec<Value> = args
+                .iter()
+                .take(ARGS_KEPT)
+                .map(|a| Value::String(cut(a, ARG_KEEP_BYTES).to_owned()))
+                .collect();
+            let kept_bytes: usize = kept.iter().filter_map(Value::as_str).map(str::len).sum();
+            kept.push(Value::String(format!(
+                "... ({} bytes omitted)",
+                total.saturating_sub(kept_bytes)
+            )));
+            *argv = Value::Array(kept);
+        });
+    if let Some(map) = census.as_object_mut() {
+        map.insert(
+            "omitted".to_owned(),
+            json!({"reason": "too_large", "argvTrimmed": trimmed.len(), "bytes": before}),
+        );
+    }
+    size(census) <= budget
+}
+
+/// The start of `text`, at most `max` bytes, cut on a character boundary.
+fn cut(text: &str, max: usize) -> &str {
+    let mut end = text.len().min(max);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    text.get(..end).unwrap_or("")
 }
 
 /// The state of one process and why, from its verdict and its session.
@@ -243,7 +313,8 @@ pub(crate) struct Gathered {
 }
 
 /// Reads the processes acpmux started and its host records. `caller` is the session the asker
-/// runs in: its processes read `yours` instead of `live` (a label only; the state is the same).
+/// runs in: its processes read `yours` instead of `live`, and are never `orphaned` or a gc
+/// candidate (gc never ends the asker's own processes), even when their agent host has ended.
 pub(crate) fn gather(caller: Option<&str>) -> Gathered {
     let daemon = process_owner::daemon_pid();
     let (hosts, bad) = host_rows();
