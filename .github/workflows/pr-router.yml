@@ -82,5 +82,11 @@ jobs:
     needs: route
     if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'swift-linux-packages.yml') }}
     uses: ./.github/workflows/swift-linux-packages.yml
+
+  web-validation:
+    name: Web validation
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'web-validation.yml') }}
+    uses: ./.github/workflows/web-validation.yml
     permissions:
       contents: read

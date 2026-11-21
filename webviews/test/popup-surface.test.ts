@@ -327,13 +327,14 @@ ${tooltips}`,
                 width: Math.round(node.getBoundingClientRect().width),
               };
             });
+            // TooltipMetrics.swift: radius 8, 12/16 text, padding 4 x 8 from the box's edge (the 1px rim inside it).
             expect({ id, ...look }).toEqual({
               id,
               ink: TEXT,
-              radius: "5px",
-              padding: "2px 8px",
+              radius: "8px",
+              padding: "3px 7px",
               border: `1px solid ${SEPARATOR}`,
-              font: "11px/14px",
+              font: "12px/16px",
               shadow: true,
               width: 320,
             });
