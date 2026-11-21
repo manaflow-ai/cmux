@@ -8,6 +8,13 @@ on:
 permissions:
   contents: read
 
+# One run at a time and at most one waiting (GitHub replaces an older waiting run with a newer one),
+# so scheduled runs never pile up after an outage; a running one is never cut short
+# (tests/test_ci_cron_concurrency.py).
+concurrency:
+  group: vercel-auth-health
+  cancel-in-progress: false
+
 jobs:
   check:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
