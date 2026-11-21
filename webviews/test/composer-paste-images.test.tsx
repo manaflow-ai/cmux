@@ -321,15 +321,11 @@ function datedHost(names: string[]) {
   };
 }
 
+/// Each chip's native path in the composer's order, which is the gestures' order: a path that went
+/// to the other gesture's chip shows as a swap, not only as a missing path.
 const nativePaths = (attachments: ComposerAttachment[]) => ({
-  images: attachments
-    .filter((chip) => chip.kind === "image")
-    .map((chip) => chip.originalPath ?? "")
-    .sort((a, b) => a.localeCompare(b)),
-  links: attachments
-    .filter((chip) => chip.kind === "link")
-    .map((chip) => chip.path ?? "")
-    .sort((a, b) => a.localeCompare(b)),
+  images: attachments.filter((chip) => chip.kind === "image").map((chip) => chip.originalPath ?? ""),
+  links: attachments.filter((chip) => chip.kind === "link").map((chip) => chip.path ?? ""),
 });
 
 // cmux#48809 follow-up: two fast pastes of the same screenshots and folder from different folders.
