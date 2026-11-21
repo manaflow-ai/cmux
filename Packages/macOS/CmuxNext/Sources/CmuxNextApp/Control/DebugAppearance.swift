@@ -5,16 +5,13 @@ import CmuxNextTerminal
 
 /// `debug.appearance` (DEBUG builds): overrides this app's own appearance
 /// (`NSApp.appearance`) so a test can switch light and dark without touching
-/// the system setting. The terminal theme follows it like the system
-/// appearance: Ghostty's color scheme (a light/dark theme such as the
-/// default Apple System Colors), the chrome derived from it, and room,
-/// workspace and terminal themes. Params: `mode` `light`, `dark`, or
-/// `system` (clears the override). Returns the effective appearance, the
-/// applied terminal background (`#RRGGBB`, as applied when the call returns;
-/// poll `debug.themes` to wait for a reload), and this app bundle's Ghostty
-/// themes folder: null there means the bundle ships no themes, so without
-/// Ghostty.app every theme is Ghostty's built-in default and light captures
-/// stay dark.
+/// the system setting; the terminal theme follows it like the system
+/// appearance. Params: `mode` `light`, `dark`, or `system` (clears the
+/// override). Returns the effective appearance and the applied terminal
+/// background (`#RRGGBB`; poll `debug.themes` to wait for a reload). A read
+/// (no `mode`) also names this bundle's Ghostty themes folder (null: no
+/// themes, so light captures stay dark). A switch never names a path: its
+/// answer goes in a capture's report, whose privacy check refuses one.
 enum DebugAppearance {
     static func handle(_ params: [String: JSONValue]) -> JSONValue {
         switch params["mode"]?.stringValue {
@@ -30,12 +27,10 @@ enum DebugAppearance {
         // The app's own copy only: resourcesDirectory() also falls back to Ghostty.app.
         let themes = Bundle.main.resourceURL.map { $0.appending(path: "ghostty/themes").path }
             .flatMap { FileManager.default.fileExists(atPath: $0) ? JSONValue.string($0) : nil }
-        return .object([
-            "override": NSApp.appearance.map { .string($0.name.rawValue) } ?? .null,
-            "effective": .string(dark ? "dark" : "light"),
-            "terminal_background": background,
-            "themes": themes ?? .null,
-        ])
+        var answer: [String: JSONValue] = ["override": NSApp.appearance.map { .string($0.name.rawValue) } ?? .null,
+                                           "effective": .string(dark ? "dark" : "light"), "terminal_background": background]
+        if params["mode"] == nil { answer["themes"] = themes ?? .null }
+        return .object(answer)
     }
 }
 #endif
