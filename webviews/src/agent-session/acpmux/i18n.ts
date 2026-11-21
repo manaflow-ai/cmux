@@ -22,6 +22,7 @@ import { useSyncExternalStore } from "react";
 import { appLanguages } from "../../pages/shared/appLanguage";
 import { resolveLanguage, setDocumentLanguage } from "../../pages/shared/i18n";
 import { englishScriptSources, LANGUAGE_CODE, loadScript, localeScriptSource } from "../../pages/shared/localeScripts";
+import { intl } from "../../ui/intl";
 
 type Catalog = typeof import("./generated/strings.json");
 /** A plural string's text per CLDR category is `key#<category>` in the table (gen-strings.mjs). */
@@ -135,7 +136,7 @@ function formKey(key: string, values: StringValues, lang: PaneLanguage): string 
   if (!(`${key}#other` in (tables().en ?? {}))) return key;
   let rules = pluralRules.get(lang);
   if (!rules) {
-    rules = new Intl.PluralRules(lang);
+    rules = intl.PluralRules(lang);
     pluralRules.set(lang, rules);
   }
   return `${key}#${rules.select(Number(values.n ?? 0))}`;
