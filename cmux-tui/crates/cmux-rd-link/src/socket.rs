@@ -1,7 +1,4 @@
-use std::io;
-use std::mem::size_of_val;
 use std::net::{SocketAddr, UdpSocket};
-use std::os::fd::AsRawFd;
 
 /// Read the host's absolute monotonic clock in the same domain as the ledger.
 pub(super) fn monotonic_us() -> Option<u64> {
@@ -27,6 +24,9 @@ pub(super) fn send_to_observed(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io;
+    use std::mem::size_of_val;
+    use std::os::fd::AsRawFd;
 
     #[test]
     fn departure_failed_socket_send_has_no_success_timestamp() {
