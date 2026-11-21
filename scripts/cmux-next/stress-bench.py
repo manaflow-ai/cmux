@@ -99,6 +99,7 @@ class StressBench:
         self.pid = pid
         self.out = out
         self.duration = duration
+        self.shapes: dict[str, dict[str, Any]] = {}
 
     def _frames(self, action: str, raw: bool = True) -> dict[str, Any]:
         reply = self.rpc("debug.frames", {"action": action, "raw": raw}, timeout=30)
@@ -120,6 +121,8 @@ class StressBench:
         return samples
 
     def _load_shape(self, name: str) -> dict[str, Any]:
+        if name in self.shapes:
+            return self.shapes[name]
         stress = load_stress()
         builder = stress.Stress(self.rpc, selected="chromium" if name == "browser" else "terminal")
         if name == "chats":
@@ -136,6 +139,7 @@ class StressBench:
             shape = self._load_shape(name)
         except Exception as error:  # shape support varies by nightly, retain the measured probe
             shape = {"error": str(error)}
+        self.shapes[name] = shape
         self._frames("start")
         started = time.monotonic()
         inputs: list[float] = []
