@@ -266,6 +266,8 @@ pub struct VideoToolbox {
     /// The session was created with low-latency rate control (standard); an ultra session is
     /// not ([`create_session`]).
     session_low_latency: bool,
+    /// Why the last frame was an IDR nobody asked for (see [`H264Encoder::idr_cause`]).
+    idr_cause: Option<&'static str>,
 }
 
 // SAFETY: the session and buffer are used from one thread at a time (the media loop).
@@ -525,6 +527,7 @@ impl VideoToolbox {
             baseline,
             kbps: kbps.max(100),
             color: None,
+            idr_cause: None,
             name: session_name(baseline, false),
             ultra: false,
             ultra_min_qp: ultra_min_qp(std::env::var("CMUX_RD_VT_ULTRA_MIN_QP").ok().as_deref()),
@@ -758,10 +761,12 @@ impl VideoToolbox {
 
 impl H264Encoder for VideoToolbox {
     fn encode(&mut self, pic: &I420, force_idr: bool, pts: i64, out: &mut Vec<u8>) -> Res<bool> {
+        self.idr_cause = None;
         // A surface of another size may have resized the session.
         let resized = self.ensure_session(self.width, self.height)?;
         self.fill(pic)?;
         let pb = self.pixel_buffer;
+        self.idr_cause = (resized && !force_idr).then_some("resize");
         self.encode_buffer(pb, force_idr || resized, pts, out)
     }
 
@@ -778,6 +783,10 @@ impl H264Encoder for VideoToolbox {
 
     fn name(&self) -> String {
         self.name.clone()
+    }
+
+    fn idr_cause(&self) -> Option<&'static str> {
+        self.idr_cause
     }
 }
 
