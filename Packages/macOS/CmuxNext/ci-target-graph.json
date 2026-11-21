@@ -113,6 +113,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentIntegrations",
       "targets": [
+        "CmuxNextCompat",
         "CmuxNextDaemon",
         "CmuxNextPages",
         "CmuxNextSettings"
@@ -217,13 +218,15 @@
       "reads": [
         "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneBridge.swift",
         "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneRequest+Decoding.swift",
+        "Resources/markdown-viewer/*.min.js",
         "cmux-tui/crates/cmux-agent-pane-policy/tests/cases/environment.json",
         "cmux-tui/spec/",
         "schemas/agent-bridge/contract.json",
         "schemas/agent-pane/attach-params.json",
         "schemas/agent-pane/session-new-params.json",
         "scripts/cmux-next/pin-cmux-tui.sh",
-        "webviews/src/agent-session/acpmux/flickerLog.ts"
+        "webviews/src/agent-session/acpmux/flickerLog.ts",
+        "webviews/test/fixtures/mermaid-front-door.mmd"
       ]
     },
     "CmuxNextAgentPermissions": {
@@ -536,6 +539,7 @@
         "Resources/cmux-themes/",
         "Resources/ghostty/themes/",
         "Resources/markdown-viewer/ondine.min.js",
+        "Resources/sidebar-looks/",
         "cmux-tui/crates/acpmux/tests/fake_agent.py",
         "cmux-tui/crates/cmux-layout-reducer/tests/data/closing_panes_corpus.txt",
         "cmux-tui/crates/cmux-layout-reducer/tests/data/shown_resize_corpus.txt",
@@ -589,7 +593,9 @@
       "packages": [
         "CmuxHomeRender"
       ],
-      "reads": []
+      "reads": [
+        "samples/apps/"
+      ]
     },
     "CmuxNextBookmarks": {
       "kind": "regular",

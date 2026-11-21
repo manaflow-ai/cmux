@@ -28,6 +28,7 @@ pub mod desktop;
 pub mod engine;
 pub mod frame;
 pub mod keys;
+pub mod locked;
 pub mod menus;
 pub mod observe;
 pub mod outcome;
