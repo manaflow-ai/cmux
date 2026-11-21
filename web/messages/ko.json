@@ -380,6 +380,7 @@
     "typingCodingAgents": "코딩 에이전트",
     "typingMultitasking": "멀티태스킹",
     "subtitle": "Ghostty 기반 무료 오픈 소스 네이티브 macOS 터미널. 세로 탭, 에이전트가 주의를 필요로 할 때 알림 링, 분할 패널, 프로그래밍을 위한 <cliLink>CLI</cliLink>를 제공합니다.",
+    "nextCallout": "새 소식: 다음 cmux의 미리보기 버전인 <link>cmux NEXT</link>를 사용해 보세요.",
     "features": "기능",
     "faq": "FAQ",
     "communitySection": "커뮤니티",

@@ -1806,6 +1806,10 @@ path = "tests/test_gh_budget_wait.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_scheduled_workflow_gh_retry.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_next_cancelled_tip.py"
 lane = "linux-guard"
 
@@ -2350,6 +2354,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_pr_runs_cancel_superseded.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_janitor_watchdog.py"
 lane = "linux-guard"
 
 [[test]]
