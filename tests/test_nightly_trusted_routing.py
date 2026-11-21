@@ -60,17 +60,20 @@ HOSTED_SECRET_JOBS = ('sentry-dsyms-nightly', 'sign-release-notes', 'publish-rel
 # 44556480014), so on attempt 1 they take cmux-gcp-nightly-jit-x64 first: one-job GCE VMs (no service account, no
 # ingress, deleted after the job) that only cmuxterm-hq gha-runners serve and no PR job may name
 # (tests/test_ci_nightly_labels_reserved.py). Ephemeral like the hosted VM, so each secret stays off persistent
-# runners; a re-run (attempt 2+) keeps hosted Ubuntu. publish-nightly-reel stays hosted: it apt-installs ffmpeg,
-# which the JIT image lacks. These are the only nightly.yml jobs whose route names the JIT label.
+# runners. A re-run (attempt 2+) takes it too: no GitHub-hosted runner served ubuntu-24.04 for this org, and run
+# 44732973716's publish-nightly-next-github re-run sat queued there 669 min (claude-sr2-coord, 2026-11-21 00:30Z,
+# relaying Leo 23:44Z: "CI/CD is number one"). publish-nightly-reel stays hosted: it apt-installs ffmpeg, which the JIT
+# image lacks. These are the only nightly.yml jobs whose route names the JIT label.
 JIT_LABEL = 'cmux-gcp-nightly-jit-x64'
-JIT_ARM = f"github.run_attempt == 1 && '{JIT_LABEL}' || "
+# The whole manaflow-ai branch of these jobs' route, on every attempt.
+JIT_ROUTE = f"'{JIT_LABEL}'"
 JIT_ARM_JOBS = frozenset({'sentry-dsyms-nightly', 'sign-release-notes', 'publish-release-notes',
                           'publish-nightly-next-github'})
 
 
 def hosted_route(name: str, attempt: object) -> str:
     """The label a hosted tail or loop job resolves to on a manaflow-ai run at `attempt`."""
-    return JIT_LABEL if name in JIT_ARM_JOBS and str(attempt) == '1' else HOSTED
+    return JIT_LABEL if name in JIT_ARM_JOBS else HOSTED
 
 
 # No hosted preflight: runner-preflight runs on the nightly-only pool since 2026-11-18

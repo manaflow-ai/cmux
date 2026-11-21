@@ -1113,6 +1113,13 @@ PUBLISH_ROUTE
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'ubuntu-24.04' }}
 NIGHTLY_JIT_ROUTE
 )
+  # nightly.yml's four JIT jobs take the label on a re-run too: no hosted runner served ubuntu-24.04, and run
+  # 44732973716's re-run of publish-nightly-next-github sat queued there 669 min (2026-11-21).
+  local nightly_jit_every_attempt
+  nightly_jit_every_attempt=$(cat <<'NIGHTLY_JIT_EVERY_ATTEMPT'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-nightly-jit-x64' }}
+NIGHTLY_JIT_EVERY_ATTEMPT
+)
   # signer-build takes the nightly's early fleet placement (#29864) first, then hosted Ubuntu.
   local signer_build_route
   signer_build_route=$(cat <<'SIGNER_BUILD_ROUTE'
@@ -1163,7 +1170,7 @@ SIGNER_BUILD_ROUTE
     "auto-resume-nightly-notarization.yml:$signer_route"
     "ios-internal-nightly.yml:$signer_route"
     "nightly-next-train.yml:$signer_route"
-    "nightly.yml:$nightly_jit_route"
+    "nightly.yml:$nightly_jit_every_attempt"
     "nightly-next-train.yml:$nightly_jit_route"
     "nightly.yml:$publish_route"
     "nightly.yml:$signer_build_route"

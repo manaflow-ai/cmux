@@ -48,7 +48,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_ci_fork_runner_routing import parse_expression  # noqa: E402
-from test_nightly_trusted_routing import JIT_ARM, JIT_ARM_JOBS, JIT_LABEL, evaluate, hosted_route  # noqa: E402,F401
+from test_nightly_trusted_routing import JIT_ARM_JOBS, JIT_LABEL, JIT_ROUTE, evaluate, hosted_route  # noqa: E402,F401
 import test_nightly_never_blacksmith as never_blacksmith  # noqa: E402
 from test_nightly_never_blacksmith import JOBS, ROOT  # noqa: E402
 import workflow_jobs  # noqa: E402
@@ -203,7 +203,10 @@ class EveryJobOnOurMinis(unittest.TestCase):
 
     def test_only_the_listed_tail_jobs_are_hosted(self) -> None:
         hosted = {name for name in JOBS if not JOBS[name].get("uses")
-                  and ((routes := manaflow_routes(name)) is None or any(NOT_OURS.search(route) for route in routes))}
+                  and ((routes := manaflow_routes(name)) is None
+                       or any(NOT_OURS.search(route) or JIT_LABEL in route for route in routes))}
+        # The nightly JIT VM (cmux-gcp-nightly-jit-x64, every attempt since the publish reruns left ubuntu-24.04) is
+        # off the minis too, so its tail jobs stay listed here with their reasons.
         self.assertEqual(hosted, set(HOSTED_TAIL_JOBS) | set(HOSTED_LOOP_JOBS) | set(HOSTED_PREFLIGHT_JOBS),
                          "a nightly job may not reach a GitHub-hosted runner")
         for name in HOSTED_PREFLIGHT_JOBS:
@@ -225,7 +228,7 @@ class EveryJobOnOurMinis(unittest.TestCase):
             with self.subTest(job=name):
                 self.assertEqual(resolved.runs_on_cells,
                                  ["${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
-                                  + JIT_ARM + "'ubuntu-24.04' }}"])
+                                  + JIT_ROUTE + " }}"])
                 self.assertIn("secrets.CMUX_RELEASE_APP_KEY", json.dumps(job))
                 self.assertIn("release-next", resolved.environments)
                 self.assertEqual(resolved.environments_unresolved, set())

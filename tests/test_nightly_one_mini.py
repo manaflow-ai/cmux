@@ -54,7 +54,7 @@ def want(name: str, ref: str = "refs/heads/nightly-next", attempt: object = 2) -
         return SIGN
     if name == "build-nightly-app":
         return BUILDER
-    # A hosted tail or loop job takes the JIT nightly label on attempt 1 (test_nightly_owned_minis_only.JIT_ARM_JOBS).
+    # A hosted tail or loop job takes the JIT nightly label on every attempt (test_nightly_owned_minis_only.JIT_ARM_JOBS).
     return hosted_route(name, attempt) if name in HOSTED_TAIL_JOBS or name in HOSTED_LOOP_JOBS or name in HOSTED_PREFLIGHT_JOBS else MINI
 
 
