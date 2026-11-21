@@ -6,6 +6,12 @@
       "fixed_by": "1daea6030cb126fca4ada7e9687d2d9cc96d45f9",
       "reason": "Home first-run NSStackView crash at launch",
       "filed_by": "teamleaderleo"
+    },
+    {
+      "bad_since": "e6bfd26de939a8242f99ad8c73dc023622652519",
+      "fixed_by": "8b99db8ef82458d255e4a57b71acdc4ad30cf3ce",
+      "reason": "CmuxNextApps Localizable.xcstrings store.updates.available plural forms without a number reference (bs %@, ar zero/one/two) fail the Release compile (#30288, fixed by #30493)",
+      "filed_by": "teamleaderleo"
     }
   ]
 }
