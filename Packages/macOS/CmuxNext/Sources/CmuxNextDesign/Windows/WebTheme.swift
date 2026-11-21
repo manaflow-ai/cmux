@@ -163,6 +163,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             // The window sidebar's edge line at rest, so a page's hairlines can match it (Settings,
             // Lucas 2026-11-11): the chrome's divider, which the native edge draws.
             "--cmux-sidebar-line": Self.chromeDivider(tokens, backgrounds: backgrounds),
+            // How wide that line draws at rest (`Metrics.sidebarBorderWidth`: `sidebar.border`, `sidebar.borderWidth`),
+            // 0 when the native edge shows it only on hover, so Settings' sidebar edge matches (cmux#48617).
+            "--cmux-sidebar-border-width": Self.sidebarBorderWidth,
             // 1 where the native chrome draws folder tabs (the flush corner, its tone shade reading: Subtle
             // Tone), else 0 (One Color, or a picked chrome style that keeps its pills): a page's selected item
             // is a folder tab exactly when the native one is.
@@ -480,6 +483,14 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         return css(backgrounds.dividerLine(base: base) ?? base)
     }
 
+    /// `--cmux-sidebar-border-width`: the native sidebar's resting edge line in CSS px, before the interface
+    /// scale (the page's zoom applies it); `0px` when `sidebar.border` is off or under `appearance.borders` none.
+    @MainActor
+    static var sidebarBorderWidth: String {
+        let points = Metrics.sidebarBorderWidth / max(Metrics.scale(1), 0.01)
+        return "\(points)px"
+    }
+
     /// The inputs of the page theme that no theme change pushes: `appearance.borders`, `appearance.fontSmoothing`, the divider
     /// strength (`--cmux-chrome-divider`), the title area's tone and contrast and the chrome shade they
     /// make (`--cmux-sidebar-surface`, `--cmux-chrome-tone`, `--cmux-folder-fill`). The app repaints
@@ -488,7 +499,8 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     public static var pushInputs: [String] {
         let design = DesignSettings.shared
         return [Borders.current.mode.rawValue, design.fontSmoothing.rawValue, "\(ChromeTunables.dividerStrength.value)", design.titleAreaTone.rawValue,
-                "\(design.titleAreaContrast)", "\(Metrics.mainPaneChromeShade(isDark: false))", "\(Metrics.mainPaneChromeShade(isDark: true))"]
+                "\(design.titleAreaContrast)", "\(Metrics.mainPaneChromeShade(isDark: false))", "\(Metrics.mainPaneChromeShade(isDark: true))",
+                sidebarBorderWidth]
     }
 
     /// `rgba(r, g, b, a)` with 0-255 channels.
