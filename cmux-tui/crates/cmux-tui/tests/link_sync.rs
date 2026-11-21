@@ -1738,9 +1738,9 @@ fn a_folder_turned_into_a_symlink_mid_push_is_not_written_through() {
     assert!(named.contains(&"sub/b.txt"), "{summary}");
 }
 
+#[path = "link_sync/copy_progress.rs"]
+mod copy_progress;
 #[path = "link_sync/git_index.rs"]
 mod git_index;
 #[path = "link_sync/kept_files.rs"]
 mod kept_files;
-#[path = "link_sync/copy_progress.rs"]
-mod copy_progress;
