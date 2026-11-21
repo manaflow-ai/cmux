@@ -5,7 +5,9 @@
 //! It goes to the model as the `SessionStart` hook's `additionalContext`.
 //! Claude Code gets it from the extra `SessionStart` hook the `claude` shim
 //! adds (`cmux-tui agent session-context`, claude_wrapper.rs), which runs the
-//! build that spawned the pane; Codex from the shim's own `SessionStart` hook
+//! build that spawned the pane, or from the same hook in the pane's Claude
+//! Code plugin when Claude skipped the shim (claude_plugin.rs; the wrapper
+//! drops that plugin); Codex from the shim's own `SessionStart` hook
 //! (`CMUX_TUI_HOOK_ROUTE=launch`). Hooks installed by `agent hook install`
 //! add nothing here, so no agent gets it twice.
 
@@ -42,7 +44,12 @@ pub(super) fn applies(
 
 /// One `cmux.protocol/2` read of the session at `socket`, `None` when it
 /// does not answer by `deadline`.
-fn request(socket: &Path, operation: &str, params: Value, deadline: Instant) -> Option<Value> {
+pub(super) fn request(
+    socket: &Path,
+    operation: &str,
+    params: Value,
+    deadline: Instant,
+) -> Option<Value> {
     let (request_id, _) = random_identifiers().ok()?;
     let mut params = params.as_object().cloned().unwrap_or_default();
     params.entry("machine").or_insert_with(|| json!("current"));

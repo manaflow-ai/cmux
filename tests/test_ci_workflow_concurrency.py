@@ -38,6 +38,45 @@ jobs:
 """
 
 
+# cmux-next-cua-helper-dev-sign.yml before the fix: run 42677635673 sat at the
+# cef-publish approval from 2026-11-09 and held the workflow's only group, so
+# every later dispatch waited and each newer one cancelled the pending one.
+DEV_SIGN_BEFORE = """
+on:
+  workflow_dispatch:
+    inputs:
+      helper: {type: choice, options: [computer-use, remote], default: computer-use}
+concurrency:
+  group: cmux-next-cua-helper-dev-sign
+  cancel-in-progress: false
+jobs:
+  build: {runs-on: macos-26, timeout-minutes: 30, steps: [{run: x}]}
+  sign: {needs: build, environment: release, runs-on: macos-26, timeout-minutes: 30, steps: [{run: x}]}
+  publish: {needs: sign, environment: cef-publish, runs-on: ubuntu-24.04, timeout-minutes: 15, steps: [{run: x}]}
+"""
+
+DEV_SIGN_AFTER = """
+on:
+  workflow_dispatch:
+    inputs:
+      helper: {type: choice, options: [computer-use, remote], default: computer-use}
+jobs:
+  build:
+    concurrency: {group: "dev-sign-build-${{ inputs.helper }}", cancel-in-progress: false}
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps: [{run: x}]
+  sign:
+    needs: build
+    environment: release
+    concurrency: {group: "dev-sign-sign-${{ inputs.helper }}", cancel-in-progress: false}
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps: [{run: x}]
+  publish: {needs: sign, environment: cef-publish, runs-on: ubuntu-24.04, timeout-minutes: 45, steps: [{run: x}]}
+"""
+
+
 class WorkflowConcurrencyTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="cmux-concurrency-lint-")
@@ -152,6 +191,72 @@ class WorkflowConcurrencyTests(unittest.TestCase):
         self.assertEqual(warn.returncode, 0, warn.stderr)
         self.assertIn("::warning file=.github/workflows/w.yml", warn.stdout)
         self.assertEqual(subprocess.run([*run, "--strict"], capture_output=True).returncode, 1)
+
+    def approval_findings(self, text: str, name: str = "w.yml") -> list[str]:
+        path = self.root / ".github" / "workflows" / name
+        path.write_text(textwrap.dedent(text), encoding="utf-8")
+        return lint.check_approval(path)
+
+    def test_the_dev_sign_approval_hold_is_an_error(self):
+        [finding] = self.approval_findings(DEV_SIGN_BEFORE)
+        self.assertIn("job publish waits for a reviewer in cef-publish", finding)
+        self.assertIn("workflow-level concurrency group cmux-next-cua-helper-dev-sign", finding)
+        run = [sys.executable, str(SCRIPT), "--root", str(self.root)]
+        refused = subprocess.run(run, text=True, capture_output=True)
+        self.assertEqual(refused.returncode, 1, refused.stdout)
+        self.assertIn("::error file=.github/workflows/w.yml,title=approval holds a concurrency group", refused.stdout)
+
+    def test_the_dev_sign_fix_passes_both_rules(self):
+        self.assertEqual(self.approval_findings(DEV_SIGN_AFTER), [])
+        self.assertEqual(lint.check(self.root / ".github" / "workflows" / "w.yml"), [])
+
+    def test_approval_job_in_its_own_shared_group_is_an_error(self):
+        text = DEV_SIGN_AFTER.replace(
+            "publish: {needs: sign,",
+            "publish: {concurrency: {group: dev-sign-publish, cancel-in-progress: false}, needs: sign,",
+        )
+        [finding] = self.approval_findings(text)
+        self.assertIn("job-level concurrency group dev-sign-publish", finding)
+
+    def test_approval_environment_forms(self):
+        for environment in ("{name: npm}", "\"${{ github.ref == 'refs/heads/main' && 'pypi' || '' }}\""):
+            text = f"""
+            on: workflow_dispatch
+            concurrency: {{group: one-at-a-time, cancel-in-progress: false}}
+            jobs:
+              p: {{environment: {environment}, runs-on: ubuntu-latest, steps: [{{run: x}}]}}
+            """
+            self.assertEqual(len(self.approval_findings(text)), 1, environment)
+
+    def test_per_run_cancelling_or_unreviewed_groups_pass(self):
+        for concurrency, environment in (
+            ("{group: 'p-${{ github.run_id }}', cancel-in-progress: false}", "cef-publish"),
+            ("{group: p, cancel-in-progress: true}", "cef-publish"),
+            ("{group: p, cancel-in-progress: false}", "release"),
+        ):
+            text = f"""
+            on: workflow_dispatch
+            concurrency: {concurrency}
+            jobs:
+              p: {{environment: {environment}, runs-on: ubuntu-latest, steps: [{{run: x}}]}}
+            """
+            self.assertEqual(self.approval_findings(text), [], (concurrency, environment))
+
+    def test_the_repository_has_no_approval_hold(self):
+        workflows = ROOT / ".github" / "workflows"
+        held = [f for path in sorted(workflows.glob("*.y*ml")) for f in lint.check_approval(path)]
+        self.assertEqual(held, [])
+
+    def test_every_approval_allowlist_entry_still_needs_it(self):
+        for name, reason in list(lint.APPROVAL_ALLOWLIST.items()):
+            path = ROOT / ".github" / "workflows" / name
+            self.assertTrue(path.is_file(), name)
+            self.assertTrue(reason.strip(), name)
+            del lint.APPROVAL_ALLOWLIST[name]
+            try:
+                self.assertTrue(lint.check_approval(path), f"{name} no longer needs its allowlist entry")
+            finally:
+                lint.APPROVAL_ALLOWLIST[name] = reason
 
     def test_every_allowlist_entry_names_a_workflow_and_a_reason(self):
         for name, reason in lint.ALLOWLIST.items():

@@ -504,7 +504,19 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     let selection_visible = app.selection_is_visible(area.surface);
     let selection: Option<Selection> =
         app.selection.filter(|s| s.surface == area.surface && selection_visible);
-    let selection_offset = selection.map(|_| app.surface_scroll_offset(area.surface)).unwrap_or(0);
+    // Copy mode replaces the mouse selection on its pane; outside copy mode
+    // this costs one branch per frame.
+    let copy_active = app.copy_mode_active();
+    let selection_offset = if selection.is_some() || copy_active {
+        app.surface_scroll_offset(area.surface)
+    } else {
+        0
+    };
+    let copy = if copy_active {
+        app.copy_overlay(area.surface, selection_offset, rect.height)
+    } else {
+        None
+    };
     let theme = app.config.theme;
 
     let rs = app
@@ -549,8 +561,19 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         &render,
         &theme,
         &app.chrome,
-        |col, row| selection.is_some_and(|s| s.contains_viewport(col, row, selection_offset)),
+        |col, row| match &copy {
+            Some(copy) => copy.selected(col, row),
+            None => selection.is_some_and(|s| s.contains_viewport(col, row, selection_offset)),
+        },
     );
+    let cursor = match &copy {
+        Some(copy) => {
+            let rows = render.frame.styled_rows();
+            super::copy_mode::paint_overlay(frame, live, source_x, rows, &theme, copy);
+            None
+        }
+        None => cursor,
+    };
     if !focused && theme.dim_inactive {
         let screen = frame.area();
         let max_x = rect.x.saturating_add(rect.width).min(screen.width);

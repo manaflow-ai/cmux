@@ -9,6 +9,8 @@ use crate::config::Action;
 
 mod attention;
 pub(crate) use attention::AttentionMessages;
+mod copy_mode;
+pub(crate) use copy_mode::CopyModeMessages;
 
 const FOREIGN_VIEWPORT_HINT_CAPACITY: usize = 64;
 
@@ -1256,7 +1258,8 @@ pub(crate) struct AgentWrapperMessages {
     pub agent_start_failed: &'static str,
 }
 
-/// `cmux identify` and `cmux skill`: the identity labels and the help.
+/// `cmux identify` and `cmux skill`: the identity labels and the help; and
+/// other lines the CLI prints itself.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct PaneCliMessages {
     pub session: &'static str,
@@ -1285,6 +1288,9 @@ pub(crate) struct PaneCliMessages {
     pub root_agent_commands: &'static str,
     pub identify_help: &'static str,
     pub skill_help: &'static str,
+    /// What `cmux agent|sidebar plugin list` prints when no plugin is
+    /// installed; `{command}` is `cmux agent plugin` or `cmux sidebar plugin`.
+    pub no_plugins_installed: &'static str,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -1302,6 +1308,7 @@ pub(crate) struct Catalog {
     pub machine_agent: MachineAgentMessages,
     pub menu: MenuMessages,
     pub shortcuts: ShortcutMessages,
+    pub copy_mode: CopyModeMessages,
     pub browser: BrowserMessages,
     pub layout: LayoutMessages,
     pub runtime: RuntimeMessages,
@@ -1327,6 +1334,7 @@ impl Catalog {
 static ENGLISH: Catalog = Catalog {
     japanese: false,
     attention: attention::ENGLISH,
+    copy_mode: copy_mode::ENGLISH,
     agent_wrapper: AgentWrapperMessages {
         hooks_unavailable: "cmux: starting the agent without cmux status updates",
         agent_not_found: "cmux: the agent executable was not found",
@@ -1351,8 +1359,10 @@ static ENGLISH: Catalog = Catalog {
         skill_arguments: "skill takes one action, show: {words}",
         root_agent_commands: "
 AGENT COMMANDS
-  identify      Print this terminal's session, workspace, screen, pane, tab and terminal
-  skill show    Print the agent guide for this cmux build
+  identify           Print this terminal's session, workspace, screen, pane, tab and terminal
+  skill show         Print the agent guide for this cmux build
+  agent start NAME   Start a coding agent in a tab named NAME and wait until it is ready
+  agent resume NAME  Start an agent that exited again, in the same conversation
 ",
         identify_help: "USAGE
   cmux identify
@@ -1370,6 +1380,7 @@ Print the agent guide for this cmux build as Markdown: where you run, the
 rules, recipes, waits, errors, scopes and the terminal, pane and tab paths.
 Pass --json for {name, version, markdown}.
 ",
+        no_plugins_installed: "No plugins are installed. {command} install <git-url> installs one.",
     },
     startup: StartupMessages {
         schema_too_new: "cannot open session \"{session}\" with cmux {version}: its saved state is incompatible with this build",
@@ -2116,6 +2127,7 @@ socket.
 static JAPANESE: Catalog = Catalog {
     japanese: true,
     attention: attention::JAPANESE,
+    copy_mode: copy_mode::JAPANESE,
     agent_wrapper: AgentWrapperMessages {
         hooks_unavailable: "cmux: cmux のステータス更新なしでエージェントを起動します",
         agent_not_found: "cmux: エージェントの実行ファイルが見つかりません",
@@ -2140,8 +2152,10 @@ static JAPANESE: Catalog = Catalog {
         skill_arguments: "skill のアクションは show だけです: {words}",
         root_agent_commands: "
 AGENT COMMANDS
-  identify      このターミナルのセッション、ワークスペース、スクリーン、ペイン、タブ、ターミナルを表示
-  skill show    この cmux ビルドのエージェントガイドを表示
+  identify           このターミナルのセッション、ワークスペース、スクリーン、ペイン、タブ、ターミナルを表示
+  skill show         この cmux ビルドのエージェントガイドを表示
+  agent start NAME   NAME という名前のタブでコーディングエージェントを起動し、準備ができるまで待つ
+  agent resume NAME  終了したエージェントを同じ会話のまま再び起動
 ",
         identify_help: "使用方法
   cmux identify
@@ -2159,6 +2173,7 @@ cmux-tui ターミナルの外では caller.found が false になります。--
 ルール、レシピ、待機、エラー、スコープ、terminal・pane・tab のパスを含みます。
 --json で {name, version, markdown} を表示します。
 ",
+        no_plugins_installed: "インストール済みのプラグインはありません。{command} install <git-url> でインストールできます。",
     },
     startup: StartupMessages {
         schema_too_new: "cmux {version} ではセッション \"{session}\" を開けません。保存状態はこのビルドと互換性がありません",

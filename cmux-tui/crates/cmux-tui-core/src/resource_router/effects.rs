@@ -87,7 +87,7 @@ fn resolve_preparation(
                 mux,
                 idempotency_key,
                 &operation,
-                "an earlier attempt with this key has an indeterminate outcome",
+                crate::resource_api::EARLIER_ATTEMPT_CAUSE,
             );
             Ok(EffectPreparation::Complete(Err(indeterminate_error(idempotency_key, &operation))))
         }
@@ -212,9 +212,7 @@ pub(super) fn report_indeterminate_cause(
     operation: &str,
     cause: &str,
 ) {
-    mux.report_internal_diagnostic(format!(
-        "resource effect {operation} (idempotency key {idempotency_key}) is indeterminate: {cause}"
-    ));
+    mux.report_resource_effect_indeterminate(idempotency_key, operation, cause);
 }
 
 pub(super) fn indeterminate_error(idempotency_key: &str, operation: &str) -> ResourceError {

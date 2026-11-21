@@ -35,8 +35,9 @@ pub(crate) const AGENT_ROSTER_REDUCER_ID: &str = "agent_roster";
 /// `blocked` row clears when the screen shows its dialog gone; the re-fold
 /// clears rows that stayed blocked after a dialog was dismissed with Esc. (6
 /// is skipped so 7 means this fold on main and on feat-cmux-next, where 6 is
-/// the hook session fence.)
-pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 7;
+/// the hook session fence.) Version 8 ties that record to the plugin child
+/// that saw it, so a restarted plugin cannot clear a block.
+pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 8;
 /// Stable envelope used by userland agent plugins. The producer id is the
 /// plugin identity; the payload id must match it before the event is folded.
 pub(crate) const AGENT_PLUGIN_FORMAT: &str = "cmux.agent-plugin.v1";
@@ -362,6 +363,23 @@ pub(crate) struct AgentRoster {
     /// ([`ScreenEvidence`]).
     #[serde(default)]
     screen_evidence: HashMap<String, ScreenEvidence>,
+    /// Per terminal public id: the session of the last applied hook event and
+    /// the latest hook start among its applied events, so an event journaled
+    /// out of send order does not set the state
+    /// (`crate::agent_hooks::hook_event_is_reordered`). One small record per
+    /// terminal that ran a hook agent; it stays after the session ends so a
+    /// late event of that session cannot bring the row back.
+    #[serde(default)]
+    hook_order: HashMap<String, HookOrder>,
+}
+
+/// See [`AgentRoster::hook_order`]. The stamp is flattened, so a snapshot
+/// from before the monotonic stamp (`session`, `observed_at_ms`) still reads.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct HookOrder {
+    session: Option<String>,
+    #[serde(flatten)]
+    stamp: crate::agent_hooks::HookOrderStamp,
 }
 
 impl AgentRoster {
@@ -389,6 +407,7 @@ impl AgentRoster {
                 return Vec::new();
             }
             self.record_plugin_exit_fence(plugin_id, generation_number, cutoff);
+            self.forget_screen_evidence_of(plugin_id, generation_number);
             let retired = self
                 .entries
                 .iter()
@@ -445,14 +464,14 @@ impl AgentRoster {
                 return Vec::new();
             }
             let updated_at_ms = event.plugin_observed_at_ms().unwrap_or(event.committed_at_ms);
-            let producer_generation = event
-                .normalized("plugin_generation")
-                .and_then(|value| value.parse::<u64>().ok())
-                .map(|value| value.to_string());
+            let generation =
+                event.normalized("plugin_generation").and_then(|value| value.parse::<u64>().ok());
+            let producer_generation = generation.map(|value| value.to_string());
             let session = event.normalized("source_session").map(str::to_string);
             let agent = event.adapter_id().map(str::to_string);
             let state = if event_name == "session.ended" { AgentState::Done } else { state };
-            let saw_blocker_go = self.note_screen_evidence(terminal_id, event.producer_id, state);
+            let saw_blocker_go =
+                self.note_screen_evidence(terminal_id, event.producer_id, generation, state);
             screen_cleared_blocker =
                 saw_blocker_go || (state == AgentState::Idle && event.plugin_visible_idle());
             (
@@ -500,11 +519,28 @@ impl AgentRoster {
         // Socket reports lose to both stronger sources.
         match source {
             AgentSource::Hook => {
+                let session = event.normalized("agent_session_id");
+                let stamp = crate::agent_hooks::HookOrderStamp::of(event.payload);
+                let last_order = self
+                    .hook_order
+                    .get(terminal_id)
+                    .filter(|order| order.session.as_deref() == session)
+                    .map(|order| &order.stamp);
+                if crate::agent_hooks::hook_event_is_reordered(event.kind, &stamp, last_order) {
+                    return Vec::new();
+                }
+                let order = stamp.applied_over(last_order);
                 if let Some(existing) = self.entries.get(terminal_id)
                     && existing.agent_source() == AgentSource::Hook
                     && !timestamp_is_current(existing.updated_at_ms, updated_at_ms)
                 {
                     return Vec::new();
+                }
+                if !order.is_empty() {
+                    self.hook_order.insert(
+                        terminal_id.to_string(),
+                        HookOrder { session: session.map(str::to_owned), stamp: order },
+                    );
                 }
             }
             AgentSource::Plugin => {

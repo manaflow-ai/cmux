@@ -4,10 +4,15 @@
 //! is deliberately isolated in `cli/wire.rs`, so public commands cannot
 //! accidentally fall back to the private command protocol.
 
+mod agent_list;
+mod agent_names;
+mod agent_start;
+mod agent_vocabulary;
 mod attention;
 mod command;
 mod lifecycle;
 mod pane_identify;
+mod pane_move;
 mod raw;
 mod shorthand;
 mod skill;
@@ -233,6 +238,17 @@ fn write_stdout(text: &str) {
 }
 
 pub fn run(args: &[String], startup_usage: &str) -> i32 {
+    // `terminal alpha write …`: an agent name or a unique tab name becomes
+    // its id before any command reads the words (agent_names.rs).
+    let named_args;
+    let args = match agent_names::rewrite_args(args) {
+        Ok(Some(rewritten)) => {
+            named_args = rewritten;
+            named_args.as_slice()
+        }
+        Ok(None) => args,
+        Err(code) => return code,
+    };
     match parse(args) {
         Ok(ParsedCommand::Help(scope)) => {
             if scope.as_deref() == Some("start") {
@@ -253,8 +269,11 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             }
             CommandPlan::RawCommand(command) => raw::run(global, command),
             CommandPlan::Attention(plan) => attention::run(global, plan),
+            CommandPlan::AgentList(plan) => agent_list::run(global, *plan),
+            CommandPlan::PaneMove(request) => pane_move::run(global, *request),
             CommandPlan::Identify => pane_identify::run(&global),
             CommandPlan::SkillShow => skill::run(&global),
+            CommandPlan::Agent(command) => agent_start::run(&global, &command),
         },
         Err(failure) => {
             let message = if matches!(failure.output, OutputMode::Quiet | OutputMode::Human) {
@@ -350,6 +369,17 @@ fn parse_local_command(
 ) -> Result<Option<ParsedCommand>, UsageError> {
     let Some((first, rest)) = command_args.split_first() else { return Ok(None) };
     let help = || rest.iter().any(|word| matches!(word.as_str(), "-h" | "--help"));
+    // `agent start|resume`, `terminal <t> resume` and `terminal <t> wait`
+    // read their own options (and `-- ARGS`); `--help` shows the catalog's.
+    if !has_help_option(command_args)
+        && let Some(command) = agent_start::parse(command_args)
+    {
+        let command = command?;
+        return Ok(Some(ParsedCommand::Command {
+            global: global.clone(),
+            plan: CommandPlan::Agent(Box::new(command)),
+        }));
+    }
     let plan = match first.as_str() {
         "identify" if help() => return Ok(Some(ParsedCommand::Help(Some("identify".into())))),
         "identify" if rest.is_empty() => CommandPlan::Identify,
@@ -653,7 +683,7 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "  machine       Inspect the local machine
   terminal      Read, write, and attach to terminals
   browser       Navigate and attach to browsers
   notification  List and create notifications
-  agent         List and report agent state
+  agent         Start, resume, list and report agents
   attention     Find the tabs that need you
   sidebar       Manage sidebar views and local plugins
   pairing       Resolve pairing requests
@@ -749,12 +779,16 @@ USAGE
 const SCREEN_HELP: &str = "\
 USAGE
   cmux screen list
-  cmux screen create [--correlation-key <value>]
+  cmux screen create [--workspace <selector>] [--name <value>] [--focus]
+    [--correlation-key <value>]
   cmux screen <selector> show|rename|focus|close
   cmux screen <selector> layout export
   cmux screen <selector> layout undo [--confirm-close]
     [--confirmation-token <value>]
   cmux screen <selector> pane ...
+
+create adds the screen to the current workspace (or --workspace) and keeps
+the focus where it is unless --focus is given.
 ";
 
 const PANE_HELP: &str = "\
@@ -772,7 +806,21 @@ USAGE
   cmux pane <selector> split ratio set --split <id> --ratio <value>
   cmux pane <selector> viewport width set --columns <value>
   cmux pane <selector> run [--on-exit <close|keep>] [--correlation-key <value>] -- <argv...>
+  cmux pane <selector> move --to-pane <selector> [--split right|down|left|up] [--focus]
+  cmux pane <selector> move --to-tab <selector> [--focus]
+  cmux pane <selector> move --to-workspace <selector> [--name <value>] [--focus]
+  cmux pane <selector> move --new-screen|--new-tab [--name <value>] [--focus]
   cmux pane <selector> tab ...
+
+move moves the whole pane, all its tabs in order (tmux join-pane and
+break-pane): --to-pane puts them at the end of that pane, or with --split
+into a new pane split off it; --to-tab puts them after that tab in its pane;
+--to-workspace into a new screen in that workspace; --new-screen (--new-tab is
+the same) into a new screen in the pane's own workspace. The emptied pane
+closes. The focus stays where it is unless --focus is given (when the moved
+pane had the focus, the focus goes with it). --json prints pane, moved_tabs,
+destination {workspace, screen, pane, index}, created and focused_pane. A
+failed step is not resumed: details.made names what already moved.
 ";
 
 const TAB_HELP: &str = "\
@@ -792,18 +840,29 @@ USAGE
   cmux terminal <selector> keys <key...>
   cmux terminal <selector> mouse <kind> [OPTIONS]
   cmux terminal <selector> focus <in|out>
-  cmux terminal <selector> screen read
+  cmux terminal <selector> screen read [--details]
   cmux terminal <selector> screen wait --pattern <regex> [--timeout-ms <n>]
   cmux terminal <selector> state read
   cmux terminal <selector> history read|clear
   cmux terminal <selector> output read [--after <offset>] [--max-bytes <n>]
   cmux terminal <selector> copy|process show [OPTIONS]
   cmux terminal <selector> process wait [--timeout-ms <n>]
+  cmux terminal <selector> wait --until ready [--timeout <duration>]
+  cmux terminal <selector> resume [OPTIONS] [-- ARGS...]
   cmux terminal <selector> viewport scroll --delta-rows <n>
   cmux terminal <selector> move|project|attach|close [OPTIONS]
 
 screen wait prints its result either way and exits 1 when the timeout
-passes without a match.
+passes without a match. --pattern is a regular expression matched line by
+line: ^ and $ match at the start and end of each line, as in grep, so
+--pattern '^BENCH_OK$' matches a line that is only BENCH_OK. Start the
+pattern with (?-m) to match the whole text instead.
+
+screen read prints the screen's text; --details (or --json) prints the
+whole record. wait --until ready waits until the terminal's agent can take
+a message: exit 0 ready, 4 blocked on a startup dialog, 1 exited, 124
+timeout. resume starts an agent that exited again with its harness session
+(as cmux agent resume does).
 ";
 
 const BROWSER_HELP: &str = "\
@@ -823,7 +882,12 @@ USAGE
 
 const AGENT_HELP: &str = "\
 USAGE
-  cmux agent list [OPTIONS]
+  cmux agent start <name> [OPTIONS] [-- ARGS...]
+  cmux agent resume <name> [OPTIONS] [-- ARGS...]
+  cmux agent list [--state working|blocked|done|idle|unknown|ended]
+                  [--terminal <id>]
+                  (done: idle with an unread notification; ended: the session
+                  ended, which --state done selected before)
   cmux agent report --terminal <selector> --state <value> --source <value>
   cmux agent hook install|uninstall|status [provider...]
   cmux agent hook emit --source <agent> --event <native-event> [--terminal <id>]
@@ -831,6 +895,12 @@ USAGE
   cmux agent plugin install <git-url> [--name <value>] [--force]
   cmux agent plugin use|update|remove <name-or-id>
   cmux agent plugin use --builtin
+
+agent start runs a coding agent (--cmd, else $CMUX_AGENT_COMMAND, else
+claude) in a new tab named <name> and waits until it can take a message:
+exit 0 ready, 4 blocked on a startup dialog (cmux never answers it), 1
+exited, 124 timeout. The name then selects that terminal, tab or pane.
+agent resume starts the exited agent <name> again with its harness session.
 ";
 
 const ATTENTION_HELP: &str = "\
@@ -1011,6 +1081,28 @@ mod tests {
         assert!(
             scope_help_for("server stats", crate::localization::catalog()).contains("server stats")
         );
+    }
+
+    /// `pane <p> move --new-screen --help` prints the pane move help:
+    /// `--new-screen` takes no value, so it does not swallow `--help`, and
+    /// `--json` after it is the output mode.
+    #[test]
+    fn w4j_pane_move_help_is_the_pane_move_help() {
+        for args in [
+            &["pane", "current", "move", "--new-screen", "--help"][..],
+            &["pane", "move", "--new-tab", "--help"],
+            &["pane", "pane_1", "move", "--to-pane", "x", "--focus", "--help"],
+        ] {
+            let Ok(ParsedCommand::Help(Some(topic))) = parse(&strings(args)) else {
+                panic!("{args:?} is not help");
+            };
+            assert_eq!(topic, "action:pane <selector> move", "{args:?}");
+            let help = scope_help_for(&topic, crate::localization::catalog());
+            assert!(help.contains("--to-pane"), "{help}");
+        }
+        let (global, _) =
+            parse_globals(&strings(&["pane", "move", "--new-screen", "--json"])).unwrap();
+        assert_eq!(global.output, OutputMode::Json);
     }
 
     #[test]

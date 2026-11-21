@@ -857,6 +857,42 @@
       "route": "frontend viewport adapter; scroll-surface for shared local viewport"
     },
     {
+      "variant": "ScrollPageUp",
+      "key": "scroll-page-up",
+      "classification": "presentation-only",
+      "route": "frontend viewport adapter"
+    },
+    {
+      "variant": "ScrollPageDown",
+      "key": "scroll-page-down",
+      "classification": "presentation-only",
+      "route": "frontend viewport adapter"
+    },
+    {
+      "variant": "ScrollHalfPageUp",
+      "key": "scroll-half-page-up",
+      "classification": "presentation-only",
+      "route": "frontend viewport adapter"
+    },
+    {
+      "variant": "ScrollHalfPageDown",
+      "key": "scroll-half-page-down",
+      "classification": "presentation-only",
+      "route": "frontend viewport adapter"
+    },
+    {
+      "variant": "CopyMode",
+      "key": "copy-mode",
+      "classification": "presentation-only",
+      "route": "frontend copy mode over the terminal mirror"
+    },
+    {
+      "variant": "SearchScrollback",
+      "key": "search-scrollback",
+      "classification": "presentation-only",
+      "route": "frontend copy mode over the terminal mirror"
+    },
+    {
       "variant": "ClearHistory",
       "key": "clear-history",
       "classification": "direct",

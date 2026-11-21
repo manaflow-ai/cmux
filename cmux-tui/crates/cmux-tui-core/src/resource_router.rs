@@ -9,6 +9,9 @@ mod effects;
 mod session;
 mod topology;
 mod wait_text;
+
+#[cfg(test)]
+mod screen_focus_tests;
 pub(crate) use wait_text::WaitText;
 
 use std::collections::{HashMap, HashSet};
@@ -1264,7 +1267,7 @@ fn finish_notification_effect(
                 mux,
                 idempotency_key,
                 "notification.create",
-                "an earlier attempt with this key has an indeterminate outcome",
+                crate::resource_api::EARLIER_ATTEMPT_CAUSE,
             );
             Err(indeterminate_error(idempotency_key, "notification.create"))
         }
