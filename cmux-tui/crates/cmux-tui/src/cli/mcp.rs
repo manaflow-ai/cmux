@@ -263,6 +263,12 @@ pub(super) trait Backend {
     fn caller_terminal(&self) -> Option<String> {
         std::env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|id| !id.is_empty())
     }
+    /// The workspace key an agent chat's environment names
+    /// (`CMUX_WORKSPACE_ID`), for a chat the app cannot place (placement.rs
+    /// `workspace_key_place`).
+    fn caller_workspace_key(&self) -> Option<String> {
+        super::beside::Caller::of_process().fallback_workspace_key().map(str::to_owned)
+    }
     /// Holds the session daemon's `session.events` stream open until
     /// `deadline` and calls `on_wake` with each item (the initial snapshot
     /// first, or with `cursor` the journal batches after it), and with
@@ -632,6 +638,8 @@ fn serve(global: GlobalArgs, code_mode: bool) -> i32 {
         computer_use_only = true;
         config = None;
     }
+    // Its app requests say `origin: mcp`: only an agent has this server.
+    super::app::serve_as_mcp();
     // Closed stdin, SIGTERM (not hidden by the blocking read) or the client's death end it.
     let _ = crate::restore_default_termination_signals();
     acpmux::parent_watch::exit_with_parent();

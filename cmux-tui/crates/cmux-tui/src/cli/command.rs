@@ -800,7 +800,8 @@ fn parse_workspace(
             request(ResourceOperation::WorkspaceFocus, selectors, flags, Map::new())
         }
         // `workspace-open-url-v1`: a web link on the workspace's right side;
-        // with no workspace, the home workspace.
+        // with no workspace, the caller's own (beside.rs), and the home
+        // workspace only with no caller.
         ["open-url"] => workspace_open_url(selectors, flags),
         [selector, "open-url"] => {
             selectors.insert("workspace", "ws", selector)?;

@@ -265,6 +265,7 @@ enum ControlTopologyMapper {
                                                  let handle = model.handle
                                                  info.column = placed.isEmpty ? 0 : placed.firstIndex { $0.panes.contains(handle) }
                                                  info.dock = placed.first { $0.panes.contains(handle) }?.dock
+                                                 info.rightPaneIDs = screen.paneIDs(rightOf: handle).compactMap { screen.pane($0)?.id }
                                                  return info
                                              })
                 info.defaultPaneID = screen.defaultPane.flatMap { handle in screen.pane(handle)?.id }
@@ -280,17 +281,7 @@ enum ControlTopologyMapper {
     /// docks, the scrolling strip, right docks. Top and bottom bands span the
     /// screen and are no column. Empty for a screen stored as one split tree.
     static func columns(of screen: ScreenModel) -> [(panes: Set<PaneID>, dock: String?)] {
-        let order: (ColumnSnapshot) -> Int? = { column in
-            switch column.dock?.edge {
-            case .left: 0
-            case nil: 1
-            case .right: 2
-            case .top, .bottom: nil
-            }
-        }
-        let placed = screen.columns.compactMap { column in order(column).map { (rank: $0, column: column) } }
-        return placed.enumerated().sorted { ($0.element.rank, $0.offset) < ($1.element.rank, $1.offset) }
-            .map { (panes: Set($0.element.column.layout.paneIDs), dock: $0.element.column.dock?.edge.rawValue) }
+        screen.drawnColumns.map { (panes: Set($0.layout.paneIDs), dock: $0.dock?.edge.rawValue) }
     }
 
     static func pane(from model: PaneModel, selectedTab: (PaneModel) -> String?,

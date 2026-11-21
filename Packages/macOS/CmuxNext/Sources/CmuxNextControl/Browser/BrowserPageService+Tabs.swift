@@ -28,15 +28,11 @@ extension BrowserPageService {
             return try await router.runAction(call, fingerprint: .page(method: call.method, params: fingerprintParams, callerApp: call.request.callerApp)) {
                 var params: [String: JSONValue] = ["action": .string(action), "wait": call.request.params["wait"] ?? true]
                 var tab: Tab?
-                if name == "new_tab", let lonely = try Self.callerWithNoBrowserNear(call) {
-                    // The caller's first browser: an agent's opens beside its chat, a terminal's
-                    // in its own pane behind it, so the agent running there stays in view.
-                    if lonely.caller.agentSession != nil || lonely.caller.homeChat {
-                        params["caller"] = call.request.params["caller"]
-                    } else {
-                        params["target"] = .string("tab:" + lonely.location.tab.id)
-                        params["background"] = true
-                    }
+                if name == "new_tab", try Self.callerWithNoBrowserOfItsOwn(call) != nil {
+                    // The first browser of the caller's workspace: `action.run` places it by its caller
+                    // (ControlRouter.placeAtCaller), beside an agent, right of a terminal as `cmux browser open`.
+                    params["caller"] = call.request.params["caller"]
+                    if let origin = call.request.params["origin"] { params["origin"] = origin }
                 } else {
                     let anchor = try Self.tab(call)
                     params["target"] = .string("tab:" + anchor.id)
@@ -58,12 +54,14 @@ extension BrowserPageService {
         }.claimingProgress()
     }
 
-    /// The caller of a call that names no tab, when no browser is near it (``BrowserCallerTarget``).
-    static func callerWithNoBrowserNear(_ call: ControlCall) throws -> (caller: ControlCaller, location: ControlCallerLocation)? {
+    /// The caller of a call that names no tab, when its own workspace has no browser. A new tab is a tab the
+    /// caller opens, so it stays in the caller's workspace: the nearest browser (``BrowserCallerTarget``) of
+    /// another workspace, which an existing-browser verb drives, is never where it opens.
+    static func callerWithNoBrowserOfItsOwn(_ call: ControlCall) throws -> (caller: ControlCaller, location: ControlCallerLocation)? {
         let params = call.request.params
         guard params["tab"]?.stringValue?.trimmingCharacters(in: .whitespaces).isEmpty ?? true,
               let location = try BrowserCallerTarget.callerLocation(params: params, in: call.snapshot.topology),
-              BrowserCallerTarget.resolve(near: location, in: call.snapshot.topology) == nil else { return nil }
+              BrowserCallerTarget.resolve(near: location, in: call.snapshot.topology)?.workspace.id != location.workspace.id else { return nil }
         return (location.caller, location)
     }
 

@@ -9,10 +9,19 @@
 //!
 //! Where the tab goes (plans/cmux-next/state-ownership.md, section 3):
 //! 1. the pane the command names (`--workspace`, `--screen`, `--pane`);
-//! 2. else the pane of the caller's own terminal (`CMUX_TUI_TERMINAL_ID`);
-//! 3. else the focused pane of the app's front window (no target: the app
-//!    resolves it). The daemon's shared active pane is only the default for
-//!    a CLI with no app, which keeps the old daemon path;
+//! 2. else the caller's own place (beside.rs). An agent chat or a Chief turn:
+//!    the run names the caller and no target, and the app opens the tab
+//!    beside the chat. An agent chat no tab shows: the app opens the tab in
+//!    the workspace its session runs in (`CMUX_WORKSPACE_ID`, which the
+//!    caller names), else refuses the run. A terminal
+//!    (`CMUX_TUI_TERMINAL_ID`), an agent's or a person's shell: a column
+//!    right of it takes the tab (beside/cli.rs names its pane); else the
+//!    run targets the terminal's own tab, and the app opens the browser
+//!    where a Cmd-click in that terminal opens a link: the pane on its
+//!    right, else a new pane beside it;
+//! 3. else, with no caller, the focused pane of the app's front window (no
+//!    target: the app resolves it). The daemon's shared active pane is only
+//!    the default for a CLI with no app, which keeps the old daemon path;
 //! 4. else, when the front window shows a page (Home, History: no pane, so
 //!    the app refuses a run with no target), the daemon's default pane, the
 //!    target before 772c55184089. The app still opens the tab, and then its
@@ -113,15 +122,35 @@ pub(super) fn run_in_app(
     })
 }
 
-/// The caller's own terminal when the request addresses the caller's
-/// session. An agent session (`CMUX_AGENT_SESSION`) names no terminal: the
-/// app places its tab beside the agent's chat (`caller` in `action.run`).
-fn caller_terminal(caller_route: bool) -> Option<String> {
-    let env = |key: &str| std::env::var(key).ok().filter(|value| !value.is_empty());
-    if !caller_route || env("CMUX_AGENT_SESSION").is_some() {
+/// The tab that shows `terminal`.
+fn terminal_tab(
+    reader: &mut Reader,
+    route: &Map<String, Value>,
+    terminal: &str,
+) -> Result<String, Failure> {
+    let mut selector = route.clone();
+    selector.insert("terminal".into(), json!(terminal));
+    let snapshot = read(reader, ResourceOperation::TerminalGet, selector)?;
+    string_field(&snapshot, "tab_id", "terminal")
+}
+
+/// The tab a browser run with no named place targets, for the caller of a
+/// request to its own session (beside.rs); `None` leaves the place to the
+/// app. An agent's chat and a Chief turn: the run names the caller (with the
+/// workspace its session runs in, app.rs `caller_from`) and no target; the
+/// app places the tab beside the chat, else in that workspace, else refuses
+/// it. A terminal: its own tab, for every app version. The app opens a
+/// browser aimed at the caller terminal's own tab where a Cmd-click in that
+/// terminal opens a link: the pane on its right, else a new pane beside it
+/// (Lawrence 2026-11-15), for an agent's terminal and a person's shell
+/// alike. A terminal the daemon no longer shows names no place: the default,
+/// as for every creation (resolve/caller.rs `place_creation`).
+fn caller_target(reader: &mut Reader, route: &Map<String, Value>) -> Option<String> {
+    let caller = super::beside::Caller::of_process();
+    if caller.is_chat() {
         return None;
     }
-    env("CMUX_TUI_TERMINAL_ID")
+    terminal_tab(reader, route, &caller.terminal?).ok()
 }
 
 /// The `caller` of the app run for a request that names another session
@@ -178,8 +207,15 @@ pub(super) fn open(
     let url = params.get("url").and_then(Value::as_str).unwrap_or_default();
     // `--engine` (`webkit` or `cef`); absent: the app's `browser.defaultEngine`.
     let engine = params.get("engine").and_then(Value::as_str);
-    let caller_terminal = caller_terminal(caller_route);
-    let target = target_tab(reader, &route, params, caller_terminal.as_deref())?;
+    let target = match named_pane_tab(reader, &route, params)? {
+        Some(selector) => {
+            let tab = read(reader, ResourceOperation::TabGet, selector)?;
+            Some(string_field(&tab, "id", "tab")?)
+        }
+        None if caller_route => caller_target(reader, &route),
+        None => None,
+    };
+    // A request for another session never names the caller's terminal.
     let caller = (!caller_route).then(other_session_caller);
     let key = match key {
         Some(key) => key.to_owned(),
@@ -188,7 +224,8 @@ pub(super) fn open(
     };
     let opened = run_open(app, url, engine, target.as_deref(), caller.as_ref(), &key);
     let (reply, tab, on_default_pane) = match opened {
-        // The window shows a page: no focused pane to open in.
+        // The window shows a page: no focused pane to open in. A caller the
+        // app cannot place is refused for good (`opens_on_default_pane`).
         Err(failure) if target.is_none() && opens_on_default_pane(&failure) => {
             // No default pane either: the app's refusal says why.
             let Ok(default) = read(reader, ResourceOperation::TabGet, default_pane_tab(&route))
@@ -319,27 +356,6 @@ pub(super) fn open_browser_params(
         params.insert("target".into(), json!(format!("tab:{tab}")));
     }
     params
-}
-
-/// A tab of the pane the new browser tab goes to, or `None` for the app's
-/// focused pane.
-fn target_tab(
-    reader: &mut Reader,
-    route: &Map<String, Value>,
-    params: &Map<String, Value>,
-    caller_terminal: Option<&str>,
-) -> Result<Option<String>, Failure> {
-    if let Some(selector) = named_pane_tab(reader, route, params)? {
-        let tab = read(reader, ResourceOperation::TabGet, selector)?;
-        return Ok(Some(string_field(&tab, "id", "tab")?));
-    }
-    if let Some(terminal) = caller_terminal {
-        let mut selector = route.clone();
-        selector.insert("terminal".into(), json!(terminal));
-        let snapshot = read(reader, ResourceOperation::TerminalGet, selector)?;
-        return Ok(Some(string_field(&snapshot, "tab_id", "terminal")?));
-    }
-    Ok(None)
 }
 
 /// The `tab.get` selector for the shown tab of the pane the command names.

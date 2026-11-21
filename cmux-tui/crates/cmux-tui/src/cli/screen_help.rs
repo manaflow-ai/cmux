@@ -27,8 +27,9 @@ USAGE
   cmux screen group <group> add --screens <screen_…,...>
   cmux screen group remove --screens <screen_…,...>
 
-create adds the screen to the current workspace (or --workspace) and keeps
-the focus where it is unless --focus is given.
+create adds the screen to the caller's own workspace (or --workspace; the
+session's active one for a shell outside cmux) and keeps the focus where it
+is unless --focus is given.
 A bulk close (--others, --to-right, --to-left, --all) is one closed group
 that `cmux closed reopen` restores whole; it keeps pinned screens unless
 --include-pinned.

@@ -68,6 +68,13 @@ public struct RightColumnPlacement {
             self.widths = widths
             self.kinds = kinds
         }
+
+        /// The column with no pane when one of its panes is in `homes` (another agent's home, the control
+        /// router's `besideAgentHomes`): the open then gets its own column right of the source, never a
+        /// pane or a split in that one.
+        public func avoiding(_ homes: Set<String>) -> Column {
+            panes.contains(where: { homes.contains($0) }) ? Column(sourceWidth: sourceWidth) : self
+        }
     }
 
     /// Decides for `column` an open of `kind` (nil: no kind); `holds` says whether a pane already
@@ -105,6 +112,44 @@ public struct RightColumnPlacement {
     public static func decide(_ column: Column, opening kind: Kind? = nil) -> Decision<String> {
         decide(sourceWidth: column.sourceWidth, column: column.panes, width: { column.widths[$0] }, opening: kind,
                holds: { column.kinds[$0]?.contains($1) == true })
+    }
+}
+
+public extension RightColumnPlacement.Column {
+    /// The right column beside `pane` read from the daemon's layout (`ScreenModel.paneIDs(rightOf:)`), for a pane
+    /// no window shows: there are no frames to measure (``RightColumnPlacement/column(beside:frames:gap:)``), and
+    /// no width, so nothing sets a floor. The same panes the control topology names (`ControlPaneInfo.rightPaneIDs`),
+    /// so an agent's open is placed alike on and off screen: in the pane an earlier open made, never one more
+    /// pane beside it (fleet capture of build 76840bfee0ac, 2026-11-18).
+    /// - Parameters:
+    ///   - pane: The pane the tab opens beside (an agent's chat or terminal).
+    ///   - store: The store of the pane's daemon.
+    ///   - holds: Whether a pane holds a tab of a kind (the app's `LinkOpener.holds`).
+    @MainActor init(layoutRightOf pane: PaneModel, in store: DaemonStore, holds: (PaneModel, RightColumnPlacement.Kind) -> Bool) {
+        let screen = store.workspace(containing: pane.handle)?.screens.first { $0.panes.contains { $0 === pane } }
+        let right = screen.map { screen in screen.paneIDs(rightOf: pane.handle).compactMap { screen.pane($0) } } ?? []
+        var kinds: [String: Set<RightColumnPlacement.Kind>] = [:]
+        for pane in right { kinds[pane.id] = Set([RightColumnPlacement.Kind.terminal, .browser, .document].filter { holds(pane, $0) }) }
+        self.init(panes: right.map(\.id), kinds: kinds)
+    }
+}
+
+public extension RightColumnPlacement {
+    /// The pane a new tab of `kind` gets a split below when it opens beside `pane` and no window shows `pane`:
+    /// ``decide(_:opening:)`` over the column the daemon's layout names (``Column/init(layoutRightOf:in:holds:)``),
+    /// never a column that holds one of `homes` (another agent's pane). Nil for any other decision: a new pane
+    /// beside `pane`, or a tab in a pane the control router already aimed the run at.
+    /// - Parameters:
+    ///   - pane: The pane the tab opens beside.
+    ///   - store: The store of the pane's daemon.
+    ///   - homes: The panes that are another agent's home (`ActionInvocation.besideAgentHomes`).
+    ///   - kind: What the tab shows.
+    ///   - holds: Whether a pane holds a tab of a kind.
+    /// - Returns: The lone pane on the right to split below, or nil.
+    @MainActor static func paneToSplitBelow(beside pane: PaneModel, in store: DaemonStore, avoiding homes: Set<String>, opening kind: Kind?,
+                                            holds: (PaneModel, Kind) -> Bool) -> PaneID? {
+        guard case .splitBelow(let id) = decide(Column(layoutRightOf: pane, in: store, holds: holds).avoiding(homes), opening: kind) else { return nil }
+        return store.pane(idOrResource: id)?.handle
     }
 }
 

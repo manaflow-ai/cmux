@@ -7,13 +7,13 @@ import CmuxNextLayout
 import Foundation
 import CmuxNextWakeups
 
-/// beside_caller in the app (hq-6d right-column design). The control router
-/// picks the pane (ControlCaller): the column right of the agent's chat, or,
-/// with no column there, the chat's own pane with `newColumnBeside`. Here the
-/// new tab is made in that pane without moving keyboard focus out of the
-/// chat: selected in the column right of the chat, or made unselected in the
-/// chat's pane and moved into a new column right of it, so the chat pane
-/// never shows it. A person's click from the chat (the header's Changes,
+/// beside_caller in the app (hq-6d right-column design). The control router picks the pane
+/// (ControlCallerPlacement): the column right of the agent's chat or terminal, or, with no column there,
+/// the caller's own pane with `newColumnBeside`. Here the new tab is made in that pane without moving
+/// keyboard focus out of the caller's pane: selected in the column right of it, or made unselected in
+/// the caller's pane and moved into a new column right of it, so that pane never shows it. Another
+/// agent's pane (`besideAgentHomes`) is never that column: the tab gets its own column right of the
+/// caller. A person's click from the chat (the header's Changes,
 /// Preview or Files, ``ActionInvocation/besideTakesFocus``) lands the same
 /// way, but its tab takes the focus and its close gives it back to the chat.
 enum AgentBesidePlacement {
@@ -49,8 +49,8 @@ enum AgentBesidePlacement {
     }
 
     @MainActor static func opening(_ invocation: ActionInvocation, in controller: PaneController,
-                                   then: (@MainActor (SurfaceID) -> Void)?) -> Opening {
-        opening(invocation, pane: controller.pane, controller: controller, services: controller.services, then: then)
+                                   then: (@MainActor (SurfaceID) -> Void)?, waitsForExisting: Bool = true) -> Opening {
+        opening(invocation, pane: controller.pane, controller: controller, services: controller.services, then: then, waitsForExisting: waitsForExisting)
     }
 
     @MainActor private static func opening(_ invocation: ActionInvocation, pane anchor: PaneModel, controller: PaneController?,
@@ -187,13 +187,11 @@ enum AgentBesidePlacement {
             }
             defer { finish() }
             let source = controller ?? services.paneController(for: anchor)
-            let measured = source.map { LinkOpener.rightColumn(beside: $0) } ?? RightColumnPlacement.Column()
+            let measured = (source.map { LinkOpener.rightColumn(beside: $0) } ?? RightColumnPlacement.Column(layoutRightOf: anchor, in: store, holds: { LinkOpener.holds(tabs: $0.tabs, $1) })).avoiding(invocation.besideAgentHomes)
             let kind = RightColumnPlacement.Kind(opening: tab.kind, document: tab.page == InternalPageID.diff.rawValue)
             let decision = RightColumnPlacement.decide(measured, opening: kind)
-            let destination: PaneController? = {
-                guard case .tab(let id) = decision, let id else { return nil }
-                return source?.workspace?.panes[LayoutPaneID(rawValue: id)]
-            }()
+            let shown: (String) -> PaneController? = { source?.workspace?.panes[LayoutPaneID(rawValue: $0)] }
+            let destination: PaneController? = if case .tab(let id?) = decision { shown(id) } else { nil }
             moved = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
                 switch decision {
                 case .splitRight:
@@ -204,15 +202,13 @@ enum AgentBesidePlacement {
                         done.resume(returning: $0)
                     }
                 case .splitBelow(let id):
-                    let right = source?.workspace?.panes[LayoutPaneID(rawValue: id)]
-                    guard let right else { return done.resume(returning: false) }
-                    TabMoves.toNewSplit(tab, pane: right.pane, edge: .bottom, services: services, keepFocus: true) {
+                    guard let right = shown(id)?.pane ?? services.locatePane(id, onMachine: machineID) else { return done.resume(returning: false) }
+                    TabMoves.toNewSplit(tab, pane: right, edge: .bottom, services: services, keepFocus: true) {
                         done.resume(returning: $0)
                     }
-                case .tab:
-                    let right = destination ?? source
-                    guard let right else { return done.resume(returning: false) }
-                    TabMoves.move(tab, to: right.pane, index: right.pane.tabs.count, services: services) {
+                case .tab(let id):
+                    let right = (destination ?? source)?.pane ?? id.flatMap { services.locatePane($0, onMachine: machineID) } ?? anchor
+                    TabMoves.move(tab, to: right, index: right.tabs.count, services: services) {
                         done.resume(returning: $0)
                     }
                 }

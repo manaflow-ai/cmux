@@ -209,7 +209,10 @@ daemon inject, so no flags are needed.
 | `CMUX_BUNDLE_ID` | App bundle id; derives the app socket and daemon session. |
 | `CMUX_TAG` | Tagged dev build; derives `~/.local/state/cmux/cmux-debug-<tag>.sock`, session `cmux-app-<tag>` and, with the bundle id, the acpmux home `~/.acpmux/builds/<build key>`. |
 | `CMUX_TUI_SOCKET` | Daemon session socket. |
-| `CMUX_TUI_TERMINAL_ID` | The caller's terminal (`term_…`). `cmux notify` and `agent hook emit` default to it. `current` selectors do not use it. |
+| `CMUX_TUI_TERMINAL_ID` | The caller's terminal (`term_…`). `cmux notify` and `agent hook emit` default to it, `current` and `caller` selectors resolve to its tab, pane, screen and workspace, and a creation that names no place opens there. |
+| `CMUX_AGENT_SESSION` | The caller's agent chat (acpmux sets it for the agent and its cmux MCP server). The app that owns the daemon says where the chat is. |
+| `CMUX_CALLER_HOME_CHAT` | `1` for a Chief turn: its place is the Home chat of the app that owns the daemon. |
+| `CMUX_WORKSPACE_ID` | The key of the workspace an agent's session runs in. The caller of an agent names it, and cmux places an agent whose chat no tab shows in that workspace (the app that owns the daemon; in a session no app owns, the CLI, when the request's session has that workspace). Do not pass it as `--workspace`: it can be stale. |
 | `ACPMUX_HOME` | acpmux state directory. Wins over the tag rule. |
 
 App socket order: `--app-socket`, then `CMUX_SOCKET_PATH`/`CMUX_BUNDLE_ID`/`CMUX_TAG`,
@@ -238,15 +241,137 @@ Every instance selector accepts:
 1. a public id: `ws_…`, `screen_…`, `pane_…`, `tab_…`, `term_…`, `browser_…`,
    `split_…`, `notification_…`, `agent_…`. Ids are persisted and survive app and
    daemon restarts;
-2. `current`;
+2. `caller` or `current`: the caller's own object;
 3. an exact name. `name:<value>` forces name interpretation and is required for
-   names equal to `current`, names shaped like ids, and names containing `_`.
+   names equal to `current` or `caller`, names shaped like ids, and names
+   containing `_`.
 
-For a `current` or name selector, missing structural ancestors default to
-`current`, so `cmux pane current split --right` means the session's active
-workspace, screen and pane (what the user sees), not the caller's. To act on
-the caller's own terminal, pass `$CMUX_TUI_TERMINAL_ID`. An id selector needs no ancestors. Nested forms name the chain
-explicitly: `cmux workspace api screen current pane current split --down`.
+For a `caller`, `current` or name selector, missing structural ancestors
+default to `current`. `caller` and `current` are the caller's own place: from a
+cmux terminal (`CMUX_TUI_TERMINAL_ID`) the CLI reads the tab, pane, screen and
+workspace that hold it; from an agent chat (`CMUX_AGENT_SESSION`) or a Chief
+turn it asks the app that owns the daemon where the chat is. So
+`cmux pane current split --right` splits the caller's own pane even while the
+person looks at another workspace. `caller` fails without a caller; `current`
+is then the session's active object, as it is for a shell outside cmux and
+with `--socket`, `--machine` or `--session` naming another session. An id
+selector needs no ancestors. Nested forms name the chain explicitly:
+`cmux workspace api screen current pane current split --down`.
+
+### The default place
+
+A creation that names no place acts in the caller's own workspace, never in the
+one the person has focused. This holds for the CLI and for the MCP server:
+
+| Command (no `--workspace`, `--screen`, `--pane`) | Agent chat or Chief turn | cmux terminal |
+| --- | --- | --- |
+| `browser open`, `tab create browser`, `open <url>` | The app places it beside the chat: right of it by the same-kind rule. | The app places it, for an agent's terminal and a plain shell alike. On screen: the same-kind rule and the person's link placement setting (by default right of the terminal). Off screen: the same-kind rule on the pane directly right of the terminal. |
+| `browser profile open` | The CLI places it: right of the chat by the same-kind rule. | The same-kind rule, right of the terminal. |
+| `tab create terminal`, `open <file>` | Beside the chat: the column right of it, made when missing. | A terminal an agent runs in: beside it (the column right of it, made when missing). A plain shell: a tab in its own pane. |
+| `pane create` | The chat's screen (a Chief turn: the daemon's default). | The terminal's screen. |
+| `screen create`, `workspace open-url` | The chat's workspace (a Chief turn: the daemon's default). | The terminal's workspace. |
+| `agent start`, `agent resume`, `terminal <t> resume` (no `--pane`, no `--split`) | Beside the chat. | A split right of the terminal's pane. |
+| `agents terminal split` (no `--surface`) | A split of the chat's pane (a Chief turn: the Home chat's pane). | A split of the terminal's pane. |
+
+Rules:
+
+- Only the app that owns the request's daemon places a caller. A Cloud Chief
+  turn that reaches the Mac app over a relay keeps its machine's own default.
+- The app decides whether a terminal runs an agent, and only an app whose
+  `system.identify` reports `caller_placement` 2 or more says so. With an
+  older app, a new terminal from a terminal caller is a tab in its own pane.
+  With no app (a plain cmux-tui session, a Cloud machine), a new terminal and
+  a browser from a terminal caller are tabs in its own pane.
+- "Right of the caller" means the panes that touch the right edge of the
+  caller's pane and overlap it in height, in a split or in the next column.
+  The same-kind rule for a new tab there (a browser in this wording; a
+  terminal follows it with "terminal" for "browser"): a tab in the lowest
+  pane there that already holds a browser; else a split below a lone pane of
+  another kind; else, with two or more panes there and none that holds a
+  browser, a tab in the lowest pane. For a caller that is not docked,
+  another agent's pane never takes the tab. With no pane there, a new pane
+  is made: a plain split right of the caller's pane (a docked chat gets a
+  column that shares the window).
+  Another agent's pane is a pane with an agent's chat tab or a terminal an
+  agent runs in; when it is the pane on the right, the new pane is made too.
+  `caller.docked` is true for a pane in a left or right dock; a pane in a
+  top or bottom band reports false, and when the daemon refuses its split
+  (`operation.failed` with reason code `dock-column-agent-chat`) the new
+  pane becomes a column. An app that does not say `docked` gets the column.
+- `browser open`, `tab create browser` and `open <url>` are placed by the app.
+  With an app whose `system.identify` reports `caller_placement` 2 or more,
+  the CLI and the MCP server name no pane: the run carries the caller alone
+  (the terminal's own tab, or the agent session). On screen the app's rule
+  and the person's link placement setting decide (by default the same-kind
+  rule; `same-pane` keeps a terminal's browser in the terminal's pane). When
+  no window shows the caller's workspace, the same-kind rule applies to the
+  pane directly right of the terminal, whatever the setting says; the
+  terminal stays the shown tab of its pane. `cmux open <url>` replies with its
+  `placement`. For an app without the marker, the CLI names the pane of the
+  column the app reports right of the caller.
+- `browser profile open` is a daemon request, so the CLI and the MCP server
+  place it themselves, by the same-kind rule. The panes right of the caller
+  come from the app's `beside` answer (`panes[].kinds`). For a plain shell
+  the app answers `own_pane`, which names no pane on the right; there the CLI
+  reads them from the daemon: the terminal's right neighbor, and each pane
+  above or below that neighbor whose own left neighbor is the terminal's
+  pane (a pane that spans below the terminal and its neighbor is not right
+  of the terminal).
+- Known differences between the paths, not yet removed. A zoomed pane: on
+  screen the new pane splits right of the zoomed pane; off screen the layout
+  under the zoom is reused. `browser profile open` does not read the
+  person's link placement setting, which only the app applies, on screen.
+  Off screen and from the CLI a new pane halves the caller's pane with no
+  width floor. The plain-shell neighbor walk can miss a right pane in a
+  layout with unequal rows.
+- The cmux MCP server says `origin: mcp` on the app requests that ask for or
+  use a placement. Only an agent has an MCP server, so the app places its
+  caller as an agent, also in a terminal whose hooks reported none: its new
+  terminal, file and link open beside that terminal, not in its pane. A
+  person's `cmux` says `cli` or `script`.
+- An agent's app action that closes or removes and names no target is refused
+  with `target_required`. An action whose own argument names the object
+  (`--session`, `--bookmark`) is not; an empty naming argument does not count
+  as naming the object. Only `workspace close-all` and `window stash` take
+  `--window`. The window-scoped actions that give an agent nothing to name
+  are refused for it with `person_required`: `app minimize-window`,
+  `app zoom-window`, `app toggle-full-screen`, `sidebar toggle-left`,
+  `sidebar focus`, `space next`, `space previous`, `space select-1-9`,
+  `action home-stop-all-agents`, `app close-window` and
+  `app close-other-windows`. Stopping the Chief from an agent (`cmux chief
+  stop`, `home.stopChief`, and `home.stopAllAgents` by its id) is refused by
+  the CLI first, with `origin.forbidden`. An agent's tab-group action with no
+  target acts on the group of its own tab. `screen-group reopen-saved` with
+  no target acts at the agent's own workspace only when a window shows that
+  workspace; off screen it is refused. `history open` with no target goes
+  beside the agent for a page entry; the other entry kinds (location, closed,
+  agent, command) still act on the front window.
+- An agent whose chat no tab shows is placed in the workspace its session
+  runs in (`CMUX_WORKSPACE_ID`, which its caller names). An agent the app
+  cannot place at all (no chat tab, and that workspace is not open) is refused
+  with `caller_unavailable`: its `current` and its creations never go to the
+  focused workspace or Home. For the typed creations and `current`
+  (`tab create`, `pane create`, `screen create`, `agent start`), an agent that
+  runs in a cmux terminal is then placed by that terminal. `cmux open
+  <file|url>` and `browser open` name the agent session to the app: they open
+  beside the chat, else in the session's workspace, else are refused; the
+  terminal does not stand in. In a session no app owns, an agent with no
+  terminal whose key names no workspace of the session keeps the daemon's
+  default.
+- With no caller (a shell outside cmux), a caller terminal the daemon no longer
+  shows, or a request to another session or machine (`--socket`, `--machine`,
+  `--session` naming another session), the daemon's default applies: its active
+  workspace, screen and pane.
+- A Chief turn's place is the Home chat. Its tabs open beside the Home chat,
+  but `pane create`, `screen create` and `workspace open-url` from a Chief turn
+  keep the daemon's default: the app draws the Home workspace as a page, so a
+  pane or a screen made there may never be seen.
+- A retry with the same `--idempotency-key` (MCP `idempotency_key`) never opens
+  a second tab, also when the layout changed between the tries: the creation
+  is recorded under that key (`correlation_key`), the retry answers with the
+  tab the first try made, and a creation of another kind under the same key
+  fails with `creation.conflict`.
+- Name a place only when the person names one.
 
 A selector id, or an id given to `--workspace`, `--screen`, `--pane`, `--tab`,
 `--tabs`, `--terminal`, `--browser`, `--split`, `--target` or `--other-*`, may
@@ -344,7 +469,8 @@ cmux screen group <group> add --screens <screen_id,...>
 cmux screen group remove --screens <screen_id,...>
 ```
 
-`screen create` keeps the focused screen unless `--focus` is given.
+`screen create` adds the screen to the caller's own workspace ([the default
+place](#the-default-place)) and keeps the focused screen unless `--focus` is given.
 
 Pinned screens sort first and leave their group. Group colors are `grey`,
 `blue`, `red`, `yellow`, `green`, `pink`, `purple`, `cyan` and `orange`.

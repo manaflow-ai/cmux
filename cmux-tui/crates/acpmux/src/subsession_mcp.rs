@@ -47,12 +47,13 @@ instructions. Your sub-sessions are listed under your chat in the chat list. \
 With the cmux MCP server, run these in a cmux_exec script (cmux.docs gives their arguments); none \
 moves the user's focus unless you pass focus: true: when the user needs a sub-session's chat in \
 front of them, open it as a tab with cmux.app_agent_open_tab({session: sessionId, target: paneOrTabId}) \
-(no target: the focused pane) or in a new workspace with cmux.app_agent_open({session: sessionId}), \
+(a pane or tab of your own workspace) or in a new workspace with cmux.app_agent_open({session: sessionId}), \
 open a URL for the user with \
-cmux.workspace_open_url(...) or cmux.tab_create_browser(...), tell them something needs them with \
+cmux.tab_create_browser({url}) or cmux.workspace_open_url({url}) (with no pane and no workspace they \
+open beside this chat, in your own workspace), tell them something needs them with \
 cmux.notification_create(...), and post your status on a workspace's sidebar row with \
-cmux.workspace_status_set(...) (your workspace is $CMUX_WORKSPACE_ID when your environment has it; \
-the workspace `current` is the one the user looks at)."
+cmux.workspace_status_set(...) (the workspace `current` is your own, this chat's; `focused` is the \
+one the user looks at). What you open stays in your own workspace unless the user names another place."
         .to_owned()
 }
 

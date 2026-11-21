@@ -1,6 +1,6 @@
 # cmux Workspace Command Reference
 
-Use these commands from a cmux terminal; the CLI reads the session from the environment. Selectors are a public id (`ws_…`, `screen_…`, `pane_…`, `tab_…`, `term_…`), `current` (the focused one), or an exact name. `--json` prints one result object, `--jsonl` one object per result or event. `cmux <scope> --help` prints each scope's grammar.
+Use these commands from a cmux terminal; the CLI reads the session from the environment. Selectors are a public id (`ws_…`, `screen_…`, `pane_…`, `tab_…`, `term_…`), `caller` or `current` (the caller's own; the focused one only for a shell outside cmux or with `--socket`/`--session` for another session), or an exact name. A creation with no place flag (`tab create`, `pane create`, `screen create`, `browser open`) opens in the caller's own workspace. `--json` prints one result object, `--jsonl` one object per result or event. `cmux <scope> --help` prints each scope's grammar.
 
 ## Context
 

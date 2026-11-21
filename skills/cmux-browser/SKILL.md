@@ -90,11 +90,52 @@ as `browser`.
 cmux --json tab create browser --url https://example.com
 ```
 
-The result carries the new tab's `tab_…` id. Add `--workspace S --screen S
---pane S` to place it in a pane other than the caller's, and `--name N` to name
-it. The app also has UI actions that open a browser in the focused place:
-`cmux tab new-browser`, `cmux browser split-right`, `cmux browser split-down`.
-Check their arguments with `cmux action describe "tab new-browser"` before use.
+The result carries the new tab's `tab_…` id. With no place flag the tab opens
+in your own workspace, and the app places it. "Right of you" means the panes
+that touch the right edge of your pane and overlap it in height, in a split or
+the next column. The same-kind rule places the tab: a tab in the lowest pane
+there that already holds a browser; else a split below a lone pane of another
+kind; else, with two or more panes there and none that holds a browser, a tab
+in the lowest pane. For a caller that is not docked, another agent's pane
+never takes the tab. With no pane there, a new pane is made: a plain split
+right of your pane (a docked chat gets a column that shares the window). From
+an agent chat that rule applies; on screen the app also applies width floors
+(a pane too narrow to split takes the tab as a tab, or the new pane becomes a
+column). From a cmux terminal (an agent's or a plain shell), on screen the
+person's link placement setting also applies (by default the rule above).
+When no window shows the terminal's workspace, the rule applies to the pane
+directly right of the terminal, whatever that setting says; the terminal
+stays the shown tab of its pane.
+`cmux browser open URL` is the same command, and `cmux open URL` lands in the
+same place.
+Add `--workspace S --screen S --pane S` only when the person names another
+place, and `--name N` to name the tab. Keep what you open in your own
+workspace: do not target the pane the person has focused, and do not pass
+`--workspace "$CMUX_WORKSPACE_ID"` (it can be stale). An agent cmux cannot
+place (no tab shows its chat, and its workspace is closed) gets
+`caller_unavailable`: name a workspace or pane by id then.
+
+Prefer `cmux browser open URL`. The UI actions `cmux tab new-browser`,
+`cmux browser split-right` and `cmux browser split-down`, run from a cmux
+terminal or an agent chat with no `--target`, act at your own place, not
+where the person looks: `tab new-browser` opens beside you, and the split
+actions split your own pane. From an agent, an action that closes or removes
+(`tab close`, `pane close`) with no `--target` is refused with
+`target_required`: name the tab or pane. An action whose own argument names
+the object (`--session`, `--bookmark`) is not refused (an empty value does not
+name it). Only `workspace close-all` and `window stash` take `--window`. The
+window-scoped actions that give you nothing to name are refused for an agent
+(`person_required`): `app minimize-window`, `app zoom-window`,
+`app toggle-full-screen`, `sidebar toggle-left`, `sidebar focus`,
+`space next|previous|select-1-9`, `action home-stop-all-agents`,
+`app close-window`, `app close-other-windows`. Stopping the Chief
+(`cmux chief stop`) is refused by the CLI itself (`origin.forbidden`). A
+tab-group action with no target acts on your own tab's group.
+`screen-group reopen-saved` acts at your own workspace only when a window
+shows that workspace; off screen it is refused. `history open` goes beside you
+for a page entry; the other entry kinds (location, closed, agent, command)
+still act on the front window. Check an action's arguments with
+`cmux action describe "tab new-browser"` before use.
 
 ## Find an existing browser tab without changing focus
 
@@ -239,8 +280,11 @@ cmux --json tab "$TAB" show                              # extra.browser_profile
 ```
 
 `open` takes an http or https URL. Without `--engine webkit|cef` the tab opens
-in the person's default engine setting; `--pane <pane_…>` picks the pane (else
-the focused one) and `--background true` keeps the pane's selected tab.
+in the person's default engine setting; `--pane <pane_…>` picks the pane. With
+no `--pane` the tab opens in your own workspace, right of your chat or
+terminal, by the same-kind rule that `browser open` uses (above). It differs
+from `browser open` in one way: it does not read the person's link placement
+setting. `--background true` keeps the pane's selected tab.
 
 A profile is named by its id or its exact name. `set-profile` keeps the tab (same id and
 position): the daemon moves the tab record and the app reloads the page at the

@@ -63,7 +63,8 @@ workspace's siblings (the session's workspaces, the home one never) as one
 closed group: one `cmux closed reopen` restores them all. The same flags on
 screen, pane and tab close work in the screen, pane or tab bar.
 open-url opens an http(s) link on the workspace's right side (without a
-selector, the home workspace): it navigates the browser tab shown there last,
+selector, the caller's own workspace; the home workspace only for a shell
+outside cmux): it navigates the browser tab shown there last,
 else opens a browser tab, never in the agent chat dock, and keeps the focus.
 Nested panes support split --right or --down. Without a selector, status,
 progress and log target the caller's workspace inside a cmux terminal, else
@@ -153,6 +154,10 @@ beside a chat. --viewport-width <fraction> makes a column of exactly that
 share of the window, and the row scrolls sideways when the columns are wider
 than the window.
 
+create makes the pane on the caller's own screen, in its own workspace (the
+session's active one for a shell outside cmux, or with --socket, --machine or
+--session for another session).
+
 split keeps the focus where it is unless --focus is given. With --shell or
 -- argv the new pane (of split or create) runs that command instead of a
 shell. To add a terminal
@@ -223,6 +228,21 @@ USAGE
   cmux tab group saved list [--room <room>]
   cmux tab group saved <saved> reopen [--pane <pane_…>]
   cmux tab group saved <saved> delete
+
+create with no --workspace, --screen or --pane opens the tab in the caller's
+own workspace. A terminal tab: beside an agent's chat or terminal (the column
+right of it, made when missing), and in the own pane of a plain terminal. A
+browser tab: the app places it right of the caller (the panes that touch
+its right edge): a tab in the lowest pane there that already holds a
+browser; else a split below a lone pane of another kind; else, with two or
+more panes there and none that holds a browser, a tab in the lowest pane.
+For a caller that is not docked, another agent's pane never takes the tab.
+With no pane there, a new pane is made: a plain split right of the caller's
+pane (a docked chat gets a column that shares the window). On screen a
+terminal's browser also follows the person's link placement setting. A shell
+outside cmux, and --socket, --machine or --session for another session, get
+the session's active pane. An agent cmux cannot place is refused
+(caller_unavailable). Name a place only when the person names one.
 
 Zoom is a browser page zoom or a terminal font scale. Pinned tabs sort first
 and leave their group. A group or saved group is named by its id or exact

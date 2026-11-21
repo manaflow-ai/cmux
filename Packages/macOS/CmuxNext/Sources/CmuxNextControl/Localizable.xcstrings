@@ -16008,6 +16008,530 @@
           }
         }
       }
+    },
+    "control.error.callerNotLocated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ has no target, and no tab shows the caller's chat or terminal; name the tab, pane or workspace to act on"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يحدد %@ هدفًا، ولا توجد علامة تبويب تعرض محادثة المتصل أو طرفيته؛ حدّد علامة التبويب أو الجزء أو مساحة العمل المطلوب العمل عليها"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nema cilj, a nijedna kartica ne prikazuje razgovor ili terminal pozivaoca; navedite karticu, okno ili radni prostor na kojem treba djelovati"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ har intet mål, og ingen fane viser kalderens chat eller terminal; angiv den fane, rude eller det arbejdsområde, der skal handles på"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hat kein Ziel, und kein Tab zeigt den Chat oder das Terminal des Aufrufers; nenne den Tab, den Bereich oder den Arbeitsbereich, auf den es wirken soll"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ no tiene destino, y ninguna pestaña muestra el chat o el terminal de quien llama; indica la pestaña, el panel o el espacio de trabajo sobre el que actuar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ n’a pas de cible, et aucun onglet n’affiche le chat ou le terminal de l’appelant ; nommez l’onglet, le panneau ou l’espace de travail sur lequel agir"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ non ha una destinazione e nessuna scheda mostra la chat o il terminale del chiamante; indica la scheda, il riquadro o l’area di lavoro su cui agire"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ にターゲットがなく、呼び出し元のチャットやターミナルを表示しているタブがありません。操作するタブ、ペイン、またはワークスペースを指定してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ គ្មានគោលដៅទេ ហើយគ្មានផ្ទាំងណាបង្ហាញការជជែក ឬស្ថានីយរបស់អ្នកហៅឡើយ; សូមបញ្ជាក់ផ្ទាំង ផ្ទាំងរង ឬកន្លែងធ្វើការដែលត្រូវធ្វើសកម្មភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 대상이 없고 호출자의 채팅이나 터미널을 표시하는 탭이 없습니다. 작업할 탭, 패널 또는 워크스페이스를 지정하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ har ikke noe mål, og ingen fane viser oppkallerens chat eller terminal; oppgi fanen, ruten eller arbeidsområdet det skal virke på"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nie ma celu, a żadna karta nie pokazuje czatu ani terminala wywołującego; wskaż kartę, panel lub obszar roboczy, na którym ma działać"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ não tem destino, e nenhuma aba mostra o chat ou o terminal de quem chama; indique a aba, o painel ou o espaço de trabalho em que agir"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У %@ нет цели, и ни одна вкладка не показывает чат или терминал вызывающего; укажите вкладку, панель или рабочее пространство для действия"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ไม่มีเป้าหมาย และไม่มีแท็บใดแสดงแชทหรือเทอร์มินัลของผู้เรียก โปรดระบุแท็บ บานหน้าต่าง หรือพื้นที่ทำงานที่จะดำเนินการ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ için hedef yok ve çağıranın sohbetini ya da terminalini gösteren bir sekme yok; üzerinde işlem yapılacak sekmeyi, bölmeyi veya çalışma alanını belirtin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ не має цілі, і жодна вкладка не показує чат або термінал того, хто викликає; вкажіть вкладку, панель або робочий простір для дії"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ không có đích, và không thẻ nào hiển thị cuộc trò chuyện hoặc terminal của bên gọi; hãy nêu thẻ, ngăn hoặc không gian làm việc cần thao tác"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 没有目标，且没有标签页显示调用方的聊天或终端；请指定要操作的标签页、窗格或工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 沒有目標，且沒有分頁顯示呼叫方的聊天或終端機；請指定要操作的分頁、窗格或工作區"
+          }
+        }
+      }
+    },
+    "control.error.agentMustNameObject": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ closes or removes what it runs on, so an agent must name it; pass one of: %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يغلق %1$@ أو يزيل ما يعمل عليه، لذا يجب على الوكيل تسميته؛ مرّر أحد ما يلي: %2$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ zatvara ili uklanja ono na čemu se izvršava, pa ga agent mora imenovati; proslijedite jedno od: %2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ lukker eller fjerner det, den køres på, så en agent skal navngive det; angiv en af: %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ schließt oder entfernt, worauf es läuft, daher muss ein Agent es benennen; übergib eines von: %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ cierra o quita aquello sobre lo que se ejecuta, así que un agente debe nombrarlo; pasa uno de: %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ferme ou supprime ce sur quoi il s’exécute, un agent doit donc le nommer ; passez l’un de : %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ chiude o rimuove ciò su cui viene eseguito, quindi un agente deve indicarlo; passa uno tra: %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ は実行対象を閉じるか削除するため、エージェントは対象を指定する必要があります。次のいずれかを渡してください: %2$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ បិទ ឬដកអ្វីដែលវាដំណើរការលើ ដូច្នេះភ្នាក់ងារត្រូវបញ្ជាក់វា; សូមផ្តល់មួយក្នុងចំណោម៖ %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@은(는) 실행 대상을 닫거나 제거하므로 에이전트는 대상을 지정해야 합니다. 다음 중 하나를 전달하세요: %2$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ lukker eller fjerner det den kjøres på, så en agent må navngi det; oppgi en av: %2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ zamyka lub usuwa to, na czym działa, więc agent musi to wskazać; podaj jedno z: %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ fecha ou remove aquilo em que é executado, então um agente deve nomeá-lo; passe um destes: %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ закрывает или удаляет то, на чём выполняется, поэтому агент должен это указать; передайте одно из: %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ปิดหรือลบสิ่งที่มันทำงานอยู่ ดังนั้นเอเจนต์ต้องระบุสิ่งนั้น โปรดส่งอย่างใดอย่างหนึ่ง: %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ üzerinde çalıştığı şeyi kapatır veya kaldırır, bu yüzden bir ajan onu belirtmelidir; şunlardan birini verin: %2$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ закриває або вилучає те, на чому виконується, тому агент має це вказати; передайте одне з: %2$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ đóng hoặc gỡ thứ nó chạy trên đó, nên tác nhân phải nêu tên thứ đó; hãy truyền một trong: %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 会关闭或移除它所作用的对象，因此代理必须指定该对象；请传入以下之一：%2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 會關閉或移除它所作用的對象，因此代理必須指定該對象；請傳入以下其中之一：%2$@"
+          }
+        }
+      }
+    },
+    "control.error.agentCannotNameWindow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ acts on the window the person has in front and takes no window to name, so an agent cannot run it"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعمل %@ على النافذة التي أمام المستخدم ولا يقبل تسمية نافذة، لذا لا يمكن للوكيل تشغيله"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ djeluje na prozor koji je osobi ispred i ne prima prozor koji bi se imenovao, pa ga agent ne može pokrenuti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ virker på det vindue, personen har forrest, og tager intet vindue at navngive, så en agent kan ikke køre den"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wirkt auf das Fenster, das die Person vorn hat, und nimmt kein Fenster zum Benennen an, daher kann ein Agent es nicht ausführen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ actúa sobre la ventana que la persona tiene al frente y no admite nombrar una ventana, así que un agente no puede ejecutarlo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ agit sur la fenêtre que la personne a au premier plan et n’accepte aucune fenêtre à nommer, un agent ne peut donc pas l’exécuter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ agisce sulla finestra che la persona ha in primo piano e non accetta una finestra da indicare, quindi un agente non può eseguirlo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ はユーザーが前面に出しているウインドウに作用し、ウインドウを指定できないため、エージェントは実行できません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ធ្វើសកម្មភាពលើបង្អួចដែលអ្នកប្រើមាននៅខាងមុខ ហើយមិនទទួលយកការបញ្ជាក់បង្អួចទេ ដូច្នេះភ្នាក់ងារមិនអាចដំណើរការវាបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@은(는) 사용자가 앞에 둔 창에 작용하고 지정할 창을 받지 않으므로 에이전트가 실행할 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ virker på vinduet personen har fremst og tar ikke noe vindu å navngi, så en agent kan ikke kjøre den"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ działa na oknie, które osoba ma na wierzchu, i nie przyjmuje okna do wskazania, więc agent nie może tego uruchomić"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ age na janela que a pessoa tem à frente e não aceita uma janela para nomear, então um agente não pode executá-lo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ действует на окно, которое у человека на переднем плане, и не принимает окно для указания, поэтому агент не может это выполнить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ทำงานกับหน้าต่างที่ผู้ใช้เปิดอยู่ด้านหน้าและไม่รับหน้าต่างที่จะระบุ ดังนั้นเอเจนต์จึงเรียกใช้ไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kişinin önündeki pencerede işlem yapar ve belirtilecek bir pencere almaz, bu yüzden bir ajan onu çalıştıramaz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ діє на вікно, яке в людини на передньому плані, і не приймає вікна для зазначення, тому агент не може це виконати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ tác động lên cửa sổ mà người dùng đang để phía trước và không nhận cửa sổ nào để nêu tên, nên tác nhân không thể chạy nó"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 作用于用户置于最前的窗口，且不接受指定窗口，因此代理无法运行它"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 作用於使用者置於最前的視窗，且不接受指定視窗，因此代理無法執行它"
+          }
+        }
+      }
+    },
+    "control.error.agentMustNameFront": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ acts on what the person has in front when nothing is named, so an agent must name it; pass one of: %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعمل %1$@ على ما يعرضه الشخص في المقدمة عند عدم تسمية شيء، لذا يجب على الوكيل تسميته؛ مرّر أحد ما يلي: %2$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ djeluje na ono što je osobi u prvom planu kada ništa nije imenovano, pa ga agent mora imenovati; proslijedite jedno od: %2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ virker på det, personen har forrest, når intet er navngivet, så en agent skal navngive det; angiv en af: %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ wirkt auf das, was die Person im Vordergrund hat, wenn nichts benannt ist, daher muss ein Agent es benennen; übergib eines von: %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ actúa sobre lo que la persona tiene en primer plano cuando no se nombra nada, así que un agente debe nombrarlo; pasa uno de: %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ agit sur ce que la personne a au premier plan quand rien n’est nommé, un agent doit donc le nommer ; passez l’un de : %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ agisce su ciò che la persona ha in primo piano quando non è indicato nulla, quindi un agente deve indicarlo; passa uno tra: %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ は、対象が指定されていない場合、ユーザーが前面に表示しているものに作用するため、エージェントは対象を指定する必要があります。次のいずれかを渡してください: %2$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ធ្វើសកម្មភាពលើអ្វីដែលមនុស្សមាននៅខាងមុខ នៅពេលមិនបានបញ្ជាក់អ្វី ដូច្នេះភ្នាក់ងារត្រូវបញ្ជាក់វា; សូមផ្តល់មួយក្នុងចំណោម៖ %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@은(는) 대상을 지정하지 않으면 사용자가 앞에 띄워 둔 대상에 작용하므로 에이전트는 대상을 지정해야 합니다. 다음 중 하나를 전달하세요: %2$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ virker på det personen har fremst når ingenting er navngitt, så en agent må navngi det; oppgi en av: %2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ działa na tym, co osoba ma na pierwszym planie, gdy nic nie wskazano, więc agent musi to wskazać; podaj jedno z: %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ age sobre o que a pessoa tem em primeiro plano quando nada é nomeado, então um agente deve nomeá-lo; passe um destes: %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ действует на то, что у человека на переднем плане, если ничего не указано, поэтому агент должен это указать; передайте одно из: %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ทำงานกับสิ่งที่ผู้ใช้เปิดอยู่ด้านหน้าเมื่อไม่ได้ระบุสิ่งใด ดังนั้นเอเจนต์ต้องระบุสิ่งนั้น โปรดส่งอย่างใดอย่างหนึ่ง: %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, hiçbir şey belirtilmediğinde kişinin önünde açık olan şey üzerinde çalışır, bu yüzden bir ajan onu belirtmelidir; şunlardan birini verin: %2$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ діє на те, що в людини на передньому плані, якщо нічого не вказано, тому агент має це вказати; передайте одне з: %2$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ tác động lên thứ người dùng đang để phía trước khi không nêu tên gì, nên tác nhân phải nêu tên thứ đó; hãy truyền một trong: %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未指定对象时，%1$@ 会作用于用户当前置于前台的对象，因此代理必须指定该对象；请传入以下之一：%2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未指定對象時，%1$@ 會作用於使用者目前置於前景的對象，因此代理必須指定該對象；請傳入以下其中之一：%2$@"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

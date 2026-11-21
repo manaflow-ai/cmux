@@ -1,0 +1,1158 @@
+//! A creation that names no place stays in the caller's own workspace
+//! (Lawrence 2026-11-12: agents opened tabs, browsers, diff viewers and
+//! terminals in the workspace the person had focused, or in Home).
+//!
+//! The real `cmux` runs against a real daemon whose caller is in workspace
+//! `alpha` while the person has `beta` focused. Where a test needs the app's
+//! answer about the caller, a fake app control socket gives it
+//! (`system.identify`), as the app that owns the daemon would.
+#![cfg(unix)]
+
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
+
+use serde_json::{Value, json};
+
+use super::caller_selector::{Split, caller_in_alpha_beta_focused};
+use super::*;
+
+#[path = "caller_place/dock.rs"]
+mod dock;
+
+const AGENT_SESSION: &str = "acp_agent_session_own_ws";
+
+/// Who runs the command, as its environment says.
+#[derive(Default)]
+struct Who<'a> {
+    terminal: Option<&'a str>,
+    agent: bool,
+    home_chat: bool,
+    workspace_key: Option<&'a str>,
+    /// The control socket of the app that owns the daemon (`--app-socket`).
+    app: Option<&'a Path>,
+    /// An app the environment names (`CMUX_SOCKET_PATH`) that does not own
+    /// the daemon: the person's Mac app, reached from a Cloud machine.
+    relayed_app: Option<&'a Path>,
+}
+
+impl<'a> Who<'a> {
+    fn terminal(terminal: &'a str) -> Self {
+        Self { terminal: Some(terminal), ..Self::default() }
+    }
+
+    fn agent() -> Self {
+        Self { agent: true, ..Self::default() }
+    }
+
+    fn with_app(mut self, app: &'a FakeApp) -> Self {
+        self.app = Some(&app.socket);
+        self
+    }
+}
+
+/// `cmux` in the session of `server`, with the environment of `who`.
+fn cmux(server: &HeadlessServer, who: &Who<'_>) -> Command {
+    let mut command = Command::new(bin());
+    if let Some(app) = who.app {
+        command.arg("--app-socket").arg(app);
+    }
+    command.env("LC_ALL", "C").env("CMUX_TUI_SOCKET", &server.socket);
+    for key in [
+        "CMUX_MUX_SOCKET",
+        "CMUX_TUI_TERMINAL_ID",
+        "CMUX_AGENT_SESSION",
+        "CMUX_CALLER_HOME_CHAT",
+        "CMUX_WORKSPACE_ID",
+        "CMUX_SOCKET_PATH",
+        "CMUX_BUNDLE_ID",
+        "CMUX_TAG",
+        "CMUX_CHIEF_OWNER_SOCKET",
+    ] {
+        command.env_remove(key);
+    }
+    if let Some(terminal) = who.terminal {
+        command.env("CMUX_TUI_TERMINAL_ID", terminal);
+    }
+    if who.agent {
+        command.env("CMUX_AGENT_SESSION", AGENT_SESSION);
+    }
+    if who.home_chat {
+        command.env("CMUX_CALLER_HOME_CHAT", "1");
+    }
+    if let Some(key) = who.workspace_key {
+        command.env("CMUX_WORKSPACE_ID", key);
+    }
+    if let Some(app) = who.relayed_app {
+        command.env("CMUX_SOCKET_PATH", app);
+    }
+    command
+}
+
+/// `cmux --json [global…] args…` in the session of `server`, run by `who`.
+fn output(server: &HeadlessServer, who: &Who<'_>, global: &[&str], args: &[&str]) -> Output {
+    cmux(server, who).arg("--json").args(global).args(args).output().unwrap()
+}
+
+/// One `cmux_exec` script through `cmux mcp serve` run by `who`: what the
+/// script returned.
+fn mcp_exec(server: &HeadlessServer, who: &Who<'_>, script: &str) -> Value {
+    let config = server.dir.join("cmux-next-mcp.json");
+    fs::write(&config, r#"{"mcp":{"enabled":true}}"#).unwrap();
+    let mut command = cmux(server, who);
+    command
+        .args(["mcp", "serve"])
+        .env("CMUX_NEXT_CONFIG_FILE", &config)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    if who.app.is_none() && who.relayed_app.is_none() {
+        // No app answers in this session.
+        command.env("CMUX_SOCKET_PATH", server.dir.join("no-app.sock"));
+    }
+    let mut child = command.spawn().unwrap();
+    {
+        let mut stdin = child.stdin.take().unwrap();
+        for message in [
+            json!({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                    "clientInfo": {"name": "caller-place", "version": "1"}}}),
+            json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
+            json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                "params": {"name": "cmux_exec", "arguments": {"script": script}}}),
+        ] {
+            writeln!(stdin, "{message}").unwrap();
+        }
+    }
+    let output = child.wait_with_output().unwrap();
+    let reply = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .find(|message| message["id"] == 2)
+        .unwrap_or_else(|| panic!("no reply: {}", String::from_utf8_lossy(&output.stderr)));
+    assert_eq!(reply["result"]["isError"], false, "{reply}");
+    reply["result"]["structuredContent"]["result"].clone()
+}
+
+fn run(server: &HeadlessServer, who: &Who<'_>, args: &[&str]) -> Value {
+    let output = output(server, who, &[], args);
+    assert_success(&output);
+    json_output(&output)
+}
+
+/// The workspace that holds `pane`.
+fn workspace_of_pane(server: &HeadlessServer, pane: &str) -> String {
+    let shown = state_cli(server, None, &["pane", pane, "show"]);
+    let screen = shown["screen_id"].as_str().unwrap_or_else(|| panic!("{shown}"));
+    let screen = state_cli(server, None, &["screen", screen, "show"]);
+    screen["workspace_id"].as_str().unwrap_or_else(|| panic!("{screen}")).to_owned()
+}
+
+fn screen_of_pane(server: &HeadlessServer, pane: &str) -> String {
+    let shown = state_cli(server, None, &["pane", pane, "show"]);
+    shown["screen_id"].as_str().unwrap_or_else(|| panic!("{shown}")).to_owned()
+}
+
+/// The `pane_id` of a creation's answer (`{value: {pane_id}}`).
+fn created_pane(created: &Value) -> &str {
+    created["value"]["pane_id"].as_str().unwrap_or_else(|| panic!("no pane: {created}"))
+}
+
+/// How many tabs `pane` holds, and how many panes the session has.
+fn tabs_and_panes(server: &HeadlessServer, pane: &str) -> (usize, usize) {
+    let snapshot = state_cli_topology(server);
+    let tabs = snapshot["tabs"].as_array().unwrap_or_else(|| panic!("{snapshot}"));
+    let panes = snapshot["panes"].as_array().unwrap_or_else(|| panic!("{snapshot}"));
+    (tabs.iter().filter(|tab| tab["pane_id"] == pane).count(), panes.len())
+}
+
+/// The app's answer once the column right of the chat is there and holds
+/// tabs of `kind`.
+fn with_column(caller: &Value, column: &str, kind: &str) -> Value {
+    json!({"caller": caller, "beside": {"pane": column, "placement": "existing_column",
+        "panes": [{"id": column, "kinds": [kind]}]}})
+}
+
+/// The app's answer while no column is right of the chat.
+fn without_column(caller: &Value) -> Value {
+    json!({"caller": caller, "beside": {"pane": null, "placement": "new_column"}})
+}
+
+/// The person's focus never moved: `beta` is still the focused workspace.
+fn assert_beta_still_focused(server: &HeadlessServer, beta: &str) {
+    let focused = state_cli(server, None, &["workspace", "current", "show"]);
+    assert_eq!(focused["id"], beta, "the focus moved: {focused}");
+}
+
+/// The key of `workspace` in the UUID form a chat's `CMUX_WORKSPACE_ID` has.
+fn workspace_key(server: &HeadlessServer, workspace: &str) -> String {
+    let listed = state_cli(server, None, &["workspace", "list"]);
+    let key = listed
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["id"] == workspace)
+        .and_then(|row| row["extra"]["key"].as_str())
+        .unwrap_or_else(|| panic!("no key for {workspace}: {listed}"))
+        .replace('-', "")
+        .to_uppercase();
+    assert_eq!(key.len(), 32, "{key}");
+    format!("{}-{}-{}-{}-{}", &key[..8], &key[8..12], &key[12..16], &key[16..20], &key[20..])
+}
+
+/// A cmux app control socket that answers `system.identify` with one
+/// identity and refuses every other method, as an app with no such method.
+struct FakeApp {
+    socket: PathBuf,
+    done: Arc<AtomicBool>,
+    received: Arc<Mutex<Vec<Value>>>,
+    listener: Option<JoinHandle<()>>,
+}
+
+impl FakeApp {
+    fn start(server: &HeadlessServer, name: &str, identity: Value) -> Self {
+        let socket = server.dir.join(format!("{name}.sock"));
+        let listener = UnixListener::bind(&socket).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let done = Arc::new(AtomicBool::new(false));
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let (stop, log) = (done.clone(), received.clone());
+        let handle = std::thread::spawn(move || {
+            loop {
+                match listener.accept() {
+                    Ok((stream, _)) => {
+                        let (log, identity) = (log.clone(), identity.clone());
+                        std::thread::spawn(move || answer(stream, &identity, &log));
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        if stop.load(Ordering::Relaxed) {
+                            break;
+                        }
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(error) => panic!("app accept: {error}"),
+                }
+            }
+        });
+        Self { socket, done, received, listener: Some(handle) }
+    }
+
+    /// The methods the app was asked, in order.
+    fn methods(&self) -> Vec<String> {
+        self.received
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|request| request["method"].as_str().map(str::to_owned))
+            .collect()
+    }
+
+    /// The `caller` of every `system.identify` the app got.
+    fn identify_callers(&self) -> Vec<Value> {
+        self.received
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|request| request["method"] == "system.identify")
+            .map(|request| request["params"]["caller"].clone())
+            .collect()
+    }
+}
+
+impl Drop for FakeApp {
+    fn drop(&mut self) {
+        self.done.store(true, Ordering::Relaxed);
+        if let Some(handle) = self.listener.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+fn answer(stream: UnixStream, identity: &Value, log: &Mutex<Vec<Value>>) {
+    stream.set_nonblocking(false).unwrap();
+    stream.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+    let mut reader = BufReader::new(stream.try_clone().unwrap());
+    let mut writer = stream;
+    let mut line = String::new();
+    while reader.read_line(&mut line).unwrap_or(0) > 0 {
+        let request: Value = serde_json::from_str(&line).unwrap();
+        line.clear();
+        let response = if request["method"] == "system.identify" {
+            json!({"id": request["id"], "ok": true, "result": identity})
+        } else {
+            json!({"id": request["id"], "ok": false, "error": {"code": "method_not_found",
+                "message": format!("Unknown method {}", request["method"]), "data": {}}})
+        };
+        log.lock().unwrap().push(request);
+        if writeln!(writer, "{response}").and_then(|()| writer.flush()).is_err() {
+            break;
+        }
+    }
+}
+
+/// The app's `caller` for the chat (or terminal) in the fixture's pane.
+fn caller_in(split: &Split, screen: &str) -> Value {
+    json!({"is_caller": true, "workspace": split.alpha, "screen": screen, "pane": split.pane})
+}
+
+#[test]
+fn a_terminals_tab_with_no_place_opens_in_its_own_pane_not_the_focused_one() {
+    let split = caller_in_alpha_beta_focused("place-tab");
+    let Split { server, terminal, pane, alpha, beta } = &split;
+
+    let created = run(server, &Who::terminal(terminal), &["tab", "create", "terminal"]);
+    assert_eq!(created_pane(&created), pane, "{created}");
+    assert_eq!(created["value"]["workspace_id"], alpha.as_str(), "{created}");
+
+    // A shell outside cmux has no place of its own: the session's active pane.
+    let outside = run(server, &Who::default(), &["tab", "create", "terminal"]);
+    assert_eq!(outside["value"]["workspace_id"], beta.as_str(), "{outside}");
+    assert_beta_still_focused(server, beta);
+}
+
+#[test]
+fn a_terminals_pane_and_screen_with_no_place_stay_in_its_own_workspace() {
+    let split = caller_in_alpha_beta_focused("place-pane-screen");
+    let Split { server, terminal, pane, alpha, beta } = &split;
+    let who = Who::terminal(terminal);
+
+    let new_pane = run(server, &who, &["pane", "create"]);
+    assert_eq!(new_pane["value"]["workspace_id"], alpha.as_str(), "{new_pane}");
+    assert_eq!(new_pane["value"]["screen_id"], screen_of_pane(server, pane), "{new_pane}");
+    assert_ne!(created_pane(&new_pane), pane, "{new_pane}");
+
+    let new_screen = run(server, &who, &["screen", "create", "--name", "logs"]);
+    assert_eq!(new_screen["value"]["workspace_id"], alpha.as_str(), "{new_screen}");
+
+    let outside = run(server, &Who::default(), &["pane", "create"]);
+    assert_eq!(outside["value"]["workspace_id"], beta.as_str(), "{outside}");
+    assert_beta_still_focused(server, beta);
+}
+
+/// `browser profile open` with no `--pane` opened sign-in links in the
+/// focused pane, Home's right pane in the reported case.
+#[test]
+fn a_profile_browser_tab_with_no_pane_opens_in_the_callers_own_pane() {
+    let split = caller_in_alpha_beta_focused("place-profile");
+    let Split { server, terminal, pane, beta, .. } = &split;
+    let open = [
+        "browser",
+        "profile",
+        "open",
+        "https://example.com/",
+        "--profile",
+        "default",
+        "--engine",
+        "webkit",
+        "--background",
+        "true",
+    ];
+
+    let opened = run(server, &Who::terminal(terminal), &open);
+    assert_eq!(created_pane(&opened), pane, "{opened}");
+
+    let outside = run(server, &Who::default(), &open);
+    assert_eq!(workspace_of_pane(server, created_pane(&outside)), *beta, "{outside}");
+    assert_beta_still_focused(server, beta);
+}
+
+#[test]
+fn an_agent_chat_no_app_places_uses_the_workspace_its_environment_names() {
+    let split = caller_in_alpha_beta_focused("place-workspace-key");
+    let Split { server, alpha, beta, .. } = &split;
+    let key = workspace_key(server, alpha);
+    let chat = Who { workspace_key: Some(&key), ..Who::agent() };
+
+    let tab = run(server, &chat, &["tab", "create", "terminal"]);
+    assert_eq!(tab["value"]["workspace_id"], alpha.as_str(), "{tab}");
+    let new_pane = run(server, &chat, &["pane", "create"]);
+    assert_eq!(new_pane["value"]["workspace_id"], alpha.as_str(), "{new_pane}");
+    // `current` is that workspace too, never the focused one.
+    let current = run(server, &chat, &["workspace", "current", "show"]);
+    assert_eq!(current["id"], alpha.as_str(), "{current}");
+    // An agent it starts opens there as well.
+    let started = run(
+        server,
+        &chat,
+        &["agent", "start", "helper", "--cmd", "sleep 600", "--no-wait", "--no-focus"],
+    );
+    assert_eq!(started["workspace_id"], alpha.as_str(), "{started}");
+
+    // A key this session does not have (another session's, or a closed
+    // workspace) names no place: the daemon's default.
+    let stale = Who { workspace_key: Some("00000000-0000-4000-8000-000000000000"), ..Who::agent() };
+    let elsewhere = run(server, &stale, &["tab", "create", "terminal"]);
+    assert_eq!(elsewhere["value"]["workspace_id"], beta.as_str(), "{elsewhere}");
+    assert_beta_still_focused(server, beta);
+}
+
+#[test]
+fn a_terminal_the_daemon_no_longer_shows_keeps_the_daemon_default() {
+    let split = caller_in_alpha_beta_focused("place-stale-terminal");
+    let Split { server, beta, .. } = &split;
+    let gone = Who::terminal("term_00000000000000000000000000000000");
+    let created = run(server, &gone, &["tab", "create", "terminal"]);
+    assert_eq!(created["value"]["workspace_id"], beta.as_str(), "{created}");
+}
+
+#[test]
+fn a_request_to_another_session_keeps_that_sessions_default() {
+    let split = caller_in_alpha_beta_focused("place-other-session");
+    let Split { server, terminal, .. } = &split;
+    let other = HeadlessServer::start("place-other-session-target");
+    state_cli(&other, None, &["workspace", "create", "--name", "theirs"]);
+    let theirs = workspace_id_named(&other, "theirs");
+    state_cli(&other, None, &["workspace", &theirs, "focus"]);
+    let tabs = |server: &HeadlessServer| {
+        state_cli(server, None, &["session", "current", "snapshot"])["tabs"]
+            .as_array()
+            .map_or(0, Vec::len)
+    };
+    let before = tabs(server);
+
+    // The caller's terminal belongs to its own session: `--socket` names
+    // another one, whose daemon has none of the caller's ids.
+    let socket = other.socket.display().to_string();
+    let routed = output(
+        server,
+        &Who::terminal(terminal),
+        &["--socket", &socket],
+        &["tab", "create", "terminal"],
+    );
+    assert_success(&routed);
+    let created = json_output(&routed);
+    assert_eq!(created["value"]["workspace_id"], theirs.as_str(), "{created}");
+    assert_eq!(tabs(server), before, "the caller's own session got the tab");
+}
+
+#[test]
+fn an_agents_terminal_with_no_place_opens_beside_its_chat() {
+    let split = caller_in_alpha_beta_focused("place-agent-beside");
+    let Split { server, pane, alpha, beta, .. } = &split;
+    let screen = screen_of_pane(server, pane);
+    let caller = caller_in(&split, &screen);
+
+    // No column right of the chat yet: the terminal makes it.
+    let app = FakeApp::start(
+        server,
+        "app-new-column",
+        json!({"caller": caller, "beside": {"pane": null, "placement": "new_column"}}),
+    );
+    let chat = Who::agent().with_app(&app);
+    let first = run(server, &chat, &["tab", "create", "terminal", "--name", "dev"]);
+    let column = created_pane(&first).to_owned();
+    assert_ne!(column, *pane, "{first}");
+    assert_eq!(workspace_of_pane(server, &column), *alpha, "{first}");
+    assert_eq!(app.identify_callers(), vec![json!({"agent_session": AGENT_SESSION})]);
+    drop(app);
+
+    // With the column there, the next terminal is a tab in it.
+    let app = FakeApp::start(
+        server,
+        "app-existing-column",
+        json!({"caller": caller, "beside": {"pane": column, "placement": "existing_column",
+            "panes": [{"id": column, "kinds": ["terminal"]}]}}),
+    );
+    let chat = Who::agent().with_app(&app);
+    let second = run(server, &chat, &["tab", "create", "terminal"]);
+    assert_eq!(created_pane(&second), column, "{second}");
+    assert_beta_still_focused(server, beta);
+}
+
+#[test]
+fn an_app_that_places_terminals_decides_where_a_terminals_new_tab_goes() {
+    let split = caller_in_alpha_beta_focused("place-terminal-app");
+    let Split { server, terminal, pane, alpha, beta } = &split;
+    let screen = screen_of_pane(server, pane);
+    let caller = caller_in(&split, &screen);
+
+    // A plain terminal: its own pane.
+    let app = FakeApp::start(
+        server,
+        "app-own-pane",
+        json!({"caller_placement": 2, "caller": caller,
+            "beside": {"pane": pane, "placement": "own_pane"}}),
+    );
+    let plain =
+        run(server, &Who::terminal(terminal).with_app(&app), &["tab", "create", "terminal"]);
+    assert_eq!(created_pane(&plain), pane, "{plain}");
+    assert_eq!(app.identify_callers(), vec![json!({"terminal_id": terminal})]);
+    // A person's `cmux` never says it is the MCP server: the app would take
+    // the shell for an agent and open its terminal in a new column.
+    let asked = app.received.lock().unwrap().clone();
+    assert!(asked.iter().all(|request| request["params"]["origin"] != "mcp"), "{asked:?}");
+    drop(app);
+
+    // A terminal that runs an agent: the column right of it.
+    let app = FakeApp::start(
+        server,
+        "app-agent-terminal",
+        json!({"caller_placement": 2, "caller": caller,
+            "beside": {"pane": null, "placement": "new_column"}}),
+    );
+    let agent =
+        run(server, &Who::terminal(terminal).with_app(&app), &["tab", "create", "terminal"]);
+    assert_ne!(created_pane(&agent), pane, "{agent}");
+    assert_eq!(agent["value"]["workspace_id"], alpha.as_str(), "{agent}");
+    drop(app);
+
+    // An older app answers `beside` for a terminal as for a chat and names
+    // no `caller_placement`: the CLI keeps the terminal's own pane.
+    let app = FakeApp::start(
+        server,
+        "app-older",
+        json!({"caller": caller, "beside": {"pane": null, "placement": "new_column"}}),
+    );
+    let older =
+        run(server, &Who::terminal(terminal).with_app(&app), &["tab", "create", "terminal"]);
+    assert_eq!(created_pane(&older), pane, "{older}");
+    assert_beta_still_focused(server, beta);
+}
+
+/// `browser profile open` goes to the daemon, so the CLI applies the rule
+/// the app applies to `browser open` from a terminal: the pane on its
+/// right, else a new pane right of it, never the terminal's own pane.
+#[test]
+fn a_plain_terminals_profile_browser_tab_opens_right_of_the_terminal() {
+    let split = caller_in_alpha_beta_focused("place-profile-right");
+    let Split { server, terminal, pane, alpha, beta } = &split;
+    let caller = caller_in(&split, &screen_of_pane(server, pane));
+    let app = FakeApp::start(
+        server,
+        "app-profile-own-pane",
+        json!({"caller_placement": 2, "caller": caller,
+            "beside": {"pane": pane, "placement": "own_pane"}}),
+    );
+    let who = Who::terminal(terminal).with_app(&app);
+    let open = [
+        "browser",
+        "profile",
+        "open",
+        "https://example.com/",
+        "--profile",
+        "default",
+        "--engine",
+        "webkit",
+    ];
+    // Nothing on its right: a new pane beside it, which holds only the page.
+    let first = run(server, &who, &open);
+    let right = created_pane(&first).to_owned();
+    assert_ne!(right, *pane, "the page opened over the terminal: {first}");
+    assert_eq!(workspace_of_pane(server, &right), *alpha, "{first}");
+    assert_eq!(tabs_and_panes(server, &right).0, 1, "the new pane holds the page alone");
+    // With that pane on its right: a tab there, and no third pane.
+    let panes = tabs_and_panes(server, &right).1;
+    let second = run(server, &who, &open);
+    assert_eq!(created_pane(&second), right, "{second}");
+    assert_eq!(tabs_and_panes(server, &right), (2, panes), "{second}");
+    // A new terminal from the same plain terminal is a tab in its own pane.
+    let tab = run(server, &who, &["tab", "create", "terminal"]);
+    assert_eq!(created_pane(&tab), pane, "{tab}");
+    assert_beta_still_focused(server, beta);
+}
+
+/// A profile browser tab is a daemon request, so the CLI applies the app's
+/// same-kind rule itself: beside a lone pane of another kind it gets a pane
+/// of its own below that pane, and the next one is a tab in that pane. It
+/// was a tab in the terminal pane on the right.
+#[test]
+fn a_profile_browser_tab_splits_below_a_lone_terminal_pane_on_the_right() {
+    let open = [
+        "browser",
+        "profile",
+        "open",
+        "https://example.com/",
+        "--profile",
+        "default",
+        "--engine",
+        "webkit",
+    ];
+    // An agent chat: the app names the pane on its right and what it holds.
+    let split = caller_in_alpha_beta_focused("place-profile-below-agent");
+    let Split { server, pane, alpha, .. } = &split;
+    let made = state_cli(server, None, &["pane", pane, "split", "--right"]);
+    let right = created_pane(&made).to_owned();
+    let caller = caller_in(&split, &screen_of_pane(server, pane));
+    let app = FakeApp::start(server, "app-lone-terminal", with_column(&caller, &right, "terminal"));
+    let first = run(server, &Who::agent().with_app(&app), &open);
+    drop(app);
+    let below = created_pane(&first).to_owned();
+    assert_ne!(below, right, "the page opened in the terminal pane: {first}");
+    assert_ne!(below, *pane, "{first}");
+    assert_eq!(workspace_of_pane(server, &below), *alpha, "{first}");
+    assert_eq!(tabs_and_panes(server, &below).0, 1, "the new pane holds the page alone");
+    // The column now holds a browser: the next page is a tab in that pane.
+    let panes = tabs_and_panes(server, &below).1;
+    let app = FakeApp::start(
+        server,
+        "app-two-panes",
+        json!({"caller": caller, "beside": {"pane": right, "placement": "existing_column",
+            "panes": [{"id": right, "kinds": ["terminal"]}, {"id": below, "kinds": ["browser"]}]}}),
+    );
+    let second = run(server, &Who::agent().with_app(&app), &open);
+    assert_eq!(created_pane(&second), below, "{second}");
+    assert_eq!(tabs_and_panes(server, &below), (2, panes), "{second}");
+
+    // A plain shell: the app answers `own_pane`, and the daemon says what is
+    // on the terminal's right.
+    let split = caller_in_alpha_beta_focused("place-profile-below-shell");
+    let Split { server, terminal, pane, alpha, .. } = &split;
+    let made = state_cli(server, None, &["pane", pane, "split", "--right"]);
+    let right = created_pane(&made).to_owned();
+    let caller = caller_in(&split, &screen_of_pane(server, pane));
+    let app = FakeApp::start(
+        server,
+        "app-shell-own-pane",
+        json!({"caller_placement": 2, "caller": caller,
+            "beside": {"pane": pane, "placement": "own_pane"}}),
+    );
+    let who = Who::terminal(terminal).with_app(&app);
+    let first = run(server, &who, &open);
+    let below = created_pane(&first).to_owned();
+    assert_ne!(below, right, "the page opened in the terminal pane: {first}");
+    assert_ne!(below, *pane, "{first}");
+    assert_eq!(workspace_of_pane(server, &below), *alpha, "{first}");
+    let panes = tabs_and_panes(server, &below).1;
+    let second = run(server, &who, &open);
+    assert_eq!(created_pane(&second), below, "{second}");
+    assert_eq!(tabs_and_panes(server, &below), (2, panes), "{second}");
+}
+
+/// The pane right of `pane`, as the daemon reports it.
+fn right_neighbor(server: &HeadlessServer, pane: &str) -> Option<String> {
+    let answer = state_cli(server, None, &["pane", pane, "neighbor", "right"]);
+    answer
+        .pointer("/pane/id")
+        .or_else(|| answer.pointer("/value/pane/id"))
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+}
+
+/// The caller T has another pane O split off its right, another agent's
+/// home, so the app answers `new_column`. The new pane was a strip column,
+/// which goes after T's whole column: past O. The app's right-of relation
+/// (the panes that touch T's right edge) then still found only O, and every
+/// creation made one more column. For a caller that is not docked the new
+/// pane is a split of T's own pane: the order is T, new, O, and the next
+/// creation finds the new pane on T's right.
+#[test]
+fn a_new_pane_beside_an_undocked_caller_lands_directly_right_of_it() {
+    let split = caller_in_alpha_beta_focused("place-split-right");
+    let Split { server, pane, alpha, beta, .. } = &split;
+    let made = state_cli(server, None, &["pane", pane, "split", "--right"]);
+    let other = created_pane(&made).to_owned();
+    assert_eq!(right_neighbor(server, pane), Some(other.clone()));
+    let mut caller = caller_in(&split, &screen_of_pane(server, pane));
+    caller["docked"] = json!(false);
+
+    let app = FakeApp::start(server, "app-undocked-first", without_column(&caller));
+    let first = run(server, &Who::agent().with_app(&app), &["tab", "create", "terminal"]);
+    drop(app);
+    let new = created_pane(&first).to_owned();
+    assert_ne!(new, other, "{first}");
+    assert_ne!(new, *pane, "{first}");
+    assert_eq!(workspace_of_pane(server, &new), *alpha, "{first}");
+    // T, new, O.
+    assert_eq!(right_neighbor(server, pane), Some(new.clone()), "the new pane is not right of T");
+    assert_eq!(right_neighbor(server, &new), Some(other), "O is not right of the new pane");
+
+    // The relation now finds the new pane right of T, so the app names it:
+    // the second creation is a tab there, and no pane is made.
+    let panes = tabs_and_panes(server, &new).1;
+    let app = FakeApp::start(server, "app-undocked-second", with_column(&caller, &new, "terminal"));
+    let second = run(server, &Who::agent().with_app(&app), &["tab", "create", "terminal"]);
+    assert_eq!(created_pane(&second), new, "{second}");
+    assert_eq!(tabs_and_panes(server, &new), (2, panes), "{second}");
+    assert_beta_still_focused(server, beta);
+}
+
+/// A plain shell's browser reads the panes right of its terminal from the
+/// daemon. A pane below the terminal and its right neighbor (full width
+/// under both) is not right of the terminal: it was counted, and the page
+/// opened in it.
+#[test]
+fn a_pane_below_the_caller_and_its_neighbor_is_not_right_of_the_caller() {
+    let split = caller_in_alpha_beta_focused("place-not-right");
+    let Split { server, terminal, pane, .. } = &split;
+    // split(down, split(right, T, A), B).
+    let below =
+        created_pane(&state_cli(server, None, &["pane", pane, "split", "--down"])).to_owned();
+    let right =
+        created_pane(&state_cli(server, None, &["pane", pane, "split", "--right"])).to_owned();
+    let below_tabs = tabs_and_panes(server, &below).0;
+    let caller = caller_in(&split, &screen_of_pane(server, pane));
+    let app = FakeApp::start(
+        server,
+        "app-not-right",
+        json!({"caller_placement": 2, "caller": caller,
+            "beside": {"pane": pane, "placement": "own_pane"}}),
+    );
+    let opened = run(
+        server,
+        &Who::terminal(terminal).with_app(&app),
+        &[
+            "browser",
+            "profile",
+            "open",
+            "https://example.com/",
+            "--profile",
+            "default",
+            "--engine",
+            "webkit",
+        ],
+    );
+    // A is the one pane right of T, and holds no browser: a pane below A.
+    let page = created_pane(&opened);
+    assert_ne!(page, below, "the page opened in the pane below both: {opened}");
+    assert_ne!(page, right, "{opened}");
+    assert_ne!(page, *pane, "{opened}");
+    assert_eq!(tabs_and_panes(server, &below).0, below_tabs, "{opened}");
+}
+
+/// The raw id of the pane whose public id is `pane` (the raw tree names
+/// each pane's public id as `resource_id`).
+fn raw_pane_id(server: &HeadlessServer, pane: &str) -> Value {
+    fn find(node: &Value, pane: &str) -> Option<Value> {
+        match node {
+            Value::Object(fields) => {
+                if fields.get("resource_id").and_then(Value::as_str) == Some(pane) {
+                    return fields.get("id").cloned();
+                }
+                fields.values().find_map(|child| find(child, pane))
+            }
+            Value::Array(items) => items.iter().find_map(|child| find(child, pane)),
+            _ => None,
+        }
+    }
+    let tree = json_socket_request(&server.socket, json!({"id": 1, "cmd": "list-workspaces"}));
+    find(&tree, pane).unwrap_or_else(|| panic!("no pane {pane} in {tree}"))
+}
+
+/// Makes the pane `right` (whose first terminal is the last argument) an
+/// agent's home.
+type MakeAgentHome<'a> = &'a dyn Fn(&HeadlessServer, &str, &str);
+
+/// A plain shell's profile browser tab used the pane on its right also when
+/// that pane was another agent's home. The app never opens a caller's tab in
+/// an agent's pane: an agent's chat (a conversation tab, not a terminal), or
+/// a terminal an agent runs in. Then a new pane right of the terminal.
+#[test]
+fn a_profile_browser_tab_never_opens_in_an_agents_pane_on_the_right() {
+    let chat = |server: &HeadlessServer, right: &str, _terminal: &str| {
+        let pane = raw_pane_id(server, right);
+        let tab = json_socket_request(
+            &server.socket,
+            json!({"id": 2, "cmd": "new-conversation-tab", "pane": pane,
+                "agent_session": {"host": "install:own-ws-test", "session": null,
+                    "harness": "codex"}}),
+        );
+        json_socket_request(
+            &server.socket,
+            json!({"id": 3, "cmd": "bind-conversation-tab-session", "surface": tab["surface"],
+                "expected_session": null, "session": "sess-own-ws-neighbor"}),
+        );
+    };
+    let agent_terminal = |server: &HeadlessServer, _right: &str, terminal: &str| {
+        state_cli(
+            server,
+            None,
+            &[
+                "agent",
+                "report",
+                "--terminal",
+                terminal,
+                "--state",
+                "idle",
+                "--source",
+                "socket",
+                "--source-session",
+                "own-ws-neighbor",
+            ],
+        );
+    };
+    let homes: [(&str, MakeAgentHome<'_>); 2] =
+        [("place-right-chat", &chat), ("place-right-agent-term", &agent_terminal)];
+    for (name, make_agent_home) in homes {
+        let split = caller_in_alpha_beta_focused(name);
+        let Split { server, terminal, pane, alpha, beta } = &split;
+        // A pane on the terminal's right, which becomes an agent's home.
+        let made = state_cli(server, None, &["pane", pane, "split", "--right"]);
+        let right = created_pane(&made).to_owned();
+        let right_terminal = made["value"]["terminal_id"].as_str().unwrap().to_owned();
+        make_agent_home(server, &right, &right_terminal);
+        let before = tabs_and_panes(server, &right);
+
+        let caller = caller_in(&split, &screen_of_pane(server, pane));
+        let app = FakeApp::start(
+            server,
+            "app-agent-home",
+            json!({"caller_placement": 2, "caller": caller,
+                "beside": {"pane": pane, "placement": "own_pane"}}),
+        );
+        let opened = run(
+            server,
+            &Who::terminal(terminal).with_app(&app),
+            &[
+                "browser",
+                "profile",
+                "open",
+                "https://example.com/",
+                "--profile",
+                "default",
+                "--engine",
+                "webkit",
+            ],
+        );
+        let page_pane = created_pane(&opened);
+        assert_ne!(page_pane, right, "{name}: the page opened in the agent's pane: {opened}");
+        assert_ne!(page_pane, pane, "{name}: the page opened over the terminal: {opened}");
+        assert_eq!(workspace_of_pane(server, page_pane), *alpha, "{name}: {opened}");
+        assert_eq!(
+            tabs_and_panes(server, &right).0,
+            before.0,
+            "{name}: the agent's pane got a tab"
+        );
+        assert_beta_still_focused(server, beta);
+    }
+}
+
+#[test]
+fn an_agents_profile_browser_tab_opens_in_a_pane_of_its_own_beside_the_chat() {
+    let split = caller_in_alpha_beta_focused("place-agent-profile");
+    let Split { server, pane, alpha, beta, .. } = &split;
+    let screen = screen_of_pane(server, pane);
+    let app = FakeApp::start(
+        server,
+        "app-profile",
+        json!({"caller": caller_in(&split, &screen),
+            "beside": {"pane": null, "placement": "new_column"}}),
+    );
+    let opened = run(
+        server,
+        &Who::agent().with_app(&app),
+        &[
+            "browser",
+            "profile",
+            "open",
+            "https://example.com/",
+            "--profile",
+            "default",
+            "--engine",
+            "webkit",
+        ],
+    );
+    let column = created_pane(&opened).to_owned();
+    assert_ne!(column, *pane, "{opened}");
+    assert_eq!(workspace_of_pane(server, &column), *alpha, "{opened}");
+    let tab = opened["value"]["tab_id"].as_str().unwrap_or_else(|| panic!("{opened}"));
+    let shown = state_cli(server, None, &["tab", tab, "show"]);
+    assert_eq!(shown["pane_id"], column.as_str(), "{shown}");
+    assert_beta_still_focused(server, beta);
+}
+
+/// `cmux agents terminal split` dropped the caller lookup, so a Chief
+/// turn's split landed in the pane the person had focused.
+#[test]
+fn agents_terminal_split_splits_the_callers_pane_not_the_focused_one() {
+    let split = caller_in_alpha_beta_focused("place-agents-split");
+    let Split { server, terminal, pane, alpha, beta } = &split;
+    let split_right = ["agents", "terminal", "split", "right"];
+
+    let receipt = run(server, &Who::terminal(terminal), &split_right);
+    assert_eq!(receipt["action"], "terminal.split", "{receipt}");
+    assert_eq!(receipt["result"]["value"]["workspace_id"], alpha.as_str(), "{receipt}");
+
+    // A Chief turn has no terminal: the app that owns the daemon says where
+    // the Home chat is.
+    let screen = screen_of_pane(server, pane);
+    let app = FakeApp::start(
+        server,
+        "app-home",
+        json!({"caller": caller_in(&split, &screen),
+            "beside": {"pane": null, "placement": "new_column"}}),
+    );
+    let chief = Who { home_chat: true, app: Some(&app.socket), ..Who::default() };
+    let receipt = run(server, &chief, &split_right);
+    assert_eq!(receipt["result"]["value"]["workspace_id"], alpha.as_str(), "{receipt}");
+    assert!(app.identify_callers().contains(&json!({"home_chat": true})), "the app was not asked");
+    assert_beta_still_focused(server, beta);
+}
+
+/// The placement is decided again on every try, and the first try changes
+/// the layout it reads: it made the column, so a retry found the column and
+/// opened a second terminal in it with a key the daemon had never seen.
+#[test]
+fn a_retry_with_the_same_key_opens_no_second_terminal() {
+    let split = caller_in_alpha_beta_focused("place-retry-terminal");
+    let Split { server, pane, .. } = &split;
+    let caller = caller_in(&split, &screen_of_pane(server, pane));
+    let create = |app: &FakeApp, key: &str| {
+        run(
+            server,
+            &Who::agent().with_app(app),
+            &["tab", "create", "terminal", "--name", "dev", "--idempotency-key", key],
+        )
+    };
+
+    // The first try makes the column; its answer is lost, and the retry sees
+    // the column.
+    let first = create(&FakeApp::start(server, "retry-a1", without_column(&caller)), "retry-key-1");
+    let column = created_pane(&first).to_owned();
+    let before = tabs_and_panes(server, &column);
+    let again = create(
+        &FakeApp::start(server, "retry-a2", with_column(&caller, &column, "terminal")),
+        "retry-key-1",
+    );
+    assert_eq!(again["value"]["tab_id"], first["value"]["tab_id"], "{again}");
+    assert_eq!(again["replayed"], true, "{again}");
+    assert_eq!(tabs_and_panes(server, &column), before, "the retry opened something");
+
+    // The other way round: the first try opens a tab in the column, and the
+    // retry sees no column (the person closed or moved it).
+    let first = create(
+        &FakeApp::start(server, "retry-b1", with_column(&caller, &column, "terminal")),
+        "retry-key-2",
+    );
+    assert_eq!(created_pane(&first), column, "{first}");
+    let before = tabs_and_panes(server, &column);
+    let again = create(&FakeApp::start(server, "retry-b2", without_column(&caller)), "retry-key-2");
+    assert_eq!(again["value"]["tab_id"], first["value"]["tab_id"], "{again}");
+    assert_eq!(tabs_and_panes(server, &column), before, "the retry opened something");
+}
+
+#[test]
+fn a_retry_with_the_same_key_opens_no_second_profile_browser_tab() {
+    let split = caller_in_alpha_beta_focused("place-retry-profile");
+    let Split { server, pane, .. } = &split;
+    let caller = caller_in(&split, &screen_of_pane(server, pane));
+    let open = |app: &FakeApp| {
+        run(
+            server,
+            &Who::agent().with_app(app),
+            &[
+                "browser",
+                "profile",
+                "open",
+                "https://example.com/",
+                "--profile",
+                "default",
+                "--engine",
+                "webkit",
+                "--idempotency-key",
+                "retry-page-1",
+            ],
+        )
+    };
+    let first = open(&FakeApp::start(server, "retry-p1", without_column(&caller)));
+    let column = created_pane(&first).to_owned();
+    let before = tabs_and_panes(server, &column);
+    assert_eq!(before.0, 1, "the pane holds the browser tab alone");
+    let again = open(&FakeApp::start(server, "retry-p2", with_column(&caller, &column, "browser")));
+    assert_eq!(again["value"]["tab_id"], first["value"]["tab_id"], "{again}");
+    assert_eq!(tabs_and_panes(server, &column), before, "the retry opened something");
+}
+
+#[test]
+fn an_mcp_retry_with_the_same_key_opens_no_second_terminal() {
+    let split = caller_in_alpha_beta_focused("place-retry-mcp");
+    let Split { server, pane, .. } = &split;
+    let caller = caller_in(&split, &screen_of_pane(server, pane));
+    let script =
+        "return await cmux.tab_create_terminal({name: 'dev', idempotency_key: 'mcp-retry-1'});";
+
+    let app = FakeApp::start(server, "retry-m1", without_column(&caller));
+    let first = mcp_exec(server, &Who::agent().with_app(&app), script);
+    drop(app);
+    let column = created_pane(&first).to_owned();
+    let before = tabs_and_panes(server, &column);
+    let app = FakeApp::start(server, "retry-m2", with_column(&caller, &column, "terminal"));
+    let again = mcp_exec(server, &Who::agent().with_app(&app), script);
+    assert_eq!(again["value"]["tab_id"], first["value"]["tab_id"], "{again}");
+    assert_eq!(tabs_and_panes(server, &column), before, "the retry opened something");
+}
+
+/// user, 2026-11-18: an agent the app shows nowhere (no chat tab, and the
+/// workspace its session runs in is not open) made its tabs in the focused
+/// workspace, Home. It is refused; the daemon's default is never its place.
+#[test]
+fn an_agent_the_app_cannot_place_is_refused_never_sent_to_the_focused_workspace() {
+    let split = caller_in_alpha_beta_focused("place-unplaced");
+    let Split { server, terminal, pane, .. } = &split;
+    let app = FakeApp::start(
+        server,
+        "app-unplaced",
+        json!({"caller": {"is_caller": true, "agent_session": AGENT_SESSION, "found": false}}),
+    );
+    let agent = Who::agent().with_app(&app);
+    let count = |kind: &str| state_cli_topology(server)[kind].as_array().map_or(0, Vec::len);
+    let before = (count("tabs"), count("panes"), count("screens"));
+    for args in [
+        &["tab", "create", "terminal"][..],
+        &["pane", "create"][..],
+        &["screen", "create"][..],
+        &["workspace", "current", "show"][..],
+        &["agent", "start", "worker", "--cmd", "sleep 600", "--no-wait", "--no-focus"][..],
+    ] {
+        let refused = output(server, &agent, &[], args);
+        let printed = format!(
+            "{}{}",
+            String::from_utf8_lossy(&refused.stdout),
+            String::from_utf8_lossy(&refused.stderr)
+        );
+        assert!(!refused.status.success(), "{args:?} ran: {printed}");
+        assert!(printed.contains("caller_unavailable"), "{args:?}: {printed}");
+    }
+    assert_eq!((count("tabs"), count("panes"), count("screens")), before, "something was made");
+
+    // The same agent in a cmux terminal is placed by that terminal.
+    let in_terminal = Who { terminal: Some(terminal), ..Who::agent() }.with_app(&app);
+    let created = run(server, &in_terminal, &["tab", "create", "terminal"]);
+    assert_eq!(created_pane(&created), pane, "{created}");
+}
+
+/// A Chief turn's own place is the Home workspace, which the app draws as a
+/// page: a pane or a screen made there may never be seen. They keep the
+/// daemon's default; only its tabs go beside the Home chat.
+#[test]
+fn a_chief_turns_pane_and_screen_keep_the_daemon_default() {
+    let split = caller_in_alpha_beta_focused("place-chief-pane");
+    let Split { server, pane, alpha, beta, .. } = &split;
+    let caller = caller_in(&split, &screen_of_pane(server, pane));
+    let app = FakeApp::start(server, "app-chief", without_column(&caller));
+    let chief = Who { home_chat: true, app: Some(&app.socket), ..Who::default() };
+
+    let new_pane = run(server, &chief, &["pane", "create"]);
+    assert_eq!(new_pane["value"]["workspace_id"], beta.as_str(), "{new_pane}");
+    let new_screen = run(server, &chief, &["screen", "create"]);
+    assert_eq!(new_screen["value"]["workspace_id"], beta.as_str(), "{new_screen}");
+    // Its terminal still opens beside the Home chat.
+    let tab = run(server, &chief, &["tab", "create", "terminal"]);
+    assert_eq!(tab["value"]["workspace_id"], alpha.as_str(), "{tab}");
+}
+
+/// The MCP server asks only the app that owns its daemon where a caller is,
+/// for every caller kind, as the CLI does: a relayed app (the person's Mac
+/// app, reached from a Cloud machine) would answer with ids of its own
+/// daemon.
+#[test]
+fn the_mcp_server_never_asks_an_app_that_does_not_own_its_daemon() {
+    let split = caller_in_alpha_beta_focused("place-mcp-relayed");
+    let Split { server, terminal, pane, alpha, .. } = &split;
+    let caller = caller_in(&split, &screen_of_pane(server, pane));
+    let script = "const tab = await cmux.tab_create_terminal({}); \
+         const page = await cmux.browser_profile_open({url: 'https://example.com/', \
+             profile: 'default', engine: 'webkit'}); \
+         let link = 'opened'; \
+         try { await cmux.workspace_open_url({url: 'https://example.com/'}); } \
+         catch (error) { link = String(error); } \
+         return {tab, page, link};";
+    let key = workspace_key(server, alpha);
+    for (name, who) in [
+        ("relay-agent", Who { workspace_key: Some(&key), ..Who::agent() }),
+        ("relay-terminal", Who::terminal(terminal)),
+    ] {
+        let app = FakeApp::start(server, name, without_column(&caller));
+        let who = Who { relayed_app: Some(&app.socket), ..who };
+        let made = mcp_exec(server, &who, script);
+        let asked = app.methods();
+        for method in ["system.identify", "browser.open_split", "action.run"] {
+            assert!(!asked.iter().any(|asked| asked == method), "{name}: {method} in {asked:?}");
+        }
+        // The daemon places both tabs: in the caller's own workspace.
+        assert_eq!(made["tab"]["value"]["workspace_id"], alpha.as_str(), "{name}: {made}");
+        let page_pane =
+            made["page"]["value"]["pane_id"].as_str().unwrap_or_else(|| panic!("{made}"));
+        assert_eq!(workspace_of_pane(server, page_pane), *alpha, "{name}: {made}");
+    }
+}
+
+/// The MCP server follows the same rule as the CLI: a pane, a screen and a
+/// profile browser tab an agent makes with no place stay in its workspace.
+#[test]
+fn mcp_creations_with_no_place_stay_in_the_callers_workspace() {
+    let split = caller_in_alpha_beta_focused("place-mcp");
+    let Split { server, terminal, pane, alpha, beta } = &split;
+    let page = "{url: 'https://example.com/', profile: 'default', engine: 'webkit'}";
+
+    // No app: the daemon knows the caller's terminal.
+    let made = mcp_exec(
+        server,
+        &Who::terminal(terminal),
+        &format!(
+            "const pane = await cmux.pane_create({{}}); \
+             const screen = await cmux.screen_create({{name: 'logs'}}); \
+             const page = await cmux.browser_profile_open({page}); \
+             return {{pane, screen, page}};"
+        ),
+    );
+    assert_eq!(made["pane"]["value"]["workspace_id"], alpha.as_str(), "{made}");
+    assert_eq!(made["screen"]["value"]["workspace_id"], alpha.as_str(), "{made}");
+    assert_eq!(made["page"]["value"]["pane_id"], pane.as_str(), "{made}");
+
+    // An agent chat the app places: the page gets a pane beside the chat.
+    let screen = screen_of_pane(server, pane);
+    let app = FakeApp::start(
+        server,
+        "app-mcp",
+        json!({"caller": caller_in(&split, &screen),
+            "beside": {"pane": null, "placement": "new_column"}}),
+    );
+    let opened = mcp_exec(
+        server,
+        &Who::agent().with_app(&app),
+        &format!("return await cmux.browser_profile_open({page});"),
+    );
+    let column = created_pane(&opened).to_owned();
+    assert_ne!(column, *pane, "{opened}");
+    assert_eq!(workspace_of_pane(server, &column), *alpha, "{opened}");
+    assert_beta_still_focused(server, beta);
+}
+
+/// A Cloud Chief turn reaches the person's Mac app over a relay while its
+/// daemon is the machine's own: the Mac's Home chat ids name nothing there
+/// (https://github.com/manaflow-ai/cmux/issues/25590), so only the app that
+/// owns the request's daemon places a caller.
+#[test]
+fn an_app_that_does_not_own_the_daemon_never_places_a_chief_turn() {
+    let split = caller_in_alpha_beta_focused("place-relayed-app");
+    let Split { server, pane, beta, .. } = &split;
+    let screen = screen_of_pane(server, pane);
+    let app = FakeApp::start(
+        server,
+        "app-relayed",
+        json!({"caller": caller_in(&split, &screen),
+            "beside": {"pane": null, "placement": "new_column"}}),
+    );
+    let chief = Who { home_chat: true, relayed_app: Some(&app.socket), ..Who::default() };
+
+    let created = run(server, &chief, &["tab", "create", "terminal"]);
+    assert_eq!(created["value"]["workspace_id"], beta.as_str(), "{created}");
+    let shown = run(server, &chief, &["pane", "current", "show"]);
+    assert_eq!(workspace_of_pane(server, shown["id"].as_str().unwrap()), *beta, "{shown}");
+    assert_eq!(app.identify_callers(), Vec::<Value>::new(), "the relayed app was asked");
+}
+
+/// An ACP agent has no terminal, so `agent start` with no `--pane` fell back
+/// to the pane the person had focused.
+#[test]
+fn an_agent_chats_agent_start_opens_beside_its_chat() {
+    let split = caller_in_alpha_beta_focused("place-agent-start");
+    let Split { server, pane, alpha, beta, .. } = &split;
+    let screen = screen_of_pane(server, pane);
+    let app = FakeApp::start(
+        server,
+        "app-agent-start",
+        json!({"caller": caller_in(&split, &screen),
+            "beside": {"pane": null, "placement": "new_column"}}),
+    );
+    let started = run(
+        server,
+        &Who::agent().with_app(&app),
+        &["agent", "start", "worker", "--cmd", "sleep 600", "--no-wait", "--no-focus"],
+    );
+    assert_eq!(started["workspace_id"], alpha.as_str(), "{started}");
+    assert_ne!(started["pane_id"], pane.as_str(), "{started}");
+    assert_eq!(started["placement"], "split", "{started}");
+    assert_beta_still_focused(server, beta);
+}

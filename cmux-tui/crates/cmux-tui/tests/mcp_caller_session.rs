@@ -34,6 +34,9 @@ const PANE: &str = "pane_33333333333333333333333333333333";
 const NEW_TAB: &str = "tab_77777777777777777777777777777777";
 const NEW_BROWSER: &str = "browser_88888888888888888888888888888888";
 const URL: &str = "http://127.0.0.1:8765/opener-a.html";
+/// An app action (by its CLI name) and the MCP tool the server makes of it.
+const DIFF_ACTION: &str = "browser open-diff-viewer";
+const DIFF_TOOL: &str = "app_browser_open_diff_viewer";
 static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
 
 #[test]
@@ -67,6 +70,70 @@ fn an_agent_naming_another_session_sends_its_agent_session_as_caller() {
     assert_eq!(open["params"]["caller"], json!({"agent_session": AGENT_SESSION}), "{open}");
 }
 
+/// Guard (it passed before the own-workspace change too): an app action tool
+/// that names no target carries the caller, which the app needs to place the
+/// run in the caller's own workspace.
+#[test]
+fn guard_an_app_action_tool_with_no_target_carries_the_caller() {
+    let run = serve_call(Some(AGENT_SESSION), DIFF_TOOL, json!({}));
+    assert_eq!(run.result["isError"], false, "{}", run.result);
+    let diff = run.action(DIFF_ACTION);
+    assert!(diff["params"].get("target").is_none(), "{diff}");
+    assert_eq!(diff["params"]["caller"], json!({"agent_session": AGENT_SESSION}), "{diff}");
+
+    // An agent in a cmux terminal (no acpmux session) is named by its terminal.
+    let run = serve_call(None, DIFF_TOOL, json!({}));
+    assert_eq!(run.result["isError"], false, "{}", run.result);
+    let diff = run.action(DIFF_ACTION);
+    assert_eq!(diff["params"]["caller"], json!({"terminal_id": PERSON_TERMINAL}), "{diff}");
+}
+
+/// Guard (it passed before the own-workspace change too): a browser tab with
+/// no place in the caller's own session carries the agent and no target.
+#[test]
+fn guard_an_agents_browser_tab_with_no_place_carries_the_agent_and_no_target() {
+    let run = serve_call(Some(AGENT_SESSION), "tab_create_browser", json!({"url": URL}));
+    assert_eq!(run.result["isError"], false, "{}", run.result);
+    let open = run.open_browser();
+    assert!(open["params"].get("target").is_none(), "{open}");
+    assert_eq!(open["params"]["caller"], json!({"agent_session": AGENT_SESSION}), "{open}");
+    assert!(run.other_daemon.is_empty(), "another session was asked: {:?}", run.other_daemon);
+}
+
+/// An agent in a cmux terminal has no agent session. Its link with no
+/// workspace named no terminal either, so the app opened it in the pane the
+/// person had focused; and its requests did not say they came from the MCP
+/// server, so the app took the terminal for a person's shell.
+#[test]
+fn an_mcp_link_with_no_workspace_names_the_callers_terminal_and_the_mcp_origin() {
+    let run = serve_call(None, "workspace_open_url", json!({"url": URL}));
+    assert_eq!(run.result["isError"], false, "{}", run.result);
+    let open = run.method("browser.open_split");
+    assert_eq!(open["params"]["url"], URL, "{open}");
+    assert_eq!(open["params"]["terminal_id"], PERSON_TERMINAL, "{open}");
+    assert_eq!(open["params"]["origin"], "mcp", "{open}");
+    // The placement question says who asks, and that the MCP server asks.
+    let identify = run.method("system.identify");
+    assert_eq!(identify["params"]["origin"], "mcp", "{identify}");
+    assert_eq!(identify["params"]["caller"], json!({"terminal_id": PERSON_TERMINAL}), "{identify}");
+
+    // An agent chat is named by its session; the terminal goes along.
+    let run = serve_call(Some(AGENT_SESSION), "workspace_open_url", json!({"url": URL}));
+    assert_eq!(run.result["isError"], false, "{}", run.result);
+    let open = run.method("browser.open_split");
+    assert_eq!(open["params"]["caller"], json!({"agent_session": AGENT_SESSION}), "{open}");
+    assert_eq!(open["params"]["origin"], "mcp", "{open}");
+}
+
+/// Every app run the MCP server sends says `origin: mcp`: the browser tab
+/// it opens through the app too, which said `script`.
+#[test]
+fn an_mcp_browser_tab_says_the_mcp_origin() {
+    let run = serve_call(None, "tab_create_browser", json!({"url": URL}));
+    assert_eq!(run.result["isError"], false, "{}", run.result);
+    assert_eq!(run.open_browser()["params"]["origin"], "mcp", "{:?}", run.app);
+}
+
 struct Finished {
     result: Value,
     own_daemon: Vec<Value>,
@@ -76,17 +143,26 @@ struct Finished {
 
 impl Finished {
     fn open_browser(&self) -> &Value {
+        self.action("openBrowser")
+    }
+
+    /// The first `method` request the app got.
+    fn method(&self, method: &str) -> &Value {
+        self.app
+            .iter()
+            .find(|call| call["method"] == method)
+            .unwrap_or_else(|| panic!("no {method}: {:?}", self.app))
+    }
+
+    /// The one `action.run` of `action` the app got.
+    fn action(&self, action: &str) -> &Value {
         let runs: Vec<&Value> = self
             .app
             .iter()
-            .filter(|call| {
-                call["method"] == "action.run" && call["params"]["action"] == "openBrowser"
-            })
+            .filter(|call| call["method"] == "action.run" && call["params"]["action"] == action)
             .collect();
-        let [open] = runs.as_slice() else {
-            panic!("one openBrowser run expected: {:?}", self.app)
-        };
-        open
+        let [run] = runs.as_slice() else { panic!("one {action} run expected: {:?}", self.app) };
+        run
     }
 }
 
@@ -94,6 +170,13 @@ impl Finished {
 /// `cmux mcp serve` started in a terminal of the person's own session
 /// (`CMUX_TUI_TERMINAL_ID`), with `agent_session` as `CMUX_AGENT_SESSION`.
 fn serve(agent_session: Option<&str>) -> Finished {
+    serve_call(agent_session, "tab_create_browser", json!({"session": OTHER_SESSION, "url": URL}))
+}
+
+/// One `tool` call with `arguments`, from a `cmux mcp serve` started in a
+/// terminal of the person's own session, with `agent_session` as
+/// `CMUX_AGENT_SESSION`.
+fn serve_call(agent_session: Option<&str>, tool: &str, arguments: Value) -> Finished {
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() % 1_000_000;
     let sequence = NEXT_DIR.fetch_add(1, Ordering::Relaxed);
     let dir = PathBuf::from(format!("/tmp/cmux-mcs-{}-{stamp}-{sequence}", std::process::id()));
@@ -124,6 +207,8 @@ fn serve(agent_session: Option<&str>) -> Finished {
         .env("CMUX_TUI_TERMINAL_ID", PERSON_TERMINAL)
         .env_remove("CMUX_MUX_SOCKET")
         .env_remove("CMUX_AGENT_SESSION")
+        .env_remove("CMUX_CALLER_HOME_CHAT")
+        .env_remove("CMUX_WORKSPACE_ID")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -138,8 +223,7 @@ fn serve(agent_session: Option<&str>) -> Finished {
             "clientInfo": {"name": "cx-91xd", "version": "1"}}}),
         json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
         json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {
-            "name": "tab_create_browser",
-            "arguments": {"session": OTHER_SESSION, "url": URL}}}),
+            "name": tool, "arguments": arguments}}),
     ] {
         writeln!(stdin, "{message}").unwrap();
     }
@@ -244,6 +328,24 @@ fn fake_daemon(socket: &Path, done: Arc<AtomicBool>) -> JoinHandle<Vec<Value>> {
 fn fake_app(socket: &Path, done: Arc<AtomicBool>) -> JoinHandle<Vec<Value>> {
     listen(socket, done, |request| {
         let params = &request["params"];
+        if request["method"] == "action.list" {
+            return json!({"id": request["id"], "ok": true, "result": {"actions": [{
+                "id": "openDiffViewer", "title": "Open Diff Viewer", "cli_name": DIFF_ACTION,
+                "cli": true, "targets": ["pane"],
+                "arguments": [{"name": "path", "kind": "string", "required": false}],
+                "surfaces": {"cli": "offered", "mcp": "offered"}}]}});
+        }
+        // The caller is in the session's workspace, with no column on its right.
+        if request["method"] == "system.identify" {
+            return json!({"id": request["id"], "ok": true, "result": {"caller_placement": 2,
+                "caller": {"is_caller": true, "workspace": WORKSPACE, "screen": SCREEN,
+                    "pane": PANE},
+                "beside": {"pane": null, "placement": "new_column"}}});
+        }
+        if request["method"] == "browser.open_split" {
+            return json!({"id": request["id"], "ok": true, "result": {"tab_id": NEW_TAB,
+                "created": [NEW_TAB], "placement": "beside_caller_new_column"}});
+        }
         if request["method"] != "action.run" {
             return json!({"id": request["id"], "ok": false, "error": {"code": "unavailable",
                 "message": "not in this fake app", "data": {}}});

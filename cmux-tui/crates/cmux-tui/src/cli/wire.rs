@@ -152,13 +152,15 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
     // The caller's terminal belongs to the session its environment names; an
     // explicit route targets that session's current workspace.
     let caller_route = routes_to_caller_session(global);
-    // An agent's terminal with no place goes beside its chat (beside.rs).
+    let route = super::resolve::SocketRoute::new(&socket, socket_is_derived, global);
+    // A tab with no place goes beside its caller where the app says (beside.rs).
     #[cfg(unix)]
-    match super::beside::run_cli(
+    match super::beside::cli::run(
         global,
         &mut plan,
         &mut request,
         &mut reader,
+        &route,
         caller_route,
         &key_report,
     ) {
@@ -167,7 +169,6 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
         Err(code) => return code,
     }
     if !plan.resolve.is_empty() {
-        let route = super::resolve::SocketRoute::new(&socket, socket_is_derived, global);
         if let Err(failure) = super::resolve::apply(&mut reader, &mut plan, caller_route, &route) {
             // A browser tab's page zoom: the app hosts the page and owns it.
             #[cfg(unix)]
@@ -202,6 +203,19 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
         &key_report,
     ) {
         return code;
+    }
+    // Any other creation with no place acts in the caller's own (beside.rs).
+    match super::resolve::place_creation(&mut reader, &mut plan, caller_route, &route) {
+        Ok(true) => {
+            request.set("params", plan.params.clone());
+            encoded = match encode_request(&request) {
+                Ok(encoded) => encoded,
+                Err(code) => return code,
+            };
+        }
+        Ok(false) => {}
+        // An agent cmux cannot place: refused, never the focused workspace.
+        Err(failure) => return failure.report(global.output),
     }
     if notify_desktop::drop_unsupported(&mut reader, &socket, &mut request)
         | workspace_created_by::drop_unsupported(&mut reader, &socket, &mut request)

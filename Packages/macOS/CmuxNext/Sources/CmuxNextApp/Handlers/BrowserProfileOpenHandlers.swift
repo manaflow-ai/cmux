@@ -14,6 +14,7 @@ enum BrowserProfileOpenHandlers {
         let profiles = context.services.browserProfiles
         bind("browserProfile.newTab") { invocation in
             let record = try context.requiredBrowserProfile(invocation)
+            if let placed = invocation.callerPlaced { return TabLifecycle.newBrowser(context, placed.openingBrowser(url: invocation["url"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }, profile: record.id)) } // a caller's run (an agent, a terminal's CLI) is placed as its browser is: beside it
             guard let pane = context.paneController(invocation) else { return }
             let url = invocation["url"]?.stringValue.flatMap { $0.isEmpty ? nil : URL(string: $0) }
             pane.newBrowserTab(url: url, profile: record.id)
@@ -23,6 +24,7 @@ enum BrowserProfileOpenHandlers {
             guard let text = invocation["url"]?.stringValue, let url = URL(string: text), url.scheme != nil else {
                 throw ActionFailure.invalidTarget(BrowserProfileAppStrings.urlRequired)
             }
+            if let placed = invocation.callerPlaced { return TabLifecycle.newBrowser(context, placed.openingBrowser(url: text, profile: record.id)) }
             guard let pane = context.paneController(invocation) else { return }
             pane.newBrowserTab(url: url, profile: record.id)
         }

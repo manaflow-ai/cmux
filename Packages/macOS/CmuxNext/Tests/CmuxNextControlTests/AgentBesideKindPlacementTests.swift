@@ -73,10 +73,15 @@ import Testing
         #expect(!request.newColumnBeside)
     }
 
-    @Test func anUnshownChatWithOneOtherPaneKeepsItsTab() async throws {
+    /// A lone pane of the other kind gets a split below it off screen as on screen (#29828's rule): the app
+    /// makes the split from the daemon's layout (AgentBesidePlacement), so the run keeps the chat's own tab with
+    /// `newColumnBeside`. Before, the browser became a tab of the terminal's pane (fleet capture of build
+    /// 76840bfee0ac, 2026-11-18: on and off screen must place alike).
+    @Test func anUnshownChatWithOneOtherPaneLetsTheAppSplitBelowIt() async throws {
         let request = try await request(right: [Self.pane("pane-term", [("tab-term", "terminal")])], shown: false)
-        #expect(request.target == ControlTargetRef(kind: "tab", id: "tab-term"))
-        #expect(!request.newColumnBeside)
+        #expect(request.target == ControlTargetRef(kind: "tab", id: "tab-chat"), "\(String(describing: request.target))")
+        #expect(request.newColumnBeside)
+        #expect(request.besideCaller)
     }
 
     @Test func identifyListsTheColumnWithItsKinds() async throws {

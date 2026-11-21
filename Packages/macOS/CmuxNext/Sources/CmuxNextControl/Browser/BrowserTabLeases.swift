@@ -5,7 +5,11 @@ import Foundation
 ///
 /// A lease names its agent and lapses `ttl` after the agent last resolved
 /// the tab, so an agent that stopped without `release` frees it. Each agent
-/// also remembers the tab it opened, which it gets back first.
+/// also remembers the tabs it opened, and gets back the newest of them among the
+/// tabs of its column first. That memory is per name and caller (`scope`: a
+/// workspace agent's session or terminal; none for the Home column), so agents with
+/// one name, in two workspaces or in one, keep one tab each. A lease itself names
+/// the agent only, as every `browser.page.*` verb does.
 actor BrowserTabLeases {
     private struct Lease {
         var agent: String
@@ -13,7 +17,9 @@ actor BrowserTabLeases {
     }
 
     private var leases: [String: Lease] = [:]
-    private var opened: [String: String] = [:]
+    private var opened: [String: [String]] = [:]
+    /// How many opened tabs an agent's name remembers.
+    private static let openedLimit = 32
     /// The tab each agent's work shows in Home's right column (one per agent).
     private var homeMirrors: [String: String] = [:]
     private let ttl: Duration
@@ -28,10 +34,11 @@ actor BrowserTabLeases {
         self.now = now
     }
 
-    /// The tab `agent` opened, if it still names one of `tabs`.
-    func openedTab(of agent: String, among tabs: Set<String>) -> String? {
-        guard let tab = opened[agent], tabs.contains(tab) else { return nil }
-        return tab
+    private static func key(_ agent: String, _ scope: String) -> String { agent + "\u{0}" + scope }
+
+    /// The newest tab `agent` (of caller `scope`) opened that still names one of `tabs`.
+    func openedTab(of agent: String, scope: String = "", among tabs: Set<String>) -> String? {
+        opened[Self.key(agent, scope)]?.last { tabs.contains($0) }
     }
 
     /// A tab of `tabs` on which `agent` holds a live lease (the first in `tabs` order).
@@ -46,13 +53,14 @@ actor BrowserTabLeases {
     /// asking at once never both get the tab.
     /// `lasting` replaces `ttl` for this claim (a direct verb's shorter lease);
     /// a renewal never shortens a lease the agent already holds.
-    func acquire(_ tab: String, for agent: String, opened isOwn: Bool = false, lasting: Duration? = nil) -> String? {
+    func acquire(_ tab: String, for agent: String, opened isOwn: Bool = false, scope: String = "", lasting: Duration? = nil) -> String? {
         let instant = now()
         if let lease = leases[tab], lease.agent != agent, lease.expires > instant { return lease.agent }
         var expires = instant + (lasting ?? ttl)
         if let lease = leases[tab], lease.agent == agent, lease.expires > expires { expires = lease.expires }
         leases[tab] = Lease(agent: agent, expires: expires)
-        if isOwn { opened[agent] = tab }
+        let key = Self.key(agent, scope)
+        if isOwn { opened[key] = Array(((opened[key] ?? []).filter { $0 != tab } + [tab]).suffix(Self.openedLimit)) }
         return nil
     }
 
@@ -73,7 +81,7 @@ actor BrowserTabLeases {
     func release(_ agent: String) -> [String] {
         let held = leases.filter { $0.value.agent == agent }.map(\.key).sorted()
         for tab in held { leases[tab] = nil }
-        opened[agent] = nil
+        opened = opened.filter { !$0.key.hasPrefix(agent + "\u{0}") }
         return held
     }
 }
