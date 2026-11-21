@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The NIGHTLY's opt-in live code variant (Leo's design, 2026-11-04: "The opt-in injectable nightly"), made by
-# nightly-next-live-code.yml for a published nightly-next build. The default nightly does not change: the variant is
+# nightly.yml's build-live-code-variant and sign-live-code-variant after a nightly-next build reaches the feed. The default nightly does not change: the variant is
 # a copy of that build's own signed app with only the executable and the package resource bundles replaced by the
 # same commit's live code build (scripts/cmux-next/swap-binary.sh build --live-code: -Onone CmuxNext, its exports
 # interposable, linked -no_fixup_chains), then re-sealed with the team identity, hardened runtime and the nightly's
@@ -12,9 +12,15 @@
 #   live-code-variant.sh graft DMG OVERLAY APP_OUT        the nightly DMG's app copied to APP_OUT with OVERLAY placed
 #                                                         in; prints the nightly's entitlements file path. Runs no
 #                                                         bundle code.
+#   live-code-variant.sh prepare PREFIX BUILD ARTIFACT  (sign-live-code-variant, no secret) the published nightly DMG
+#                                                         grafted with ARTIFACT/overlay.tar.gz into ./variant; writes
+#                                                         VARIANT_APP, VARIANT_ENTITLEMENTS and the names to GITHUB_ENV
 #   live-code-variant.sh sign APP ENTITLEMENTS            (signing keychain open, APPLE_SIGNING_IDENTITY) frameworks
 #                                                         the overlay added, then the main bundle (main-only)
 #   live-code-variant.sh names PREFIX BUILD               the published names, as KEY=VALUE lines for GITHUB_ENV
+#   live-code-variant.sh publish BUILD COMMIT DMG MODULES RUN_URL
+#                                                         (the nightly-next R2 keys) uploads DMG and MODULES write-once,
+#                                                         then live-code-<commit>.json naming both (sizes, SHA-256s)
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 die() { echo "live-code-variant: $*" >&2; exit 1; }
@@ -60,6 +66,16 @@ case "$cmd" in
     /usr/libexec/PlistBuddy -c 'Add :CMUXLiveCodeBuild bool true' "$app_out/Contents/Info.plist"
     echo "$ents"
     ;;
+  prepare)
+    prefix="${1:?PREFIX}" build="${2:?BUILD}" art="${3:?ARTIFACT}"
+    [[ "$build" =~ ^[0-9]+$ ]] || die "BUILD must be a number, not '$build'"
+    curl -fsSL --retry 5 --speed-limit 1000 --speed-time 120 -o nightly.dmg \
+      "${NIGHTLY_NEXT_FEED_BASE:?}/$prefix-arm64-$build.dmg"
+    mkdir overlay && tar -C overlay -xzf "$art/overlay.tar.gz"
+    ents="$(bash "$0" graft nightly.dmg overlay "$PWD/variant/cmux.app")"
+    { echo "VARIANT_APP=$PWD/variant/cmux.app"; echo "VARIANT_ENTITLEMENTS=$ents"
+      bash "$0" names "$prefix" "$build"; } >> "${GITHUB_ENV:?}"
+    ;;
   sign)
     app="${1:?APP}" ents="${2:?ENTITLEMENTS}"
     [[ -n "${APPLE_SIGNING_IDENTITY:-}" ]] || die "no APPLE_SIGNING_IDENTITY"
@@ -82,6 +98,25 @@ case "$cmd" in
     [[ "$build" =~ ^[0-9]+$ ]] || die "BUILD must be a number, not '$build'"
     echo "LIVE_CODE_DMG_IMMUTABLE=$prefix-arm64-$build-live-code.dmg"
     echo "LIVE_CODE_DMG_RELEASE=$prefix-arm64-live-code.dmg"
+    ;;
+  publish)
+    build="${1:?BUILD}" commit="${2:?COMMIT}" dmg="${3:?DMG}" modules="${4:?MODULES}" run_url="${5:?RUN_URL}"
+    [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || die "COMMIT must be a full 40-hex sha, not '$commit'"
+    r2=("$root/scripts/ci/publish-nightly-next-r2.py" upload)
+    python3 "${r2[@]}" --file "$dmg" --file "$modules"
+    record="$(dirname "$dmg")/live-code-$commit.json"
+    python3 -I - "$build" "$commit" "$run_url" "${NIGHTLY_NEXT_FEED_BASE:?}" "$dmg" "$modules" > "$record" <<'PY'
+import hashlib, json, os, sys
+build, commit, run, base, *files = sys.argv[1:]
+def entry(path):
+    with open(path, "rb") as f:
+        digest = hashlib.sha256(f.read()).hexdigest()
+    return {"url": f"{base}/{os.path.basename(path)}", "size": os.path.getsize(path), "sha256": digest}
+print(json.dumps({"schema": 1, "build": int(build), "commit": commit, "run": run,
+                  "dmg": entry(files[0]), "modules": entry(files[1])}, indent=1))
+PY
+    python3 "${r2[@]}" --file "$record"
+    cat "$record"
     ;;
   *)
     awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0" >&2

@@ -120,7 +120,14 @@ def main():
     workflow = yaml.safe_load(open(NIGHTLY, encoding="utf-8"))
     step = next(s for s in workflow["jobs"]["republish-nightly-deltas"]["steps"] if s.get("id") == "republish")
     # The resolved build commit, as published-build carries it to the dispatched post-publish run.
-    script = render(step["run"], {"needs.published-build.outputs.resolve_build_sha": BUILD})
+    # The step runs scripts/ci/nightly-steps/republish-deltas.sh (moved out to keep nightly.yml
+    # under its size cap) from the tooling checkout, with the resolved commit in its env.
+    _check("scripts/ci/nightly-steps/republish-deltas.sh" in render(step["run"], {}),
+           "the republish step runs scripts/ci/nightly-steps/republish-deltas.sh")
+    _check(step.get("env", {}).get("RESOLVE_BUILD_SHA") == "${{ needs.published-build.outputs.resolve_build_sha }}",
+           "the republish step passes published-build's resolved commit as RESOLVE_BUILD_SHA")
+    script = 'export RESOLVE_BUILD_SHA="%s"\n' % BUILD + open(
+        os.path.join(ROOT, "scripts", "ci", "nightly-steps", "republish-deltas.sh"), encoding="utf-8").read()
 
     for label, tag_object in (
         ("a lightweight tag", {"sha": BUILD, "type": "commit"}),

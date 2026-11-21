@@ -142,6 +142,8 @@ SIGNING_MATERIAL_UNPICKED = {
     "promote-nightly-next-acked": "retired (if: false) twin of promote-nightly-next, same route",
     "nightly-next-one": "builds and signs in one job on cmux15's signer label, a literal with no pick "
                         "(tests/test_nightly_next_one_job.py)",
+    "sign-live-code-variant": "signs nightly-next-one's live code variant after it on the same signer label, a literal "
+                              "with no pick (docs: live-code-nightly design section 1)",
 }
 
 

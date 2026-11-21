@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The live code NIGHTLY variant (nightly-next-live-code.yml), proven on a fleet Mac with no secret: the newest
+# The live code NIGHTLY variant (nightly.yml build-live-code-variant, sign-live-code-variant), proven on a fleet Mac with no secret: the newest
 # nightly-next build's own commit built -interposable (scripts/ci/nightly-steps/live-code-variant.sh build), grafted
 # into that build's signed app (graft: the commit check is real, the two are the same commit), sealed ad hoc with the
 # nightly's own entitlements and the hardened runtime in place of the Team identity the workflow signs with, and
