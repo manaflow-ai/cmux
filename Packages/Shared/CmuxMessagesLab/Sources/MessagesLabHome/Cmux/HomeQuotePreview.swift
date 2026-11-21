@@ -18,15 +18,15 @@ struct HomeQuotePreview {
     static let maxCardWidth: CGFloat = 300
 
     /// The root part as the quote draws it. An agent's text part arrives rendered (HomeMarkdown: no markers left)
-    /// with its inline pictures still in it as "!alt": the quote leaves the pictures out, and a text of only
-    /// pictures says how many ("2 images"). Any other part is itself.
+    /// with its inline pictures in it as their alt text (tagged runs): the quote leaves the pictures out, and a
+    /// text of only pictures says how many ("2 images"). Any other part is itself.
     static func part(_ part: Part?, markdown: Bool) -> Part? {
         guard markdown, case let .text(t, runs) = part else { return part }
-        let pictures = runs.filter { ($0.style ?? []).contains(HomeMarkdown.imageMark) }.reduce(0) { $0 + max(0, $1.length) }
+        let pictures = runs.filter { ($0.style ?? []).contains(HomeMarkdown.imageMark) }.count
         guard pictures > 0 else { return part }
         let text = NSMutableString(string: t)
         // Last run first, so each cut leaves the earlier offsets as they were.
-        for r in runs.reversed() where (r.style ?? []).contains(where: { $0 == HomeMarkdown.imageMark || $0 == HomeMarkdown.imageAlt }) {
+        for r in runs.reversed() where (r.style ?? []).contains(HomeMarkdown.imageAlt) {
             guard r.start >= 0, r.length > 0, r.start + r.length <= text.length else { continue }
             text.replaceCharacters(in: NSRange(location: r.start, length: r.length), with: "")
         }

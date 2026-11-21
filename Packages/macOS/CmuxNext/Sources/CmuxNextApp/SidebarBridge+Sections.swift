@@ -39,6 +39,7 @@ extension SidebarBridge {
     /// page opens that page in this window (TOP-SECTION-ITEMS-ARE-PAGES).
     func activateLayoutItem(_ id: LayoutItemID, opensWorkspace: Bool = false) {
         if machineSections.activate(id) { return }; guard let item = model.layout.item(id) ?? model.listedItem(id) else { return WhatsNewPage.activateClientItem(id, services: services, in: state) }
+        if ChiefSidebar.opensChief(item.ref) { return inThisWindow { _ = services.registry.perform(ChiefSidebar.openAction, invocation: ActionInvocation(origin: .user)) } }
         if let region = model.layout.region(of: id), let route = TopPageRoute(item.ref, in: region),
            TopPages.show(route, services: services, in: state) != nil { return }
         activate(item.ref, opensWorkspace: opensWorkspace)
@@ -144,7 +145,7 @@ extension SidebarBridge {
                 if item.ref.kind == LayoutItemRef.workspaceKind { infos[item.id] = workspace(item.ref) ?? .closedWorkspace(item); continue }
                 if item.ref.kind == LayoutItemRef.appKind {
                     var info = app(item.ref.value)
-                    if SidebarBuiltIn.firstParty(appID: item.ref.value) == .home { Self.markHomeUnread(&info, homeUnread) }
+                    if SidebarBuiltIn.firstParty(appID: item.ref.value) == .home { ChiefSidebar.shared.decorateHome(&info, homeUnread: homeUnread, picture: chiefFavicon) }
                     infos[item.id] = info
                     continue
                 }
@@ -153,7 +154,7 @@ extension SidebarBridge {
                 info.isMissing = !(builtInActions[builtIn].map(registered) ?? false)
                 info.shortcut = builtInActions[builtIn].flatMap(shortcut)
                 if builtIn == .notifications { info.badge = unread > 0 ? unread : nil } else if builtIn == .home {
-                    Self.markHomeUnread(&info, homeUnread)
+                    ChiefSidebar.shared.decorateHome(&info, homeUnread: homeUnread, picture: chiefFavicon)
                 } else if builtIn == .chief {
                     ChiefSidebar.shared.decorate(&info)
                     info.favicon = chiefFavicon
@@ -162,13 +163,6 @@ extension SidebarBridge {
             }
         }
         return infos
-    }
-
-    /// Home's unread indicator: the blue unread dot of a workspace row while any Home conversation is
-    /// unread, never a count (Lawrence 2026-10-23: "home unread indicator should just be blue dot instead").
-    static func markHomeUnread(_ info: inout SidebarItemInfo, _ homeUnread: Int) {
-        info.badge = nil
-        info.unreadDot = homeUnread > 0
     }
 
     /// A layout change from this sidebar (a drag, an inline edit): sent to
@@ -206,7 +200,7 @@ extension SidebarBridge {
     /// The right-click menu of a layout item: Hide only on app items.
     func layoutItemMenu(_ id: LayoutItemID) -> NSMenu? {
         let tile = model.layout.item(id), item = tile ?? model.listedItem(id)
-        let entries = services.registry.contextMenuEntries(for: .sidebarItem, removing: ChiefSidebar.menuRemovals(isApp: item?.owningAppID != nil, isChief: item?.ref == .builtIn(.chief), isTile: tile != nil)
+        let entries = services.registry.contextMenuEntries(for: .sidebarItem, removing: ChiefSidebar.menuRemovals(isApp: item?.owningAppID != nil, isChief: item.map { SidebarTransientItem.chiefAnchors.contains($0.ref) } == true, isTile: tile != nil)
             .union(Self.pendingEdits(id, document: services.sidebarDoc.store)))
         return services.registry.makeContextMenu(for: .sidebarItem, target: ActionTargetRef(kind: .sidebarItem, id: id.rawValue),
                                                  entries: entries, customize: true)

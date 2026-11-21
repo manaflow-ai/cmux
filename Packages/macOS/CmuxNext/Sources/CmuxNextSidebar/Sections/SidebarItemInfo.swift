@@ -156,7 +156,7 @@ extension SidebarBuiltIn {
     /// SF Symbol of the built-in.
     public var symbol: String {
         switch self {
-        case .home: "house"
+        case .home: "sparkles" // the Home item is the Chief (2026-11-20)
         case .settings: "gearshape"
         case .account: "person.crop.circle"
         case .notifications: "bell"
@@ -176,7 +176,7 @@ extension SidebarBuiltIn {
     /// The built-in's cmux icon.
     public var icon: IconName {
         switch self {
-        case .home: .home
+        case .home: .agentChief
         case .settings: .settings
         case .account: .account
         case .notifications: .notification
