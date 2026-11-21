@@ -59,7 +59,7 @@ class FakePage {
       const at = this.listeners.findIndex((one) => one.type === type && one.run === run);
       if (at >= 0) this.listeners.splice(at, 1);
     };
-    const page = this;
+    const messages = this.messages;
     const doc = {
       visibilityState: "visible",
       documentElement: {},
@@ -94,7 +94,7 @@ class FakePage {
     class Channel {
       port1: { onmessage: (() => void) | null; close(): void } = { onmessage: null, close: () => undefined };
       port2 = {
-        postMessage: () => page.messages.push(() => this.port1.onmessage?.()),
+        postMessage: () => messages.push(() => this.port1.onmessage?.()),
         close: () => undefined,
       };
     }
