@@ -555,6 +555,16 @@ class SlotCapTests(unittest.TestCase):
         go, reason = self.decide([(run(1, 20, head_sha=HEAD), ONE_BUILDING)], 2)
         self.assertTrue(go, reason)
 
+    def test_nothing_waiting_never_promotes_at_either_slot_count(self):
+        busy = (run(1, 20, head_sha=HEAD), ONE_BUILDING)
+        for slots in (1, 2):
+            with self.subTest(slots=slots):
+                go, reason = rolling.decide(
+                    NOW, head=HEAD, head_runs=[busy[0]], jobs_of=lambda r: busy[1], promotions=[],
+                    oldest_waiting=None, starts=[busy[0]], slots=slots)
+                self.assertFalse(go, reason)
+                self.assertIn("no feat-cmux-next commit waits after it", reason)
+
     def test_cap_2_two_busy_wait(self):
         go, reason = self.decide([(run(1, 25, head_sha="c" * 40), ONE_BUILDING),
                                   (run(2, 15, head_sha=HEAD), ONE_BUILDING)], 2)

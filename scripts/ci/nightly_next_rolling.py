@@ -301,13 +301,19 @@ def decide(now: dt.datetime, *, head: str, head_runs: list[dict], jobs_of,
             if (watch.run_holds_group(run, jobs, now) and not leaving_slot(jobs)
                     and not (may_handoff and finishing(jobs))):
                 busy_count += 1
+                busy_run = run
                 if busy_count >= slots or not can_share_slot_capacity(jobs):
                     building = (f"nightly-next run {run.get('html_url', run.get('id'))} is building "
                                 f"{(run.get('head_sha') or head)[:12]}")
                     if busy_count < slots:
                         building += " (the slot may be shared or pending; a second pending run would replace it)"
                     break
-        if busy_count and not building:
+        if busy_count and not building and oldest_waiting is None:
+            # Nothing newer than nightly-next's head waits: a promotion would have nothing to build, the same
+            # answer (and reason) as one slot gives.
+            building = (f"nightly-next run {busy_run.get('html_url', busy_run.get('id'))} is building "
+                        f"{(busy_run.get('head_sha') or head)[:12]}")
+        elif busy_count and not building:
             return True, f"{busy_count} of {slots} nightly-next slots busy; promoting the newest buildable commit now"
     if not building and skipped_retry:
         return True, (f"the open run is a retry of nightly-next's head {head[:12]} and a newer commit waits; ignoring "
