@@ -28,6 +28,7 @@ use tokio::sync::{Semaphore, broadcast, mpsc};
 #[cfg(windows)]
 pub use windows_socket::{UnixListener, bind_unix, router_admin, serve_unix};
 
+mod app_assets;
 pub(crate) mod dual_requests;
 mod ws_peek;
 mod ws_shutdown;
@@ -1467,7 +1468,7 @@ async fn refuse_http(mut stream: tokio::net::TcpStream, refusal: Refusal) {
 }
 
 /// Minimal HTTP for the dashboard. The whole head passes the listener rule
-/// first; then GET / serves the page, and anything else is 404. The page is
+/// first; then GET / serves the dashboard and /app/ the shipped NEXT pane. The page is
 /// static and holds no secret: it reads the token from its URL fragment,
 /// which never reaches a server, and its WebSocket presents it.
 async fn serve_http(
@@ -1487,19 +1488,23 @@ async fn serve_http(
     let target = parts.next().unwrap_or("/");
     let path = target.split_once('?').map_or(target, |(path, _)| path);
     let (status, body, ctype) = if !method_.eq_ignore_ascii_case("get") {
-        ("405 Method Not Allowed", "method not allowed".to_owned(), "text/plain")
+        ("405 Method Not Allowed", b"method not allowed".to_vec(), "text/plain")
     } else if path == "/health" {
-        ("200 OK", "ok".to_owned(), "text/plain")
+        ("200 OK", b"ok".to_vec(), "text/plain")
     } else if path == "/" || path == "/index.html" {
-        ("200 OK", INDEX_HTML.inflate(), "text/html; charset=utf-8")
+        ("200 OK", INDEX_HTML.inflate().into_bytes(), "text/html; charset=utf-8")
+    } else if path.starts_with("/app/") {
+        app_assets::serve(path).await
     } else {
-        ("404 Not Found", "not found".to_owned(), "text/plain")
+        ("404 Not Found", b"not found".to_vec(), "text/plain")
     };
     let response = format!(
-        "HTTP/1.1 {status}\r\ncontent-type: {ctype}\r\ncontent-length: {}\r\ncache-control: no-store\r\nreferrer-policy: no-referrer\r\nconnection: close\r\n\r\n{body}",
+        "HTTP/1.1 {status}\r\ncontent-type: {ctype}\r\ncontent-length: {}\r\ncache-control: no-store\r\nreferrer-policy: no-referrer\r\nx-content-type-options: nosniff\r\nconnection: close\r\n\r\n",
         body.len()
     );
-    let _ = stream.write_all(response.as_bytes()).await;
+    if stream.write_all(response.as_bytes()).await.is_ok() {
+        let _ = stream.write_all(&body).await;
+    }
     let _ = stream.shutdown().await;
 }
 
