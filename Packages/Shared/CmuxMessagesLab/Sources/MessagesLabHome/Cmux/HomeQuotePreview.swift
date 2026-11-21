@@ -17,11 +17,25 @@ struct HomeQuotePreview {
     /// The widest card (vendored).
     static let maxCardWidth: CGFloat = 300
 
-    /// The root part as the quote draws it: an agent's Markdown text becomes its preview words; any other part is
-    /// itself.
+    /// The root part as the quote draws it. An agent's text part arrives rendered (HomeMarkdown: no markers left)
+    /// with its inline pictures still in it as "!alt": the quote leaves the pictures out, and a text of only
+    /// pictures says how many ("2 images"). Any other part is itself.
     static func part(_ part: Part?, markdown: Bool) -> Part? {
-        guard markdown, case let .text(t, _) = part else { return part }
-        return .text(MessagePreview(markdown: t).text(.home), runs: [])
+        guard markdown, case let .text(t, runs) = part else { return part }
+        let pictures = runs.filter { ($0.style ?? []).contains(HomeMarkdown.imageMark) }.reduce(0) { $0 + max(0, $1.length) }
+        guard pictures > 0 else { return part }
+        let text = NSMutableString(string: t)
+        // Last run first, so each cut leaves the earlier offsets as they were.
+        for r in runs.reversed() where (r.style ?? []).contains(where: { $0 == HomeMarkdown.imageMark || $0 == HomeMarkdown.imageAlt }) {
+            guard r.start >= 0, r.length > 0, r.start + r.length <= text.length else { continue }
+            text.replaceCharacters(in: NSRange(location: r.start, length: r.length), with: "")
+        }
+        // The spaces a cut picture leaves fold; the text's own lines stay.
+        let lines = (text as String).split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.split(whereSeparator: { $0 == " " || $0 == "\t" }).joined(separator: " ") }
+        let words = lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard words.isEmpty else { return .text(words, runs: []) }
+        return .text(pictures == 1 ? MessagePreview.Words.home.image : MessagePreview.Words.home.images(pictures), runs: [])
     }
 
     /// A drawn row's card: its title and second line, in words.
