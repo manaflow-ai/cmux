@@ -1,6 +1,6 @@
 # Session launcher
 
-The New Tab page opens a terminal in the current workspace, creates a workspace on this Mac, or lets you choose a connected remote machine by name. The host list refreshes when opened and has an explicit refresh button. Add Remote Host opens the native connection flow.
+The New Tab page opens a terminal in the current workspace, creates a workspace on this Mac, or lets you choose a connected remote machine by name. New Session on Host opens the command palette at New Workspace on Machine. Pick a named machine there to create the workspace. Add Remote Host opens the native connection flow.
 
 ## Install or preview
 

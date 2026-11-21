@@ -290,7 +290,8 @@ function renderStart() {
       Text("Studio").font("title").weight("semibold").fixedSize("horizontal"),
       Menu("Create", [
         Button("New Tab in Session", () => run("newSurface")),
-        Button("New Workspace", () => run("newTab")),
+        Button("New Local Session", () => run("workspace.newOnMachine", { machine: "local" })),
+        Button("New Session on Host…", () => run("palette.open", { query: "New Workspace on Machine" })),
         Button("Add Remote Host…", () => run("remote.connect"))
       ]),
       Spacer(),

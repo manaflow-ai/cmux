@@ -19,7 +19,6 @@
     }
   },
   "scopes": {
-    "machine:read": "List the machines available for new workspaces.",
     "actions:run": "Open a terminal or a workspace on the machine you choose."
   },
   "activation": [
