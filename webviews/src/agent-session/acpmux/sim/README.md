@@ -41,6 +41,24 @@ Each run prints a summary line (steps, rows drawn, rows before the turn view fol
 time, violations by rule, and the mid-turn folds the rules allow) and one line per distinct violation
 (`--show N` lines at most, default 20). Exit status 1 means a violation.
 
+## In Chrome
+
+The model run places rows with the pane's layout but guesses each row's height (one line, or a reply's
+lines). The browser lane draws every step in Chrome with the real `VirtualTranscript` and the pane's CSS
+(motion off), reads each drawn row's box (`.acpmux-row[data-row-id]`), and checks the same rules on the
+drawn gaps, plus `b-mid-turn-shrink`: a row of a running turn drawn 12px or more shorter than at the step
+before, with its own fold unchanged.
+
+```sh
+CMUX_BROWSER_TESTS=1 bun test test/chat-sim-browser.test.ts                       # every scenario and the replay
+CMUX_BROWSER_TESTS=1 CHAT_SIM_SCENARIOS=incoming-notice-turn,long:40 bun test test/chat-sim-browser.test.ts
+CMUX_BROWSER_TESTS=1 CHAT_SIM_OUT=/tmp/chrome.json bun test test/chat-sim-browser.test.ts   # results as JSON
+CMUX_BROWSER_TESTS=1 CHAT_SIM_DUMP=incoming-notice-turn:30 bun test test/chat-sim-browser.test.ts  # the boxes at a step
+```
+
+It needs Chrome (Linux, a Freestyle VM or CI; never on a Mac). A step costs two frames, so the replay
+(3,561 steps) takes a couple of minutes.
+
 ## Replay a real chat
 
 ```sh
@@ -89,8 +107,9 @@ the escape hatch for any record acpmux writes.
   the first row under its opening row) stands at least the block gap (24) under the opening row.
 - **(b) folds**: no row folds (leaves the drawn rows, or its fold closes) before its turn's `turn_result`.
   Allowed, and counted in the summary as "mid-turn sibling folds": a finished run of calls (and a
-  compaction line inside it) that a later row of the same running turn closed: the `runs` arm of
-  live-turn-work, by design. A reply whose text reappears in another row is `remapped`, not folded.
+  compaction line inside it) closed with a reply of the same running turn under it: the `runs` arm of
+  live-turn-work, where a run stays open until the agent's next paragraph (#48597). A run closed by the
+  next call alone is a violation. A reply whose text reappears in another row is `remapped`, not folded.
 - **(c) stillness**: no row two or more turns back is rebuilt (a new row object with the same id, version
   and fold) when nothing changed it. Live lines are exempt.
 

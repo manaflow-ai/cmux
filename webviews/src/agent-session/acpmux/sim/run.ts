@@ -55,7 +55,7 @@ export type FoldEvent = {
 };
 
 export type Violation = {
-  rule: "a-turn-gap" | "a-head-gap" | "b-mid-turn-fold" | "c-rerender";
+  rule: "a-turn-gap" | "a-head-gap" | "b-mid-turn-fold" | "b-mid-turn-shrink" | "c-rerender";
   step: number;
   at: number;
   label: string;
@@ -161,6 +161,8 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
   const violations: Violation[] = [];
   const allFolds: FoldEvent[] = [];
   const cache = new Map();
+  // The browser lane: each row's drawn height at the last measured step, to see a row collapse.
+  const drawnHeights = new Map<string, number>();
 
   let current: { rows: readonly AcpmuxRow[]; layout: ConversationLayout } | undefined;
   /** Folds step `index`'s record (or reader action) and shapes and places the rows: the rows to draw. */
@@ -301,11 +303,15 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
       const ended = own < turn || turnEnded;
       let verdict: FoldEvent["verdict"] = "turn-end";
       if (!ended) {
-        // A finished run a later row of the same turn closed (live-turn-work's `runs` arm, by design): the row
-        // is gone into a closed run row of its turn, or closed itself with a later row of its turn under it.
-        const laterSibling = hidden
-          ? rows.some((row) => rowTurn.get(row.id) === own && row.id !== id && foldOf(row) === "closed")
-          : rows.some((row, at) => at > is!.index && rowTurn.get(row.id) === own && !isLive(row));
+        // A finished run that the agent's next paragraph closed (live-turn-work's `runs` arm, by design; #48597:
+        // a run stays open until the agent's next paragraph): the row is gone into a closed run row of its
+        // turn, or closed itself, with a reply of its turn under it.
+        const paragraphAfter = (from: number) =>
+          rows.some((row, at) => at > from && rowTurn.get(row.id) === own && row.kind === "assistant");
+        const closedRun = hidden
+          ? rows.findIndex((row) => rowTurn.get(row.id) === own && row.id !== id && foldOf(row) === "closed")
+          : -1;
+        const laterSibling = hidden ? closedRun >= 0 && paragraphAfter(closedRun) : paragraphAfter(is!.index);
         const remapped =
           hidden &&
           was.row.kind === "assistant" &&
@@ -330,6 +336,29 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
           id,
           `${was.row.kind} of turn ${own} ${event.how} ${end !== undefined ? `${end - step.at} ms before its turn_result` : "in a turn that never ends"}${was.row.text ? `: "${was.row.text.slice(0, 50)}"` : ""}`,
         );
+    }
+
+    // (b) in the browser lane: a row of a running turn that the stack draws much shorter than at the step
+    // before (a collapse the reader sees) with its own fold unchanged. A finished run's closing is (b) above.
+    if (measured) {
+      for (let at = 0; at < rows.length; at += 1) {
+        const row = rows[at]!;
+        const box = measured[at];
+        if (!box) continue;
+        const height = box.bottom - box.top;
+        const was = drawnHeights.get(row.id);
+        drawnHeights.set(row.id, height);
+        const own = rowTurn.get(row.id) ?? 0;
+        if (was === undefined || was - height < 12 || isLive(row) || LIVE_KINDS.has(row.kind)) continue;
+        if (own < turn || turnEnded) continue;
+        const before = prevRows.find((old) => old.id === row.id);
+        if (before && foldOf(before) !== foldOf(row)) continue;
+        flag(
+          "b-mid-turn-shrink",
+          row.id,
+          `${row.kind} of turn ${own} drawn ${Math.round(was)}px -> ${Math.round(height)}px before its turn_result`,
+        );
+      }
     }
 
     // (c) rows above the newest change rebuilt with nothing of their own changed (same id, version and fold).
@@ -389,7 +418,9 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
     folds: allFolds,
     traces: options.onStep ? [] : traces,
   });
-  return { advance, check, result };
+  /** Whether the agent is working at the step `advance` last made (the browser lane draws it). */
+  const state = () => ({ working, turn, turnEnded });
+  return { advance, check, result, state };
 }
 
 /// Runs `scenario` and checks the three rules at every step (sim/README.md "Rules").
@@ -410,13 +441,14 @@ export async function runSimulationAsync(
     rows: readonly AcpmuxRow[],
     step: SimStep,
     index: number,
+    state: { working: boolean; turn: number },
   ) => Promise<readonly ({ top: number; bottom: number } | undefined)[]>,
   options: SimOptions = {},
 ): Promise<SimResult> {
   const sim = createSimulation(scenario, options);
   for (let index = 0; index < scenario.steps.length; index += 1) {
     const rows = sim.advance(index);
-    if (rows) sim.check(index, await measure(rows, scenario.steps[index]!, index));
+    if (rows) sim.check(index, await measure(rows, scenario.steps[index]!, index, sim.state()));
   }
   return sim.result();
 }

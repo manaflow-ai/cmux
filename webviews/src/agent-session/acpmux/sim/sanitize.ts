@@ -35,6 +35,8 @@ const KEEP_KEYS = new Set([
   "level",
   "reason",
   "weight",
+  "fromRole",
+  "transport",
 ]);
 const ENUM = /^[A-Za-z0-9][A-Za-z0-9_.\-/]{0,39}$/;
 
@@ -104,6 +106,7 @@ const STRUCTURE = new RegExp(
     String.raw`\[(?:cmux agent message|agent message|inbox|from|notice from)\b`,
     String.raw`\b(?:of|from|From|New messages from other agents|Another Claude session|A peer session|sent a message|while you were working|Request interrupted|Subagent hand-back|cmux agent message)\b`,
     String.raw`^acpmux(?:-cli|-peer|-outbox)?#?`,
+    String.raw`^acp:`,
     String.raw`^(?:pane|acpmux|cli|mobile|cloud)$`,
   ].join("|"),
   "g",
@@ -128,6 +131,9 @@ const MAX_TEXT = 1_200;
 function scrub(value: unknown, key: string | undefined): unknown {
   if (typeof value === "string") {
     if (key && KEEP_KEYS.has(key) && ENUM.test(value)) return value;
+    // Who sent an incoming message, as the pane reads it (incomingMessage.ts): a named agent, or a
+    // session by id after `acp:`.
+    if (key === "from" && value === "fromAgent") return value;
     // An id's word parts are its kind (`bg-done-`, `call-`, `toolu_`): only the parts with a digit (the
     // unique part) are replaced.
     if (key === "sessionId") return SIM_SESSION;
