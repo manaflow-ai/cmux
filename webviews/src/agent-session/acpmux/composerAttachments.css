@@ -273,21 +273,41 @@
    width its thumbnail will have (`.acpmux-attachment-image img`: its height, its shape, 48 to
    128px wide), so a wide or tall screenshot's picture arriving moves nothing (Leo, 2026-11-07: "they
    go up top above and then they land to where they should be"). In the strip and in the text. */
-:is(.acpmux-attachment-image.acpmux-attachment-pending, .acpmux-md-inline-chip[data-state="loading"])[data-sized] {
+:is(.acpmux-attachment-image.acpmux-attachment-pending, .acpmux-md-inline-chip[data-state="loading"])[data-sized]:not([data-held]) {
   width: auto;
   min-width: 48px;
   max-width: 128px;
 }
 /* One whose header is still being read (attachmentIntakeModel.ts `sizing`, HEADER_WAIT_MS at most): held
-   zero wide and unseen, so its first frame shown is its final size, not a stand-in width. */
+   zero wide and unseen, so its first frame shown is its final size, not a stand-in width. An image
+   whose header gave its size (`[data-sized]`) but whose own picture is still coming takes that width
+   already, still unseen, so the picture showing moves nothing. A chip held with its gesture's others
+   (attachmentIntakeModel.ts heldTogether, `[data-held]`) takes no width either, whatever its kind, so
+   a drop of several files reflows the text once; its rule lists the loading tiles too, so it outweighs
+   their stand-in widths (markdownField.css). */
 :is(.acpmux-attachment-image.acpmux-attachment-pending, .acpmux-md-inline-chip[data-state="loading"])[data-sizing] {
+  visibility: hidden;
+}
+:is(.acpmux-attachment-image.acpmux-attachment-pending, .acpmux-md-inline-chip[data-state="loading"])[data-sizing]:not([data-sized]),
+:is(.acpmux-attachment-image.acpmux-attachment-pending, .acpmux-md-inline-chip[data-state="loading"], .acpmux-attachment, .acpmux-md-inline-chip)[data-held] {
   visibility: hidden;
   width: 0;
   min-width: 0;
   padding: 0;
+  overflow: hidden;
 }
-.acpmux-md-inline > .acpmux-md-inline-chip[data-sizing] {
+.acpmux-md-inline > .acpmux-md-inline-chip:is([data-sizing]:not([data-sized]), [data-held]) {
   margin-inline: 0;
+  overflow: hidden;
+}
+/* A held chip in the text takes no height either: a zero-wide chip still 48px tall would grow its line
+   at the drop, and the text would reflow a second time when the gesture shows (the composer growing
+   29px, then 23px). Held, the line keeps the text's height until every chip of the gesture shows. */
+.acpmux-md-inline > .acpmux-md-inline-chip[data-held],
+.acpmux-md-inline > .acpmux-attachment-menu > .acpmux-md-inline-chip[data-held] {
+  height: 0;
+  min-height: 0;
+  box-shadow: none;
 }
 /* A loading image's own picture (composer/attachmentIntake.tsx InstantPreview), there the moment it
    is pasted or dropped, filling its tile under the spinner until its chip takes the tile's place
@@ -337,7 +357,7 @@
    (Leo, 2026-11-10: "the preview placeholder boxes are incongruent between the initial load, then the
    second load, and the chat attachment itself"). Its poster fills the box, cropped past its bounds.
    One still held for its header (`[data-sizing]`) stays zero wide and unseen. */
-.acpmux-attachment-image[data-video-shape]:not([data-sizing]) {
+.acpmux-attachment-image[data-video-shape]:not([data-sizing], [data-held]) {
   width: calc(var(--acpmux-attach-height) * var(--acpmux-video-ratio, 1));
   min-width: 0;
   max-width: none;
@@ -346,6 +366,15 @@
   width: 100%;
   min-width: 0;
   max-width: none;
+}
+/* A ready chip held with its gesture's others (attachmentIntakeModel.ts heldReady): unseen and no width
+   until they show, then with them. After the width rules above, at their weight, so it outweighs them. */
+.acpmux-attachments .acpmux-attachment-slot[data-held] > * {
+  visibility: hidden;
+  width: 0;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
 }
 /* The one retry control of a failed attachment, in the strip and in the text: a small round glyph
    button on the composer's own surface, like the tile's × beside it. */

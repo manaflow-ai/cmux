@@ -49,6 +49,8 @@ export type ComposerBoxProps = {
   attachments: ComposerAttachment[];
   /// Files still being read: a placeholder chip each, after the staged ones (PendingAttachment).
   pending?: readonly PendingAttachment[];
+  /// Ready chips held with their gesture's others (attachmentIntakeModel.ts heldReady).
+  held?: ReadonlySet<string>;
   setAttachments(update: (current: ComposerAttachment[]) => ComposerAttachment[]): void;
   /// The host's copy of `attachments`, written ahead of a render where the host does (a pick
   /// attached at once), so a paste right after it counts it. Unset, the box keeps its own.
@@ -118,6 +120,7 @@ export function ComposerBox({
   boxRef,
   attachments,
   pending,
+  held,
   setAttachments,
   attachmentsRef,
   attachError,
@@ -205,6 +208,7 @@ export function ComposerBox({
     attachmentsRef: attachmentsRef ?? ownAttachments,
     setAttachments,
     pending: pending ?? [],
+    ...(held ? { held } : {}),
     cancel: (id) => onCancelAttachment?.(id),
     retry: (id) => onRetryAttachment?.(id),
     revive: (id) => onReviveAttachment?.(id) ?? false,
@@ -314,6 +318,7 @@ export function ComposerBox({
                 pending: attachmentView === "inline" ? pending.filter((chip) => !placed.has(chip.id)) : pending,
               }
             : {})}
+          {...(held ? { held } : {})}
           {...(attachError ? { error: attachError } : {})}
           codex={codex}
           onRemove={(id) => {

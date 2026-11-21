@@ -281,6 +281,7 @@ export function NewTabPage({
     attachments,
     setAttachments,
     pending,
+    held: heldChips,
     originalFailures,
     unsettled,
     cancel,
@@ -659,6 +660,7 @@ export function NewTabPage({
           <AttachmentStrip
             attachments={attachments}
             pending={pending}
+            held={heldChips}
             {...(command.error || attachError ? { error: command.error ?? attachError } : {})}
             codex={false}
             onRemove={(id) => {

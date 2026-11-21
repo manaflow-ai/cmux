@@ -42,6 +42,8 @@ type Options = {
   attachmentsRef: RefObject<ComposerAttachment[]>;
   setAttachments(update: (current: ComposerAttachment[]) => ComposerAttachment[]): void;
   pending: readonly PendingAttachment[];
+  /// Ready chips held with their gesture's others (attachmentIntakeModel.ts heldReady): unseen, no width yet.
+  held?: ReadonlySet<string>;
   /// A pending chip's cancel (attachmentIntake.tsx).
   cancel(id: string): void;
   retry(id: string): void;
@@ -362,6 +364,7 @@ export function useInlineAttachments(options: Options) {
         id={id}
         attachment={options.attachments.find((attachment) => attachment.id === id)}
         pending={options.pending.find((chip) => chip.id === id)}
+        held={options.held?.has(id) ?? false}
         onRemove={api.remove}
         onCancel={api.cancel}
         onRetry={api.retry}
@@ -385,6 +388,7 @@ const InlineChip = memo(function InlineChip({
   id,
   attachment,
   pending,
+  held,
   onRemove,
   onCancel,
   onRetry,
@@ -396,6 +400,8 @@ const InlineChip = memo(function InlineChip({
   id: string;
   attachment: ComposerAttachment | undefined;
   pending: PendingAttachment | undefined;
+  /// Ready, and held with its gesture's chips still taking their widths (heldReady).
+  held: boolean;
   onRemove(id: string): void;
   onCancel(id: string): void;
   onRetry(id: string): void;
@@ -412,7 +418,7 @@ const InlineChip = memo(function InlineChip({
   // Sticky state set in render (not a ref read in render): it flips once, the first time it holds.
   const [loaded, setLoaded] = useState(false);
   // Only a tile that showed (not one held unseen for its size or picture) has a dim to come up from.
-  if (!loaded && pending && !pending.failed && !pending.sizing) setLoaded(true);
+  if (!loaded && pending && !pending.failed && !pending.sizing && !pending.held) setLoaded(true);
   /// Whether its loading tile already showed its own picture: the chip then just stays, with no
   /// second coming up (Leo, 2026-11-11: "this 3 stage attachment thing is still there").
   const [pictured, setPictured] = useState(false);
@@ -422,7 +428,7 @@ const InlineChip = memo(function InlineChip({
   if (!attachment && !pending) return null;
   if (!attachment && pending && !pending.image && !pending.video)
     return (
-      <span className="acpmux-md-inline-chip" data-chip="strip">
+      <span className="acpmux-md-inline-chip" data-chip="strip" {...(pending.held ? { "data-held": "" } : {})}>
         <PendingChip chip={pending} onCancel={onCancel} onRetry={onRetry} />
       </span>
     );
@@ -451,6 +457,7 @@ const InlineChip = memo(function InlineChip({
         // A video is the box its chip, poster and sent tile keep (videoShape.ts), loading or failed.
         {...(pending!.video ? { "data-video-shape": "", style: videoShapeStyle(pending!.videoShape) } : {})}
         {...(!pending!.failed && pending!.sizing ? { "data-sizing": "" } : {})}
+        {...(pending!.held ? { "data-held": "" } : {})}
         {...(!pending!.failed && pending!.image && pending!.preview ? { "data-instant": "" } : {})}
         aria-busy={pending!.failed ? undefined : "true"}
         aria-label={name}
@@ -548,6 +555,7 @@ const InlineChip = memo(function InlineChip({
       className="acpmux-md-inline-chip"
       data-state="ready"
       data-chip="strip"
+      {...(held ? { "data-held": "" } : {})}
       ref={chipRef(id)}
       {...(loaded && !pictured ? { "data-loaded": "" } : {})}
     >

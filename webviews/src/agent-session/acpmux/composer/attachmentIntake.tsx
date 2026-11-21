@@ -43,6 +43,7 @@ import { PASTE_LOADING_CLASS, usePasteLoadingLook } from "./pasteLoadingLook";
 export function AttachmentStrip({
   attachments,
   pending = [],
+  held,
   error,
   codex = false,
   onRemove,
@@ -64,6 +65,8 @@ export function AttachmentStrip({
   onReorder?(id: string, index: number): void;
   /// Files still being read: a placeholder chip each, after the staged ones (PendingAttachment).
   pending?: readonly PendingAttachment[];
+  /// Ready chips held with their gesture's others (attachmentIntakeModel.ts heldReady): unseen, no width yet.
+  held?: ReadonlySet<string>;
   /// A pending chip's ×; unset, the chip has none.
   onCancel?(id: string): void;
   /// A failed chip's Retry; unset, the chip has none.
@@ -137,6 +140,7 @@ export function AttachmentStrip({
           // to its slot in the message (conversation/sendMorph.ts).
           ref={chipRef(attachment.id)}
           data-dragging={reorder.dragging === attachment.id || undefined}
+          data-held={held?.has(attachment.id) || undefined}
         >
           <AttachmentChip
             attachment={attachment}
@@ -208,6 +212,7 @@ export function PendingChip({
         aria-label={name}
         aria-busy={failed ? undefined : "true"}
         data-paste-look={failed ? undefined : look}
+        {...(chip.held ? { "data-held": "" } : {})}
         /* tooltip-allow: the tile shows no reason; the tooltip says why it failed */ title={chip.failed}
       >
         <FileAttachment
@@ -260,6 +265,7 @@ export function PendingChip({
       {...(chip.image && shape ? { "data-sized": "" } : {})}
       {...(chip.video ? { "data-video-shape": "" } : {})}
       {...(chip.sizing ? { "data-sizing": "" } : {})}
+      {...(chip.held ? { "data-held": "" } : {})}
       {...(chip.preview ? { "data-instant": "" } : {})}
       {...(style ? { style } : {})}
     >

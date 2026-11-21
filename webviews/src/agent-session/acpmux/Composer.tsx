@@ -798,6 +798,7 @@ function ComposerFrame({
     attachments,
     setAttachments,
     pending,
+    held: heldChips,
     loading,
     unsettled,
     cancel,
@@ -2918,6 +2919,7 @@ function ComposerFrame({
         }}
         attachments={attachments}
         pending={pending}
+        held={heldChips}
         setAttachments={setAttachments}
         attachmentsRef={attachmentsRef}
         attachError={attachError ?? (heldForHost ? t("composer.sendingWhenReady") : undefined)}
