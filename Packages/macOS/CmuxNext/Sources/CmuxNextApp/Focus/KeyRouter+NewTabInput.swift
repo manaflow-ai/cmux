@@ -95,6 +95,8 @@ final class NewTabInputCoordinator {
         weak var pageWindow: NSWindow?
         /// The page's view at readiness (a split's provisional key stops resolving later).
         weak var view: AgentPaneView?
+        /// The Chromium page whose field took the hold's readiness (``AgentPaneView/typeHeldText(of:appIsActive:)``).
+        weak var readyPage: AgentPaneView?
     }
 
     init(router: KeyRouter) { self.router = router }
@@ -118,6 +120,7 @@ final class NewTabInputCoordinator {
         let keyboard = NewTabHoldKeyboard(in: window, persons: ActionRunScope.isPersonsAction(), replacing: replaced?.keyboard, standIn: TerminalHostView.keyboardOwner, drawn: { $0.isChromiumPageWindow ? AgentPaneView.chromiumAgentPane(under: $0, in: window) : nil })
         // The pane focus had at the opening, when the opening may move focus (a person's, not a script's).
         var focusedAtOpening = ActionRunScope.viewChangeAllowed() ? pane.services.windowController(showing: pane)?.focus.state.pane : nil
+        let ready = IncomingPage() // only its `readyPage`: the page whose field took the readiness
         let buffer = NewTabInputBuffer(began: now(), held: earlier, focusField: { [weak pane, weak window] in
             // The native page (tabs.nativeNewTabPage): its field, once the page is in the pane.
             if let pane, let window, let key = pane.currentTabKey, LocalPageTab.page(of: key) == .nativeNewTab {
@@ -148,12 +151,13 @@ final class NewTabInputCoordinator {
             // A Chromium page takes the keys in its own window (a child of this one).
             if view.chromiumPage != nil {
                 view.focusChat()
+                ready.readyPage = view
                 return true
             }
             return FocusRoute(.person, "the new tab the person opened: its page").moveKeyboard(in: window, to: view.webView)
         }, deliver: { [weak router, weak window] event in
             guard let router, let window else { return }
-            Self.replay(NewTabInputBuffer.retarget(event, to: window), held: event, in: window, router: router, keyboard: keyboard)
+            Self.replay(NewTabInputBuffer.retarget(event, to: window), held: event, in: window, router: router, keyboard: keyboard, readyPage: ready.readyPage)
         })
         let entry = Entry(buffer: buffer, keyboard: keyboard, limit: holdLimit, opened: pane.currentTabKey, pane: pane, window: window)
         install(entry, in: window)
@@ -185,13 +189,14 @@ final class NewTabInputCoordinator {
             target.pageWindow = shown
             if view.chromiumPage != nil {
                 view.focusChat()
+                target.readyPage = view
                 return true
             }
             return FocusRoute(.system, "an incoming new tab: its page").moveKeyboard(in: shown, to: view.webView)
         }, deliver: { [weak router, weak window] event in
             // Ready: the page's window. Not ready (the limit, a failed creation): the key window.
             guard let router, let to = target.pageWindow ?? (target.followsNewWindow ? NSApp.keyWindow : nil) ?? window else { return }
-            Self.replay(NewTabInputBuffer.retarget(event, to: to), held: event, in: to, router: router, keyboard: keyboard)
+            Self.replay(NewTabInputBuffer.retarget(event, to: to), held: event, in: to, router: router, keyboard: keyboard, readyPage: target.readyPage)
         })
         let entry = Entry(buffer: buffer, keyboard: keyboard, limit: incomingHoldLimit, opened: nil, pane: nil, window: window, incoming: target)
         install(entry, in: window)
@@ -242,8 +247,12 @@ final class NewTabInputCoordinator {
     /// monitor), so the agent pane that gets it judges the person's original key (`held`) here: a
     /// Return typed before the New Tab field was ready still runs its terminal line (cx-hnpxh).
     /// A key the router does not take (a newer creation's hold takes its keys there) is dropped when
-    /// `keyboard` says so: it would go to what had the keyboard when the hold opened.
-    static func replay(_ event: NSEvent, held: NSEvent, in window: NSWindow, router: KeyRouter, keyboard: NewTabHoldKeyboard? = nil) {
+    /// `keyboard` says so: it would go to what had the keyboard when the hold opened. A key that types
+    /// text goes into `readyPage`, the Chromium page whose field took the hold's readiness, through its
+    /// input bridge while cmux is not active (``AgentPaneView/typeHeldText(of:appIsActive:)``): no
+    /// window is key then, so Chromium drops the key event, and the router's type-ahead would keep it.
+    static func replay(_ event: NSEvent, held: NSEvent, in window: NSWindow, router: KeyRouter, keyboard: NewTabHoldKeyboard? = nil, readyPage: AgentPaneView? = nil) {
+        if readyPage?.typeHeldText(of: event) == true { return }
         router.dispatchingSynthetic(event) {
             guard !router.interceptKeyDown(event, in: window, heldBefore: true) else { return }
             // A page in Chromium has the keys in its own window, a child of this one: the key window,
