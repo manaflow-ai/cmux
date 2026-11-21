@@ -200,6 +200,15 @@ enum SettingsSearchIndex {
                 String(localized: "settings.automation.agentAutoResume.subtitle", defaultValue: "Send “continue” when an agent's turn ends on a retryable error such as model capacity or a dropped connection.")
             ].joined(separator: " ")
         ),
+        setting(
+            .automation,
+            "claude-account-auto-switch",
+            String(localized: "settings.automation.claudeAccountAutoSwitch", defaultValue: "Switch Claude Account on Usage Limit"),
+            [
+                "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts",
+                String(localized: "settings.automation.claudeAccountAutoSwitch.subtitle", defaultValue: "When a Claude account hits its usage limit, continue the conversation on the next account in agents.claudeAccounts.")
+            ].joined(separator: " ")
+        ),
         setting(.automation, "agent-messages", String(localized: "settings.automation.agentMessages", defaultValue: "Agent Messages"), "agentMessages.enabled agent message inbox communication mute disable off send deliver"),
         setting(.automation, "chief", String(localized: "settings.automation.chief", defaultValue: "Chief"), "chief.enabled home agent assistant imessage messages hide show disable off"),
         setting(.automation, "chief-harness", String(localized: "settings.automation.chief.harness", defaultValue: "Chief Harness"), "chief.harness home agent claude code codex provider"),
@@ -389,6 +398,7 @@ enum SettingsSearchIndex {
         "automation.ripgrepBinaryPath": settingID(for: .automation, idSuffix: "ripgrep-path"),
         "automation.suppressSubagentNotifications": settingID(for: .automation, idSuffix: "subagent-notifications"),
         "automation.agentAutoResume": settingID(for: .automation, idSuffix: "agent-error-auto-resume"),
+        "automation.claudeAccountAutoSwitch": settingID(for: .automation, idSuffix: "claude-account-auto-switch"),
         "agentMessages.enabled": settingID(for: .automation, idSuffix: "agent-messages"),
         "chief.enabled": settingID(for: .automation, idSuffix: "chief"),
         "chief.harness": settingID(for: .automation, idSuffix: "chief-harness"),

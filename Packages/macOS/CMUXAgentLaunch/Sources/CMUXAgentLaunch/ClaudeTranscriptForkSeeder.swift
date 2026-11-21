@@ -79,7 +79,7 @@ public struct ClaudeTranscriptForkSeeder: Sendable {
         }
     }
 
-    private static func findSourceTranscript(
+    static func findSourceTranscript(
         sessionID: String,
         sourceWorkingDirectory: String?,
         projectsRoot: String,
@@ -103,25 +103,34 @@ public struct ClaudeTranscriptForkSeeder: Sendable {
         return nil
     }
 
-    private static func transcriptLocation(
+    /// The session's transcript in `projectPath`, flat (`<sid>.jsonl`) or nested
+    /// (`<sid>/messages/<sid>.jsonl`), the flat one first.
+    static func transcriptLocation(
         projectPath: String, sessionID: String, fileManager: FileManager
     ) -> TranscriptLocation? {
+        transcriptLocations(projectPath: projectPath, sessionID: sessionID, fileManager: fileManager).first
+    }
+
+    /// Every layout in which `projectPath` holds the session's transcript as a regular file, the
+    /// flat one first.
+    static func transcriptLocations(
+        projectPath: String, sessionID: String, fileManager: FileManager
+    ) -> [TranscriptLocation] {
         let candidates = [
             "\(sessionID).jsonl",
             "\(sessionID)/messages/\(sessionID).jsonl"
         ]
-        for relativePath in candidates {
+        return candidates.compactMap { relativePath in
             let path = (projectPath as NSString).appendingPathComponent(relativePath)
             var isDirectory: ObjCBool = false
             guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory), !isDirectory.boolValue,
                   (try? fileManager.attributesOfItem(atPath: path)[.type] as? FileAttributeType) == .typeRegular
-            else { continue }
+            else { return nil }
             return TranscriptLocation(path: path, projectPath: projectPath, relativePath: relativePath)
         }
-        return nil
     }
 
-    private struct TranscriptLocation {
+    struct TranscriptLocation {
         let path: String
         let projectPath: String
         let relativePath: String

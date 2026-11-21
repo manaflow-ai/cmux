@@ -145,7 +145,9 @@ extension Workspace {
                 startupInput = nil
                 claim = nil
             }
-            guard let startupInput, !startupInput.isEmpty else {
+            // A pane switched to another Claude account resumes with the keys it cleared unset.
+            guard let startupInput = startupInput.map({ terminal.claudeAccountEnvironment?.restoreStartupInput($0) ?? $0 }),
+                  !startupInput.isEmpty else {
                 // A failed launch must leave the last verified binding in
                 // place so the visible surface remains recoverable. Retiring
                 // it here turns a transient command/provider failure into a

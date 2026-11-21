@@ -73,6 +73,16 @@ public struct AutomationCatalogSection: SettingCatalogSection {
         userDefaultsKey: "agentAutoResumeEnabled"
     )
 
+    /// When a cmux-launched Claude Code pane stops on its account's usage
+    /// limit, switch the pane to the next account in `agents.claudeAccounts`
+    /// and continue the same conversation. Off by default: it restarts the
+    /// pane on another account without asking.
+    public let claudeAccountAutoSwitch = DefaultsKey<Bool>(
+        id: "automation.claudeAccountAutoSwitch",
+        defaultValue: false,
+        userDefaultsKey: "claudeAccountAutoSwitchEnabled"
+    )
+
     /// When enabled, native agent-session panels receive a cmux-owned,
     /// per-session `TMPDIR` under `~/.local/state/cmux/agent-artifacts`.
     /// This gives cmux a bounded ownership boundary for future retention and

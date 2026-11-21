@@ -45,8 +45,32 @@ struct LiveAgentSessionOwnerIndex: Sendable {
             return AgentPIDProcessIdentity(pid: pid_t($0))
         }
     ) -> LiveAgentSessionOwner? {
+        Self.preferredOwner(in: owners(
+            kind: kind,
+            sessionID: sessionID,
+            revalidateProcessEvidence: revalidateProcessEvidence,
+            processArgumentsProvider: processArgumentsProvider,
+            processPresenceProvider: processPresenceProvider,
+            processIdentityProvider: processIdentityProvider
+        ))
+    }
+
+    /// Every live process that claims this session, unordered, validated as `owner` validates
+    /// them. Admission needs only the preferred one; a caller that must stop every writer of the
+    /// session checks them all.
+    func owners(
+        kind: String,
+        sessionID: String,
+        revalidateProcessEvidence: Bool = true,
+        processArgumentsProvider: ((Int) -> CmuxTopProcessArguments?)? = nil,
+        processPresenceProvider: ((Int) -> PIDPresence)? = nil,
+        processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
+            return AgentPIDProcessIdentity(pid: pid_t($0))
+        }
+    ) -> [LiveAgentSessionOwner] {
         let owners = ownersBySession[LiveAgentSessionOwnerSessionKey(kind: kind, sessionID: sessionID)] ?? []
-        let candidates = revalidateProcessEvidence
+        return revalidateProcessEvidence
             ? owners.filter { owner in
                 guard processIdentityProvider(owner.processID) == owner.processIdentity else {
                     return false
@@ -73,7 +97,6 @@ struct LiveAgentSessionOwnerIndex: Sendable {
                 )
             }
             : owners
-        return Self.preferredOwner(in: candidates)
     }
 
     private static func preferredOwner(
