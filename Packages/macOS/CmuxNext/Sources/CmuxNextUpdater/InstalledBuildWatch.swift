@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 /// An update that is already installed on disk while the old build still runs: Sparkle (or a
 /// download of the app by hand) swapped the bundle, but nobody relaunched, so the person runs a
@@ -11,7 +12,7 @@ nonisolated public enum InstalledBuildWatch {
     /// nil when the bundle is gone or unreadable.
     public static func read(bundleURL: URL) -> InstalledBuild? {
         let plist = bundleURL.appending(path: "Contents/Info.plist")
-        guard let data = try? Data(contentsOf: plist),
+        guard let data = try? Data(blockingContentsOf: plist),
               let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
               let build = info["CFBundleVersion"] as? String else { return nil }
         return InstalledBuild(build: build, shortVersion: info["CFBundleShortVersionString"] as? String)

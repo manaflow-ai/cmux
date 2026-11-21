@@ -53,9 +53,9 @@ public final class UpdaterService {
     }
     /// A newer build already installed in this app's bundle on disk (``checkInstalledBuild()``).
     public internal(set) var installedNewerBuild: InstalledBuild?
-    /// Relaunches into the installed build: quits and opens the bundle again (set by the App;
-    /// nil where it cannot, so Restart to Update then offers nothing for it).
-    @ObservationIgnored public var relaunchInstalledBuild: (() -> Void)?
+    /// Relaunches into the installed build: quits (keeping every session) and opens the bundle again
+    /// (``InstalledBuildRelaunch``); tests replace it.
+    @ObservationIgnored var relaunchInstalledBuild: (() -> Void)? = { _ = InstalledBuildRelaunch.relaunch(bundle: Bundle.main.bundleURL) }
     /// Reads the build in this app's bundle on disk (replaced by tests).
     @ObservationIgnored var readInstalledBuild: () -> InstalledBuild? = { InstalledBuildWatch.read(bundleURL: Bundle.main.bundleURL) }
     /// The R114 install gate over ``indicatorPhase``.

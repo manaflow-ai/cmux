@@ -99,6 +99,7 @@ import Testing
 
     @Test func withoutARelaunchHookNothingIsOffered() {
         let updater = Self.updater(running: "100") { InstalledBuild(build: "101", shortVersion: "1.0.1") }
+        updater.relaunchInstalledBuild = nil
         updater.checkInstalledBuild()
         #expect(updater.restartableUpdate == nil)
         #expect(updater.readyCard == nil)

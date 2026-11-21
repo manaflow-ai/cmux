@@ -1,3 +1,4 @@
+import AppKit
 import Darwin
 import Foundation
 
@@ -5,6 +6,13 @@ import Foundation
 /// is already installed on disk, where Sparkle has no installer to run (``UpdaterService/installedBuild``).
 /// Started only by the person's click.
 enum InstalledBuildRelaunch {
+    /// Starts the helper and quits through the normal quit path (``NSApplication/terminate(_:)``), which keeps every session.
+    @MainActor static func relaunch(bundle: URL) -> Bool {
+        guard start(bundle: bundle) else { return false }
+        NSApp.terminate(nil)
+        return true
+    }
+
     /// Waits for `$1` (this app's pid) to exit, at most `$3` seconds (a refused quit never leaves
     /// the helper behind), then opens the bundle `$0`.
     static let script = #"""

@@ -9,7 +9,7 @@ extension AppServices: MenuBarExtraHost {
     var menuBarAvatar: NSImage? { SidebarAccount(cloud.auth)?.avatar.image(diameter: 16) }
     var menuBarAgentsWorking: Int { AgentNeedsInputJump.workingCount(AgentNeedsInputJump.tabs(of: daemon.store)) }
     var menuBarAgentsNeedingInput: Int { AgentNeedsInputJump.targets(chats: .app, tabs: AgentNeedsInputJump.tabs(of: daemon.store)).count }
-    var menuBarUpdateReady: Bool { updater.indicatorPhase.isReady || updater.restartableUpdate != nil }
+    var menuBarUpdateReady: Bool { updater.indicatorPhase.isReady }
     var menuBarShowsGlobalKey: Bool { settings?.snapshot.globalHotKey ?? CmuxConfigSnapshot.globalHotKeyDefault }
 
     var menuBarComputerUseAvailable: Bool { onboarding.computerUseSetup.phase == .ready }
