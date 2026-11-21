@@ -261,7 +261,7 @@ def blacksmith_on(env: Mapping[str, str]) -> bool:
 
 # The scoped rescue value of BLACKSMITH_SWITCH (hq#11523, 2026-11-15: glaeda-side-std-xcode-26.6 had 76 jobs
 # queued, the oldest 150 min, while `on` would also have moved nightly, promote, signing and release jobs).
-# Only a cmux-next.yml pull_request run honors it (pr_rescue()): its placement takes Blacksmith macOS once the
+# A cmux-next.yml PR or a verified bot retry of its dispatch honors it. Placement takes Blacksmith macOS once the
 # owned route's oldest queued job has waited RESCUE_ROUTE_MINUTES (place()), under the same CAPACITY and
 # MAX_PER_RUN caps as `on`. A re-run attempt takes Blacksmith only through that placement's retry label, which is
 # empty for a dead or stalled label (cmux#44966: a plain vars.MACOS_RUNNER_26 fallback queued re-runs on a label with
@@ -273,15 +273,23 @@ RESCUE_WORKFLOW = "/.github/workflows/cmux-next.yml@"
 
 
 def pr_rescue(env: Mapping[str, str]) -> bool:
-    """Whether this is a cmux-next.yml pull_request run with BLACKSMITH_SWITCH set to PR_RESCUE."""
+    """Whether this cmux-next run may use measured PR rescue placement."""
     return ((env.get(BLACKSMITH_SWITCH) or "").strip() == PR_RESCUE
-            and env.get("GITHUB_EVENT_NAME") == "pull_request"
+            and (env.get("GITHUB_EVENT_NAME") == "pull_request"
+                 or env.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
+                 and env.get("PR_RESCUE_DISPATCH") == "true" and bot_rerun(env))
             and RESCUE_WORKFLOW in (env.get("GITHUB_WORKFLOW_REF") or ""))
 
 
 def rescue_open(env: Mapping[str, str], route_wait: float | None) -> bool:
     """pr_rescue() and the owned route has started nothing for RESCUE_ROUTE_MINUTES (route_wait, minutes)."""
-    return pr_rescue(env) and route_wait is not None and route_wait >= RESCUE_ROUTE_MINUTES
+    if not pr_rescue(env):
+        return False
+    if env.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
+        previous = env.get("PR_RESCUE_PREVIOUS_WAIT_SECONDS", "")
+        if previous.isdecimal() and int(previous) >= RESCUE_ROUTE_MINUTES * 60:
+            return True
+    return route_wait is not None and route_wait >= RESCUE_ROUTE_MINUTES
 
 
 def blacksmith_off_why(env: Mapping[str, str]) -> str:
@@ -944,6 +952,20 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
         now=seen.observed_at)))))
     if skipped(env):
         return Placement(empty, "", skipped(env))
+    if env.get("GITHUB_EVENT_NAME") == "workflow_dispatch" and pr_rescue(env):
+        if live is None or waiting is None or seen is None or seen.stale or not seen.snapshot:
+            return Placement(empty, "", "no current pool measurement for PR dispatch rescue")
+        pools = seen.snapshot.get("pools") or {}
+        # The workflow resolves each tier through RUNNER_POOLS. Measure the label the job would actually use.
+        resolved = {LARGE: env.get("PR_RESCUE_LARGE_RUNNER"), SMALL: env.get("PR_RESCUE_SMALL_RUNNER")}
+        unread = tuple(label for label in LABELS if resolved[label] != label or label not in live or label not in waiting
+                       or not isinstance(pools.get(label), Mapping)
+                       or type(pools[label].get("queued")) is not int or pools[label]["queued"] < 0)
+        unavailable = tuple(dict.fromkeys((*unavailable, *unread)))
+        if len(unread) == len(LABELS):
+            return Placement(empty, "", "no current pool measurement for PR dispatch rescue")
+        # Only measured free slots are eligible. Overflow could send the job to another full label.
+        saturated = False
     if off:
         placement = _place(env, owned, live, waiting, seen, promote_busy, saturated, route_wait, unavailable)
         return dataclasses.replace(placement, retry_runner="", retry_jobs=(),
