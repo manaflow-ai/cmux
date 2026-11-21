@@ -171,6 +171,61 @@ class Record(unittest.TestCase):
         self.assertEqual(st["records"], [])
 
 
+class PrAttribution(unittest.TestCase):
+    class Git:
+        def __init__(self):
+            self.log = "\n".join([
+                "m4\tp1 p2\t1794873600\tMerge pull request #104 from x/missing",
+                "m3\tp1 p2\t1794787200\tnightly merge without a PR",
+                "m2\tp1\t1794700800\tfeature: slow path (#102)",
+                "m1\tp1 p2\t1794614400\tMerge pull request #101 from x/fast",
+            ]) + "\n"
+
+        def __call__(self, cmd, **kw):
+            if "log" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, self.log, "")
+            if "merge-base" in cmd:
+                commit, head = cmd[-2:]
+                return subprocess.CompletedProcess(cmd, 0 if (commit, head) in {
+                    ("m1", "h1"), ("m1", "h2"), ("m2", "h2")
+                } else 1, "", "")
+            raise AssertionError(cmd)
+
+    def test_merges_map_to_the_first_later_feed_and_keep_missing_rows(self):
+        feeds = [
+            {"build": "n1", "sha": "h1", "feed_at": "2026-11-14T01:00:00Z"},
+            {"build": "n2", "sha": "h2", "feed_at": "2026-11-16T00:00:00Z"},
+        ]
+        result = ns.pr_attribution(feeds, ".", "origin/feat-cmux-next", run=self.Git(),
+                                   now=ns.ts("2026-11-20T00:00:00Z"))
+        self.assertEqual(result["count"], 4)
+        self.assertEqual(result["attributed"], 2)
+        rows = {row["pr"]: row for row in result["rows"]}
+        self.assertEqual((rows[101]["build"], rows[101]["merge_to_nightly"]), ("n1", 60.0))
+        self.assertEqual((rows[102]["build"], rows[102]["merge_to_nightly"]), ("n2", 1440.0))
+        self.assertEqual(rows[None]["reason"], "no PR number in merge metadata")
+        self.assertEqual(rows[104]["reason"], "no later published nightly contains merge")
+        self.assertEqual((result["p50"], result["p90"]), (750.0, 1302.0))
+
+    def test_history_and_markdown_carry_the_attribution_summary(self):
+        data = {"window_days": 7, "count": 1, "attributed": 0, "p50": None, "p90": None,
+                "rows": [{"pr": 7, "status": "unattributed", "reason": "no later published nightly contains merge",
+                          "merged_at": "2026-11-14T00:00:00Z", "sha": "m", "subject": "x",
+                          "feed_at": None, "build": None, "merge_to_nightly": None}]}
+        body = ns.history_comment([], [], pr_data=data)
+        doc = ns.history_json(body)
+        self.assertEqual(doc["schema"], 2)
+        self.assertEqual(doc["pr_attribution"]["count"], 1)
+        self.assertEqual(ns.parse_history(body)["pr_attribution"]["p90"], None)
+        text = ns.render_verdict({"build": "n1", "sha": "h1", "merge_to_feed": 20.0,
+                                  "verdict": "in budget", "budget_min": 30.0, "window": 1, "over": False,
+                                  "p50": 20.0, "p95": 20.0, "feed_at": "2026-11-14T01:00:00Z",
+                                  "slow": {}, "diff": None, "bisect": [],
+                                  "pr_attribution": data})
+        self.assertIn("PR merge to NIGHTLY", text)
+        self.assertIn("no later published nightly contains merge", text)
+
+
 def one_job_run(run_id=43300000001, conclusion="success", status="completed"):
     return {"id": run_id, "event": "push", "status": status, "conclusion": conclusion, "run_attempt": 1,
             "display_title": "chat: a landing", "head_branch": "nightly-next", "head_sha": "c" * 40,

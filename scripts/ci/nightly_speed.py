@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Nightly speed budget for cmux NEXT: one timing record per published nightly-next build, a check of each against
-the budget and every stage's trailing median, and one cmuxterm-hq issue that keeps the verdict and the history.
+the budget and every stage's trailing median, and per-PR merge-to-NIGHTLY attribution in one cmuxterm-hq issue that
+keeps the verdict and the history.
 
 Leo, 2026-11-12: "we need to start freaking enforcing, like, the speed, you know?" The budget is merge to feed: from
 the landing of a nightly's head commit on feat-cmux-next (its committer time on the first-parent line) to the end of
@@ -87,10 +88,11 @@ import os
 import re
 import subprocess
 import sys
+import time
 import zlib
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-SCHEMA = 1
+SCHEMA = 2
 REPO = "manaflow-ai/cmux"
 HQ_REPO = "manaflow-ai/cmuxterm-hq"
 WORKFLOW = "nightly.yml"
@@ -105,6 +107,7 @@ BISECT_AFTER = 3
 # Sign runs handled per record call: a push to nightly-next comes about once per landing, so a handful catches up
 # after a quiet spell, and a first run with no history reads at most 2 x NEWEST jobs lists.
 NEWEST = 8
+PR_WINDOW_DAYS = 7
 # 100 runs of nightly.yml on nightly-next spanned 10 h on 2026-11-12 (74 push runs, 18 sign runs).
 LIST_PAGE = 100
 ISSUE_TITLE = "cmux NEXT nightly speed budget"
@@ -156,6 +159,7 @@ TOP_STAGES = [k for k, _, nested in STAGES if not nested]
 COMPILE_STAGES = {"c_build", "c1_compile"}
 PIPELINE_PATHS = [".github/workflows/nightly.yml", "scripts/ci/", "scripts/cmux-next/"]
 CODE_SUFFIXES = (".swift", ".rs")
+PR_NUMBER_RE = re.compile(r"(?:Merge pull request\s+#?|\(#|\bPR\s*#?)(\d+)", re.I)
 
 
 class SourceError(Exception):
@@ -236,6 +240,96 @@ def landing_times(git_dir: str, base_ref: str, run: Callable = subprocess.run) -
         if len(parts) == 2 and parts[1].isdigit():
             times[parts[0]] = float(parts[1])
     return times
+
+
+def first_parent_pr_merges(git_dir: str, base_ref: str, since: float,
+                           run: Callable = subprocess.run) -> List[Dict[str, Any]]:
+    """Return first-parent merge commits newer than ``since``.
+
+    Merge subjects normally carry GitHub's ``Merge pull request #N`` text. A
+    merge without that metadata is retained with a missing PR number so the
+    report can show it as unattributed instead of silently dropping it.
+    """
+    out = git(git_dir, ["log", "--first-parent", "--format=%H%x09%P%x09%ct%x09%s",
+                        f"--since={iso(since)}", base_ref], run) or ""
+    rows: List[Dict[str, Any]] = []
+    for line in out.splitlines():
+        parts = line.split("\t", 3)
+        if len(parts) != 4 or not parts[2].isdigit():
+            continue
+        sha, parents, stamp, subject = parts
+        match = PR_NUMBER_RE.search(subject)
+        number = int(match.group(1)) if match else None
+        if number is None and len(parents.split()) < 2:
+            continue
+        rows.append({"sha": sha, "merged_at": iso(float(stamp)), "merged_ts": float(stamp),
+                     "pr": number, "subject": subject})
+    return rows
+
+
+def _contains_commit(git_dir: str, commit: str, head: str,
+                     run: Callable = subprocess.run) -> Optional[bool]:
+    """Whether ``head`` contains ``commit``, or None when git cannot answer."""
+    if not commit or not head:
+        return False
+    try:
+        done = run(["git", "-C", git_dir, "merge-base", "--is-ancestor", commit, head],
+                   capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if done.returncode == 0:
+        return True
+    if done.returncode == 1:
+        return False
+    return None
+
+
+def pr_attribution(records: List[Dict[str, Any]], git_dir: str, base_ref: str = BASE_REF,
+                   run: Callable = subprocess.run, now: Optional[float] = None,
+                   window_days: int = PR_WINDOW_DAYS) -> Dict[str, Any]:
+    """Associate recent first-parent PR merges with the first nightly feed containing them.
+
+    Every merge gets a row, including merges without a PR number and merges for
+    which no published nightly head can be proven. Only rows with a matched
+    feed contribute to the p50/p90 summary.
+    """
+    end = time.time() if now is None else now
+    since = end - window_days * 86400
+    merges = first_parent_pr_merges(git_dir, base_ref, since, run)
+    feeds = []
+    for record in records:
+        feed = ts(record.get("feed_at"))
+        if feed is not None and record.get("sha"):
+            feeds.append((feed, record))
+    feeds.sort(key=lambda item: item[0])
+    rows: List[Dict[str, Any]] = []
+    for merge in merges:
+        row: Dict[str, Any] = {"sha": merge["sha"], "pr": merge["pr"], "subject": merge["subject"],
+                               "merged_at": merge["merged_at"], "feed_at": None, "build": None,
+                               "merge_to_nightly": None, "status": "unattributed", "reason": None}
+        if merge["pr"] is None:
+            row["reason"] = "no PR number in merge metadata"
+        else:
+            for feed_ts, record in feeds:
+                if feed_ts <= merge["merged_ts"]:
+                    continue
+                contains = _contains_commit(git_dir, merge["sha"], record.get("sha"), run)
+                if contains:
+                    row.update({"feed_at": record.get("feed_at"), "build": record.get("build"),
+                                "merge_to_nightly": minutes(merge["merged_ts"], feed_ts),
+                                "status": "attributed"})
+                    break
+                if contains is None:
+                    row["reason"] = "could not verify nightly head ancestry"
+                    break
+            if row["status"] != "attributed" and row["reason"] is None:
+                row["reason"] = "no later published nightly contains merge"
+        rows.append(row)
+    durations = [r["merge_to_nightly"] for r in rows if r["status"] == "attributed"
+                 and isinstance(r["merge_to_nightly"], (int, float))]
+    return {"window": window_days, "window_days": window_days, "since": iso(since), "until": iso(end), "count": len(rows),
+            "attributed": len(durations), "p50": quantile(durations, 0.5), "p90": quantile(durations, 0.9),
+            "rows": rows}
 
 
 # One record
@@ -440,7 +534,11 @@ def parse_history(body: str) -> Dict[str, Any]:
         v = doc.get(key) if isinstance(doc, dict) else None
         return [x for x in v if sound(x)] if isinstance(v, list) else []
 
-    return {"records": rows("records", sound_record), "unpublished": rows("unpublished", sound_unpublished)}
+    out = {"records": rows("records", sound_record), "unpublished": rows("unpublished", sound_unpublished)}
+    attribution = doc.get("pr_attribution") if isinstance(doc, dict) else None
+    if isinstance(attribution, dict) and isinstance(attribution.get("rows"), list):
+        out["pr_attribution"] = attribution
+    return out
 
 
 def merge(old: List[Dict[str, Any]], new: List[Dict[str, Any]], order: str, keep: int) -> List[Dict[str, Any]]:
@@ -539,6 +637,7 @@ def record(repo: str, hq_repo: str, newest: int, git_dir: str, base_ref: str, to
                             if u["sign_run"] not in signed and u["sign_run"] not in published]
     state["new"] = [r["build"] for r in sorted(new_recs, key=lambda r: r["feed_at"])]
     state["new_unpublished"] = [u["sign_run"] for u in new_unp]
+    state["pr_attribution"] = pr_attribution(state["records"], git_dir, base_ref, run=run)
     state["why"] = "; ".join(whys) or None
     return state
 
@@ -655,10 +754,12 @@ def bisect(records: List[Dict[str, Any]], verdicts: List[Dict[str, Any]], i: int
     return out
 
 
-def check(records: List[Dict[str, Any]], git_dir: str, run: Callable = subprocess.run) -> Dict[str, Any]:
+def check(records: List[Dict[str, Any]], git_dir: str, run: Callable = subprocess.run,
+          base_ref: str = BASE_REF, pr_now: Optional[float] = None) -> Dict[str, Any]:
     """The verdict of the newest record."""
     if not records:
-        return {"build": None, "verdict": "no record", "over": None, "slow": {}, "diff": None, "bisect": [], "rows": []}
+        return {"build": None, "verdict": "no record", "over": None, "slow": {}, "diff": None, "bisect": [],
+                "rows": [], "pr_attribution": pr_attribution([], git_dir, base_ref, run=run, now=pr_now)}
     verdicts = judge(records)
     i = len(records) - 1
     cur, v = records[i], verdicts[i]
@@ -680,12 +781,14 @@ def check(records: List[Dict[str, Any]], git_dir: str, run: Callable = subproces
              "over": verdicts[j]["over"], "slow": sorted(verdicts[j]["slow"])}
             for j, r in enumerate(records)][-TABLE_ROWS:]
     over_now = [r["merge_to_feed"] for r in records[-TRAILING:] if r.get("merge_to_feed") is not None]
+    prs = pr_attribution(records, git_dir, base_ref, run=run, now=pr_now)
     return {"build": cur["build"], "sha": cur.get("sha"), "feed_at": cur.get("feed_at"), "verdict": verdict,
             "merge_to_feed": cur.get("merge_to_feed"), "budget_min": BUDGET_MIN, "over": v["over"], "slow": v["slow"],
             "ref_kind": ref_kind if ref_i is not None else None,
             "diff": diff(records[ref_i], cur, v["medians"], git_dir, run) if ref_i is not None else None,
             "bisect": bisects, "rows": rows,
-            "p50": quantile(over_now, 0.5), "p95": quantile(over_now, 0.95), "window": len(over_now)}
+            "p50": quantile(over_now, 0.5), "p95": quantile(over_now, 0.95), "window": len(over_now),
+            "pr_attribution": prs}
 
 
 # Markdown
@@ -716,6 +819,19 @@ def render_verdict(c: Dict[str, Any], repo: str = REPO) -> str:
             f"`{STAGE_LABEL.get(k, k)}` {val:.1f} min (median {m:.1f})" for k, (val, m) in sorted(c["slow"].items()))]
     if c["verdict"] == "in budget":
         out += ["", "In budget, no slow stage."]
+    prs = c.get("pr_attribution") or {}
+    if prs:
+        out += ["", f"## PR merge to NIGHTLY (newest {prs.get('window', prs.get('window_days', PR_WINDOW_DAYS))} days)",
+                f"Attributed {prs.get('attributed', 0)} of {prs.get('count', 0)} first-parent merges. "
+                f"p50 {num(prs.get('p50'), ' min')}, p90 {num(prs.get('p90'), ' min')}."]
+        if prs.get("rows"):
+            out += ["", "| Merge (UTC) | PR | Nightly | Merge to NIGHTLY | Status |", "| --- | --- | --- | --- | --- |"]
+            for row in prs["rows"]:
+                label = f"#{row['pr']}" if row.get("pr") is not None else "unattributed"
+                nightly = row.get("build") or "—"
+                duration = num(row.get("merge_to_nightly"), " min")
+                status = row.get("status") if row.get("status") == "attributed" else row.get("reason") or "unattributed"
+                out.append(f"| {(row.get('merged_at') or '')[:16].replace('T', ' ')} | {label} | {nightly} | {duration} | {status} |")
     d = c.get("diff")
     if d and (c["over"] or c["slow"]):
         out += ["", f"### Diff from the {c['ref_kind']}: build {d['ref_build']} ({short(d['ref_sha'])}), "
@@ -779,23 +895,25 @@ def render_table(rows: List[Dict[str, Any]]) -> str:
     return "\n".join(out)
 
 
-def history_doc(records: List[Dict[str, Any]], unpublished: List[Dict[str, Any]], jobs_keep: int = JOBS_KEEP) -> str:
+def history_doc(records: List[Dict[str, Any]], unpublished: List[Dict[str, Any]], jobs_keep: int = JOBS_KEEP,
+                pr_data: Optional[Dict[str, Any]] = None) -> str:
     keep_jobs = {r["sign_run"] for r in records[-jobs_keep:]} if jobs_keep else set()
     recs = [r if r["sign_run"] in keep_jobs else {k: v for k, v in r.items() if k != "jobs"} for r in records]
     doc = {"schema": SCHEMA, "budget_min": BUDGET_MIN, "top_stages": TOP_STAGES, "records": recs,
-           "unpublished": unpublished}
+           "unpublished": unpublished, "pr_attribution": pr_data or {"window": PR_WINDOW_DAYS, "window_days": PR_WINDOW_DAYS,
+           "count": 0, "attributed": 0, "p50": None, "p90": None, "rows": []}}
     return json.dumps(doc, separators=(",", ":"))
 
 
 def history_comment(records: List[Dict[str, Any]], unpublished: List[Dict[str, Any]],
-                    jobs_keep: int = JOBS_KEEP) -> str:
+                    jobs_keep: int = JOBS_KEEP, pr_data: Optional[Dict[str, Any]] = None) -> str:
     """The hidden comment as written: base64 holds no "-->", so a job name cannot end it early."""
-    z = base64.b64encode(zlib.compress(history_doc(records, unpublished, jobs_keep).encode("utf-8"), 9)).decode("ascii")
+    z = base64.b64encode(zlib.compress(history_doc(records, unpublished, jobs_keep, pr_data).encode("utf-8"), 9)).decode("ascii")
     return f"<!-- nightly-speed-history-z: {z} -->"
 
 
 def issue_body(records: List[Dict[str, Any]], unpublished: List[Dict[str, Any]], git_dir: str,
-               run: Callable = subprocess.run) -> str:
+               run: Callable = subprocess.run, pr_data: Optional[Dict[str, Any]] = None) -> str:
     """The issue body, the oldest records dropped until it fits BODY_LIMIT, down to TRAILING + BISECT_AFTER; past that
     floor every record's per-job detail goes, then the oldest records again, and only with no record left the oldest
     unpublished lines (a line is 150 bytes; it is never dropped to make room for a record), so it is never over."""
@@ -805,6 +923,7 @@ def issue_body(records: List[Dict[str, Any]], unpublished: List[Dict[str, Any]],
     jobs_keep = JOBS_KEEP
     while True:
         c = check(records, git_dir, run)
+        current_pr_data = pr_data if pr_data is not None else c.get("pr_attribution")
         unp = list(reversed(unpublished))[:10]
         lines = [f"{ISSUE_MARK}\nWritten on each push to nightly-next by cmux `.github/workflows/nightly-speed.yml` "
                  f"(`scripts/ci/nightly_speed.py`). Do not edit: the next run replaces this body.\n", render_verdict(c),
@@ -815,7 +934,7 @@ def issue_body(records: List[Dict[str, Any]], unpublished: List[Dict[str, Any]],
             lines += [f"| {(u.get('created_at') or '')[5:16].replace('T', ' ')} | {u['sign_run']} | {u.get('push_run')} | "
                       f"{u.get('conclusion')} | {num(u.get('held_min'))} |" for u in unp]
             lines.append("")
-        body = "\n".join(lines) + f"\n{history_comment(records, unpublished, jobs_keep)}\n"
+        body = "\n".join(lines) + f"\n{history_comment(records, unpublished, jobs_keep, current_pr_data)}\n"
         if len(body) <= BODY_LIMIT or not (records or unpublished):
             return body
         if len(records) <= floor and jobs_keep:
@@ -836,7 +955,7 @@ def write_issue(state: Dict[str, Any], hq_repo: str, token: Optional[str], git_d
     published = {r["sign_run"] for r in records}
     unpublished = [u for u in merge(old["unpublished"], state.get("unpublished") or [], "created_at", UNPUBLISHED_KEEP)
                    if u["sign_run"] not in published]
-    body = issue_body(records, unpublished, git_dir, run)
+    body = issue_body(records, unpublished, git_dir, run, state.get("pr_attribution"))
     env = {**os.environ, "GH_TOKEN": token or ""}
     if issue:
         cmd = ["gh", "issue", "edit", str(issue["number"]), "--repo", hq_repo, "--body-file", "-"]
