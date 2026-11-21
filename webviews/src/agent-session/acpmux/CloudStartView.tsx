@@ -430,9 +430,9 @@ function ConnectGitHubAction({ store }: { store?: GitHubPickerStore }) {
       >
         {t("cloudRepository.connect")}
       </button>
-      {github.state.connectError && (
+      {(github.state.connectError ?? github.state.status?.message) && (
         <output className="acpmux-cloud-start__status" data-connect-error="true">
-          {github.state.connectError}
+          {github.state.connectError ?? github.state.status?.message}
         </output>
       )}
     </>
