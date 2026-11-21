@@ -96,7 +96,6 @@ SCOPED: dict[str, str] = {
     "fleet-rd-host-macos.yml": "cmux-tui/crates/cmux-rd-host/**",
     "fleet-test-compile.yml": "Packages/Shared/**",
     "gallery-advisory.yml": "webviews/** and scripts/gallery-matrix/**",
-    "gallery-health.yml": "design/icons/**",
     "ios-reliability-matrix.yml": "cmux-next-ios/rust/** and the vendored smoltcp",
     "ios-review-gate.yml": "cmux-next-ios/AppStoreReview/**, whose Markdown the gate reads",
     "iroh-v2.yml": "workers/iroh-v2/**",
