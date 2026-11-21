@@ -44,8 +44,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / ".github" / "post-merge-batch.json"
 WORKFLOW = "cmux-next-post-merge.yml"
-WEB_WORKFLOW = "cmux-next-web.yml"  # its coalescing tick (web_tick)
-WEB_TICK_BRANCH = "feat-cmux-next"
 DEFAULT_WINDOW_MINUTES = 120
 # A batch run's run-name starts with this; a probe's with PROBE (the workflow's run-name).
 BATCH = "batch"
@@ -292,23 +290,9 @@ def cmd_tick(args: argparse.Namespace) -> int:
         return 0
 
 
-def web_tick(args: argparse.Namespace) -> None:
-    """Dispatches cmux-next-web.yml's coalescing tick on the branch tip: its coalesce job decides in seconds, running
-    the web checks only when their 120-minute window has passed and the tip is not covered, so a quiet tail's pushes
-    (which yielded inside the window) are checked without any job sleeping on a runner (web_coalesce.py wait)."""
-    if args.branch != WEB_TICK_BRANCH:
-        return
-    print(f"web tick: dispatching {WEB_WORKFLOW} on {args.branch}")
-    if not args.dry_run:
-        gh_api(f"repos/{args.repo}/actions/workflows/{WEB_WORKFLOW}/dispatches", method="POST",
-               fields={"ref": args.branch, "inputs": {"tick": "true"}})
-
-
 def tick(args: argparse.Namespace) -> int:
-    try:
-        web_tick(args)
-    except RuntimeError as err:  # its own failure never skips the batch tick below
-        print(f"::warning::web tick skipped: {err}")
+    # No web tick: the batch's `web` suite gives the base its web verdict, so cmux-next-web.yml's coalescing
+    # tick (#49173) would run the same checks a second time.
     tip = gh_api(f"repos/{args.repo}/commits/{args.branch}")["sha"]
     runs = list_runs(args.repo, args.branch)
     action, reason = tick_decision(tip, runs, datetime.now(timezone.utc), window_minutes(args.window_minutes))
