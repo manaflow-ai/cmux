@@ -15,6 +15,7 @@ and the sample stays installed. `cmux ext remove ID` uninstalls it.
 | [Agent pet](agent-pet) | A cat that reacts as your agents work, wait or fail | `cmux ext dev examples/extensions/agent-pet` |
 | [Standup](agent-standup) | What your agents did since yesterday, by project | `cmux ext dev examples/extensions/agent-standup` |
 | [Workspace notes](workspace-notes) | A short to-do list for each workspace | `cmux ext dev examples/extensions/workspace-notes` |
+| [json-render widgets](json-render) | A widget an agent writes as a json-render spec from a fixed catalog, drawn with the kit in the sidebar and in chat | `cmux ext dev examples/extensions/json-render` |
 | [The Leo collection](leo-collection) | Clock, weather, gacha and usage, riced up, with a look that ties them together | `examples/extensions/leo-collection/install.sh` |
 
 `cmux ext dev` packs `src/main.ts` with `bun`, so `bun` must be on your PATH. `bun
