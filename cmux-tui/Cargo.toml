@@ -33,6 +33,7 @@ members = [
     "crates/cmux-cloud-cli",
     "crates/cmux-cloud-environment",
     "crates/cmux-conversation",
+    "crates/cmux-message-preview",
     "crates/cmux-chief",
     "bindings/rust",
     "bindings/rust-sidebar",
@@ -81,6 +82,7 @@ members = [
     "crates/cmux-process",
     "crates/cmux-hub-host",
     "crates/cmux-signed-bundle",
+    "crates/cmux-signed-envelope",
     "crates/cmux-scope",
     "crates/cmux-file-lock",
     "crates/cmux-files-host",
@@ -170,6 +172,7 @@ default-members = [
     "crates/cmux-coderouter",
     "crates/cmux-cloud-cli",
     "crates/cmux-conversation",
+    "crates/cmux-message-preview",
     "bindings/rust",
     "bindings/rust-sidebar",
     "bindings/rust-daemon-client",
@@ -211,6 +214,7 @@ default-members = [
     "crates/cmux-process",
     "crates/cmux-hub-host",
     "crates/cmux-signed-bundle",
+    "crates/cmux-signed-envelope",
     "crates/cmux-scope",
     "crates/cmux-file-lock",
     "crates/cmux-remote-protocol",
@@ -331,6 +335,7 @@ cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-git = { path = "crates/cmux-git" }
 cmux-supervise-core = { path = "crates/cmux-supervise-core" }
 cmux-file-lock = { path = "crates/cmux-file-lock" }
+cmux-signed-envelope = { path = "crates/cmux-signed-envelope" }
 cmux-projection = { path = "crates/cmux-projection" }
 cmux-worktree-care = { path = "crates/cmux-worktree-care" }
 cmux-conductor-import = { path = "crates/cmux-conductor-import" }
@@ -378,6 +383,7 @@ cmux-scope = { path = "crates/cmux-scope" }
 cmux-flow-trace = { path = "crates/cmux-flow-trace" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-conversation = { path = "crates/cmux-conversation" }
+cmux-message-preview = { path = "crates/cmux-message-preview" }
 cmux-history = { path = "crates/cmux-history" }
 cmux-tasks = { path = "crates/cmux-tasks" }
 cmux-tasks-core = { path = "crates/cmux-tasks-core" }
@@ -424,6 +430,7 @@ async-trait = "0.1"
 axum = { version = "0.8", features = ["ws", "macros"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+indexmap = "2"
 toml = "0.8"
 # Same version toml 0.8 already pulls in; used for comment-preserving edits of
 # the user's codex config.toml when syncing hook trust state.

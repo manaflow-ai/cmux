@@ -21,6 +21,9 @@ import Foundation
 /// - `row_invalidations`: listed rows whose observed content changed (`SidebarRowFeed`): one change in one workspace
 ///   marks that workspace's row only, never every row (TYPING UNDER LOAD F6).
 /// - `row_maps`: row mappings `SidebarRowFeed` ran (a new row, a dirty row, every row after an inputs change).
+/// - `row_maps_unchanged`: rows a flush mapped that came out unchanged (no patch).
+/// - `row_flushes`: flushes of the row feed that mapped rows; `row_maps` over the ticks of one ticking workspace stays at
+///   or under 1 at any sidebar length (sidebar-stress-bench.py ticks `per_tick`, perf-gate.py status).
 /// - `row_views_made`: row views a list made while it applied rows (none for a new workspace row while the list's spare
 ///   waits: `SidebarListView.makeSpareRow`).
 /// - `spare_row_views`: spare workspace row views made after a frame committed.
@@ -59,6 +62,10 @@ nonisolated enum SidebarPerfCounters {
         case orderBuilds = "order_builds"
         case rowInvalidations = "row_invalidations"
         case rowMaps = "row_maps"
+        /// Rows a flush mapped again that came out as they were: work a change no row shows paid for.
+        case rowMapsUnchanged = "row_maps_unchanged"
+        /// Flushes of the row feed that mapped rows (at most one per display frame).
+        case rowFlushes = "row_flushes"
         case rowViewsMade = "row_views_made"
         case spareRowViews = "spare_row_views"
         case rowFrames = "row_frames"
