@@ -3507,6 +3507,7 @@ class ConversationQuestionDecisionRequest:
     message_id: str
     part_index: int
     native_record: Union[bool, MissingType] = field(default=MISSING)
+    question: Union[JsonValue, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)

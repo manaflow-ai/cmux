@@ -70,7 +70,8 @@ extension HomeProjection {
         var answer = AgentQuestionAnswer(selections: [item.id: .init(optionIDs: [allow ? "allow" : "deny"])])
         guard let answerJSON = try? answer.conversationAnswer.data() else { return .init(note: CmuxStrings.approvalFailed) }
         let record = HomeQuestionRequest(chief: request.chief, conversation: conversation.rawValue, message: message.rawValue,
-                                         partIndex: partIndex, answerJSON: answerJSON)
+                                         partIndex: partIndex, answerJSON: answerJSON,
+                                         displayedQuestionJSON: question.displayedJSON)
         let receipted = HomeApprovalRequest(chief: request.chief, session: request.session, permission: request.permission,
                                             requestJSON: request.requestJSON, record: record)
         switch await approvals.decide(receipted, allow: allow, through: gate) {

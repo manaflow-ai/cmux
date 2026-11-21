@@ -23250,6 +23250,11 @@ Result<Json> Codec<ConversationQuestionDecisionRequest>::encode(const Conversati
     auto encoded_part_index = encode_value(value.part_index);
     if (!encoded_part_index) return std::move(encoded_part_index).error();
     object.emplace("part_index", std::move(encoded_part_index).value());
+    if (!value.question.is_absent()) {
+        auto encoded = encode_value(value.question);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("question", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -23298,6 +23303,16 @@ Result<ConversationQuestionDecisionRequest> Codec<ConversationQuestionDecisionRe
         auto decoded = decode_value<std::uint64_t>(*field_part_index);
         if (!decoded) return std::move(decoded).error();
         result.part_index = std::move(decoded).value();
+    }
+    const Json* field_question = value.find("question");
+    if (field_question) {
+        if (field_question->is_null()) {
+            result.question = Field<JsonValue>::null();
+        } else {
+            auto decoded = decode_value<JsonValue>(*field_question);
+            if (!decoded) return std::move(decoded).error();
+            result.question = Field<JsonValue>(std::move(decoded).value());
+        }
     }
     return result;
 }

@@ -20265,6 +20265,15 @@
       "nullable": false,
       "description": "What the person chose; only `selections` is read (the owner sets `respondent` and `answered_at`)."
      },
+     "question": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "description": "The stored Question JSON exactly as Home displayed it. Refused `question.stale` unless it parses to the stored question; required unless `native_record` is true."
+     },
      "native_record": {
       "type": {
        "kind": "scalar",
@@ -20285,7 +20294,7 @@
    "stream": null,
    "constraints": [
     "Read-only; trusted local connections only, and only where the daemon reaches acpmux (a Unix socket). Holds no key and grants nothing: acpmux alone verifies and spends the signed proof.",
-    "Refuses with a stable `question.*` code (not_found, not_local, native_approval, not_approval, closed, no_request, agent_gone, agent_busy, refused, unsupported_platform, ...).",
+    "Refuses with a stable `question.*` code (not_found, not_local, native_approval, not_approval, stale, closed, no_request, agent_gone, agent_busy, refused, unsupported_platform, ...).",
     "See spec/commands.md for the result object."
    ]
   },

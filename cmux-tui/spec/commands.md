@@ -2626,8 +2626,31 @@ A refusal carries a stable `question.*` code (for example `question.not_found`,
 `question.closed`, `question.no_request`, `question.agent_gone`,
 `question.agent_busy`, `question.refused`, `question.unsupported_platform`).
 
+Routing is the stored message's Chief author's, as the answer's delivery
+routes: that Chief's candidate acpmux sockets (else the app's), each read with
+`_acpmux/info` for `local/<session>`. A socket is used only when its
+`sessionId` is exactly the raw local id and it names no peer and, with a Chief
+route, the session is that Chief's owner subagent; otherwise the next socket
+is tried, and none gives `question.not_local`. All sockets share one deadline
+for the whole exchange (`question.agent_busy` when it runs out). The unsigned
+decision's `session` is the raw local session id (`question.not_local` when the
+stored session is no local id); the stored `question` keeps its own spelling.
+
+`question` is the stored Question JSON exactly as Home displayed it. The
+person signs for that question, not for what the daemon reads now: the reply is
+refused `question.stale` unless `question` is present and parses to the stored
+question. The reply's `question` is that snapshot, and the `question.answer`
+op's `decision` carries it back unchanged.
+
+The signed `decision` envelope carries the request as `request_json`, the exact
+canonical text the reply returned and the app verified, not as a JSON object;
+the owner checks sha256 of its bytes against `digest`, so an integer of any
+width the canonical form holds reaches acpmux unaltered, and one the app cannot
+write exactly is refused, never rounded.
+
 Params: `conversation`, `message_id`, `part_index`, `answer`
-(`object{selections}`; only `selections` is read), `native_record`
+(`object{selections}`; only `selections` is read), `question` (the displayed
+question JSON; required unless `native_record`), `native_record`
 (optional boolean, default false).
 
 Result: the unsigned decision with `question`, `request`, `request_json` and

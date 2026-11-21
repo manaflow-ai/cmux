@@ -26,6 +26,11 @@ pub(super) struct DecisionParams {
     message_id: String,
     part_index: usize,
     answer: QuestionAnswer,
+    /// The question exactly as Home displayed it (the stored `Question` JSON it received). The
+    /// person signs for this, not for whatever the daemon reads now: the decision is refused
+    /// `question.stale` unless it equals the stored question. Required, except with `native_record`.
+    #[serde(default)]
+    question: Option<Value>,
     /// `true`: the stored tool-approval card itself ([`record_question`]), for the record the app
     /// sends after it answered acpmux natively. Reads no prompt and builds no decision.
     #[serde(default)]
@@ -69,7 +74,24 @@ fn stored_question(mux: &Mux, params: &DecisionParams) -> anyhow::Result<Questio
     }
 }
 
-/// The reply: the unsigned decision, the stored question, and the live request it was read from
+/// The question Home displayed is the stored one: the displayed JSON, parsed as a `Question`,
+/// equals `stored`. A missing snapshot (`required`), one that is no question, or one the stored
+/// question has moved on from (answered, cancelled, edited) is `question.stale`.
+fn check_displayed(
+    stored: &Question,
+    displayed: Option<&Value>,
+    required: bool,
+) -> anyhow::Result<()> {
+    let Some(displayed) = displayed else {
+        return if required { Err(refused("question.stale")) } else { Ok(()) };
+    };
+    match serde_json::from_value::<Question>(displayed.clone()) {
+        Ok(shown) if shown == *stored => Ok(()),
+        _ => Err(refused("question.stale")),
+    }
+}
+
+/// The reply: the unsigned decision, the stored question (equal to the displayed one), and the live request it was read from
 /// with its digest (sha256 of its canonical JSON), which the app compares with its own read
 /// of the prompt. With the person's proof added, the reply's `question`, `request`, `digest`,
 /// `instance`, `option_id` and `decision_nonce` are the `question.answer` op's `decision`.
@@ -227,6 +249,7 @@ pub(in crate::server) fn decision(mux: &Mux, params: DecisionParams) -> anyhow::
     use super::chief_question_routes as routes;
 
     let question = stored_question(mux, &params)?;
+    check_displayed(&question, params.question.as_ref(), !params.native_record)?;
     if params.native_record {
         return record_question(&question);
     }

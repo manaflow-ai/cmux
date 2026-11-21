@@ -56,9 +56,10 @@ import Testing
         let message = try #require(item.messageID)
         let gate = HomeApprovalWriteGate(deadline: ProcessInfo.processInfo.systemUptime + 60)
         let outcome = await rig.view.projection.completeQuestion(chief: rig.chief.rawValue, answer: Self.answer, message: message,
-                                                                 partIndex: 0, through: { gate.write($0) })
+                                                                 partIndex: 0, displayed: #"{"shown":true}"#, through: { gate.write($0) })
         #expect(outcome == .answered)
         let request = try #require(decider.requests.first)
+        #expect(request.displayedQuestionJSON == #"{"shown":true}"#)
         #expect(request.chief == rig.chief.rawValue && request.message == message.rawValue && request.partIndex == 0)
         #expect(try AgentQuestionJSON(data: request.answerJSON) == ["selections": ["q0": ["option_ids": ["keys"]]]])
         #expect(await rig.source.answerDecisions == [Self.decision])

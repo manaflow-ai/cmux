@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "c39fee82b0590b607169a2a47d4b5d583870ac0922077569227a45292e40daef";
+pub const ir_sha256 = "5ef5e3f7c49d7de863d18fc83f298f34a41b331815505a3533eda7703d49c6d7";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -5771,6 +5771,8 @@ pub const ConversationQuestionDecisionRequest = struct {
     /// true returns only {question}: the stored tool-approval card, for the record after the app answered acpmux natively.
     native_record: ?bool = null,
     part_index: u64,
+    /// The stored Question JSON exactly as Home displayed it. Refused `question.stale` unless it parses to the stored question; required unless `native_record` is true.
+    question: wire.Field(JsonValue) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "native_record",

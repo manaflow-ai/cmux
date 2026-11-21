@@ -9,8 +9,13 @@ public struct HomeQuestionRequest: Sendable, Equatable {
     public let partIndex: Int
     /// The answer's JSON (`{"selections": {...}}`).
     public let answerJSON: Data
-    public init(chief: String, conversation: String, message: String, partIndex: Int, answerJSON: Data) {
+    /// The question part's JSON as Home displayed it. The daemon refuses the decision
+    /// (`question.stale`) unless it equals the stored question.
+    public let displayedQuestionJSON: String?
+    public init(chief: String, conversation: String, message: String, partIndex: Int, answerJSON: Data,
+                displayedQuestionJSON: String? = nil) {
         (self.chief, self.conversation, self.message, self.partIndex, self.answerJSON) = (chief, conversation, message, partIndex, answerJSON)
+        self.displayedQuestionJSON = displayedQuestionJSON
     }
 }
 

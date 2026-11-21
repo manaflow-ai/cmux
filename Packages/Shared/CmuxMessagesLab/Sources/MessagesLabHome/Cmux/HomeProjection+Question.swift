@@ -52,7 +52,7 @@ extension HomeProjection {
         // task-owner: one native question answer: signed here, then delivered by the conversation owner.
         Task {
             let outcome = await completeQuestion(chief: local.chief, answer: answer, message: local.message,
-                                                 partIndex: local.index, through: { body in gesture.write(body) })
+                                                 partIndex: local.index, displayed: local.question.displayedJSON, through: { body in gesture.write(body) })
             gesture.cancel()
             approvalWrites.removeAll { $0 === gesture }
             done(outcome)
@@ -120,11 +120,12 @@ extension HomeProjection {
     /// Signs the answer's decision, then has the owner deliver and record the answer with it. No
     /// answer goes to the owner without a decision.
     func completeQuestion(chief: String, answer: AgentQuestionAnswer, message: MessageID, partIndex: Int,
-                          through gate: @escaping @Sendable (() -> Void) -> Bool) async -> HomeQuestionOutcome {
+                          displayed: String? = nil, through gate: @escaping @Sendable (() -> Void) -> Bool) async -> HomeQuestionOutcome {
         guard let questions, let answerJSON = try? AgentQuestionAnswer(selections: answer.selections).conversationAnswer.data()
         else { return .refused }
         let request = HomeQuestionRequest(chief: chief, conversation: conversation.rawValue, message: message.rawValue,
-                                          partIndex: partIndex, answerJSON: answerJSON)
+                                          partIndex: partIndex, answerJSON: answerJSON,
+                                          displayedQuestionJSON: displayed)
         let signed: String
         switch await questions.decide(request, through: gate) {
         case .expired: return .expired

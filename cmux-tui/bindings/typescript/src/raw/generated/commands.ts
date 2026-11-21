@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR c39fee82b0590b607169a2a47d4b5d583870ac0922077569227a45292e40daef. */
+/* cmux-tui mux protocol 12, IR 5ef5e3f7c49d7de863d18fc83f298f34a41b331815505a3533eda7703d49c6d7. */
 
 
 import type * as T from "./types.js";
@@ -924,6 +924,8 @@ export interface ConversationQuestionDecisionRequest extends CmuxRequestBase {
   /** true returns only {question}: the stored tool-approval card, for the record after the app answered acpmux natively. */
   "native_record"?: boolean;
   "part_index": bigint;
+  /** The stored Question JSON exactly as Home displayed it. Refused `question.stale` unless it parses to the stored question; required unless `native_record` is true. */
+  "question"?: (T.JsonValue) | null;
 }
 export type ConversationQuestionDecisionResult = T.JsonValue;
 

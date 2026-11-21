@@ -4,7 +4,9 @@
 use serde_json::{Value, json};
 
 use super::super::*;
-use super::{decide_from, decide_over, error_code, record_question, request_digest};
+use super::{
+    check_displayed, decide_from, decide_over, error_code, record_question, request_digest,
+};
 use cmux_conversation::{Question, QuestionAnswer};
 
 fn question(permission: Option<&str>) -> Question {
@@ -285,4 +287,33 @@ fn a_silent_acpmux_is_held_to_the_deadline() {
     assert_eq!(error, "question.agent_busy");
     assert!(started.elapsed() < Duration::from_secs(2), "{:?}", started.elapsed());
     held.join().unwrap();
+}
+
+/// The person signs for the question Home displayed: the displayed JSON must parse to exactly the
+/// stored question, and a signing read without one is refused.
+#[test]
+fn the_displayed_question_must_be_the_stored_one() {
+    let stored = question(Some("perm_1"));
+    let shown = serde_json::to_value(&stored).unwrap();
+    assert!(check_displayed(&stored, Some(&shown), true).is_ok());
+    // Another spelling of the same question (extra or reordered fields) is the same question.
+    let mut spelled = shown.clone();
+    spelled["unknown_field"] = json!(1);
+    assert!(check_displayed(&stored, Some(&spelled), true).is_ok());
+    let stale = |displayed: Option<&Value>, required| {
+        error_code(&check_displayed(&stored, displayed, required).unwrap_err()).unwrap()
+    };
+    assert_eq!(stale(None, true), "question.stale");
+    assert!(check_displayed(&stored, None, false).is_ok());
+    let mut changed = shown.clone();
+    changed["items"][0]["prompt"] = json!("Delete it?");
+    assert_eq!(stale(Some(&changed), true), "question.stale");
+    let mut other_option = shown.clone();
+    other_option["items"][0]["options"][0]["label"] = json!("Yep");
+    assert_eq!(stale(Some(&other_option), true), "question.stale");
+    let mut closed = shown.clone();
+    closed["state"] = json!({"kind": "cancelled"});
+    assert_eq!(stale(Some(&closed), true), "question.stale");
+    assert_eq!(stale(Some(&json!("not a question")), true), "question.stale");
+    assert_eq!(stale(Some(&changed), false), "question.stale");
 }

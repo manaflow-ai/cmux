@@ -27,11 +27,13 @@ import Foundation
         if let questions {
             unsignedQuestionDecision = { request in
                 try await questions.questionDecision(conversation: request.conversation, message: request.message,
-                                                     partIndex: request.partIndex, answer: request.answerJSON)
+                                                     partIndex: request.partIndex, answer: request.answerJSON,
+                                                     question: request.displayedQuestionJSON)
             }
             storedApprovalQuestion = { request in
                 try await questions.approvalRecordQuestion(conversation: request.conversation, message: request.message,
-                                                           partIndex: request.partIndex, answer: request.answerJSON)
+                                                           partIndex: request.partIndex, answer: request.answerJSON,
+                                                           question: request.displayedQuestionJSON)
             }
         }
     }

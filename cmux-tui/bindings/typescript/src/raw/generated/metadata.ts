@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR c39fee82b0590b607169a2a47d4b5d583870ac0922077569227a45292e40daef. */
+/* cmux-tui mux protocol 12, IR 5ef5e3f7c49d7de863d18fc83f298f34a41b331815505a3533eda7703d49c6d7. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "c39fee82b0590b607169a2a47d4b5d583870ac0922077569227a45292e40daef" as const;
+export const SDK_IR_SHA256 = "5ef5e3f7c49d7de863d18fc83f298f34a41b331815505a3533eda7703d49c6d7" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1068,7 +1068,7 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Read-only; trusted local connections only, and only where the daemon reaches acpmux (a Unix socket). Holds no key and grants nothing: acpmux alone verifies and spends the signed proof.",
-      "Refuses with a stable `question.*` code (not_found, not_local, native_approval, not_approval, closed, no_request, agent_gone, agent_busy, refused, unsupported_platform, ...).",
+      "Refuses with a stable `question.*` code (not_found, not_local, native_approval, not_approval, stale, closed, no_request, agent_gone, agent_busy, refused, unsupported_platform, ...).",
       "See spec/commands.md for the result object."
     ]
   },
@@ -20690,6 +20690,15 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint64"
+          }
+        },
+        "question": {
+          "description": "The stored Question JSON exactly as Home displayed it. Refused `question.stale` unless it parses to the stored question; required unless `native_record` is true.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
           }
         }
       },
