@@ -290,7 +290,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             // A hook's step: bounded, silent, and never a failure the session sees.
             let v = crate::cli::reply_address::renew().await;
             if json_out {
-                print_json(&v)?;
+                print_json(&v);
             }
             Ok(())
         }
