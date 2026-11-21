@@ -278,10 +278,11 @@ import CmuxNextWakeupsTestSupport
         #expect(previews.asked == 2, "the card kept its picture from the other theme")
     }
 
-    /// Lawrence 2026-11-15 (msg 34360): the card snapped taller when its tab's picture landed. A card
-    /// that opened with no picture frame grows to hold the picture on the card's spring (its fixed
-    /// corner stays on the tab) while the picture fades in.
-    @Test func aPictureLandingGrowsTheCardOnItsSpring() async throws {
+    /// Lawrence 2026-11-15 (msg 34360): the card snapped taller when its tab's picture landed; the user
+    /// 2026-11-20 (a sweep across loading pages): the card changed size on nearly every tab. The card now
+    /// opens with the picture's frame (the tab's glyph in it until the picture is known), and a picture
+    /// landing late fades into that frame: the card never changes size for it.
+    @Test func aPictureLandingLateFadesIntoTheCardsFrame() async throws {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         let s = Self.strip()
@@ -291,14 +292,15 @@ import CmuxNextWakeupsTestSupport
         try await Self.open("a", s)
         try await Self.settle(until: { previews.waiting })
         try #require(previews.waiting, "the card asked for no picture")
-        // Counted, not read off a morph in flight: with no display its spring may end before the next check.
-        let before = HoverCardPanel.morphGeneration
+        let before = try s.cardFrame()
+        // Later than a picture at hand (`instantPicture`): it fades in.
+        try await Task.sleep(for: TabHoverCardController.instantPicture + .milliseconds(20))
         previews.release()
         try await Self.settle(until: { s.strip.hoverCard.shownThumbnail != nil })
         try #require(s.strip.hoverCard.shownThumbnail != nil, "the picture never landed")
-        // A growth still running when it lands (the first show's) ends first; the picture's follows it.
-        try await Self.settle(until: { HoverCardPanel.morphGeneration > before })
-        #expect(HoverCardPanel.morphGeneration > before, "the card took the picture's height at once")
+        try await Self.settle()
+        let after = try s.cardFrame().size
+        #expect(after == before.size, "the card changed size for its picture: \(before.size) then \(after)")
     }
 
     /// A picture that lands when the test says so.

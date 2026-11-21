@@ -875,7 +875,8 @@ final class ComposeView: UIView {
     /// per view (several Home tabs), from this compose bar's width.
     // cmux: the text always leaves the trailing slot (the waveform's, then the send button's).
     var textWidth: CGFloat { ComposeView.fieldWidth(bounds.width) - 24 - trailingReserve }
-    static func fieldWidth(_ windowWidth: CGFloat) -> CGFloat { 526 + windowWidth - Fixture.windowWidth }
+    // cmux: Messages' 526 pt at its window width, and wider where a narrow pane drops a button (ComposeChromeLayout).
+    static func fieldWidth(_ windowWidth: CGFloat) -> CGFloat { ComposeChromeLayout(width: windowWidth).fieldWidth }
     static let font = Fixture.bodyFont
     /// `writingTools`' raw value for reports: -1 on macOS 14 (no Writing Tools).
     static var writingToolsRaw: Int {
@@ -956,7 +957,8 @@ final class ComposeView: UIView {
     private var dy: CGFloat { bounds.height - Fixture.windowSize.height }
     var anchorBase: CGFloat { ComposeMetrics.anchorBase + dy }
     var fieldBottom: CGFloat { ComposeMetrics.fieldBottom + dy }
-    static let fieldX: CGFloat = 51
+    // cmux: Messages' 51 pt, and the "+" button's place too where a narrow pane drops it (ComposeChromeLayout).
+    static func fieldX(_ width: CGFloat) -> CGFloat { ComposeChromeLayout(width: width).fieldX }
     static let firstBaseline: CGFloat = ComposeMetrics.firstBaseline
 
     static var typing: [NSAttributedString.Key: Any] {
@@ -1113,7 +1115,7 @@ final class ComposeView: UIView {
 
     var fieldRect: CGRect { rect(height: fieldHeight) }
     func rect(height h: CGFloat) -> CGRect {
-        CGRect(x: ComposeView.fieldX, y: fieldBottom - h - 0.25, width: ComposeView.fieldWidth(bounds.width), height: h)
+        CGRect(x: ComposeView.fieldX(bounds.width), y: fieldBottom - h - 0.25, width: ComposeView.fieldWidth(bounds.width), height: h)
     }
 
     /// Text view frame (window coordinates) for a field height.
@@ -1241,6 +1243,9 @@ final class ComposeView: UIView {
     private(set) var inlineAttachments: [ID: ComposeInlineAttachment] = [:]
     /// cmux: the remove button over the inline attachment under the pointer.
     let inlineHover = ComposeInlineRemoveHover()
+    /// cmux: true while the draft takes an edit the field made (an undo that put a picture back):
+    /// `update` leaves the field's text alone then, the field already shows it.
+    var draftFollowsField = false
 
     /// The remove button of an inline attachment: its mark leaves the text as an edit, so the
     /// draft follows through the text view's own change path (`textDidChange`).
@@ -1311,10 +1316,14 @@ final class ComposeView: UIView {
         if (!(tv.string as NSString).isEqual(to: d.text) && tv.string != d.text) || d.attachments != chips {
             // Never replace text that holds marked (IME) text: the input
             // method owns it until it commits.
-            if !tv.hasMarkedText() {
+            // cmux: nor while the draft follows an edit the field made (`draftFollowsField`).
+            if !tv.hasMarkedText(), !draftFollowsField {
                 let old = tv.string as NSString, sel = tv.selectedRange()
-                tv.textStorage?.setAttributedString(ComposeInlineText.build(d.text, attachments: d.attachments, cache: &inlineAttachments,
-                                                                            scale: renderScale, onRemove: { [weak self] in self?.removeInline($0) }))
+                // cmux: a picture that came in is an undo step; any other change of the text takes the
+                // field's entries off the undo stack (ComposeFieldUndo.swift, the Cmd+Z crash).
+                tv.takeDraftText(ComposeInlineText.build(d.text, attachments: d.attachments, cache: &inlineAttachments,
+                                                         scale: renderScale, onRemove: { [weak self] in self?.removeInline($0) }),
+                                 undoable: ComposeView.onlyArrived(d.attachments, over: chips))
                 tv.typingAttributes = ComposeInlineText.attributes(inline: !d.attachments.isEmpty)
                 inlineHover.hide()  // cmux: the attachments moved; the pointer shows the button again
                 tv.setSelectedRange(ComposeView.caretAfterRebuild(old: old, new: tv.string as NSString, selection: sel,
@@ -1450,15 +1459,17 @@ final class ComposeView: UIView {
 
     private func drawButtons(_ ctx: CGContext) {
         ctx.translateBy(x: 0, y: -(995 + dy))
-        Glass.draw(ctx, rect: CGRect(x: 10.5, y: 1000 + dy, width: 31, height: 30), radius: 15, fill: 49, rim: .button)
-        Glass.draw(ctx, rect: CGRect(x: 586.5 + dx, y: 1000 + dy, width: 31, height: 30), radius: 15, fill: 49, rim: .button)
+        // cmux: a narrow pane drops the emoji button, then the "+" button (ComposeChromeLayout).
+        let chrome = ComposeChromeLayout(width: bounds.width)
+        if chrome.showsPlus { Glass.draw(ctx, rect: CGRect(x: 10.5, y: 1000 + dy, width: 31, height: 30), radius: 15, fill: 49, rim: .button) }
+        if chrome.showsEmoji { Glass.draw(ctx, rect: CGRect(x: 586.5 + dx, y: 1000 + dy, width: 31, height: 30), radius: 15, fill: 49, rim: .button) }
         // Fitted to the lossless stills: plus 15.5 pt medium, the emoji glyph (face.smiling.inverse) 15.5 pt medium.
         let cfg = UIImage.SymbolConfiguration(pointSize: 15.5, weight: .medium)
-        if let img = UIImage(systemName: "plus", withConfiguration: cfg)?.withTintColor(.white, renderingMode: .alwaysOriginal) {
+        if chrome.showsPlus, let img = UIImage(systemName: "plus", withConfiguration: cfg)?.withTintColor(.white, renderingMode: .alwaysOriginal) {
             let s = img.size, c = CGPoint(x: 26, y: 1015.25 + dy)
             img.draw(in: CGRect(x: c.x - s.width / 2, y: c.y - s.height / 2, width: s.width, height: s.height))
         }
-        if let img = FieldChrome.emojiGlyph() {
+        if chrome.showsEmoji, let img = FieldChrome.emojiGlyph() {
             let s = img.size, c = CGPoint(x: 601.875 + dx, y: 1014.875 + dy)
             img.draw(in: CGRect(x: c.x - s.width / 2, y: c.y - s.height / 2, width: s.width, height: s.height))
         }
