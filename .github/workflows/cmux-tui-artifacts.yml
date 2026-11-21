@@ -202,19 +202,21 @@ jobs:
   # One build per HOLD-minute window on the feat-cmux-next tip (base-coalesce.yml), not one per merge.
   # 2026-11-21 05-11Z: feat-cmux-next pushes built about 9 new tree keys an hour, each key's three
   # targets plus its daemon tests, about 1,700 runner-minutes an hour (cmuxterm-hq
-  # docs/ci/ci-cut-ledger.md). The first push of each window runs this workflow as before and its
-  # tree covers every commit since the last window's; every other push stops here (tree-preflight
-  # and everything after it skip, no runner taken). A tree nobody built is still had on demand:
-  # cmux-tui-tree-request.yml re-runs the commit's own run, and a re-run (attempt > 1) always runs.
+  # docs/ci/ci-cut-ledger.md). The first push of each window runs this workflow as before; every other
+  # push stops here (tree-preflight and everything after it skip, no runner taken). Only that first
+  # push builds a tree: commits after it resolve through the readers' fallback to the newest published
+  # tree, or through cmux-tui-tree-request.yml re-running the commit's own run on demand (a re-run,
+  # attempt > 1, always runs).
   # nightly-next pushes, main, dispatches and every other ref never coalesce (the coalesce job is
   # skipped on them). Bisect on a red: base-red-watch's commit_bisect over the window's range.
   # vars.NEXT_TUI_ARTIFACTS_COALESCE = '0' builds every push again; vars.NEXT_TUI_ARTIFACTS_HOLD_MINUTES
-  # sets the window (default 120, about 12 builds a day).
+  # sets the window (default 60: about 48 pushes fit the marker search's 40 commits
+  # and the probe fallback's 50 only up to an hour; about 24 builds a day).
   coalesce:
     uses: ./.github/workflows/base-coalesce.yml
     with:
       key: cmux-tui-artifacts
-      hold_minutes: ${{ fromJSON(vars.NEXT_TUI_ARTIFACTS_HOLD_MINUTES || '120') }}
+      hold_minutes: ${{ fromJSON(vars.NEXT_TUI_ARTIFACTS_HOLD_MINUTES || '60') }}
       no_coalesce: ${{ format('{0}', vars.NEXT_TUI_ARTIFACTS_COALESCE) == '0' }}
 
   # A superseded lane-branch push stops here, before it takes a preflight-sized runner.
