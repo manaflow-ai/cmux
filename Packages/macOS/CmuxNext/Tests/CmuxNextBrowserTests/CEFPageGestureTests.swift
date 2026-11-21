@@ -13,13 +13,13 @@ struct CEFPageGestureTests {
         let tracker = CEFLinkClickTracker()
         var gestures: [Int32] = []
         tracker.onGesture = { gestures.append($0) }
-        tracker.record(.leftMouseDown, on: 7, button: 0, flags: [], timestamp: 1)
+        tracker.record(.leftMouseDown, on: 7, button: 0, flags: [], timestamp: 1, byPerson: false)
         #expect(gestures == [7], "a press on the page is the person's gesture")
         #expect(tracker.clicks[7] == nil, "a press is no click yet")
-        tracker.record(.leftMouseUp, on: 7, button: 0, flags: [.command], timestamp: 2)
+        tracker.record(.leftMouseUp, on: 7, button: 0, flags: [.command], timestamp: 2, byPerson: false)
         #expect(gestures == [7, 7], "the release that ends a drag is the person's gesture too")
         #expect(tracker.clicks[7]?.timestamp == 2, "the release is still the page's last click")
-        tracker.record(.keyDown, on: 7, button: 0, flags: [], timestamp: 3)
+        tracker.record(.keyDown, on: 7, button: 0, flags: [], timestamp: 3, byPerson: false)
         #expect(gestures == [7, 7, 7])
     }
 }
