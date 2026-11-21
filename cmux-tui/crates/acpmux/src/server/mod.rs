@@ -2501,6 +2501,7 @@ mod session_auth;
 mod session_files;
 mod stream;
 mod subsessions;
+mod test_tampering_restore;
 pub(crate) mod trust_gate;
 pub mod upload_frames;
 mod view;

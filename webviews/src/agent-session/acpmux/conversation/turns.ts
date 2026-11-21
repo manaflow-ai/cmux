@@ -84,6 +84,7 @@ import { currentLanguage, translatorFor } from "../i18n";
 import { writeCall } from "./writeLabelModel";
 import { oneRowPerCall } from "./oneRowPerCall.experiment";
 import { MEMORY_OFFER } from "./memoryInbox";
+import { testTamperingTurn } from "./testTamperingTurn";
 import { PROMPT_COACH } from "./promptCoach";
 import { PRESET_APPROVAL } from "./presetApproval";
 
@@ -1088,6 +1089,7 @@ const NO_ASKS: readonly AcpmuxRow[] = [];
 type ShapedTurn = {
   /// The turn's rows after its prompt, held prompts included, as last shaped.
   source: readonly AcpmuxRow[];
+  tampering?: AcpmuxRow;
   /// Which of its folds are open (`openFolds`).
   open: string;
   /// Which of its background turns' lines are open (backgroundTurns.ts `openBackgroundTurns`).
@@ -1212,7 +1214,9 @@ function shapedTurn(
   const background = openBackgroundTurns(rows, start + 1, end, expanded);
   const messageRuns = live ? "" : openMessageRuns(rows, start + 1, end, expanded);
   const backgroundRuns = live ? "" : openBackgroundRuns(rows, start + 1, end, expanded);
-  const source = rows.slice(start + 1, end).filter((row) => !hiddenInBackground(row, foldedBackground));
+  const turnSource = rows.slice(start + 1, end);
+  const tampering = testTamperingTurn(user, turnSource);
+  const source = turnSource.filter((row) => !hiddenInBackground(row, foldedBackground));
   // The person's own prompt opened the turn after this one: a turn with no summary ended there
   // (`supersededFooters`). Part of the cache key, since that prompt is not in `source`.
   const opener = rows[end];
@@ -1220,6 +1224,7 @@ function shapedTurn(
   const cached = live ? undefined : shapedTurns.get(user);
   if (
     cached &&
+    cached.tampering === tampering &&
     cached.open === open &&
     cached.background === background &&
     cached.messageRuns === messageRuns &&
@@ -1359,12 +1364,14 @@ function shapedTurn(
       if (final >= 0) shaped[final] = { ...shaped[final]!, lastTurn: true };
     }
   }
+  if (tampering) shaped.splice(date.length + drawnUser.length, 0, tampering);
   // Shaped anew (a running turn, or a finished one whose cache key moved: the turn after it opened,
   // a row came into it), each row equal to the one it drew last time keeps that object.
   shaped = steadyRows(user, shaped);
   if (!live)
     shapedTurns.set(user, {
       source,
+      tampering,
       open,
       background,
       messageRuns,
@@ -2040,7 +2047,13 @@ function shapeTurn(
     // The tasks this fold hides, as one line each beside it (TaskLine.tsx).
     const tasks = !open && taskLook && taskLook !== "card" && work.length && !dialogue ? startedTasks(work) : [];
     const taskLine: AcpmuxRow | undefined = tasks.length
-      ? { id: `${TASK_LINE}-${segment.anchor.id}`, version, at: segment.anchor.at, kind: TASK_LINE, tasks }
+      ? {
+          id: `${TASK_LINE}-${segment.anchor.id}`,
+          version,
+          at: segment.anchor.at,
+          kind: TASK_LINE,
+          tasks,
+        }
       : undefined;
     if (work.length && !dialogue) {
       folded = style.conclusion;
@@ -3040,7 +3053,14 @@ function codexLiveTurn(
   // The one live block sits at the turn's bottom, as the ChatGPT and Codex apps draw it: no
   // "Working for" over the turn (with steers it stood above all of them, far from the line; Leo,
   // 2026-10-21). Between steps it reads "Thinking 18s", timed from the prompt.
-  const line: AcpmuxRow = { id: LIVE_THINKING, version: 1, at, kind: THINKING, below: true, verbKey: user.id };
+  const line: AcpmuxRow = {
+    id: LIVE_THINKING,
+    version: 1,
+    at,
+    kind: THINKING,
+    below: true,
+    verbKey: user.id,
+  };
   if (!last) return [...rows, line];
   const compactingRow = named ? undefined : liveCompaction(drawn);
   if (named) {
@@ -3439,7 +3459,9 @@ function runningLabel(tool: Parameters<typeof toolLabel>[0], text: string): stri
   const path = editedPaths(tool)[0];
   if (!path || tool.kind === "execute") return label;
   if (isEditTool(tool) && tool.status === "completed" && editedPaths(tool).length === 1)
-    return translatorFor(currentLanguage())("tools.edited.file", { file: path.split("/").pop() || path });
+    return translatorFor(currentLanguage())("tools.edited.file", {
+      file: path.split("/").pop() || path,
+    });
   // A search names its pattern, not the folder it searches in (toolNames.ts).
   const canonical = canonicalCall(tool)?.tool;
   if (canonical === "search" || canonical === "glob" || canonical === "fetch" || canonical === "websearch")
