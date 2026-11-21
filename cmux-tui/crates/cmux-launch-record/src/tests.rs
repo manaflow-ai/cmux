@@ -192,18 +192,10 @@ fn round_trip_every_v2_field() {
         (1.5, 1, 0, 1)
     );
     assert_eq!(
-        [
-            out.screen_frame_x,
-            out.screen_frame_y,
-            out.screen_frame_width,
-            out.screen_frame_height
-        ],
+        [out.screen_frame_x, out.screen_frame_y, out.screen_frame_width, out.screen_frame_height],
         [-1920., 120.5, 1920., 1080.]
     );
-    assert_eq!(
-        unsafe { CStr::from_ptr(out.image_key.as_ptr()) }.to_str().unwrap(),
-        w.image_key
-    );
+    assert_eq!(unsafe { CStr::from_ptr(out.image_key.as_ptr()) }.to_str().unwrap(), w.image_key);
 }
 #[test]
 fn rejects() {
@@ -244,9 +236,7 @@ fn ffi_windows_front_first_and_bounded_by_cap() {
     let mut out = [CmuxLaunchWindow::default(); 4];
     let ids = |out: &[CmuxLaunchWindow]| {
         out.iter()
-            .map(|w| {
-                unsafe { CStr::from_ptr(w.window_id.as_ptr()) }.to_str().unwrap().to_owned()
-            })
+            .map(|w| unsafe { CStr::from_ptr(w.window_id.as_ptr()) }.to_str().unwrap().to_owned())
             .collect::<Vec<_>>()
     };
     assert_eq!(unsafe { cmux_launch_record_windows(path.as_ptr(), out.as_mut_ptr(), 4) }, 3);
@@ -254,14 +244,8 @@ fn ffi_windows_front_first_and_bounded_by_cap() {
     let mut two = [CmuxLaunchWindow::default(); 2];
     assert_eq!(unsafe { cmux_launch_record_windows(path.as_ptr(), two.as_mut_ptr(), 2) }, 3);
     assert_eq!(ids(&two), ["front", "middle"]);
-    assert_eq!(
-        unsafe { cmux_launch_record_windows(path.as_ptr(), std::ptr::null_mut(), 0) },
-        3
-    );
-    assert_eq!(
-        unsafe { cmux_launch_record_windows(path.as_ptr(), std::ptr::null_mut(), 1) },
-        0
-    );
+    assert_eq!(unsafe { cmux_launch_record_windows(path.as_ptr(), std::ptr::null_mut(), 0) }, 3);
+    assert_eq!(unsafe { cmux_launch_record_windows(path.as_ptr(), std::ptr::null_mut(), 1) }, 0);
     assert_eq!(unsafe { cmux_launch_record_windows(std::ptr::null(), out.as_mut_ptr(), 4) }, 0);
     // One unusable window makes the whole call fail, zeroing what it wrote.
     data.windows[2].id = "x".repeat(65);
@@ -324,10 +308,7 @@ fn atomic_write_preserves_previous_on_invalid_input() {
     write_atomic(dir.record(), &data).unwrap();
     data.windows[0].id = "replacement".into();
     write_atomic(dir.record(), &data).unwrap();
-    assert_eq!(
-        LaunchRecord::read(dir.record()).unwrap().front_window().unwrap().id,
-        "replacement"
-    );
+    assert_eq!(LaunchRecord::read(dir.record()).unwrap().front_window().unwrap().id, "replacement");
     let previous = fs::read(dir.record()).unwrap();
     data.session_socket_path = "x".repeat(MAX_BYTES);
     assert!(write_atomic(dir.record(), &data).is_err());
@@ -340,26 +321,16 @@ fn atomic_write_preserves_previous_on_invalid_input() {
 fn ffi_strings_are_terminated_or_output_is_zero() {
     let dir = TestDir::new();
     let path = std::ffi::CString::new(dir.record().to_str().unwrap()).unwrap();
-    for (id_len, key_len, expected) in [(64, 1024, true), (65, 1024, false), (64, 1025, false)]
-    {
+    for (id_len, key_len, expected) in [(64, 1024, true), (65, 1024, false), (64, 1025, false)] {
         let mut data = sample();
         data.windows[0].id = "w".repeat(id_len);
         data.windows[0].image_key = "p".repeat(key_len);
         write_atomic(dir.record(), &data).unwrap();
         let mut out = CmuxLaunchWindow { display_id: 999, ..Default::default() };
-        assert_eq!(
-            unsafe { cmux_launch_record_front_window(path.as_ptr(), &mut out) },
-            expected
-        );
+        assert_eq!(unsafe { cmux_launch_record_front_window(path.as_ptr(), &mut out) }, expected);
         if expected {
-            assert_eq!(
-                unsafe { CStr::from_ptr(out.window_id.as_ptr()) }.to_bytes().len(),
-                id_len
-            );
-            assert_eq!(
-                unsafe { CStr::from_ptr(out.image_key.as_ptr()) }.to_bytes().len(),
-                key_len
-            );
+            assert_eq!(unsafe { CStr::from_ptr(out.window_id.as_ptr()) }.to_bytes().len(), id_len);
+            assert_eq!(unsafe { CStr::from_ptr(out.image_key.as_ptr()) }.to_bytes().len(), key_len);
         } else {
             assert_eq!(out.display_id, 0);
             assert_eq!(out.frame_width, 0.0);

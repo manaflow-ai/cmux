@@ -51,12 +51,7 @@ fn past_its_timed_budget_a_loop_reports_waiting_for_an_event_with_its_reason() {
         }
         assert_eq!(after, None, "{}: no timer is added", preset.name());
         let wait = pacer.wait();
-        assert_eq!(
-            wait,
-            RetryWait::ForEvent(WaitReason::TimedBudgetSpent),
-            "{}",
-            preset.name()
-        );
+        assert_eq!(wait, RetryWait::ForEvent(WaitReason::TimedBudgetSpent), "{}", preset.name());
         assert_eq!(
             (wait.state(), wait.reason()),
             ("waiting-for-event", Some("timed-budget-spent"))
