@@ -205,6 +205,7 @@ jobs:
     needs: base-only
     if: ${{ !cancelled() && needs.base-only.outputs.base_only != 'true' && contains(fromJSON('["opened","synchronize","reopened","ready_for_review"]'), github.event.action) && vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks the Blacksmith size
+    timeout-minutes: 10
     permissions:
       contents: read
       pull-requests: write
@@ -511,8 +512,10 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 1
           persist-credentials: false
+      # Refs only: no submodule commits. Fetching every branch otherwise also fetches each branch's
+      # ghostty pins, and one pin upstream no longer serves fails the job ("not our ref").
       - name: Fetch split refs without blobs
-        run: git fetch --no-tags --filter=blob:none --unshallow origin
+        run: git fetch --no-tags --no-recurse-submodules --filter=blob:none --unshallow origin
       # The classifier comes from the base: a head branched before the guard has no copy, and a
       # pull request should not grade itself with its own edits to the guard.
       - name: Report split metrics
