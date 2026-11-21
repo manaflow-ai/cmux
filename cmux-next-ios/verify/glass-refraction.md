@@ -45,8 +45,12 @@ Baseline fleet steps:
 - `028408ff6ee1a225757a132e`: composer, workspace and settings stills.
 - `11f07b01c3124077c992b4b8`: scroll/menu/terminal captures and video.
 
-Both exceeded the client's 600-second queue deadline without a result; the
-steps remain queued. No screenshot or passing test receipt is available yet.
+Both later completed. Final-head step `5a379546814e454b8d93dd54` at
+`dbd77150a475` passed 18 tests, 0 failed, 0 skipped (iPhone 17 Pro, iOS 26.5).
+In the scrolled-back and keyboard-up reading frames, terminal rows continue
+under the composer and key row and bend at the glass edge; the foreground
+150 ms and 2 s frames are byte-identical, with no stale chrome. Stills and
+hashes: cmuxterm-hq `docs/findings/evidence/ios-glass-refraction/`.
 After captures, run `cmux-next-ios/scripts/review.sh --tag ios-glass-refraction`
 from a signed-in Mac origin to obtain the required physical iPhone receipt.
 The lane VM cannot substitute simulator evidence for that phone handoff.
