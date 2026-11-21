@@ -1572,7 +1572,15 @@ impl Hub {
                             if stopping {
                                 inbox.due_now = true;
                             }
+                            // Nor does a probe of an account's or the pool's limit (a turn
+                            // of a chat with a strike, `rate_hold.rs`): a steer would be a
+                            // second full-context request into the same limit. What is new
+                            // waits for the turn's end.
+                            let probing = session.rate_hold.probing()
+                                || self.pool_holds(session)
+                                || self.pool_probing(session);
                             if stopping
+                                || probing
                                 || !steers
                                 || turn.persons
                                 || inbox.held_by_person

@@ -462,7 +462,14 @@ words (a context past 200K tokens compacts first), the row's `rateLimitedUntil` 
 and `acpmux retry` is refused (`retry.rate_limited`) until then. Six such turns in a row, or a
 Stop (or `session stop`) while the limit has the chat, park it (`rateLimitParked`): nothing
 starts by itself until `acpmux retry` or the person's own prompt, which send it on with what
-queued as one turn. A daemon restart keeps the hold, the park and the strikes.
+queued as one turn. A daemon restart keeps the hold, the park and the strikes. Every failed
+turn goes through that one hold, whatever started it (a notice, another agent's message, a
+trigger): it holds for the strikes' backoff (60 s, doubling, jittered), or until a named reset,
+and the chat goes on by itself at its end even with `autoResumeDelaysMs: []`. The SR2 gateway's
+503 "no non-exhausted ... accounts" holds every chat of that harness on the daemon until the
+reset it names; then one chat (the smallest context with work waiting) probes, and only if it
+gets through do the others go on (`hub/pool_hold.rs`). The row's `rateLimitRetries1h` counts the
+turns a limit refused in the last hour (`acpmux ls`: "rate-limited until 03:00Z, 4 retries/1h").
 `acpmux retry NAME` (`_acpmux/retry {sessionId}`, the Retry button; the sub-session tool
 `retry_session`) retries a failed last turn now, under the caller's rules, taking over a waiting
 retry: the failed prompt goes again as its next `~resume-<n>` (a continuation when the turn had

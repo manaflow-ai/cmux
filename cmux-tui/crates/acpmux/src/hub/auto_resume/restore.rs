@@ -261,6 +261,11 @@ impl Hub {
             });
             return;
         }
+        // A limit's continuation is on by itself (`rate_hold.rs`), across a restart too.
+        let limited = super::super::turn_errors::resume_cause(&error, &error) == Some("rate_limit")
+            || super::super::pool_hold::is_pool_exhausted(&error);
+        let delays =
+            if limited { super::rate_limit_waits(delays, self.min_hold_ms()) } else { delays };
         if delays.is_empty() && (retry.is_some() || !has_retry_marker) {
             self.append(
                 session,
@@ -379,7 +384,9 @@ impl Hub {
         tokio::spawn(async move {
             // As with a restored queued prompt, wait for login environment and catalog.
             hub.wait_startup().await;
-            if hub.config.read().await.auto_resume_delays_ms.as_ref().is_some_and(Vec::is_empty) {
+            let off =
+                hub.config.read().await.auto_resume_delays_ms.as_ref().is_some_and(Vec::is_empty);
+            if off && retry.reason != RetryReason::RateLimit && !limited {
                 if hub.take_pending(&session, &turn_id) {
                     hub.settled_unretried(&session, &turn_id, "off");
                 }

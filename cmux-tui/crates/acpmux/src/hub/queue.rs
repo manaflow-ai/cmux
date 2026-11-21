@@ -424,7 +424,7 @@ impl Hub {
                     let free = |_: &_| {
                         session.turn().is_none()
                             && !queue_waits(session)
-                            && !Self::rate_holds(session, p.provenance)
+                            && !self.rate_holds(session, p.provenance)
                             && (!self.restore_holds(session) || self.at_4dcb())
                     };
                     match guard.filter(free) {
@@ -459,7 +459,7 @@ impl Hub {
                     let rate_compaction =
                         p.after_turn && super::auto_resume::rate_compaction_runs(session);
                     if (queue_waits(session) && !rate_compaction)
-                        || Self::rate_holds(session, p.provenance)
+                        || self.rate_holds(session, p.provenance)
                     {
                         drop(guard);
                         // Its `queued` reservation is still counted.
@@ -977,13 +977,13 @@ impl Hub {
                 let held = mine.is_some_and(QueuedPrompt::aside);
                 let provenance = mine.and_then(|q| q.run.provenance.clone());
                 let waits = |q: &&QueuedPrompt| {
-                    q.aside() || Self::rate_holds(session, q.run.provenance.as_ref())
+                    q.aside() || self.rate_holds(session, q.run.provenance.as_ref())
                 };
                 let head = queue.iter().find(|q| !waits(q)).is_none_or(|q| q.turn_id == turn_id);
                 (head, held, provenance)
             };
             let moving = session.moving().is_some();
-            let rate_held = Self::rate_holds(session, provenance.as_ref());
+            let rate_held = self.rate_holds(session, provenance.as_ref());
             if head && !held && !moving && !rate_held && session.turn().is_none() {
                 if !self.shutting_down() {
                     match self.take_run_slot(session, provenance.as_ref()) {
