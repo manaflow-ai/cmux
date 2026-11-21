@@ -882,12 +882,25 @@ class Workflow(unittest.TestCase):
         upkeep = self.job("webviews-test-history")
         self.assertIn("github.event_name == 'push'", upkeep)
         self.assertIn("webviews_test_history.py record", upkeep)
-        self.assertIn('webviews_test_history.py fetch "$RUNNER_TEMP/webviews-test-history/history.json"', upkeep)
+        self.assertIn('history="$RUNNER_TEMP/webviews-test-history/history.json"', upkeep)
+        self.assertIn('webviews_test_history.py fetch "$history"', upkeep)
         self.assertIn('--branch "$BRANCH"', upkeep)
         self.assertIn("name: webviews-test-history\n", upkeep)
         self.assertIn("timeout-minutes: 5", upkeep)
-        # The cache the history used to live in was never restored by the next push (2026-11-08).
-        self.assertNotIn("actions/cache", upkeep)
+        # One fixed cache key was never replaced, so the next push restored a stale history (2026-11-08): every save
+        # takes a key of its own and every restore takes the newest by prefix. The path is relative to the workspace
+        # in both, since the cache version hashes the path as written and runner.temp differs between runners.
+        scope = self.job("web-subarea-scope")
+        for text, key in ((upkeep, "webviews-test-history-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}"),
+                          (scope, "webviews-test-history-${{ github.base_ref }}-${{ github.run_id }}")):
+            self.assertIn(f"key: {key}\n", text)
+            paths = re.findall(r"path: ([^\n]+)\n\s+key: webviews-test-history-", text)
+            self.assertTrue(paths)
+            self.assertEqual(set(paths), {".webviews-test-history-cache/history.json"})
+        self.assertIn("restore-keys: webviews-test-history-${{ github.ref_name }}-\n", upkeep)
+        self.assertIn("restore-keys: webviews-test-history-${{ github.base_ref }}-\n", scope)
+        self.assertIn("actions/cache/save@", upkeep)
+        self.assertNotIn("actions/cache/save@", scope)
         # Optional upkeep: every step keeps going, so a stalled download or save never reddens a push. Only the last
         # step, which names reds stuck on the base, may turn the job red, and it runs after the history is saved.
         steps = upkeep.split("\n      - name: ")[1:]
