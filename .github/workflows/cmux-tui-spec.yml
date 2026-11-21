@@ -82,7 +82,6 @@ on:
       - "schemas/terminal-sizing/fixtures.json"
       - "scripts/ci/init-submodule.sh"
       - "scripts/ci/apt-ensure.sh"
-      - "tests/test_ci_apt_ensure.py"
       - "scripts/cmux-next/cargo-locks.py"
       - "scripts/install-zig-ci.sh"
       - "webviews/src/agent-session/acpmux/rows/parity/**"
