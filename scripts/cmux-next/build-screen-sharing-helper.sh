@@ -50,7 +50,7 @@ crate="$repo_root/cmux-tui/crates/cmux-rd-host"
 # routes a pull request to the app scheme compile. The Xcode phase "Bundle Screen Sharing helper"
 # lists the same crates; scripts/cmux-next/tests/test_screen_sharing_helper_inputs.py checks both
 # against Cargo.toml.
-inputs=(cmux-tui/crates/cmux-rd-host cmux-tui/crates/cmux-codecs cmux-tui/crates/cmux-encode
+inputs=(cmux-tui/crates/cmux-rd-host cmux-tui/crates/cmux-codecs cmux-tui/crates/cmux-encode cmux-tui/crates/cmux-file-lock
   cmux-tui/crates/cmux-hub-host cmux-tui/crates/cmux-process cmux-tui/crates/cmux-rd-core
   cmux-tui/crates/cmux-rd-engine cmux-tui/crates/cmux-rd-link cmux-tui/crates/cmux-rd-proto
   cmux-tui/crates/cmux-transport cmux-tui/vendor cmux-tui/Cargo.toml)
