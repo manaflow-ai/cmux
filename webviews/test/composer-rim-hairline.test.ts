@@ -179,9 +179,11 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
   // on up (composerLocation.css), so the card itself must not draw the ring a second time. Under a
   // new chat's location strip the card keeps its own whole ring and no layer (#25304, Leo
   // 2026-10-25: the strip's chips stand over the started chat's card).
+  // Under Plain glass the light is the material's soft band inside the edge, never a line on it
+  // (composer-one-edge.test.ts); the lens keeps its own specular line.
   for (const [mode, rim] of [
     ["lens", "0px 0.5px 0px 0px inset"],
-    ["plain", "0px 0.5px 0px 0px inset"],
+    ["plain", "1px 1.5px 1px -1px inset"],
   ] as const) {
     test(`over art a card under a queue draws the ${mode} rim but not a second ring; under a strip its own`, async () => {
       const page = await open(2);
@@ -211,7 +213,14 @@ await requireBrowserLane("composer-rim-hairline.test.ts", async () => {
   test("over art focus leaves the glass card's top-lit rim as it rests and adds no ring", async () => {
     const page = await open(2);
     await page.evaluate(() => document.documentElement.setAttribute("data-cmux-see-through", ""));
-    const topRim = async () => (await insets(page, "composer")).find(({ spread }) => spread === 0)?.alpha ?? 0;
+    // The top light: the material's soft band inside the edge (composer-one-edge.test.ts).
+    const topRim = async () =>
+      page.evaluate(() => {
+        const shadow = getComputedStyle(document.getElementById("composer")!).boxShadow;
+        const band = shadow.split(/,(?![^()]*\))/).find((layer) => layer.includes("1px 1.5px 1px -1px inset"));
+        const alpha = band?.match(/\/\s*([\d.]+)\)/)?.[1];
+        return band === undefined ? 0 : alpha === undefined ? 1 : Number(alpha);
+      });
     const rest = await insets(page, "composer");
     const restTop = await topRim();
     expect(restTop, "the glass card draws its top-lit rim").toBeGreaterThan(0);

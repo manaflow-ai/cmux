@@ -5,9 +5,13 @@ The verdict of a PR head waits on five control jobs (push-head-preflight, portab
 app-compile-placement, macos-placement), four deep, before its first test. Each took a shared RUNNER_POOLS Linux pool,
 so each re-entered the PR queue: on 2026-11-20 the slowest open heads sat 4 to 25 h on macOS placement
 (blacksmith-16vcpu-ubuntu-2404, 3,628 queued) or push head preflight (blacksmith-32vcpu-ubuntu-2404)
-(cmuxterm-hq goals/pr-verdict-fast.md). cmux-gcp-pr-control-jit-x64 is served only by cmuxterm-hq gha-runners'
-one-job JIT VMs, kept warm (PR_CONTROL_JIT_LABEL), and only these hops name it. Attempt 2 takes the old pools, the way
-out if those runners are down.
+(cmuxterm-hq goals/pr-verdict-fast.md). cmux-gcp-pr-control-jit-x64 is served only by cmuxterm-hq's runner pool,
+one-job JIT VMs with a warm floor (runner_pool.py PR_CONTROL_JIT_LABEL). A feat-cmux-next push's control jobs take it
+too (#48261). Attempt 2 of a PR takes the old pools, the way out if those runners are down.
+
+The first landing (#47887) was reverted (#48183): the pool spent every create on a deep nightly backlog and the label
+got none. cmuxterm-hq#15779 gives each label a fair first share of every tick's creates; after it, push control jobs on
+this label started within 2 s.
 """
 from __future__ import annotations
 
@@ -22,7 +26,7 @@ ARM = ("github.event_name == 'pull_request' && github.event.pull_request.head.re
        f"github.run_attempt == 1 && '{LABEL}'")
 FORK = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
 PUSH = ("github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && "
-        "'cmux-gcp-nightly-jit-x64' || ")
+        f"'{LABEL}' || ")
 HOPS = ("push-head-preflight", "portable-placement", "path_route", "app-compile-placement", "macos-placement")
 
 
@@ -44,12 +48,10 @@ class PrControlOnJit(unittest.TestCase):
                     continue
                 self.assertIn("head.repo.full_name == github.repository", runs_on)
 
-    def test_only_the_hops_name_the_label(self) -> None:
+    def test_only_the_hops_send_a_pull_request_to_the_label(self) -> None:
         for name, job in self.jobs.items():
             with self.subTest(job=name):
-                runs_on = str(job.get("runs-on", ""))
-                self.assertEqual(runs_on.count(LABEL), 1 if name in HOPS else 0)
-                self.assertEqual(runs_on.count(LABEL), runs_on.count(ARM))
+                self.assertEqual(str(job.get("runs-on", "")).count(ARM), 1 if name in HOPS else 0)
 
 
 if __name__ == "__main__":
