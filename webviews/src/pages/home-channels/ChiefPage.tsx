@@ -66,6 +66,7 @@ const same = (a: readonly string[], b: readonly string[]) => [...a].sort().join(
 export function ChiefPage({ service, strings, chief: given, picture, chiefName }: ChiefPageProps) {
   const { t, format } = strings;
   const titleId = useId();
+  const lockId = useId();
   // The record the editor started from; an Undo or Restore replaces it (and the fields).
   const [base, setBase] = useState<HomeChief | undefined>(given);
   const chief = base;
@@ -424,12 +425,13 @@ export function ChiefPage({ service, strings, chief: given, picture, chiefName }
               {readOnly ? t("chief.appOnly") : noHarness ? t("chief.harnesses.pick") : ""}
             </span>
           </fieldset>
-          <label className="ce-switch-row">
+          <label className="ce-switch-row" htmlFor={lockId}>
             <span className="ce-switch-text">
               <span className="ce-switch-title">{t("chief.lock.title")}</span>
               <span className="ce-note">{t("chief.lock.note")}</span>
             </span>
             <Switch
+              id={lockId}
               className="ce-switch"
               data-chief-lock=""
               aria-label={t("chief.lock.title")}
