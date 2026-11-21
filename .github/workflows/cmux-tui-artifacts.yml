@@ -114,7 +114,11 @@ concurrency:
   # One group per feat-cmux-next or nightly-next push (cx-73f2), per other
   # pushed branch, and per commit for a manual dispatch. Pin refs are refused before preflight.
   # cancel-in-progress stays false: a started run is never cancelled, so no
-  # publish of immutable objects stops mid-upload.
+  # publish of immutable objects stops mid-upload. A lane branch's run that is
+  # still queued with no job started holds its ref-<ref> group the same way, so
+  # the branch head's run waits behind it (runs 44428962232 and 44781509486,
+  # queued for hours on 2026-11-20); the CI queue janitor (main's
+  # scripts/ci/queue_janitor.py) cancels such a run once the branch has moved.
   # feat-cmux-next pushes do not share a workflow group (the group cannot read
   # the tree key, which a job computes): GitHub replaces the pending run of a
   # group with the newer one, and that dropped every intermediate merge train
