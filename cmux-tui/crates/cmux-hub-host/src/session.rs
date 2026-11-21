@@ -239,6 +239,12 @@ pub fn serve(
                                 })
                                 .collect();
                             doc.current_display = line["current"].as_u64().map(|c| c as usize);
+                            doc.display_ids = line["display_ids"]
+                                .as_array()
+                                .map(|ids| {
+                                    ids.iter().filter_map(|i| Some(i.as_u64()? as u32)).collect()
+                                })
+                                .unwrap_or_default();
                         }
                         if let Some(key) = line["key"].as_str() {
                             answer.get_or_insert_with(RdDocument::default).key = key.to_owned();
@@ -433,7 +439,11 @@ pub fn setup_line(ticket: &Ticket, offer: &RdDocument, view_only: bool) -> Value
         "scope": if view_only { "view" } else { "control" },
         "stun": stun,
         "turn": turn,
-        "display": offer.display.map_or_else(|| "main".to_owned(), |d| d.to_string()),
+        "display": match (offer.display_id, offer.display) {
+            (Some(id), _) => format!("id:{id}"),
+            (None, Some(d)) => d.to_string(),
+            (None, None) => "main".to_owned(),
+        },
         "max_fps": offer.max_fps.map(|f| f.min(120)),
         "max_width": offer.max_width,
     })
@@ -524,6 +534,9 @@ mod tests {
         assert_eq!(line["display"], "1");
         assert_eq!(line["viewer"]["user"], "v1");
         assert_eq!(setup_line(&ticket, &RdDocument::default(), false)["display"], "main");
+        // A run's screen link names its display by CGDirectDisplayID, which wins over an index.
+        let by_id = RdDocument { display: Some(1), display_id: Some(17), ..RdDocument::default() };
+        assert_eq!(setup_line(&ticket, &by_id, true)["display"], "id:17");
         assert_eq!(setup_line(&ticket, &RdDocument::default(), false)["scope"], "control");
     }
 
