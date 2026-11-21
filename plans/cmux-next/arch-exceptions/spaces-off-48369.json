@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-20",
+  "row": "app_lines",
+  "allow": 65,
+  "why": "https://github.com/manaflow-ai/cmux/issues/48355 (PR https://github.com/manaflow-ai/cmux/pull/48369): Spaces off by default. The gate itself lives in CmuxNextActions (SpacesGate); the App lines are the window-owner hooks that only WindowManager can hold: switchProfile's refusal, the new window's space (state(for:), WorkspaceSpawn.profile), WindowOwnSpace and shareSpaces staying inert, bringing a picked or moved workspace into the shown space instead of switching, and the setting-flip observation. 65 lines over the base (24 in 4db1b351c2, the rest in c0071c6).",
+  "author": "claude opus (feat-cmux-next-48355-spaces-off)",
+  "owner": "feat-cmux-next-48355-spaces-off; moves to the Windows domain package with WindowManager+Profiles",
+  "receipt": "Review (claude subagent, started by claude opus feat-cmux-next-48355-spaces-off): SHIP at c0071c62262100248c49b54867adedf894449bf8",
+  "expiry": "2026-12-20"
+}

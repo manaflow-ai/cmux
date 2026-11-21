@@ -213,6 +213,7 @@ final class WindowManager {
     func state(for windowID: String) -> WindowState {
         if let state = states[windowID] { return state }
         let state = registry.closeSelection.watch(WindowState(id: windowID, focusInput: services.focusInput), gesture: ActionRunScope.isPersonsAction)
+        if let space = spaceForNewWindow, !registry.value.isIncognito(windowID) { state.enterProfile(space) } // Spaces off (#48355): the person's space
         state.onProfileChange = { [weak self] in self?.registry.spaceEntered(windowID); self?.spaceDidChange() }
         states[windowID] = state
         return state

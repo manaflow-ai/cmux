@@ -21,6 +21,8 @@ extension WindowManager {
     /// workspace created in it.
     func switchProfile(_ profile: ProfileID, in state: WindowState, keepingHomes: Bool = false) {
         guard profile != state.profileID else { return }
+        // Spaces off (#48355): the window stays on the space it shows, so its workspaces, groups and pins stay put.
+        guard spacesOn else { return services.registry.refuse(RoomStrings.spacesOff, quiet: true) }
         // An incognito space lives in its incognito window (spaces-overhaul-DESIGN.md rule 2): switching another
         // window to it shows that window instead, and an incognito space's window never shows a normal space.
         if incognitoSpaces[state.id] != nil { return services.registry.refuse(RefusalStrings.incognitoMismatch) }
@@ -58,6 +60,23 @@ extension WindowManager {
         select(remembered ?? visible.first, in: state)
     }
 
+    /// `sidebar.showSpaces` (https://github.com/manaflow-ai/cmux/issues/48355, off by default): nothing makes,
+    /// switches or moves into a space, and a new window opens in the space the person is on. No settings layer
+    /// (a headless host) keeps the daemon's spaces reachable.
+    var spacesOn: Bool { services.settings.map { $0.snapshot.sidebarSections.showSpaces } ?? true }
+
+    /// The space a new window opens in while Spaces is off: the active window's, else the most recent other normal
+    /// window's (open or kept closed in the registry), so a fresh window never drops the person into another
+    /// space. Never an incognito window's space (spaces-overhaul rule 2).
+    var spaceForNewWindow: ProfileID? {
+        guard !spacesOn else { return nil }
+        let value = registry.value
+        let normal = { (id: String) in !value.isIncognito(id) && self.incognitoSpaces[id] == nil }
+        if let active, normal(active.state.id) { return active.state.profileID }
+        // Most recent first, as the reconcile files a workspace with no window into the most recent normal one.
+        return value.recency.lazy.compactMap { normal($0) ? self.states[$0]?.profileID : nil }.first
+    }
+
     /// Next (+1) or previous (-1) profile of the local daemon, clamped at
     /// the ends. Returns false when there is none that way.
     @discardableResult
@@ -85,9 +104,36 @@ extension WindowManager {
 
     /// Selecting a workspace of another room (palette, CLI, a
     /// notification) shows that room in the window first.
+    /// Spaces off (#48355): the window stays, and the workspace comes into the space it shows.
     func enterProfile(of workspaceID: String, in state: WindowState) {
         guard let room = WindowProfiles.room(of: workspaceID, current: state.profileID, machines: services.machines) else { return }
+        guard spacesOn else { return bringIntoShownSpace([workspaceID], of: state, selecting: workspaceID) }
         state.enterProfile(room)
+    }
+
+    /// Spaces off (#48355): workspaces of a hidden space that the person picks, moves or merges into `state`'s window
+    /// move into the space it shows (a pin in the home session, as Move to Space), so they list there and the window
+    /// never switches away. A workspace already in that space, without a registry key, or not reported yet is left
+    /// alone. `selecting` is shown once its pin reaches the store (the selection repair before it cannot pick it),
+    /// while the window still shows that space; a pin that never lands gives up after 10 s.
+    func bringIntoShownSpace(_ ids: [String], of state: WindowState, selecting: String? = nil) {
+        let machines = services.machines, room = state.profileID, windowID = state.id
+        guard !spacesOn, incognitoSpaces[windowID] == nil, !registry.value.isIncognito(windowID) else { return }
+        let moving = ids.filter { WindowProfiles.room(of: $0, current: room, machines: machines) != nil && machines.workspace(id: $0)?.0.key != nil }
+        for id in moving {
+            guard let workspace = WindowProfiles.qualified(id, machines: machines) else { continue }
+            let session = workspace.session, key = WorkspaceKey(rawValue: workspace.key)
+            machines.local.send("pin-workspace") { try await $0.pinWorkspace(session: session, key: key, to: room) }
+        }
+        guard let selecting, moving.contains(selecting) else { return }
+        let landed = { WindowProfiles.room(of: selecting, current: room, machines: machines) == nil }
+        let waiting = Task { for await done in ObservationStream({ landed() }) where done { break } }
+        let bound = DemandTimer(owner: "WindowManager.bringIntoShownSpace"); bound.schedule(after: .seconds(10)) { waiting.cancel() }
+        Task { [weak self] in
+            await waiting.value; bound.cancel()
+            guard landed(), let self, let state = self.states[windowID], state.profileID == room, state.workspaceID != selecting else { return }
+            self.select(selecting, in: state)
+        }
     }
 }
 
@@ -157,6 +203,7 @@ extension WindowManager {
             if let workspaceID = other.workspaceID { shown[other.profileID] = workspaceID }
             for (space, id) in shown where space != state.profileID && state.profileWorkspaces[space] == nil { state.profileWorkspaces[space] = id }
         }
+        bringIntoShownSpace(moving, of: state) // Spaces off (#48355): the merged windows' workspaces list here
         transition { registry in
             defer { for source in sources where registry.window(source.id)?.isOpen == true { _ = registry.close(source.id) } }
             return registry.move(moving, to: state.id)
@@ -224,7 +271,9 @@ extension WindowManager: SpaceWindowSource {
 // Window, agent fork, tear-off) takes a new space as New Window does (spaces-overhaul rule 3); Open Space in New Window shares (rule 4).
 enum WindowOwnSpace {
     /// Window `id` (normal, no Home, spaces on the home daemon) shows a space another open window shows.
+    /// Spaces off (#48355): never, so a moved workspace's new window stays in the person's space.
     static func shares(_ id: String, in windows: WindowManager) -> Bool {
+        guard windows.spacesOn else { return false }
         let value = windows.registry.value, local = windows.services.machines.local, members = value.window(id)?.ownedIDs ?? []
         guard let state = windows.states[id], value.window(id)?.isOpen == true, !value.isIncognito(id), windows.incognitoSpaces[id] == nil,
               local.supports(DaemonCapability.profiles.rawValue), local.store.personal.isLoaded, !members.isEmpty,

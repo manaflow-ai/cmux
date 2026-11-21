@@ -396,7 +396,7 @@
             "text": "Show Spaces"
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "sidebar",
             "spaces",

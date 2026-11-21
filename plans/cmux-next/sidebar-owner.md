@@ -1,5 +1,14 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-20 (feat-cmux-next-48355-spaces-off): Sidebar-Look: user, 2026-11-20
+  (https://github.com/manaflow-ai/cmux/issues/48355): "we do not want spaces on by default, and we should disable
+  making new spaces" and "the idea is just to remove the spaces so u cannot make new ones and u dont see this by
+  default". `sidebar.showSpaces` defaults to false: the footer draws no space dots and no "+" (the hidden state that
+  already existed, now the default), and the band's right-click offers Show Spaces. While it is off the list's
+  two-finger swipe and mouse wheel page no spaces (`SidebarSpacePaging.pagesSpaces`), and every space action is
+  off (`SpacesGate`). Nothing else in the sidebar moves; each window keeps the space it shows, with its rows,
+  groups and pins. Regression: `SpacesOffKeepsCurrentSpaceTests`, `SidebarBandHideTests`.
+
 - 2026-11-19 (lane/needs-you-glow): Sidebar-Look: Leo, 2026-11-19, on eight new features: "all of them" and "some of
   them maybe just as customizations lol if it affects default looks". "Needs you" as motion, off by default: with
   `notifications.attention.mark` `glow` (default `badge`, no change), a workspace row that waits for the person (an
