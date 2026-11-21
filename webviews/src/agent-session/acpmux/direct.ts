@@ -62,6 +62,7 @@ import {
 import { addSplit, callTokenSplit, NO_TOKENS, resultTokenSplit } from "./tokenSplit";
 import { continuesTurn } from "./turnStart";
 import { hostIsReconnecting, jitteredDelay, lostRetryDelay } from "./hostRetry";
+import { composerSettingsSnapshot } from "./composerSettings";
 import { sendsHeldForHost, untilHostAnswers } from "./sendWhenReady";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
@@ -14020,20 +14021,22 @@ export class AcpmuxDirectClient {
     const trustCancellation = this.trustCancellation;
     let unhold: (() => void) | undefined;
     try {
-      // Keep this same start, machine and draft while the daemon says it has sent nothing.
-      // The existing held-send loop owns backoff and cancellation; no retry after an uncertain reply.
-      const result = await untilHostAnswers(() => this.request("session/new", params), {
-        peerStart: true,
-        stop: () =>
-          this.closed ||
-          generation !== this.selectionGeneration ||
-          trustCancellation !== this.trustCancellation ||
-          !current(),
-        waiting: () => {
-          unhold ??= sendsHeldForHost.hold();
-        },
-      });
-      // A canceled start owns neither the next Trust question nor one-shot startup defaults.
+      // Opt-in (`showPeerReconnectStatus`): keep this same start, machine and draft while the
+      // daemon says it has sent nothing. The existing held-send loop owns backoff and cancellation;
+      // no retry after an uncertain reply. Off (the default), a start fails fast as before.
+      const result = composerSettingsSnapshot().showPeerReconnectStatus
+        ? await untilHostAnswers(() => this.request("session/new", params), {
+            peerStart: true,
+            stop: () =>
+              this.closed ||
+              generation !== this.selectionGeneration ||
+              trustCancellation !== this.trustCancellation ||
+              !current(),
+            waiting: () => {
+              unhold ??= sendsHeldForHost.hold();
+            },
+          })
+        : await this.request("session/new", params);
       // A canceled start owns neither the next Trust question nor one-shot startup defaults. One
       // whose caller owns its cancellation (`fenced` false: a harness switch's start, which a
       // selection of the same chat moves on, issue 44964) is fenced on Trust only. A session
