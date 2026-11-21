@@ -382,8 +382,8 @@ private struct PreviewParser {
     static func mayStartInline(_ ch: Character) -> Bool {
         guard let ascii = ch.asciiValue else { return false }
         switch ascii {
-        case 0x5C, 0x60, 0x21, 0x5B, 0x3C, 0x2A, 0x5F, 0x7E: true
-        default: false
+        case 0x5C, 0x60, 0x21, 0x5B, 0x3C, 0x2A, 0x5F, 0x7E: return true
+        default: return false
         }
     }
 
