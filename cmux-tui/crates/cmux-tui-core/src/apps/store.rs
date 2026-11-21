@@ -5,7 +5,10 @@
 //! or its short alias `apps.<verb>`.
 //!
 //! - `catalog.list` and `catalog.get`: the catalog packages, never
-//!   `cmux/app-store` itself; first-party apps are `hide_only`.
+//!   `cmux/app-store` itself; first-party apps are `hide_only`. Each listing
+//!   names its shelf ([`Shelf`]): Discover shows the store shelf, the SDK
+//!   examples show only to developers, and `cmux ext dev` apps only under
+//!   Installed.
 //! - `installed.list`: the installed apps with their state and grants.
 //! - `set`: every field (`enabled`, `hidden`, `sandboxed`) only from the
 //!   user, in both directions (D55 as amended, APPS-ENABLE-ORIGIN): agents
@@ -45,6 +48,50 @@ struct CatalogListParams {
     cursor: Option<String>,
     /// 1 to 200; default 50.
     limit: Option<u32>,
+    /// Only listings on this shelf; every shelf when absent.
+    shelf: Option<Shelf>,
+    /// Developer mode is on (`app.internalDeveloperMode`; the page router
+    /// fills it from settings): the page offers the Examples shelf.
+    developer: Option<bool>,
+}
+
+/// Where a listing belongs in the App Store, decided from where its package
+/// came from so the page, the CLI and MCP agree (Leo, 2026-11-16: "idk if we
+/// want to ship THOSE as standard apps").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum Shelf {
+    /// Discover: the first-party apps cmux ships as default apps (Cloud,
+    /// CodeRouter), cmux's own store apps (the `cmux/` packages the build
+    /// writes to `AppPlatform/store` from a `first-party-apps/<name>/STORE`
+    /// marker: the clock, weather, calendar and to-do widgets), and later a
+    /// cloud catalog's listings.
+    Store,
+    /// SDK examples and samples shipped next to cmux (`CMUX_APPS_DIRS`,
+    /// `apps/`) under any other publisher: templates for `cmux ext new`,
+    /// listed under Examples only with developer mode or once the person runs
+    /// `cmux ext dev`.
+    Example,
+    /// The person's own `cmux ext dev` apps (`local/...`): Installed shows
+    /// them as Local (dev); Discover never lists them.
+    Local,
+}
+
+/// The publisher prefix of cmux's own packages.
+const FIRST_PARTY_PUBLISHER: &str = "cmux/";
+
+impl Shelf {
+    pub(crate) fn of(package: &Package) -> Self {
+        match package.source {
+            Source::Default | Source::User => Self::Store,
+            // A first-party STORE app is built into the same folder as the
+            // samples; its `cmux/` publisher puts it on Discover (Leo,
+            // 2026-11-20: "JUST ADD SHIT").
+            Source::Bundled if package.id.starts_with(FIRST_PARTY_PUBLISHER) => Self::Store,
+            Source::Bundled => Self::Example,
+            Source::Local => Self::Local,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -88,6 +135,9 @@ pub(crate) struct CatalogListResult {
     next_cursor: Option<String>,
     /// The install mirror revision the install fields reflect.
     revision: u64,
+    /// Whether the page offers the Examples shelf: developer mode is on, or
+    /// the person has a `cmux ext dev` app.
+    examples: bool,
 }
 
 /// One store row.
@@ -104,6 +154,7 @@ pub(crate) struct Listing {
     categories: Vec<String>,
     /// First-party apps offer Hide and Show only.
     hide_only: bool,
+    shelf: Shelf,
     install: Option<InstallState>,
 }
 
@@ -275,6 +326,7 @@ fn listing(package: &Package, record: Option<&Record>) -> Listing {
             .filter_map(|c| c.as_str().map(str::to_string))
             .collect(),
         hide_only: package.tier == Tier::FirstParty,
+        shelf: Shelf::of(package),
         install: record.map(|r| state(r, Some(package))),
     }
 }
@@ -398,6 +450,7 @@ impl Supervisor {
             .values()
             .filter(|package| package.id != APP_STORE)
             .filter(|package| p.tier.is_none_or(|tier| package.tier == tier))
+            .filter(|package| p.shelf.is_none_or(|shelf| Shelf::of(package) == shelf))
             .filter(|package| {
                 p.category.as_deref().is_none_or(|category| {
                     package.manifest["categories"]
@@ -420,7 +473,12 @@ impl Supervisor {
         // A cursor is a wire value: never overflow on it.
         let end = offset.saturating_add(limit);
         let next_cursor = (end < rows.len()).then(|| end.to_string());
-        Ok(CatalogListResult { listings, next_cursor, revision: inner.mirror.revision })
+        // Offered only when there are examples to show.
+        let packages = || inner.catalog.packages.values();
+        let has_examples = packages().any(|p| Shelf::of(p) == Shelf::Example);
+        let has_local = packages().any(|p| p.source == Source::Local);
+        let examples = has_examples && (p.developer == Some(true) || has_local);
+        Ok(CatalogListResult { listings, next_cursor, revision: inner.mirror.revision, examples })
     }
 
     fn catalog_get(&self, p: CatalogGetParams) -> Result<AppDetail, ApiError> {
