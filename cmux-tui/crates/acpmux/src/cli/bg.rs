@@ -38,9 +38,17 @@ pub enum BgCmd {
         /// A short title shown in `bg list` and the completion notice.
         #[arg(long)]
         description: Option<String>,
-        /// Ask the daemon to notify this session when the task ends.
-        #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+        /// Ask the daemon to notify this session when the task ends (`--notify=false` to not).
+        ///
+        /// A bare `--notify` is the on form everyone types; with ArgAction::Set alone clap read it
+        /// as a missing value and refused the whole call with "[possible values: true, false]",
+        /// which costs the caller a re-run of a call that said exactly what it wanted.
+        #[arg(long, default_value_t = true, default_missing_value = "true", num_args = 0..=1,
+              require_equals = true, action = clap::ArgAction::Set)]
         notify: bool,
+        /// No message to the chat when it ends, the spelling `process start` takes.
+        #[arg(long, conflicts_with = "notify")]
+        no_notify: bool,
     },
     /// List this session's background tasks.
     List {
@@ -122,9 +130,17 @@ pub async fn run(client: &Client, cmd: BgCmd, json_out: bool) -> Result<()> {
     let caller_subagent =
         crate::cli::sender::sending_as_on(client, None).await.subagent.map(|s| s.to_value());
     let (method, params) = match cmd {
-        BgCmd::Start { command, argv, cwd, description, notify } => {
+        BgCmd::Start { command, argv, cwd, description, notify, no_notify } => {
             if command.is_empty() {
                 return Err(anyhow!("bg start needs COMMAND"));
+            }
+            // `--notify` takes its value through `=`, so a space-separated one would fall through
+            // to COMMAND and run `false ...` as the task. Say so instead of running the wrong thing.
+            if matches!(command[0].as_str(), "true" | "false") {
+                return Err(anyhow!(
+                    "bg start: `--notify {0}` left {0:?} as the COMMAND; write it as --notify={0}",
+                    command[0]
+                ));
             }
             let command = if argv {
                 command.iter().map(|word| shell_quote(word)).collect::<Vec<_>>().join(" ")
@@ -142,7 +158,7 @@ pub async fn run(client: &Client, cmd: BgCmd, json_out: bool) -> Result<()> {
                     "command": command,
                     "cwd": cwd,
                     "description": description,
-                    "notify": notify,
+                    "notify": notify && !no_notify,
                     "callerSubagent": caller_subagent,
                 }),
             )
@@ -243,6 +259,44 @@ mod tests {
         words.pop();
         words.pop();
         assert!(Cli::try_parse_from(words).is_ok());
+    }
+
+    /// A bare `--notify` means on. It used to be refused for a missing value, so a caller who
+    /// said what it wanted got nothing but a usage dump and spent a second call saying it again.
+    #[test]
+    fn a_bare_notify_flag_means_on() {
+        #[derive(clap::Parser)]
+        struct Cli {
+            #[command(subcommand)]
+            bg: BgCmd,
+        }
+        let notify = |words: &[&str]| {
+            let BgCmd::Start { notify, .. } =
+                Cli::parse_from(std::iter::once("bg").chain(words.iter().copied())).bg
+            else {
+                panic!("not a start command");
+            };
+            notify
+        };
+        assert!(notify(&["start", "--notify", "echo hi"]));
+        assert!(notify(&["start", "echo hi"]));
+        assert!(notify(&["start", "--notify=true", "echo hi"]));
+        assert!(!notify(&["start", "--notify=false", "echo hi"]));
+        // `process start` spells off as --no-notify; both spellings work here rather than one
+        // being refused for being the other command's word.
+        assert!(matches!(
+            Cli::parse_from(["bg", "start", "--no-notify", "echo hi"]).bg,
+            BgCmd::Start { no_notify: true, .. }
+        ));
+        // The value comes through `=` only, so a space-separated one stays in COMMAND, where the
+        // handler names it rather than running `false` as the task.
+        let BgCmd::Start { notify, command, .. } =
+            Cli::parse_from(["bg", "start", "--notify", "false", "echo hi"]).bg
+        else {
+            panic!("not a start command");
+        };
+        assert!(notify);
+        assert_eq!(command, ["false", "echo hi"]);
     }
 
     #[test]
