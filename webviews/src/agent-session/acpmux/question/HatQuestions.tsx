@@ -28,7 +28,7 @@
 // (App.tsx `dismissHatQuestion`, waitingAskStore.ts): it leaves the hat, while the ask itself still
 // waits where it was asked (its card, its chat, the sidebar's Needs you dot). A started chat's name
 // keeps the asker line above to itself, cut only where the pager and the × begin.
-import React, { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { type CSSProperties, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { DismissButton } from "../../../ui/DismissButton";
 import { useAnswerHold } from "../answerHold";
@@ -148,17 +148,27 @@ export function HatQuestions({
   }, [shown?.id, shown?.prompt, whole]);
 
   // The band's height follows its content's, eased; zero while leaving or before it arrives.
-  const outer = useRef<HTMLDivElement>(null);
+  const outer = useRef<HTMLDivElement | null>(null);
   const inner = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState(0);
   // Questions already waiting when the pane opens (or shows another chat, which mounts it again) are
   // its start state, not a change: the band draws at its height at once, and eases only from the
   // next frame on.
   const [arrived, setArrived] = useState(() => questions.length > 0);
-  const [settled, setSettled] = useState(false);
+  // Settled from the frame after it mounted: the attribute is set on the band itself, never as state,
+  // so a chat switch (which mounts it again) renders nothing more for it before its first paint.
+  const settled = useRef(false);
   useEffect(() => {
-    const frame = requestAnimationFrame(() => setSettled(true));
+    const frame = requestAnimationFrame(() => {
+      settled.current = true;
+      outer.current?.setAttribute("data-settled", "");
+    });
     return () => cancelAnimationFrame(frame);
+  }, []);
+  // A band drawn after that frame (its questions arrived later) is settled from its first commit.
+  const outerRef = useCallback((node: HTMLDivElement | null) => {
+    outer.current = node;
+    if (node && settled.current) node.setAttribute("data-settled", "");
   }, []);
   const present = drawn.length > 0;
   useLayoutEffect(() => {
@@ -393,12 +403,11 @@ export function HatQuestions({
   );
   return (
     <div
-      ref={outer}
+      ref={outerRef}
       className="acpmux-hat-questions"
       data-look={look}
       data-folded={folded || undefined}
       data-leaving={leaving || undefined}
-      data-settled={settled || undefined}
       data-dismiss={dismissLook}
       style={{ "--acpmux-hat-questions-height": `${arrived && !leaving ? height : 0}px` } as CSSProperties}
       onTransitionEnd={(event) => {

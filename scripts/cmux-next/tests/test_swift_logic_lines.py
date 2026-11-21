@@ -13,7 +13,7 @@ row, module and declaration deltas between two revisions, and exits 0 when the c
 swift-logic-pr-status.py (SwiftLogicPrStatusTests: the pull request status line, against the merge base, fetched
 from a file:// origin) say "not counted" and exit 0 when they cannot count.
 
-Not a CI job (Lawrence 2026-10-23: no new CI gates): run it yourself after a change to the script:
+Not a CI job (Lawrence 2026-10-23: no new CI gates, lifted 2026-11-18): run it yourself after a change to the script:
   python3 -I scripts/cmux-next/tests/test_swift_logic_lines.py
 """
 
@@ -467,8 +467,9 @@ class SwiftLogicDeltaTests(Repo):
         head = self.commit("head")
         text = self.delta(base, head, "--status")
         line, rest = text.split("\n", 1)
-        self.assertEqual(line, f"Swift logic: **+5 lines** (swift_logic +5, mirror +0) against the merge base "
-                               f"`{base[:7]}`; largest: `Wire.swift:1` struct Wire (+4), `Store.swift:1` class Store (+1)")
+        self.assertEqual(line, f"Swift logic + mirror: **+5 lines** (swift_logic +5, mirror +0) "
+                               f"against the merge base `{base[:7]}`; "
+                               "largest: `Wire.swift:1` struct Wire (+4), `Store.swift:1` class Store (+1)")
         self.assertTrue(rest.startswith("<details><summary>"), rest)
         self.assertIn("| CmuxNextCore | +4 | +0 |", rest)
         self.assertIn(f"- `{SRC}/CmuxNextDomain/Store.swift:1` class Store #0: +1 swift_logic_lines", rest)
@@ -480,12 +481,13 @@ class SwiftLogicDeltaTests(Repo):
         base = self.commit("base")
         (self.repo / SRC / "CmuxNextDomain" / "Store.swift").unlink()
         line = self.delta(base, self.commit("cut"), "--status").split("\n", 1)[0]
-        self.assertEqual(line, f"Swift logic: **-3 lines** (swift_logic -3, mirror +0) against the merge base `{base[:7]}`")
+        self.assertEqual(line, f"Swift logic + mirror: **-3 lines** (swift_logic -3, mirror +0) "
+                               f"against the merge base `{base[:7]}`")
 
     def test_status_says_not_counted_and_exits_0_when_it_cannot_count(self):
         self.commit("base")
         text = self.delta("0" * 40, "HEAD", "--status")
-        self.assertTrue(text.startswith("Swift logic: not counted ("), text)
+        self.assertTrue(text.startswith("Swift logic + mirror: not counted ("), text)
         self.assertEqual(text.count("\n"), 1)
         with self.assertRaises(Exception), contextlib.redirect_stdout(io.StringIO()):
             logic_delta.main(["--repo", str(self.repo), "--base", "0" * 40, "--head", "HEAD"])
@@ -527,7 +529,7 @@ class SwiftLogicPrStatusTests(Repo):
         self.commit("base moves on")
         text, work = self.run_status(head)
         self.assertTrue(text.startswith(
-            f"Swift logic: **+1 lines** (swift_logic +1, mirror +0) against the merge base `{self.fork[:7]}`; "
+            f"Swift logic + mirror: **+1 lines** (swift_logic +1, mirror +0) against the merge base `{self.fork[:7]}`; "
             "largest: `Store.swift:1` class Store (+1)"), text)
         self.assertNotIn("Big.swift", text)
         caches = list((work / "objects.git" / "cmux-arch-counts").glob("facts-*.sqlite"))
@@ -541,7 +543,7 @@ class SwiftLogicPrStatusTests(Repo):
 
     def test_a_head_it_cannot_fetch_is_not_counted_and_exits_0(self):
         text, _ = self.run_status("1" * 40)
-        self.assertTrue(text.startswith("Swift logic: not counted ("), text)
+        self.assertTrue(text.startswith("Swift logic + mirror: not counted ("), text)
 
 
 if __name__ == "__main__":

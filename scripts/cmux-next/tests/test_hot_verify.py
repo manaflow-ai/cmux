@@ -639,7 +639,12 @@ class PlanTest(unittest.TestCase):
         for step, code, out, said in (("build", 1, "builder refused\n", "builder refused"),
                                       ("build", 0, "not json", "no job id: not json"),
                                       ("wait", 4, "job timed out\n", "job timed out"),
-                                      ("artifact", 2, "no artifact\n", "cmux-ci artifact job-9: no artifact")):
+                                      ("artifact", 2, "no artifact\n", "cmux-ci artifact job-9: no artifact"),
+                                      # A step that failed and said nothing: each of the 3 messages says so, and
+                                      # does not end at its colon.
+                                      ("build", 1, "", "app-try:%s: no output" % self.fx.base),
+                                      ("build", 0, "", "no job id: no output"),
+                                      ("artifact", 2, "", "cmux-ci artifact job-9: no output")):
             with self.subTest(step=step, code=code), \
                     unittest.mock.patch.object(hv, "_ci_client", return_value="/fake/cmux-ci"), \
                     unittest.mock.patch.object(hv.subprocess, "run", side_effect=fails_on(step, code, out)):
@@ -719,6 +724,7 @@ class PlanTest(unittest.TestCase):
         (built / "Contents").mkdir(parents=True)
         calls = []
 
+        tmp = self.tmp.name
         class FakeSide:
             def __init__(self, name):
                 self.name = name
@@ -737,7 +743,7 @@ class PlanTest(unittest.TestCase):
                 return "/tmp/try-test.sock"
 
             def app(self):
-                return Path("/tmp/try-test.app")
+                return Path(tmp) / "try-test.app"
 
             def stop(self):
                 return []
@@ -892,6 +898,31 @@ class ApplyRustTest(unittest.TestCase):
         self.apply({"head": self.HEAD, "tree_key": "k"})
         (argv,) = self.calls
         self.assertIn(self.HEAD, argv)
+
+    def test_the_copy_s_acpmux_daemons_take_the_change_and_the_receipt_says_which(self):
+        # 2026-11-21 hot-swap end to end: an acpmux change's look left the copy's acpmux daemon on the old build,
+        # and the look's receipt kept only hot-apply's phases, so nothing said so.
+        self.published = True
+        left = [{"home": "/h/old", "pid": 7, "why": "its launch environment is unreadable"}]
+        stdout = json.dumps({"phases": {"swap": 1.0}, "steps": {
+            "rust": {"to": "x", "acpmux_left_on_old_build": left},
+            "acpmux": [{"home": "/h/new", "from_pid": 5, "pid": 6}]}}) + "\n"
+
+        def run(argv, **kw):
+            self.calls.append([str(a) for a in argv])
+            return subprocess.CompletedProcess(argv, 0, stdout=stdout, stderr="")
+        with unittest.mock.patch.object(hv.subprocess, "run", run):
+            applied = hv.apply_rust(self.root, {"head": self.HEAD, "tree_key": "k"}, None,
+                                    self.StubSide(self.root), self.root)
+        for planned in ({"head": self.HEAD, "tree_key": "k"}, {"head": self.HEAD, "daemon_from": self.ONTO,
+                                                               "tree_key": "k"}):
+            self.calls.clear()
+            self.apply(planned)
+            (argv,) = self.calls
+            self.assertIn("--restart-acpmux", argv)
+        self.assertEqual(applied["acpmux"], [{"home": "/h/new", "from_pid": 5, "pid": 6}])
+        self.assertEqual(applied["acpmux_left_on_old_build"], left)
+        self.assertEqual(applied["phases"], {"swap": 1.0})
 
 
 class PublishedPullRequestWebTest(unittest.TestCase):
