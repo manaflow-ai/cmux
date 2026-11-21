@@ -35,6 +35,8 @@ public final class MacScreenPaneModel {
     public internal(set) var systemShortcuts: MacScreenSystemShortcuts?
     /// The device hub tab's session: its request, approval and ticket; nil for an unsupported record.
     public let hub: MacScreenHubViewer?
+    /// The toolbar's Record button: this stream copied into an MP4 as it arrives.
+    public let recording = MacScreenRecording()
 
     init(session: MacScreenSession?, name: String, platform: DevicePlatform? = nil, gate: Gate, hub: MacScreenHubViewer? = nil) {
         self.session = session
@@ -172,6 +174,11 @@ public final class MacScreenPane {
             session.tap(shortcut.key, modifiers: shortcut.modifiers)
         }
         actions.focusScreen = { [weak self] in self?.focus() }
+        actions.toggleRecording = { [weak self] in
+            guard let self else { return }
+            model.recording.toggle(device: model.name)
+        }
+        actions.showRecording = { [weak self] in self?.model.recording.showInFinder() }
         observePhase(session)
     }
 
@@ -179,6 +186,7 @@ public final class MacScreenPane {
     private func decode(_ transport: RemoteRdStreamTransport) {
         decodeTask?.cancel()
         model.hasFrame = false
+        model.recording.attach(transport)
         let presenter = view.presenter
         let counter = MacScreenFrameCounter()
         session?.frameCounter = counter
@@ -223,6 +231,10 @@ public final class MacScreenPane {
                     model.everConnected = true
                 } else {
                     model.hasFrame = false
+                }
+                switch session.phase {
+                case .ended, .failed: model.recording.stop()
+                default: break
                 }
                 model.hub?.streamStalled(session.isStalled)
                 // A device hub stream that could not start, or dropped: the hub hears it too.
@@ -273,6 +285,7 @@ public final class MacScreenPane {
     /// The tab closed: end the session now.
     public func close() {
         hideTimer.cancel()
+        model.recording.stop()
         decodeTask?.cancel()
         cursorTask?.cancel()
         visible = false

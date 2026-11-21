@@ -17,6 +17,7 @@ mod h264;
 mod input;
 mod input_ffi;
 mod line_reader_ffi;
+mod mp4;
 mod rb_client_ffi;
 mod receiver;
 mod record;

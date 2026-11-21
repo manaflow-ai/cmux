@@ -108,7 +108,7 @@ fn a_recording_is_an_init_segment_and_one_fragment_per_frame() {
     let tkhd = child(trak, "tkhd");
     assert_eq!((be32(tkhd, 76) >> 16, be32(tkhd, 80) >> 16), (64, 40));
     let mdhd = child(child(trak, "mdia"), "mdhd");
-    assert_eq!(be32(mdhd, 12), crate::mp4::TIMESCALE);
+    assert_eq!(be32(mdhd, 12), mp4::TIMESCALE);
     let sps = nal_units(&units[0]).into_iter().find(|n| nal_type(n) == 7).unwrap();
     let at = file.windows(4).position(|w| w == b"avcC").expect("avcC");
     assert_eq!(&file[at + 4..at + 8], &[1, 100, sps[2], sps[3]]);
@@ -243,7 +243,10 @@ fn the_session_records_the_frames_it_hands_out() {
 
     // A folder where the file should go cannot be created.
     assert_eq!(start(&s, path.parent().unwrap()), CMUX_RD_ERR_IO);
-    std::fs::remove_dir_all(path.parent().unwrap().parent().unwrap()).expect("clean up");
+    // A CI run keeps the files in its artifact (to probe them elsewhere).
+    if std::env::var_os("FAST_CHECKS_OUT").is_none() {
+        std::fs::remove_dir_all(path.parent().unwrap().parent().unwrap()).expect("clean up");
+    }
 }
 
 /// With ffprobe installed: the file is H.264 64x40 with `frames` frames.
