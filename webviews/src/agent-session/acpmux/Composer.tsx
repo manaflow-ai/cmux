@@ -30,6 +30,7 @@ import {
   type DroppedKind,
   type LinkItem,
 } from "./attachments";
+import { useReleasedPicks } from "./designSelection";
 import type { SendGesture } from "./heldPrompt";
 import { canResumeFromComposer } from "./composer/resumeControl";
 import { useTranscriptReadOnly } from "./conversation/readOnly";
@@ -847,6 +848,8 @@ function ComposerFrame({
     },
   });
   const attachmentsRef = useRef(attachments);
+  // Browser picks that leave (their × or a send) leave the page too: its pins match the chips.
+  useReleasedPicks(attachments);
   const pendingRef = useRef(pending);
   // The latest of each, written as the render commits (every reader is a handler, an effect or the
   // handle): a write during render keeps the composer out of the React Compiler, and each key then
