@@ -116,7 +116,6 @@ export function CookieBackupsPanel({
           <h2 id="cookie-backups-title" className="history-sheet-title">
             {t("cookieBackups.title")}
           </h2>
-          <p className="history-sheet-text">{t("cookieBackups.explanation")}</p>
           {state.error ? (
             <p className="history-sheet-text" role="alert">
               {state.error}

@@ -5,6 +5,7 @@
 // one the person dismissed on this device (recapDismissed.ts): dismissing the newest never brings
 // an older one back.
 import { SINCE_DIVIDER, type AcpmuxRow } from "../model";
+import { PrefixFilter, PrefixFlatCache } from "./prefixFlatMap";
 import { dismissedRecapKeys } from "./recapDismissed";
 
 /// A recap key's chat and seq (`chat:seq`, direct.ts).
@@ -14,13 +15,50 @@ function parse(key: string): { chat: string; seq: number } | undefined {
   return at >= 0 && Number.isFinite(seq) ? { chat: key.slice(0, at), seq } : undefined;
 }
 
+/// The recap key a row carries: a recap's own, or the one drawn on "New since you looked".
+function recapKey(row: AcpmuxRow): string | undefined {
+  return row.kind === "recap" ? row.recap?.key : row.id === SINCE_DIVIDER ? row.since?.recap?.key : undefined;
+}
+
+/// The rows that carry a recap, read again only past the rows the last snapshot kept
+/// (prefixFlatMap.ts): a streamed token in a chat of 35,000 rows reads the rows it changed, not
+/// every row (bench/transcript-replay.bench.ts, god log: this pass was 1.9 ms of each token).
+const carriers = new PrefixFilter<AcpmuxRow>((row) => recapKey(row) !== undefined);
+
+/// The divider without the recap it drew, the same object for the same divider.
+const withoutRecap = new WeakMap<AcpmuxRow, AcpmuxRow>();
+function dividerWithout(row: AcpmuxRow): AcpmuxRow {
+  let out = withoutRecap.get(row);
+  if (!out) {
+    const { recap: _recap, ...since } = row.since!;
+    out = { ...row, version: row.version + 1, since };
+    withoutRecap.set(row, out);
+  }
+  return out;
+}
+
+/// The pass that drops recaps, one per set of rows it drops (a recap shown or dismissed is a new
+/// set): it too reads only the rows past the kept prefix.
+let dropping: { key: string; pass: PrefixFlatCache<AcpmuxRow, AcpmuxRow> } | undefined;
+function dropPass(drop: ReadonlySet<AcpmuxRow>): PrefixFlatCache<AcpmuxRow, AcpmuxRow> {
+  const key = [...drop].map((row) => `${row.id}@${row.version}`).join("\n");
+  if (dropping?.key !== key)
+    dropping = {
+      key,
+      pass: new PrefixFlatCache<AcpmuxRow, AcpmuxRow>((row) =>
+        !drop.has(row) ? [row] : row.id === SINCE_DIVIDER && row.since ? [dividerWithout(row)] : [],
+      ),
+    };
+  return dropping.pass;
+}
+
 /// `rows` with at most one recap: the newest not dismissed. A recap drawn on "New since you
 /// looked" counts as one; when it is not the one kept the divider stays, without it. The same
-/// array when there is nothing to drop.
+/// array when there is nothing to drop. Costs the rows a snapshot changed, not the chat's rows.
 export function oneRecap(rows: AcpmuxRow[], dismissed: () => readonly string[] = dismissedRecapKeys): AcpmuxRow[] {
   const recaps: { row: AcpmuxRow; chat: string; seq: number }[] = [];
-  for (const row of rows) {
-    const key = row.kind === "recap" ? row.recap?.key : row.id === SINCE_DIVIDER ? row.since?.recap?.key : undefined;
+  for (const row of carriers.read(rows).items) {
+    const key = recapKey(row);
     const parsed = key ? parse(key) : undefined;
     if (parsed) recaps.push({ row, ...parsed });
   }
@@ -42,15 +80,7 @@ export function oneRecap(rows: AcpmuxRow[], dismissed: () => readonly string[] =
   }
   const drop = new Set(recaps.map((recap) => recap.row).filter((row) => row !== keep));
   if (drop.size === 0) return rows;
-  const kept: AcpmuxRow[] = [];
-  for (const row of rows) {
-    if (!drop.has(row)) kept.push(row);
-    else if (row.id === SINCE_DIVIDER && row.since) {
-      const { recap: _recap, ...since } = row.since;
-      kept.push({ ...row, version: row.version + 1, since });
-    }
-  }
-  return kept;
+  return dropPass(drop).read(rows).items as AcpmuxRow[];
 }
 
 /// Whether the one recap is dismissed, or older than one dismissed in its chat.

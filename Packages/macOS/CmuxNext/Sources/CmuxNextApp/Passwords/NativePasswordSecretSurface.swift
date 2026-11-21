@@ -16,7 +16,7 @@ final class NativePasswordSecretSurface: PasswordSecretSurface {
 
     func reveal(_ secret: SecretBytes, site: String, username: String, anchor: NSView?) async {
         let text = secret.withUnsafeBytes { String(decoding: $0, as: UTF8.self) }
-        let spec = CmuxDialogSpec(
+        let spec = CmuxDialogSpec(usesTransientMaterial: true,
             title: site, lines: username.isEmpty ? [] : [username], fields: [.preview(text)],
             buttons: [CmuxDialogButton(id: "copy", title: PasswordStrings.copyPassword), .ok(PasswordStrings.done)],
             identifier: "cmux.passwords.reveal")

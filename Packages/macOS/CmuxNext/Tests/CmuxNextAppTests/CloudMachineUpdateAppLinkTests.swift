@@ -45,6 +45,12 @@ struct CloudMachineUpdateAppLinkTests {
         // The machine connects again, to the daemon the update left there.
         try await fixture.waitUntil { fixture.identifies >= 2 }
         #expect(await resolver.opens == 2, "a fresh connect of the app link")
+
+        // A start's own update (the daemon cannot serve what the start needs) is not held to the commit times.
+        let own = CloudMachineUpdates.source(session, machines: machines, cli: cli, ifOlder: false,
+                                             logger: Logger(subsystem: "com.cmuxterm.app.next.tests", category: "cloud.machine-update"))
+        _ = try await own.update()
+        #expect(fixture.cliCalls.last == ["link", "machine", "update", "--socket", fixture.daemonSocket.path, "--to-bundled"])
     }
 }
 

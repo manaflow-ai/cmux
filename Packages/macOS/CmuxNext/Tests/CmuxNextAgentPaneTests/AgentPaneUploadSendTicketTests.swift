@@ -240,7 +240,8 @@ struct AgentPaneUploadSendTicketTests {
         #expect(transport.gestures.releaseUpload("u"))
         #expect(!transport.gestures.isAvailable, "the test would pass on a live gesture")
         #expect(await send(transport, id, ticket: ticket, frame: 2) == nil, "the prompt of a long upload was refused")
-        #expect(await send(transport, id, ticket: ticket, frame: 3) == .gestureRequired, "one ticket sent two prompts")
+        // A spent ticket no longer refuses the prompt: a send needs no gesture (Leo, 2026-11-17).
+        #expect(await send(transport, id, ticket: ticket, frame: 3) == nil, "a spent ticket refused a send")
     }
 
     @Test func theConnectionsEndDropsItsHolds() async throws {

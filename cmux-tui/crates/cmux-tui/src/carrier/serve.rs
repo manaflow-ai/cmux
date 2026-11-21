@@ -301,6 +301,7 @@ async fn connection(
         progress: None,
         ssh: shared.ssh.clone(),
         ssh_refusal: super::ssh::SshRefusal::default(),
+        drill: false,
     };
     let plan = &plan;
     let outcome = tokio::select! {

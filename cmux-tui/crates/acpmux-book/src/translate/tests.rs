@@ -12,7 +12,16 @@ fn t(state: &mut State, harness: Harness, bytes: &[u8]) -> Result<Vec<Op>, Error
     translate(state, harness, 0, 1, bytes)
 }
 const SEED: &str = include_str!("fixtures/seed-turn.ndjson");
+const CLAUDE_FOLLOW: &str = include_str!("fixtures/claude-follow.ndjson");
 const ANSWER: &str = "Sorry, that's frustrating. I did answer, but the chat drew the answer above your question, so it looked like I ignored you.\n\nMy answer was **no**, it shouldn't say cmux.";
+
+#[test]
+fn shared_timestamp_handles_leap_year_boundaries() {
+    assert_eq!(timestamp("2024-02-29T00:00:00Z"), Some(1_709_164_800));
+    assert_eq!(timestamp("2024-03-01T00:00:00Z"), Some(1_709_251_200));
+    assert_eq!(timestamp("2024-12-31T00:00:00Z"), Some(1_735_603_200));
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct Mirror {
     rows: BTreeMap<u64, OwnedRow>,
@@ -81,6 +90,7 @@ impl Mirror {
             Change::Queue(QueueChange::Remove(hash)) => {
                 self.queue.remove(hash);
             }
+            Change::Queue(QueueChange::Order) => {}
             Change::Body { id, field, append, source } => {
                 assert!(self.rows[id].open);
                 let s = match source {
@@ -107,6 +117,8 @@ impl Mirror {
                         .get(&(*place, u32::try_from(*span).unwrap_or(u32::MAX)))
                         .cloned()
                         .unwrap_or_default(),
+                    // A card's raw sources are the actor's to read; this model keeps no log.
+                    BodySource::Records(_) | BodySource::RawField { .. } => String::new(),
                 };
                 if matches!(field, BodyField::Text | BodyField::Content) {
                     let text = self.text.entry(*id).or_default();
@@ -441,7 +453,44 @@ fn chat(seed: u32) -> (Vec<String>, Vec<Stretch>, Vec<String>) {
     (c.lines, stretches, pending)
 }
 
+fn assert_disjoint_group_ranges(mirror: &Mirror) {
+    let mut previous_last = 0;
+    for group in mirror.rows.values().filter(|row| row.kind == RowKind::Group) {
+        assert!(
+            group.id > previous_last,
+            "group {} begins inside a preceding fold ending at {previous_last}",
+            group.id
+        );
+        let last = if group.open {
+            group.id
+        } else {
+            group.fields.get("last").unwrap().parse::<u64>().unwrap()
+        };
+        assert!(last >= group.id, "group {} ends before it begins", group.id);
+        previous_last = last;
+    }
+}
+
+#[test]
+fn recorded_translation_fixtures_have_disjoint_fold_ranges() {
+    for fixture in [
+        SEED,
+        include_str!("fixtures/r1-reply-1.ndjson"),
+        include_str!("fixtures/r1-reply-2.ndjson"),
+    ] {
+        let mut state = State::default();
+        let mut mirror = Mirror::default();
+        let mut place = 0;
+        for line in fixture.lines() {
+            mirror.line_at(&mut state, Harness::V1, place, line.len() as u64, line);
+            assert_disjoint_group_ranges(&mirror);
+            place += line.len() as u64;
+        }
+    }
+}
+
 fn assert_settled_group_out(mirror: &Mirror) {
+    assert_disjoint_group_ranges(mirror);
     for group in mirror.rows.values().filter(|row| row.kind == RowKind::Group && !row.open) {
         let last = group
             .fields
@@ -489,8 +538,8 @@ fn th_ten_thousand_random_splits_restore_identical_ops_and_final_replies() {
             place = place.saturating_add(line.len() as u64);
         }
         let checkpoint = split.checkpoint().unwrap();
-        split = State::restore(&checkpoint).unwrap();
-        let mut killed = State::restore(&checkpoint).unwrap();
+        split = checkpoint.restore().unwrap();
+        let mut killed = checkpoint.restore().unwrap();
         for line in &lines[cut..] {
             let ops = split_view.line_at(&mut split, Harness::V1, place, line.len() as u64, line);
             assert_eq!(
@@ -503,13 +552,17 @@ fn th_ten_thousand_random_splits_restore_identical_ops_and_final_replies() {
         assert_eq!(whole, split);
         assert_eq!(view, split_view);
         let expected_queue: BTreeSet<u64> = pending.iter().map(|id| prompt_hash(id)).collect();
+        // The ops carry each entry, not the list's order: the mirror is compared by id.
+        let whole_queue: BTreeMap<u64, QueueEntry> =
+            whole.queue.iter().map(|entry| (entry.id_hash, *entry)).collect();
         assert_eq!(
-            whole.queue.keys().copied().collect::<BTreeSet<_>>(),
+            whole_queue.keys().copied().collect::<BTreeSet<_>>(),
             expected_queue,
             "seed {seed}"
         );
-        assert_eq!(view.queue, whole.queue, "seed {seed}");
+        assert_eq!(view.queue, whole_queue, "seed {seed}");
         assert_settled_group_out(&view);
+        assert_disjoint_group_ranges(&split_view);
         let mut floor = 0;
         for stretch in stretches {
             let answer = if stretch.worked && !stretch.steered {
@@ -563,7 +616,7 @@ fn claude_split_property_and_final_reply_visibility() {
         for line in &lines[..cut] {
             view.line(&mut state, Harness::Claude, line);
         }
-        state = State::restore(&state.checkpoint().unwrap()).unwrap();
+        state = state.checkpoint().unwrap().restore().unwrap();
         for line in &lines[cut..] {
             view.line(&mut state, Harness::Claude, line);
         }
@@ -584,6 +637,55 @@ fn malformed_harness_lines_are_counted_and_do_not_block_replay() {
     assert_eq!(state.counters().invalid_records, 1);
     assert!(t(&mut state, Harness::V1, br#"not-json"#).is_ok());
     assert_eq!(state.counters().invalid_records, 2);
+}
+
+#[test]
+fn codex_legacy_events_translate_prompt_answer_and_completion() {
+    let lines = [
+        r#"{"type":"event_msg","id":"p-event","payload":{"type":"user_message","id":"p","turn_id":"t","message":"Question"}}"#,
+        r#"{"type":"event_msg","id":"a-event","payload":{"type":"agent_message","id":"a","message":"Answer"}}"#,
+        r#"{"type":"event_msg","payload":{"type":"task_complete"}}"#,
+    ];
+    let mut state = State::default();
+    let mut mirror = Mirror::default();
+    for line in lines {
+        mirror.line(&mut state, Harness::Codex, line);
+    }
+    assert_eq!(mirror.reply("Answer").kind, RowKind::Text);
+    assert!(!mirror.reply("Answer").open);
+    assert!(mirror.rows.values().any(|row| row.kind == RowKind::User));
+}
+
+#[test]
+fn codex_response_items_filter_context_and_progress() {
+    let lines = [
+        r#"{"type":"response_item","payload":{"type":"message","role":"user","id":"ctx","content":[{"type":"text","text":"<environment_context>cwd=/tmp"}],"internal_chat_message_metadata_passthrough":{"content_item_kinds":["environment_context"]}}}"#,
+        r#"{"type":"response_item","payload":{"type":"message","role":"user","id":"p","turn_id":"t","content":[{"type":"text","text":"Question"}],"internal_chat_message_metadata_passthrough":{"content_item_kinds":["user.text"]}}}"#,
+        r#"{"type":"response_item","payload":{"type":"message","role":"assistant","id":"progress","phase":"commentary","content":[{"type":"text","text":"Working"}]}}"#,
+        r#"{"type":"response_item","payload":{"type":"message","role":"assistant","id":"a","phase":"final_answer","content":[{"type":"text","text":"Final"}]}}"#,
+    ];
+    let mut state = State::default();
+    let mut mirror = Mirror::default();
+    for line in lines {
+        mirror.line(&mut state, Harness::Codex, line);
+    }
+    assert!(mirror.reply("Final").kind == RowKind::Text);
+    assert!(!mirror.text.values().any(|text| text == "Working"));
+    assert_eq!(mirror.rows.values().filter(|row| row.kind == RowKind::User).count(), 1);
+}
+
+#[test]
+fn codex_answer_items_continue_by_native_id() {
+    let prompt = r#"{"type":"event_msg","payload":{"type":"user_message","id":"p","turn_id":"t","message":"Question"}}"#;
+    let first = r#"{"type":"event_msg","id":"a","payload":{"type":"agent_message","id":"a","message":"part one"}}"#;
+    let second = r#"{"type":"event_msg","id":"a","payload":{"type":"agent_message","id":"a","message":"part two"}}"#;
+    let mut state = State::default();
+    let mut mirror = Mirror::default();
+    mirror.line(&mut state, Harness::Codex, prompt);
+    mirror.line(&mut state, Harness::Codex, first);
+    mirror.line(&mut state, Harness::Codex, second);
+    assert!(mirror.text.values().any(|text| text == "part onepart two"));
+    assert_eq!(mirror.rows.values().filter(|row| row.kind == RowKind::Text).count(), 1);
 }
 
 fn json_value_end(bytes: &[u8], start: usize) -> Option<usize> {
@@ -808,7 +910,7 @@ fn large_tool_bodies_are_ranges_and_streamed_replies_have_small_checkpoints() {
         };
         let mut s = State::default();
         let ops = t(&mut s, harness, line.as_bytes()).unwrap();
-        assert!(s.checkpoint().unwrap().len() < 1024 * s.open_rows().count());
+        assert!(s.checkpoint().unwrap().translator.len() < 1024 * s.open_rows().count());
         assert!(ops.iter().any(|o|matches!(o.change,Change::Body{source:BodySource::Input(r),..} if r.length>=5*1024*1024)));
         assert!(ops.iter().all(
             |o| !matches!(&o.change,Change::Body{source:BodySource::Text(t),..} if t.len()>16*1024)
@@ -821,7 +923,7 @@ fn large_tool_bodies_are_ranges_and_streamed_replies_have_small_checkpoints() {
         let text = format!("{}\n\n", "y".repeat(1024));
         all.push_str(&text);
         m.line(&mut s, Harness::V1, &chunk(i, &text, "reply"));
-        assert!(s.checkpoint().unwrap().len() < 1024 * s.open_rows().count());
+        assert!(s.checkpoint().unwrap().translator.len() < 1024 * s.open_rows().count());
     }
     let got = m
         .rows
@@ -844,7 +946,7 @@ fn long_fence_continuations_carry_the_marker_and_replay_at_every_chunk() {
     for piece in text.as_bytes().chunks(71) {
         seq += 1;
         m.line(&mut s, Harness::V1, &chunk(seq, std::str::from_utf8(piece).unwrap(), "f"));
-        s = State::restore(&s.checkpoint().unwrap()).unwrap();
+        s = s.checkpoint().unwrap().restore().unwrap();
     }
     assert!(m.rows.values().any(|r| r.fields.get("fence") == Some(&quote("```"))));
     let got = m
@@ -869,8 +971,8 @@ fn malformed_input_is_transactional_and_raw_ranges_preserve_escapes() {
     m.line(&mut s, Harness::V1, &chunk(1, "🙂\n\"\\", "m"));
     assert!(m.visible(m.reply("🙂\n\"\\")));
     let checkpoint = s.checkpoint().unwrap();
-    for n in 0..checkpoint.len() {
-        assert!(State::restore(&checkpoint[..n]).is_err());
+    for n in 0..checkpoint.translator.len() {
+        assert!(State::restore(&checkpoint.translator[..n], &checkpoint.prompts).is_err());
     }
 }
 #[test]
@@ -1030,7 +1132,7 @@ fn checkpoint_and_open_rows_are_bounded_at_both_caps() {
     }
     let (mut s, mut m) = replay(&c.lines);
     assert_eq!(s.open_rows().count(), 97);
-    assert!(s.checkpoint().unwrap().len() < 32 * 1024);
+    assert!(s.checkpoint().unwrap().translator.len() < 32 * 1024);
     let first_tool = m.rows.values().find(|r| r.kind == RowKind::Tool).unwrap().id;
     m.line(
         &mut s,
@@ -1055,7 +1157,7 @@ fn checkpoint_and_open_rows_are_bounded_at_both_caps() {
     assert!(!m.reply("steer-0").open);
     assert_eq!(s.forced_steers, 1);
     assert_eq!(s.prompts.len(), 32);
-    assert_eq!(State::restore(&s.checkpoint().unwrap()).unwrap(), s);
+    assert_eq!(s.checkpoint().unwrap().restore().unwrap(), s);
 }
 #[test]
 fn read_before_text_survives_another_turn_and_nonsteer_echo() {
@@ -1141,13 +1243,69 @@ fn claude_null_stop_reason_keeps_the_reply_open() {
     assert!(m.visible(m.reply("hello world")));
 }
 
+#[test]
+fn claude_follow_fixture_replays_identically_from_every_checkpoint() {
+    let lines: Vec<_> = CLAUDE_FOLLOW.lines().collect();
+    let mut whole_state = State::default();
+    let mut whole_view = Mirror::default();
+    let mut place = 0u64;
+    for line in &lines {
+        whole_view.line_at(&mut whole_state, Harness::Claude, place, line.len() as u64, line);
+        place = place.saturating_add(line.len() as u64 + 1);
+    }
+
+    for cut in 0..=lines.len() {
+        let mut state = State::default();
+        let mut view = Mirror::default();
+        let mut place = 0u64;
+        for line in &lines[..cut] {
+            view.line_at(&mut state, Harness::Claude, place, line.len() as u64, line);
+            place = place.saturating_add(line.len() as u64 + 1);
+        }
+        state = state.checkpoint().unwrap().restore().unwrap();
+        for line in &lines[cut..] {
+            view.line_at(&mut state, Harness::Claude, place, line.len() as u64, line);
+            place = place.saturating_add(line.len() as u64 + 1);
+        }
+        assert_eq!(state, whole_state, "checkpoint split {cut}");
+        assert_eq!(view, whole_view, "view split {cut}");
+    }
+}
+
+#[test]
+fn claude_follow_uses_record_uuid_when_message_id_is_missing() {
+    let mut state = State::default();
+    let mut view = Mirror::default();
+    for line in CLAUDE_FOLLOW.lines() {
+        view.line(&mut state, Harness::Claude, line);
+    }
+    assert_eq!(view.text.values().filter(|text| (**text).as_str() == "Second answer").count(), 1);
+    assert_eq!(view.text.values().filter(|text| (**text).as_str() == "Third answer").count(), 1);
+    assert_ne!(view.reply("Second answer").id, view.reply("Third answer").id);
+}
+
+#[test]
+fn claude_follow_prompt_identity_filters_effects_and_preserves_uuid() {
+    let mut lines = CLAUDE_FOLLOW.lines();
+    let prompt = lines.next().unwrap();
+    assert_eq!(
+        prompt_identity(Harness::Claude, prompt.as_bytes()).unwrap(),
+        Some(PromptIdentity { id: "prompt-1".into(), text: "Inspect the deploy".into() })
+    );
+    let _ = lines.next();
+    let tool_result = lines.next().unwrap();
+    assert_eq!(prompt_identity(Harness::Claude, tool_result.as_bytes()).unwrap(), None);
+    let _ = lines.next();
+    assert_eq!(prompt_identity(Harness::V1, prompt.as_bytes()).unwrap(), None);
+}
+
 fn split_text_rows(parts: &[&str]) -> Vec<(String, Option<String>, Option<String>)> {
     let mut s = State::default();
     let mut m = Mirror::default();
     m.line(&mut s, Harness::V1, &mux(1, "user_message", r#"{"text":"q","turnId":"t"}"#));
     for (i, part) in parts.iter().enumerate() {
         m.line(&mut s, Harness::V1, &chunk(i as u64 + 2, part, "reply"));
-        s = State::restore(&s.checkpoint().unwrap()).unwrap();
+        s = s.checkpoint().unwrap().restore().unwrap();
     }
     m.line(&mut s, Harness::V1, &mux(parts.len() as u64 + 2, "turn_result", r#"{"turnId":"t"}"#));
     m.rows
@@ -1258,7 +1416,7 @@ fn queued_entries_are_idempotent_bounded_and_raw() {
     )));
     let resumed = mux(4, "queue_resumed", r#"{"promptIds":["q"]}"#);
     translate(&mut state, Harness::V1, 702, 1, resumed.as_bytes()).unwrap();
-    assert!(!state.queue.values().next().unwrap().held());
+    assert!(!state.queue.first().unwrap().held());
 
     let read = mux(5, "steer_read", r#"{"promptId":"q"}"#);
     let read_ops = translate(&mut state, Harness::V1, 703, 1, read.as_bytes()).unwrap();
@@ -1289,6 +1447,21 @@ fn queue_entries_are_removed_when_read_before_or_after_queue_record() {
 }
 
 #[test]
+fn a_declined_prompt_leaves_the_queue_as_v1s_restore_drops_it() {
+    let mut state = State::default();
+    t(&mut state, Harness::V1, mux(1, "user_message", r#"{"text":"first"}"#).as_bytes()).unwrap();
+    for (n, id) in ["asks", "stays"].into_iter().enumerate() {
+        let line = mux(n as u64 + 2, "queued", &format!(r#"{{"text":"{id}","promptId":"{id}"}}"#));
+        translate(&mut state, Harness::V1, n as u64 + 2, 1, line.as_bytes()).unwrap();
+    }
+    let declined = mux(4, "queue_declined", r#"{"promptId":"asks","turnId":"u1","revision":0}"#);
+    let ops = translate(&mut state, Harness::V1, 4, 1, declined.as_bytes()).unwrap();
+    assert!(ops.iter().any(|op| matches!(op.change, Change::Queue(QueueChange::Remove(_)))));
+    let left: Vec<u64> = state.queue().map(|entry| entry.id_hash).collect();
+    assert_eq!(left, [prompt_hash("stays")]);
+}
+
+#[test]
 fn queue_cap_counts_the_1025th_entry_without_holding_it() {
     let mut state = State::default();
     t(&mut state, Harness::V1, mux(1, "user_message", r#"{"text":"first"}"#).as_bytes()).unwrap();
@@ -1298,7 +1471,9 @@ fn queue_cap_counts_the_1025th_entry_without_holding_it() {
     }
     assert_eq!(state.queue.len(), 1024);
     assert_eq!(state.counters().queue_overflowed, 1);
-    assert!(state.checkpoint().unwrap().len() <= 64 * 1024);
+    let saved = state.checkpoint().unwrap();
+    assert_eq!(saved.prompts.len(), 1024);
+    assert_eq!(saved.restore().unwrap(), state);
 }
 
 #[test]
@@ -1315,6 +1490,32 @@ fn turn_start_after_a_result_is_not_compared_with_the_old_turn() {
 }
 
 #[test]
+fn in_turn_ends_with_the_turn_and_a_restore_agrees() {
+    let mut s = State::default();
+    assert!(!s.in_turn());
+    let lines: Vec<_> = SEED.lines().collect();
+    for (index, line) in lines.iter().enumerate() {
+        t(&mut s, Harness::V1, line.as_bytes()).unwrap();
+        // The seed's last line is its turn's result.
+        assert_eq!(s.in_turn(), index + 1 < lines.len(), "line {index}");
+        let restored = s.checkpoint().unwrap().restore().unwrap();
+        assert_eq!(restored.in_turn(), s.in_turn(), "line {index}");
+    }
+    // A background tool's late update keeps the ended turn's id and starts no turn.
+    let late = update(
+        10,
+        r#"{"sessionUpdate":"tool_call_update","toolCallId":"c1","status":"completed"}"#,
+    );
+    t(&mut s, Harness::V1, late.as_bytes()).unwrap();
+    assert!(!s.in_turn());
+    // A turn the daemon starts with no prompt is a turn until its result.
+    t(&mut s, Harness::V1, mux(11, "turn_started", r#"{"turnId":"t2"}"#).as_bytes()).unwrap();
+    assert!(s.in_turn());
+    t(&mut s, Harness::V1, mux(12, "turn_result", r#"{"turnId":"t2"}"#).as_bytes()).unwrap();
+    assert!(!s.in_turn());
+}
+
+#[test]
 fn full_fixed_width_queue_fits_beside_a_translator_at_its_byte_bound() {
     let mut state = State::default();
     t(&mut state, Harness::V1, mux(1, "user_message", r#"{"text":"boundary"}"#).as_bytes())
@@ -1322,17 +1523,29 @@ fn full_fixed_width_queue_fits_beside_a_translator_at_its_byte_bound() {
     // Fill metadata, not a retained body, to test the codec's exact boundary.
     // Each field stays under the field cap; the particular names are immaterial.
     let mut n = 0;
-    while MAX_TRANSLATOR_BYTES - state.checkpoint().unwrap().len() > 200 {
+    while MAX_TRANSLATOR_BYTES - state.checkpoint().unwrap().translator.len() > 200 {
         state.group.as_mut().unwrap().field(&format!("padding-{n}"), &"x".repeat(128));
         n += 1;
     }
     state.group.as_mut().unwrap().field("tail", "");
-    let remaining = MAX_TRANSLATOR_BYTES - state.checkpoint().unwrap().len();
+    let remaining = MAX_TRANSLATOR_BYTES - state.checkpoint().unwrap().translator.len();
     assert!(remaining < MAX_KEY_BYTES - 5);
     state.group.as_mut().unwrap().field("tail", &"x".repeat(remaining));
-    let translator = state.checkpoint().unwrap();
+    let translator = state.checkpoint().unwrap().translator;
     assert_eq!(translator.len(), MAX_TRANSLATOR_BYTES);
 
+    fill_queue(&mut state);
+    let saved = state.checkpoint().unwrap();
+    // The queue is absent from serde's translator segment, even when full.
+    assert_eq!(saved.translator, translator);
+    assert_eq!(saved.prompts.len(), MAX_QUEUE_ENTRIES);
+    assert_eq!(saved.translator.len() + 32 * saved.prompts.len(), MAX_STATE_BYTES);
+    assert_eq!(saved.restore().unwrap(), state);
+    state.turn_key.push('x');
+    assert!(matches!(state.checkpoint(), Err(Error::StateTooLarge { .. })));
+}
+
+fn fill_queue(state: &mut State) {
     for n in 0..MAX_QUEUE_ENTRIES as u64 {
         let entry = QueueEntry {
             id_hash: u64::MAX - n,
@@ -1341,25 +1554,155 @@ fn full_fixed_width_queue_fits_beside_a_translator_at_its_byte_bound() {
             span: u32::MAX,
             text_len: u32::MAX,
         };
-        state.queue.insert(entry.id_hash, entry);
+        state.queue.push(entry);
     }
-    let checkpoint = state.checkpoint().unwrap();
-    assert_eq!(checkpoint.len() - translator.len(), 1024 * 32);
-    assert_eq!(checkpoint.len(), MAX_STATE_BYTES);
-    assert_eq!(State::restore(&checkpoint).unwrap(), state);
-    // The queue is absent from serde's translator segment, even when full.
-    assert_eq!(&checkpoint[..translator.len() - 4], &translator[..translator.len() - 4]);
-    state.turn_key.push('x');
-    assert!(matches!(state.checkpoint(), Err(Error::StateTooLarge { .. })));
+}
+
+/// Every bounded part at its bound at once: the translator's segment, 1,024 waiting prompts
+/// and the open bodies, in one book checkpoint.
+#[test]
+fn a_book_checkpoint_with_every_part_at_its_bound_fits_and_restores_the_queue() {
+    use crate::blobs::{Blobs, Body};
+    use crate::checkpoint::{Checkpoint, Cursor, OpenBody};
+    use crate::log::{Log, Options, RawRange};
+    let mut state = State::default();
+    t(&mut state, Harness::V1, mux(1, "user_message", r#"{"text":"boundary"}"#).as_bytes())
+        .unwrap();
+    let mut n = 0;
+    while MAX_TRANSLATOR_BYTES - state.checkpoint().unwrap().translator.len() > 200 {
+        state.group.as_mut().unwrap().field(&format!("padding-{n}"), &"x".repeat(128));
+        n += 1;
+    }
+    fill_queue(&mut state);
+    let saved = state.checkpoint().unwrap();
+
+    let home = tempfile::tempdir().unwrap();
+    let (mut log, _) = Log::open(home.path(), Options::default()).unwrap();
+    let source = log.append_raw_file(b"test").unwrap();
+    let mut blobs = Blobs::open(home.path()).unwrap();
+    let mut checkpoint = Checkpoint::new(VERSION);
+    checkpoint.last_row = 64;
+    checkpoint.translator = saved.translator;
+    checkpoint.prompts = saved.prompts;
+    checkpoint.cursors.push(Cursor { file: source, place: 100, stamp: 7 });
+    checkpoint.summary = vec![b'x'; 2048];
+    let large = format!("\"{}\"", "x".repeat(1 << 20));
+    for row in 1..=64 {
+        let mut body = Body::new(row).unwrap();
+        blobs.set(&mut body, "text", &large, true).unwrap();
+        for key in ["content", "input", "entries", "source", "images", "title"] {
+            blobs.set(&mut body, key, "null", false).unwrap();
+        }
+        checkpoint.open.push(OpenBody { body, raw: RawRange { file: source, off: 1, len: 99 } });
+    }
+    blobs.sync(checkpoint.open.iter().map(|r| &r.body)).unwrap();
+    let ids = checkpoint.open.iter().map(|r| r.body.row).collect::<Vec<_>>();
+    checkpoint.write(&mut log, &ids).unwrap();
+    assert!(std::fs::metadata(home.path().join("checkpoint")).unwrap().len() <= 96 * 1024);
+    drop(log);
+    let (_, recovered) = Log::open(home.path(), Options::default()).unwrap();
+    let reopened = Checkpoint::from_recovered(&recovered).unwrap();
+    let restored = State::restore(&reopened.translator, &reopened.prompts).unwrap();
+    assert_eq!(restored, state);
+    assert!(restored.queue().eq(state.queue()));
 }
 
 #[test]
 fn unknown_checkpoint_version_requires_replay_from_raw() {
-    let mut checkpoint = State::default().checkpoint().unwrap();
-    // Version 5 included an empty queue map in the serde segment. Version 6
-    // omits it. The actor must rebuild from raw, never guess the older layout.
-    checkpoint[0] = 5;
-    assert_eq!(State::restore(&checkpoint), Err(Error::CheckpointVersion));
-    checkpoint[0] = VERSION as u8 + 1;
-    assert_eq!(State::restore(&checkpoint), Err(Error::CheckpointVersion));
+    let mut checkpoint = State::default().checkpoint().unwrap().translator;
+    // Version 5 included an empty queue map in the serde segment; version 6 put the queue's
+    // records after it; version 7 keeps them in the book's prompt section. The actor must
+    // rebuild from raw, never guess an older layout.
+    for old in [5, 6, VERSION as u8 + 1] {
+        checkpoint[0] = old;
+        assert_eq!(State::restore(&checkpoint, &[]), Err(Error::CheckpointVersion));
+    }
+}
+
+fn queue_ids(state: &State) -> Vec<(u64, bool)> {
+    state.queue().map(|entry| (entry.id_hash, entry.held())).collect()
+}
+
+fn ids(names: &[&str]) -> Vec<(u64, bool)> {
+    names
+        .iter()
+        .map(|name| match name.strip_suffix('!') {
+            Some(held) => (prompt_hash(held), true),
+            None => (prompt_hash(name), false),
+        })
+        .collect()
+}
+
+/// Decision 215: the queue is v1's list order, as its restore reads the log.
+#[test]
+fn the_queue_keeps_v1s_list_order_through_reorders_holds_and_requeues() {
+    let mut state = State::default();
+    let mut seq = 0;
+    let mut line = |state: &mut State, kind: &str, msg: &str| {
+        seq += 1;
+        translate(state, Harness::V1, seq * 100, 1, mux(seq, kind, msg).as_bytes()).unwrap()
+    };
+    line(&mut state, "user_message", r#"{"text":"running","turnId":"t0"}"#);
+    for id in ["a", "b", "agent"] {
+        line(&mut state, "queued", &format!(r#"{{"text":"{id}","promptId":"{id}"}}"#));
+    }
+    assert_eq!(queue_ids(&state), ids(&["a", "b", "agent"]));
+    // A person's prompt goes ahead of an agent message: `queued`, then its `queue_order`.
+    line(&mut state, "queued", r#"{"text":"c","promptId":"c"}"#);
+    assert_eq!(queue_ids(&state), ids(&["a", "b", "agent", "c"]));
+    let ops = line(&mut state, "queue_order", r#"{"promptId":"c","order":["a","b","c","agent"]}"#);
+    assert!(ops.iter().any(|op| matches!(op.change, Change::Queue(QueueChange::Order))));
+    assert_eq!(queue_ids(&state), ids(&["a", "b", "c", "agent"]));
+    // Held and released in place.
+    line(&mut state, "queue_paused", r#"{"held":["a","b"]}"#);
+    assert_eq!(queue_ids(&state), ids(&["a!", "b!", "c", "agent"]));
+    line(&mut state, "queue_resumed", r#"{"promptIds":["b"]}"#);
+    assert_eq!(queue_ids(&state), ids(&["a!", "b", "c", "agent"]));
+    // Sent now: released, and first.
+    line(
+        &mut state,
+        "queue_order",
+        r#"{"promptId":"a","next":true,"order":["a","b","c","agent"]}"#,
+    );
+    assert_eq!(queue_ids(&state), ids(&["a", "b", "c", "agent"]));
+    line(&mut state, "queue_order", r#"{"order":["agent","nobody",7,"c"]}"#);
+    // Named ones first in their order; unknown ids and non-strings skipped; the rest after.
+    assert_eq!(queue_ids(&state), ids(&["agent", "c", "a", "b"]));
+    // An order that names nothing, or is not a list, changes nothing.
+    assert!(line(&mut state, "queue_order", r#"{"order":["nobody"]}"#).is_empty());
+    assert!(line(&mut state, "queue_order", r#"{"order":"c"}"#).is_empty());
+    // Requeued after a failed turn: at the end until the `queue_order` beside it.
+    line(&mut state, "queued", r#"{"text":"agent","promptId":"agent","requeued":true}"#);
+    assert_eq!(queue_ids(&state), ids(&["c", "a", "b", "agent"]));
+    // An inbox digest's record carries the order with it in it.
+    line(&mut state, "queued", r#"{"text":"d","promptId":"digest","order":["c","digest","a"]}"#);
+    assert_eq!(queue_ids(&state), ids(&["c", "digest", "a", "b", "agent"]));
+    line(&mut state, "dequeued", r#"{"promptId":"digest"}"#);
+    assert_eq!(queue_ids(&state), ids(&["c", "a", "b", "agent"]));
+    // A checkpoint keeps the order in its records, and a restore reads it back.
+    let saved = state.checkpoint().unwrap();
+    let restored = saved.restore().unwrap();
+    assert_eq!(queue_ids(&restored), queue_ids(&state));
+    // Two records for one prompt are damage.
+    let mut twice = saved;
+    twice.prompts.push(twice.prompts[0]);
+    assert_eq!(twice.restore(), Err(Error::CheckpointInvalid));
+}
+
+#[test]
+fn a_reorder_of_a_full_queue_is_one_pass() {
+    let mut state = State::default();
+    t(&mut state, Harness::V1, mux(1, "user_message", r#"{"text":"first"}"#).as_bytes()).unwrap();
+    for n in 0..1024u64 {
+        let line = mux(n + 2, "queued", &format!(r#"{{"text":"q","promptId":"q-{n}"}}"#));
+        translate(&mut state, Harness::V1, n + 2, 1, line.as_bytes()).unwrap();
+    }
+    let order: Vec<String> = (0..1024).rev().map(|n| format!("q-{n}")).collect();
+    let line = mux(2000, "queue_order", &serde_json::json!({"order": order}).to_string());
+    let started = std::time::Instant::now();
+    translate(&mut state, Harness::V1, 2000, 1, line.as_bytes()).unwrap();
+    let took = started.elapsed();
+    let expected: Vec<u64> = (0..1024).rev().map(|n| prompt_hash(&format!("q-{n}"))).collect();
+    assert_eq!(state.queue().map(|entry| entry.id_hash).collect::<Vec<_>>(), expected);
+    assert!(took < std::time::Duration::from_millis(50), "a full reorder took {took:?}");
 }

@@ -7,8 +7,11 @@ import UIKit
 /// T-SCROLL-12 through the real Ghostty surface in mirror mode: the phone's
 /// wheel goes through Ghostty's own encoder, so the app gets what Ghostty
 /// sends on a Mac trackpad: SGR wheel reports when it asked for the mouse
-/// (DECSET 1000 + 1006), and nothing otherwise: never the cursor keys Ghostty's
-/// alternate scroll (DECSET 1007) would make of it (``TerminalPanRoute``).
+/// (DECSET 1000 + 1006), cursor keys on the alternate screen with alternate
+/// scroll (DECSET 1007, Ghostty's default; `ESC O A`/`B` in application cursor
+/// mode), and nothing with 1007 off. Ghostty decides by the terminal's modes,
+/// never by which program runs (Leo: "we shouldn't be accounting for an
+/// endless number of apps").
 @MainActor
 @Suite(.serialized) struct TerminalTUIScrollSurfaceTests {
     /// A mirror surface in a window, its output fed and its input collected.
@@ -144,30 +147,171 @@ import UIKit
         #expect(await rig.text(awaiting: accelerated) == accelerated)
     }
 
-    /// Leo, 2026-11-12: "this terminal projection nigh unusable due to me scroll
-    /// and thumb land on subagent depiction". On the alternate screen without
-    /// mouse reporting Ghostty's alternate scroll (DECSET 1007, its default)
-    /// made the drag cursor keys, which walked Claude Code's prompt history
-    /// and its background-agent list. A drag is never a keystroke now.
-    @Test func theAlternateScreenWithoutMouseReportingGetsNoArrows() async throws {
+    @Test func theAlternateScreenGetsArrowsByDefault() async throws {
         let rig = Rig()
         try #require(rig.surface.surface != nil)
         await rig.feed("\u{1b}[?1049h")
         rig.sent = Data()
-        #expect(!rig.surface.scrollWheel(at: CGPoint(x: 20, y: 20), deltaY: 2 * rig.surface.cellSize.height, momentum: .none))
+        rig.wheel(rows: 2, column: 1, row: 1)
+        #expect(await rig.text(awaiting: "\u{1b}[A\u{1b}[A") == "\u{1b}[A\u{1b}[A")
+        rig.sent = Data()
         rig.wheel(rows: -1, column: 1, row: 1)
-        await rig.settle()
-        #expect(rig.sent.isEmpty)
+        #expect(await rig.text(awaiting: "\u{1b}[B") == "\u{1b}[B")
     }
 
-    @Test func applicationCursorKeysGetNoArrowsEither() async throws {
+    @Test func applicationCursorKeysSendSS3Arrows() async throws {
         let rig = Rig()
         try #require(rig.surface.surface != nil)
         await rig.feed("\u{1b}[?1049h\u{1b}[?1h")
         rig.sent = Data()
-        rig.wheel(rows: 3, column: 1, row: 1)
+        rig.wheel(rows: 1, column: 1, row: 1)
+        #expect(await rig.text(awaiting: "\u{1b}OA") == "\u{1b}OA")
+        rig.sent = Data()
+        rig.wheel(rows: -2, column: 1, row: 1)
+        #expect(await rig.text(awaiting: "\u{1b}OB\u{1b}OB") == "\u{1b}OB\u{1b}OB")
+    }
+
+    @Test func alternateScrollOffSendsNothing() async throws {
+        let rig = Rig()
+        try #require(rig.surface.surface != nil)
+        await rig.feed("\u{1b}[?1049h\u{1b}[?1007l")
+        rig.sent = Data()
+        rig.wheel(rows: 4, column: 1, row: 1)
+        rig.wheel(rows: -4, column: 1, row: 1)
         await rig.settle()
         #expect(rig.sent.isEmpty)
+    }
+
+    /// Mouse reporting wins over alternate scroll: wheel reports, no arrows.
+    @Test func mouseReportingWinsOverAlternateScroll() async throws {
+        let rig = Rig()
+        try #require(rig.surface.surface != nil)
+        await rig.feed("\u{1b}[?1049h\u{1b}[?1h\u{1b}[?1007h\u{1b}[?1000h\u{1b}[?1006h")
+        rig.sent = Data()
+        rig.wheel(rows: 2, column: 3, row: 5)
+        let wheel = String(repeating: "\u{1b}[<64;4;6M", count: 2)
+        #expect(await rig.text(awaiting: wheel) == wheel)
+        await rig.settle()
+        #expect(rig.text == wheel)
+    }
+
+    /// The modes Claude Code's full-screen renderer and Codex set on start
+    /// (captured from their PTYs): any-motion SGR mouse, so a wheel is a
+    /// wheel report at the finger and never an arrow, with 1007 on or off.
+    @Test(arguments: [
+        "\u{1b}[?1049h\u{1b}[?1000h\u{1b}[?1002h\u{1b}[?1003h\u{1b}[?1004h\u{1b}[?1006h\u{1b}[?2004h\u{1b}[?2031h",
+        "\u{1b}[?1049h\u{1b}[?1000h\u{1b}[?1002h\u{1b}[?1003h\u{1b}[?1004h\u{1b}[?1006h\u{1b}[?1007l\u{1b}[?2004h",
+    ])
+    func claudeCodeAndCodexGetWheelReports(modes: String) async throws {
+        let rig = Rig()
+        try #require(rig.surface.surface != nil)
+        await rig.feed(modes)
+        rig.sent = Data()
+        rig.wheel(rows: 3, column: 4, row: 20)
+        let up = String(repeating: "\u{1b}[<64;5;21M", count: 3)
+        let text = await rig.text(awaiting: up)
+        // Any-motion tracking may also report the pointer reaching the cell first.
+        #expect(text.hasSuffix(up))
+        #expect(!text.contains("\u{1b}[A") && !text.contains("\u{1b}OA"))
+    }
+
+    /// A full-screen program the phone has never heard of gets exactly what
+    /// Ghostty sends for its modes: the same bytes for less, man, vim, nano,
+    /// top, a remote pager over ssh, tmux, Claude Code without mouse capture
+    /// and a made-up TUI. No program name is read or matched anywhere.
+    struct Program: CustomStringConvertible, Sendable {
+        let name: String
+        let modes: String
+        /// One row toward older content, then one toward newer.
+        let up: String
+        let down: String
+        var description: String { name }
+    }
+
+    nonisolated static let csi = ("\u{1b}[A", "\u{1b}[B")
+    nonisolated static let ss3 = ("\u{1b}OA", "\u{1b}OB")
+    nonisolated static let programs: [Program] = [
+        Program(name: "less", modes: "\u{1b}[?1049h\u{1b}[?1h\u{1b}=", up: ss3.0, down: ss3.1),
+        Program(name: "man", modes: "\u{1b}[?1049h\u{1b}[?1h\u{1b}=", up: ss3.0, down: ss3.1),
+        Program(name: "vim", modes: "\u{1b}[?1049h\u{1b}[?1h\u{1b}=\u{1b}[?2004h", up: ss3.0, down: ss3.1),
+        Program(name: "nano", modes: "\u{1b}[?1049h\u{1b}[?1h\u{1b}=\u{1b}[?2004h", up: ss3.0, down: ss3.1),
+        Program(name: "top", modes: "\u{1b}[?1049h\u{1b}[?25l", up: csi.0, down: csi.1),
+        Program(name: "ssh", modes: "\u{1b}[?1049h\u{1b}[?1h\u{1b}=", up: ss3.0, down: ss3.1),
+        Program(name: "tmux", modes: "\u{1b}[?1049h\u{1b}[?1h\u{1b}=\u{1b}[?25l\u{1b}[?1004h", up: ss3.0, down: ss3.1),
+        Program(name: "claude-code-no-mouse", modes: "\u{1b}[?1049h\u{1b}[?1004h\u{1b}[?2004h\u{1b}[?2031h", up: csi.0, down: csi.1),
+        Program(name: "mycustomtui", modes: "\u{1b}[?1049h", up: csi.0, down: csi.1),
+    ]
+
+    @Test(arguments: programs)
+    func anyProgramGetsGhosttysArrowsWithAlternateScrollOn(program: Program) async throws {
+        let rig = Rig()
+        try #require(rig.surface.surface != nil)
+        await rig.feed(program.modes + "\u{1b}[H\u{1b}[2J\(program.name)\r\n")
+        rig.sent = Data()
+        rig.wheel(rows: 3, column: 4, row: 20)
+        let up = String(repeating: program.up, count: 3)
+        #expect(await rig.text(awaiting: up) == up, "\(program.name)")
+        rig.sent = Data()
+        rig.wheel(rows: -2, column: 4, row: 20)
+        let down = String(repeating: program.down, count: 2)
+        #expect(await rig.text(awaiting: down) == down, "\(program.name)")
+        // DECRST 1007: the same program, nothing.
+        await rig.feed("\u{1b}[?1007l")
+        rig.sent = Data()
+        rig.wheel(rows: 3, column: 4, row: 20)
+        await rig.settle()
+        #expect(rig.sent.isEmpty, "\(program.name)")
+    }
+
+    /// A finger's slow ten-row drag, as the controller sends it (a wheel per
+    /// quarter row through ``TerminalTUIScroll``), on the alternate screen
+    /// without mouse reporting: Ghostty carries each part of a row, so the
+    /// app gets one arrow per row and nothing else.
+    @Test func aSlowDragIsOneArrowPerRow() async throws {
+        let rig = Rig()
+        try #require(rig.surface.surface != nil)
+        await rig.feed("\u{1b}[?1049h\u{1b}[?1h")
+        rig.sent = Data()
+        let row = rig.surface.cellSize.height
+        let at = CGPoint(x: rig.surface.gridPadding.x + 4.5 * rig.surface.cellSize.width,
+                         y: rig.surface.gridPadding.y + 20.5 * row)
+        var scroll = TerminalTUIScroll()
+        scroll.began()
+        for step in 1...40 {
+            if let wheel = scroll.moved(translationY: CGFloat(step) * row / 4, velocityY: 150) {
+                rig.surface.scrollWheel(at: at, deltaY: wheel.dy, momentum: wheel.momentum)
+            }
+        }
+        _ = await rig.text(awaiting: String(repeating: "\u{1b}OA", count: 9))
+        await rig.settle()
+        let arrows = rig.text.components(separatedBy: "\u{1b}OA").count - 1
+        #expect((9...10).contains(arrows))
+        #expect(rig.text == String(repeating: "\u{1b}OA", count: arrows))
+    }
+
+    /// The primary screen (a shell, Claude Code's inline frame): Ghostty
+    /// scrolls its own viewport and the Mac gets nothing.
+    @Test(arguments: ["\u{1b}[?2004h", "\u{1b}[?1004h\u{1b}[?2004h\u{1b}[?2031h\u{1b}[?25l"])
+    func thePrimaryScreenSendsNothing(modes: String) async throws {
+        let rig = Rig()
+        try #require(rig.surface.surface != nil)
+        await rig.feed(modes + "$ \r\n")
+        rig.sent = Data()
+        rig.wheel(rows: 3, column: 1, row: 1)
+        rig.wheel(rows: -3, column: 1, row: 1)
+        await rig.settle()
+        #expect(rig.sent.isEmpty)
+    }
+
+    @Test func lessThanARowOfArrowsWaitsForMore() async throws {
+        let rig = Rig()
+        try #require(rig.surface.surface != nil)
+        await rig.feed("\u{1b}[?1049h")
+        rig.sent = Data()
+        rig.wheel(rows: 0.6, column: 1, row: 1)
+        #expect(rig.sent.isEmpty)
+        rig.wheel(rows: 0.6, column: 1, row: 1)
+        #expect(await rig.text(awaiting: "\u{1b}[A") == "\u{1b}[A")
     }
 
     @Test func lessThanARowWaitsForMore() async throws {

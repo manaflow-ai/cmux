@@ -23,10 +23,16 @@ test.each(["finish", "cancel"])("the pinned line clips a gliding reply and clear
   }
   let state = "running";
   const slide = Object.assign(new EventTarget(), {
-    effect: { getKeyframes: () => [{ translate: "0 16px" }, { translate: "0 0" }] },
+    effect: { target: reply, getKeyframes: () => [{ translate: "0 16px" }, { translate: "0 0" }] },
   }) as unknown as Animation;
   Object.defineProperty(slide, "playState", { get: () => state });
-  reply!.getAnimations = () => [slide];
+  // The rows' animations come from one read of the thread's (each row's own read is a style check).
+  let rowReads = 0;
+  reply!.getAnimations = () => {
+    rowReads += 1;
+    return [slide];
+  };
+  thread.getAnimations = () => [slide];
   reply!.style.translate = "0 0";
   try {
     pinLiveLine(thread, true);
@@ -42,6 +48,7 @@ test.each(["finish", "cancel"])("the pinned line clips a gliding reply and clear
     state = event === "finish" ? "finished" : "idle";
     slide.dispatchEvent(new Event(event));
     expect(reply!.style.clipPath).toBe("");
+    expect(rowReads).toBe(0);
   } finally {
     pinLiveLine(thread, false);
     await settleReact();

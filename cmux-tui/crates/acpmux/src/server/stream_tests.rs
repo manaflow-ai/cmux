@@ -1,6 +1,6 @@
 //! The socket reader's bounds and the writer's end (`stream.rs`, manaflow-ai/cmuxterm-hq#2888).
 
-use super::{Limits, read_lines, v2_upgrade, write_lines};
+use super::{Limits, Taken, read_lines, v2_upgrade, write_lines};
 use acpmux_book::index::SummaryIndex;
 use acpmux_client::{Change, Client};
 use acpmux_core::life::V2;
@@ -12,6 +12,8 @@ use tokio::sync::{mpsc, oneshot};
 const MAX: usize = 1024;
 const LIMITS: Limits = Limits { line: MAX, small: 64 };
 const WAIT: Duration = Duration::from_secs(10);
+/// No v2 test asks for a pipe.
+static NOT_PIPED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// The client's end, what the server reads, the line that ends the connection, and the reader.
 fn reader(
@@ -26,7 +28,7 @@ fn reader(
     let (in_tx, in_rx) = mpsc::channel(lines);
     let (last_tx, last_rx) = oneshot::channel();
     let task = tokio::spawn(async move {
-        read_lines(server, in_tx, last_tx, LIMITS, None).await;
+        read_lines(server, in_tx, last_tx, LIMITS, None, &NOT_PIPED).await;
     });
     (client, in_rx, last_rx, task)
 }
@@ -226,25 +228,18 @@ async fn an_http_upgrade_with_the_carrier_header_ends_the_connection() {
 }
 
 #[test]
-fn v2_upgrade_requires_every_requested_surface() {
+fn v2_upgrade_grants_the_named_surfaces_that_are_on() {
     let (hub, writer) = acpmux_core::hub::Hub::new(SummaryIndex::new());
     let v2 = V2::with_surfaces(hub, writer, ["list".to_owned()].into_iter().collect());
-    let line = serde_json::to_string(&json!({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "_acpmux/v2",
-        "params": {"protocol": 2, "surfaces": ["list"]}
-    }))
-    .unwrap();
-    assert!(v2_upgrade(&line, &v2).is_some());
-    let line = serde_json::to_string(&json!({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "_acpmux/v2",
-        "params": {"protocol": 2, "surfaces": ["list", "chat"]}
-    }))
-    .unwrap();
-    assert!(v2_upgrade(&line, &v2).is_none());
+    let granted = |surfaces| v2_upgrade(&upgrade_line(surfaces), &v2).map(|(_, granted)| granted);
+    assert_eq!(granted(json!(["list"])), Some(vec!["list".to_owned()]));
+    // `chat` is off: the upgrade is granted for `list` alone, not answered as v1.
+    assert_eq!(granted(json!(["list", "chat"])), Some(vec!["list".to_owned()]));
+    // A name this build does not know is passed over, never an error.
+    assert_eq!(granted(json!(["act", "list"])), Some(vec!["list".to_owned()]));
+    // Nothing granted: the v1 answer.
+    assert_eq!(granted(json!(["chat"])), None);
+    assert_eq!(granted(json!(["act"])), None);
 }
 
 fn upgrade_line(surfaces: serde_json::Value) -> String {
@@ -274,12 +269,13 @@ async fn upgrade_is_only_the_first_line_and_preserves_v1_eof() {
     tokio::time::timeout(WAIT, async {
         // The later upgrade exceeds `small`: the reader waits for the first
         // line to be consumed before admitting it, just as on a v1 connection.
-        let (handoff, ()) = tokio::join!(read_lines(server, tx, last, LIMITS, Some(&v2)), async {
-            assert_eq!(rx.recv().await.as_deref(), Some("{}"));
-            assert_eq!(rx.recv().await.as_deref(), Some(upgrade.trim_end()));
-            assert_eq!(rx.recv().await.as_deref(), Some("tail"));
-            assert!(rx.recv().await.is_none());
-        });
+        let (handoff, ()) =
+            tokio::join!(read_lines(server, tx, last, LIMITS, Some(&v2), &NOT_PIPED), async {
+                assert_eq!(rx.recv().await.as_deref(), Some("{}"));
+                assert_eq!(rx.recv().await.as_deref(), Some(upgrade.trim_end()));
+                assert_eq!(rx.recv().await.as_deref(), Some("tail"));
+                assert!(rx.recv().await.is_none());
+            });
         assert!(handoff.is_none());
     })
     .await
@@ -298,7 +294,7 @@ async fn enabled_upgrade_keeps_http_and_oversize_first_line_errors() {
         let (tx, mut rx) = mpsc::channel(16);
         let (last, last_rx) = oneshot::channel();
         client.write_all(line.as_bytes()).await.unwrap();
-        assert!(read_lines(server, tx, last, LIMITS, Some(&v2)).await.is_none());
+        assert!(read_lines(server, tx, last, LIMITS, Some(&v2), &NOT_PIPED).await.is_none());
         assert!(rx.recv().await.is_none());
         let reply: serde_json::Value = serde_json::from_str(&last_rx.await.unwrap()).unwrap();
         assert_eq!(
@@ -324,13 +320,18 @@ async fn upgrade_read_ahead_reaches_hello_then_list_window() {
     tokio::time::timeout(WAIT, async {
         let (hub, writer) = acpmux_core::hub::Hub::new(SummaryIndex::new());
         let v2 = V2::new(hub, writer);
+        let v1 = memory_v1();
         let (mut client, server) = tokio::io::duplex(8192);
         let (rd, wr) = tokio::io::split(server);
         let (tx, _rx) = mpsc::channel(16);
         let (last, _last_rx) = oneshot::channel();
         let task = tokio::spawn(async move {
-            let upgrade = read_lines(rd, tx, last, LIMITS, Some(&v2)).await.unwrap();
-            upgrade.serve(wr, &v2, "test".into()).await.unwrap();
+            let Some(Taken::V2(upgrade)) =
+                read_lines(rd, tx, last, LIMITS, Some(&v2), &NOT_PIPED).await
+            else {
+                panic!("the first line did not upgrade")
+            };
+            upgrade.serve(wr, &v1, &v2, "test".into()).await.unwrap();
         });
         let hello = Frame::json(
             FrameKind::Request,
@@ -375,6 +376,67 @@ async fn upgrade_read_ahead_reaches_hello_then_list_window() {
 }
 
 #[tokio::test]
+async fn an_upgrade_naming_a_surface_that_is_off_keeps_the_rest() {
+    use acpmux_core::wire::{Frame, FrameKind};
+    tokio::time::timeout(WAIT, async {
+        let (hub, writer) = acpmux_core::hub::Hub::new(SummaryIndex::new());
+        let v2 = V2::with_surfaces(hub, writer, ["list".to_owned()].into_iter().collect());
+        let v1 = memory_v1();
+        let (mut client, server) = tokio::io::duplex(8192);
+        let (rd, wr) = tokio::io::split(server);
+        let (tx, _rx) = mpsc::channel(16);
+        let (last, _last_rx) = oneshot::channel();
+        let task = tokio::spawn(async move {
+            let Some(Taken::V2(upgrade)) =
+                read_lines(rd, tx, last, LIMITS, Some(&v2), &NOT_PIPED).await
+            else {
+                panic!("the first line did not upgrade")
+            };
+            upgrade.serve(wr, &v1, &v2, "test".into()).await.unwrap();
+        });
+        let request =
+            |value: serde_json::Value| Frame::json(FrameKind::Request, &value).unwrap().encode();
+        let mut combined = upgrade_line(json!(["list", "chat"])).into_bytes();
+        combined.extend(request(json!({
+            "method":"hello", "params":{"clientKind":"test", "protocol":2}
+        })));
+        client.write_all(&combined).await.unwrap();
+        let mut reply = Vec::new();
+        loop {
+            let byte = client.read_u8().await.unwrap();
+            if byte == b'\n' {
+                break;
+            }
+            reply.push(byte);
+        }
+        let reply: serde_json::Value = serde_json::from_slice(&reply).unwrap();
+        assert_eq!(reply.pointer("/result/upgrade"), Some(&json!(true)));
+        assert_eq!(reply.pointer("/result/surfaces"), Some(&json!(["list"])));
+        assert_eq!(v2_frame(&mut client).await.kind, FrameKind::Hello);
+        // A chat `sub` on a connection not granted `chat` is answered `error`, and the
+        // connection stays up for the list.
+        client
+            .write_all(&request(json!({
+                "method":"sub", "params":{"sid":"c", "stream":"chat:c1", "anchor":"end"}
+            })))
+            .await
+            .unwrap();
+        let error = v2_frame(&mut client).await;
+        assert_eq!(error.kind, FrameKind::Error);
+        client
+            .write_all(&request(json!({"method":"sub", "params":{"sid":"s", "stream":"list"}})))
+            .await
+            .unwrap();
+        let window = v2_frame(&mut client).await;
+        assert_eq!(window.kind, FrameKind::Window);
+        drop(client);
+        task.await.unwrap();
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
 async fn trigger_admission_cannot_be_followed_by_an_upgrade() {
     let (hub, writer) = acpmux_core::hub::Hub::new(SummaryIndex::new());
     let v2 = V2::new(hub, writer);
@@ -386,11 +448,12 @@ async fn trigger_admission_cannot_be_followed_by_an_upgrade() {
     client.write_all(format!("{trigger}{upgrade}").as_bytes()).await.unwrap();
     client.shutdown().await.unwrap();
     tokio::time::timeout(WAIT, async {
-        let (handoff, ()) = tokio::join!(read_lines(server, tx, last, LIMITS, Some(&v2)), async {
-            assert_eq!(rx.recv().await.as_deref(), Some(trigger.trim_end()));
-            assert_eq!(rx.recv().await.as_deref(), Some(upgrade.trim_end()));
-            assert!(rx.recv().await.is_none());
-        });
+        let (handoff, ()) =
+            tokio::join!(read_lines(server, tx, last, LIMITS, Some(&v2), &NOT_PIPED), async {
+                assert_eq!(rx.recv().await.as_deref(), Some(trigger.trim_end()));
+                assert_eq!(rx.recv().await.as_deref(), Some(upgrade.trim_end()));
+                assert!(rx.recv().await.is_none());
+            });
         assert!(handoff.is_none());
     })
     .await
@@ -561,4 +624,119 @@ async fn client_rejects_a_daemon_result_that_is_not_an_upgrade() {
 
     drop(socket);
     task.await.unwrap();
+}
+
+/// A v1 hub over a store in memory: no chat has a directory, so none has a book.
+fn memory_v1() -> std::sync::Arc<crate::hub::Hub> {
+    let mut config = crate::config::Config::default();
+    config.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+    crate::hub::Hub::new(config, store)
+}
+
+/// Writes `request` as a v2 request frame.
+async fn v2_send(writer: &mut (impl tokio::io::AsyncWrite + Unpin), request: serde_json::Value) {
+    let frame =
+        acpmux_core::wire::Frame::json(acpmux_core::wire::FrameKind::Request, &request).unwrap();
+    writer.write_all(&frame.encode()).await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_upgraded_connection_granted_chat_gets_a_v1_chat_s_window_and_no_other() {
+    use acpmux_core::wire::FrameKind;
+    let id = crate::god_fixture::chat_id(0);
+    let home = crate::hub::book_tee::tests::home(&[(id.clone(), 20, 64 << 10)], true).await;
+    let registry = home.tee().registry().clone();
+    let v1 = home.hub.clone();
+    tokio::time::timeout(WAIT * 6, async move {
+        let (list, writer) = acpmux_core::hub::Hub::new(SummaryIndex::new());
+        let surfaces = ["list", "chat"].into_iter().map(str::to_owned).collect();
+        let v2 = V2::with_surfaces(list, writer, surfaces).with_registry(registry);
+        let (mut client, server) = tokio::io::duplex(1 << 20);
+        let (rd, wr) = tokio::io::split(server);
+        let (tx, _rx) = mpsc::channel(16);
+        let (last, _last_rx) = oneshot::channel();
+        let task = tokio::spawn(async move {
+            let Some(Taken::V2(upgrade)) =
+                read_lines(rd, tx, last, LIMITS, Some(&v2), &NOT_PIPED).await
+            else {
+                panic!("the first line did not upgrade")
+            };
+            upgrade.serve(wr, &v1, &v2, "test".into()).await.unwrap();
+        });
+        client.write_all(upgrade_line(json!(["list", "chat"])).as_bytes()).await.unwrap();
+        let mut reply = Vec::new();
+        loop {
+            let byte = client.read_u8().await.unwrap();
+            if byte == b'\n' {
+                break;
+            }
+            reply.push(byte);
+        }
+        let reply: serde_json::Value = serde_json::from_slice(&reply).unwrap();
+        assert_eq!(reply.pointer("/result/surfaces"), Some(&json!(["list", "chat"])));
+        let hello = json!({"method":"hello", "params":{"clientKind":"test", "protocol":2}});
+        v2_send(&mut client, hello).await;
+        assert_eq!(v2_frame(&mut client).await.kind, FrameKind::Hello);
+        v2_send(
+            &mut client,
+            json!({"method":"sub", "params":{"sid":"c", "stream": format!("chat:{id}")}}),
+        )
+        .await;
+        let window = v2_frame(&mut client).await;
+        assert_eq!(window.kind, FrameKind::Window, "{}", String::from_utf8_lossy(window.payload()));
+        let window: serde_json::Value = window.decode_json().unwrap();
+        assert_eq!(window.get("sid"), Some(&json!("c")));
+        assert!(
+            window.get("rows").and_then(serde_json::Value::as_array).is_some_and(|r| !r.is_empty()),
+            "the chat's window holds its rows: {window}"
+        );
+        v2_send(&mut client, json!({"method":"sub", "params":{"sid":"n", "stream":"chat:nobody"}}))
+            .await;
+        let refused = v2_frame(&mut client).await;
+        let said = String::from_utf8_lossy(refused.payload()).into_owned();
+        assert_eq!(refused.kind, FrameKind::Error, "{said}");
+        drop(client);
+        task.await.unwrap();
+    })
+    .await
+    .unwrap();
+}
+
+/// `_acpmux/remote.pipe` as the first line takes the connection, with the bytes after its line;
+/// the same request later on is an ordinary request (`cmux_tui_service.rs`).
+#[tokio::test]
+async fn a_pipe_is_asked_for_on_the_first_line_only() {
+    let piped = std::sync::atomic::AtomicBool::new(false);
+    let (mut client, server) = tokio::io::duplex(4096);
+    let (tx, _rx) = mpsc::channel(8);
+    let (last, _last_rx) = oneshot::channel();
+    let pipe = r#"{"jsonrpc":"2.0","id":7,"method":"_acpmux/remote.pipe","params":{"machine":"mac","port":7781}}"#;
+    client.write_all(format!("{pipe}\nGET / HTTP/1.1\r\n").as_bytes()).await.unwrap();
+    let Some(Taken::Pipe(taken)) =
+        tokio::time::timeout(WAIT, read_lines(server, tx, last, LIMITS, None, &piped))
+            .await
+            .unwrap()
+    else {
+        panic!("the first line did not take the connection")
+    };
+    assert!(piped.load(std::sync::atomic::Ordering::SeqCst));
+    assert_eq!(taken.id, json!(7));
+    assert_eq!(taken.params, json!({"machine": "mac", "port": 7781}));
+    let mut rest = vec![0u8; 16];
+    let mut reader = taken.reader;
+    reader.read_exact(&mut rest).await.unwrap();
+    assert_eq!(&rest, b"GET / HTTP/1.1\r\n", "the bytes after the line stay the pipe's");
+
+    let piped = std::sync::atomic::AtomicBool::new(false);
+    let (mut client, server) = tokio::io::duplex(4096);
+    let (tx, mut rx) = mpsc::channel(8);
+    let (last, _last_rx) = oneshot::channel();
+    client.write_all(format!("{{}}\n{pipe}\n").as_bytes()).await.unwrap();
+    drop(client);
+    let (taken, ()) = tokio::join!(read_lines(server, tx, last, LIMITS, None, &piped), async {
+        assert_eq!(rx.recv().await.as_deref(), Some("{}"));
+        assert_eq!(rx.recv().await.as_deref(), Some(pipe));
+    });
+    assert!(taken.is_none() && !piped.load(std::sync::atomic::Ordering::SeqCst));
 }

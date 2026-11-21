@@ -12,8 +12,6 @@ export const ROW_LEVELS: {
     "workspaces.freeing.idleMinutes": "more",
     "workspaces.freeing.agents": "more",
     "workspaces.freeing.runningCommands": "more",
-    "agents.hiddenChats.discard": "more",
-    "agents.hiddenChats.discardAfterMinutes": "hidden",
     "workspaces.autoArchive.idleDays": "more",
     "updates.checkIntervalSeconds": "hidden",
     "updates.whatsNewInstall": "hidden",
@@ -73,6 +71,8 @@ export const ROW_LEVELS: {
     "appearance.wallpaperTint": "more",
     "appearance.displayBackgrounds": "hidden",
     "appearance.displayBackgroundRotations": "hidden",
+    // What each background mode last showed: the Background card keeps it, nothing edits it by hand.
+    "appearance.backgroundMemory": "hidden",
     "appearance.statusIndicator.animation": "more",
     "appearance.statusIndicator.showPageLoading": "more",
     "appearance.statusIndicator.size": "hidden",

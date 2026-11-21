@@ -28,6 +28,10 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
 
     private var cachedAccessToken: String?
     private var cachedRefreshToken: String?
+    /// Reads that failed with a keychain error rather than finding the item
+    /// or definitively not finding it (`errSecItemNotFound`). See
+    /// ``TokenReadFailureReporting``.
+    private var readFailures: UInt64 = 0
 
     /// Creates a Keychain store writing under one exact signed access group.
     ///
@@ -44,6 +48,21 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         self.service = service
         self.accessGroup = accessGroup
         self.legacyProjectID = legacyProjectID
+    }
+
+    /// How many token reads failed with a keychain error (for example
+    /// `errSecInteractionNotAllowed` or a refused read) instead of answering
+    /// found or not found. A nil token from a read that bumped this is
+    /// unknown, not absent.
+    public func tokenReadFailureCount() async -> UInt64 { readFailures }
+
+    /// Whether a keychain status says "not readable right now" rather than
+    /// "nothing here" or a refusal that repeats on every read:
+    /// `errSecInteractionNotAllowed` (-25308, locked or no UI allowed),
+    /// `errSecAuthFailed` (-25293, the read refused in hq#8831) and
+    /// `errSecNotAvailable` (-25291, no keychain available yet).
+    static func isTransientReadFailure(_ status: Int32) -> Bool {
+        status == -25308 || status == -25293 || status == -25291
     }
 
     /// The keychain service name auth tokens are stored under, namespaced by
@@ -216,6 +235,9 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         return query
     }
 
+    /// No data-protection flag: the legacy Stack SDK's items. These calls run only with an access group,
+    /// which only the iOS app passes, where every item is data-protection; a macOS login-Keychain read
+    /// would need the app's `LoginKeychain` switch, which the no-prompt context does not reach.
     private func legacyBaseQuery(account: String) -> [String: Any] {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -231,23 +253,37 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         return query
     }
 
+    /// Counts a read that failed for a moment: the keychain answered that it
+    /// could not be read now, not that it holds nothing. A permanent refusal
+    /// (`errSecMissingEntitlement` on an ad-hoc build, a bad query) is not
+    /// counted: it answers the same on every read, so counting it would keep
+    /// a dead session signed in for good.
+    private func noteReadStatus(_ status: OSStatus) {
+        if Self.isTransientReadFailure(status) { readFailures &+= 1 }
+    }
+
+    // Every call below carries a no-prompt context: a Keychain that would ask answers
+    // errSecInteractionNotAllowed, a transient read failure (no session is cleared or adopted).
     private func keychainRead(account: String) -> String? {
         var query = baseQuery(account: account)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        let status = SecItemCopyMatching(KeychainNoPromptContext.applied(to: query) as CFDictionary, &result)
         guard status == errSecSuccess, let data = result as? Data else {
             if status != errSecItemNotFound {
+                noteReadStatus(status)
                 log.log("keychain READ status=\(status) account=\(account)")
             }
             return nil
         }
         let migrationStatus = SecItemUpdate(
-            baseQuery(account: account) as CFDictionary,
+            KeychainNoPromptContext.applied(to: baseQuery(account: account)) as CFDictionary,
             [kSecAttrAccessible as String: Self.keychainAccessibility] as CFDictionary
         )
         guard migrationStatus == errSecSuccess else {
+            // The item exists; withholding it is not "no session".
+            noteReadStatus(migrationStatus)
             log.log("keychain ACCESSIBILITY UPDATE status=\(migrationStatus) account=\(account)")
             return nil
         }
@@ -262,7 +298,7 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
             kSecAttrAccessible as String: Self.keychainAccessibility,
         ]
         let updateStatus = SecItemUpdate(
-            lookup as CFDictionary,
+            KeychainNoPromptContext.applied(to: lookup) as CFDictionary,
             attributes as CFDictionary
         )
         if updateStatus == errSecSuccess { return true }
@@ -271,7 +307,7 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         }
         var insert = lookup
         insert.merge(attributes) { _, new in new }
-        let addStatus = SecItemAdd(insert as CFDictionary, nil)
+        let addStatus = SecItemAdd(KeychainNoPromptContext.applied(to: insert) as CFDictionary, nil)
         if addStatus != errSecSuccess {
             log.log("keychain ADD status=\(addStatus) account=\(account)")
             return false
@@ -280,7 +316,7 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     }
 
     private func keychainDelete(account: String) {
-        _ = SecItemDelete(baseQuery(account: account) as CFDictionary)
+        _ = SecItemDelete(KeychainNoPromptContext.applied(to: baseQuery(account: account)) as CFDictionary)
     }
 
     private func keychainReadLegacy(account: String) -> String? {
@@ -288,9 +324,10 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        let status = SecItemCopyMatching(KeychainNoPromptContext.applied(to: query) as CFDictionary, &result)
         guard status == errSecSuccess, let data = result as? Data else {
             if status != errSecItemNotFound {
+                noteReadStatus(status)
                 log.log("keychain legacy READ status=\(status) account=\(account)")
             }
             return nil
@@ -305,11 +342,13 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         guard accessGroup != nil else { return false }
         let query = legacyBaseQuery(account: account)
         let status = SecItemUpdate(
-            query as CFDictionary,
+            KeychainNoPromptContext.applied(to: query) as CFDictionary,
             [kSecAttrAccessible as String: Self.keychainAccessibility] as CFDictionary
         )
         if status == errSecItemNotFound { return true }
         guard status == errSecSuccess else {
+            // The legacy item exists; a refused update withholds it, which is not "no session".
+            noteReadStatus(status)
             log.log("keychain legacy ACCESSIBILITY UPDATE status=\(status) account=\(account)")
             return false
         }
@@ -319,7 +358,7 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
 
     private func hardenCurrentTokenIfPresent(account: String) -> Bool {
         let status = SecItemUpdate(
-            baseQuery(account: account) as CFDictionary,
+            KeychainNoPromptContext.applied(to: baseQuery(account: account)) as CFDictionary,
             [kSecAttrAccessible as String: Self.keychainAccessibility] as CFDictionary
         )
         if status == errSecItemNotFound { return true }
@@ -332,7 +371,7 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
 
     @discardableResult
     private func keychainDeleteLegacy(account: String) -> Bool {
-        let status = SecItemDelete(legacyBaseQuery(account: account) as CFDictionary)
+        let status = SecItemDelete(KeychainNoPromptContext.applied(to: legacyBaseQuery(account: account)) as CFDictionary)
         if status != errSecSuccess, status != errSecItemNotFound {
             log.log("keychain legacy DELETE status=\(status) account=\(account)")
             return false

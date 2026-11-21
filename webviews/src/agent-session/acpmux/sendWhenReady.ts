@@ -1,9 +1,10 @@
 // A send made while acpmux starts, restarts or reconnects is held and sent once it answers, never
 // failed at once (Leo, 2026-11-06: "your sends are getting busted intermittently as things load").
 // The prompt stays in the composer, which says "Sending when ready", and its row (if it has one)
-// keeps its clock. Only a wait past the host's deadline (hostRetry.ts `HOST_ERROR_DEADLINE_MS`, the
-// same 25 s after which the pane says the host is down) fails the send, as a row with Retry.
-import { HOST_ERROR_DEADLINE_MS, hostIsReconnecting, hostRefusedTooLarge, nextRetryDelay } from "./hostRetry";
+// keeps its clock. It waits as long as acpmux is away (a restart, its machine rebooting), with no
+// deadline that turns it into "Not sent" and Retry (Leo, 2026-11-12: "try what? no, it should just
+// automatically do stuff"); it stops only when the send is no longer wanted (`stop`).
+import { hostIsReconnecting, hostRefusedTooLarge, nextRetryDelay } from "./hostRetry";
 
 /// The first wait before a held send asks again; each next wait doubles up to 2 s (`nextRetryDelay`).
 export const SEND_RETRY_FIRST_MS = 250;
@@ -24,7 +25,7 @@ export function sendWaitsForHost(error: unknown): boolean {
 }
 
 export type HostWait = {
-  /// How long the send may wait for the host, from its first try. Default `HOST_ERROR_DEADLINE_MS`.
+  /// How long the send may wait for the host, from its first try. Default: no end.
   deadlineMs?: number;
   /// The send is no longer wanted (its chat moved, its client closed, acpmux took it): stop asking.
   stop?: () => boolean;
@@ -36,12 +37,14 @@ export type HostWait = {
 
 /// Runs `attempt` and, while it fails for a reason the host clears by itself, runs it again after a
 /// backoff (250 ms doubling to 2 s). It stops, rethrowing the last failure, at the first failure the
-/// host does not clear, when `stop()` says the send is no longer wanted, or when the next try would
-/// start past the deadline: at most about 16 tries in 25 s, never a loop without an end.
+/// host does not clear, when `stop()` says the send is no longer wanted (its chat moved, its client
+/// closed), or when the next try would start past `deadlineMs`, if one is given. Each try only
+/// looks for a connection (`native.not_connected` never left the pane), so one every 2 s costs
+/// nothing while a machine reboots.
 export async function untilHostAnswers<T>(attempt: () => Promise<T>, wait: HostWait = {}): Promise<T> {
   const now = wait.now ?? Date.now;
   const sleep = wait.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
-  const deadline = now() + (wait.deadlineMs ?? HOST_ERROR_DEADLINE_MS);
+  const deadline = now() + (wait.deadlineMs ?? Number.POSITIVE_INFINITY);
   let delay = SEND_RETRY_FIRST_MS;
   for (;;) {
     try {
