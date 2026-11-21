@@ -527,6 +527,7 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
     override func addChildWindow(_ childWin: NSWindow, ordered place: NSWindow.OrderingMode) {
         // Only the overlay host panel and page windows belong here (debug and test builds record the rest).
         ChildWindowPolicy.check(childWin, parent: self)
+        ChromiumPageWindowMissionControl.keepOut(childWin) // a parked page's input window, 100 000 pt off, shrank Mission Control to nothing (cmux#48535)
         super.addChildWindow(childWin, ordered: place)
         if WindowOverlayLayer.isContent(childWin) { overlayLayer.evaluate() }
         WindowOverlayHost.childWindowsDidChange(of: self)

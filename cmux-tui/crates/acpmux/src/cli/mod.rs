@@ -55,6 +55,7 @@ pub(crate) mod owned_child;
 pub(crate) use crate::machine_consent;
 pub mod machine_deps;
 pub mod mesh_control;
+pub(crate) mod new_relay;
 pub use crate::mesh_node_key;
 pub mod notices;
 pub mod orchestrate;
@@ -63,6 +64,8 @@ pub mod pairing;
 pub mod peer_status;
 pub mod place;
 pub mod process;
+#[cfg(unix)]
+pub mod process_owner;
 pub mod race;
 pub(crate) mod reply_address;
 pub mod resolve;
