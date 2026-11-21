@@ -4,6 +4,7 @@ import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextHomeEngine
 import enum CmuxNextLayout.DockEdge
+import enum CmuxNextLayout.DropTarget
 import enum CmuxNextLayout.DockMode
 import enum CmuxNextLayout.DockRole
 import CmuxNextWorkspaceNaming
@@ -448,7 +449,7 @@ enum TabMoves {
 extension TabMoves {
     /// Moves every tab of `controller`'s pane to `target`, the drop a tab drag's preview showed (`updateTabDrag` with the
     /// pane as the one the drag empties). A target on the pane itself, or one that cannot take the move, is refused.
-    @MainActor static func movePane(_ controller: PaneController, to target: CmuxNextLayout.DropTarget, completion: @escaping Completion = { _ in }) {
+    @MainActor static func movePane(_ controller: PaneController, to target: DropTarget, completion: @escaping Completion = { _ in }) {
         let services = controller.services, source = controller.pane
         guard let lead = source.tabs.first, let content = controller.workspace else { return completion(false) }
         let rest = Array(source.tabs.dropFirst())
@@ -480,18 +481,18 @@ extension TabMoves {
         }
     }
 
-    @MainActor private static func layoutPane(_ id: CmuxNextLayout.PaneID, in content: WorkspaceContentController) -> PaneModel? {
+    @MainActor private static func layoutPane(_ id: LayoutPaneID, in content: WorkspaceContentController) -> PaneModel? {
         content.handles.panes[id].flatMap { content.daemon.store.pane($0) }
     }
 
     /// A pane of the screen that is not the one the move empties (the daemon refuses a pane's only tab leaving through itself).
-    @MainActor private static func screenAnchor(_ screenID: CmuxNextLayout.ScreenID, avoiding source: PaneModel, in content: WorkspaceContentController) -> PaneModel? {
+    @MainActor private static func screenAnchor(_ screenID: LayoutScreenID, avoiding source: PaneModel, in content: WorkspaceContentController) -> PaneModel? {
         guard let screen = content.layoutModel.screens.first(where: { $0.id == screenID }) else { return nil }
         return screen.layout.panes.lazy.compactMap { layoutPane($0, in: content) }.first { $0 !== source }
     }
 
     /// The pane to anchor a new column on (the last pane of the column the new one follows, else any other) and that column's daemon id.
-    @MainActor private static func columnAnchor(_ screenID: CmuxNextLayout.ScreenID, after: CmuxNextLayout.ColumnID, avoiding source: PaneModel,
+    @MainActor private static func columnAnchor(_ screenID: LayoutScreenID, after: LayoutColumnID, avoiding source: PaneModel,
                                      in content: WorkspaceContentController) -> (PaneModel, DaemonColumnID?)? {
         guard let screen = content.layoutModel.screens.first(where: { $0.id == screenID }),
               let column = screen.layout.columns.first(where: { $0.id == after }),
