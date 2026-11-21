@@ -361,13 +361,22 @@ function UndoButton({
     );
   }
   const busy = state.phase === "checking" || state.phase === "undoing" || state.phase === "confirm";
+  const label =
+    state.phase === "undoing"
+      ? t("edited.undoing")
+      : state.phase === "failed"
+        ? t("edited.undoFailed")
+        : t("edited.undo");
   return (
-    <button type="button" className="acpmux-edited-undo" disabled={busy} onClick={() => void checkUndo(rowId, files)}>
-      {state.phase === "undoing"
-        ? t("edited.undoing")
-        : state.phase === "failed"
-          ? t("edited.undoFailed")
-          : t("edited.undo")}
+    <button
+      type="button"
+      className="acpmux-edited-undo"
+      title={label}
+      disabled={busy}
+      onClick={() => void checkUndo(rowId, files)}
+    >
+      {/* A narrow card keeps only the glyph (EditedFilesCard.css); the label stays for screen readers. */}
+      <span className="acpmux-edited-undo-label">{label}</span>
       <Undo size={12} />
     </button>
   );
