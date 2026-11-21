@@ -715,6 +715,7 @@ impl Hub {
             name: m.name.clone(),
             handle: Some(m.spoken_handle().into_owned()),
             name_given: m.name_given,
+            former_names: m.former_names.clone(),
             harness: m.harness.clone(),
             family: m.family.clone(),
             cwd: m.cwd.to_string_lossy().into_owned(),
@@ -767,6 +768,7 @@ impl Hub {
             last_prompt: m.last_prompt.clone(),
             preview: m.preview.as_deref().map(|p| short_text(p, 160)),
             last_message: last_message(&m),
+            task_list: m.task_list.as_ref().map(crate::task_list::TaskList::summary),
             queued: session.queued(),
             // The person's unsent text (`set_composer_draft`): an idle app update waits for it.
             has_draft: m.composer_draft.as_deref().is_some_and(|d| !d.trim().is_empty()),

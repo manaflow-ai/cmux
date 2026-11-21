@@ -1967,6 +1967,23 @@ def _twin_shape(text: str) -> tuple[str, tuple[str, ...]]:
     return _journey_jobs(text), crons
 
 
+def _cut_from_main(repo: Path, head: str, main_ref: str) -> bool:
+    """True when HEAD is a branch off main, by git objects alone: feat-cmux-next has the CmuxNext app entry and HEAD
+    does not, or the commit where HEAD left main is not on feat-cmux-next (main_based's test, without a head tree)."""
+    feat = DEFAULT_BASE_REFS[0]
+
+    def ok(*args: str) -> bool:
+        return subprocess.run(["git", "-C", str(repo), *args], capture_output=True).returncode == 0
+
+    if not ok("rev-parse", "--verify", "--quiet", feat):
+        return False
+    if ok("cat-file", "-e", f"{feat}:{APP_ENTRY}") and not ok("cat-file", "-e", f"{head}:{APP_ENTRY}"):
+        return True
+    fork = git(repo, "merge-base", head, main_ref, check=False).decode().strip()
+    return bool(fork) and subprocess.run(["git", "-C", str(repo), "merge-base", "--is-ancestor", fork, feat],
+                                         capture_output=True).returncode == 1
+
+
 def main_twin_drift(repo: Path, base: str, head: str, main_ref: str = MAIN_TWIN_REF) -> list[str]:
     """What head adds to MAIN_TWIN_CHECK: a scheduled workflow that main lacks, or whose jobs or crons main's lacks.
 
@@ -1985,6 +2002,10 @@ def main_twin_drift(repo: Path, base: str, head: str, main_ref: str = MAIN_TWIN_
     main_readable = subprocess.run(["git", "-C", str(repo), "rev-parse", "--verify", "--quiet", main_ref],
                                    capture_output=True).returncode == 0
     if not main_readable:
+        return []
+    if _cut_from_main(repo, head, main_ref):
+        # The main twin PR itself (cmux#48672's scheduled shim, 2026-11-21): the file this push adds or changes is
+        # main's copy, the one that fires, so it names no twin.
         return []
 
     def read(rev: str, name: str) -> str | None:
