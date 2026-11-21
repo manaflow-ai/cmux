@@ -129,6 +129,10 @@ pub enum DownCause {
     Auth,
 }
 
+/// What a dial writes first in its error when it could get no relay ticket (`hub_carrier.rs`):
+/// the platform's ticket mint refused or did not answer. `credential-unavailable`.
+pub const CREDENTIAL_UNAVAILABLE: &str = "credential-unavailable:";
+
 /// Why a down link is `offline` and what a person does about it (`reason`): a terminal named
 /// state, so a link that cannot heal on its own never reads as still connecting (design
 /// `remote-cloud-durability.md` 4.3, handbook `connection-state-with-no-action-or-bound`).

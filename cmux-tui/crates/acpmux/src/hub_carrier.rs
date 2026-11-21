@@ -446,27 +446,6 @@ impl HubCarrier {
         &self.stats
     }
 
-    /// Why this machine cannot be reached through the carrier and will not be until something
-    /// changes (`credential-unavailable` while no Register ticket comes), or None. Registering
-    /// goes on behind it; `_acpmux/machine_routes` carries it as `carrierReason`.
-    pub fn serve_reason(&self) -> Option<OfflineReason> {
-        *self.serve_reason.read().unwrap_or_else(|e| e.into_inner())
-    }
-
-    fn set_serve_reason(&self, reason: Option<OfflineReason>) {
-        let mut held = self.serve_reason.write().unwrap_or_else(|e| e.into_inner());
-        if *held != reason {
-            match reason {
-                Some(reason) => tracing::warn!(
-                    "hub carrier: {}: no Register ticket; registering goes on behind it",
-                    reason.as_str()
-                ),
-                None => tracing::info!("hub carrier: registered"),
-            }
-        }
-        *held = reason;
-    }
-
     /// Reach peer `name` at the machine whose hub `daemonId` is `daemon`.
     pub fn set_route(&self, name: &str, daemon: &str) {
         self.routes.lock().unwrap_or_else(|e| e.into_inner()).insert(name.into(), daemon.into());
@@ -513,10 +492,9 @@ impl HubCarrier {
             return Err("the node key was replaced; this carrier is stopped".into());
         }
         // No ticket is `credential-unavailable` on the peer's link (`peer_carrier::reason`).
-        let answer =
-            self.tickets.connect(daemon).await.map_err(|e| {
-                format!("{} no relay ticket: {e}", crate::peer::CREDENTIAL_UNAVAILABLE)
-            })?;
+        let answer = self.tickets.connect(daemon).await.map_err(|e| {
+            format!("{} no relay ticket: {e}", crate::protocol::peer_state::CREDENTIAL_UNAVAILABLE)
+        })?;
         let pinned = key_bytes(answer.peer_key.as_deref().ok_or("the hub named no key to pin")?)
             .ok_or("the hub's peer key is not 32 bytes of base64")?;
         if pinned != key_bytes(daemon).unwrap_or(pinned) {
@@ -1348,106 +1326,13 @@ pub fn stop_kept(hub: &crate::hub::Hub) -> bool {
     carrier.is_some() || serving.is_some()
 }
 
+#[path = "hub_carrier_serve_reason.rs"]
+mod serve_reason;
+
 #[cfg(test)]
 #[path = "hub_carrier_register_log_tests.rs"]
 mod register_log_tests;
 
 #[cfg(test)]
-mod key_lock_tests {
-    use super::*;
-    use cmux_link::key_holder::KeyHolder;
-
-    fn joined_hub(home: &std::path::Path) -> Arc<crate::hub::Hub> {
-        let mut config = crate::config::Config::default();
-        config.store.mode = crate::config::StoreMode::Memory;
-        config.mesh_relay = Some(crate::mesh_http::MeshRelayConfig {
-            url: "http://127.0.0.1:9".into(),
-            token_command: vec!["must-not-run".into()],
-            team_messaging: true,
-            credential: Some("join".into()),
-            control_from: Vec::new(),
-        });
-        let store = crate::store::open(&config.store, home).unwrap();
-        crate::hub::Hub::new(config, store)
-    }
-
-    /// The carrier needs only the node key: with transport.wireguard off (no static endpoints, no
-    /// Labs switch) and no cmux link serving the key, a joined daemon's carrier takes the key lock
-    /// itself and comes up, and stopping it frees the lock.
-    #[tokio::test]
-    async fn with_only_the_node_key_the_carrier_comes_up() {
-        let home = tempfile::tempdir().unwrap();
-        let hub = joined_hub(home.path());
-        let websocket = Some("127.0.0.1:1".parse().unwrap());
-        let serving = start_configured(&hub, home.path(), websocket, None).await;
-        assert!(serving.is_some(), "the carrier stayed off with only the node key");
-        let carrier = hub.hub_carrier.get().expect("the carrier is on the hub");
-        let public = crate::cli::mesh_node_key::public_key_at(home.path()).expect("a node key");
-        assert_eq!(
-            carrier.public_key(),
-            base64::engine::general_purpose::STANDARD.encode(public),
-            "the carrier runs on the node key"
-        );
-        assert!(carrier.key_current());
-        assert!(KeyHolder::acquire(home.path()).is_err(), "the carrier runs without the key lock");
-        drop(serving);
-        assert!(KeyHolder::acquire(home.path()).is_ok(), "a stopped carrier kept the lock");
-    }
-
-    /// A carrier on its own lock hands it to the cmux link once the link serves this home's node
-    /// key (`cmux link ensure` records the home first), and from then its key check fails.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn the_carriers_own_lock_goes_to_the_link_once_it_serves_the_key() {
-        let home = tempfile::tempdir().unwrap();
-        let link_dir = tempfile::tempdir().unwrap();
-        let hub = joined_hub(home.path());
-        let websocket = Some("127.0.0.1:1".parse().unwrap());
-        let serving = start_configured(&hub, home.path(), websocket, None).await.expect("on");
-        let carrier = hub.hub_carrier.get().unwrap();
-        std::fs::write(link_dir.path().join("config.json"), "{}").unwrap();
-        crate::cli::mesh_node_key::record_link_home(link_dir.path(), Some(home.path())).unwrap();
-        let deadline = Instant::now() + LINK_HANDOFF_EVERY * 5;
-        while KeyHolder::acquire(home.path()).is_err() {
-            assert!(Instant::now() < deadline, "the carrier kept the lock from the link");
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-        assert!(!carrier.key_current(), "the carrier still serves without the lock");
-        drop(serving);
-    }
-
-    /// Where the cmux link serves this home's node key, the carrier steps down: it takes no lock
-    /// and reads no key, so the link holds the key while the daemon runs.
-    #[tokio::test]
-    async fn where_the_link_serves_the_node_key_the_carrier_takes_none() {
-        let home = tempfile::tempdir().unwrap();
-        let link_dir = tempfile::tempdir().unwrap();
-        std::fs::write(link_dir.path().join("config.json"), "{}").unwrap();
-        crate::cli::mesh_node_key::record_link_home(link_dir.path(), Some(home.path())).unwrap();
-        let hub = joined_hub(home.path());
-        let websocket = Some("127.0.0.1:1".parse().unwrap());
-        assert!(start_configured(&hub, home.path(), websocket, None).await.is_none());
-        let link = KeyHolder::acquire(home.path());
-        assert!(link.is_ok(), "the carrier kept the lock: {:?}", link.err());
-        assert!(
-            !home.path().join(cmux_link::key_holder::KeyFile::Node.file_name()).exists(),
-            "a key was read"
-        );
-    }
-
-    /// Given the transport's holder, the carrier reads the key under that same lock, and the lock
-    /// is free once both drop.
-    #[test]
-    fn with_the_transports_lock_the_carrier_reads_the_key() {
-        let home = tempfile::tempdir().unwrap();
-        let shared = Arc::new(KeyHolder::acquire(home.path()).unwrap());
-        let (holder, private) = node_key(home.path(), shared.clone()).unwrap();
-        assert!(Arc::ptr_eq(&holder, &shared));
-        let public = crate::cli::mesh_node_key::public_key_at(home.path()).unwrap();
-        assert_eq!(
-            public,
-            x25519_dalek::PublicKey::from(&x25519_dalek::StaticSecret::from(*private)).to_bytes()
-        );
-        drop((holder, shared));
-        assert!(KeyHolder::acquire(home.path()).is_ok(), "the lock outlived its holders");
-    }
-}
+#[path = "hub_carrier_key_lock_tests.rs"]
+mod key_lock_tests;

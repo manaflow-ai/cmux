@@ -3,9 +3,12 @@
 //! this daemon's token, why it is down, and since when its state holds. acpmux owns this
 //! state; every surface renders it and keeps no clock of its own.
 
-use crate::protocol::peer_state::{Carrier, DownCause, MachineLink, OfflineReason};
+use crate::protocol::peer_state::{
+    CREDENTIAL_UNAVAILABLE, Carrier, DownCause, MachineLink, OfflineReason,
+};
 
-use crate::peer_link::PeerState;
+use crate::no_panic::LockExt;
+use crate::peer_link::{Link, PeerState};
 
 /// One peer instance's link facts, kept under one lock (`Peer::facts`).
 #[derive(Debug, Default)]
@@ -42,6 +45,30 @@ impl LinkFacts {
         matches!(state, PeerState::Connected | PeerState::Degraded)
             .then_some(self.carrier)
             .flatten()
+    }
+}
+
+impl super::Peer {
+    /// The link's whole state now, as the peer's state notes carry it.
+    pub(super) fn observed(&self, link: &Link) -> crate::peer_states::Observed {
+        let error = self.last_error.lock_or_recover().clone();
+        let state = link.state();
+        let mut facts = self.facts.lock_or_recover();
+        let reason = reason(state, facts.refused, error.as_deref());
+        // The reason is always reported; a down link turns `offline` for it only with the
+        // preview switch on (default off). Read only when a reason is named, which is rare.
+        let offline_for = reason.filter(|_| reasons_turn_offline());
+        let (whole, since) = facts.observe(state, offline_for, crate::store::now_ms());
+        crate::peer_states::Observed {
+            link: whole,
+            carrier: facts.live_carrier(state),
+            cause: cause(whole, error.as_deref()),
+            reason,
+            since,
+            next_retry_at: link.retry_at.filter(|_| !link.is_ready()),
+            last_seen: link.last_seen,
+            error,
+        }
     }
 }
 
@@ -95,10 +122,6 @@ pub(crate) fn reasons_turn_offline() -> bool {
     matches!(user_settings::read(), Settings::Parsed(doc)
         if user_settings::value(&doc, "labs.previewFeatures") == Some(serde_json::Value::Bool(true)))
 }
-
-/// What a dial writes first in its error when it could get no relay ticket (`hub_carrier.rs`):
-/// the platform's ticket mint refused or did not answer. `credential-unavailable`.
-pub(crate) const CREDENTIAL_UNAVAILABLE: &str = "credential-unavailable:";
 
 /// Why a link in `link` is down, from what acpmux knows today: its last attempt's error, and
 /// whether the peer refused the token. A link that is up, or on its way the first time, has

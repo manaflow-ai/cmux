@@ -36,8 +36,68 @@ use zeroize::{Zeroize, Zeroizing};
 
 use crate::daemon::{InboundLink, NetworkPeer, RemoteDaemon};
 
+#[path = "relay_credential_read.rs"]
+mod credential_read;
 #[path = "relay_liveness.rs"]
 mod liveness;
+use credential_read::*;
+
+/// The last [`CREDENTIAL_COMMAND_STDERR_TAIL_BYTES`] a credential command
+/// wrote to stderr, read while it runs so a full pipe never stalls it. The
+/// reader stops with the source: it is aborted on drop.
+struct StderrTail {
+    tail: Arc<std::sync::Mutex<VecDeque<u8>>>,
+    task: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl StderrTail {
+    fn spawn(stderr: Option<tokio::process::ChildStderr>) -> Self {
+        let tail = Arc::new(std::sync::Mutex::new(VecDeque::new()));
+        let task = stderr.map(|mut stderr| {
+            let tail = tail.clone();
+            tokio::spawn(async move {
+                let mut chunk = [0_u8; 512];
+                while let Ok(read) = stderr.read(&mut chunk).await {
+                    if read == 0 {
+                        break;
+                    }
+                    let mut tail = tail.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                    tail.extend(chunk.get(..read).unwrap_or_default());
+                    let excess = tail.len().saturating_sub(CREDENTIAL_COMMAND_STDERR_TAIL_BYTES);
+                    tail.drain(..excess);
+                }
+            })
+        });
+        Self { tail, task }
+    }
+
+    /// `; stderr: …` with [`stderr_summary`] of the tail, or nothing when it
+    /// was empty. Waits briefly for the reader to drain what an exited
+    /// command wrote.
+    async fn describe(&mut self) -> String {
+        if let Some(task) = &mut self.task
+            && tokio::time::timeout(Duration::from_millis(100), task).await.is_ok()
+        {
+            // A finished handle must not be polled again.
+            self.task = None;
+        }
+        let bytes: Vec<u8> = {
+            let tail = self.tail.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            tail.iter().copied().collect()
+        };
+        stderr_summary(&bytes)
+    }
+}
+
+impl Drop for StderrTail {
+    fn drop(&mut self) {
+        if let Some(task) = self.task.take() {
+            task.abort();
+        }
+    }
+}
+#[path = "relay_registration_state.rs"]
+mod registration_state;
 use crate::link::{FrameLink, LinkError};
 use crate::observability::{TransportPathKind, TransportPathSnapshot, TransportSnapshot};
 use crate::provider::{
@@ -47,6 +107,10 @@ use crate::provider::{
 use liveness::{
     CHECK_INTERVAL, CLOCK_JUMP, Check, ClockWatch, Ended, Liveness, Retry, random_unit,
 };
+pub use registration_state::RegistrationState;
+#[cfg(test)]
+pub(crate) use registration_state::test_wall;
+use registration_state::wall_now;
 
 type RelaySocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 type RelayCircuitSink = SplitSink<RelaySocket, Message>;
@@ -281,241 +345,6 @@ impl fmt::Debug for RelayCredential {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("RelayCredential([REDACTED])")
     }
-}
-
-async fn read_credential_file(path: &Path) -> Result<Zeroizing<String>, ProviderError> {
-    let path = path.to_path_buf();
-    tokio::task::spawn_blocking(move || {
-        crate::secret_file::read_owner_only_string(&path, MAX_RELAY_CREDENTIAL_BYTES)
-    })
-    .await
-    .map_err(|_| credential_source_error("file could not be read"))?
-    .map_err(|_| credential_source_error("file could not be read"))
-}
-
-async fn read_credential_command(
-    source: &CommandCredentialSource,
-) -> Result<Zeroizing<String>, ProviderError> {
-    if source.timeout.is_zero() {
-        return Err(credential_source_error("command timeout is invalid"));
-    }
-    let mut command = Command::new(&source.program);
-    command
-        .args(&source.args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
-    let mut child =
-        command.spawn().map_err(|_| credential_source_error("command could not be started"))?;
-    let mut stderr = StderrTail::spawn(child.stderr.take());
-    let stdout = match child.stdout.take() {
-        Some(stdout) => stdout,
-        None => {
-            terminate_child(&mut child).await;
-            return Err(credential_source_error("command stdout was unavailable"));
-        }
-    };
-    let result = tokio::time::timeout(source.timeout, async {
-        let output = match read_limited_credential(stdout).await {
-            Ok(output) => output,
-            // An oversized or unreadable answer still names what stderr said.
-            Err(ProviderError::Transport(message)) => {
-                return Err(ProviderError::Transport(format!(
-                    "{message}{}",
-                    stderr.describe().await
-                )));
-            }
-            Err(error) => return Err(error),
-        };
-        let status = child
-            .wait()
-            .await
-            .map_err(|_| credential_source_error("command could not be completed"))?;
-        if !status.success() {
-            return Err(credential_source_error(&format!(
-                "command was unsuccessful ({status}){}",
-                stderr.describe().await
-            )));
-        }
-        Ok(output)
-    })
-    .await;
-    match result {
-        Ok(Ok(output)) => Ok(output),
-        Ok(Err(error)) => {
-            terminate_child(&mut child).await;
-            Err(error)
-        }
-        Err(_) => {
-            terminate_child(&mut child).await;
-            Err(credential_source_error(&format!(
-                "command timed out after {} ms{}",
-                source.timeout.as_millis(),
-                stderr.describe().await
-            )))
-        }
-    }
-}
-
-/// The last [`CREDENTIAL_COMMAND_STDERR_TAIL_BYTES`] a credential command
-/// wrote to stderr, read while it runs so a full pipe never stalls it. The
-/// reader stops with the source: it is aborted on drop.
-struct StderrTail {
-    tail: Arc<std::sync::Mutex<VecDeque<u8>>>,
-    task: Option<tokio::task::JoinHandle<()>>,
-}
-
-impl StderrTail {
-    fn spawn(stderr: Option<tokio::process::ChildStderr>) -> Self {
-        let tail = Arc::new(std::sync::Mutex::new(VecDeque::new()));
-        let task = stderr.map(|mut stderr| {
-            let tail = tail.clone();
-            tokio::spawn(async move {
-                let mut chunk = [0_u8; 512];
-                while let Ok(read) = stderr.read(&mut chunk).await {
-                    if read == 0 {
-                        break;
-                    }
-                    let mut tail = tail.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-                    tail.extend(chunk.get(..read).unwrap_or_default());
-                    let excess = tail.len().saturating_sub(CREDENTIAL_COMMAND_STDERR_TAIL_BYTES);
-                    tail.drain(..excess);
-                }
-            })
-        });
-        Self { tail, task }
-    }
-
-    /// `; stderr: …` with [`stderr_summary`] of the tail, or nothing when it
-    /// was empty. Waits briefly for the reader to drain what an exited
-    /// command wrote.
-    async fn describe(&mut self) -> String {
-        if let Some(task) = &mut self.task
-            && tokio::time::timeout(Duration::from_millis(100), task).await.is_ok()
-        {
-            // A finished handle must not be polled again.
-            self.task = None;
-        }
-        let bytes: Vec<u8> = {
-            let tail = self.tail.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-            tail.iter().copied().collect()
-        };
-        stderr_summary(&bytes)
-    }
-}
-
-impl Drop for StderrTail {
-    fn drop(&mut self) {
-        if let Some(task) = self.task.take() {
-            task.abort();
-        }
-    }
-}
-
-/// The most error codes a summary names.
-const MAX_STDERR_CODES: usize = 4;
-
-/// What a failed credential command's stderr `tail` may add to its error:
-/// `; stderr: N bytes`, then `, codes …` naming up to [`MAX_STDERR_CODES`]
-/// distinct error codes and an `HTTP NNN` status found in it, or nothing
-/// when it is empty. Free text never reaches the log: stderr can hold a
-/// ticket, a header or a JSON body in any shape, and only these allowlisted
-/// forms can't be one.
-fn stderr_summary(tail: &[u8]) -> String {
-    if tail.is_empty() {
-        return String::new();
-    }
-    let text = String::from_utf8_lossy(tail);
-    let words: Vec<&str> = text.split_whitespace().collect();
-    let mut codes: Vec<String> = Vec::new();
-    for word in &words {
-        if codes.len() == MAX_STDERR_CODES {
-            break;
-        }
-        if let Some(code) = error_code(word)
-            && !codes.iter().any(|known| known == code)
-        {
-            codes.push(code.to_owned());
-        }
-    }
-    let http = words.windows(2).find_map(|pair| {
-        let [word, next] = pair else { return None };
-        let status = next.trim_end_matches([':', ',', ';', ')']);
-        let http = *word == "HTTP" || word.starts_with("HTTP/");
-        (http && status.len() == 3 && status.bytes().all(|byte| byte.is_ascii_digit()))
-            .then(|| format!("HTTP {status}"))
-    });
-    codes.extend(http);
-    if codes.is_empty() {
-        format!("; stderr: {} bytes", tail.len())
-    } else {
-        format!("; stderr: {} bytes, codes {}", tail.len(), codes.join(", "))
-    }
-}
-
-/// The error codes a relay ticket command may name in a log: the refusals
-/// `cmux host cloud carrier-ticket` prints (cmux-host `cloud/carrier_ticket.rs`)
-/// and the platform codes it passes on. Only these exact words are copied out
-/// of stderr; any other word, however code-shaped (`dead.beef`), is not.
-const KNOWN_ERROR_CODES: [&str; 14] = [
-    "auth.forbidden",
-    "auth.refused",
-    "carrier.bad_answer",
-    "carrier.busy",
-    "carrier.rate_limited",
-    "carrier.unavailable",
-    "carrier.unreachable",
-    "cloud.machine.not_found",
-    "owner.unreachable",
-    "validation.invalid",
-    "vm.agent_bad_answer",
-    "vm.agent_stopping",
-    "vm.agent_unreachable",
-    "vm.unbound",
-];
-
-/// `word` without a trailing `:` when it is one of [`KNOWN_ERROR_CODES`].
-fn error_code(word: &str) -> Option<&'static str> {
-    let code = word.strip_suffix(':').unwrap_or(word);
-    KNOWN_ERROR_CODES.iter().copied().find(|known| *known == code)
-}
-
-/// Kill and reap a credential command on every cancellation or failure path.
-/// `kill_on_drop` is best effort and does not guarantee prompt zombie cleanup.
-async fn terminate_child(child: &mut tokio::process::Child) {
-    let _ = child.kill().await;
-    let _ = child.wait().await;
-}
-
-async fn read_limited_credential(
-    reader: impl tokio::io::AsyncRead + Unpin,
-) -> Result<Zeroizing<String>, ProviderError> {
-    let mut bytes = Zeroizing::new(Vec::with_capacity(MAX_RELAY_CREDENTIAL_BYTES.min(256)));
-    reader
-        .take((MAX_RELAY_CREDENTIAL_BYTES + 1) as u64)
-        .read_to_end(&mut bytes)
-        .await
-        .map_err(|_| credential_source_error("could not be read"))?;
-    if bytes.len() > MAX_RELAY_CREDENTIAL_BYTES {
-        return Err(credential_source_error("was too large"));
-    }
-    let value = Zeroizing::new(
-        std::str::from_utf8(&bytes)
-            .map_err(|_| credential_source_error("was not UTF-8"))?
-            .to_owned(),
-    );
-    Ok(value)
-}
-
-fn credential_source_error(reason: &str) -> ProviderError {
-    ProviderError::Transport(format!("{CREDENTIAL_SOURCE_ERROR_PREFIX}{reason}"))
-}
-
-/// The credential source (a ticket command, file or callback) failed, as
-/// opposed to the relay.
-fn is_credential_source_error(error: &ProviderError) -> bool {
-    matches!(error, ProviderError::Transport(message) if message.starts_with(CREDENTIAL_SOURCE_ERROR_PREFIX))
 }
 
 /// The TLS trust a relay's `wss` and `relay+do` connections use. The default
@@ -1492,31 +1321,6 @@ pub struct RelayDaemonRegistration {
     state: watch::Receiver<RegistrationState>,
 }
 
-/// What a daemon's relay registration is doing now ([`RelayDaemonRegistration::state`]): the
-/// truth a status line or a peer's `reason` reads instead of stderr. Attempts go on in every
-/// state but [`RegistrationState::Registered`]; the state only says what the last one met.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RegistrationState {
-    /// The first attempt runs, or the registration dropped and registers again.
-    Registering,
-    /// The relay answered the Register: dials reach this daemon.
-    Registered,
-    /// No live registration, and the last attempt could get no ticket: the credential source
-    /// (the ticket mint) failed or did not answer within its bound. `credential-unavailable`:
-    /// it will not heal until the source answers again. `error` is the source's error.
-    CredentialUnavailable { error: String },
-    /// No live registration, and the relay refused or did not answer the last attempt.
-    RelayUnavailable { error: String },
-}
-
-impl RegistrationState {
-    /// The terminal reason word for a registration that cannot heal by retrying alone
-    /// (`credential-unavailable`), as `PeerStateChanged.reason` names it; None otherwise.
-    pub fn reason(&self) -> Option<&'static str> {
-        matches!(self, Self::CredentialUnavailable { .. }).then_some("credential-unavailable")
-    }
-}
-
 impl fmt::Debug for RelayDaemonRegistration {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.debug_struct("RelayDaemonRegistration").finish_non_exhaustive()
@@ -1524,11 +1328,6 @@ impl fmt::Debug for RelayDaemonRegistration {
 }
 
 impl RelayDaemonRegistration {
-    /// The registration's state now, and each change after it.
-    pub fn state(&self) -> watch::Receiver<RegistrationState> {
-        self.state.clone()
-    }
-
     pub async fn shutdown(mut self) {
         let _ = self.shutdown.send(true);
         if let Some(task) = self.task.take() {
@@ -2101,38 +1900,6 @@ fn registration_liveness(lease_seconds: u32) -> Liveness {
     Liveness::new(heartbeat, Instant::now(), wall_now())
 }
 
-/// The wall clock a registration compares with the monotonic one (`relay_liveness.rs`). A
-/// test sets it ahead on its own thread ([`test_wall::jump`]) to stand for a paused VM's resume.
-fn wall_now() -> std::time::SystemTime {
-    #[cfg(test)]
-    {
-        std::time::SystemTime::now() + test_wall::ahead()
-    }
-    #[cfg(not(test))]
-    {
-        std::time::SystemTime::now()
-    }
-}
-
-/// The wall clock's lead on this thread (a `current_thread` test runtime's registration runs
-/// on the test's thread), so parallel tests never see each other's jumps.
-#[cfg(test)]
-pub(crate) mod test_wall {
-    use std::cell::Cell;
-    use std::time::Duration;
-
-    thread_local!(static AHEAD: Cell<Duration> = const { Cell::new(Duration::ZERO) });
-
-    /// Moves this thread's wall clock `by` forward; the monotonic clock stays.
-    pub(crate) fn jump(by: Duration) {
-        AHEAD.with(|a| a.set(a.get() + by));
-    }
-
-    pub(crate) fn ahead() -> Duration {
-        AHEAD.with(Cell::get)
-    }
-}
-
 /// Polls `future` when there is one, else never completes (a `select!`
 /// branch's future is built even while its branch is off).
 async fn poll_some<F: Future + Unpin>(future: Option<&mut F>) -> F::Output {
@@ -2667,6 +2434,9 @@ fn random_capability() -> Result<String, ProviderError> {
     Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes))
 }
 
+#[cfg(test)]
+#[path = "relay_registration_state_tests.rs"]
+mod registration_state_tests;
 #[cfg(test)]
 #[path = "relay_tests.rs"]
 mod tests;

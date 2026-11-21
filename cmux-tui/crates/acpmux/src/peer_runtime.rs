@@ -188,27 +188,6 @@ impl Peer {
         states.changed(&self.name, self.generation, self.observed(link));
     }
 
-    pub(super) fn observed(&self, link: &Link) -> crate::peer_states::Observed {
-        let error = self.last_error.lock_or_recover().clone();
-        let state = link.state();
-        let mut facts = self.facts.lock_or_recover();
-        let reason = carrier::reason(state, facts.refused, error.as_deref());
-        // The reason is always reported; a down link turns `offline` for it only with the
-        // preview switch on (default off). Read only when a reason is named, which is rare.
-        let offline_for = reason.filter(|_| carrier::reasons_turn_offline());
-        let (whole, since) = facts.observe(state, offline_for, crate::store::now_ms());
-        crate::peer_states::Observed {
-            link: whole,
-            carrier: facts.live_carrier(state),
-            cause: carrier::cause(whole, error.as_deref()),
-            reason,
-            since,
-            next_retry_at: link.retry_at.filter(|_| !link.is_ready()),
-            last_seen: link.last_seen,
-            error,
-        }
-    }
-
     /// The carrier this attempt runs over (`carrier` while its link is open).
     pub(super) fn carried_by(&self, by: crate::protocol::peer_state::Carrier) {
         let mut facts = self.facts.lock_or_recover();
