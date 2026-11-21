@@ -53,6 +53,28 @@ class RetryPolicyTests(unittest.TestCase):
         decision = retry.decide(run(), tree_jobs(job(1, "success"), job(2, "failure")), {2: []})
         self.assertEqual(decision.action, "rerun-failed-jobs")
 
+    @staticmethod
+    def failed_at(job_id, step):
+        return {**job(job_id, "failure"), "steps": [{"name": "Set up job", "conclusion": "success"},
+                                                    {"name": step, "conclusion": "failure"}]}
+
+    def test_the_same_failure_on_two_attempts_is_not_retried_again(self):
+        previous = tree_jobs(self.failed_at(2, "cargo build"))
+        decision = retry.decide(run(run_attempt=2), tree_jobs(self.failed_at(2, "cargo build")), {2: []},
+                                previous=previous)
+        self.assertEqual(decision.action, "skip")
+        self.assertIn("failed the same way", decision.reason)
+
+    def test_a_new_failure_on_the_retry_is_retried(self):
+        previous = tree_jobs(self.failed_at(2, "upload to R2"))
+        decision = retry.decide(run(run_attempt=2), tree_jobs(self.failed_at(2, "cargo build")), {2: []},
+                                previous=previous)
+        self.assertEqual(decision.action, "rerun-failed-jobs")
+
+    def test_a_first_failure_is_retried_once(self):
+        decision = retry.decide(run(), tree_jobs(self.failed_at(2, "cargo build")), {2: []}, previous=None)
+        self.assertEqual(decision.action, "rerun-failed-jobs")
+
     def test_immutable_conflict_is_never_retried(self):
         annotations = {2: [{"title": "immutable-r2-conflict", "message": "manifest.json differs"}]}
         decision = retry.decide(run(), tree_jobs(job(2, "failure"), job(3, "failure")), {**annotations, 3: []})
@@ -73,6 +95,21 @@ class RetryPolicyTests(unittest.TestCase):
         decision = retry.decide(run(), [job(1, "success"), job(2, "failure")], {2: []})
         self.assertEqual(decision.action, "skip")
         self.assertIn("tree", decision.reason)
+
+    def test_missing_mac_live_delivery_is_retried_after_tree_publication(self):
+        published = {"id": 7, "name": "publish tree-addressed cmux-tui", "conclusion": "success"}
+        delivery = {"id": 8, "name": "publish the Mac live update", "conclusion": "failure"}
+        jobs = tree_jobs(published, delivery)
+        self.assertEqual(retry.decide(run(), jobs, {}).action, "rerun-failed-jobs")
+        self.assertEqual(retry.decide(run(run_attempt=3), jobs, {}).action, "skip")
+        self.assertEqual(retry.decide(run(), jobs, {8: [{"title": "immutable-r2-conflict"}]}).action,
+                         "refuse")
+
+    def test_successful_mac_delivery_does_not_retry_a_recovered_build(self):
+        published = {"id": 7, "name": "publish tree-addressed cmux-tui", "conclusion": "success"}
+        delivery = {"id": 8, "name": "publish the Mac live update", "conclusion": "success"}
+        self.assertEqual(retry.decide(run(), tree_jobs(published, delivery, job(1, "failure")), {}).action,
+                         "skip")
 
     def test_run_whose_tree_published_is_not_retried(self):
         # feat's macOS fallback publishes the tree although the Linux-cross legs failed.
