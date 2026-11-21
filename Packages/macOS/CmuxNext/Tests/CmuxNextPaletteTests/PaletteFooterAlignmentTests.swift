@@ -15,8 +15,9 @@ import Testing
 @MainActor
 @Suite(.paletteRanker, .closesItsWindows)
 struct PaletteFooterAlignmentTests {
-    /// Half a point: one pixel at 2x. The line-box layout missed by up to 0.75 pt.
-    private static let tolerance: CGFloat = 0.5
+    /// The layout snaps to the window's pixel grid (half a point at most on a 1x screen) and the ink
+    /// is read at 2x (a quarter point per edge); the line-box layout missed by up to 0.75 pt at 2x.
+    private static func tolerance(_ window: NSWindow) -> CGFloat { 0.5 / max(window.backingScaleFactor, 1) + 0.25 }
 
     @Test func footerTextAndKeycapsShareOneCenterLine() async throws {
         _ = NSApplication.shared
@@ -42,6 +43,35 @@ struct PaletteFooterAlignmentTests {
         }
     }
 
+    /// Only symbol keys center their own ink: a "," or "." keycap (⌥⌘, and ⌥⌘. switch focus, ⌘,
+    /// opens Settings) keeps its glyph on the baseline, under the cap's middle, not floated into it.
+    @Test func punctuationKeycapsKeepTheirBaseline() throws {
+        _ = NSApplication.shared
+        let keys = PaletteKeycapsView()
+        keys.keycaps = [",", ".", "↩"]
+        let size = keys.intrinsicContentSize
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.closeAfterTest() }
+        let host = NSView(frame: NSRect(origin: .zero, size: size))
+        window.contentView = host
+        keys.frame = host.bounds
+        host.addSubview(keys)
+        let ink = try Ink(host)
+        let fillAlpha = ink.alpha(x: Metrics.space1 / 2, y: size.height / 2)
+        var left: CGFloat = 0
+        var glyphs: [(min: CGFloat, max: CGFloat, mid: CGFloat)] = []
+        for cap in keys.keycaps {
+            let width = max(PaletteLayout.keycapSize, ceil((cap as NSString).size(withAttributes: [.font: Typography.shortcut]).width) + Metrics.space2 * 2)
+            glyphs.append(try #require(ink.rows(in: NSRect(x: left, y: 0, width: width, height: size.height), above: fillAlpha), "\(cap) draws"))
+            left += width + Metrics.space1
+        }
+        let middle = size.height / 2
+        #expect(glyphs[0].mid < middle - 1, "\",\" sits low in its cap: \(glyphs[0]) in a cap centered at \(middle)")
+        #expect(glyphs[1].mid < middle - 1, "\".\" sits low in its cap: \(glyphs[1]) in a cap centered at \(middle)")
+        #expect(abs(glyphs[2].mid - middle) <= 0.75, "↩ centers in its cap: \(glyphs[2]) in a cap centered at \(middle)")
+    }
+
     private static func check(_ model: PaletteModel, appearance: NSAppearance.Name, _ label: String, windows: inout [NSWindow]) throws {
         let view = PaletteContentView(model: model)
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: PaletteLayout.windowSize), styleMask: [.borderless],
@@ -56,6 +86,7 @@ struct PaletteFooterAlignmentTests {
         footer.layoutSubtreeIfNeeded()
         let ink = try Ink(footer)
         let midY = footer.bounds.midY
+        let tolerance = Self.tolerance(window)
         var measured: [String] = []
 
         for text in descendants(of: footer).compactMap({ $0 as? NSTextField })
