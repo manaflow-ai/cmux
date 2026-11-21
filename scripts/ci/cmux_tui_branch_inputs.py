@@ -69,9 +69,11 @@ def git(*args: str, lazy: bool = False, deadline: float) -> str:
 def verdict(ref: str, sha: str, base: str, since: str) -> tuple[bool, str]:
     if not superseded.needs_open_pull_request(ref) or ref in superseded.PROTECTED:
         return False, f"{ref} is a trunk or integration ref; it builds every changed tree"
-    if superseded.asks_for_daemon_tests(sha):
-        return False, f"{sha[:12]} carries Cmux-Daemon-Tests: run"
     deadline = time.monotonic() + DEADLINE_SECONDS
+    # daemon-policy's opt-in, read in this checkout (superseded.asks_for_daemon_tests reads the cwd's repository).
+    trailer = git("log", "-1", "--format=%(trailers:key=Cmux-Daemon-Tests,valueonly)", sha, deadline=deadline)
+    if "".join(trailer.split()).lower() == "run":
+        return False, f"{sha[:12]} carries Cmux-Daemon-Tests: run"
     base_ref = f"refs/remotes/origin/{base}"
     git("fetch", "--no-tags", "--quiet", "--filter=tree:0", f"--shallow-since={since}", "origin",
         f"+refs/heads/{base}:{base_ref}", sha, lazy=True, deadline=deadline)
