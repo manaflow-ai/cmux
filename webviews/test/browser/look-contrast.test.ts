@@ -124,6 +124,18 @@ await requireBrowserLane("look-contrast.test.ts", async () => {
       cause: "the live run's tool line draws --agent-muted (the theme's textSecondary), as the mode chip",
     },
     {
+      element: "cv-command__elapsed",
+      kind: "text",
+      cause:
+        "the live run's clock ('14s', RunningTime.tsx) draws --cv-text-dim, the theme's textSecondary: 3.84:1 light, 4.4:1 dark, as the mode chip",
+    },
+    {
+      element: "acpmux-diff-add",
+      kind: "text",
+      cause:
+        "the edited-files '+N' count draws --acpmux-add, the theme's ansi green (#1e832e): 4.42:1 on the light summary's #f4f5f5; the theme's palette, not the chat's CSS",
+    },
+    {
       element: "acpmux-permission-command-preview",
       kind: "text",
       cause:
