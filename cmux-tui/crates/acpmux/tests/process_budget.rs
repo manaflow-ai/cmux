@@ -2,13 +2,14 @@
 //! has tons of processes tbats a prkduct bug" and "there are thoudands of processes you
 //! absolutley need to clean".
 //!
-//! A real daemon on its own home runs the stand-in agent (`fake_agent.py`). The test counts the
-//! processes the daemon started (its process tree, plus any that left the tree but carry this
-//! test's scratch path in their environment, as an agent host does once reparented), opens
-//! [`CHATS`] chats and prompts each once, and holds every chat to [`PER_CHAT`] new processes.
-//! It then stops every chat through the daemon's API (`_acpmux/kill`, what `acpmux session stop`
-//! sends) and waits, up to [`CLEANUP`], for the count to come back to what it was before the first
-//! chat. A process still there names its argv and parent chain.
+//! A real daemon on its own home runs the stand-in agent (`fake_agent.py`). It opens [`CHATS`]
+//! chats and prompts each once; each chat's processes (its agent host, from the host record the
+//! daemon writes, and everything under it) are held to [`PER_CHAT`]. Then every chat is stopped
+//! through the daemon's API (`_acpmux/kill`, what `acpmux session stop` sends), and within
+//! [`CLEANUP`] every process the daemon started must be gone: its process tree, plus any that
+//! left the tree but carry this test's scratch path in their environment (a reparented agent
+//! host). That covers the daemon's own one-shots too (startup model probes, version reads), which
+//! belong to no chat. A process still there names its argv and parent chain.
 //!
 //! The detector for the class "a process outlives its chat" (`#48374` holds the MCP servers per
 //! chat; this one holds every process).
@@ -36,13 +37,12 @@ const CHATS: usize = 4;
 ///
 /// Its MCP servers are not processes of their own: the daemon serves them (`mcp_gateway.rs`).
 const PER_CHAT: usize = 2;
-/// How long the daemon's startup model probes may run before the baseline is taken: each ACP
-/// harness it found (here `fake`, and `chief` as `cmux-tui chief acp` when a `cmux-tui` binary
-/// sits beside acpmux) is started once to list its models and killed after, bounded at 60 s
-/// (`hub/model_probe.rs`). They belong to no chat, and a daemon with no chat runs nothing else.
-const STARTUP_PROBES: Duration = Duration::from_secs(75);
-/// How long the processes of a stopped chat may take to end.
-const CLEANUP: Duration = Duration::from_secs(20);
+/// How long, after the chats stop, every process the daemon started may take to end: a stopped
+/// chat's host and harness end at once, but a startup model probe (each ACP harness the daemon
+/// found, here `fake`, and `chief` as `cmux-tui chief acp` where a `cmux-tui` binary sits beside
+/// acpmux, as in a Cargo target folder) is killed only by its own 60 s bound
+/// (`hub/model_probe.rs`) when the harness never answers.
+const CLEANUP: Duration = Duration::from_secs(75);
 /// How often the test looks while it waits.
 const POLL: Duration = Duration::from_millis(50);
 
@@ -169,6 +169,33 @@ fn chain(pid: u32, rows: &BTreeMap<u32, Proc>, daemon: u32) -> String {
 fn report(procs: &BTreeMap<u32, Proc>, daemon: u32) -> String {
     let rows = table();
     procs.keys().map(|pid| chain(*pid, &rows, daemon)).collect::<Vec<_>>().join("\n")
+}
+
+/// The agent host of `session`, from the record the daemon keeps for it (`hosts/<id>.json`).
+fn host_pid(home: &Path, session: &str) -> u32 {
+    let path = home.join("hosts").join(format!("{session}.json"));
+    let record: Value = serde_json::from_slice(
+        &fs::read(&path).unwrap_or_else(|e| panic!("host record {}: {e}", path.display())),
+    )
+    .unwrap();
+    record["host_pid"].as_u64().unwrap_or_else(|| panic!("no host_pid in {record}")) as u32
+}
+
+/// `root` and every process under it.
+fn subtree(root: u32, rows: &BTreeMap<u32, Proc>) -> BTreeMap<u32, Proc> {
+    let mut ours = BTreeSet::from([root]);
+    loop {
+        let before = ours.len();
+        for (pid, p) in rows {
+            if ours.contains(&p.ppid) {
+                ours.insert(*pid);
+            }
+        }
+        if ours.len() == before {
+            break;
+        }
+    }
+    rows.iter().filter(|(pid, _)| ours.contains(pid)).map(|(k, v)| (*k, v.clone())).collect()
 }
 
 struct Rpc {
@@ -302,25 +329,9 @@ fn every_chat_runs_within_its_process_budget_and_leaves_none_behind() {
     let work = scratch.join("work");
     fs::create_dir_all(&work).unwrap();
     let mut daemon = start(&scratch);
-
-    // The baseline: the daemon with no chat, once its startup probes ended. That is no process at
-    // all; one still there by the bound is a probe that outlived it.
-    let deadline = Instant::now() + STARTUP_PROBES;
-    let baseline = loop {
-        let now = daemon.look();
-        if now.is_empty() || Instant::now() >= deadline {
-            break now;
-        }
-        std::thread::sleep(POLL);
-    };
-    assert!(
-        baseline.is_empty(),
-        "a daemon with no chat still runs {} processes {STARTUP_PROBES:?} after it was ready:\n{}",
-        baseline.len(),
-        report(&baseline, daemon.pid())
-    );
+    let baseline = daemon.look();
     eprintln!(
-        "before any chat, {} processes under the daemon:\n{}",
+        "before any chat, the daemon started {}:\n{}",
         baseline.len(),
         report(&baseline, daemon.pid())
     );
@@ -328,7 +339,6 @@ fn every_chat_runs_within_its_process_budget_and_leaves_none_behind() {
     let mut rpc = Rpc::connect(&daemon.socket);
     rpc.call("initialize", json!({"protocolVersion": 1}));
     let mut ids = Vec::new();
-    let mut before = baseline.len();
     for i in 0..CHATS {
         let made = rpc.call("session/new", json!({"cwd": work, "mcpServers": []}));
         let id = made["sessionId"].as_str().expect("session/new gave no sessionId").to_owned();
@@ -337,43 +347,31 @@ fn every_chat_runs_within_its_process_budget_and_leaves_none_behind() {
             json!({"sessionId": id, "prompt": [{"type": "text", "text": format!("chat {i}")}]}),
         );
         assert!(ended.get("stopReason").is_some(), "the turn of chat {i} did not end: {ended}");
-        ids.push(id);
-        let now = daemon.look();
-        let added: BTreeMap<u32, Proc> = now
-            .iter()
-            .filter(|(pid, _)| !baseline.contains_key(pid))
-            .map(|(k, v)| (*k, v.clone()))
-            .collect();
+        let all = daemon.look();
+        let host = host_pid(&daemon.home, &id);
+        let chat: BTreeMap<u32, Proc> = subtree(host, &table());
         eprintln!(
-            "after chat {i}, {} processes since the baseline:\n{}",
-            added.len(),
-            report(&added, daemon.pid())
+            "chat {i} ({id}) runs {} processes:\n{}\nall the daemon started, {}:\n{}",
+            chat.len(),
+            report(&chat, daemon.pid()),
+            all.len(),
+            report(&all, daemon.pid())
         );
         assert!(
-            now.len().saturating_sub(before) <= PER_CHAT,
-            "chat {i} added {} processes (budget {PER_CHAT}); every process since the baseline:\n{}",
-            now.len().saturating_sub(before),
-            report(&added, daemon.pid())
+            chat.len() <= PER_CHAT,
+            "chat {i} runs {} processes (budget {PER_CHAT}):\n{}",
+            chat.len(),
+            report(&chat, daemon.pid())
         );
-        before = now.len();
+        ids.push(id);
     }
-    let open = daemon.look();
-    assert!(
-        open.len() <= baseline.len() + CHATS * PER_CHAT,
-        "{CHATS} open chats run {} processes over the baseline (budget {}):\n{}",
-        open.len() - baseline.len(),
-        CHATS * PER_CHAT,
-        report(&open, daemon.pid())
-    );
 
     for id in &ids {
         rpc.call("_acpmux/kill", json!({"sessionId": id}));
     }
     let deadline = Instant::now() + CLEANUP;
     let left = loop {
-        let now = daemon.look();
-        let left: BTreeMap<u32, Proc> =
-            now.into_iter().filter(|(pid, _)| !baseline.contains_key(pid)).collect();
+        let left = daemon.look();
         if left.is_empty() || Instant::now() >= deadline {
             break left;
         }
@@ -381,7 +379,7 @@ fn every_chat_runs_within_its_process_budget_and_leaves_none_behind() {
     };
     assert!(
         left.is_empty(),
-        "{} processes outlived their stopped chats by {CLEANUP:?} (pid [state] argv, then its parents):\n{}",
+        "{} processes the daemon started outlived their stopped chats by {CLEANUP:?} (pid [state] argv, then its parents):\n{}",
         left.len(),
         report(&left, daemon.pid())
     );
