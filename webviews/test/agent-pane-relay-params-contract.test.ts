@@ -167,11 +167,14 @@ function scan(): { sites: Site[]; opaque: Opaque[] } {
     return undefined;
   };
   // The object constituents of `type` (a union's every arm; undefined, null and {} add none).
-  const objects = (type: ts.Type): ts.Type[] =>
-    (type.isUnion() ? type.types : [type]).filter(
-      (t) => !(t.flags & (ts.TypeFlags.Undefined | ts.TypeFlags.Null | ts.TypeFlags.Void | ts.TypeFlags.Never)),
-    );
-  const keysOf = (type: ts.Type, at: ts.Node, what: string, push: (what: string) => void): Set<string> => {
+  // A list is the arms of a nested prop read off several arms (TypeChecker has no public union builder).
+  const objects = (type: ts.Type | ts.Type[]): ts.Type[] =>
+    (Array.isArray(type) ? type : [type])
+      .flatMap((t) => (t.isUnion() ? t.types : [t]))
+      .filter(
+        (t) => !(t.flags & (ts.TypeFlags.Undefined | ts.TypeFlags.Null | ts.TypeFlags.Void | ts.TypeFlags.Never)),
+      );
+  const keysOf = (type: ts.Type | ts.Type[], at: ts.Node, what: string, push: (what: string) => void): Set<string> => {
     const keys = new Set<string>();
     for (const arm of objects(type)) {
       if (arm.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) {
@@ -184,13 +187,13 @@ function scan(): { sites: Site[]; opaque: Opaque[] } {
     }
     return keys;
   };
-  const propType = (type: ts.Type, name: string, at: ts.Node): ts.Type | undefined => {
+  const propType = (type: ts.Type | ts.Type[], name: string, at: ts.Node): ts.Type[] | undefined => {
     const arms = objects(type)
       .map((arm) => arm.getProperty(name))
       .filter((p): p is ts.Symbol => !!p)
       .map((p) => checker.getNonNullableType(checker.getTypeOfSymbolAtLocation(p, at)));
     if (arms.length === 0) return undefined;
-    return arms.length === 1 ? arms[0] : checker.getUnionType(arms);
+    return arms;
   };
 
   for (const file of files) {
