@@ -73,6 +73,42 @@ struct SceneNodeViewRenderingTests {
         #expect(vertical.height > 20)
     }
 
+    /// On: a positive number of seconds, `true` (one turn a second), or
+    /// numeric text.
+    @Test(arguments: [
+        (ScenePropValue.number(1.5), false, 1.5),
+        (.bool(true), false, 1),
+        (.string("2"), false, 2),
+    ])
+    func spinPeriod(value: ScenePropValue, reduceMotion: Bool, expected: Double) {
+        #expect(SceneSpin.period(value, reduceMotion: reduceMotion) == expected)
+    }
+
+    /// Off: no prop, zero, a negative or non-finite period, false, text that
+    /// is not a number, and anything under Reduce Motion.
+    @Test(arguments: [
+        (ScenePropValue?.none, false),
+        (.number(0), false),
+        (.number(-2), false),
+        (.number(.infinity), false),
+        (.bool(false), false),
+        (.string("fast"), false),
+        (.number(1), true),
+        (.bool(true), true),
+    ])
+    func spinOff(value: ScenePropValue?, reduceMotion: Bool) {
+        #expect(SceneSpin.period(value, reduceMotion: reduceMotion) == nil)
+    }
+
+    /// The angle comes from the clock, so every rebuild of a row agrees on it.
+    @Test func spinAngleTurnsOncePerPeriod() {
+        let start = Date(timeIntervalSinceReferenceDate: 1000)
+        #expect(SceneSpin.angle(at: start, period: 2) == 0)
+        #expect(SceneSpin.angle(at: start + 0.5, period: 2) == 90)
+        #expect(SceneSpin.angle(at: start + 3, period: 2) == 180)
+        #expect(SceneSpin.angle(at: start + 0.25, period: 1) == 90)
+    }
+
     /// https://github.com/manaflow-ai/cmux/issues/14662: a `Menu` inside
     /// `.contextMenu` rendered nothing, so the submenu vanished from the
     /// context menu while its sibling buttons still showed.
