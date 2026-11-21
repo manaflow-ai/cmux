@@ -323,7 +323,7 @@ final class AppServices {
     private(set) lazy var keybindingsFile = KeybindingsFileService(services: self)
     /// App platform (DEV prototype): registry, JavaScriptCore app host, App Store.
     private(set) lazy var apps = AppsService(services: self)
-    private(set) lazy var sidebarCustomization = SidebarCustomizationService(client: apps.client) { [weak self] in self?.apps.presence.isPresented($0) == true }
+    private(set) lazy var sidebarCustomization = SidebarCustomizationService(client: apps.client) { [weak self] in self?.apps.client.presence.isPresented($0) == true }
     /// The Tasks page and its mirror of the local Tasks owner (plans/cmux-next/tasks.md).
     private(set) lazy var tasks = TasksPageService(services: self)
     /// Phone tabs: iOS simulators, Android emulators and real phones, recordings, feedback to Chief
@@ -443,7 +443,7 @@ final class AppServices {
     let chiefMascotPicks = ChiefMascotPicks(defaults: .standard, defaultChief: HomeChiefAvatars.defaultChief)
     /// Each Chief's own uploaded avatar, kept on this Mac only (Application Support/<bundle id>/AvatarUploads).
     let chiefAvatarUploads = ChiefAvatarUploads(folder: ChiefAvatarUploads.defaultFolder)
-    let chiefSidebarPictures = ChiefSidebarPictures()  // the sidebar Chief item's picture, one per upload
+    let chiefSidebarPictures = ChiefSidebarPictures(), chiefSidePanel = ChiefSidePanel()  // the sidebar Chief item's picture, one per upload; Chief in Side Panel
     /// The chat the Chief pet (the floating mini) stands for: the Chief, or one Show in Mini picked.
     private(set) lazy var chiefPetMini = ChiefPetMini(uploads: chiefAvatarUploads, localHost: { [weak self] in self?.agentTabs.localHost },
                                                       settings: { [weak self] in self?.settings }, pet: { [weak self] in self?.notifications.chiefPet },
