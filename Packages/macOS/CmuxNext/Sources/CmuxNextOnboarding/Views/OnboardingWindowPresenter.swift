@@ -103,8 +103,9 @@ public final class OnboardingWindowPresenter {
     public enum LaunchSteps: Sendable, Equatable {
         /// Capture builds, the showcase, `CMUX_NEXT_SKIP_ONBOARDING=1` or `--skip-onboarding`: nothing.
         case none
-        /// First-run onboarding off (Lawrence 2026-11-09), the default: no first-run windows, card or history page,
-        /// but the cmux Tools question still comes once. It is no first-run step: until it is answered, agents cmux
+        /// The default: the long first-run onboarding stays off (Lawrence 2026-11-09: no Agents window, card or
+        /// history page); a new person gets only the one short Make cmux Yours screen (cmux#48416) and then their
+        /// first chat, and the cmux Tools question still comes once. It is no first-run step: until it is answered, agents cmux
         /// starts get no cmux MCP server (`agents.cmuxMcp` stays `ask`), and a NIGHTLY that never asked left a
         /// teammate's Codex with no `cmux` (2026-11-19).
         case agentToolsOnly
@@ -144,6 +145,17 @@ public final class OnboardingWindowPresenter {
             await untilClosed()
             return true
         }
+    }
+
+    /// Set once a first run opened its new agent chat, or a launch was no first run (cmux#48416).
+    public static let firstChatOpenedKey = "home.firstRun.firstChatOpened"
+
+    /// Whether this launch opens the first-run agent chat, marking it decided when so: a first run, not a capture
+    /// build or the showcase (`.none`), not a person who picked terminal-first. An upgrade marks it and gets none.
+    public static func claimFirstChat(isFirstRun: Bool, steps: LaunchSteps, terminalFirst: Bool, defaults: UserDefaults = .standard) -> Bool {
+        guard steps != .none, !defaults.bool(forKey: firstChatOpenedKey) else { return false }
+        defaults.set(true, forKey: firstChatOpenedKey)
+        return isFirstRun && !terminalFirst
     }
 
     /// Make cmux Yours' once flag.

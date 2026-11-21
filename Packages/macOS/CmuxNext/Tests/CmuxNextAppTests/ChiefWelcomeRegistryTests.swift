@@ -60,8 +60,11 @@ import Testing
         var last = text.startIndex
         for (id, keys) in expected {
             #expect(registry.shortcutDisplay(for: id) == keys, "\(id)")
-            let title = try #require(registry.descriptor(for: id)?.title)
-            let line = try #require(text.range(of: "- `\(keys)` \(title)\n"), "\(id)")
+            // The welcome drops a title's trailing "…" (Command Palette…): it names the command, it opens nothing.
+            let full = try #require(registry.descriptor(for: id)?.title)
+            let title = full.hasSuffix("…") ? String(full.dropLast()) : full
+            let line = try #require(text.range(of: "- `\(keys)` \(title)"), "\(id)")
+            #expect(line.upperBound == text.endIndex || text[line.upperBound] == "\n", "\(id) is the whole line")
             #expect(line.lowerBound > last, "\(id) is in order")
             last = line.lowerBound
         }

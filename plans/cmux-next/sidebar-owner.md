@@ -1,8 +1,10 @@
 # cmux-next sidebar: owner note
 
 - 2026-11-20 (nx-48416-chief-onboarding): Sidebar-Look: user, 2026-11-20 (https://github.com/manaflow-ai/cmux/issues/48416):
-  "rename Home to Chief in the UI". Only a name changes: the Home item reads Chief (`sidebar.builtin.home`). Icons,
-  rows and spacing are unchanged.
+  "rename Home to Chief in the UI". Only names change: the Home item reads Chief (`sidebar.builtin.home`), and the
+  item that was already called Chief (its conversation, status and subagents, `LayoutItem.chief`) reads Chief
+  Activity (`sidebar.builtin.chief`), so Add to Sidebar never lists two items named Chief. Icons, rows and spacing
+  are unchanged.
 
 - 2026-11-19 (lane/needs-you-glow): Sidebar-Look: Leo, 2026-11-19, on eight new features: "all of them" and "some of
   them maybe just as customizations lol if it affects default looks". "Needs you" as motion, off by default: with

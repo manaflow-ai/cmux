@@ -15,11 +15,15 @@ import UniformTypeIdentifiers
 public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
     /// The built-in backgrounds the step offers after None: Shuffle Paintings, then a few calm works
     /// from the bundled art (Settings > Personalization has the rest).
-    nonisolated static let offered = [shuffleID,"friedrich-forest-moonlight", "hogai-nio", "klee-fish-magic", "rembrandt-storm-galilee"]
+    nonisolated static let offered = [shuffleID, "friedrich-forest-moonlight", "hogai-nio", "klee-fish-magic", "rembrandt-storm-galilee"]
     /// Shuffle Paintings' `appearance.background` value: a new painting each day.
     nonisolated static let shuffleID = "daily"
     /// The work Shuffle Paintings' tile shows.
     nonisolated static let shufflePreview = "munch-scream"
+
+    /// The way to work the person picked on the step, if they changed it: read before its settings write lands,
+    /// so the first chat (none for terminal-first) does not race a Return pressed right after the pick.
+    public private(set) var pickedWorkStyle: WorkStyle?
 
     private let settings: @MainActor () -> SettingsController?
     private let setDensity: @MainActor (String) -> Void
@@ -71,6 +75,7 @@ public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
     }
 
     public func apply(_ new: FirstRunChoices, from old: FirstRunChoices) {
+        if new.workStyle != old.workStyle { pickedWorkStyle = new.workStyle }
         if new.density != old.density { setDensity(Self.preset(new.density)) }
         guard let settings = settings() else { return }
         var writes: [([String], JSONValue?)] = []
@@ -78,7 +83,7 @@ public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
         if new.background != old.background { writes.append((["appearance", "background"], new.background.map(JSONValue.string))) }
         guard !writes.isEmpty else { return }
         // task-owner: one settings write per pick; the settings owner serializes them.
-        Task { [log] in
+        Task { [log, writes] in
             for (path, value) in writes {
                 do {
                     try await settings.setSetting(at: path, to: value, by: .user)

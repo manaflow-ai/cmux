@@ -93,6 +93,24 @@ import Testing
         }
     }
 
+    /// Once per install and only on a first run: an upgrade marks it and never shows it.
+    @Test func theStepShowsOnceOnAFirstRunAndNeverOnAnUpgrade() async throws {
+        var shown: [OnboardingModel.Step] = []
+        let presenter = OnboardingWindowPresenter(makeModel: { OnboardingModel(services: MockOnboardingServices(), step: $0, choices: Source()) },
+                                                  activeLook: nil, present: { shown.append($0.model.step) })
+        let upgraded = try #require(UserDefaults(testSuiteName: "cmux-make-yours-\(UUID().uuidString)"))
+        await presenter.showMakeItYoursAtFirstRun(isFirstRun: false, defaults: upgraded)
+        #expect(shown.isEmpty && upgraded.bool(forKey: OnboardingWindowPresenter.makeItYoursShownKey))
+        await presenter.showMakeItYoursAtFirstRun(isFirstRun: true, defaults: upgraded)
+        #expect(shown.isEmpty, "a later launch that looks like a first run still skips it")
+
+        let fresh = try #require(UserDefaults(testSuiteName: "cmux-make-yours-\(UUID().uuidString)"))
+        await presenter.showMakeItYoursAtFirstRun(isFirstRun: true, defaults: fresh)
+        #expect(shown == [.makeItYours])
+        await presenter.showMakeItYoursAtFirstRun(isFirstRun: true, defaults: fresh)
+        #expect(shown == [.makeItYours], "once per install")
+    }
+
     /// The step's three densities over the setting's five: the extremes read as their neighbor, and
     /// Standard writes the default preset.
     @Test func densityMapsOntoTheSettingsPresets() {

@@ -25,8 +25,23 @@ function render(state: OnboardingState, look?: MakeItYoursLook): string {
 
 const text = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
 
+/** The checked value of each radio group, read from the page as a browser shows it. */
+async function checked(state: OnboardingState): Promise<Record<string, string>> {
+  const root = document.createElement("div");
+  document.body.append(root);
+  const page = createRoot(root);
+  await act(async () => page.render(<OnboardingPage store={new OnboardingStore(null, state)} strings={strings} />));
+  const radios = [...root.querySelectorAll<HTMLInputElement>('input[type="radio"]')].filter((input) => input.checked);
+  const values = Object.fromEntries(radios.map((input) => [input.name, input.value]));
+  // One per group: a second checked radio in a group would overwrite its value above.
+  expect(radios.length).toBe(Object.keys(values).length);
+  await act(async () => page.unmount());
+  root.remove();
+  return values;
+}
+
 describe("make cmux yours", () => {
-  test("a fresh person sees the three choices on the recommended answers, and Skip / Continue", () => {
+  test("a fresh person sees the three choices on the recommended answers, and Skip / Continue", async () => {
     const html = render(makeItYoursState("fresh"));
     const words = text(html);
     for (const key of [
@@ -41,18 +56,17 @@ describe("make cmux yours", () => {
       expect(words).toContain(strings.t(key));
     expect(words).toContain("Continue");
     expect(words).not.toContain("lassic");
-    // Exactly one checked radio per group: GUI-first, Standard, no background.
-    expect(html).toMatch(/<input type="radio" name="workStyle" value="gui" checked=""/);
-    expect(html).toMatch(/<input type="radio" name="density" value="standard" checked=""/);
-    expect(html).toMatch(/<input type="radio" name="background" value="" aria-label="[^"]+" checked=""/);
-    expect(html.match(/checked=""/g)?.length).toBe(3);
+    // One checked radio per group: GUI-first, Standard, no background.
+    expect(await checked(makeItYoursState("fresh"))).toEqual({ workStyle: "gui", density: "standard", background: "" });
   });
 
-  test("the settings a person already has are what is checked", () => {
-    const html = render(makeItYoursState("picked"));
-    expect(html).toMatch(/value="compact" checked=""/);
-    expect(html).toMatch(/value="friedrich-forest-moonlight" aria-label="[^"]+" checked=""/);
-    expect(render(makeItYoursState("terminal"))).toMatch(/value="terminal" checked=""/);
+  test("the settings a person already has are what is checked", async () => {
+    expect(await checked(makeItYoursState("picked"))).toEqual({
+      workStyle: "gui",
+      density: "compact",
+      background: "friedrich-forest-moonlight",
+    });
+    expect((await checked(makeItYoursState("terminal"))).workStyle).toBe("terminal");
   });
 
   test("both looks draw every choice; only cards name the background tiles", () => {

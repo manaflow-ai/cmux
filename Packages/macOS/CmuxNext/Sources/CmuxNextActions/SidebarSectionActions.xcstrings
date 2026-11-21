@@ -9047,127 +9047,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief"
+            "value": "Chief Activity"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Chief のアクティビティ"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "نشاط Chief"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Chief aktivnost"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Chief-aktivitet"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Chief-Aktivität"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Actividad de Chief"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Activité de Chief"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Attività di Chief"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "សកម្មភាព Chief"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Chief 활동"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Chief-aktivitet"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Aktywność Chief"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Atividade do Chief"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Активность Chief"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "กิจกรรมของ Chief"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Chief Etkinliği"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Активність Chief"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Hoạt động của Chief"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Chief 动态"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Chief 動態"
           }
         }
       }

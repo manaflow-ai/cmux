@@ -460,17 +460,17 @@ function painting(sky: string, hill: string): HostImage {
   return {
     template: false,
     src: `data:image/svg+xml;utf8,${encodeURIComponent(
-      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 100"><rect width="160" height="100" fill="${sky}"/><circle cx="118" cy="30" r="12" fill="#f3e3b5" opacity="0.8"/><path d="M0 72 Q40 48 80 66 T160 60 V100 H0z" fill="${hill}"/></svg>`,
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 100"><rect width="160" height="100" fill="${sky}"/><circle cx="118" cy="30" r="12" fill="#f3e3b5" opacity="0.8"/><path d="M0 72 Q40 48 80 66 T160 60 V100 H0z" fill="${hill}"/></svg>`, // colour-allow: a gallery fixture's stand-in painting, never shipped UI
     )}`,
   };
 }
 
 const BACKGROUNDS: MakeItYoursBackground[] = [
-  { id: "daily", name: "", preview: painting("#3b2a4a", "#1d1424") },
-  { id: "friedrich-forest-moonlight", name: "Forest in the Moonlight — Caspar David Friedrich", preview: painting("#1f2b3a", "#0e151d") },
-  { id: "hogai-nio", name: "Nio — Kanō Hōgai", preview: painting("#5a4a32", "#2d2418") },
-  { id: "klee-fish-magic", name: "Fish Magic — Paul Klee", preview: painting("#14202a", "#2b4a52") },
-  { id: "rembrandt-storm-galilee", name: "The Storm on the Sea of Galilee — Rembrandt", preview: painting("#2c3236", "#151a1c") },
+  { id: "daily", name: "", preview: painting("#3b2a4a", "#1d1424") }, // colour-allow: a gallery fixture's stand-in painting, never shipped UI
+  { id: "friedrich-forest-moonlight", name: "Forest in the Moonlight — Caspar David Friedrich", preview: painting("#1f2b3a", "#0e151d") }, // colour-allow: a gallery fixture's stand-in painting, never shipped UI
+  { id: "hogai-nio", name: "Nio — Kanō Hōgai", preview: painting("#5a4a32", "#2d2418") }, // colour-allow: a gallery fixture's stand-in painting, never shipped UI
+  { id: "klee-fish-magic", name: "Fish Magic — Paul Klee", preview: painting("#14202a", "#2b4a52") }, // colour-allow: a gallery fixture's stand-in painting, never shipped UI
+  { id: "rembrandt-storm-galilee", name: "The Storm on the Sea of Galilee — Rembrandt", preview: painting("#2c3236", "#151a1c") }, // colour-allow: a gallery fixture's stand-in painting, never shipped UI
 ];
 
 /** Make cmux Yours: as it opens on a new Mac (the recommended answers), while the previews read, after

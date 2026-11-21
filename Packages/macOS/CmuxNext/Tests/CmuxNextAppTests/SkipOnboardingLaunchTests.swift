@@ -83,18 +83,32 @@ struct SkipOnboardingLaunchTests {
         let capture = AppEnvironment.current(["CMUX_NEXT_SKIP_ONBOARDING": "1"], arguments: ["cmux"]).launchSteps
         let showcase = AppEnvironment.current(["CMUX_NEXT_SHOWCASE": "1"], arguments: ["cmux"]).launchSteps
 
-        #expect(OnboardingService.opensFirstChat(isFirstRun: true, steps: plain, defaults: defaults))
-        #expect(OnboardingService.opensFirstChat(isFirstRun: true, steps: optedIn, defaults: defaults))
-        #expect(!OnboardingService.opensFirstChat(isFirstRun: true, steps: capture, defaults: defaults))
-        #expect(!OnboardingService.opensFirstChat(isFirstRun: true, steps: showcase, defaults: defaults))
-        #expect(!OnboardingService.opensFirstChat(isFirstRun: false, steps: plain, defaults: defaults))
+        let key = OnboardingWindowPresenter.firstChatOpenedKey
+        func claim(_ firstRun: Bool, _ steps: OnboardingWindowPresenter.LaunchSteps, terminalFirst: Bool = false) -> Bool {
+            OnboardingWindowPresenter.claimFirstChat(isFirstRun: firstRun, steps: steps, terminalFirst: terminalFirst, defaults: defaults)
+        }
+        // Capture builds and the showcase never decide it: the install's first chat stays for later.
+        #expect(!claim(true, capture))
+        #expect(!claim(true, showcase))
+        #expect(!defaults.bool(forKey: key))
+        // A terminal-first person gets none, and it is decided.
+        #expect(!claim(true, plain, terminalFirst: true))
+        #expect(defaults.bool(forKey: key))
+        defaults.removeObject(forKey: key)
+        // The first run opens it once.
+        #expect(claim(true, plain))
+        #expect(!claim(true, plain))
+        defaults.removeObject(forKey: key)
+        #expect(claim(true, optedIn))
+        // An upgrade gets none and never later, even if a launch then looks like a first run.
+        defaults.removeObject(forKey: key)
+        #expect(!claim(false, plain))
+        #expect(!claim(true, plain))
 
         // Under the capture flag the launch asks for nothing and leaves the install's first chat for later.
+        defaults.removeObject(forKey: key)
         let skipping = AppServices(environment: AppEnvironment.current(["CMUX_NEXT_SKIP_ONBOARDING": "1"], arguments: ["cmux"]))
         #expect(await skipping.onboarding.openFirstChat(isFirstRun: true, defaults: defaults) == nil)
-        #expect(!defaults.bool(forKey: OnboardingService.firstChatOpenedKey))
-
-        defaults.set(true, forKey: OnboardingService.firstChatOpenedKey)
-        #expect(!OnboardingService.opensFirstChat(isFirstRun: true, steps: plain, defaults: defaults))
+        #expect(!defaults.bool(forKey: key))
     }
 }
