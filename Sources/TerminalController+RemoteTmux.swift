@@ -212,7 +212,7 @@ extension TerminalController {
         guard let name = raw as? String, RemoteTmuxSocketName.isValid(name) else {
             return String(
                 localized: "socket.remoteTmux.socketNameInvalid",
-                defaultValue: "socket_name must be 1-64 ASCII letters, digits, '.', '_' or '-', and cannot start with '-'"
+                defaultValue: "socket_name must be 1-64 ASCII letters, digits, '.', '_' or '-', and cannot start with '-' or be '.' or '..'"
             )
         }
         return nil

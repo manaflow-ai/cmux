@@ -149,7 +149,7 @@ struct RemoteTmuxInvocation: Equatable {
                 guard RemoteTmuxSocketName.isValid(name) else {
                     throw CLIError(message: String(
                         localized: "cli.sshTmux.error.socketNameInvalid",
-                        defaultValue: "ssh-tmux: --socket-name must be 1-64 ASCII letters, digits, '.', '_' or '-', and cannot start with '-'",
+                        defaultValue: "ssh-tmux: --socket-name must be 1-64 ASCII letters, digits, '.', '_' or '-', and cannot start with '-' or be '.' or '..'",
                         bundle: localizationBundle
                     ))
                 }
