@@ -1508,6 +1508,7 @@ function ComposerFrame({
     const next = existing.slice(0, at) + insert + existing.slice(at);
     pendingCaret.current = at + insert.length;
     edit(next, at + insert.length);
+    // focus-route: the person clicked the control; the prompt takes the keys back, as a + pick does.
     field.current?.focus();
   };
   const pickFromPlus = (command: SlashCommand) => {
