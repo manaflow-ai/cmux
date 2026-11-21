@@ -68,6 +68,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case worktreeSetup
         /// Settings > Cloud > Models for Cloud: whether Claude, ChatGPT and an API key are set up for Cloud chats (a connection with serves_cloud), each with its Set up way in (Settings > Models' Add a Connection steps) and a plain note when only a This Mac only login exists (cmux-tui/docs/model-connections.md Revision 2); deep links #/settings/cloud?focus=cloud.claude, cloud.chatgpt, cloud.apiKey.
         case cloudModels
+        /// Settings > Cloud > Cloud Credentials (https://github.com/manaflow-ai/cmux/issues/48427, exploratory, development only): the team's cmux OIDC issuer, discovery and JWKS URLs and subject format (cmux-platform GET /v1/cloud/oidc/info, `cmux.settings.cloudCredentials.state`), and per cloud (AWS, Google Cloud, Azure, HashiCorp Vault, any OIDC verifier) the steps that make it trust the team's machines, which then read a short-lived token at /run/cmux-oidc/token (cmux-host oidc_token.rs). Never a token.
+        case cloudCredentials
         /// Settings > Models: the person's connections (Mac logins, ChatGPT plan, API keys) in the order a thread uses them, Spread usage, the organization's shared keys, and the members policy (cmux-tui/docs/model-connections.md); `cmux.settings.models.*`.
         case models
     }
