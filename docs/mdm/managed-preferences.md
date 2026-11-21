@@ -196,6 +196,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.paneBackgrounds` | string | `"shared"` | `shared`, `perPane` | Pane Backgrounds. One background behind the window, or a copy in each pane. |
 | `ui.reducedBackgrounds` | boolean | `false` |  | Plain Backgrounds. The plain theme color, without paintings, wallpapers or glass. |
 | `appearance.agentGlow` | boolean | `false` |  | React to Agents. Calm while agents are idle; a soft glow in the machine's color when an agent needs you. |
+| `appearance.previousGlass` | boolean | `false` |  | Previous Glass Look. Draws menus, popovers, the composer and cards with the glass from before November 2026. |
 | `appearance.experimentalControls` | boolean | `false` |  | Experimental Appearance Controls. Applies Hue and Saturation to the window's tint. Off, they have no effect. |
 | `appearance.backgroundOpacity` | real |  | 0 to 1 | Opacity. How much of the theme color covers the material behind the window. |
 | `appearance.backgroundBlur` | string |  | `frosted`, `glass`, `glass-clear`, `none` | Material. Unset, the window follows Ghostty's background-opacity and background-blur. |
@@ -428,7 +429,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.showLocalMachine` | boolean | `false` |  | Mark This Mac's Workspaces. With more than one computer, this Mac's workspaces show its icon too. |
 | `sidebar.groupHeader.memberCount` | boolean | `false` |  | Show Group Member Count. A collapsed group shows how many workspaces it holds. |
 | `sidebar.groupHeader.unreadCount` | boolean | `false` |  | Show Group Unread Count. A collapsed group shows its unread notification count. |
-| `sidebar.groupHeader.background` | string | `"auto"` | `auto`, `glass`, `solid`, `sections` | Group Background. How a group's background draws. Sections shows plain headings instead. |
+| `sidebar.groupHeader.background` | string | `"folder"` | `folder`, `auto`, `glass`, `solid`, `sections` | Group Background. How a group draws. Folders shows plain folders; Sections shows plain headings. |
 | `sidebar.groupPalette` | string | `"glass"` | `glass`, `theme`, `wallpaper`, `grayscale`, `vibrant`, `gradient`, `pictorial` | Group Colors. Where group colors come from. A color you pick for a group stays. |
 | `sidebar.groupGradient` | string | `"sunset"` | `sunset`, `aurora`, `lagoon`, `twoTone` | Group Gradient. The gradient Group Colors uses when set to Gradient. |
 | `sidebar.minimalMode` | string | `"off"` | `off`, `bottom`, `top`, `both` | Hide Bands Until Hover. Hides the chosen sections until the pointer is over the sidebar. |
@@ -613,6 +614,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `home.channelsEnabled` | boolean | `false` |  | Channels. Show Channels below Home in the sidebar. |
 | `home.chiefPetEnabled` | boolean | `false` |  | Show Chief Pet. A small Chief over every app shows agent events. ⌃⌥⌘C opens its reply box. |
 | `home.chiefPetMascot` | string | `"orb"` | `fox`, `machine`, `machine-cyan`, `machine-blue`, `moon`, `moon-blue`, `mochi`, `captain`, `sprout`, `bolt`, `fox-arctic`, `machine-violet`, `machine-gold`, `moon-rose`, `orb`, `orb-spark`, `orb-hood` | Character |
+| `home.chiefDock.sidePanel` | boolean | `false` |  | Chief in Side Panel. Keeps the Chief docked beside every workspace. Cmd-I hides or shows it. |
 | `home.chiefDock.edge` | string | `"left"` | `left`, `right`, `top`, `bottom` | Dock Edge. The window edge the Chief docks to. |
 | `home.chiefPanel.style` | string | `"composeBar"` | `composeBar`, `pill`, `card`, `panel`, `bubble`, `seeThrough`, `seeThroughBar` | Floating Chief Style. How the Chief looks floating over a workspace. Drag any style by its grip. |
 | `home.chiefDock.openBeside` | boolean | `false` |  | Show Chief When Opening Workspaces. Links in the Chief open their workspace with the Chief over it. Esc hides it. |
@@ -680,7 +682,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `labs.machineJoin` | boolean | `false` |  | Screen Sharing for Joined Machines. Shows Screen sharing and Control in Settings > Devices once this Mac joins. |
 | `labs.liveCode` | boolean | `false` |  | Live Code. Swift changes you compile apply to the running app. Takes effect after cmux restarts. |
 | `customize.fromTheApp` | boolean | `false` |  | Customize From the Window. Hold Option over a part of the window to see what changes it, and right-click it for Customize…. Turn this off to hide both. |
-| `labs.agentCustomization` | boolean | `false` |  | Claude Code and Codex Customization. Show and edit the MCP servers Claude Code and Codex use, in their own config files. |
+| `labs.agentCustomization` | boolean | `false` |  | Claude Code and Codex Customization. Show and edit the MCP servers, skills and commands Claude Code and Codex use, in their own config files. |
+| `experiments.glassToolbarGroups` | boolean | `false` |  | Glass Toolbar Groups. The chat header's buttons become round glass buttons, with related actions sharing one glass capsule, a search chip and shortcut keycaps. |
 | `feed.github.enabled` | boolean | `false` |  | GitHub Inbox. Inbox shows your GitHub notifications |
 | `feed.github.pollIntervalSeconds` | real | `120` | 60 to 900 | Refresh Interval. Seconds between GitHub refreshes. Refresh in the Inbox runs immediately. |
 | `agentPane.links.outsideRoots` | string | `"open"` | `confirm`, `text`, `open` | Files Outside the Project. What a link to a file outside the chat's folders does. Keys and .env files never open. |
@@ -710,6 +713,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `app.internalDeveloperMode` | boolean | `false` |  | Internal Developer Mode. Shows "Debug: …" commands in the Command Palette. |
 | `macScreen.systemShortcuts` | boolean | `false` |  | Send System Shortcuts to the Remote Mac. Shortcuts like ⌘Tab and ⌘Space go to the other Mac. Needs Accessibility. |
 | `macScreen.shareWithoutAsking` | boolean | `false` |  | Share This Mac Without Asking. Your own cmux CLI, agents and devices turn sharing on with no sheet. Each device's access still applies. |
+| `macScreen.defaultQuality` | string | `"auto"` | `auto`, `smooth`, `low`, `medium`, `high` | Default Quality. The quality a new Mac Screen session starts with. The session's toolbar still changes it. |
+| `macScreen.defaultAccess` | string | `"full"` | `full`, `view` | Default Access. What Connect asks another Mac for. View Only shows the screen; Full Control also sends your clicks and keys. |
 | `macScreen.debug.relayOnly` | boolean | `false` |  | Relay Only. Mac Screen tabs connect only through the relay, to test it. |
 | `remote.endSharingOnQuit` | boolean | `false` |  | End Sharing When cmux Quits. Off: this Mac stays available to your devices while cmux is quit. |
 | `remote.ultra` | string | `"auto"` | `off`, `auto`, `always` | Ultra Connection Mode. Sends repair data so lossy networks stay fast. Always uses 2 to 3 times the data. |
