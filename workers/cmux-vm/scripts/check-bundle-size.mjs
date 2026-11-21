@@ -21,6 +21,8 @@ import { gzipSync } from "node:zlib";
 // The upstream server-timing tally with its body-read timing (src/upstream/timing.ts) measured 454.1 KiB; no
 // dependency was added.
 // Both together (the classic VM import and the server-timing tally) measured 459.7 KiB.
+// A long exec as a provider background request (src/upstream/live-background.ts) measured 455.7 KiB (454.8 KiB
+// before); no dependency was added.
 const BUDGET_GZIP_BYTES = 465 * 1024; // 298 KiB at S1
 const dir = process.argv[2] ?? "dist";
 
