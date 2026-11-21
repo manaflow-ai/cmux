@@ -543,13 +543,13 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
             lastLeftFocusEntry = leavingEntry
             noteFocusLeft(leavingEntry, for: entry)
         }
-        // Workspace-only navigation restores the workspace's remembered tab,
-        // which can differ from the tab this record ended on. Record the tab
-        // focus landed on, the same rewrite the restore's deferred focus
-        // notice makes, so that notice doesn't read as a move away from a tab
-        // focus never left and the next move leaves the right tab.
-        if navigationScope() == .workspacesOnly,
-           focusHistory.indices.contains(targetIndex),
+        // Restore can land on a different tab from the one this record ended
+        // on: workspace-only navigation restores the workspace's remembered
+        // tab, and either scope falls back to a surviving tab when the
+        // recorded one has closed. Record the tab focus landed on, so the
+        // restore's deferred focus notice doesn't read as a move away from a
+        // tab focus never left and the next move leaves the right tab.
+        if focusHistory.indices.contains(targetIndex),
            focusHistory[targetIndex].entry.workspaceId == restoredEntry.workspaceId,
            focusHistory[targetIndex].entry != restoredEntry {
             focusHistory[targetIndex] = FocusHistoryRecord(entry: restoredEntry, focusedAt: now())
