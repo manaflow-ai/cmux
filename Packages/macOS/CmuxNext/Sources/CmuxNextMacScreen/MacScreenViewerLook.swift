@@ -78,12 +78,3 @@ struct MacScreenViewerStyle {
     /// The pane as shipped.
     static var current: MacScreenViewerStyle { MacScreenViewerStyle() }
 }
-
-// The default is `current`: Debug Settings can show the viewer in a look before it exists.
-extension MacScreenTunables {
-    /// The look of the screen-share viewer pane.
-    public static let viewerLook = Tunable<MacScreenViewerLook>.choice(
-        "macScreen.viewerLook", section, "Screen viewer look",
-        help: "How the screen-share viewer draws its toolbar, the area around the picture and its state cards. Applies at once.",
-        default: .current, code: "MacScreenTunables.viewerLook")
-}
