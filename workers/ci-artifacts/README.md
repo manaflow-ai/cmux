@@ -144,3 +144,48 @@ These timings exclude ZIP extraction and cannot be presented as a like-for-like
 comparison to the existing complete GitHub download action. The allowlisted
 artifact expires on 2026-09-23; an expired artifact requires another reviewed
 allowlist change rather than an arbitrary dispatch input.
+
+## R2 credential broker
+
+`wrangler.r2-credentials.jsonc` deploys a second, separate Worker
+(`cmux-ci-r2-credentials`, `src/r2-credentials.ts`) that shares only the GitHub
+OIDC verifier above. It lets a CI job write to R2 without a long-lived R2 key
+in GitHub: the job presents a GitHub Actions OIDC token and receives R2
+temporary credentials that expire after 15 minutes.
+
+`POST /v1/r2-credentials` with `Authorization: Bearer <OIDC token>` (audience
+`cmux-r2-credentials`) and a JSON body `{"grant": NAME, "prefix": PREFIX}`.
+
+- The Worker verifies GitHub's signature, issuer, audience and token lifetime,
+  then the grant's exact repository, repository and owner IDs, `workflow_ref`
+  (and `job_workflow_ref` when the token carries it, which GitHub documents only
+  for reusable-workflow jobs), `ref`, deployment `environment` and event. Grants are
+  the committed `GRANTS` table; there is no wildcard grant.
+- The requested prefix must sit inside the grant's prefix. A run-scoped grant
+  also requires the last folder to end in `-<run_id>-<run_attempt>`, so one
+  run's credentials cannot write another run's objects.
+- It calls Cloudflare's
+  [temporary credentials API](https://developers.cloudflare.com/r2/api/s3/temporary-credentials/)
+  (`POST /accounts/{account_id}/r2/temp-access-credentials`) with the grant's
+  bucket and permission, that one prefix and `ttlSeconds: 900`. The answer has
+  the access key, secret, session token, expiry, bucket, prefix and the verified
+  identity. The parent token is never returned.
+- Every failure is a non-2xx answer; callers keep their existing static
+  secrets as a fallback while those still exist.
+
+Grants today: `nightly-next-dsyms`, the cmuxterm-hq `nightly-next-linux.yml`
+build job's dSYM archive (`cmux-nightly-next`, `nightly-next/next/dsyms/`,
+object read-write, run-scoped).
+
+Enablement is an administrator operation:
+
+1. Create an R2 API token with Object Read & Write on the `cmux-nightly-next`
+   bucket only. Its Access Key ID is the parent of every credential this Worker
+   issues; revoking it revokes them all.
+2. `wrangler secret put CLOUDFLARE_API_TOKEN -c wrangler.r2-credentials.jsonc`
+   (that token's value, or an account token allowed to create R2 temporary
+   credentials), `R2_ACCOUNT_ID` (32 hex) and `R2_PARENT_ACCESS_KEY_ID`.
+3. `wrangler deploy -c wrangler.r2-credentials.jsonc`.
+4. Set the caller's broker URL variable to the Worker origin (for the dSYM
+   grant, cmuxterm-hq's `NIGHTLY_NEXT_R2_CREDENTIALS_URL`). Removing it returns
+   the caller to its static secrets.

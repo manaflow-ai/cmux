@@ -6,7 +6,7 @@
   "scripts": {
     "types:generate": "wrangler types --include-runtime false",
     "typecheck": "tsc --noEmit",
-    "build:test": "wrangler deploy --dry-run --outdir .test-dist",
+    "build:test": "wrangler deploy --dry-run --outdir .test-dist && wrangler deploy --dry-run -c wrangler.r2-credentials.jsonc --outdir .test-dist-r2-credentials",
     "test": "npm run build:test && node --test test/*.test.mjs",
     "check": "npm run typecheck && npm test"
   },
