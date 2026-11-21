@@ -1489,6 +1489,13 @@ pub struct Config {
     /// the normal peer route and send behavior unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub machine_wake: Option<MachineWakeConfig>,
+    /// `peerWake`: `{"argv": [...]}`, the command run once when a message for a session on a
+    /// peer finds its link down (`Peer::wake`), with the peer's name appended: the machine
+    /// layer's resume for whatever provider the peer's machine is on (a paused VM, a
+    /// stopped VM). Unset (the default): only the route's own ProxyCommand sees the wake
+    /// mark (`peer_wanted.rs` WAKE_ENV), as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer_wake: Option<PeerWake>,
     /// The read replica and write journal for paused machines (`crate::write_journal`). Off
     /// unless `writeJournal.enabled` is true; off changes nothing.
     #[serde(default, skip_serializing_if = "WriteJournalConfig::is_default")]
@@ -1765,6 +1772,13 @@ impl WriteJournalConfig {
     pub fn is_default(&self) -> bool {
         self == &Self::default()
     }
+}
+
+/// `peerWake`: the wake command's argv; `Peer::wake` appends the peer's name.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PeerWake {
+    pub argv: Vec<String>,
 }
 
 /// `sendRelay`: the relay command's argv; the CLI appends the session and `-`. `lsArgv`, when

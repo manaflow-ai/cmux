@@ -403,7 +403,7 @@ class StrBaseRunsGitHub(FakeGitHub):
 
 
 class UnreadShape(unittest.TestCase):
-    """2026-11-10: merge_hold refused cmux#39676 at 9be3f014 with a traceback, not a reason: list_base_runs read a
+    """2026-11-10: land-judge refused cmux#39676 at 9be3f014 with a traceback, not a reason: list_base_runs read a
     workflow's base runs while the REST quota was spent, the answer was a str, and `listed.get("workflow_runs")` raised
     AttributeError. Every json read that is not a JSON object or list is now Refused as unread, naming what came back."""
 
@@ -947,6 +947,8 @@ class GlaedaKeptLog(unittest.TestCase):
     # nothing (cmux#41244's replay: about 150 reads, stopped at 51 runs).
     UNCACHED_LOG_READERS = {
         "base_red_checks.py": "runs in the push workflow with the Actions token (urllib), where no glaeda-gh is",
+        "ci_receipt.py": "verifies a receipt: it reads the log of a passed job, and glaeda-gh keeps the logs of "
+                         "failed jobs only; GitHub is the signer, so the log must come from the Actions API itself",
         "cmux_next_tree_notify.py": "not switched yet: follow-up to the glaeda job-log cache",
         "cmux_tui_tree_handoff.py": "not switched yet: follow-up to the glaeda job-log cache",
         "nightly_ghostty_helper_reuse.py": "not switched yet: follow-up to the glaeda job-log cache",
@@ -1348,11 +1350,30 @@ class Excusing(unittest.TestCase):
 
     def test_base_job_reads_are_bounded(self):
         self.gh.base_runs = self.dev_daily_runs(excuse.BASE_JOB_READS + 5) + self.gh.base_runs
-        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next run of its workflow"):
+        with self.assertRaisesRegex(excuse.Refused, f"{excuse.INCOMPLETE} {excuse.BASE_JOB_READS} job lists"):
             self.judge()
         reads = [route for route in self.gh.routes if route.endswith("/jobs?filter=latest&per_page=100")
                  and "/runs/10/" not in route]
         self.assertEqual(len(reads), excuse.BASE_JOB_READS)
+
+    def test_a_base_search_the_cap_cut_short_is_incomplete_and_a_retry_reads_past_it(self):
+        # cmuxterm-hq#14126, 2026-11-19: the search stopped at BASE_JOB_READS with runs still unread and said "no
+        # feat-cmux-next run of its workflow has a verdict", the words of a window read whole, so the red stopped as
+        # the PR's own; a retry counted the kept lists again and said the same. A cut search is a timed retry, and a
+        # kept list costs no read, so the next judgement reads past the first ones to the run with the verdict.
+        runs = self.dev_daily_runs(excuse.BASE_JOB_READS + 5)
+        for run in runs:
+            run.update(run_attempt=1, updated_at="2026-11-19T20:00:00Z")
+        self.gh.base_runs = runs + self.gh.base_runs
+        with tempfile.TemporaryDirectory() as kept, unittest.mock.patch.dict(os.environ, {excuse.JOBS_CACHE_ENV: kept}):
+            with self.assertRaises(excuse.Refused) as cut:
+                self.judge()
+            said = str(cut.exception)
+            self.assertRegex(said, rf"{excuse.INCOMPLETE} {excuse.BASE_JOB_READS} job lists .*not a verdict: retry "
+                                   r"after \d\d:\d\dZ")
+            self.assertNotIn("has a verdict for it to compare with", said)
+            text = "\n".join(self.judge())
+        self.assertIn("run 20", text)
 
     def tip_daemon_setup(self, *, verdict="failure"):
         # 2026-10-30 (#27692): a feat-cmux-next push never runs daemon-test, base pushes land every
@@ -2285,7 +2306,7 @@ class SupersededCancelledRun(unittest.TestCase):
             self.judge(runs=(11,))
 
     def test_a_failure_with_a_newer_green_run_stays_a_red(self):
-        # A failure is a verdict: a later run's green never launders it (merge_hold's _superseded_cancels).
+        # A failure is a verdict: a later run's green never launders it (land-judge's _superseded_cancels).
         self.newer("success")
         lines = "\n".join(self.judge())
         self.assertIn(f"excused '{SWIFT}'", lines)
@@ -2475,7 +2496,7 @@ class CancelledRunSupersededByLaterGreen(unittest.TestCase):
         lines = self.judge()
         self.assertTrue(any(line.startswith("ignored 'migrate': its cancelled job 3 in run 30 is superseded by run 31")
                             for line in lines), lines)
-        # A failure is a verdict: a later green never launders it (merge_hold's _superseded_cancels).
+        # A failure is a verdict: a later green never launders it (land-judge's _superseded_cancels).
         self.gh.jobs = {1: failed_job(1, 30, HEAD), 2: failed_job(2, 20, BASE_SHA)}
         self.assertIn(f"excused '{SWIFT}'", "\n".join(self.judge()))
         self.gh.logs[2] = log(SWIFT, TEST_STEP, OTHER, "##[error]1 red test: palette()")
@@ -2577,7 +2598,7 @@ class StatusOnlyChecks(unittest.TestCase):
         self.assertIn("run 20", text)
 
     def test_an_excused_status_red_is_named_by_its_status_context(self):
-        # merge_hold covers a red only by an audit line that starts with its own name (cmux#37038 at 1f4963c0 was
+        # land-judge covers a red only by an audit line that starts with its own name (cmux#37038 at 1f4963c0 was
         # refused: "never named 'cmux-next daemon tests (same-tree)'" while its job's line was excused).
         lines = self.judge()
         self.assertTrue(any(line.startswith(f"excused '{self.CONTEXT}'") for line in lines), lines)
@@ -3084,6 +3105,16 @@ class WebShardBaseVerdict(unittest.TestCase):
         gh = self.red_web_status(WebShardBaseGitHub(name=SWIFT))
         with self.assertRaisesRegex(excuse.Refused, "no failed job under its needs"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [], gh, checks=[WEB_STATUS])
+
+    def test_a_web_status_refused_at_setup_says_re_run_not_no_failed_job(self):
+        # Run 44690650796: Web status failed in "Set up runner" on a pool runner whose job hook exited 5, with no web
+        # job red under it. "no failed job under its needs" sent a reader looking for a missing child; say re-run.
+        for checks, runs in (([WEB_STATUS], []), ([], [10])):
+            with self.subTest(checks=checks, runs=runs):
+                gh = self.red_web_status(WebShardBaseGitHub(name=SWIFT))
+                gh.jobs[5]["steps"] = [{"name": "Set up runner", "status": "completed", "conclusion": "failure"}]
+                with self.assertRaisesRegex(excuse.Refused, "refused at setup: re-run"):
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, runs, gh, checks=checks)
 
     def test_a_web_shard_green_on_the_pushed_base_is_the_prs_own_red(self):
         gh = WebShardBaseGitHub()
@@ -3656,7 +3687,7 @@ class RollupsFromNeeds(unittest.TestCase):
                          "run: python3 scripts/ci/base_red_excuse.py --write-rollups")
 
     def test_a_host_without_pyyaml_derives_with_the_vendored_copy(self):
-        # merge_hold runs this script as `python3 -I` under Homebrew's Python, which has no PyYAML: every
+        # land-judge runs this script as `python3 -I` under Homebrew's Python, which has no PyYAML: every
         # cmuxterm-hq rollup red was refused there with "no YAML parser" (2026-11-07, hq#7398). In a fresh
         # interpreter whose `import yaml` fails, the rollups derive from the vendored copy, the same as with PyYAML.
         with tempfile.TemporaryDirectory() as root:
@@ -7879,7 +7910,7 @@ class WsCheckFleetRun(unittest.TestCase):
 
 
 class WsCheckFleetRoute(unittest.TestCase):
-    """2026-11-18: merge_hold refused teamleaderleo/leo-workspace#5992 twice, "'ws-check' has no result: job 'checks'
+    """2026-11-18: land-judge refused teamleaderleo/leo-workspace#5992 twice, "'ws-check' has no result: job 'checks'
     in run 44407040407 is completed/cancelled: no result to read". The broker had cancelled that run and the build
     fleet ran it; the verdict is in the fleet log the broker keeps beside the run's record (fleet_kept_log)."""
     RED = WsCheckPerTest.DEPLOY
@@ -7951,7 +7982,7 @@ class WsCheckFleetRecordsFolders(unittest.TestCase):
 
 
 class WsCheckFailureText(unittest.TestCase):
-    """2026-11-17: teamleaderleo/leo-workspace#5683 at 16b96c09 merged through merge_hold with its ws-check red excused
+    """2026-11-17: teamleaderleo/leo-workspace#5683 at 16b96c09 merged through land-judge with its ws-check red excused
     as a base red, since main d240eaab failed the same test_text_io_encoding.py test. The head's failure listed a new
     offender, tools/test_merge_hold.py, that main's did not: only the failing tests' names were compared. A failing
     test is the same red on the base only when its failure text (normalised: numbers masked, file names kept) is."""
@@ -8205,13 +8236,13 @@ subprocess.run(["git", "--git-dir", where, "fetch", "-q", os.environ["FAKE_LANE_
 
 
 class WsCheckFixedOnBase(unittest.TestCase):
-    """2026-11-11: merge_hold refused teamleaderleo/leo-workspace#4199 at e31e643a with "not excused: 'ws-check' is
+    """2026-11-11: land-judge refused teamleaderleo/leo-workspace#4199 at e31e643a with "not excused: 'ws-check' is
     green on main e5a6bed1b950, red on e31e643a6b26; not excused 'ws-check' test ...". Its one red,
     tools/test_knowledge_tiers.py's leo-asks room test, failed the same way at the PR's merge-base e8873054 and was
     fixed on main by LW#4196, and the PR touched only tools/lane-gh. The classifier compared the head with main's
     newest verdict alone, so a base red main had since fixed read as the PR's own. It still refuses (the PR needs CI at
     a head that has the fix), but says "fixed on base by <commit>: update the branch". ws_check_red is the one verdict:
-    merge_hold's message comes from it, and the lane-gh broker's update_branch guard reads it (--ws-check-verdict) to
+    land-judge's message comes from it, and the lane-gh broker's update_branch guard reads it (--ws-check-verdict) to
     let a SHIP'd PR's base merge through only for "fixed_on_base"."""
     TIERS = ".github/workflows/tools-tests.yml test: every other tools/test_*.py"
     LEO_ASKS = "test_every_page_inlines_whole_within_the_hooks_room (__main__.EveryRuleIsReachable.test_every_page_" \
@@ -8471,13 +8502,13 @@ class BaseRunsThatNeverBuildTheJob(unittest.TestCase):
     def test_runs_whose_suites_cannot_be_read_are_still_bounded(self):
         gh = TreeReuseGitHub(nodes=True)
         gh.run = lambda args: json.dumps({"errors": [{"message": "Something went wrong"}]})
-        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next run of its workflow has a verdict"):
+        with self.assertRaisesRegex(excuse.Refused, f"{excuse.INCOMPLETE} {excuse.BASE_JOB_READS} job lists"):
             self.judge(gh)
         self.assertEqual(len([run for run in gh.job_reads() if run != 10]), excuse.BASE_JOB_READS)
 
 
 class SweepLimit(unittest.TestCase):
-    """glaeda-gh refuses a caller past 30 distinct job reads in ten minutes; merge_hold judges every red of a head in
+    """glaeda-gh refuses a caller past 30 distinct job reads in ten minutes; land-judge judges every red of a head in
     one call. Which runs can answer is read from their check suites over GraphQL, and the verdicts do not change."""
 
     def test_the_same_inputs_give_the_same_verdicts_with_and_without_the_suite_reads(self):
@@ -8502,7 +8533,7 @@ class SweepLimit(unittest.TestCase):
                 self.assertEqual(gh.graphql, 2 + 2 * reds)  # 32 head runs and 36 base runs each: two requests apiece
         rest = SweepGitHub(1, suites=False)
         rest.judge(1)
-        self.assertGreater(len(rest.targets), limit)  # what merge_hold hit on cmux#36958
+        self.assertGreater(len(rest.targets), limit)  # what land-judge hit on cmux#36958
 
     def test_a_suite_read_that_fails_reads_every_run_as_before(self):
         gh = SweepGitHub(1)
@@ -11977,7 +12008,7 @@ class CompileErrorGitHub(FakeGitHub):
 
 class CompileErrorsAreComparedBySignature(unittest.TestCase):
     """2026-11-12, cmux#40935 at d2e676e6 and #41633: both clippy reds were the base's RootEntries error in a file
-    neither PR touches, and merge_hold refused them: the job's own base verdict skipped the step, and the base's clippy
+    neither PR touches, and land-judge refused them: the job's own base verdict skipped the step, and the base's clippy
     log never matched line for line. An error is compared by its signature (code, file, message), never its line."""
 
     def judge(self, github):
@@ -12664,8 +12695,8 @@ class FailedViewIsTheOnlyReader(unittest.TestCase):
 
 
 class IsolatedUnpackedRun(unittest.TestCase):
-    """merge_hold and the lane-gh broker's update_branch guard run this script as `python3 -I` from a `git archive` of
-    scripts/ci unpacked into a cache directory (leo-workspace tools/merge_hold.py classifier_script and
+    """land-judge and the lane-gh broker's update_branch guard run this script as `python3 -I` from a `git archive` of
+    scripts/ci unpacked into a cache directory (leo-workspace tools/land_judge/engine.py classifier_script and
     classifier_argv). -I leaves the script's own directory off sys.path, so every sibling module it reads must load by
     file path or after its own SCRIPT_DIR insert (receipt_grammar). Pins that both halves load from such a copy."""
 
@@ -12848,7 +12879,7 @@ class LoadedModuleList(unittest.TestCase):
     AST: each import (top level or lazy, inside a function) whose module is a scripts/ci file, or a package in a
     scripts/ci directory a string literal names (the _vendor it puts on sys.path); each string literal naming a
     scripts/ci file (Path(__file__).with_name("x.py") for spec_from_file_location, a data file); then the same for
-    every sibling module found, transitively. Vendored packages are not read inside. merge_hold and the lane-gh broker
+    every sibling module found, transitively. Vendored packages are not read inside. land-judge and the lane-gh broker
     run base_red_excuse.py from a `git archive` of scripts/ci, and leo-workspace's test fixture is re-archived from
     this list, so a new sibling fails here, at the PR that adds it, not as a broker refusal later."""
 
@@ -13549,7 +13580,7 @@ class FixedOnBaseByStep(StepFixture, unittest.TestCase):
 
     # #41117's review at 56ed528a (receipt issuecomment-6788710856) and #41104's at 14c9b7d6 (issuecomment-6788724645).
     def test_review_f1_a_land_never_gets_the_per_step_excuse(self):
-        # merge_hold's land (tools/merge_hold.py actions_verdict: no purpose, or --purpose land) judges the same red
+        # land-judge's land (tools/land_judge/engine.py actions_verdict: no purpose, or --purpose land) judges the same red
         # update_branch would excuse per step: refused, the per-step reading named as not its own.
         fixed = (({self.MOTION: "quiet-red"}, {}), ({self.SURFACES: "quiet-red"}, {}), ({self.MOTION: "quiet-red"}, {}))
         self.assertTrue(self.judge(*fixed)[0].startswith(f"excused '{self.JOB}': fixed on base ("))
@@ -14807,7 +14838,7 @@ class AnExpressionNameBesideAnExactOneIsNotJob(RealShapesOfNovember11):
 
 class AlignedStartsIsLinear(unittest.TestCase):
     """#41220's review F1: _aligned_starts rescanned the remaining headers from each candidate, so 10,000 same-second
-    headers over 3 steps took 17.6 s to come back ambiguous, inside merge_hold on every red. It is one pass per step
+    headers over 3 steps took 17.6 s to come back ambiguous, inside land-judge on every red. It is one pass per step
     now, with the same answers as the frozen first version (scripts/ci/bench_aligned_starts.py, which times both)."""
 
     @classmethod
@@ -15391,7 +15422,7 @@ class SuperlinearShrinkIsNotATimingVerdict(unittest.TestCase):
 # (step "cmux-next spawn-owner ratchet", job 130449502223) and tooling-tests (test_spawn_owner_ratchet.py's
 # test_the_committed_baseline_holds_on_this_tree, job 130449577217), for `check-spawn-owner: cmux-tui/crates/acpmux/
 # src/hub/remote_table_bench.rs has 1 spawn line(s) with no owner (a new file).`, a file #41040 added on base. #41227
-# fixed it on base and run 43000928251 passed both jobs, but merge_hold and the broker's update_branch refused: "not
+# fixed it on base and run 43000928251 passed both jobs, but land-judge and the broker's update_branch refused: "not
 # a declared guard job (GUARD_JOBS)". The jobs, their steps and logs are the real ones (tests/fixtures/
 # base_red_excuse_spawn_owner: the head jobs, the base run's two jobs, the merge-base run 42998467090's two jobs).
 SPAWN_FIXTURES = Path(__file__).resolve().parent / "fixtures/base_red_excuse_spawn_owner"
@@ -15669,6 +15700,12 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "cmux-next-react-doctor.yml",
             # The tab switch check: a display Mac measures the pull request head's tab switches (advisory).
             "cmux-next-tab-switch.yml",
+            # Type-checks the measuring probes (scripts/measure/*.swift) on a Mac when a change touches them.
+            "measure-swift-typecheck.yml",
+            # Push-only checks that also run, advisory and path-gated, on PRs into feat-cmux-next (#47445): the
+            # acpmux simulator sweep, Chief's evals, the mobile FFI, the cmux-next terminal and the Windows RD host.
+            "acpmux-sim-sweep.yml", "chief-evals.yml", "cmux-mobile-ffi.yml", "cmux-next-terminal.yml",
+            "cmux-rd-windows.yml",
             # Calls ci.yml, cmux-next-guards.yml and the other docs-only-filtered workflows when their filter can
             # be wrong (scripts/ci/docs_only_paths.py FALLBACK); a called guard job's check name carries the
             # caller's prefix, so no guard job declaration matches it and its red is judged as any job's.
@@ -16643,9 +16680,9 @@ print(out.strip())
 
 
 class ConditionalCiReads(unittest.TestCase):
-    """With BASE_RED_EXCUSE_ETAGS naming a folder (merge_hold names its own), a run's jobs, a run and a commit's check
+    """With BASE_RED_EXCUSE_ETAGS naming a folder (land-judge names its own), a run's jobs, a run and a commit's check
     runs are read conditionally: a second judgement of the same head pays no REST for what has not changed. 2026-11-17,
-    cosmic-gray, 2 h to 12:58Z: under merge_hold this script spent 673 REST, 402 of them a run's jobs, 133 of those the
+    cosmic-gray, 2 h to 12:58Z: under land-judge this script spent 673 REST, 402 of them a run's jobs, 133 of those the
     exact page read again."""
     JOBS = f"repos/{REPO}/actions/runs/42476982159/jobs?filter=all&per_page=100"
 
@@ -16727,6 +16764,97 @@ class ConditionalCiReads(unittest.TestCase):
         finally:
             excuse.JUDGEMENT_READS.reset(token)
         self.assertEqual([r["conditional"] for r in self.calls_since()], [False])
+
+class CutSearchConsumers(unittest.TestCase):
+    """cmux#47687's review: every consumer of a base search the read cap cut short says "incomplete" with a retry time,
+    never the words of a search read to its end (a cut read as a verdict, cmuxterm-hq#14126's class)."""
+
+    @staticmethod
+    def no_verdict_runs(github, name, count, first_id=1000, event="workflow_dispatch"):
+        # Base runs whose job NAME was skipped: each costs a job read and holds no verdict. Each is newer than every
+        # fixture's red base run, so a search meets them first.
+        for offset in range(count):
+            run_id = first_id + offset
+            github.jobs[run_id] = dict(failed_job(run_id, run_id, BASE_SHA, name=name), conclusion="skipped",
+                                       steps=[])
+        return [{"id": first_id + offset, "event": event, "head_branch": "feat-cmux-next", "status": "completed",
+                 "conclusion": "success", "head_sha": BASE_SHA,
+                 "created_at": f"2026-11-16T{23 - offset // 60:02d}:{59 - offset % 60:02d}:00Z"}
+                for offset in range(count)]
+
+    def assert_incomplete(self, said):
+        self.assertRegex(said, rf"^'[^']+': {excuse.INCOMPLETE} {excuse.BASE_JOB_READS} job lists .*not a verdict: "
+                               r"retry after \d\d:\d\dZ")
+
+    def test_f1_a_cut_search_of_the_base_callers_workflow_is_incomplete(self):
+        # ci.yml has no feat-cmux-next verdict at all; cmux-next-web.yml's search is cut before its red run 40.
+        github = WebShardBaseGitHub()
+        github.base_runs = []
+        github.pushed_runs = self.no_verdict_runs(github, WEB_SHARD, excuse.BASE_JOB_READS + 5, event="push") + [
+            run for run in github.pushed_runs if run["id"] == 40]
+        with self.assertRaises(excuse.Refused) as cut:
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assert_incomplete(str(cut.exception))
+        self.assertNotIn("has a verdict for it to compare with", str(cut.exception))
+
+    def test_f2_a_cut_is_one_searchs_not_every_later_job_of_the_workflow(self):
+        github = FakeGitHub()
+        runs = self.no_verdict_runs(github, SWIFT, excuse.BASE_JOB_READS + 5)
+        evidence = excuse.Evidence(REPO, "feat-cmux-next", github)
+        evidence.listed[7] = runs
+        job_reads, base_jobs = {}, {}
+        self.assertEqual(list(excuse.base_verdicts(REPO, 7, SWIFT, github, evidence, base_jobs, job_reads)), [])
+        self.assertEqual(excuse.search_cut(job_reads, SWIFT, 7), excuse.BASE_JOB_READS)
+        # A second job of the same workflow whose search reads only kept lists has nothing left unread.
+        evidence.listed[7] = [run for run in runs if run["id"] in base_jobs]
+        self.assertEqual(list(excuse.base_verdicts(REPO, 7, "other job", github, evidence, base_jobs, job_reads)), [])
+        self.assertIsNone(excuse.search_cut(job_reads, "other job", 7))
+        self.assertEqual(excuse.search_cut(job_reads, SWIFT, 7), excuse.BASE_JOB_READS)
+
+    def test_f3_a_window_extension_cut_short_is_incomplete_not_a_pass(self):
+        # One newer red that fails other tests, then more runs without a verdict than the cap, then the matching red.
+        github = FakeGitHub()
+        github.jobs[4] = failed_job(4, 22, BASE_SHA)
+        github.logs[4] = log(SWIFT, TEST_STEP, OTHER, "##[error]1 red test: palette()")
+        newer = {"id": 22, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+                 "conclusion": "failure", "head_sha": BASE_SHA, "created_at": "2026-11-17T00:00:00Z"}
+        github.base_runs = [newer] + self.no_verdict_runs(github, SWIFT, excuse.BASE_JOB_READS + 5) + github.base_runs
+        with self.assertRaises(excuse.Refused) as cut:
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assert_incomplete(str(cut.exception))
+
+    def test_followup_an_unplaced_heads_window_cut_short_is_incomplete_not_its_own_red(self):
+        # #47971's review F1: an unplaced head is compared whole within one red base verdict. The newest red fails
+        # another test; the search is cut before the older red that fails the head's own, which was never read.
+        unplaced = UnplacedSignature()
+        github = FakeGitHub()
+        github.jobs = {1: unplaced.job(), 2: dict(unplaced.job(), id=2, run_id=20, head_sha=BASE_SHA),
+                       4: dict(unplaced.job(), id=4, run_id=22, head_sha=BASE_SHA)}
+        github.logs = {1: framed_log(unplaced.lines(NEW_RED), SWIFT), 2: framed_log(unplaced.lines(NEW_RED), SWIFT),
+                       4: framed_log(unplaced.lines(OLD_RED), SWIFT)}
+        newer = {"id": 22, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+                 "conclusion": "failure", "head_sha": BASE_SHA, "created_at": "2026-11-17T00:00:00Z"}
+        github.base_runs = [newer] + self.no_verdict_runs(github, SWIFT, excuse.BASE_JOB_READS + 5) + github.base_runs
+        with self.assertRaises(excuse.Refused) as cut:
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assert_incomplete(str(cut.exception))
+
+    def test_f4_the_shared_catalog_search_cut_short_is_incomplete(self):
+        github = SharedCatalogGitHub()
+        github.base_runs = self.no_verdict_runs(github, SharedCatalogGitHub.GEN, excuse.BASE_JOB_READS + 5,
+                                                event="push") + github.base_runs
+        with self.assertRaises(excuse.Refused) as cut:
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assert_incomplete(str(cut.exception))
+        self.assertNotIn(f"no red '{excuse.GENERATED_BASE_JOB}'", str(cut.exception))
+
+    def test_f4_a_stacked_parents_search_cut_short_is_incomplete(self):
+        parent = excuse.StackedParent(47687, "a" * 40)
+        with self.assertRaises(excuse.Refused) as cut:
+            excuse.stacked_parent_verdicts(SWIFT, "lane/x", parent, iter(()), cut=lambda: excuse.BASE_JOB_READS)
+        self.assert_incomplete(str(cut.exception))
+        with self.assertRaisesRegex(excuse.Refused, "has no completed run of this workflow"):
+            excuse.stacked_parent_verdicts(SWIFT, "lane/x", parent, iter(()))
 
 
 if __name__ == "__main__":

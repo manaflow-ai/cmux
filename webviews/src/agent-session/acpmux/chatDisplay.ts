@@ -34,6 +34,7 @@ import {
   resolveChatFontFaces,
 } from "./chatFontFaces";
 import { configureStatusVerbs } from "./statusVerbs";
+import { configureThinkingLook } from "./conversation/thinkingLook";
 import { isUnreadBannerMode, type UnreadBannerMode } from "./conversation/unreadState";
 
 /// An arm of the thread minimap experiment (`off`, `full`, `compact`, whatever its definition lists).
@@ -417,6 +418,7 @@ export function applyChatDisplay(root: HTMLElement, display: ChatDisplay): void 
 export function setChatDisplay(value: unknown): void {
   raw = (value && typeof value === "object" && !Array.isArray(value) ? { ...(value as Values) } : {}) as Values;
   configureStatusVerbs(raw);
+  configureThinkingLook(raw);
   configureSenderIconLook(raw);
   const next = resolveChatDisplay(raw);
   const minimap = raw[CHAT_MINIMAP_KEY] === true;
