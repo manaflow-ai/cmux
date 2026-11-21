@@ -283,6 +283,7 @@
               "appearance.paneBackgrounds",
               "ui.reducedBackgrounds",
               "appearance.agentGlow",
+              "appearance.previousGlass",
               "appearance.backgroundOpacity",
               "appearance.backgroundBlur",
               "appearance.inactiveWindowDim",
@@ -1180,6 +1181,7 @@
               "agentPane.display.thinking.shimmerPeriod",
               "agentPane.display.thinking.shimmerBand",
               "agentPane.display.thinking.jumpButton",
+              "agentPane.display.thinking.glyphSize",
               "agentPane.needsYou.enabled",
               "agentPane.showMachineLoadWarnings"
             ],
@@ -1433,7 +1435,6 @@
         },
         "trail" : [
           "agentCustomization",
-          "agentSkills",
           "agentTools",
           "harnesses",
           "agentHarnesses",
@@ -2215,16 +2216,6 @@
             "title" : {
               "key" : "settings.group.labs",
               "text" : "Labs"
-            }
-          },
-          {
-            "key" : "settings.group.experiments",
-            "rows" : [
-              "experiments.glassToolbarGroups"
-            ],
-            "title" : {
-              "key" : "settings.group.experiments",
-              "text" : "Experiments"
             }
           },
           {
@@ -34019,6 +34010,144 @@
         false
       ],
       "agent_refusal" : null,
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.previousGlass.help",
+        "text" : "Draws menus, popovers, the composer and cards with the glass from before November 2026."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.previousGlass",
+      "keywords" : [
+        "glass",
+        "liquid glass",
+        "previous",
+        "old",
+        "classic look",
+        "blur",
+        "frost",
+        "translucent",
+        "transparency",
+        "menu",
+        "popover"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "previousGlass"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.previousGlass"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.previousGlass",
+        "text" : "Previous Glass Look"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
       "agent_settable" : true,
       "consumers" : [
         "cmux-next"
@@ -55314,7 +55443,8 @@
     {
       "accepts" : [
         "arrow",
-        "dots"
+        "dots",
+        "glyph"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -55332,6 +55462,13 @@
             "text" : "Dots"
           },
           "value" : "dots"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.thinkingJumpGlyph",
+            "text" : "Thinking Glyph"
+          },
+          "value" : "glyph"
         }
       ],
       "consumers" : [
@@ -55467,6 +55604,389 @@
       "title" : {
         "key" : "settings.agentPane.display.thinking.jumpButton",
         "text" : "Jump to Latest While Working"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        {
+          "$schema" : "cmux.particles/1",
+          "particle" : {
+            "max" : 1,
+            "size" : 3
+          },
+          "phases" : {
+            "lone" : {
+              "duration" : 400,
+              "frames" : [
+                {
+                  "at" : 0,
+                  "dots" : [
+                    [
+                      0,
+                      0,
+                      0.7
+                    ]
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "$schema" : "cmux.particles/1",
+          "particle" : {
+            "color" : "accent",
+            "max" : 3,
+            "shape" : "circle",
+            "size" : 3
+          },
+          "phases" : {
+            "row" : {
+              "duration" : 1200,
+              "ease" : "easeInOut",
+              "frames" : [
+                {
+                  "at" : 0,
+                  "formation" : "row"
+                },
+                {
+                  "at" : 1,
+                  "dots" : [
+                    [
+                      -6,
+                      0,
+                      1
+                    ],
+                    [
+                      0,
+                      0,
+                      0.6
+                    ],
+                    [
+                      6,
+                      0,
+                      1
+                    ]
+                  ]
+                }
+              ]
+            }
+          },
+          "triggers" : {
+            "cycle" : [
+              "row"
+            ],
+            "execute" : [
+              "row"
+            ]
+          }
+        }
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.thinking.glyph.help",
+        "text" : "Dots a look plays while the agent works, as a cmux.particles/1 document."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.thinking.glyph",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "thinking",
+        "glyph",
+        "particles",
+        "dots",
+        "choreography",
+        "animation",
+        "claude"
+      ],
+      "kind" : "text",
+      "page_hidden" : true,
+      "path" : [
+        "agentPane",
+        "display",
+        "thinking",
+        "glyph"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "thinking-glyph.json",
+        {
+
+        },
+        {
+          "$schema" : "cmux.particles/2",
+          "particle" : {
+            "size" : 3
+          },
+          "phases" : {
+            "lone" : {
+              "duration" : 400,
+              "frames" : [
+                {
+                  "at" : 0,
+                  "dots" : [
+
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : false,
+          "operations" : [
+
+          ],
+          "reason" : "a cmux.particles/1 document a look or cmux settings set writes, edited in cmux-next.json",
+          "row" : null
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.thinking.glyph",
+        "text" : "Thinking Glyph"
+      },
+      "validation" : "domain:particles_document"
+    },
+    {
+      "accepts" : [
+        0,
+        16,
+        8
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.thinking.glyphSize.help",
+        "text" : "The dot size of the thinking glyph in Jump to latest. 0 uses the glyph's own size."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.thinking.glyphSize",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "thinking",
+        "glyph",
+        "particles",
+        "dots",
+        "size",
+        "jump",
+        "claude"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "thinking",
+        "glyphSize"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 16,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 0.1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -16,
+        32,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.thinking.glyphSize"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.thinking.glyphSize",
+        "text" : "Jump Button Glyph Size"
       },
       "validation" : "portable"
     },
@@ -68001,6 +68521,7 @@
     },
     {
       "accepts" : [
+        "folder",
         "auto",
         "glass",
         "solid",
@@ -68009,6 +68530,13 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.groupBackgroundFolder",
+            "text" : "Folders"
+          },
+          "value" : "folder"
+        },
         {
           "title" : {
             "key" : "settings.choice.groupBackgroundAuto",
@@ -68041,7 +68569,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "auto",
+      "default" : "folder",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -68049,7 +68577,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.groupHeader.background.help",
-        "text" : "How a group's background draws. Sections shows plain headings instead."
+        "text" : "How a group draws. Folders shows plain folders; Sections shows plain headings."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.groupHeader.background",
@@ -94792,7 +95320,7 @@
         false
       ],
       "agent_refusal" : null,
-      "agent_settable" : true,
+      "agent_settable" : false,
       "consumers" : [
         "cmux-next"
       ],
@@ -94859,7 +95387,7 @@
         },
         "mcp" : {
           "aliases" : [
-            "settings.unset"
+
           ],
           "app_aliases" : [
 
@@ -94871,11 +95399,9 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
+            "settings.get"
           ],
-          "reason" : null,
+          "reason" : "agent_settable_false",
           "row" : null
         },
         "palette" : {
@@ -104784,7 +105310,7 @@
         false
       ],
       "agent_refusal" : null,
-      "agent_settable" : true,
+      "agent_settable" : false,
       "consumers" : [
         "cmux-next"
       ],
@@ -104849,7 +105375,7 @@
         },
         "mcp" : {
           "aliases" : [
-            "settings.unset"
+
           ],
           "app_aliases" : [
 
@@ -104861,11 +105387,9 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
+            "settings.get"
           ],
-          "reason" : null,
+          "reason" : "agent_settable_false",
           "row" : null
         },
         "palette" : {
@@ -104913,6 +105437,141 @@
       "title" : {
         "key" : "settings.experiments.glassToolbarGroups",
         "text" : "Glass Toolbar Groups"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.experiments",
+        "text" : "Experiments"
+      },
+      "help" : {
+        "key" : "settings.experiments.composerV2.help",
+        "text" : "A glass composer with mode chips, mention chips and a round send button. Still being shaped."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "experiments.composerV2",
+      "keywords" : [
+        "experiments",
+        "experimental",
+        "prototype",
+        "composer",
+        "glass",
+        "chips",
+        "mention",
+        "send"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "experiments",
+        "composerV2"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:experiments.composerV2"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.experiments.composerV2",
+        "text" : "Composer Refresh"
       },
       "validation" : "portable"
     },

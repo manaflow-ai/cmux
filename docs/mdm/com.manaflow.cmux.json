@@ -248,12 +248,26 @@
       "title" : "Working Status Verbs",
       "type" : "string"
     },
+    "agentPane.display.thinking.glyph" : {
+      "description" : "Dots a look plays while the agent works, as a cmux.particles/1 document.",
+      "title" : "Thinking Glyph",
+      "type" : "string"
+    },
+    "agentPane.display.thinking.glyphSize" : {
+      "default" : 0,
+      "description" : "The dot size of the thinking glyph in Jump to latest. 0 uses the glyph's own size.",
+      "maximum" : 16,
+      "minimum" : 0,
+      "title" : "Jump Button Glyph Size",
+      "type" : "number"
+    },
     "agentPane.display.thinking.jumpButton" : {
       "default" : "arrow",
       "description" : "What the Jump to latest button shows while the agent works.",
       "enum" : [
         "arrow",
-        "dots"
+        "dots",
+        "glyph"
       ],
       "title" : "Jump to Latest While Working",
       "type" : "string"
@@ -1832,6 +1846,12 @@
       "title" : "Pane Backgrounds",
       "type" : "string"
     },
+    "appearance.previousGlass" : {
+      "default" : false,
+      "description" : "Draws menus, popovers, the composer and cards with the glass from before November 2026.",
+      "title" : "Previous Glass Look",
+      "type" : "boolean"
+    },
     "appearance.rotateFavoriteThemes" : {
       "default" : "off",
       "description" : "Switches the terminal theme to the next starred one. Needs two starred themes.",
@@ -3387,6 +3407,12 @@
       "title" : "EnrollmentToken",
       "type" : "string"
     },
+    "experiments.composerV2" : {
+      "default" : false,
+      "description" : "A glass composer with mode chips, mention chips and a round send button. Still being shaped.",
+      "title" : "Composer Refresh",
+      "type" : "boolean"
+    },
     "experiments.glassToolbarGroups" : {
       "default" : false,
       "description" : "The chat header's buttons become round glass buttons, with related actions sharing one glass capsule, a search chip and shortcut keycaps.",
@@ -4884,9 +4910,10 @@
       "type" : "string"
     },
     "sidebar.groupHeader.background" : {
-      "default" : "auto",
-      "description" : "How a group's background draws. Sections shows plain headings instead.",
+      "default" : "folder",
+      "description" : "How a group draws. Folders shows plain folders; Sections shows plain headings.",
       "enum" : [
+        "folder",
         "auto",
         "glass",
         "solid",
