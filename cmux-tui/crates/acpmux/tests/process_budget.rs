@@ -43,6 +43,8 @@ const PER_CHAT: usize = 2;
 /// acpmux, as in a Cargo target folder) is killed only by its own 60 s bound
 /// (`hub/model_probe.rs`) when the harness never answers.
 const CLEANUP: Duration = Duration::from_secs(75);
+/// How long the test's drop waits for `acpmux daemon shutdown` before it kills it and the daemon.
+const SHUTDOWN: Duration = Duration::from_secs(15);
 /// How often the test looks while it waits.
 const POLL: Duration = Duration::from_millis(50);
 
@@ -110,36 +112,59 @@ fn environment_has(pid: u32, needle: &str) -> bool {
     }
 }
 
+/// Whether a process outside the daemon's tree is worth reading the environment of. Linux reads
+/// every process's (a file read each); macOS runs `ps -E` per process, so only the programs a
+/// daemon starts here: acpmux itself, `cmux-tui` (the Chief, version reads) and Python (the
+/// stand-in agent).
+fn may_carry_marker(p: &Proc) -> bool {
+    cfg!(target_os = "linux")
+        || ["acpmux", "cmux-tui", "fake_agent", "python"].iter().any(|n| p.argv.contains(n))
+}
+
 /// Every process the daemon started and that still runs: its tree, and those outside it whose
-/// environment names this test's scratch folder (a host whose parent ended). Not the daemon.
+/// environment names this test's scratch folder (a host whose parent ended), each with everything
+/// under it. Not the daemon.
 fn started(daemon: u32, scratch: &Path) -> BTreeMap<u32, Proc> {
     let rows = table();
-    let mut ours = BTreeSet::from([daemon]);
-    loop {
-        let before = ours.len();
-        for (pid, p) in &rows {
-            if ours.contains(&p.ppid) {
-                ours.insert(*pid);
-            }
-        }
-        if ours.len() == before {
-            break;
-        }
-    }
     let needle = scratch.to_string_lossy().into_owned();
     let me = std::process::id();
+    let mut roots = BTreeSet::from([daemon]);
     for (pid, p) in &rows {
-        if !ours.contains(pid)
-            && *pid != me
-            && p.ppid != me
-            && (p.argv.contains("acpmux") || p.argv.contains("fake_agent"))
-            && environment_has(*pid, &needle)
-        {
-            ours.insert(*pid);
+        if *pid != me && *pid != daemon && may_carry_marker(p) && environment_has(*pid, &needle) {
+            roots.insert(*pid);
         }
     }
+    let mut ours = BTreeMap::new();
+    for root in roots {
+        ours.extend(subtree(root, &rows));
+    }
     ours.remove(&daemon);
-    rows.into_iter().filter(|(pid, _)| ours.contains(pid)).collect()
+    ours
+}
+
+/// A one-shot the daemon starts at its start for no chat:
+/// - its model probe of each ACP harness it found (`hub/model_probe.rs`, killed after, at most
+///   60 s): `cmux-tui chief acp` (the Chief, found beside acpmux as in a Cargo target folder), and
+///   `fake_agent.py` with no agent host above it (a chat's harness runs under its host);
+/// - its harness inventory's version read (`harness_health/probe.rs`): `cmux-tui --version`.
+///
+/// `procs` is the set `p` came from (what [`started`] found), so its agent hosts are in it.
+fn startup_one_shot(p: &Proc, procs: &BTreeMap<u32, Proc>) -> bool {
+    if p.argv.ends_with(" chief acp") || p.argv.ends_with("cmux-tui --version") {
+        return true;
+    }
+    if !p.argv.contains("fake_agent.py") {
+        return false;
+    }
+    let mut at = p.ppid;
+    for _ in 0..16 {
+        match procs.get(&at) {
+            Some(up) if up.argv.contains("__agent-host") => return false,
+            Some(up) if at > 1 => at = up.ppid,
+            _ => break,
+        }
+    }
+    true
 }
 
 /// `pid`, its argv and state, then its parents up to the daemon (or up to pid 1 for a process
@@ -227,9 +252,11 @@ impl Rpc {
     }
 }
 
-/// The daemon and everything it started end with the test, passed or failed: the daemon's own
-/// shutdown with its agents first, then a SIGKILL by pid for the daemon and for each process the
-/// test saw it start that still runs the same argv.
+/// The daemon and everything it started end with the test, passed or failed: what runs is
+/// recorded first, then the daemon's own shutdown with its agents (bounded by [`SHUTDOWN`]), a
+/// SIGKILL for the daemon, a second look for what its end left reparented, and a SIGKILL by pid
+/// for each process the test saw that still runs the same argv with this test's scratch folder in
+/// its environment (so a pid reused by another process is never signalled).
 struct Daemon {
     child: Child,
     scratch: PathBuf,
@@ -254,20 +281,32 @@ impl Daemon {
 
 impl Drop for Daemon {
     fn drop(&mut self) {
-        let _ = daemon_env::command(&self.scratch, daemon_env::Agents::Deny, &[])
+        let _ = self.look();
+        let shutdown = daemon_env::command(&self.scratch, daemon_env::Agents::Deny, &[])
             .args(["daemon", "shutdown", "--end-agents"])
             .env("ACPMUX_HOME", &self.home)
             .env("ACPMUX_SOCKET", &self.socket)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .status();
+            .spawn();
+        if let Ok(mut shutdown) = shutdown {
+            let deadline = Instant::now() + SHUTDOWN;
+            while matches!(shutdown.try_wait(), Ok(None)) && Instant::now() < deadline {
+                std::thread::sleep(POLL);
+            }
+            let _ = shutdown.kill();
+            let _ = shutdown.wait();
+        }
         let _ = self.child.kill();
         let _ = self.child.wait();
+        // The daemon is gone: its tree walk finds nothing, the marker finds what it left.
+        let _ = self.look();
         let rows = table();
+        let needle = self.scratch.to_string_lossy().into_owned();
         for (pid, argv) in &self.seen {
-            if rows.get(pid).is_some_and(|p| &p.argv == argv) {
-                // SAFETY: kill only signals; the pid still runs the argv this test saw it start.
+            if rows.get(pid).is_some_and(|p| &p.argv == argv) && environment_has(*pid, &needle) {
+                // SAFETY: kill only signals; the pid runs the argv this test saw, with its marker.
                 unsafe { libc::kill(*pid as i32, libc::SIGKILL) };
             }
         }
@@ -362,6 +401,19 @@ fn every_chat_runs_within_its_process_budget_and_leaves_none_behind() {
             "chat {i} runs {} processes (budget {PER_CHAT}):\n{}",
             chat.len(),
             report(&chat, daemon.pid())
+        );
+        // Nothing the daemon starts per chat outside the chat's host either.
+        let lasting = |procs: &BTreeMap<u32, Proc>| {
+            procs.values().filter(|p| !startup_one_shot(p, procs)).count()
+        };
+        let grown = lasting(&all).saturating_sub(lasting(&baseline));
+        assert!(
+            grown <= PER_CHAT * (i + 1),
+            "after {} chats the daemon runs {grown} processes over its baseline, not counting its \
+             startup one-shots (budget {}):\n{}",
+            i + 1,
+            PER_CHAT * (i + 1),
+            report(&all, daemon.pid())
         );
         ids.push(id);
     }
