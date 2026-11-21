@@ -31,7 +31,7 @@ extension RightSidebarMode {
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
             machinesEnabled: CloudMachinesFeature.offMainIsAvailable(),
             devicesEnabled: false
-        )
+        ).filter { $0 != .customSidebar }
         if CmuxExtensionSidebarSelection.customSidebarsEnabled(defaults: defaults),
            FileExplorerState.persistedCustomSidebarName(defaults: defaults) != nil {
             modes.append(.customSidebar)
