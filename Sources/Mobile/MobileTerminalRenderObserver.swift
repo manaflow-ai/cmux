@@ -564,7 +564,8 @@ final class MobileTerminalRenderObserver {
                 let configTheme = MobileTerminalThemeEmissionDecision.resolveConfigTheme(
                     candidate: themedFrame.terminalConfigTheme,
                     cached: terminalConfigThemesBySurfaceID[surfaceID],
-                    fallbackBoldColor: cachedTerminalTheme.boldColor
+                    fallbackBoldColor: cachedTerminalTheme.boldColor,
+                    fallbackRendering: cachedTerminalTheme.rendering
                 )
                 if snapshot.frame.terminalConfigTheme != nil, let configTheme {
                     terminalConfigThemesBySurfaceID[surfaceID] = configTheme
@@ -572,6 +573,7 @@ final class MobileTerminalRenderObserver {
                 let candidateTheme = (themedFrame.terminalTheme
                     ?? terminalThemesBySurfaceID[surfaceID]
                     ?? cachedTerminalTheme).applyingSurfaceColors(from: snapshot.frame)
+                    .fillingRendering(from: cachedTerminalTheme)
                 let themeDecision = MobileTerminalThemeEmissionDecision.resolve(
                     candidate: candidateTheme,
                     cached: terminalThemesBySurfaceID[surfaceID],
@@ -651,10 +653,12 @@ final class MobileTerminalRenderObserver {
         var themedFrame = frame
         themedFrame.terminalTheme = (frame.terminalTheme ?? cachedTerminalTheme)
             .applyingSurfaceColors(from: frame)
+            .fillingRendering(from: cachedTerminalTheme)
         themedFrame.terminalConfigTheme = MobileTerminalThemeEmissionDecision.resolveConfigTheme(
             candidate: frame.terminalConfigTheme,
             cached: nil,
-            fallbackBoldColor: cachedTerminalTheme.boldColor
+            fallbackBoldColor: cachedTerminalTheme.boldColor,
+            fallbackRendering: cachedTerminalTheme.rendering
         )
         themedFrame.terminalThemeRevision = nextTerminalThemeRevision()
         return themedFrame
@@ -666,11 +670,13 @@ final class MobileTerminalRenderObserver {
     }
 
     private func invalidateTerminalThemes() {
+        // Refresh even with no render-grid subscriber: `mobile.host.status`
+        // reports this snapshot, so it must follow config reloads and the
+        // Mac's light or dark switch.
+        refreshTerminalTheme()
         guard MobileHostService.hasEventSubscribers(topic: "terminal.render_grid") else {
-            hasLoadedTerminalTheme = false
             return
         }
-        refreshTerminalTheme()
         hasPendingThemeInvalidation = true
         enqueueTerminalUpdate(surfaceID: nil)
     }

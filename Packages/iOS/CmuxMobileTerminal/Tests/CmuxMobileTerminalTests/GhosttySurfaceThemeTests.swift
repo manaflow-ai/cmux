@@ -257,6 +257,100 @@ import UIKit
 }
 
 @MainActor
+@Test func hostThemeReplacesEveryPhoneLocalThemeSetting() throws {
+    let runtime = try GhosttyRuntime()
+    // Settings a phone-local config could carry that the host never sent:
+    // an extended palette entry and every rendering key.
+    let localTheme = """
+    palette = 200=#010203
+    minimum-contrast = 7
+    faint-opacity = 0.9
+    cursor-opacity = 0.2
+    palette-generate = true
+    palette-harmonious = true
+    alpha-blending = linear
+    window-colorspace = display-p3
+    """
+    localTheme.withCString { contents in
+        "/__cmux_ios__/local-theme.conf".withCString { path in
+            ghostty_config_load_string(
+                runtime.config,
+                contents,
+                UInt(localTheme.lengthOfBytes(using: .utf8)),
+                path
+            )
+        }
+    }
+    ghostty_config_finalize(runtime.config)
+
+    // A legacy host sends 16 colors and no rendering block: every other key
+    // must fall back to Ghostty's default, not to the phone's value.
+    let legacyConfig = try #require(runtime.makeThemeConfig(.monokai))
+    defer { ghostty_config_free(legacyConfig) }
+    #expect(ghosttyDouble(legacyConfig, "minimum-contrast") == 1)
+    #expect(ghosttyDouble(legacyConfig, "faint-opacity") == 0.5)
+    #expect(ghosttyDouble(legacyConfig, "cursor-opacity") == 1)
+    #expect(ghosttyBool(legacyConfig, "palette-generate") == false)
+    #expect(ghosttyBool(legacyConfig, "palette-harmonious") == false)
+    #expect(ghosttyEnum(legacyConfig, "window-colorspace") == "srgb")
+    // Ghostty's non-macOS default; the phone's `linear` must not survive.
+    #expect(ghosttyEnum(legacyConfig, "alpha-blending") == "linear-corrected")
+    // xterm's default for index 200 is #ff00d7.
+    #expect(ghosttyPaletteEntry(legacyConfig, 200) == "#ff00d7")
+
+    // A current host sends its own rendering values; the phone uses them.
+    var hostTheme = TerminalTheme.monokai
+    hostTheme.rendering = TerminalTheme.Rendering(
+        minimumContrast: 3,
+        faintOpacity: 0.25,
+        cursorOpacity: 0.75,
+        paletteGenerate: true,
+        paletteHarmonious: false,
+        alphaBlending: "linear-corrected",
+        windowColorspace: "display-p3"
+    )
+    let hostConfig = try #require(runtime.makeThemeConfig(hostTheme))
+    defer { ghostty_config_free(hostConfig) }
+    #expect(ghosttyDouble(hostConfig, "minimum-contrast") == 3)
+    #expect(ghosttyDouble(hostConfig, "faint-opacity") == 0.25)
+    #expect(ghosttyDouble(hostConfig, "cursor-opacity") == 0.75)
+    #expect(ghosttyBool(hostConfig, "palette-generate") == true)
+    #expect(ghosttyBool(hostConfig, "palette-harmonious") == false)
+    #expect(ghosttyEnum(hostConfig, "alpha-blending") == "linear-corrected")
+    #expect(ghosttyEnum(hostConfig, "window-colorspace") == "display-p3")
+}
+
+private func ghosttyDouble(_ config: ghostty_config_t, _ key: String) -> Double? {
+    var value: Double = .nan
+    guard ghostty_config_get(config, &value, key, UInt(key.lengthOfBytes(using: .utf8))) else { return nil }
+    return value
+}
+
+private func ghosttyBool(_ config: ghostty_config_t, _ key: String) -> Bool? {
+    var value = false
+    guard ghostty_config_get(config, &value, key, UInt(key.lengthOfBytes(using: .utf8))) else { return nil }
+    return value
+}
+
+private func ghosttyEnum(_ config: ghostty_config_t, _ key: String) -> String? {
+    var value: UnsafePointer<CChar>?
+    guard ghostty_config_get(config, &value, key, UInt(key.lengthOfBytes(using: .utf8))),
+          let value else { return nil }
+    return String(cString: value)
+}
+
+private func ghosttyPaletteEntry(_ config: ghostty_config_t, _ index: Int) -> String? {
+    var palette = ghostty_config_palette_s()
+    let key = "palette"
+    guard ghostty_config_get(config, &palette, key, UInt(key.lengthOfBytes(using: .utf8))) else { return nil }
+    return withUnsafeBytes(of: &palette.colors) { raw in
+        let colors = raw.bindMemory(to: ghostty_config_color_s.self)
+        let color = colors[index]
+        return String(format: "#%02x%02x%02x", color.r, color.g, color.b)
+    }
+}
+
+@MainActor
 private func exportThemeFrame(
     from view: GhosttySurfaceView,
     surfaceID: String = "reverse-reset-test"

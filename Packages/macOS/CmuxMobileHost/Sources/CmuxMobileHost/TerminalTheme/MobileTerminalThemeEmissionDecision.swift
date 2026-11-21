@@ -29,11 +29,18 @@ public struct MobileTerminalThemeEmissionDecision: Equatable {
     public static func resolveConfigTheme(
         candidate: TerminalTheme?,
         cached: TerminalTheme?,
-        fallbackBoldColor: String? = nil
+        fallbackBoldColor: String? = nil,
+        fallbackRendering: TerminalTheme.Rendering? = nil
     ) -> TerminalTheme? {
         guard var resolved = candidate ?? cached else { return nil }
         if resolved.boldColor == nil {
             resolved.boldColor = fallbackBoldColor
+        }
+        // The renderer exports colors only. The phone builds each surface's
+        // Ghostty config from this theme, so it carries the Mac's rendering
+        // settings too.
+        if resolved.rendering == nil {
+            resolved.rendering = fallbackRendering
         }
         return resolved
     }
