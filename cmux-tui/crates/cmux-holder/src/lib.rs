@@ -180,6 +180,20 @@ pub const NOFILE_SOFT_ENV: &str = "CMUX_TUI_HOST_NOFILE_SOFT";
 /// older holder that does not know it still starts.
 pub const ORPHAN_GRACE_ENV: &str = "CMUX_HOLDER_ORPHAN_GRACE_MS";
 
+/// The environment variable naming the daemon's owner token file
+/// (`<host root>/holder.token`). Once that file is gone (a removed state
+/// directory, a test's deleted temp root) no daemon can authenticate to this
+/// holder again: with no daemon linked it ends its terminals after
+/// [`OWNER_FILE_REMOVED_GRACE`], in every build, as a terminal host does once
+/// its record directory is gone (#36625). An environment variable, not an
+/// argument, so an older holder that does not know it still starts.
+pub const OWNER_FILE_ENV: &str = "CMUX_HOLDER_OWNER_FILE";
+
+/// How long a holder whose owner token file is gone waits with no daemon
+/// link before it ends its terminals: a live daemon's reconnect gap, the
+/// same 5 s a terminal host gives once its record directory is gone.
+pub const OWNER_FILE_REMOVED_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// How long a holder or terminal host goes with no daemon before it ends its
 /// terminals in every build, normal installs included: no cmux has shown
 /// them for a week, so no daemon will adopt them again (a renamed tag's or
@@ -266,6 +280,8 @@ pub fn serve(args: &[String]) -> io::Result<()> {
     let child_open_file_limit =
         std::env::var(NOFILE_SOFT_ENV).ok().and_then(|value| value.parse::<u64>().ok());
     let orphan_grace = orphan_grace_from(std::env::var(ORPHAN_GRACE_ENV).ok().as_deref());
+    let owner_file =
+        std::env::var_os(OWNER_FILE_ENV).filter(|path| !path.is_empty()).map(PathBuf::from);
     let socket = socket.ok_or_else(|| invalid("--socket PATH is required"))?;
     let mut line = String::new();
     io::stdin().lock().read_line(&mut line)?;
@@ -291,6 +307,7 @@ pub fn serve(args: &[String]) -> io::Result<()> {
     let mut holder = holder::Holder::new(listener, token)?;
     holder.set_child_open_file_limit(child_open_file_limit);
     holder.set_orphan_grace(Some(orphan_grace));
+    holder.set_owner_file(owner_file);
     if let Some(idle_exit) = idle_exit {
         holder.set_idle_exit(idle_exit);
     }
