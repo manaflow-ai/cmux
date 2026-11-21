@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 @testable import CmuxNextDaemonService
 import CmuxNextSettings
 import Testing
@@ -65,7 +66,7 @@ import Testing
     }
 
     @Test func theHeldShortcutsRepeatsQuitThroughTheMonitor() throws {
-        var handler: ((NSEvent) -> NSEvent?)?
+        var handler: (@MainActor (NSEvent) -> NSEvent?)?
         var removed = 0
         let quitGuard = QuitShortcutGuard(addMonitor: { handler = $0; return "monitor" }, removeMonitor: { _ in removed += 1 })
         var quits = 0, disarms = 0
@@ -113,5 +114,31 @@ import Testing
         let invalid = CmuxConfigSnapshot.parse(.object(["app": .object(["warnBeforeQuitShortcut": .string("no")])]), validDensities: [], validMetrics: [])
         #expect(invalid.warnBeforeQuitShortcut)
         #expect(SettingsSchema.all.contains { $0.path == CmuxConfigSnapshot.warnBeforeQuitShortcutPath })
+    }
+
+    @Test func onlyAPersonsShortcutRunWithTheSettingOnIsHeld() throws {
+        let quitGuard = QuitShortcutGuard(addMonitor: { _ in "monitor" }, removeMonitor: { _ in })
+        var warned: [String] = []
+        let warn: (String) -> Bool = { warned.append($0); return true }
+        var menu = ActionInvocation()
+        menu.menuPick = true
+        var socket = ActionInvocation()
+        socket.viaControlSocket = true
+        #expect(!quitGuard.holds(menu, event: try Self.key(at: 1), enabled: true, warn: warn))
+        #expect(!quitGuard.holds(socket, event: try Self.key(at: 2), enabled: true, warn: warn))
+        #expect(!quitGuard.holds(ActionInvocation(origin: .cli), event: try Self.key(at: 3), enabled: true, warn: warn))
+        #expect(!quitGuard.holds(ActionInvocation(), event: try Self.key(at: 4), enabled: false, warn: warn))
+        #expect(!quitGuard.holds(ActionInvocation(), event: nil, enabled: true, warn: warn))
+        #expect(warned.isEmpty)
+
+        #expect(quitGuard.holds(ActionInvocation(), event: try Self.key(at: 10), enabled: true, warn: warn))
+        #expect(warned == ["⌘Q"])
+        #expect(!quitGuard.holds(ActionInvocation(), event: try Self.key(at: 11), enabled: true, warn: warn))
+    }
+
+    @Test func noWindowForTheWarningQuitsAtOnce() throws {
+        let quitGuard = QuitShortcutGuard(addMonitor: { _ in "monitor" }, removeMonitor: { _ in })
+        #expect(!quitGuard.holds(ActionInvocation(), event: try Self.key(at: 10), enabled: true, warn: { _ in false }))
+        #expect(!quitGuard.presses.isArmed)
     }
 }

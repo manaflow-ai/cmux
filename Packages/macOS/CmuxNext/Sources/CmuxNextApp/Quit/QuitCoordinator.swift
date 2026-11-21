@@ -71,44 +71,28 @@ final class QuitCoordinator {
         shortcutGuard.onHeldQuit = { [weak self] in self?.requestQuit(.interactive) }
     }
 
-    /// Whether this run of Quit waits instead (Chrome's "Warn Before Quitting"): the
-    /// shortcut's first press shows "Hold ⌘Q or press it again to quit", and the hold or a second
-    /// press within `QuitShortcutPresses.pressAgainInterval` quits. A menu pick, the palette, a
-    /// script and a window-less app quit at once, as does everything with the setting off.
-    func holdsShortcutQuit(_ invocation: ActionInvocation, event: NSEvent? = NSApp?.currentEvent) -> Bool {
-        guard !isQuitting, invocation.origin == .user, !invocation.viaControlSocket, !invocation.menuPick,
-              let event, QuitShortcutGuard.isShortcutPress(event),
-              services.settings?.snapshot.warnBeforeQuitShortcut ?? CmuxConfigSnapshot.warnBeforeQuitShortcutDefault,
-              let window = sheetWindow() ?? services.windows.active?.window, window.isVisible else {
-            shortcutGuard.disarm()
-            return false
-        }
-        switch shortcutGuard.press(event) {
-        case .quit:
-            endShortcutWarning()
-            return false
-        case .wait:
-            return true
-        case .warn:
-            showShortcutWarning(ActionRegistry.shortcuts(for: event).first?.displayString ?? "⌘Q", in: window)
-            return true
-        }
+    /// Whether this run of Quit waits instead (`QuitShortcutGuard.holds`): the shortcut's first press
+    /// shows "Hold ⌘Q or press it again to quit" in the active window.
+    func holdsShortcutQuit(_ invocation: ActionInvocation) -> Bool {
+        let enabled = !isQuitting && (services.settings?.snapshot.warnBeforeQuitShortcut ?? CmuxConfigSnapshot.warnBeforeQuitShortcutDefault)
+        let event = services.inputDispatch.event ?? NSApp?.currentEvent
+        return shortcutGuard.holds(invocation, event: event, enabled: enabled) { [weak self] in self?.showShortcutWarning($0) ?? false }
     }
 
-    private func showShortcutWarning(_ shortcut: String, in window: NSWindow) {
+    private func showShortcutWarning(_ shortcut: String) -> Bool {
+        guard let window = sheetWindow() ?? services.windows.active?.window, window.isVisible else { return false }
         // The replaced warning's dismissal must not disarm the press that replaced it.
         shortcutWarning = nil
-        let toast = CmuxToast(id: "quit.shortcutWarning", message: QuitStrings.shortcutWarning(shortcut),
-                              action: CmuxToast.Action(title: QuitStrings.shortcutWarningQuit),
-                              duration: .seconds(QuitShortcutPresses.pressAgainInterval), oneWindow: true, keepsDuration: true)
-        let handle = CmuxToastCenter.shared.show(toast, in: window)
+        let handle = CmuxToastCenter.shared.show(CmuxToast(id: "quit.shortcutWarning", message: QuitStrings.shortcutWarning(shortcut),
+                                                           action: CmuxToast.Action(title: QuitStrings.shortcutWarningQuit),
+                                                           duration: .seconds(QuitShortcutPresses.pressAgainInterval), oneWindow: true,
+                                                           keepsDuration: true), in: window)
         handle.onAction = { [weak self] in self?.requestQuit(.interactive) }
         handle.onDismiss = { [weak self, weak handle] _ in
-            guard let self, let handle, shortcutWarning === handle else { return }
-            shortcutWarning = nil
-            shortcutGuard.disarm()
+            if let self, let handle, shortcutWarning === handle { shortcutGuard.disarm() }
         }
         shortcutWarning = handle
+        return true
     }
 
     private func endShortcutWarning() {

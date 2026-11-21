@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextActions
 public import Foundation
 
 /// Cmd-Q's guard against an accidental quit (https://github.com/manaflow-ai/cmux/issues/48621,
@@ -74,15 +75,39 @@ public final class QuitShortcutGuard {
     private var armedKeyCode: UInt16?
     /// Runs the quit when the held shortcut reaches ``QuitShortcutPresses/holdDuration``.
     public var onHeldQuit: (() -> Void)?
-    /// Ends the warning when the guard disarms.
+    /// Ends the warning when the guard disarms (a quit, a timeout, the setting off).
     public var onDisarm: (() -> Void)?
-    private let addMonitor: (@escaping (NSEvent) -> NSEvent?) -> Any?
+    private let addMonitor: (@escaping @MainActor (NSEvent) -> NSEvent?) -> Any?
     private let removeMonitor: (Any) -> Void
 
-    public init(addMonitor: @escaping (@escaping (NSEvent) -> NSEvent?) -> Any? = { NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: $0) },
+    public init(addMonitor: @escaping (@escaping @MainActor (NSEvent) -> NSEvent?) -> Any? = { NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: $0) },
                 removeMonitor: @escaping (Any) -> Void = { NSEvent.removeMonitor($0) }) {
         self.addMonitor = addMonitor
         self.removeMonitor = removeMonitor
+    }
+
+    /// Whether this run of Quit waits instead of quitting. Only a person's in-app run from the
+    /// shortcut (`event`, the key-down being dispatched) with the setting on (`enabled`) is guarded;
+    /// its first press calls `warn` with the shortcut's keys ("⌘Q"), which answers whether the
+    /// warning shows (no window to show it in: quit at once).
+    public func holds(_ invocation: ActionInvocation, event: NSEvent?, enabled: Bool, warn: (_ shortcut: String) -> Bool) -> Bool {
+        guard enabled, invocation.origin == .user, !invocation.viaControlSocket, !invocation.menuPick,
+              let event, Self.isShortcutPress(event) else {
+            disarm()
+            return false
+        }
+        switch press(event) {
+        case .quit:
+            return false
+        case .wait:
+            return true
+        case .warn:
+            guard warn(ActionRegistry.shortcuts(for: event).first?.displayString ?? "⌘Q") else {
+                disarm()
+                return false
+            }
+            return true
+        }
     }
 
     /// Whether `event` is a key-down that ran the Quit action from its shortcut: one with
@@ -106,38 +131,29 @@ public final class QuitShortcutGuard {
         case .wait:
             break
         case .quit:
-            disarm(notify: false)
+            disarm()
         }
         return outcome
     }
 
-    /// The warning ended (it timed out or closed): the next press warns again.
+    /// Ends the warning and the watch: the next press warns again.
     public func disarm() {
-        disarm(notify: true)
-    }
-
-    private func disarm(notify: Bool) {
         presses.reset()
         armedKeyCode = nil
         if let monitor { removeMonitor(monitor) }
         monitor = nil
-        if notify { onDisarm?() }
+        onDisarm?()
     }
 
     private func watchRepeats() {
         guard monitor == nil else { return }
-        monitor = addMonitor { [weak self] event in
-            MainActor.assumeIsolated { self?.repeated(event) ?? event }
-        }
+        monitor = addMonitor { [weak self] event in self?.repeated(event) ?? event }
     }
 
     /// A key-down while armed: the held shortcut's repeats are the guard's; every other key passes.
     func repeated(_ event: NSEvent) -> NSEvent? {
         guard event.isARepeat, event.keyCode == armedKeyCode, Self.isShortcutPress(event) else { return event }
-        if press(isRepeat: true, timestamp: event.timestamp, keyCode: event.keyCode) == .quit {
-            onDisarm?()
-            onHeldQuit?()
-        }
+        if press(isRepeat: true, timestamp: event.timestamp, keyCode: event.keyCode) == .quit { onHeldQuit?() }
         return nil
     }
 }
