@@ -584,8 +584,13 @@ private struct ProviderStyle: ButtonStyle {
         let shape = RoundedRectangle(cornerRadius: theme.metrics.ctaWelcomeHeight / 2, style: .continuous)
         // Sign-in buttons stay black or white whatever accent the user picked
         // (Sign in with Apple's own colours). Interactive glass is the press
-        // feedback: it lights and flexes under the finger.
-        let glass: Glass = isPrimary ? .regular.tint(theme.colors.neutralAccent.color).interactive() : .regular.interactive()
+        // feedback: it lights and flexes under the finger. The clear rows
+        // take the faint `fill` tint: over the welcome's flat page there is
+        // nothing behind the glass to bend, and untinted it all but vanishes
+        // on white.
+        let glass: Glass = isPrimary
+            ? .regular.tint(theme.colors.neutralAccent.color).interactive()
+            : .regular.tint(theme.colors.fill.color).interactive()
         configuration.label
             .font(theme.type.cta)
             .foregroundStyle(isPrimary ? theme.colors.neutralOnAccent : theme.colors.label)

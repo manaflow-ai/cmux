@@ -503,9 +503,11 @@ private struct AppIconTile: View {
 
 /// The chevron traces its own outline, fills, and blooms (a soft glow in its
 /// gradient swells and settles), then "cmux" rises letter by letter out of a
-/// blur on a light spring.
+/// blur on a light spring. The glow stays as a faint halo in dark mode; on
+/// white it would read as a smudge, so in light mode it fades out.
 struct WelcomeHeroBloom: View {
     var t: Double
+    @Environment(\.colorScheme) private var colorScheme
 
     private static var letters: [String] { ["c", "m", "u", "x"] }
     private static var chevron: CGFloat { 44 }
@@ -515,7 +517,8 @@ struct WelcomeHeroBloom: View {
         let fill = E.out(E.seg(t, 0.38, 0.62))
         let pop = E.spring(t - 0.38, duration: 0.7, bounce: 0.38)
         let swell = E.out(E.seg(t, 0.36, 0.72))
-        let glow = swell * (1 - 0.65 * E.out(E.seg(t, 0.72, 1.3)))
+        let settled = colorScheme == .dark ? 0.35 : 0
+        let glow = swell * (1 - (1 - settled) * E.out(E.seg(t, 0.72, 1.3)))
         let h = Self.chevron
         HeroStack(t: t, taglineAt: 1.0, spacing: 16, name: WelcomeHeroVariant.bloom.name) {
             HStack(spacing: 16) {
@@ -586,13 +589,6 @@ struct WelcomeHeroMorph: View {
 
                 // Typing: one letter per 0.1 s; the cursor steps after each.
                 let typedAt = word.glyphs.indices.map { 0.45 + 0.1 * Double($0) }
-                for (glyph, at) in zip(word.glyphs, typedAt) {
-                    let shown = E.out(E.seg(t, at, at + 0.1))
-                    guard shown > 0 else { continue }
-                    var letter = context
-                    letter.opacity = shown
-                    letter.fill(glyph.path.applying(CGAffineTransform(translationX: wordX, y: baseline)), with: label)
-                }
                 let step = xh * 0.1
                 var cursorX = wordX
                 for (glyph, at) in zip(word.glyphs, typedAt) {
@@ -600,32 +596,43 @@ struct WelcomeHeroMorph: View {
                     cursorX += (wordX + glyph.x + glyph.advance + step - cursorX) * p
                 }
 
-                // The cursor: a block a little taller than the x-height.
-                let blockWidth = xh * 0.6, blockHeight = xh * 1.2
-                let block = CGRect(x: cursorX, y: baseline + xh * 0.1 - blockHeight, width: blockWidth, height: blockHeight)
+                // The cursor, drawn first: on its way home it passes behind
+                // the letters, which stay crisp over it.
                 let blink = (0.22..<0.34).contains(t) || (0.86..<0.98).contains(t)
-                guard t >= 0.04, !blink else { return }
-                let m = E.inOut(E.seg(t, 1.0, 1.42))
-                // Eight points each, in the same order, so the block bends into
-                // the arrow: its right side becomes the tip, its left side the notch.
-                let from: [CGPoint] = [
-                    CGPoint(x: block.minX, y: block.minY), CGPoint(x: block.maxX, y: block.minY),
-                    CGPoint(x: block.maxX, y: block.midY), CGPoint(x: block.maxX, y: block.maxY),
-                    CGPoint(x: block.minX, y: block.maxY), CGPoint(x: block.minX, y: block.minY + 0.76 * blockHeight),
-                    CGPoint(x: block.minX, y: block.midY), CGPoint(x: block.minX, y: block.minY + 0.24 * blockHeight),
-                ]
-                let h = chevronHeight
-                let corners: [(CGFloat, CGFloat)] = [(0, 0), (0.36, 0.25), (0.72, 0.5), (0.36, 0.75), (0, 1), (0, 0.76), (0.38, 0.5), (0, 0.24)]
-                let to = corners.map { CGPoint(x: $0.0 * h, y: $0.1 * h) }
-                // A shallow arc on the way.
-                let lift = -CGFloat(sin(Double.pi * m)) * xh * 0.35
-                var shape = Path()
-                shape.addLines(zip(from, to).map { a, b in
-                    CGPoint(x: a.x + (b.x - a.x) * CGFloat(m), y: a.y + (b.y - a.y) * CGFloat(m) + lift)
-                })
-                shape.closeSubpath()
-                let box = shape.boundingRect
-                context.fill(shape, with: ChevronGradient.shading(from: CGPoint(x: box.minX, y: 0), to: CGPoint(x: box.maxX, y: 0)))
+                if t >= 0.04, !blink {
+                    // A block a little taller than the x-height.
+                    let blockWidth = xh * 0.6, blockHeight = xh * 1.2
+                    let block = CGRect(x: cursorX, y: baseline + xh * 0.1 - blockHeight, width: blockWidth, height: blockHeight)
+                    let m = E.inOut(E.seg(t, 1.0, 1.42))
+                    // Eight points each, in the same order, so the block bends into
+                    // the arrow: its right side becomes the tip, its left side the notch.
+                    let from: [CGPoint] = [
+                        CGPoint(x: block.minX, y: block.minY), CGPoint(x: block.maxX, y: block.minY),
+                        CGPoint(x: block.maxX, y: block.midY), CGPoint(x: block.maxX, y: block.maxY),
+                        CGPoint(x: block.minX, y: block.maxY), CGPoint(x: block.minX, y: block.minY + 0.76 * blockHeight),
+                        CGPoint(x: block.minX, y: block.midY), CGPoint(x: block.minX, y: block.minY + 0.24 * blockHeight),
+                    ]
+                    let h = chevronHeight
+                    let corners: [(CGFloat, CGFloat)] = [(0, 0), (0.36, 0.25), (0.72, 0.5), (0.36, 0.75), (0, 1), (0, 0.76), (0.38, 0.5), (0, 0.24)]
+                    let to = corners.map { CGPoint(x: $0.0 * h, y: $0.1 * h) }
+                    // A shallow arc on the way.
+                    let lift = -CGFloat(sin(Double.pi * m)) * xh * 0.35
+                    var shape = Path()
+                    shape.addLines(zip(from, to).map { a, b in
+                        CGPoint(x: a.x + (b.x - a.x) * CGFloat(m), y: a.y + (b.y - a.y) * CGFloat(m) + lift)
+                    })
+                    shape.closeSubpath()
+                    let box = shape.boundingRect
+                    context.fill(shape, with: ChevronGradient.shading(from: CGPoint(x: box.minX, y: 0), to: CGPoint(x: box.maxX, y: 0)))
+                }
+
+                for (glyph, at) in zip(word.glyphs, typedAt) {
+                    let shown = E.out(E.seg(t, at, at + 0.1))
+                    guard shown > 0 else { continue }
+                    var letter = context
+                    letter.opacity = shown
+                    letter.fill(glyph.path.applying(CGAffineTransform(translationX: wordX, y: baseline)), with: label)
+                }
             }
             .aspectRatio(width / height, contentMode: .fit)
             .frame(maxWidth: 292)
@@ -645,8 +652,24 @@ struct WelcomeHeroDecode: View {
     private static var target: [String] { ["c", "m", "u", "x"] }
     private static var noise: [String] { ["<", ">", "/", "\\", "[", "]", "{", "}", "#", "$", "%", "&", "*", "+", "=", "?", "!", "0", "1", "_"] }
 
+    /// The noise glyph each letter shows at `tick` (24 per second): each
+    /// letter steps through the set at its own stride, so every one changes
+    /// every tick, and no two show the same glyph at once.
+    private static func scramble(tick: Int) -> [Int] {
+        let count = noise.count
+        let offsets = [3, 9, 14, 18], strides = [7, 11, 13, 17]
+        var picked: [Int] = []
+        for i in 0..<4 {
+            var index = (offsets[i] + tick * strides[i]) % count
+            while picked.contains(index) { index = (index + 1) % count }
+            picked.append(index)
+        }
+        return picked
+    }
+
     var body: some View {
         let tick = t.isFinite ? Int(t * 24) : 0
+        let scramble = Self.scramble(tick: tick)
         let chevronOn = t >= 0.04 && !(0.1..<0.16).contains(t)
         HeroStack(t: t, taglineAt: 0.95, spacing: 16, name: WelcomeHeroVariant.decode.name) {
             HStack(spacing: 14) {
@@ -659,7 +682,7 @@ struct WelcomeHeroDecode: View {
                         let appear = 0.12 + 0.05 * Double(i)
                         let settle = 0.4 + 0.13 * Double(i)
                         let locked = t >= settle
-                        let glyph = locked ? Self.target[i] : Self.noise[(tick * 7 + i * 13 + tick * i) % Self.noise.count]
+                        let glyph = locked ? Self.target[i] : Self.noise[scramble[i]]
                         let flash = locked ? 1 - E.out(E.seg(t, settle, settle + 0.3)) : 0
                         Text(verbatim: glyph)
                             .foregroundStyle(locked ? theme.colors.label.color : theme.colors.label3.color)
