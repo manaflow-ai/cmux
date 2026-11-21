@@ -4,8 +4,11 @@
 //!
 //! For each chat, in order, stopping at the first step that fails (nothing after it is done):
 //!
-//! 1. Refused while its turn runs (unless `--interrupt`), while it is being moved, once it moved
-//!    away, or when its folder is gone here (`session_move_plan.rs` `refusal`).
+//! 1. Refused while it is being moved, once it moved away, or when its folder is gone here
+//!    (`session_move_plan.rs` `refusal`). A running turn moves with it: step 3 waits for its
+//!    tool calls in flight to end and stops it there, and it goes on on the target
+//!    (`transfer.rs` `begin_move_live`); `--interrupt` stops it at once, `--after-turn` lets it
+//!    end on its own first. A `--dry-run` names a running turn, so a caller can offer the two.
 //! 2. The target: the peer named, or with `auto` the daemon's placement (`_acpmux/place`) among
 //!    the peers, never this machine and never one the registry marks interactive (a machine a
 //!    person works at, `placement::interactive`). A host the fleet registry holds (its `hold`, or
@@ -343,10 +346,11 @@ async fn move_steps(
     };
     let checkout = checkout_unless_named(&cwd, args, source).await?;
     o.preflight.dirty = Some(checkout.as_ref().is_some_and(|c| c.dirty));
-    // A dry run is the preflight: it names a running turn even with --after-turn, so the caller
-    // can offer Move after this turn or Move now. A real --after-turn move goes on, and
-    // transfer_begin waits for the turn under its lock.
-    let running_ok = args.interrupt || (args.after_turn && !args.dry_run);
+    // A dry run is the preflight: it names a running turn (unless --interrupt), so the caller
+    // can offer Move after this turn or Move now. A real move takes a running turn along: with
+    // --after-turn transfer_begin waits for the turn under its lock; with neither flag the turn
+    // stops between its tool calls and goes on on the target (`transfer.rs` `begin_move_live`).
+    let running_ok = args.interrupt || !args.dry_run;
     if let Some(why) = plan::refusal(&info, running_ok) {
         o.error_code = preflight::session_refusal_code(&info, running_ok);
         bail!("{why}");
@@ -417,8 +421,11 @@ async fn move_steps(
         }
         Source::Peer { .. } => None,
     };
-    let begun =
-        super::transfer::begin_move(src, &id, watch, (args.interrupt, args.after_turn)).await?;
+    let begun = if args.interrupt || args.after_turn {
+        super::transfer::begin_move(src, &id, watch, (args.interrupt, args.after_turn)).await?
+    } else {
+        super::transfer::begin_move_live(src, &id, watch, super::transfer::TOOL_WAIT).await?
+    };
     let prepared = prepare(&cwd, &home, &target, &remote, args, source, o).await;
     let (record, forward, dst, dst_init) = match prepared {
         Ok(p) => p,

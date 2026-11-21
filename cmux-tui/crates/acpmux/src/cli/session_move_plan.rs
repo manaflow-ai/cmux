@@ -2,8 +2,9 @@
 //! whether a chat may move, and where its folder goes on the target. Pure, so the rules are
 //! tested without a daemon, ssh or git.
 //!
-//! - A chat whose turn is running moves only with `--interrupt`; one being moved, or one that
-//!   moved away already, never.
+//! - A chat whose turn is running is named in a dry run (unless `--interrupt`), so a caller can
+//!   offer Move after this turn or Move now; a real move takes it along (`cli/run/session_move.rs`
+//!   `running_ok`). One being moved, or one that moved away already, never moves.
 //! - A folder in a git checkout on a branch becomes a fresh worktree of the same branch on the
 //!   target (`Folder::Worktree`), its subfolder kept. The branch is pushed first, so the target
 //!   checks out what this machine has. A detached HEAD or a checkout with no `origin` is refused;
