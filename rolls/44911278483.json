@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44911278483",
+  "recorded_at": "2026-11-21T14:15:08Z",
+  "reason": "cmux-tui a1143d5ccc80 changes the image's cmux-tui (pinned 8ea551ab4bbf)",
+  "dry_run": false,
+  "cmux_tui": "a1143d5ccc8009cda9de49281c084785d8bd595d",
+  "fixes": [
+    {
+      "sha": "a1143d5ccc8009cda9de49281c084785d8bd595d",
+      "mergedAt": "2026-11-21T04:39:30-08:00",
+      "subject": "Skills: Claude Code and Codex skills and slash commands listed, edited and turned on/off in cmux NEXT (Labs) (#48741)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-21T14:15:08Z",
+    "snapshot_id": "sh-d75561c701ca4db0ba7d800f6a780041",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44911278483): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "040cce73b573c6f02638ca6074371bd321d676df",
+    "image": "cloud-native-auto-a1143d5c-44911278483-1",
+    "revision": "ci-44911278483-1",
+    "at": "2026-11-21T14:15:08Z"
+  },
+  "rolled_back": false
+}
