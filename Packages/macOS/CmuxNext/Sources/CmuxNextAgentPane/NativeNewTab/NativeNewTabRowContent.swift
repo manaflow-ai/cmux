@@ -13,7 +13,9 @@ nonisolated struct NativeNewTabRowContent: Equatable {
         case .open(let text): (symbol, title, detail, hint, icon) = ("globe", strings.open(text), nil, "↩", nil)
         case .tab(let tab):
             symbol = tab.kind == .terminal ? "terminal" : tab.kind == .browser ? "globe" : "bubble.left"
-            (title, detail, hint, icon) = (tab.title, [tab.workspace, tab.detail].compactMap { $0 }.joined(separator: " · "), strings.switchToTab, tab.kind == .browser ? tab.icon : nil)
+            (title, detail, hint, icon) = (tab.title,
+                                           [tab.workspace, tab.detail].compactMap { $0 }.joined(separator: " · "),
+                                           strings.switchToTab, tab.kind == .browser ? tab.icon : nil)
         case .workspace(let workspace): (symbol, title, detail, hint, icon) = ("square.stack", workspace.name, workspace.detail, strings.workspace, nil)
         case .page(let page): (symbol, title, detail, hint, icon) = ("globe", page.title ?? page.url, page.title == nil ? nil : page.url, nil, page.icon)
         case .bookmark(let page): (symbol, title, detail, hint, icon) = ("globe", page.title ?? page.url, page.title == nil ? nil : page.url, nil, page.icon)

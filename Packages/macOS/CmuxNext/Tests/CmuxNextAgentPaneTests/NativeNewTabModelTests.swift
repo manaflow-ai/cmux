@@ -32,7 +32,8 @@ struct NativeNewTabModelTests {
 
     @Test func bookmarkWebsiteRowsKeepTheirFaviconAndFixedIdentity() throws {
         var page = Self.page()
-        page.omnibar.bookmarks = [AgentPaneOmnibar.Page(url: "https://swift.org/", title: "Swift", icon: "data:image/png;base64,AAAA")]
+        page.omnibar.bookmarks = [AgentPaneOmnibar.Page(url: "https://swift.org/", title: "Swift",
+                                                        icon: "data:image/png;base64,AAAA")]
         let row = try #require(NativeNewTabRanker().rows(for: "swift", kind: .browser, omnibar: page.omnibar).last)
         guard case .bookmark(let bookmark) = row else { Issue.record("the matching bookmark was not ranked as a bookmark"); return }
         #expect(bookmark.icon == "data:image/png;base64,AAAA")

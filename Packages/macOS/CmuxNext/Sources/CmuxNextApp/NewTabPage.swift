@@ -61,13 +61,15 @@ enum NewTabPage {
         }
         let bookmarks = services.bookmarks.tree(BrowserProfileRecord.defaultID).bookmarks.prefix(AgentPaneOmnibar.maximumEntries).compactMap { bookmark -> AgentPaneOmnibar.Page? in
             guard let url = bookmark.url else { return nil }
-            return AgentPaneOmnibar.Page(url: url.absoluteString, title: bookmark.displayTitle, icon: AppServices.dataURL(services.bookmarks.favicon(of: bookmark, profile: BrowserProfileRecord.defaultID, fetching: true)))
+            let icon = services.bookmarks.favicon(of: bookmark, profile: BrowserProfileRecord.defaultID, fetching: true)
+            return AgentPaneOmnibar.Page(url: url.absoluteString, title: bookmark.displayTitle, icon: AppServices.dataURL(icon))
         }
         let commands = services.history.commands.entries().prefix(AgentPaneOmnibar.maximumEntries).compactMap(\.title)
         // Every Commands palette (Cmd-Shift-P) action, from the palette's own rows (one source).
         let actions = paletteActions ? Self.paletteActions(services) : []
         return AgentPaneOmnibar(
-            tabs: tabs, workspaces: workspaces, folders: folders, projects: folders, actions: actions, commands: Array(commands), history: Array(history), bookmarks: Array(bookmarks),
+            tabs: tabs, workspaces: workspaces, folders: folders, projects: folders, actions: actions,
+            commands: Array(commands), history: Array(history), bookmarks: Array(bookmarks),
             uses: pickHistory(services),
             profiles: services.browserProfiles.ordered.map { .init(id: $0.id, name: $0.name, color: $0.color) }
         )
