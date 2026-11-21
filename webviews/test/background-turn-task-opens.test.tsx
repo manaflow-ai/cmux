@@ -8,6 +8,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { BackgroundTurnLine } from "../src/agent-session/acpmux/conversation/BackgroundTurnLine";
 import {
+  BACKGROUND_TURN_TAIL_LINES,
   backgroundTurnOpensTask,
   backgroundTurnTaskCard,
   backgroundTurnTaskId,
@@ -109,7 +110,9 @@ test("opened, it shows the command, the exit and only the last lines", () => {
   const failed = backgroundTurnTaskCard({ command: "cargo build", exitCode: 2, output, state: "exited" });
   expect(failed.command).toBe("cargo build");
   expect(failed.exitCode).toBe(2);
-  expect(failed.output!.split("\n")).toEqual(Array.from({ length: 10 }, (_, i) => `line ${i + 21}`));
+  expect(failed.output!.split("\n")).toEqual(
+    Array.from({ length: BACKGROUND_TURN_TAIL_LINES }, (_, i) => `line ${i + 31 - BACKGROUND_TURN_TAIL_LINES}`),
+  );
   expect(failed.cut).toBe(true);
   // A failure says so in the card's exit line; a clean end says it in a word.
   expect(failed.ended).toBeUndefined();

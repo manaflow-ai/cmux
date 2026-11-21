@@ -148,8 +148,10 @@ export function useBackgroundTurnTask(
   return { task: read ?? backgroundTurnTaskKnown(turn), settled: read !== undefined || !reader, request };
 }
 
-/// How many printed lines an opened line shows: the end of the output, as a tray row's (tailLines).
-export const BACKGROUND_TURN_TAIL_LINES = 10;
+/// How many printed lines an opened line shows: the end of the output, all of it in sight. The card
+/// holds eight lines before it scrolls (conversation.css `.cv-shell__body[data-preview="cut"]`) and
+/// only a live one follows its end, so a finished task's tail fits under the cut mark unscrolled.
+export const BACKGROUND_TURN_TAIL_LINES = 7;
 
 /// What the opened line's command card draws: the command, the last lines, the exit when it failed
 /// (ShellBlock draws a non-zero one) and, otherwise, how it ended in a word (`ended`, a state key).

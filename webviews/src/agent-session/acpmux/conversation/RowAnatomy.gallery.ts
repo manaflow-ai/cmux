@@ -38,7 +38,7 @@ const snapshot = () => {
       activity(
         [
           thought("Check the last backend.yml run before dispatching anything; a red base would block it."),
-          tool("Read deploy/promote.md", "read", "completed", { path: "deploy/promote.md" }),
+          tool("Read deploy/promote.md", "read", "completed"),
           run("Read the lane's last run", "gh run list -w backend.yml -L 1", "completed success 4f2a91c\n"),
           run("Read the candidate's sha", "git rev-parse --short HEAD", "4f2a91c\n"),
         ],
