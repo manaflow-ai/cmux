@@ -25,8 +25,9 @@ export interface VirtualListProps {
   itemKey?(index: number): string | number;
   className?: string;
   id?: string;
-  /** The list's ARIA role and name (listbox, grid, ...); rows set theirs in renderRow. */
-  role?: "listbox" | "grid" | "list";
+  /** The list's ARIA role and name (listbox, grid, ...); rows set theirs in renderRow. `presentation`: rows
+   * of a list its caller already draws (a listbox holding other rows too). */
+  role?: "listbox" | "grid" | "list" | "presentation";
   label?: string;
   overscan?: number;
   /** Use the closest matching ancestor as the viewport instead of creating a nested scroller. */
