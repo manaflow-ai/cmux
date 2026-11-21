@@ -45,6 +45,20 @@ import Testing
         #expect(harness.source.rows.map(\.id) == first.map(\.id))
     }
 
+    /// A load that changed nothing (the app's activation asks for one, to read managed preferences)
+    /// keeps the rows: the first Cmd-Shift-P after switching back to cmux built every row again.
+    @Test func aLoadThatChangedNothingKeepsTheRows() async throws {
+        let harness = try await make()
+        defer { harness.tearDown() }
+        _ = harness.source.rows
+        let loads = harness.settings.loadCount
+        harness.settings.managedPreferencesMayHaveChanged()
+        await harness.settings.waitForLoad(atLeast: loads + 1)
+        #expect(harness.settings.loadCount > loads)
+        _ = harness.source.rows
+        #expect(harness.source.rowBuilds == 1, "a load with nothing changed built every row again")
+    }
+
     /// A loaded change (the file edited, a write landed) builds the rows again, and they show it.
     @Test func aLoadedChangeBuildsTheRowsAgain() async throws {
         let harness = try await make()
