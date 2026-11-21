@@ -8,7 +8,7 @@ from pathlib import Path
 import yaml
 
 import workflow_jobs
-from runs_on_labels import disallowed_labels, linux_runner_values
+from runs_on_labels import disallowed_labels, overflow_linux_values
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -448,7 +448,7 @@ def test_lint_is_one_required_job_and_os_matrix_only_runs_behavior_tests() -> No
     assert set(row) == {"os", "runner"} and row["os"] == "linux", row
     # Every label the runner can resolve to is Blacksmith Linux, whatever LINUX_RUNNER holds: a fleet
     # Linux label or the overflow switch's hosted ubuntu-24.04, which the 32vcpu guard keeps out.
-    variables = {"LINUX_RUNNER": linux_runner_values()}
+    variables = {"CI_OVERFLOW_LINUX": overflow_linux_values()}
     assert disallowed_labels(row["runner"], variables=variables) == {}, row
     # Same OS matrix; only lint honors a LINUX_RUNNER override.
     oses = lambda job: [row["os"] for row in job["strategy"]["matrix"]["include"]]

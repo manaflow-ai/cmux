@@ -152,7 +152,10 @@ OTHER = {
 }
 
 FLEET_FIRST = {("cmux-next-fast-gates.yml", "fast-gates", "runs-on")}
-FLEET_RUNNER_LIST = ["cmux-fleet-linux-x64", SMALL, BIG]
+FLEET_RUNNER_LIST = ["cmux-linux", "cmux-fleet-linux-x64", SMALL, BIG]
+# Own-branch Linux runs on the persistent pool, or wherever the CI v2 overflow switch points (Leo, c-ab6690acae:
+# "unfuck the labels"). Jobs that hold signing material keep their literal outage-switch fallback.
+OWN_LINUX = "vars.CI_OVERFLOW_LINUX || 'cmux-linux'"
 
 # `vars.LINUX_RUNNER` exactly; `vars.LINUX_RUNNER_DARWIN_CROSS` is its own knob.
 SHARED_VARIABLE = re.compile(r"vars\.LINUX_RUNNER(?!\w)")
@@ -171,8 +174,16 @@ def pool_ref(label: str) -> str:
     return f"fromJSON(vars.RUNNER_POOLS).{pool}"
 
 
-def trusted_fallback(label: str, other: str | None = None, ref=pool_ref) -> str:
-    """The size; the other size while the outage record exists; an operator's non-Blacksmith runner first."""
+# Workflows c-ab6690acae left alone (owned by the cmux-tui artifacts lane): they keep the outage-switch shape.
+LEGACY_WORKFLOWS = {"cmux-tui-artifacts.yml", "cmux-tui-artifacts-retry.yml", "cmux-tui-build-package.yml"}
+
+
+def trusted_fallback(label: str, other: str | None = None, ref=pool_ref, workflow: str | None = None) -> str:
+    """The size; the other size while the outage record exists; an operator's non-Blacksmith runner first.
+
+    A pool route is now the overflow switch then cmux-linux; only a signing job's literal route keeps the old shape."""
+    if workflow not in LEGACY_WORKFLOWS and not ref(label).startswith("'"):
+        return OWN_LINUX
     other = other or (SMALL if label == BIG else BIG)
     return (f"!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || "
             f"vars.CI_CLOUD_OVERFLOW_SAVED && {ref(other)} || {ref(label)}")
@@ -205,6 +216,11 @@ FORK_PR_LABELS = {
     ("cmux-vm-clients.yml", "rust", "runs-on"): "blacksmith-8vcpu-ubuntu-2404",
     ("cmux-vm-clients.yml", "sdk", "runs-on"): SMALL,
     ("remote-daemon.yml", "remote-daemon-tests", "runs-on"): SMALL,
+    # Their fork pull request label sat inside the pool read before c-ab6690acae; it is now its own branch.
+    ("sdk-publish-crates.yml", "bindings-e2e-rust", "runs-on"): "blacksmith-8vcpu-ubuntu-2404",
+    ("sdk-publish-go.yml", "bindings-e2e-go", "runs-on"): "blacksmith-8vcpu-ubuntu-2404",
+    ("sdk-publish-npm.yml", "bindings-e2e-typescript", "runs-on"): "blacksmith-8vcpu-ubuntu-2404",
+    ("sdk-publish-python.yml", "bindings-e2e-python", "runs-on"): "blacksmith-8vcpu-ubuntu-2404",
 }
 PREFIX: dict[tuple[str, str, str], tuple[str, str]] = {
     # (prefix, closing) for selectors with a special owner/fork expression.
@@ -219,10 +235,6 @@ PREFIX: dict[tuple[str, str, str], tuple[str, str]] = {
     ("swift-linux-packages.yml", "swift-linux-packages", "runs-on"): (
         OWNER + FORK_PULL_REQUEST.format(label="blacksmith-16vcpu-ubuntu-2404"), ""),
     ("cmux-tui-artifacts.yml", "macos-cross-shadow", "runs-on"): (OWNER + "vars.LINUX_RUNNER_DARWIN_CROSS || ", ""),
-    # Its pull request run is an advisory copy of the push run (post-merge-checks.json, CI v2 step 5): the 4 vCPU
-    # pool, since a compile there only reports, and the 8/16 vCPU sizes stall first.
-    ("cmux-mobile-ffi.yml", "rust", "runs-on"): (
-        OWNER + "github.event_name == 'pull_request' && fromJSON(vars.RUNNER_POOLS).linux_4 || ", ""),
     ("macos-cross-parity.yml", "linux-build", "runs-on"): (OWNER + "vars.LINUX_RUNNER_DARWIN_CROSS || ", ""),
     ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_DARWIN_RUNNER"): (
         OWNER + "github.run_attempt == 1 && contains(github.workflow_ref, '/.github/workflows/cmux-tui-artifacts.yml@') && "
@@ -248,19 +260,12 @@ OWNER_ONLY = {
     ("cmux-browser-host-release.yml", "build"),
     ("cmux-mobile-ffi.yml", "rust"),
     ("cmux-mobile-ffi.yml", "android"),
-    ("cmux-next-source-archive.yml", "vt-link-graph"),
     ("cmux-tui-windows-check.yml", "windows-gnu-check"),
     ("iroh-relay-minter.yml", "test"),
-    ("sdk-publish-crates.yml", "bindings-e2e-rust"),
-    ("sdk-publish-go.yml", "bindings-e2e-go"),
     ("sdk-publish-java.yml", "bindings-e2e-java"),
-    ("sdk-publish-npm.yml", "bindings-e2e-typescript"),
-    ("sdk-publish-python.yml", "bindings-e2e-python"),
     ("cmux-next-web-bundle-publish.yml", "build"),
     ("presence.yml", "test"),
     ("sdk-bootstrap-crates.yml", "build"),
-    ("sdk-publish-go.yml", "validate-go-module"),
-    ("sdk-publish-go.yml", "verify-versioned-go-module"),
 }
 
 
@@ -273,7 +278,7 @@ def expected_selector(workflow: str, job_id: str, where: str, label: str) -> str
             fork_label = FORK_PR_LABELS.get((workflow, job_id, where), "blacksmith-4vcpu-ubuntu-2404")
             prefix = OWNER + FORK_PULL_REQUEST.format(label=fork_label)
     ref = lambda size: route_ref(size, workflow, job_id)  # noqa: E731
-    return "${{ " + prefix + trusted_fallback(label, OTHER.get((workflow, job_id)), ref) + closing + " }}"
+    return "${{ " + prefix + trusted_fallback(label, OTHER.get((workflow, job_id)), ref, workflow) + closing + " }}"
 
 
 def load(name: str) -> dict:
@@ -317,13 +322,17 @@ class LinuxCompileRunners(unittest.TestCase):
                     self.assertNotIn("vars.LINUX_RUNNER", value)
                     continue
                 route = route_ref(label, workflow, job_id)
+                if workflow not in LEGACY_WORKFLOWS and not route.startswith("'"):
+                    self.assertTrue(value.endswith(OWN_LINUX + " }}") or value.endswith(OWN_LINUX + ") }}"), f"{workflow}:{job_id} {where}: {value}")
+                    self.assertIsNone(SHARED_VARIABLE.search(value), f"{workflow}:{job_id} {where}: {value}")
+                    continue
                 self.assertIn(route, value, f"{workflow}:{job_id} {where} names no {route} route: {value}")
                 # vars.LINUX_RUNNER appears only in the outage guard, never as
                 # a plain `vars.LINUX_RUNNER ||` that would pick 4 vCPU.
                 self.assertEqual(
                     len(SHARED_VARIABLE.findall(value)), 2,
                     f"{workflow}:{job_id} {where} must read vars.LINUX_RUNNER only in "
-                    f"{trusted_fallback(label, OTHER.get((workflow, job_id)), lambda size: route_ref(size, workflow, job_id))!r}: {value}",
+                    f"{trusted_fallback(label, OTHER.get((workflow, job_id)), lambda size: route_ref(size, workflow, job_id), workflow)!r}: {value}",
                 )
 
     def test_each_compile_job_follows_the_blacksmith_outage_switch(self) -> None:
@@ -336,9 +345,9 @@ class LinuxCompileRunners(unittest.TestCase):
                 if (workflow, job_id, where) in FLEET_FIRST:
                     self.assertEqual(fleet_runner_list(value), FLEET_RUNNER_LIST)
                     continue
-                self.assertEqual(value.count(trusted_fallback(label, OTHER.get((workflow, job_id)), lambda size: route_ref(size, workflow, job_id))), 1, f"{workflow}:{job_id} {where}: {value}")
+                self.assertEqual(value.count(trusted_fallback(label, OTHER.get((workflow, job_id)), lambda size: route_ref(size, workflow, job_id), workflow)), 1, f"{workflow}:{job_id} {where}: {value}")
                 self.assertRegex(
-                    value, re.escape(trusted_fallback(label, OTHER.get((workflow, job_id)), lambda size: route_ref(size, workflow, job_id))) + r"\)? \}\}$",
+                    value, re.escape(trusted_fallback(label, OTHER.get((workflow, job_id)), lambda size: route_ref(size, workflow, job_id), workflow)) + r"\)? \}\}$",
                     f"{workflow}:{job_id} {where}: the outage guard must be the trusted fallback",
                 )
 

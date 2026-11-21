@@ -71,7 +71,7 @@ jobs:
     # nothing (211 route runs, 237 runner-min in 4 h, 2026-11-21 02:00Z-06:00Z).
     # With the variable on, both run exactly as before; a dispatch always runs.
     if: github.event_name != 'pull_request' || vars.IOS_E2E_PR_TAILNET == 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     outputs:
       run_e2e: ${{ steps.decide.outputs.run_e2e }}
@@ -163,7 +163,7 @@ jobs:
       success()
       && needs.route.outputs.run_e2e == 'true'
       && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 150
     environment: ios-e2e
     permissions:
@@ -587,7 +587,7 @@ jobs:
     # Same tailnet gate as `route` (RFD 0023 "one router per push"): with it
     # off, a pull_request run starts no runner here either.
     if: ${{ !cancelled() && (github.event_name != 'pull_request' || vars.IOS_E2E_PR_TAILNET == 'true') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
       - name: Aggregate

@@ -68,7 +68,8 @@ EVENTS = {
     "fork pull request": event("pull_request", head=FORK),
     "fork repository": event("push", owner="someone"),
 }
-VCPU = {"blacksmith-2vcpu-ubuntu-2404": 2, "blacksmith-4vcpu-ubuntu-2404": 4, "blacksmith-16vcpu-ubuntu-2404": 16,
+# cmux-linux: 4 runners a 16 vCPU persistent VM, so about 4 vCPU a job (Leo c-ab6690acae, junctions 2026-11-20).
+VCPU = {"cmux-linux": 4, "blacksmith-2vcpu-ubuntu-2404": 2, "blacksmith-4vcpu-ubuntu-2404": 4, "blacksmith-16vcpu-ubuntu-2404": 16,
         "ubuntu-24.04": 4}
 
 
@@ -95,11 +96,12 @@ class ShardSize(unittest.TestCase):
         for name in WEBVIEW_JOBS:
             runs_on = self.jobs[name]["runs-on"]
             self.assertNotIn("linux_16", runs_on, name)
-            self.assertTrue(runs_on.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_4 }}"), name)
-            small = evaluate(runs_on, EVENTS["push"], {"linux_4": "blacksmith-2vcpu-ubuntu-2404"})
-            self.assertEqual(small, "blacksmith-2vcpu-ubuntu-2404", f"{name} follows the pool")
-            self.assertEqual(evaluate(runs_on, EVENTS["push"]), "blacksmith-4vcpu-ubuntu-2404", name)
-            self.assertEqual(evaluate(runs_on, EVENTS["same-repository pull request"]), "blacksmith-4vcpu-ubuntu-2404", name)
+            # Own-branch runs take the one Linux label, or the CI v2 overflow switch (c-ab6690acae).
+            self.assertTrue(runs_on.endswith("|| vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}"), name)
+            overflow = {**EVENTS["push"], "vars.CI_OVERFLOW_LINUX": "blacksmith-4vcpu-ubuntu-2404"}
+            self.assertEqual(evaluate(runs_on, overflow), "blacksmith-4vcpu-ubuntu-2404", f"{name} follows the switch")
+            self.assertEqual(evaluate(runs_on, EVENTS["push"]), "cmux-linux", name)
+            self.assertEqual(evaluate(runs_on, EVENTS["same-repository pull request"]), "cmux-linux", name)
             self.assertEqual(evaluate(runs_on, EVENTS["fork pull request"]), "blacksmith-16vcpu-ubuntu-2404", name)
             self.assertEqual(evaluate(runs_on, EVENTS["fork repository"]), "ubuntu-24.04", name)
             owned = {**EVENTS["push"], "vars.CI_LINUX_GATE_OWNED_RUNNER": "glaeda-linux-gate"}

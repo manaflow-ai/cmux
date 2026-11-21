@@ -50,6 +50,9 @@ OVERFLOW_HOSTED_LINUX = "ubuntu-24.04"
 # with REQUIRE_LIVE_CAPACITY) emits it only when the runner census shows an idle Linux member, else ''.
 GCP_FLEET_LINUX = "cmux-fleet-linux-x64"
 FLEET_LINUX_OUTPUTS = ("needs.tree-preflight.outputs.linux_runner",)
+# The one own-branch Linux label every persistent GCP pool runner carries (Leo c-ab6690acae, junctions
+# 2026-11-20); Blacksmith only through the CI v2 overflow switch, vars.CI_OVERFLOW_LINUX.
+OWN_LINUX = "cmux-linux"
 # Our persistent GCP build-lane runners (Ubuntu, one label each). The cmux-tui tree's short jobs take it on
 # attempt 1 of a nightly-path run (cmux-tui-artifacts.yml's jobs: comment).
 GCP_LANE_BUILD_LINUX = "cmux-gcp-lane-build-x64"
@@ -400,6 +403,12 @@ def linux_runner_values(root: Path = ROOT) -> set[str]:
     return declared_fleet_linux_labels(root) | {OVERFLOW_HOSTED_LINUX}
 
 
+def overflow_linux_values(root: Path = ROOT) -> set[str]:
+    """What the CI v2 overflow switch (vars.CI_OVERFLOW_LINUX) can hold: a declared Blacksmith x64 Linux label."""
+    return {label for label in declared_fleet_linux_labels(root)
+            if BLACKSMITH_LINUX.fullmatch(label) and not label.endswith("-arm")}
+
+
 def personal_machine_names() -> tuple[str, ...]:
     """The personal workstation's names, from the fleet rule lint: the one file allowed to spell them."""
     import sys
@@ -416,7 +425,7 @@ def disallowed_labels(runs_on, variables: Mapping[str, Iterable[str]] | None = N
 
     GitHub-hosted labels and the personal workstation are refused first, even if a fleet declares them.
     """
-    fleet_linux = declared_fleet_linux_labels(root) | {GCP_FLEET_LINUX, GCP_LANE_BUILD_LINUX, GCP_NIGHTLY_LINUX}
+    fleet_linux = declared_fleet_linux_labels(root) | {OWN_LINUX, GCP_FLEET_LINUX, GCP_LANE_BUILD_LINUX, GCP_NIGHTLY_LINUX}
     personal = personal_machine_names()
     if isinstance(runs_on, str):
         for output in FLEET_LINUX_OUTPUTS:

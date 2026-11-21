@@ -417,7 +417,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                       "fromJSON(vars.RUNNER_POOLS).macos_26) }}", runs_on_text(jobs["canary"], "canary"))
         for name in ("pick", "verdict"):
             with self.subTest(job=name):
-                self.assertRegex(runs_on_text(jobs[name], name), r"(?:'blacksmith-\d+vcpu-ubuntu-2404'|fromJSON\(vars\.RUNNER_POOLS\)\.linux_\d+) }}$")
+                self.assertRegex(runs_on_text(jobs[name], name), r"(?:'blacksmith-\d+vcpu-ubuntu-2404'|fromJSON\(vars\.RUNNER_POOLS\)\.linux_\d+|vars\.CI_OVERFLOW_LINUX \|\| 'cmux-linux') }}$")
 
     def test_promotion_requests_never_wait_on_blacksmith(self) -> None:
         """The jobs that start a NEXT nightly are part of the nightly path.

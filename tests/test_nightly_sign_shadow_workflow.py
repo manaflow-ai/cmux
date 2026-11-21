@@ -50,8 +50,9 @@ ADMIT_COMMAND = (
     '--source-run-id "$SOURCE_RUN_ID" --source-run-attempt "$SOURCE_RUN_ATTEMPT" '
     '--out "$RUNNER_TEMP/nightly-sign-source"'
 )
-# The route stays on the declared 4-vCPU Linux pool (a fork still uses the hosted image).
-LINUX_RUNNER = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}"
+# The route is the one own-branch Linux label, or the CI v2 overflow switch (a fork still uses the hosted image;
+# Leo c-ab6690acae, junctions 2026-11-20).
+LINUX_RUNNER = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}"
 JOB_KEYS = {"name", "if", "runs-on", "timeout-minutes", "permissions", "steps"}
 STEP_KEYS = {"name", "id", "uses", "with", "env", "run"}
 WORKFLOW_KEYS = {"name", "on", True, "permissions", "env", "concurrency", "jobs"}
@@ -60,7 +61,7 @@ WORKFLOW_KEYS = {"name", "on", True, "permissions", "env", "concurrency", "jobs"
 ALLOWED_CONTEXTS = re.compile(
     r"^(github\.token|github\.ref|github\.event_name|github\.repository_owner|"
     r"github\.event\.workflow_run\.(id|run_attempt|conclusion)|"
-    r"inputs\.source_run_(id|attempt)|vars\.(NIGHTLY_SIGN|RUNNER_POOLS))$"
+    r"inputs\.source_run_(id|attempt)|vars\.(NIGHTLY_SIGN|CI_OVERFLOW_LINUX))$"
 )
 FORBIDDEN_IN_TOOL = re.compile(
     r"\b(subprocess|os\.system|os\.exec\w*|os\.spawn\w*|popen|tarfile|extractall|codesign|notary\w*|"

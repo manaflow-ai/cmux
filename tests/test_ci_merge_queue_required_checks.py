@@ -58,7 +58,7 @@ def expected_bridge() -> dict:
         "jobs": {
             job_id: {
                 "name": name,
-                "runs-on": "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}",
+                "runs-on": "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}",
                 "timeout-minutes": 5,
                 "steps": [{"run": 'echo "Passed on every pull request in this merge group."'}],
             }

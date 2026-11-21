@@ -146,7 +146,7 @@ jobs:
     name: action export areas
     if: >-
       ${{ github.repository == 'manaflow-ai/cmux' && !(github.event_name == 'push' && github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       actions: read
@@ -205,7 +205,7 @@ jobs:
     environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'ci-routing-agent' || '' }}
     needs: action-areas
     if: (needs.action-areas.outputs.actions == 'true' || needs.action-areas.outputs.settings == 'true') && needs.action-areas.outputs.mac_busy != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 65
     permissions:
       contents: read
@@ -325,7 +325,7 @@ jobs:
     if: >-
       ${{ !cancelled() && !(github.event_name == 'push' && github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) &&
           (needs.action-areas.outputs.mac_busy == 'true' || needs.pushed-exports.outputs.deferred == 'true') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 2
     permissions: {}
     steps:
@@ -547,7 +547,7 @@ jobs:
     name: webviews vp fmt
     if: >-
       ${{ github.repository == 'manaflow-ai/cmux' && !(github.event_name == 'push' && github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read
