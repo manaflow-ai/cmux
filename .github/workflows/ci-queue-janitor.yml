@@ -107,15 +107,17 @@ env:
 # One sweep at a time; a second sweep waits rather than racing the first
 # one's cancellations, and never cancels it. GitHub keeps one run waiting per
 # group and cancels it for each newer arrival, so a run whose job's `if` starts
-# no sweep (a CI run of a pull request into feat-cmux-next) gets a group of its
-# own: in the shared group those runs cancelled the waiting sweep, often within
-# seconds, and on 2026-10-30 left the pool snapshot 50 minutes old.
-# The shared group is `-v2`: about 14 runs from 2026-11-11 (43096179539 to
+# no sweep (a CI run of a pull request into feat-cmux-next) gets a group apart
+# from the sweeps: in the shared group those runs cancelled the waiting sweep,
+# often within seconds, and on 2026-10-30 left the pool snapshot 50 minutes old.
+# The no-op runs share one group of their own, so after an outage they collapse
+# to one waiting run instead of queueing one each (tests/test_ci_cron_concurrency.py).
+# Both groups are `-v2`: about 14 runs from 2026-11-11 (43096179539 to
 # 43098697917) sit in the old group's queue, and GitHub refuses to cancel or
 # force-cancel them (HTTP 409 "not been queued yet"), so every sweep since was
 # cancelled with no job.
 concurrency:
-  group: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].base.ref == 'feat-cmux-next') && format('ci-queue-janitor-noop-{0}', github.run_id) || 'ci-queue-janitor-v2' }}
+  group: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].base.ref == 'feat-cmux-next') && 'ci-queue-janitor-noop-v2' || 'ci-queue-janitor-v2' }}
   cancel-in-progress: false
 
 jobs:
@@ -136,8 +138,24 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_QUEUE_JANITOR_ON_FLEET == '1' && 'cmux-fleet-linux-x64' || 'ubuntu-24.04' }}
     # A sweep that lists the whole queue took up to 13 minutes on 2026-10-30; a timed-out
     # job skips the upload below, so this leaves room for the longest one seen.
-    timeout-minutes: 15
+    timeout-minutes: 30
+    env:
+      GH_BUDGET_WAIT_MAX_SECONDS: "900"
     steps:
+      - name: Checkout the GitHub API wait
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .gh-budget-tooling
+          sparse-checkout: |
+            scripts/ci/gh_budget_wait.sh
+            scripts/ci/gh_budget_wait.cjs
+          sparse-checkout-cone-mode: false
+      - name: Wait through GitHub API rate limits and 5xx in this job
+        working-directory: ${{ github.workspace }}
+        run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
+
       # Before the freshness gate, so its one read is on the App's budget too. Minting
       # spends the App's own requests, never GITHUB_TOKEN's.
       - name: Mint the glaeda-route token
@@ -233,6 +251,8 @@ jobs:
           # refused read moves back to it (queue_janitor.GitHub.use_read_token()). A backed-up queue made each sweep
           # list ~1,000-2,000 runs' jobs on the cmux-bot installation every reconciler shares.
           READ_TOKEN: ${{ steps.cmux-bot-token.outputs.token && steps.glaeda-token.outputs.token || '' }}
+          # The calls an hour the sweep leaves on that installation for the runner scaler's JIT creates (default 3000).
+          READ_TOKEN_FLOOR: ${{ vars.CI_JANITOR_READ_TOKEN_FLOOR }}
           GH_REPO: ${{ github.repository }}
           # BRANCH=DIR: another branch's workflow files, read for its linux-only runs (needs_jobs()).
           BRANCH_WORKFLOWS: feat-cmux-next=branch-workflows/feat-cmux-next/.github/workflows
