@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Refuse a settings export that lost a key its source declares, or gained one no source has.
+"""Refuse a settings export that lost a key its source declares, gained one no source has, or missed this change's own.
 
 The settings exports (schemas/settings/settings-schema.json, the docs settings reference and the MDM
 manifests in docs/mdm/) are written on a Mac by regenerate-settings-exports.sh. A pull request that
@@ -16,9 +16,17 @@ HEAD's sources (schemas/settings/source/*.json rows, schemas/settings/retired-ke
   extra    a key in HEAD's export that BASE's export lacks and no HEAD source declares
            (or that schemas/settings/retired-keys.json retires)
 
-Only keys count, never values or order. A setting a pull request adds or removes in its sources and
-has not yet exported is neither (its export catches up through the PR autofix), and with HEAD equal
-to BASE nothing can be found, so the check is never red on the base.
+  unexported  a key HEAD's sources add (BASE's sources lack it) that HEAD's settings-schema.json lacks
+  unremoved   a key HEAD's sources drop (BASE's sources had it) that HEAD's settings-schema.json still lists
+
+Only keys count, never values or order. settings-schema.json alone is judged for the last two: it lists every source
+row (gen-settings-sources.py --check), while the docs reference and the MDM files list only the rows they document.
+Those two used to pass, on the promise that the PR autofix or the base autofix exports the change after the merge.
+It did not: #44894 (appearance.themeFileExceptions) and the MCP Servers commit (agents.mcpServers.enabled) merged
+unexported on 2026-11-18, every base autofix run after them was cancelled, and the base export lacked both keys for
+two days, so every later pull request that added a setting failed its schema tests (cmuxterm-hq
+docs/handbook/settings-export-from-an-older-base.md). With HEAD equal to BASE nothing can be found, so the check is
+never red on the base.
 
 Usage: settings-export-key-drift.py --repo DIR --base REV --head REV
 Prints `drift: <export>: ...` per finding and exits 1 when it finds any, 0 when it finds none, 2 on error.
@@ -59,6 +67,8 @@ def mdm_plist_keys(data: bytes) -> set[str]:
 def mdm_markdown_keys(data: bytes) -> set[str]:
     return set(MD_ROW.findall(data.decode("utf-8")))
 
+
+SCHEMA = "schemas/settings/settings-schema.json"
 
 # Every export that lists settings by key, and how to read its keys.
 EXPORTS = {
@@ -101,6 +111,16 @@ def drift(base: dict[str, set[str]], head: dict[str, set[str]], base_rows: dict[
     sources = set(head_rows)
     unchanged = {key for key, row in head_rows.items() if base_rows.get(key) == row}
     found = []
+    schema = head.get(SCHEMA)
+    if schema is not None:
+        unexported = (sources - set(base_rows)) - schema
+        unremoved = (set(base_rows) - sources) & schema
+        if unexported:
+            found.append("%s: lacks %s, which this change adds to the sources (export it in this change)"
+                         % (SCHEMA, ", ".join(sorted(unexported))))
+        if unremoved:
+            found.append("%s: still lists %s, which this change removes from the sources (export it in this change)"
+                         % (SCHEMA, ", ".join(sorted(unremoved))))
     for path in sorted(head):
         if path not in base:
             continue
