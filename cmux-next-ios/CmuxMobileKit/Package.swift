@@ -57,6 +57,8 @@ let package = Package(
         .package(path: "../../Packages/Shared/CmuxVNCWebRTC"),
         // The one spinner, on the period every cmux spinner turns at (shared with the web pages and the Mac).
         .package(path: "../../Packages/Shared/CmuxSpinner"),
+        // The one Chief list rule, shared with the Mac's Home.
+        .package(path: "../../Packages/Shared/CmuxChiefList"),
         // The Mac chrome's colors from a terminal theme (ThemeTokens.derive): the phone derives the
         // same palette from the theme its Mac sends, or from its cached copy offline (ask-87d30da8e5).
         .package(path: "../../Packages/Shared/CmuxTheme"),
@@ -67,7 +69,8 @@ let package = Package(
         // snapshots: Foundation and UserNotifications only, so the notification
         // extensions link it without the app's modules (verify/rich-push.md).
         .target(name: "CmuxMobileNotifications"),
-        .target(name: "CmuxMobileModel", resources: [.process("Resources")]),
+        // CMUXAuthCore: CMUXBuildSpace, the dev build's X-Cmux-Build-Space header.
+        .target(name: "CmuxMobileModel", dependencies: [.product(name: "CMUXAuthCore", package: "CMUXAuthCore")], resources: [.process("Resources")]),
         .binaryTarget(name: "CmuxMobileLinkFFIFFI", path: "Frameworks/CmuxMobileLinkFFI.xcframework"),
         .target(
             name: "CmuxMobileLinkFFI",
@@ -133,6 +136,7 @@ let package = Package(
         // CmuxMobileBrowserStream: the info page's Computer card streams a Cloud machine's screen.
         .target(name: "CmuxMobileChief", dependencies: [
             .product(name: "CmuxSpinner", package: "CmuxSpinner"),
+            .product(name: "CmuxChiefList", package: "CmuxChiefList"),
             "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileTransport", "CmuxMobileAgentChat", "CmuxMobileMarkdown", "CmuxMobileArtifacts", "CmuxMobileNotifications",
             "CmuxMobileBrowserStream",
             .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
@@ -140,6 +144,7 @@ let package = Package(
             .product(name: "CmuxConversationCore", package: "CmuxConversation"),
             .product(name: "CmuxConversationUI", package: "CmuxConversation", condition: .when(platforms: [.iOS])),
             .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport", condition: .when(platforms: [.iOS])),
+            .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
         ], resources: [.process("Resources")]),
         // Live data: device registry, presence, the Mac link state machine, the
         // daemon tree, acpmux chats, Feed events and Chief over the link.
@@ -152,6 +157,7 @@ let package = Package(
             .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
             .product(name: "CmuxConnectivityTelemetry", package: "CmuxConnectivityTelemetry"),
             .product(name: "CmuxConversationCore", package: "CmuxConversation"),
+            .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
         ]),
         .target(
             name: "CmuxMobileTerminal",
@@ -219,7 +225,7 @@ let package = Package(
             .product(name: "CmuxDeviceHub", package: "CmuxDeviceHub"),
             .product(name: "CmuxScreenKit", package: "CmuxScreenKit", condition: .when(platforms: [.iOS])),
         ]),
-        .testTarget(name: "CmuxMobileModelTests", dependencies: ["CmuxMobileModel"]),
+        .testTarget(name: "CmuxMobileModelTests", dependencies: ["CmuxMobileModel", .product(name: "CMUXAuthCore", package: "CMUXAuthCore")]),
         .testTarget(name: "CmuxMobileAuthTests", dependencies: [
             "CmuxMobileAuth", .product(name: "CmuxAuthRuntime", package: "CmuxAuthRuntime"),
         ]),
@@ -241,6 +247,7 @@ let package = Package(
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
             .product(name: "CmuxConnectivityTelemetry", package: "CmuxConnectivityTelemetry"),
             .product(name: "CmuxConversationCore", package: "CmuxConversation"),
+            .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
         ]),
         // The instant-list perf bench (small vs god fixtures, budgets and the 1.2x rule):
         // cmux-next-ios/design/instant-perf.md. CI runs it on its own, after the other tests.
@@ -254,9 +261,11 @@ let package = Package(
         .testTarget(name: "CmuxMobileOnboardingTests", dependencies: ["CmuxMobileOnboarding", "CmuxMobileDesign"]),
         .testTarget(name: "CmuxMobileChiefTests", dependencies: [
             "CmuxMobileChief", "CmuxMobileTransport", "CmuxMobileModel", "CmuxMobileAgentChat",
+            .product(name: "CmuxChiefList", package: "CmuxChiefList"),
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
             .product(name: "CmuxConversationCore", package: "CmuxConversation"),
             .product(name: "CmuxConversationUI", package: "CmuxConversation", condition: .when(platforms: [.iOS])),
+            .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
         ]),
     ],
     swiftLanguageModes: [.v6]

@@ -1,7 +1,8 @@
 //! `acpmux acpmux-mcp`: the `acpmux` MCP stdio server every local agent session gets
 //! (`agent_tools.rs`), the same on every harness: message another session (a lane, a
-//! coordinator, a chat on a peer) and read the sessions, instead of piping text into `acpmux
-//! send` in a shell, which a chat draws as a command block. Behind the `cmux` server its tools
+//! coordinator, a chat on a peer) and read the sessions, instead of piping text into a shell,
+//! which a chat draws as a command block. The public CLI front door is `cmux agent`; the acpmux
+//! engine and its aliases remain available. Behind the `cmux` server its tools
 //! are `acpmux_send`, `acpmux_ls`, `acpmux_last`, `acpmux_info`, `acpmux_search` (a
 //! session's messages holding some words, `session_search.rs`) and the team mailbox tools
 //! (`team_send`, `team_inbox`, `team_ack`). It also runs the chat's
@@ -68,7 +69,7 @@ const LS_FIELDS: &[&str] =
 #[path = "acpmux_mcp_artifacts.rs"]
 pub(crate) mod artifacts;
 #[path = "acpmux_mcp_bg.rs"]
-mod bg;
+pub(crate) mod bg;
 #[path = "acpmux_mcp_bridge.rs"]
 pub(crate) mod bridge;
 #[path = "acpmux_mcp_goal.rs"]
@@ -213,7 +214,7 @@ fn base_tools() -> Value {
         },
         {
             "name": "search",
-            "description": "Find a session's messages (prompts, replies, tool titles) holding every word of a query, newest first, from acpmux's index of its log: use it instead of grepping a transcript. Your own session unless name says another; role assistant finds what you yourself wrote earlier.",
+            "description": "Find a session's messages (prompts, replies, tool titles) holding every word of a query, newest first, from the acpmux engine's index of its log: use it instead of grepping a transcript. For every authorized session on this host and its peers, use the `cmux agent search` front door. This MCP tool searches your own session unless name says another; role assistant finds what you yourself wrote earlier.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -298,7 +299,7 @@ fn served_with(
     daemon: &Arc<crate::tools_mcp::Daemon>,
     artifacts: Option<Arc<artifacts::Artifacts>>,
 ) -> Result<crate::tools_mcp::Served> {
-    let allow = std::env::var(crate::agent_tools::MCP_TOOLS_ENV).ok();
+    let allow = crate::tool_env::var(crate::agent_tools::MCP_TOOLS_ENV);
     let tools = allowed(tools_with_artifacts(artifacts.is_some()), allow.as_deref());
     // Under an allowlist, a call outside it is refused like an unknown tool.
     let names: Option<Arc<Vec<String>>> = allow

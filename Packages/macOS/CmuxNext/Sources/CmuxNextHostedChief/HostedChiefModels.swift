@@ -1,3 +1,4 @@
+public import CmuxChiefList
 public import Foundation
 
 /// One of the user's cloud chiefs (`chief.list`, `HomeChief`), the fields the
@@ -91,8 +92,7 @@ public nonisolated struct HomeCloudChiefs: Sendable, Equatable {
 
     /// The active chief with no machine placed: the default one, else the first.
     public static func hosted(in chiefs: [CloudChief]) -> CloudChief? {
-        let hosted = chiefs.filter { $0.brainPlace == nil && $0.mainConversation != nil }
-        return hosted.first(where: \.isDefault) ?? hosted.first
+        ChiefList.hosted(in: chiefs)  // the one rule, the iPhone's too
     }
 
 }
@@ -136,4 +136,9 @@ extension HomeCloudChiefs {
                defaultValue: "Your Chief's history could not be copied to the cloud yet. cmux tries again at the next launch.",
                table: "HostedChief", bundle: .module)
     }
+}
+
+/// A cloud Chief as the shared Chief list rule reads it (CmuxChiefList).
+nonisolated extension CloudChief: ChiefListCloudChief {
+    public var isPlaced: Bool { brainPlace != nil }
 }

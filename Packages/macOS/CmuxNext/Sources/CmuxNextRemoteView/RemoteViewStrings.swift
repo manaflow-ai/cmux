@@ -40,28 +40,24 @@ nonisolated enum RemoteViewStrings {
     static var statusEnded: String { t("rd.status.ended", "ended") }
 
     static func connectingTitle(_ host: String) -> String { String(format: t("rd.state.connecting.title", "Connecting to %@…"), host) }
-    static var connectingDetail: String { t("rd.state.connecting.detail", "Finding the fastest path to this machine.") }
     static func reconnectingTitle(_ host: String) -> String { String(format: t("rd.state.reconnecting.title", "Reconnecting to %@…"), host) }
-    static var connectingCloudDetail: String { t("rd.state.connecting.cloudDetail", "Connecting through your Cloud tunnel.") }
     static func consentTitle(_ host: String) -> String { String(format: t("rd.state.consent.title", "Waiting for consent on %@…"), host) }
     static func consentDetail(_ host: String) -> String {
         String(format: t("rd.state.consent.detail", "Someone at %@ must allow this session."), host)
     }
 
     static func kickedTitle(_ name: String) -> String { String(format: t("rd.state.kicked.title", "Disconnected by %@"), name) }
-    static func kickedDetail(_ name: String, _ host: String) -> String {
-        String(format: t("rd.state.kicked.detail", "%1$@ ended your session on %2$@."), name, host)
-    }
 
     static var stoppedTitle: String { t("rd.state.stopped.title", "Host stopped sharing") }
-    static func stoppedDetail(_ host: String) -> String {
-        String(format: t("rd.state.stopped.detail", "%@ turned off Remote Desktop. The last frame is shown."), host)
+
+    static var hostFailedTitle: String { t("rd.state.hostFailed.title", "Host couldn’t share its screen") }
+    /// The host's own reason (`failed: <reason>`), named for the host.
+    static func hostFailedDetail(_ host: String, _ reason: String) -> String {
+        String(format: t("rd.state.hostFailed.detail", "%1$@ couldn’t share its screen: %2$@"), host, reason)
     }
 
     static var viewerStoppedTitle: String { t("rd.state.viewerStopped.title", "Session ended") }
-    static var viewerStoppedDetail: String { t("rd.state.viewerStopped.detail", "You stopped this session.") }
     static var lostTitle: String { t("rd.state.lost.title", "Connection lost") }
-    static func lostDetail(_ host: String) -> String { String(format: t("rd.state.lost.detail", "The path to %@ closed."), host) }
     static var deniedTitle: String { t("rd.state.denied.title", "Not allowed") }
     static func deniedDetail(_ host: String) -> String {
         String(format: t("rd.state.denied.detail", "%@ did not allow this session."), host)
