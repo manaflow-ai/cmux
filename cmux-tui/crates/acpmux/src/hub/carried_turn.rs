@@ -395,6 +395,8 @@ impl Hub {
             "cloudMobile": session.floor.cloud_mobile_turn.load(Ordering::SeqCst),
             "trigger": turn.trigger,
             "carried": {"fromTurnId": from, "promptIds": c.prompt_ids},
+            // The paired device that drove it, read back after a restart (`hosts.rs`).
+            "device": turn.device.as_deref().filter(|_| turn.control == Control::Web),
         });
         if turn.trigger {
             self.start_trigger_background(session, &turn.turn_id);

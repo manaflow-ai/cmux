@@ -101,6 +101,10 @@ pub(super) struct OpenWork {
     /// a lasting grant ("allow always").
     floor_cancelled: Option<String>,
     last_control: Option<Control>,
+    /// The paired device that drove the last Web turn (`turn_started`/`turn_control`
+    /// `device`), and the open turn's: a restart keeps the owner's own phone on the floor.
+    last_device: Option<String>,
+    turn_device: Option<String>,
     harness_grant: bool,
     /// A remote chain's Claude Code session whose current host has no
     /// passed sandbox canary just before it started (`remote_sandbox.rs`).
@@ -850,7 +854,9 @@ impl Hub {
     pub(super) fn recover_floor(session: &Session, work: &OpenWork) {
         session.floor.harness_grant.store(work.harness_grant, Ordering::SeqCst);
         session.floor.unsandboxed.store(work.unsandboxed, Ordering::SeqCst);
-        session.floor.mark_last_turn(work.last_control == Some(Control::Web), None);
+        session
+            .floor
+            .mark_last_turn(work.last_control == Some(Control::Web), work.last_device.clone());
         session.floor.cloud_mobile_turn.store(work.cloud_mobile_turn, Ordering::SeqCst);
         if let Some((_, turn_id, ..)) = &work.turn
             && work.floor_cancelled.as_ref() == Some(turn_id)
@@ -939,20 +945,22 @@ impl Hub {
                         // As logged (`turn_started` `persons`); an older record's takes notices.
                         persons: work.turn_persons,
                         accepted: true,
-                        device: None,
+                        // The paired device that sent it, as logged (`turn_started` `device`).
+                        device: work.turn_device.clone().filter(|_| control == Control::Web),
                     });
                     if work.turn_trigger {
                         self.restore_trigger_background(session, &turn_id);
                     }
-                    session.floor.mark_last_turn(control == Control::Web, None);
+                    let device = work.turn_device.clone().filter(|_| control == Control::Web);
+                    session.floor.mark_last_turn(control == Control::Web, device.clone());
                     // A Web turn in flight in an agent the sandbox did not
                     // start does not go on (tools that do not ask).
                     if control == Control::Web && session.floor.unsandboxed.load(Ordering::SeqCst) {
                         self.remote_floor_cancel(session, "remote.unsandboxed_agent");
                     }
-                    // Nor one in a mode only a machine's Full-access setting allows: which
-                    // machine sent it is not kept across a restart (`full_access_hold`).
-                    if self.full_access_hold(&session.meta(), control, None).is_err() {
+                    // Nor one in a mode only a machine's Full-access setting allows, unless the
+                    // machine that sent it (as logged) still has it (`full_access_hold`).
+                    if self.full_access_hold(&session.meta(), control, device.as_deref()).is_err() {
                         self.remote_floor_cancel(session, "remote.full_access_ended");
                     }
                     *session.open_tools.lock().unwrap_or_else(|e| e.into_inner()) =
