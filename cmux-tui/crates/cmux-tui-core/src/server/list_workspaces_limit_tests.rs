@@ -197,7 +197,7 @@ fn the_first_window_costs_the_same_at_every_scale() {
         let timed = |request: Value| {
             let mut best = (usize::MAX, f64::MAX);
             for _ in 0..5 {
-                let started = std::time::Instant::now();
+                let started = Instant::now();
                 let reply = run(&mux, request.clone());
                 let ms = started.elapsed().as_secs_f64() * 1000.0;
                 best = (reply.to_string().len(), best.1.min(ms));
