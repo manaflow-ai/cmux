@@ -5,9 +5,18 @@
 `acpmux web --app --no-open --show-token` prints a usable link. Without `--app`,
 the dashboard is unchanged. Human output hides the token unless requested.
 
-The launch URL is `http://<existing-listener>/app/#token=<existing-token>`.
-The fragment never goes to the HTTP server. The browser transport must present
-that token using the existing WebSocket authentication; static files grant no
+The launch URL is `http://<existing-listener>/app/#token=<browser-app-token>`.
+This is lowercase hex HMAC-SHA256 with the listener secret as the key and
+`acpmux-browser-app-v1\0/app/ws` as the message (a NUL byte before `/app/ws`).
+It never exposes the reusable dashboard token. The fragment never goes to the
+HTTP server. The browser connects to `/app/ws`, offering `acpmux.v1` and
+`acpmux.token.<browser-app-token>` as WebSocket subprotocols; only `acpmux.v1`
+is echoed. This token cannot admit a dashboard connection, and the dashboard
+token cannot admit `/app/ws`. Listener token rotation invalidates both.
+
+Admission sets `ConnAuth::BrowserApp` with Web origin. Peer credentials and a
+LocalApp first-frame token cannot promote it. The browser handshake must still
+prove the same owner before RPC and event streaming. Static files grant no
 session access and contain no token. The same listener Host and Origin policy
 applies to the dashboard and every `/app/` request.
 
@@ -33,7 +42,7 @@ unknown files return 404. Only the builder's known root files and `.js` files in
 `chunks/` and `locales/` are addressable. Traversal, encoded path separators and
 symlinks outside the resource directory cannot expose other files.
 
-The regression detectors are `server::app_assets::tests`,
+The regression detectors are `server::app_assets::tests`, `browser_app_*`,
 `app_assets_keep_the_listener_host_and_origin_policy` in `web_listener_auth`,
 and `web_no_open_prints_the_link_without_its_token_unless_asked` in
 `web_token_exposure`. Run them through `cmux-ci` at the integrated commit; they
