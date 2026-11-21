@@ -23,19 +23,24 @@
 //! default), revocable, and stored here only as its SHA-256. A device
 //! credential is stored the same way, so `pairing.json` holds no secret.
 //! Both travel only over `wss://` or `ws://` to a loopback host
-//! (`peer::carries_peer_token`): the joining side refuses anything else
+//! (`ws_auth::carries_peer_token`): the joining side refuses anything else
 //! before it sends a byte, and the listener accepts a ticket or a device
 //! credential only from a loopback address (the end of a TLS terminator or
 //! an ssh tunnel on this machine), as it does the peer token.
 //!
-//! Full access, per machine, off by default (Leo: "#2 seems
+//! Full access, per machine: on by default for a `phone`, off by default for a
+//! `client` machine. It began off for every machine (Leo: "#2 seems
 //! reasonable i think... it's a gate that you can enable for your phone,
-//! which is an attack vector you opt in to"). A chat a remote connection
+//! which is an attack vector you opt in to"); phones moved to on by default
+//! (Aziz, 2026-11-13: "Make it so that the default for all iphones is full
+//! access"), since only the person issues a phone's credential and a phone
+//! the person paired is the person's own. A chat a remote connection
 //! starts has the policy `ask` (`server/remote_guard.rs`), which holds it in
 //! a mode that asks (`hub/policy_mode.rs`). The person may let one `client`
 //! machine or `phone` move such a chat out of it (not one held by deny-all, and not a
 //! chat started on this machine): `_acpmux/pair_set {id, fullAccess}`,
-//! on the unix socket only, and turning it on needs the person
+//! on the unix socket only (an off is kept, so a phone stays off once turned
+//! off), and turning it on needs the person
 //! (`hub/person.rs`), so an agent on this machine cannot grant it to a
 //! machine it paired itself. The setting is on the device's record, so
 //! revoking the machine ends it; it is read again on every request
@@ -133,7 +138,8 @@ pub fn full_access_allows(name: &str) -> String {
 /// Whether a ticket or a device credential may arrive over `url`: `wss://`,
 /// or `ws://` to a loopback host.
 pub fn transport_ok(url: &str) -> bool {
-    (url.starts_with("ws://") || url.starts_with("wss://")) && crate::peer::carries_peer_token(url)
+    (url.starts_with("ws://") || url.starts_with("wss://"))
+        && crate::ws_auth::carries_peer_token(url)
 }
 
 /// Whether a connection from `from` may present a ticket or a device
@@ -144,8 +150,18 @@ pub fn source_ok(from: std::net::SocketAddr) -> bool {
     from.ip().to_canonical().is_loopback()
 }
 
-/// This machine's name as a peer: the host name's first label, or `host`.
+/// This machine's name as a peer: the name it was given at its hub join (`machine join
+/// --name`, `machine_record::joined_name_at`), else [`host_label`]. Two machines with one host
+/// name (VMs made from one image) joined under their own names never shadow each other.
 pub fn machine_name() -> String {
+    let current = crate::host_fingerprint::current();
+    crate::machine_record::joined_name_at(&crate::machine_record::state_dir(), current.as_deref())
+        .unwrap_or_else(host_label)
+}
+
+/// The host name's first label, lowercased, or `host`: a join's default name and the
+/// `hostname` it reports to the hub.
+pub fn host_label() -> String {
     let host = crate::hand::pair::hostname();
     let first = host.split('.').next().unwrap_or_default().to_ascii_lowercase();
     if crate::session_name::validate(&first).is_ok() { first } else { "host".into() }
@@ -318,6 +334,19 @@ impl Pairing {
     /// machine counts for its very next request.
     pub fn full_access(&self, id: &str) -> bool {
         self.lock().store.devices.iter().any(|d| d.id == id && d.grants_full_access())
+    }
+
+    /// Whether device `id` is the owner's own paired phone now: a live `phone` record. Only the
+    /// person issues one (`_acpmux/pair_issue`), from the Mac app, for a phone its mobile host
+    /// lists under Settings > Mobile > Phones and admits only under the Mac owner's account
+    /// (cmux-mobile-host `host.rs` `admitted`); removing the phone there revokes it. Read from the
+    /// store on every call, as `full_access` is, so a removed phone's very next request is not.
+    pub fn own_phone(&self, id: &str) -> bool {
+        self.lock()
+            .store
+            .devices
+            .iter()
+            .any(|d| d.id == id && d.role == Role::Phone && d.revoked_ms.is_none())
     }
 
     /// Turn the Full-access setting of a live device (by id or name) on or off.

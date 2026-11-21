@@ -1,7 +1,11 @@
 import AppKit
 import CmuxNextActions
+public import CmuxNextAgentPane
 import CmuxNextCompat
-import CmuxNextServer
+import CmuxNextDaemon
+public import CmuxNextServer
+
+extension AcpmuxPersonLine: JoinedDialLine {}
 
 /// Hosts the Machines section (no surface shows it now: the right sidebar that held it is gone; a React page, `MachineSectionPageProvider.makeSection`), made the first
 /// time the section shows: its provider reads the machine registry, each machine's last check, the
@@ -18,11 +22,17 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
         let machines = services.machines, health = services.machineHealth, joined = services.joinedMachines, registry = services.registry
         self.joined = joined
         let provider = MachineSectionPageProvider(dependencies: .init(
-            rows: { MachineSectionRow.rows(machines, health: health, joined: joined) },
+            rows: { [weak services] in
+                MachineSectionRow.rows(machines, health: health, joined: joined, signedIn: services?.serverReach.signedIn.joinedByMachine ?? [:])
+            },
             style: { ServerTunables.machinesStyle.value }, joined: { joined },
             newWorkspace: { registry.perform("workspace.newOnMachine", invocation: ActionInvocation(arguments: ["machine": .string($0)])) },
             addMachine: { registry.perform("device.add") }, present: { _, _ in },
-            menu: { kind, row in Self.menu(kind, row: row, registry: registry) }, cloudTeam: { [weak cloud = services.cloud] in cloud.flatMap { TeamRowText.machinesTeam($0.auth) } }))
+            menu: { kind, row in Self.menu(kind, row: row, registry: registry) }, cloudTeam: { [weak cloud = services.cloud] in cloud.flatMap { TeamRowText.machinesTeam($0.auth) } },
+            openJoined: { [weak services] machine in
+                guard let services else { return .unavailable("app") }
+                return await Self.signedInDial(services).open(machine)
+            }))
         section = provider.makeSection(joined: joined)
         super.init(frame: NSRect(x: 0, y: 0, width: 260, height: 400))
         section.translatesAutoresizingMaskIntoConstraints = false
@@ -50,6 +60,24 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
         joinedRead?.cancel()
         // task-owner: one list read per show; the next show or deinit cancels it.
         joinedRead = Task { await joined.refresh() }
+    }
+
+    /// New Workspace on a joined Mac reached through the hub alone, over the app's acpmux, servers and registry.
+    static func signedInDial(_ services: AppServices) -> SignedInMachineDial {
+        SignedInMachineDial(
+            line: { [weak services] in
+                guard let services, let environment = QuitAgents.environment(services) else { return nil }
+                return await AcpmuxPersonLine.open(environment, deadline: .seconds(30))
+            },
+            openRoute: { [weak services] in services?.serverReach.openSignedIn($0, joined: $1) ?? false },
+            isConnected: { [weak services] id in
+                guard let daemon = services?.machines.daemon(machine: id) else { return nil }
+                if case .connected = daemon.store.connectionState { return true }
+                return false
+            },
+            newWorkspace: { [weak services] in
+                services?.registry.perform("workspace.newOnMachine", invocation: ActionInvocation(arguments: ["machine": .string($0)])) ?? false
+            })
     }
 
     /// A row's native menu: New Workspace on This Machine (`row`, disabled while the link is down), or a

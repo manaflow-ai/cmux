@@ -13,7 +13,7 @@ the person opens it, so a bad download fails in the run, as it would for a perso
 """
 import argparse, os, re, shutil, sys, urllib.request
 
-FEED = "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"
+FEED = "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"
 UA = {"User-Agent": "cmux-onboarding-e2e"}
 ITEM = re.compile(r"<item>.*?</item>", re.S)
 VERSION = re.compile(r"<sparkle:version>\s*(\d+)\s*</sparkle:version>")
@@ -21,7 +21,7 @@ CHANNEL = re.compile(r"<sparkle:channel>\s*([^<]*?)\s*</sparkle:channel>")
 NIGHTLY_CHANNELS = (None, "cmux-next-stable", "cmux-next")
 ENCLOSURE = re.compile(r'<enclosure\s[^>]*?url="([^"]+\.dmg)"[^>]*?length="(\d+)"[^>]*>')
 DMG_PREFIXES = ("https://github.com/manaflow-ai/cmux/releases/download/nightly-next/",
-                "https://files-next.cmux.com/nightly-next/next/")
+                "https://files-next.cmux.com/nightly-next/")
 
 
 def pick(text, wanted=""):

@@ -17,6 +17,7 @@ mod prompt;
 mod run;
 pub mod token;
 
+pub use config::default_config_path;
 pub use prompt::{NoPrompt, Prompt, StdinPrompt};
 
 use std::ffi::OsString;
@@ -37,6 +38,7 @@ Configuration:
   CMUX_VM_BASE_URL   API base URL (or --base-url, or \"baseUrl\"); default https://vm.cmux.dev
   CMUX_VM_TEAM_ID    team for session tokens (or --team, or \"teamId\")
   CMUX_VM_CONFIG     config file; default $XDG_CONFIG_HOME/cmux/vm.json or ~/.config/cmux/vm.json
+  CMUX_VM_DEFAULT_CONFIG  the default config file instead (a cmux DEV build's own; optional)
   Without CMUX_VM_API_KEY or --config, the token `token create` stored is used
   (login Keychain on macOS, else ~/.config/cmux/vm-token.json)
 
@@ -322,10 +324,10 @@ struct SnapshotCreateArgs {
     /// Display name
     #[arg(long)]
     name: Option<String>,
-    /// Seconds the snapshot is kept after its last use (60-31536000)
+    /// Seconds after it is taken when the snapshot is deleted, however recently a VM booted from it (60-31536000)
     #[arg(long, value_name = "SECONDS")]
     ttl: Option<i64>,
-    /// Seconds after creation when the snapshot is deleted (60-31536000)
+    /// Seconds without a VM created from it after which the snapshot is deleted; each create resets the clock (60-31536000)
     #[arg(long, value_name = "SECONDS")]
     auto_delete: Option<i64>,
     /// Reuse this key when retrying, so the snapshot is created only once [default: a new random key]

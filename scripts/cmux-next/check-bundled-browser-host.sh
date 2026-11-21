@@ -4,9 +4,11 @@
 #   scripts/cmux-next/check-bundled-browser-host.sh <app> [--require] [--hardened]
 #
 # The daemon runs the browser host as the sibling of its own executable
-# (current_exe().parent()/cmux-browser-host), so the host must be the regular
-# file Contents/Resources/bin/cmux-browser-host, in the directory of the real
-# bin/cmux that bin/cmux-tui links to. When it is there, this checks that:
+# (current_exe().parent()/cmux-browser-host), so the host must be
+# Contents/Resources/bin/cmux-browser-host, in the directory of the real bin/cmux
+# that bin/cmux-tui links to: a link to cmux when bin/cmux runs the host by
+# argv[0] (link-folded-hosts.sh; then only `version` is checked), else a regular
+# file. When it is a regular file, this checks that:
 #   - it is an executable Mach-O with the same architectures as bin/cmux,
 #   - its sha256 is the one the bundle phase recorded (browser_host_sha256= in
 #     bin/cmux-tui.version, when the bundle has that file and field),
@@ -20,7 +22,7 @@
 # note and passes: a cmux-tui build that published no browser host bundles none.
 set -euo pipefail
 
-usage() { sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; }
 
 app=""
 require=0
@@ -57,6 +59,22 @@ if [[ ! -e "$host" && ! -L "$host" ]]; then
 fi
 
 [[ -f "$daemon" && ! -L "$daemon" ]] || fail "$daemon is not the regular daemon binary"
+# Folded (link-folded-hosts.sh): bin/cmux-browser-host is a link to cmux, which
+# runs the host by argv[0]. bin/cmux's own signature covers it, and the bundle
+# records no browser_host_sha256 for it; the host must still answer as itself.
+if [[ -L "$host" ]]; then
+  [[ "$(readlink "$host")" == cmux ]] || fail "$host links to '$(readlink "$host")', not cmux"
+  [[ -z "$recorded" ]] || fail "$host links to cmux, but $version_file records browser_host_sha256=$recorded"
+  if lipo "$daemon" -verify_arch "$(uname -m)" 2>/dev/null; then
+    version="$("$host" version 2>&1 | head -n 1)" || fail "$host version failed: $version"
+    [[ "$version" == "cmux-browser-host "* ]] || fail "$host (a link to cmux) printed '$version': this cmux does not carry the browser host"
+    echo "browser host version: $version"
+  else
+    echo "note: check-bundled-browser-host: bin/cmux has no $(uname -m) slice; did not run version"
+  fi
+  echo "check-bundled-browser-host: OK $host -> cmux (the browser host runs from bin/cmux by argv[0])"
+  exit 0
+fi
 [[ -f "$host" && ! -L "$host" ]] || fail "$host is not a regular file"
 [[ -x "$host" ]] || fail "$host is not executable"
 # The daemon starts as bin/cmux-tui (a link to cmux); both names resolve into bin/.

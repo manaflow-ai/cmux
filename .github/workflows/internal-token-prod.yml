@@ -8,13 +8,11 @@ name: Production INTERNAL_TOKEN
 # mints again and puts both. Nothing else in our repos holds the platform's old value; any hand-kept copy goes stale.
 # The value lives only in a shell variable and wrangler's stdin: never printed, written to disk or passed as an
 # argument. It does nothing when cmux-api already has INTERNAL_TOKEN (never rotates a working pair).
-# Runs once on the push that adds or changes this file (which also registers it for dispatch, as
-# pair-machine-join-check.yml does) and on dispatch from feat-cmux-next. pair-machine-join-check.yml then reads the
-# names on both Workers.
+# Dispatch from feat-cmux-next. pair-machine-join-check.yml then reads the names on both Workers.
+# Dispatch-only. Its one run on push is done (prod run 42124737366, staging 42826675419). A push trigger let a
+# commit that edits this file run the edited file with the environment's Cloudflare token without a dispatch
+# (Daybreak nightly cmux-ci-25/26), so it was removed.
 on:
-  push:
-    branches: [feat-cmux-next]
-    paths: [.github/workflows/internal-token-prod.yml]
   workflow_dispatch:
 
 permissions:

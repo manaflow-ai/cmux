@@ -1,0 +1,28 @@
+{
+  "manifestVersion": 2,
+  "id": "local/standup",
+  "name": "Standup",
+  "version": "1.0.0",
+  "description": "A slash command and a mention provider for the agent chat composer.",
+  "engines": { "cmux": "^2.0" },
+  "implements": {
+    "cmux.composer.command/1": {
+      "title": "Standup",
+      "options": {
+        "commands": [
+          { "name": "standup", "description": "Ask for today's standup notes", "insert": "Write my standup: what I did yesterday, what I do today, what blocks me." },
+          { "name": "review-pr", "description": "Review a pull request", "hint": "<number>", "insert": "Review pull request #" }
+        ]
+      }
+    },
+    "cmux.composer.mention/1": {
+      "options": {
+        "prefix": "ticket",
+        "items": [
+          { "id": "ENG-1", "label": "ENG-1 Login fails on Safari", "insert": "ENG-1" },
+          { "id": "ENG-2", "label": "ENG-2 Slow sidebar", "detail": "In progress" }
+        ]
+      }
+    }
+  }
+}

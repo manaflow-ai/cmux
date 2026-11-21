@@ -97,6 +97,45 @@ async function connect(daemon: ReturnType<typeof fakeDaemon>) {
 
 const GREW = "Machine grew to 4 vCPU / 8 GiB (it ran out of memory)";
 
+test("old recovery notices stay silent in history and live updates", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "build it" }],
+      [
+        "mux",
+        "host_notice",
+        {
+          source: "resume",
+          kind: "paused",
+          gapMs: 304920,
+          text: "This machine was paused for 5m 4s; the turn goes on where it was",
+        },
+      ],
+      ["mux", "host_notice", { source: "resume", kind: "stopped", text: "This process resumed" }],
+      ["mux", "host_notice", { source: "cloud", text: GREW }],
+    ]),
+    "claude",
+    "claude",
+  );
+  const { client, notes } = await connect(daemon);
+  try {
+    expect(notes()).toEqual([{ id: "host-notice-4", kind: "notice", text: GREW }]);
+    daemon.push(
+      record(
+        [
+          ["mux", "host_notice", { source: "resume", text: "This machine was paused again" }],
+          ["mux", "host_notice", { source: "cloud", text: "Resized again" }],
+        ],
+        5,
+      ),
+    );
+    await until(() => notes().some((note) => note.text === "Resized again"), "the live cloud notice");
+    expect(notes().map((note) => note.text)).toEqual([GREW, "Resized again"]);
+  } finally {
+    client.close();
+  }
+});
+
 test("a host notice is a muted notice row where acpmux logged it", async () => {
   const daemon = fakeDaemon(
     record([

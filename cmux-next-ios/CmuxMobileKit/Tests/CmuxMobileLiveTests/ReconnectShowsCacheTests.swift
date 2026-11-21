@@ -45,6 +45,8 @@ import UIKit
             }
         }
         func send(_ bytes: Data) { inner.send(bytes) }
+        // A reply forwarded as `send` would count as typed keys.
+        func sendReply(_ bytes: Data) { inner.sendReply(bytes) }
         func resize(columns: Int, rows: Int) { inner.resize(columns: columns, rows: rows) }
         func stop() { inner.stop() }
         func setOutputPaused(_ paused: Bool) { inner.setOutputPaused(paused) }

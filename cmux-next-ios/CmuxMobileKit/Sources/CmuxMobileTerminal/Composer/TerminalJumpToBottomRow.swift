@@ -30,7 +30,7 @@ struct TerminalJumpToBottomRow: View {
                         .frame(height: 28)
                         .glassSurface(in: .rect(cornerRadius: KeyRowGlass.cornerRadius, style: .continuous))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressFill)
                 .accessibilityLabel("Scroll to bottom")
                 .accessibilityIdentifier("terminal.jumpToBottom")
                 .padding(.bottom, TerminalDockMetrics.keyRowGap)
