@@ -54,6 +54,11 @@ impl Hub {
             return Ok(None);
         }
         let own = crate::pairing::machine_name();
+        // A harness's name (`claude`) no session has as its name or id is no one session's key,
+        // whatever starts with it (`harness_key.rs`).
+        if let Some(refusal) = self.harness_key_refusal(key, &own) {
+            return Err(refusal);
+        }
         if let Some((host, rest)) = key.split_once('/').filter(|(_, rest)| !rest.is_empty()) {
             // `HOST/NAME` with a peer's or this machine's exact name, and a qualified id: an
             // exact name or id is read as before (`own_host.rs`, `resolve_remote`); a name in
@@ -336,12 +341,11 @@ pub(crate) fn pick<'a>(
     }
 }
 
-/// The refusal for `key` naming several sessions: each as `HOST/NAME`, or its route when two
-/// share that.
-fn ambiguous(key: &str, many: &[&Candidate]) -> RpcError {
+/// A refusal's `choices`: each candidate's host, name, route, status and the key to `use`
+/// instead (its `HOST/NAME`, or its route when two share that).
+pub(super) fn choices(many: &[&Candidate]) -> Vec<Value> {
     let qualified = |c: &Candidate| format!("{}/{}", c.host, c.name);
-    let choices: Vec<Value> = many
-        .iter()
+    many.iter()
         .map(|c| {
             let unique = many.iter().filter(|o| qualified(o) == qualified(c)).count() == 1;
             json!({
@@ -352,7 +356,13 @@ fn ambiguous(key: &str, many: &[&Candidate]) -> RpcError {
                 "use": if unique { qualified(c) } else { c.route.clone() },
             })
         })
-        .collect();
+        .collect()
+}
+
+/// The refusal for `key` naming several sessions: each as `HOST/NAME`, or its route when two
+/// share that.
+fn ambiguous(key: &str, many: &[&Candidate]) -> RpcError {
+    let choices = choices(many);
     let mut list: Vec<String> =
         choices.iter().take(SHOWN).filter_map(|c| c["use"].as_str()).map(str::to_owned).collect();
     if many.len() > SHOWN {
@@ -519,6 +529,57 @@ mod tests {
         // Only closed ones: still one to name, so `session info` reads a finished lane.
         list(&hub, "hb", "0199eeee-5555", "done", "closed");
         assert_eq!(hub.key_route("done").unwrap().as_deref(), Some("hb/0199eeee-5555"));
+    }
+
+    /// 2026-11-21: `send gcp-codex-lane-12/claude` reached an unrelated session whose name
+    /// starts with `claude`. A harness's name no session has as its name or id is refused, on a
+    /// peer and here, with each session it might mean (name and id); a session that has it as
+    /// its whole name, and an id, still name it.
+    #[tokio::test]
+    async fn a_harness_name_is_refused_with_the_sessions_it_might_mean() {
+        let hub = test_hub();
+        let row = |id: &str, name: &str, harness: &str| RemoteSession {
+            peer: "lane12".into(),
+            summary: json!({"sessionId": id, "name": format!("lane12/{name}"), "status": "idle",
+                            "harness": harness})
+            .into(),
+            receipt: SessionReceipt {
+                host_id: "lane12".into(),
+                mux_session_id: id.into(),
+                agent_session_id: None,
+                generation: 1,
+            },
+        };
+        hub.remote_sessions
+            .write()
+            .insert("lane12/0199aaaa-1111".into(), row("0199aaaa-1111", "claude-sr2", "claude"));
+        hub.remote_sessions
+            .write()
+            .insert("lane12/0199bbbb-2222".into(), row("0199bbbb-2222", "builder", "codex"));
+        let e = hub.key_route("lane12/claude").unwrap_err();
+        let data = e.data.clone().unwrap();
+        assert_eq!(data["reason"], AMBIGUOUS, "{e:?}");
+        assert_eq!(data["choices"][0]["route"], "lane12/0199aaaa-1111", "{e:?}");
+        assert!(e.message.contains("lane12/claude-sr2 (lane12/0199aaaa-1111)"), "{}", e.message);
+        assert!(e.message.contains("pass a session name or id"), "{}", e.message);
+        // Bare, the same.
+        assert_eq!(hub.key_route("claude").unwrap_err().data.unwrap()["reason"], AMBIGUOUS);
+        // A harness only one session runs, its name sharing nothing with it: still no guess.
+        let e = hub.key_route("lane12/codex").unwrap_err();
+        assert!(e.message.contains("lane12/builder (lane12/0199bbbb-2222)"), "{}", e.message);
+        // Here: `fake` is the test hub's harness, and `fake-1` starts with it.
+        let here = named(&hub, "fake-1").await;
+        let e = hub.key_route("fake").unwrap_err();
+        assert!(e.message.contains(&format!("/fake-1 ({})", here.id)), "{}", e.message);
+        // An exact name and an id still name their session; a name that is no harness is as before.
+        let exact = named(&hub, "fake").await;
+        assert_eq!(hub.key_route("fake").unwrap().as_deref(), Some(exact.id.as_str()));
+        assert_eq!(
+            hub.key_route("lane12/claude-sr2").unwrap().as_deref(),
+            Some("lane12/0199aaaa-1111")
+        );
+        assert_eq!(hub.key_route("0199aaaa").unwrap().as_deref(), Some("lane12/0199aaaa-1111"));
+        assert_eq!(hub.key_route("build").unwrap(), None);
     }
 
     fn c(host: &str, name: &str, route: &str, closed: bool) -> Candidate {
