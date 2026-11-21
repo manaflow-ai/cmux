@@ -69,8 +69,9 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/watch_take_over": (["sessionId", "ifLive"], []),
         // Background processes (direct.ts listProcesses, tailProcess, killProcess, backgroundWork):
         // a kill names its chat, which must be the pane's, and acpmux stops only that chat's process.
-        // A list is read page by page (`limit`, then each page's `nextCursor` as `cursor`).
-        "_acpmux/process/list": (["sessionId", "limit", "cursor"], []),
+        // The page holds the running ones and the newest ended (`recent`); a daemon without it is
+        // read page by page (`limit`, then each page's `nextCursor` as `cursor`).
+        "_acpmux/process/list": (["sessionId", "limit", "cursor", "recent"], []),
         "_acpmux/process/tail": (["processId", "maxBytes"], []),
         "_acpmux/process/kill": (["sessionId", "processId"], []),
         "_acpmux/process/background": (["sessionId", "toolCallId"], []),
@@ -105,6 +106,9 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/models": (["refresh", "localOnly"], []),
         "_acpmux/status": ([], []),
         "_acpmux/peers": ([], []),
+        // Placement names are local display labels; the optional source lets the page filter
+        // targets for a chat without exposing a host URL or session identity.
+        "_acpmux/move_targets": (["source", "sourceKind"], []),
         "_acpmux/draft_get": (["sessionId"], []),
         "_acpmux/draft_set": (["sessionId", "text"], []),
         "_acpmux/inbox_thread": (["sessionId", "threadId"], []),

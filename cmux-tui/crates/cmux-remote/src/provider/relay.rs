@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use cmux_deadline::Deadline;
 use cmux_remote_protocol::{
     CircuitId, LaneToken, MAX_RELAY_BATCH_BYTES, REMOTE_PROTOCOL_VERSION, RelayControl, RelayRole,
     RelayTicketClaims,
@@ -35,8 +36,68 @@ use zeroize::{Zeroize, Zeroizing};
 
 use crate::daemon::{InboundLink, NetworkPeer, RemoteDaemon};
 
+#[path = "relay_credential_read.rs"]
+mod credential_read;
 #[path = "relay_liveness.rs"]
 mod liveness;
+use credential_read::*;
+
+/// The last [`CREDENTIAL_COMMAND_STDERR_TAIL_BYTES`] a credential command
+/// wrote to stderr, read while it runs so a full pipe never stalls it. The
+/// reader stops with the source: it is aborted on drop.
+struct StderrTail {
+    tail: Arc<std::sync::Mutex<VecDeque<u8>>>,
+    task: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl StderrTail {
+    fn spawn(stderr: Option<tokio::process::ChildStderr>) -> Self {
+        let tail = Arc::new(std::sync::Mutex::new(VecDeque::new()));
+        let task = stderr.map(|mut stderr| {
+            let tail = tail.clone();
+            tokio::spawn(async move {
+                let mut chunk = [0_u8; 512];
+                while let Ok(read) = stderr.read(&mut chunk).await {
+                    if read == 0 {
+                        break;
+                    }
+                    let mut tail = tail.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                    tail.extend(chunk.get(..read).unwrap_or_default());
+                    let excess = tail.len().saturating_sub(CREDENTIAL_COMMAND_STDERR_TAIL_BYTES);
+                    tail.drain(..excess);
+                }
+            })
+        });
+        Self { tail, task }
+    }
+
+    /// `; stderr: …` with [`stderr_summary`] of the tail, or nothing when it
+    /// was empty. Waits briefly for the reader to drain what an exited
+    /// command wrote.
+    async fn describe(&mut self) -> String {
+        if let Some(task) = &mut self.task
+            && tokio::time::timeout(Duration::from_millis(100), task).await.is_ok()
+        {
+            // A finished handle must not be polled again.
+            self.task = None;
+        }
+        let bytes: Vec<u8> = {
+            let tail = self.tail.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            tail.iter().copied().collect()
+        };
+        stderr_summary(&bytes)
+    }
+}
+
+impl Drop for StderrTail {
+    fn drop(&mut self) {
+        if let Some(task) = self.task.take() {
+            task.abort();
+        }
+    }
+}
+#[path = "relay_registration_state.rs"]
+mod registration_state;
 use crate::link::{FrameLink, LinkError};
 use crate::observability::{TransportPathKind, TransportPathSnapshot, TransportSnapshot};
 use crate::provider::{
@@ -46,6 +107,10 @@ use crate::provider::{
 use liveness::{
     CHECK_INTERVAL, CLOCK_JUMP, Check, ClockWatch, Ended, Liveness, Retry, random_unit,
 };
+pub use registration_state::RegistrationState;
+#[cfg(test)]
+pub(crate) use registration_state::test_wall;
+use registration_state::wall_now;
 
 type RelaySocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 type RelayCircuitSink = SplitSink<RelaySocket, Message>;
@@ -62,6 +127,12 @@ const MAX_RELAY_CONTROL_MESSAGE_BYTES: usize = 16 * 1024;
 /// start). Past this, the open fails as a retryable transport error.
 pub(crate) const RELAY_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_CREDENTIAL_COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
+/// The bound on one callback credential fetch ([`RelayCredentialSource::callback`]). A
+/// callback asks a platform for a ticket (the hub carrier's `POST /v1/mesh/carrier`, itself
+/// bounded at 30 s); one that never answers (a mint that stalls) would hold a registration in
+/// `Registering` forever. Past this the fetch fails as a credential source failure, which the
+/// registration reports as [`RegistrationState::CredentialUnavailable`] and retries.
+pub const CREDENTIAL_CALLBACK_TIMEOUT: Duration = Duration::from_secs(35);
 /// A daemon's relay ticket command's timeout ([`RelayCredentialSource::daemon_command`]).
 /// A Cloud machine's command (`cmux host cloud carrier-ticket`) waits up to
 /// 30 s for the Cloud agent's answer and then exits with its own error code;
@@ -204,9 +275,13 @@ impl RelayCredentialSource {
             RelayCredentialSourceInner::Command(command) => {
                 read_credential_command(command).await?
             }
-            RelayCredentialSourceInner::Callback(callback) => Zeroizing::new(
-                callback().await.map_err(|()| credential_source_error("callback failed"))?,
-            ),
+            RelayCredentialSourceInner::Callback(callback) => {
+                let deadline = Deadline::<Instant>::after(CREDENTIAL_CALLBACK_TIMEOUT);
+                let answer = tokio::time::timeout_at(deadline.end(), callback())
+                    .await
+                    .map_err(|_| credential_source_error("callback timed out"))?;
+                Zeroizing::new(answer.map_err(|()| credential_source_error("callback failed"))?)
+            }
         };
         RelayCredential::parse_secret(value)
             .map_err(|_| credential_source_error("returned invalid data"))
@@ -270,241 +345,6 @@ impl fmt::Debug for RelayCredential {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("RelayCredential([REDACTED])")
     }
-}
-
-async fn read_credential_file(path: &Path) -> Result<Zeroizing<String>, ProviderError> {
-    let path = path.to_path_buf();
-    tokio::task::spawn_blocking(move || {
-        crate::secret_file::read_owner_only_string(&path, MAX_RELAY_CREDENTIAL_BYTES)
-    })
-    .await
-    .map_err(|_| credential_source_error("file could not be read"))?
-    .map_err(|_| credential_source_error("file could not be read"))
-}
-
-async fn read_credential_command(
-    source: &CommandCredentialSource,
-) -> Result<Zeroizing<String>, ProviderError> {
-    if source.timeout.is_zero() {
-        return Err(credential_source_error("command timeout is invalid"));
-    }
-    let mut command = Command::new(&source.program);
-    command
-        .args(&source.args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
-    let mut child =
-        command.spawn().map_err(|_| credential_source_error("command could not be started"))?;
-    let mut stderr = StderrTail::spawn(child.stderr.take());
-    let stdout = match child.stdout.take() {
-        Some(stdout) => stdout,
-        None => {
-            terminate_child(&mut child).await;
-            return Err(credential_source_error("command stdout was unavailable"));
-        }
-    };
-    let result = tokio::time::timeout(source.timeout, async {
-        let output = match read_limited_credential(stdout).await {
-            Ok(output) => output,
-            // An oversized or unreadable answer still names what stderr said.
-            Err(ProviderError::Transport(message)) => {
-                return Err(ProviderError::Transport(format!(
-                    "{message}{}",
-                    stderr.describe().await
-                )));
-            }
-            Err(error) => return Err(error),
-        };
-        let status = child
-            .wait()
-            .await
-            .map_err(|_| credential_source_error("command could not be completed"))?;
-        if !status.success() {
-            return Err(credential_source_error(&format!(
-                "command was unsuccessful ({status}){}",
-                stderr.describe().await
-            )));
-        }
-        Ok(output)
-    })
-    .await;
-    match result {
-        Ok(Ok(output)) => Ok(output),
-        Ok(Err(error)) => {
-            terminate_child(&mut child).await;
-            Err(error)
-        }
-        Err(_) => {
-            terminate_child(&mut child).await;
-            Err(credential_source_error(&format!(
-                "command timed out after {} ms{}",
-                source.timeout.as_millis(),
-                stderr.describe().await
-            )))
-        }
-    }
-}
-
-/// The last [`CREDENTIAL_COMMAND_STDERR_TAIL_BYTES`] a credential command
-/// wrote to stderr, read while it runs so a full pipe never stalls it. The
-/// reader stops with the source: it is aborted on drop.
-struct StderrTail {
-    tail: Arc<std::sync::Mutex<VecDeque<u8>>>,
-    task: Option<tokio::task::JoinHandle<()>>,
-}
-
-impl StderrTail {
-    fn spawn(stderr: Option<tokio::process::ChildStderr>) -> Self {
-        let tail = Arc::new(std::sync::Mutex::new(VecDeque::new()));
-        let task = stderr.map(|mut stderr| {
-            let tail = tail.clone();
-            tokio::spawn(async move {
-                let mut chunk = [0_u8; 512];
-                while let Ok(read) = stderr.read(&mut chunk).await {
-                    if read == 0 {
-                        break;
-                    }
-                    let mut tail = tail.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-                    tail.extend(chunk.get(..read).unwrap_or_default());
-                    let excess = tail.len().saturating_sub(CREDENTIAL_COMMAND_STDERR_TAIL_BYTES);
-                    tail.drain(..excess);
-                }
-            })
-        });
-        Self { tail, task }
-    }
-
-    /// `; stderr: …` with [`stderr_summary`] of the tail, or nothing when it
-    /// was empty. Waits briefly for the reader to drain what an exited
-    /// command wrote.
-    async fn describe(&mut self) -> String {
-        if let Some(task) = &mut self.task
-            && tokio::time::timeout(Duration::from_millis(100), task).await.is_ok()
-        {
-            // A finished handle must not be polled again.
-            self.task = None;
-        }
-        let bytes: Vec<u8> = {
-            let tail = self.tail.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-            tail.iter().copied().collect()
-        };
-        stderr_summary(&bytes)
-    }
-}
-
-impl Drop for StderrTail {
-    fn drop(&mut self) {
-        if let Some(task) = self.task.take() {
-            task.abort();
-        }
-    }
-}
-
-/// The most error codes a summary names.
-const MAX_STDERR_CODES: usize = 4;
-
-/// What a failed credential command's stderr `tail` may add to its error:
-/// `; stderr: N bytes`, then `, codes …` naming up to [`MAX_STDERR_CODES`]
-/// distinct error codes and an `HTTP NNN` status found in it, or nothing
-/// when it is empty. Free text never reaches the log: stderr can hold a
-/// ticket, a header or a JSON body in any shape, and only these allowlisted
-/// forms can't be one.
-fn stderr_summary(tail: &[u8]) -> String {
-    if tail.is_empty() {
-        return String::new();
-    }
-    let text = String::from_utf8_lossy(tail);
-    let words: Vec<&str> = text.split_whitespace().collect();
-    let mut codes: Vec<String> = Vec::new();
-    for word in &words {
-        if codes.len() == MAX_STDERR_CODES {
-            break;
-        }
-        if let Some(code) = error_code(word)
-            && !codes.iter().any(|known| known == code)
-        {
-            codes.push(code.to_owned());
-        }
-    }
-    let http = words.windows(2).find_map(|pair| {
-        let [word, next] = pair else { return None };
-        let status = next.trim_end_matches([':', ',', ';', ')']);
-        let http = *word == "HTTP" || word.starts_with("HTTP/");
-        (http && status.len() == 3 && status.bytes().all(|byte| byte.is_ascii_digit()))
-            .then(|| format!("HTTP {status}"))
-    });
-    codes.extend(http);
-    if codes.is_empty() {
-        format!("; stderr: {} bytes", tail.len())
-    } else {
-        format!("; stderr: {} bytes, codes {}", tail.len(), codes.join(", "))
-    }
-}
-
-/// The error codes a relay ticket command may name in a log: the refusals
-/// `cmux host cloud carrier-ticket` prints (cmux-host `cloud/carrier_ticket.rs`)
-/// and the platform codes it passes on. Only these exact words are copied out
-/// of stderr; any other word, however code-shaped (`dead.beef`), is not.
-const KNOWN_ERROR_CODES: [&str; 14] = [
-    "auth.forbidden",
-    "auth.refused",
-    "carrier.bad_answer",
-    "carrier.busy",
-    "carrier.rate_limited",
-    "carrier.unavailable",
-    "carrier.unreachable",
-    "cloud.machine.not_found",
-    "owner.unreachable",
-    "validation.invalid",
-    "vm.agent_bad_answer",
-    "vm.agent_stopping",
-    "vm.agent_unreachable",
-    "vm.unbound",
-];
-
-/// `word` without a trailing `:` when it is one of [`KNOWN_ERROR_CODES`].
-fn error_code(word: &str) -> Option<&'static str> {
-    let code = word.strip_suffix(':').unwrap_or(word);
-    KNOWN_ERROR_CODES.iter().copied().find(|known| *known == code)
-}
-
-/// Kill and reap a credential command on every cancellation or failure path.
-/// `kill_on_drop` is best effort and does not guarantee prompt zombie cleanup.
-async fn terminate_child(child: &mut tokio::process::Child) {
-    let _ = child.kill().await;
-    let _ = child.wait().await;
-}
-
-async fn read_limited_credential(
-    reader: impl tokio::io::AsyncRead + Unpin,
-) -> Result<Zeroizing<String>, ProviderError> {
-    let mut bytes = Zeroizing::new(Vec::with_capacity(MAX_RELAY_CREDENTIAL_BYTES.min(256)));
-    reader
-        .take((MAX_RELAY_CREDENTIAL_BYTES + 1) as u64)
-        .read_to_end(&mut bytes)
-        .await
-        .map_err(|_| credential_source_error("could not be read"))?;
-    if bytes.len() > MAX_RELAY_CREDENTIAL_BYTES {
-        return Err(credential_source_error("was too large"));
-    }
-    let value = Zeroizing::new(
-        std::str::from_utf8(&bytes)
-            .map_err(|_| credential_source_error("was not UTF-8"))?
-            .to_owned(),
-    );
-    Ok(value)
-}
-
-fn credential_source_error(reason: &str) -> ProviderError {
-    ProviderError::Transport(format!("{CREDENTIAL_SOURCE_ERROR_PREFIX}{reason}"))
-}
-
-/// The credential source (a ticket command, file or callback) failed, as
-/// opposed to the relay.
-fn is_credential_source_error(error: &ProviderError) -> bool {
-    matches!(error, ProviderError::Transport(message) if message.starts_with(CREDENTIAL_SOURCE_ERROR_PREFIX))
 }
 
 /// The TLS trust a relay's `wss` and `relay+do` connections use. The default
@@ -1478,6 +1318,7 @@ impl fmt::Debug for RelayDaemonConfig {
 pub struct RelayDaemonRegistration {
     shutdown: watch::Sender<bool>,
     task: Option<tokio::task::JoinHandle<()>>,
+    state: watch::Receiver<RegistrationState>,
 }
 
 impl fmt::Debug for RelayDaemonRegistration {
@@ -1547,6 +1388,7 @@ async fn register_with_credentials_and_tls(
     let endpoint = relay_websocket_url(&config.endpoint, &config.slot, RelayRole::Daemon)?;
     let config = RelayDaemonConfig { endpoint, ..config };
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let (state_tx, state) = watch::channel(RegistrationState::Registering);
     let (ready_tx, ready_rx) = oneshot::channel();
     let task = tokio::spawn(run_registration_loop(
         daemon,
@@ -1557,11 +1399,12 @@ async fn register_with_credentials_and_tls(
         shutdown_rx,
         Some(ready_tx),
         None,
+        state_tx,
     ));
     ready_rx.await.map_err(|_| {
         ProviderError::Transport("relay registration stopped before ready".into())
     })??;
-    Ok(RelayDaemonRegistration { shutdown: shutdown_tx, task: Some(task) })
+    Ok(RelayDaemonRegistration { shutdown: shutdown_tx, task: Some(task), state })
 }
 
 /// Register on a relay in the background and return at once.
@@ -1570,7 +1413,9 @@ async fn register_with_credentials_and_tls(
 /// a credential source that fails (a ticket command that exits non-zero or
 /// hangs past its timeout) or a relay that refuses is retried until
 /// [`RelayDaemonRegistration::shutdown`] or drop. Each failed attempt is
-/// written to stderr once, prefixed by `log_label`, with its reason. The
+/// written to stderr once, prefixed by `log_label`, with its reason, and
+/// the registration's [`RelayDaemonRegistration::state`] says what the last
+/// attempt met (`CredentialUnavailable` for a ticket mint that is down). The
 /// wait between attempts is jittered and capped: 5 s after a relay failure,
 /// 60 s after a credential source failure. A resume (`relay_liveness.rs`)
 /// ends a registration from before the pause or a wait at once and
@@ -1592,6 +1437,7 @@ pub fn spawn_relay_daemon_registration(
     let endpoint = relay_websocket_url(&config.endpoint, &config.slot, RelayRole::Daemon)?;
     let config = RelayDaemonConfig { endpoint, ..config };
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let (state_tx, state) = watch::channel(RegistrationState::Registering);
     let task = tokio::spawn(run_registration_loop(
         daemon,
         config,
@@ -1601,8 +1447,9 @@ pub fn spawn_relay_daemon_registration(
         shutdown_rx,
         None,
         Some(format!("{log_label}: relay registration on {route}")),
+        state_tx,
     ));
-    Ok(RelayDaemonRegistration { shutdown: shutdown_tx, task: Some(task) })
+    Ok(RelayDaemonRegistration { shutdown: shutdown_tx, task: Some(task), state })
 }
 
 /// The registration's joined circuits belong to the registration, not to one
@@ -1620,6 +1467,7 @@ async fn run_registration_loop(
     shutdown: watch::Receiver<bool>,
     first_ready: Option<oneshot::Sender<Result<(), ProviderError>>>,
     log: Option<String>,
+    state: watch::Sender<RegistrationState>,
 ) {
     let mut circuits = IncomingCircuitTasks::new(MAX_RELAY_INCOMING_TASKS);
     run_registration_attempts(
@@ -1632,6 +1480,7 @@ async fn run_registration_loop(
         first_ready,
         log,
         &mut circuits,
+        &state,
     )
     .await;
     circuits.shutdown().await;
@@ -1648,6 +1497,7 @@ async fn run_registration_attempts(
     mut first_ready: Option<oneshot::Sender<Result<(), ProviderError>>>,
     log: Option<String>,
     circuits: &mut IncomingCircuitTasks,
+    state: &watch::Sender<RegistrationState>,
 ) {
     let mut retry = Retry::new();
     let mut log = RegisterLog::new(log, Instant::now());
@@ -1670,6 +1520,7 @@ async fn run_registration_attempts(
             circuits,
             &mut attempt,
             &log,
+            state,
         )
         .await;
         // A registration that got ready and later died (a pause, a relay
@@ -1678,6 +1529,16 @@ async fn run_registration_attempts(
             retry.ready();
             log.dropped(Instant::now());
         }
+        // What the attempt met, while the next one waits. A credential source
+        // that fails (the ticket mint is down, or did not answer in its
+        // bound) is a named state, not only a stderr line.
+        state.send_replace(match &result {
+            Ok(()) => RegistrationState::Registering,
+            Err(error) if is_credential_source_error(error) => {
+                RegistrationState::CredentialUnavailable { error: error.to_string() }
+            }
+            Err(error) => RegistrationState::RelayUnavailable { error: error.to_string() },
+        });
         // A pause the registration did not survive outlived its circuits too.
         if attempt.resumed {
             circuits.shutdown().await;
@@ -1710,7 +1571,7 @@ async fn run_registration_attempts(
                 wait.as_millis()
             );
         }
-        match back_off(&mut retry, wait, &mut shutdown, std::time::SystemTime::now).await {
+        match back_off(&mut retry, wait, &mut shutdown, wall_now).await {
             Waited::Elapsed => {}
             Waited::Resumed => {
                 if let Some(label) = &log.label {
@@ -1735,7 +1596,8 @@ struct Attempt {
 #[derive(Debug, PartialEq, Eq)]
 enum Waited {
     Elapsed,
-    /// The wall clock jumped past the monotonic one: the machine resumed.
+    /// The machine resumed: the wall clock jumped past the monotonic one, or
+    /// the monotonic clock moved past the relay's retirement between two looks.
     Resumed,
     Shutdown,
 }
@@ -1785,7 +1647,11 @@ async fn wait_unless_resumed(
             }
             _ = interval.tick() => false,
         };
-        if clocks.jump(Instant::now(), wall()) > CLOCK_JUMP {
+        // A wall-clock step past the monotonic one, or a monotonic gap past
+        // the relay's retirement between two looks a second apart (a pause
+        // where every guest clock kept running).
+        let look = clocks.look(Instant::now(), wall());
+        if look.wall_ahead > CLOCK_JUMP || look.outlived_relay() {
             return Waited::Resumed;
         }
         if elapsed {
@@ -1853,6 +1719,7 @@ async fn run_registration_once(
     circuits: &mut IncomingCircuitTasks,
     attempt: &mut Attempt,
     log: &RegisterLog,
+    state: &watch::Sender<RegistrationState>,
 ) -> Result<(), ProviderError> {
     let authentication = authenticate_daemon_control(config, credentials, tls);
     tokio::pin!(authentication);
@@ -1866,6 +1733,7 @@ async fn run_registration_once(
         }
     };
     attempt.registered = true;
+    state.send_replace(RegistrationState::Registered);
     if let Some(line) = log.registered_line(&config.slot, Instant::now()) {
         eprintln!("{line}");
     }
@@ -1874,7 +1742,8 @@ async fn run_registration_once(
     }
     let mut socket = control.socket;
     // Checked every second (relay_liveness.rs): a ping unanswered for 3 s,
-    // or a resume's wall-clock jump, finds a dead registration in seconds.
+    // or a resume (a wall-clock jump, or a monotonic gap past the relay's
+    // 45 s between two checks), finds a dead registration in seconds.
     let mut liveness = registration_liveness(control.lease_seconds);
     let mut renew_at = control.renew_at;
     // Make-before-break: before the ticket expires a second control socket
@@ -1946,7 +1815,7 @@ async fn run_registration_once(
                 continue;
             }
             _ = interval.tick() => {
-                match liveness.check(Instant::now(), std::time::SystemTime::now()) {
+                match liveness.check(Instant::now(), wall_now()) {
                     Check::Idle => continue,
                     Check::Ping => {
                         nonce = nonce.wrapping_add(1);
@@ -2028,7 +1897,7 @@ async fn run_registration_once(
 
 fn registration_liveness(lease_seconds: u32) -> Liveness {
     let heartbeat = Duration::from_secs(u64::from(lease_seconds).max(3) / 3);
-    Liveness::new(heartbeat, Instant::now(), std::time::SystemTime::now())
+    Liveness::new(heartbeat, Instant::now(), wall_now())
 }
 
 /// Polls `future` when there is one, else never completes (a `select!`
@@ -2565,6 +2434,9 @@ fn random_capability() -> Result<String, ProviderError> {
     Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes))
 }
 
+#[cfg(test)]
+#[path = "relay_registration_state_tests.rs"]
+mod registration_state_tests;
 #[cfg(test)]
 #[path = "relay_tests.rs"]
 mod tests;

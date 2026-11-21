@@ -340,6 +340,7 @@ try:
         # and, for the brains' homes, at the host start.
         choice = {k: v for k, v in (("harness", opts.engine_harness), ("model", opts.engine_model),
                                     ("brain_base_url", opts.brain_base_url)) if v}
+        os.makedirs(os.path.join(MUX, "optchat"), exist_ok=True)
         json.dump(choice, open(os.path.join(MUX, "optchat", "engine.json"), "w"))
         run["engine_choice"] = choice
     daemon_log = open(os.path.join(OUT, "daemon.log"), "w")
@@ -801,7 +802,17 @@ try:
         r2, t2 = say("Call the cmux MCP tool workspace_list (on the cmux server) once, then tell me how many "
                      "workspaces it listed, as a number.", "tool", lambda t: any(c.isdigit() for c in t), 600)
         tool_names = [str(e.get("name")) for e in trace_events() if e.get("ev") == "tool" and e.get("ts", 0) >= t2]
-        proof["cmux_mcp_tool"] = any("workspace_list" in n for n in tool_names)
+        # A called tool that failed is no pass (coordinator 2026-11-21): the reply must give the
+        # daemon's real workspace count, read here from the same daemon.
+        try:
+            real = len((ask({"cmd": "list-workspaces"}) or {}).get("workspaces") or [])
+        except (OSError, RuntimeError, ValueError) as e:
+            real = None
+            log(f"BRAIN diag list-workspaces failed: {e}")
+        said = [int(x) for x in re.findall(r"\b\d+\b", r2 or "")]
+        called = any("workspace_list" in n for n in tool_names)
+        log(f"BRAIN tool check: called={called} real_count={real} numbers_in_reply={said[:5]}")
+        proof["cmux_mcp_tool"] = called and real is not None and real in said
         r3, _ = say(f"From now on, end every reply with the word HERON-{tag}. Save that as a lasting preference "
                     "with the Chief's remember tool now (`chief remember \"...\"` from your shell when you have "
                     "no remember tool), then confirm in one line.", "remember", lambda t: len(t) > 0, 600)
@@ -877,6 +888,14 @@ try:
                 bad = [l for l in lines if any(w in l.lower() for w in ("error", "fail", "refus", "brain", "fall"))]
                 for l in (bad or lines)[-20:]:
                     log(f"BRAIN diag {name}: {l[:300]}")
+            # Which tools the brain called, and what its own log says about tools: a failed
+            # look or wake check is read from these, not guessed.
+            log(f"BRAIN diag tools called: {json.dumps(tool_names[:40])}")
+            for root, _dirs, files in os.walk(MUX):
+                if "agent.log" in files and os.sep + "brains" + os.sep in root + os.sep:
+                    lines = open(os.path.join(root, "agent.log"), errors="replace").read().splitlines()
+                    for l in [l for l in lines if "tool" in l.lower()][-40:]:
+                        log(f"BRAIN diag agent.log: {l[:300]}")
         json.dump(run, open(os.path.join(OUT, "run.json"), "w"), indent=1)
         raise SystemExit(0 if all(proof.values()) else 1)
 
