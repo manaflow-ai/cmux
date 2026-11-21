@@ -18,7 +18,8 @@ public final class CloudSpareReadiness {
     /// The user and team signed in (the App's `CloudService.account`).
     public typealias Scope = [String?]
 
-    /// What the App supplies: who is signed in, the keyed start, the key's daemon run, and the link's carrier.
+    /// What the App supplies: who is signed in, the keyed start, the key's daemon run, the link's carrier, and the team a
+    /// spare is in.
     public struct Dependencies {
         /// The user and team signed in now.
         public var scope: @MainActor () -> Scope
@@ -29,10 +30,15 @@ public final class CloudSpareReadiness {
         public var keyedInstance: @MainActor (_ machine: String) -> String?
         /// `machine`'s carrier link in `team`, not started yet; nil when there is none to make.
         public var link: @MainActor (_ machine: String, _ team: String?) -> SpareLink?
+        /// The team the person's spare, its create and the record the claim answers are in: the install token's team, never
+        /// the App's active team (a member of a shared team has an active team that is not the install token's). A link
+        /// made for another team than the record's is ended at the claim, not taken. Nil when it cannot be read.
+        public var team: @MainActor () async -> String?
 
         public init(scope: @escaping @MainActor () -> Scope, key: @escaping @MainActor (String, Scope) async -> String?,
-                    keyedInstance: @escaping @MainActor (String) -> String?, link: @escaping @MainActor (String, String?) -> SpareLink?) {
-            (self.scope, self.key, self.keyedInstance, self.link) = (scope, key, keyedInstance, link)
+                    keyedInstance: @escaping @MainActor (String) -> String?, link: @escaping @MainActor (String, String?) -> SpareLink?,
+                    team: @escaping @MainActor () async -> String?) {
+            (self.scope, self.key, self.keyedInstance, self.link, self.team) = (scope, key, keyedInstance, link, team)
         }
     }
 
@@ -91,8 +97,9 @@ public final class CloudSpareReadiness {
     }
 
     /// Makes `machine` ready for a claim in the scope signed in now: keyed and linked, each once. Never awaited by its
-    /// caller; a second prime of the same machine while one runs joins it.
-    public func prime(_ machine: String, team: String?) {
+    /// caller; a second prime of the same machine while one runs joins it. `team`: the spare's team as the platform
+    /// named it (a warm's answer); nil reads it from ``Dependencies/team``, so every caller links in the same team.
+    public func prime(_ machine: String, team: String? = nil) {
         let scope = dependencies.scope()
         sweep()
         guard Self.signedIn(scope), !machine.isEmpty, primes[machine] == nil else { return }
@@ -111,6 +118,8 @@ public final class CloudSpareReadiness {
     public func link(for machine: String, team: String?) -> CloudCarrierServe? {
         guard let held = links.removeValue(forKey: machine) else { return nil }
         guard fits(held, scope: dependencies.scope()), held.team == team else {
+            let why = held.team == team ? "it expired, was fenced or the account changed" : "it was made for team \(held.team ?? "none"), the record is in \(team ?? "none")"
+            Self.log.info("cloud spare \(machine, privacy: .public): link ahead not taken (\(why, privacy: .public)); the start links it")
             end(held.link)
             return nil
         }
@@ -130,7 +139,9 @@ public final class CloudSpareReadiness {
     }
 
     private func primed(_ machine: String, team: String?, scope: Scope) async {
-        async let linked: Void = linkAhead(machine, team: team, scope: scope)
+        let resolved: String?
+        if let team { resolved = team } else { resolved = await dependencies.team() }
+        async let linked: Void = linkAhead(machine, team: resolved, scope: scope)
         await keyAhead(machine, scope: scope)
         await linked
     }
