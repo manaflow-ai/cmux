@@ -2058,7 +2058,17 @@
           "server"
         ],
         "groups" : [
-
+          {
+            "key" : "settings.group.macScreenViewer",
+            "rows" : [
+              "macScreen.defaultQuality",
+              "macScreen.defaultAccess"
+            ],
+            "title" : {
+              "key" : "settings.group.macScreenViewer",
+              "text" : "Mac Screen"
+            }
+          }
         ],
         "id" : "devices",
         "lead" : [
@@ -108474,6 +108484,336 @@
       "title" : {
         "key" : "settings.macScreen.shareWithoutAsking",
         "text" : "Share This Mac Without Asking"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "auto",
+        "smooth",
+        "low",
+        "medium",
+        "high"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.macScreen.defaultQuality.auto",
+            "text" : "Auto"
+          },
+          "value" : "auto"
+        },
+        {
+          "title" : {
+            "key" : "settings.macScreen.defaultQuality.smooth",
+            "text" : "Smooth Motion"
+          },
+          "value" : "smooth"
+        },
+        {
+          "title" : {
+            "key" : "settings.macScreen.defaultQuality.low",
+            "text" : "Fixed Low (720p)"
+          },
+          "value" : "low"
+        },
+        {
+          "title" : {
+            "key" : "settings.macScreen.defaultQuality.medium",
+            "text" : "Fixed Medium (1080p)"
+          },
+          "value" : "medium"
+        },
+        {
+          "title" : {
+            "key" : "settings.macScreen.defaultQuality.high",
+            "text" : "Fixed High (Full)"
+          },
+          "value" : "high"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "auto",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.macScreenViewer",
+        "text" : "Mac Screen"
+      },
+      "help" : {
+        "key" : "settings.macScreen.defaultQuality.help",
+        "text" : "The quality a new Mac Screen session starts with. The session's toolbar still changes it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "macScreen.defaultQuality",
+      "keywords" : [
+        "mac screen",
+        "screen sharing",
+        "quality",
+        "resolution",
+        "frame rate",
+        "fps",
+        "720p",
+        "1080p",
+        "smooth"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "macScreen",
+        "defaultQuality"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:macScreen.defaultQuality"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.macScreen.defaultQuality",
+        "text" : "Default Quality"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "full",
+        "view"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.macScreen.defaultAccess.full",
+            "text" : "Full Control"
+          },
+          "value" : "full"
+        },
+        {
+          "title" : {
+            "key" : "settings.macScreen.defaultAccess.view",
+            "text" : "View Only"
+          },
+          "value" : "view"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "full",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.macScreenViewer",
+        "text" : "Mac Screen"
+      },
+      "help" : {
+        "key" : "settings.macScreen.defaultAccess.help",
+        "text" : "What Connect asks another Mac for. View Only shows the screen; Full Control also sends your clicks and keys."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "macScreen.defaultAccess",
+      "keywords" : [
+        "mac screen",
+        "screen sharing",
+        "access",
+        "view only",
+        "full control",
+        "connect",
+        "scope"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "macScreen",
+        "defaultAccess"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:macScreen.defaultAccess"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.macScreen.defaultAccess",
+        "text" : "Default Access"
       },
       "validation" : "portable"
     },

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 640,
+  "count": 642,
   "sections": [
     {
       "id": "general",
@@ -1121,6 +1121,33 @@
           "kind": "toggle",
           "default": false,
           "group": "Columns"
+        },
+        {
+          "key": "macScreen.defaultAccess",
+          "title": "Default Access",
+          "help": "What Connect asks another Mac for. View Only shows the screen; Full Control also sends your clicks and keys.",
+          "kind": "choice",
+          "default": "full",
+          "group": "Mac Screen",
+          "values": [
+            "full",
+            "view"
+          ]
+        },
+        {
+          "key": "macScreen.defaultQuality",
+          "title": "Default Quality",
+          "help": "The quality a new Mac Screen session starts with. The session's toolbar still changes it.",
+          "kind": "choice",
+          "default": "auto",
+          "group": "Mac Screen",
+          "values": [
+            "auto",
+            "smooth",
+            "low",
+            "medium",
+            "high"
+          ]
         },
         {
           "key": "navigation.history.scope",

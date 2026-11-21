@@ -3944,6 +3944,29 @@
       "title" : "Relay Only",
       "type" : "boolean"
     },
+    "macScreen.defaultAccess" : {
+      "default" : "full",
+      "description" : "What Connect asks another Mac for. View Only shows the screen; Full Control also sends your clicks and keys.",
+      "enum" : [
+        "full",
+        "view"
+      ],
+      "title" : "Default Access",
+      "type" : "string"
+    },
+    "macScreen.defaultQuality" : {
+      "default" : "auto",
+      "description" : "The quality a new Mac Screen session starts with. The session's toolbar still changes it.",
+      "enum" : [
+        "auto",
+        "smooth",
+        "low",
+        "medium",
+        "high"
+      ],
+      "title" : "Default Quality",
+      "type" : "string"
+    },
     "macScreen.shareWithoutAsking" : {
       "default" : false,
       "description" : "Your own cmux CLI, agents and devices turn sharing on with no sheet. Each device's access still applies.",
