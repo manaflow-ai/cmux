@@ -561,6 +561,30 @@ private final class LiveResizeWindow: NSWindow {
         #expect(sendRights(first.port) == 0)
     }
 
+    /// A layout change that shows in one commit (a zoom) announced the page's resize: each resize of the view in the
+    /// turn that shows it joins the window's fence, with the GPU's deadline at the commit's bound of refreshes (4 at
+    /// 60 Hz: 67 ms), and a resize in a later turn joins none. A change taken back before it showed owes none.
+    @Test func aResizeThatAPaneCommitAnnouncedJoinsTheFenceForItsTurnOnly() throws {
+        let (hosting, _, window) = makeHosted()
+        defer { window.close() }
+        hosting.paneCommitWillResize(true)
+        hosting.pageViewResized()
+        hosting.pageViewResized()
+        let first = try #require(fork.fences.first, "the resize that shows a zoom joined no fence")
+        #expect(fork.fences.count == 2)
+        #expect(first.timeoutMs == 67)
+        for done in fork.dones { done(true) }
+        endTurn()
+        #expect(!hosting.commitResizeOwed)
+        hosting.pageViewResized()
+        #expect(fork.fences.count == 2, "a resize after the commit's turn joined a fence")
+
+        hosting.paneCommitWillResize(true)
+        hosting.paneCommitWillResize(false)
+        hosting.pageViewResized()
+        #expect(fork.fences.count == 2, "a resize of a change taken back joined a fence")
+    }
+
     /// After its turn, a fence with a page still out keeps its send right until that page reports, then lets it go: a
     /// fence freed with its right would hold the window's commits for good, and one kept past `done` would too.
     @Test func aFenceOutlivesItsTurnUntilItsPagesReport() throws {

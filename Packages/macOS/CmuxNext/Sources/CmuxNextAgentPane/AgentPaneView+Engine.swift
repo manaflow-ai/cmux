@@ -59,7 +59,7 @@ extension AgentPaneView {
         if let key = NSApp.keyWindow, key !== window, key.parent === window { return key }
         guard window.firstResponder === window || window.firstResponder == nil else { return nil }
         return window.childWindows?.first { child in
-            child.isVisible && chromiumAgentPane(under: child, in: window) != nil
+            child.isVisible && chromiumAgentPane(under: child, in: window).map { $0.page?.isDrawnAway != true } == true // not a page that is drawn away (it keeps its place and its last frame)
         }
     }
 

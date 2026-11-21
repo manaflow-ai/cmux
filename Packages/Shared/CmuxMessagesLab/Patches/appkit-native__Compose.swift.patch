@@ -284,7 +284,7 @@
 +        }
 +        if let onPasteImage, pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }  // cmux
          super.paste(sender)
-+    }
+     }
 +
 +    /// cmux: Paste and Match Style (Edit menu, Cmd+Shift+V): the clipboard's
 +    /// plain text only, at the caret (replacing the selection), as its own undo
@@ -354,7 +354,7 @@
 +        dragAnswer = nil
 +        onDropTargetChange(false)  // cmux
 +        super.draggingEnded(sender)
-     }
++    }
 +    override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
 +        takesDrag(sender) || super.prepareForDragOperation(sender)
 +    }
@@ -614,14 +614,14 @@
              // Messages' glyph is ChatKit's AudioMessageEntryViewButton waveform at 20 pt
              // (fitted to the lossless stills): 5 capsules 1.818 pt wide, 3.636 pt apart,
              // 3.613 / 7.25 / 14.522 pt tall; centre 557.5 pt from the left of a 628 pt window.
-@@ -958,9 +1233,56 @@
+@@ -958,7 +1233,57 @@
      }
  
      private func renderChips() {
 -        strip.update(chips, width: ComposeView.fieldWidth(bounds.width), scale: renderScale)
 +        strip.update(stripChips, width: ComposeView.fieldWidth(bounds.width), scale: renderScale)
-     }
- 
++    }
++
 +    // cmux: attachments sit in the field's text at the caret (Draft+InlineMarks.swift), not in a
 +    // strip above it; the strip stays empty.
 +    private var stripChips: [Attachment] { [] }
@@ -629,6 +629,9 @@
 +    private(set) var inlineAttachments: [ID: ComposeInlineAttachment] = [:]
 +    /// cmux: the remove button over the inline attachment under the pointer.
 +    let inlineHover = ComposeInlineRemoveHover()
++    /// cmux: true while the draft takes an edit the field made (an undo that put a picture back):
++    /// `update` leaves the field's text alone then, the field already shows it.
++    var draftFollowsField = false
 +
 +    /// The remove button of an inline attachment: its mark leaves the text as an edit, so the
 +    /// draft follows through the text view's own change path (`textDidChange`).
@@ -667,12 +670,10 @@
 +        }
 +        let loc = min(selection.location, new.length)
 +        return NSRange(location: loc, length: min(selection.length, new.length - loc))
-+    }
-+
+     }
+ 
      /// The attachment whose remove control is at p (window coordinates).
-     func chip(at p: CGPoint) -> ID? {
-         let f = fieldRect
-@@ -982,14 +1304,23 @@
+@@ -982,14 +1307,27 @@
      /// transaction (catalyst's `ComposeView.update`).
      func update(state: AppState, send: Bool, begin: CFTimeInterval) {
          let d = state.ui.draft
@@ -687,12 +688,17 @@
 +        if (!(tv.string as NSString).isEqual(to: d.text) && tv.string != d.text) || d.attachments != chips {
              // Never replace text that holds marked (IME) text: the input
              // method owns it until it commits.
-             if !tv.hasMarkedText() {
+-            if !tv.hasMarkedText() {
 -                tv.textStorage?.setAttributedString(NSAttributedString(string: d.text, attributes: ComposeView.typing))
 -                tv.typingAttributes = ComposeView.typing
++            // cmux: nor while the draft follows an edit the field made (`draftFollowsField`).
++            if !tv.hasMarkedText(), !draftFollowsField {
 +                let old = tv.string as NSString, sel = tv.selectedRange()
-+                tv.textStorage?.setAttributedString(ComposeInlineText.build(d.text, attachments: d.attachments, cache: &inlineAttachments,
-+                                                                            scale: renderScale, onRemove: { [weak self] in self?.removeInline($0) }))
++                // cmux: a picture that came in is an undo step; any other change of the text takes the
++                // field's entries off the undo stack (ComposeFieldUndo.swift, the Cmd+Z crash).
++                tv.takeDraftText(ComposeInlineText.build(d.text, attachments: d.attachments, cache: &inlineAttachments,
++                                                         scale: renderScale, onRemove: { [weak self] in self?.removeInline($0) }),
++                                 undoable: ComposeView.onlyArrived(d.attachments, over: chips))
 +                tv.typingAttributes = ComposeInlineText.attributes(inline: !d.attachments.isEmpty)
 +                inlineHover.hide()  // cmux: the attachments moved; the pointer shows the button again
 +                tv.setSelectedRange(ComposeView.caretAfterRebuild(old: old, new: tv.string as NSString, selection: sel,
@@ -700,7 +706,7 @@
                  if !DeferredSpellChecker.useAppKit { tv.spell.textDidChange() }
              }
          }
-@@ -1001,14 +1332,10 @@
+@@ -1001,14 +1339,10 @@
          let attachmentsChanged = d.attachments != chips
          if attachmentsChanged { chips = d.attachments; renderChips(); onAttachmentsChanged?() }
          text = d.text
@@ -716,7 +722,7 @@
          CATransaction.commit()
          let h = height(for: d.text, width: bounds.width)
          let old = fieldHeight
-@@ -1045,6 +1372,7 @@
+@@ -1045,6 +1379,7 @@
              Animate.sampledUntilMinimum(veil, "opacity", Springs.fieldOpacity, base: 1, begin: begin)
              onSendPulse?(begin)
          }
@@ -724,7 +730,7 @@
      }
  
      /// The glass over a bubble still inside the field after the fill has
-@@ -1079,7 +1407,7 @@
+@@ -1079,7 +1414,7 @@
          guard size.width > 0, size.height > 0, var rep = tv.bitmapImageRepForCachingDisplay(in: shown) else { return }
          // AppKit sizes the cache for the main screen when the view has no window (1x on a Mac
          // whose main display is 1x); the snapshot is drawn at the scale of the tree it goes into.
@@ -733,7 +739,7 @@
          // no trap on a NaN or huge size (crash ratchet)
          let wide = CrashGuard.int((size.width * scale).rounded(.up), in: 0...1 << 16), high = CrashGuard.int((size.height * scale).rounded(.up), in: 0...1 << 16)
          if rep.pixelsWide != wide || rep.pixelsHigh != high,
-@@ -1124,15 +1452,17 @@
+@@ -1124,15 +1459,17 @@
  
      private func drawButtons(_ ctx: CGContext) {
          ctx.translateBy(x: 0, y: -(995 + dy))
