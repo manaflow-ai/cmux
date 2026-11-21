@@ -9,8 +9,10 @@ once as the machine has CPUs, each as `bash -euo pipefail -c RUN` in the current
 with the caller's environment, and prints each one's output in a log group when it ends.
 When the table has a `[setup]` command for the job it runs first, once, and only when a step
 is routed: it fills `$CI_TOOLS` (a directory of this run; `$CI_TOOLS/bin` leads the steps'
-PATH) with what the job's steps share, where a warm machine would already hold it. A setup
-that fails fails the job. It exits 1 only when a step with `blocks = true` failed. A step with
+PATH) with what the job's steps share, where a warm machine would already hold it. A step that
+lists `needs = ["bun"]` also gets that `[tools]` command run first (bun, node: a tool only the
+routed steps that need it pay for), all of them at once after the setup, each in `$CI_TOOLS`. A
+setup or tool that fails fails the job. It exits 1 only when a step with `blocks = true` failed. A step with
 `blocks = false` that fails or runs past its timeout is a warning annotation: an advisory
 step never turns its job red. `--label NAME` says the event is a label change of NAME;
 then only the steps that list NAME in `labels` run.
@@ -38,13 +40,15 @@ import threading
 import time
 import tomllib
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 TABLE = ROOT / "ci" / "steps.toml"
 MAX_JOBS = 8
 SETUP_TIMEOUT = 600
+# Each `[tools]` command, all started together after the setup: a download and a checksum, not a build.
+TOOL_TIMEOUT = 180
 # The pipeline's own definition: a change to any of them routes every step, so the change runs what it moved.
 PIPELINE_PATHS = ("ci/steps.toml", "ci/run", "scripts/ci/ci_steps.py", ".github/workflows/pr-pipeline.yml")
 ADVISORY_JOB = "advisory"
@@ -68,6 +72,7 @@ class Step:
     timeout: int = 600
     title: str = ""
     about: str = ""
+    needs: tuple[str, ...] = ()
 
 
 @dataclass
@@ -75,6 +80,7 @@ class Table:
     jobs: dict[str, str]
     steps: dict[str, Step]
     setup: dict[str, str]
+    tools: dict[str, str] = field(default_factory=dict)
 
 
 def glob_pattern(glob: str) -> re.Pattern[str]:
@@ -112,6 +118,10 @@ def parse(doc: dict) -> Table:
             raise TableError(f"[setup] {job!r} is not one of [jobs] {sorted(jobs)}")
         if not isinstance(command, str) or not command.strip():
             raise TableError(f"[setup] {job}: a command")
+    tools = doc.get("tools") or {}
+    for tool, command in tools.items():
+        if not isinstance(command, str) or not command.strip():
+            raise TableError(f"[tools] {tool}: a command")
     steps: dict[str, Step] = {}
     known = set(Step.__dataclass_fields__) - {"name", "klass"} | {"class"}
     for name, raw in (doc.get("step") or {}).items():
@@ -132,6 +142,7 @@ def parse(doc: dict) -> Table:
             timeout=raw.get("timeout", 600),
             title=raw.get("title", ""),
             about=raw.get("about", ""),
+            needs=tuple(raw.get("needs", ())),
         )
         if step.job not in jobs:
             raise TableError(f"step {name}: job {step.job!r} is not one of [jobs] {sorted(jobs)}")
@@ -143,12 +154,14 @@ def parse(doc: dict) -> Table:
             raise TableError(f"step {name}: a step that does not block runs in job {ADVISORY_JOB!r}, class 'idle'")
         if step.blocks and step.job == ADVISORY_JOB:
             raise TableError(f"step {name}: job {ADVISORY_JOB!r} holds only steps that do not block")
+        if not all(isinstance(t, str) and t in tools for t in step.needs):
+            raise TableError(f"step {name}: `needs` names tools of [tools] {sorted(tools)}")
         if not isinstance(step.timeout, int) or step.timeout <= 0:
             raise TableError(f"step {name}: `timeout` is a positive number of seconds")
         if not all(isinstance(g, str) and g and not g.startswith(("/", "!")) for g in step.inputs):
             raise TableError(f"step {name}: `inputs` are repo-relative path globs")
         steps[name] = step
-    return Table(jobs=dict(jobs), steps=steps, setup=dict(setup))
+    return Table(jobs=dict(jobs), steps=steps, setup=dict(setup), tools=dict(tools))
 
 
 def load(path: Path = TABLE) -> Table:
@@ -247,6 +260,18 @@ def run_job(table: Table, job: str, paths: list[str] | None, label: str | None =
             print_log(setup, out)
             results.append(setup)
             ready = setup.ok
+        needed = sorted({t for step in steps for t in step.needs})
+        if ready and needed:
+            # Each tool is a download: all at once, and the steps wait for the slowest.
+            with ThreadPoolExecutor(max_workers=len(needed)) as pool:
+                def make_tool(tool: str) -> Result:
+                    result = run_step(Step(name=f"tool ({tool})", job=job, run=table.tools[tool],
+                                           timeout=TOOL_TIMEOUT, title=f"{tool} for {job}"), env)
+                    print_log(result, out)
+                    return result
+                made = list(pool.map(make_tool, needed))
+            results += made
+            ready = all(r.ok for r in made)
         if ready:
             # Advisory steps wait on the network, not a CPU: they all start at once, as before.
             limit = len(steps) if job == ADVISORY_JOB else min(len(steps), workers or max(2, os.cpu_count() or 1))

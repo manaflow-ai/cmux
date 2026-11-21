@@ -474,10 +474,10 @@ button.cv-subagent > :last-child {
 /* The header's height (trayHeadHeight.experiment.ts; Leo, 2026-11-21: "maybe it's too short rn?"): the
    folded tray is this one row, so it alone grows; the lines keep their row height. */
 .acpmux-running-tray[data-head-height="roomy"] > .acpmux-running-tray__head {
-  height: calc(34px * var(--cmux-interface-scale, 1));
+  height: calc(8.5 * var(--grid-base));
 }
 .acpmux-running-tray[data-head-height="tall"] > .acpmux-running-tray__head {
-  height: calc(40px * var(--cmux-interface-scale, 1));
+  height: calc(10 * var(--grid-base));
 }
 /* The `kinds` arm (trayFoldHead.experiment.ts): each kind's mark then its count, the first mark in the
    lines' icon column, the kinds apart by the counts' separator. They give way before the time and the
