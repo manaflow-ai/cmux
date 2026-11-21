@@ -110,7 +110,186 @@ pub fn check_private_dir(dir: &Path, what: &str) -> Result<()> {
             dir.display()
         )));
     }
+    // The ACL of the folder itself, through a symlink to it if `dir` is one
+    // (a stowed `~/.config`): reading the symlink's own ACL would miss it.
+    let folder = std::fs::File::open(dir).map_err(|e| Error::io(dir.display(), e))?;
+    if crate::acl::fd_write_grants(&folder).map_err(|e| Error::io(dir.display(), e))? {
+        return Err(acl_refusal(dir, what));
+    }
     Ok(())
+}
+
+/// A folder above the LaunchAgent log: owned by this account or root, and
+/// writable by no other account (mode or ACL), so no one else can rename
+/// or replace a folder of the log's path. A sticky folder of root's
+/// (`/tmp`) passes: there only an entry's owner can rename it.
+#[cfg(unix)]
+fn check_folder_above(dir: &Path) -> Result<()> {
+    let what = "a folder above the service log";
+    let meta = match std::fs::symlink_metadata(dir) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(Error::io(dir.display(), e)),
+    };
+    let owner = crate::sys::owner_uid(&meta);
+    let euid = crate::sys::euid();
+    let mode = crate::fsx::mode_of(&meta);
+    let sticky_root = owner == 0 && mode & 0o1000 != 0;
+    if (owner != euid && owner != 0) || (mode & 0o022 != 0 && !sticky_root && !meta.is_symlink()) {
+        return Err(Error::rejected(format!(
+            "{} ({what}) is owned by uid {owner} with mode {mode:o}: another account could replace a folder of the service log's path. Fix its owner or mode (chmod go-w), then run the command again",
+            dir.display()
+        )));
+    }
+    check_no_acl_grants(dir, what)
+}
+
+/// launchd opens the log by its path, so every folder that path goes
+/// through must be safe from other accounts ([`check_folder_above`]).
+/// The walk resolves the path one name at a time and follows each symlink
+/// by hand, so it also checks the folders that only a symlink's target
+/// names, through any chain of symlinks (`~/Library` -> a link in a
+/// shared folder -> the real folder). A missing name is where install
+/// will make a folder: refused when other accounts can write the folder
+/// it goes in, since one of them could make it first and own it.
+#[cfg(unix)]
+fn check_log_path(logs: &Path) -> Result<()> {
+    use std::ffi::OsString;
+    use std::path::Component;
+
+    /// About the kernels' own limits (40 on Linux, 32 on macOS).
+    const MAX_LINKS: usize = 40;
+    fn push(todo: &mut Vec<OsString>, path: &Path) {
+        for part in path.components().rev() {
+            match part {
+                Component::Normal(name) => todo.push(name.to_owned()),
+                Component::ParentDir => todo.push(OsString::from("..")),
+                Component::RootDir | Component::CurDir | Component::Prefix(_) => {}
+            }
+        }
+    }
+
+    let logs = if logs.is_absolute() {
+        logs.to_path_buf()
+    } else {
+        std::env::current_dir().map_err(|e| Error::io(logs.display(), e))?.join(logs)
+    };
+    // Names still to walk, the next one last.
+    let mut todo = Vec::new();
+    push(&mut todo, &logs);
+    // The folder reached so far, with no symlink in it.
+    let mut at = PathBuf::from("/");
+    check_folder_above(&at)?;
+    let mut links = 0;
+    while let Some(name) = todo.pop() {
+        if name == ".." {
+            at.pop();
+            continue;
+        }
+        let next = at.join(&name);
+        let meta = match std::fs::symlink_metadata(&next) {
+            Ok(meta) => meta,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return check_creatable(&next, &at);
+            }
+            Err(e) => return Err(Error::io(next.display(), e)),
+        };
+        check_folder_above(&next)?;
+        if meta.is_symlink() {
+            links += 1;
+            if links > MAX_LINKS {
+                return Err(Error::rejected(format!(
+                    "{} (on the service log's path) goes through more than {MAX_LINKS} symlinks (a loop?). Fix the symlinks, then run the command again",
+                    logs.display()
+                )));
+            }
+            let target = std::fs::read_link(&next).map_err(|e| Error::io(next.display(), e))?;
+            if target.is_absolute() {
+                at = PathBuf::from("/");
+            }
+            push(&mut todo, &target);
+        } else {
+            at = next;
+        }
+    }
+    Ok(())
+}
+
+/// `missing` (on the log's path) does not exist and install will make it
+/// in `parent`, a folder the walk already checked: refused when other
+/// accounts can write `parent` (a sticky `/tmp` included), since one of
+/// them could make `missing` first.
+#[cfg(unix)]
+fn check_creatable(missing: &Path, parent: &Path) -> Result<()> {
+    let meta = std::fs::metadata(parent).map_err(|e| Error::io(parent.display(), e))?;
+    if crate::fsx::mode_of(&meta) & 0o022 != 0 {
+        return Err(Error::rejected(format!(
+            "{} (on the service log's path) does not exist, and other accounts can write {}: one of them could make it first and own it. Make it yourself (mkdir -m 700 {}), then run the command again",
+            missing.display(),
+            parent.display(),
+            missing.display()
+        )));
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn check_log_path(_logs: &Path) -> Result<()> {
+    Ok(())
+}
+
+/// Refuses `path` when a macOS ACL entry allows writing it ([`crate::acl`]):
+/// another account could replace what cmux puts there, whatever its mode
+/// says. No-op where there are no such ACLs.
+pub fn check_no_acl_grants(path: &Path, what: &str) -> Result<()> {
+    if crate::acl::write_grants(path).map_err(|e| Error::io(path.display(), e))? {
+        return Err(acl_refusal(path, what));
+    }
+    Ok(())
+}
+
+/// Refuses the file `path` (`what`) when another account could write it:
+/// not owned by this account or root, a group or other write bit, or a
+/// macOS ACL entry that allows writing. A missing file passes.
+#[cfg(unix)]
+pub(crate) fn check_not_shared(path: &Path, what: &str) -> Result<()> {
+    use std::os::unix::fs::MetadataExt as _;
+    let meta = match std::fs::symlink_metadata(path) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(Error::io(path.display(), e)),
+    };
+    let owner = meta.uid();
+    let mode = meta.mode() & 0o7777;
+    if (owner != crate::sys::euid() && owner != 0) || mode & 0o022 != 0 {
+        return Err(Error::rejected(format!(
+            "{} ({what}) is owned by uid {owner} with mode {mode:o}: another account could change what the service manager runs or stops. Fix its owner or mode (chmod go-w {}), then run the command again",
+            path.display(),
+            path.display()
+        )));
+    }
+    check_no_acl_grants(path, what)
+}
+
+#[cfg(not(unix))]
+pub(crate) fn check_not_shared(_path: &Path, _what: &str) -> Result<()> {
+    Ok(())
+}
+
+/// `e` with what came of the command added (`nothing was changed`): the
+/// checks say why, their callers say what was done before they refused.
+pub(crate) fn outcome(mut e: Error, what: &str) -> Error {
+    e.message = format!("{}; {what}", e.message);
+    e
+}
+
+fn acl_refusal(path: &Path, what: &str) -> Error {
+    Error::rejected(format!(
+        "{} ({what}) has an ACL entry that allows writing (`ls -led {}` lists it): another account could replace what cmux puts there, whatever its mode says. Remove that entry (`chmod -N {}` removes them all), then run the command again",
+        path.display(),
+        path.display(),
+        path.display()
+    ))
 }
 
 #[cfg(not(unix))]
@@ -227,9 +406,11 @@ impl Services<'_> {
         }
         match self.layout.service {
             ServiceKind::SystemdUser { .. } | ServiceKind::SystemdSystem { .. } => {
-                systemd::check_sources(self)?;
+                systemd::check_sources(self).map_err(|e| outcome(e, "nothing was changed"))?;
             }
-            ServiceKind::LaunchAgent { .. } => launchd::check_source(self)?,
+            ServiceKind::LaunchAgent { .. } => {
+                launchd::check_source(self).map_err(|e| outcome(e, "nothing was changed"))?;
+            }
             _ => {}
         }
         Ok(foreign)
@@ -350,6 +531,7 @@ impl Services<'_> {
                 )));
             }
             check_private_dir(&logs, "the service log directory")?;
+            check_log_path(&logs)?;
             launchd::check_log(&logs.join("server.log"))?;
         }
         Ok(())
@@ -371,6 +553,13 @@ impl Services<'_> {
         // Uninstall removes the unit files by name: a folder another account
         // can write would let it swap one between the check and the removal.
         self.check_unit_dirs()?;
+        // The manager reads a unit file again when uninstall stops it (an
+        // implicit reload): one another account can write could make that
+        // stop reach a unit that is not cmux's.
+        for (path, _) in self.unit_files()? {
+            check_not_shared(&path, "a service unit file cmux wrote")
+                .map_err(|e| outcome(e, "nothing was changed"))?;
+        }
         let removed = match &self.layout.service {
             ServiceKind::SystemdUser { .. } | ServiceKind::SystemdSystem { .. } => {
                 systemd::uninstall(self)
