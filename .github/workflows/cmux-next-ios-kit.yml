@@ -16,6 +16,11 @@ on:
 
 permissions: {}
 
+# At most one queued run: a newer schedule run replaces a pending one.
+concurrency:
+  group: cmux-next-ios-kit
+  cancel-in-progress: false
+
 jobs:
   # No secrets: it only dispatches this workflow on feat-cmux-next.
   start:
@@ -23,7 +28,7 @@ jobs:
     permissions:
       actions: write # dispatch cmux-next-ios-kit.yml
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
     env:
       # A scheduled job's GitHub API waits stop here and fail loud (scripts/ci/gh_budget_wait.sh).
