@@ -13,6 +13,7 @@ import { MarkdownField, type MarkdownFieldHandle, type MarkdownFieldProps } from
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { ChromeArea, type HideableChromeItem } from "../../ui/HideableChrome";
 import { ComposerListAnchor } from "./backdropLayer";
+import { useComposerLens } from "../../ui/glass/composerLens";
 import { remember } from "./composer/pasteMarks";
 import { acpmuxPerf } from "./perf";
 import { holdFlag, setRef } from "./heldFlag";
@@ -282,6 +283,8 @@ export function ComposerBox({
   );
   // The box the `/` and `@` lists in `top` float above, drawn outside its glass (backdropLayer.tsx).
   const [boxElement, setBoxElement] = useState<HTMLDivElement | null>(null);
+  // Under the Lens glass mode the box bends the transcript under it (ui/glass/composerLens.ts).
+  useComposerLens(boxElement);
   const attachBox = useCallback(
     (node: HTMLDivElement | null) => {
       setBoxElement(node);
