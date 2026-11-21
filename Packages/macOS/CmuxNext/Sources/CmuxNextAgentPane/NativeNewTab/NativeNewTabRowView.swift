@@ -74,19 +74,22 @@ final class NativeNewTabRowView: NSView {
     }
 
     private static func image(for content: NativeNewTabRowContent) -> NSImage? {
-        if let icon = content.icon, let comma = icon.firstIndex(of: ","), icon[icon.index(after: comma)...].hasPrefix("base64,"),
-           let cached = faviconImages.object(forKey: icon as NSString) {
-            return cached
+        if let icon = content.icon, let comma = icon.firstIndex(of: ",") {
+            let header = icon[..<comma]
+            guard header.hasSuffix(";base64") else { return placeholder(for: content.symbol) }
+            if let cached = faviconImages.object(forKey: icon as NSString) { return cached }
+            if let data = Data(base64Encoded: icon[icon.index(after: comma)...]), let image = NSImage(data: data) {
+                image.size = NSSize(width: 16, height: 16)
+                faviconImages.setObject(image, forKey: icon as NSString)
+                return image
+            }
         }
-        if let icon = content.icon, let comma = icon.firstIndex(of: ","), icon[icon.index(after: comma)...].hasPrefix("base64,"),
-           let data = Data(base64Encoded: String(icon[icon.index(after: comma)...].dropFirst(7))),
-           let image = NSImage(data: data) {
-            image.size = NSSize(width: 16, height: 16)
-            faviconImages.setObject(image, forKey: icon as NSString)
-            return image
-        }
-        return NSImage.packOverride(forSymbol: content.symbol, pointSize: NSFont.systemFontSize)
-            ?? NSImage(systemSymbolName: content.symbol, accessibilityDescription: nil)
+        return placeholder(for: content.symbol)
+    }
+
+    private static func placeholder(for symbol: String) -> NSImage? {
+        NSImage.packOverride(forSymbol: symbol, pointSize: NSFont.systemFontSize)
+            ?? NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
     }
 
     private func updateTint() {
