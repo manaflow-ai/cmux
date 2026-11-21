@@ -116,8 +116,7 @@ final class MacScreenPageService: InternalPageProvider {
         guard let services else { return key }
         let window = services.windowController(showing: pane)
         let made = pages.whenCreated(key, focus: focus, then: created)
-        var onCreated: (@MainActor (SurfaceID) -> Void)?
-        if let made { onCreated = { (_: SurfaceID) in made() } }
+        let onCreated: (@MainActor (SurfaceID) -> Void)? = if let made { { (_: SurfaceID) in made() } } else { nil }
         if let window, services.pages.openStoreTab(.macScreen, in: pane, window: window, focus: focus, key: key,
                                                    created: onCreated) != nil {
             return key
