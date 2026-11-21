@@ -64,9 +64,9 @@ public final class SidebarSameTurn {
     /// marks the rows pass, which walks every workspace. `showsFirstRunAtOnce` is the bridge's word for the
     /// rows pass of a window with no saved spaces, whose seed wrote the window's space from the store: the
     /// first run of that pass is part of the window's making, so the view shows its rows in that turn, one
-    /// time (`SidebarView.showRowsOfTheMaking`, decision of 2026-11-16). That run uses the word up also when
+    /// time (`SidebarView.showRowsOfTheMaking`). That run uses the word up also when
     /// it changes no row; each later run draws as before. The run draws nothing itself: it records that the
-    /// show is owed, and its caller makes the show after it (`showOwed`, decision of 2026-11-17).
+    /// show is owed, and its caller makes the show after it (`showOwed`).
     public func observe<Value: Sendable>(listsRows: Bool = false, showsFirstRunAtOnce: Bool = false,
                                   _ compute: @escaping @MainActor @Sendable () -> Value,
                                   apply: @escaping @MainActor @Sendable (Value) -> Void,

@@ -59,7 +59,7 @@ struct AgentPeerUploads {
                 if let batch = begun.batchToken { reply["batchToken"] = batch }
                 return AgentPaneReply.success(reply)
             case .chunk(let token, let offset, let data):
-                guard let received = stages.chunk(token, offset: offset, data: data, owns: owns, work: services.work) else { return failed }
+                guard let received = await stages.chunk(token, offset: offset, data: data, owns: owns, work: services.work) else { return failed }
                 return AgentPaneReply.success(["offset": received])
             case .finish(let token):
                 let result = await stages.finish(token, owns: owns, work: services.work) { staged -> Result<String, AgentPaneFilePutFailure> in

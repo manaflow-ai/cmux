@@ -782,8 +782,23 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "4ee005e76cf28ac4642567a4aed4e32ad2b7990d4e284222d051ef17af196cd7",
-      "size": 84518
+      "sha256": "65a5eabffe67c033c1dd458c6fda48231de8bcff169315927d2335c07171f574",
+      "size": 85528
+    },
+    {
+      "path": "ComputerUseApprovalsRequest.java",
+      "sha256": "8b8059fbe3a8b3bf7e2876c90e24ebdd2a3a83cfc5e73e227d6486e6547fdd8e",
+      "size": 3370
+    },
+    {
+      "path": "ComputerUseConfigRequest.java",
+      "sha256": "8a7f9340f78fd7def01b7b9f569684eb30c9c499e057569f87cf938fef599541",
+      "size": 2106
+    },
+    {
+      "path": "ComputerUseEndpointRequest.java",
+      "sha256": "100dc9c9184cfd9274df15efd5b412090483f82797547f7241476d9f60a2af95",
+      "size": 1427
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1457,8 +1472,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "3f74e272cfa1232c04cd6404c4c8dda55c3df47a440a8325e2b1dca2cd965813",
-      "size": 72401
+      "sha256": "0d96a2747061bb722ae784e63d22d7be33fd57ca68d27ae097d5ac99ad8aa41d",
+      "size": 73281
     },
     {
       "path": "GetBlobRequest.java",
@@ -2232,7 +2247,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "62efac0e0a7f8b991a41e6c1931b5ce3f2326eb4fafe146f3cafcfb6e4334321",
+      "sha256": "9432c03d4d33f7bbc7a09c820359a22c8ef1f37ea1af85cfed7af7a0eaf3d750",
       "size": 8310
     },
     {
@@ -2264,6 +2279,11 @@
       "path": "PutSessionRequest.java",
       "sha256": "cc4fa0c9bfec9690d12eee64fbfd6edbddbb719265b398cab940493a50861d26",
       "size": 5792
+    },
+    {
+      "path": "QuickTerminalRequest.java",
+      "sha256": "fb7a43f3ce7a3213047aae7e5b6a60c1f12a4f33b24eaa4f7da4a88b12c200de",
+      "size": 4758
     },
     {
       "path": "ReadScreenRequest.java",
@@ -2321,6 +2341,11 @@
       "size": 2136
     },
     {
+      "path": "RemoteHostAppPermissions.java",
+      "sha256": "5fbf41c5c3fe0e156c819b28a2fdda4cdbcc8b832c39e227fd1468e59af65cbc",
+      "size": 2914
+    },
+    {
       "path": "RemoteHostAppRequest.java",
       "sha256": "1ba67d6e2f00ecad3bdf63540d79d44df0da5480c31708bc3b6fae2ea51bde68",
       "size": 1373
@@ -2337,8 +2362,8 @@
     },
     {
       "path": "RemoteHostConfigRequest.java",
-      "sha256": "34f9c60ca5e5ab27d94885dae0780d5070b8c8fd241c9ec6a862caef3beef765",
-      "size": 3587
+      "sha256": "5eac6a86904840b3de2a1919b26a780d6fa5af1f57bc9e6a36a98904cc5b0ce3",
+      "size": 4436
     },
     {
       "path": "RemoteHostStatusRequest.java",
@@ -3762,7 +3787,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "79bcfc4e75695f64971f2921ecfa0cf4a5bdf9af0d0e4a3438cb3cb37f757362",
+  "ir_sha256": "2fc186d7961113412cfc6906e8855fc2532403bc1bc55e2b1448d569f9fe5226",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

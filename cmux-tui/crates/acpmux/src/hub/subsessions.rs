@@ -645,6 +645,8 @@ impl Hub {
             subsession: Some(link),
             created_by: Some(super::created_by::agent(&parent.id, pm)),
             lineage: Some(lineage),
+            // The answer of the Mac that started a remote chain (`cmux_tools_answer.rs`).
+            env: super::cmux_tools_answer::inherited(Default::default(), &pm.session_env),
             ..Default::default()
         };
         let probe = admitted.run(self.new_session(request)).await?;

@@ -35,6 +35,7 @@ public final class AgentPaneView: NSView {
     public var customization = AgentPaneCustomization() { didSet { if customization != oldValue { applyCustomization() } } }
     public var shortcuts = AgentPaneShortcuts() { didSet { if shortcuts != oldValue { applyShortcuts() } } }
     public var previewFeatures = false { didSet { if previewFeatures != oldValue { applyPreviewFeatures() } } }
+    public var liveTree = false { didSet { if liveTree != oldValue { applyLiveTree() } } }
     /// The `agent.sessionStatus` tunable (Debug Settings), followed live (``AgentPaneSessionStatus``).
     public internal(set) var sessionStatus = AgentPaneTunables.sessionStatus.value { didSet { if sessionStatus != oldValue { AgentPaneSessionStatus.push(to: self) } } }
     /// The newest device chats for the New Tab cards.
@@ -73,6 +74,9 @@ public final class AgentPaneView: NSView {
     public typealias PageFocusLoss = @MainActor (_ window: NSWindow?, _ detail: String) -> Void
     /// The app's focus log for this page's `focus-lost` events (``AgentPaneShared/focusLoss``); nil records none.
     public var onPageFocusLost: PageFocusLoss?
+    /// Draws this chat's last page (its saved or held frame, or the New Tab frame) under it in its pane, when a hold gave up on
+    /// it before it painted (``standInUntilPainted()``) or a New Tab page has a new size unpainted; true when one shows; set by its pane.
+    public var drawsLastPage: (() -> Bool)? { didSet { redraw.paneWired(self) } }
     /// The line that says the chat runs on another cmux install's acpmux (cx-fcaq).
     var otherInstallNotice: AgentPaneNotice?
     /// The pane's daemon is another cmux install's (cx-fcaq); the line shows only while a request waits.
@@ -126,6 +130,8 @@ public final class AgentPaneView: NSView {
     }
     private var reduceMotionObserver: MainActorObservation?
     private var reduceMotionOverrideObserver: MainActorObservation?
+    /// The app finished a GitHub install (``CloudGitHubChanges``): the folder menu reads GitHub again.
+    var gitHubChangeObservation: Task<Void, Never>? { didSet { oldValue?.cancel() } }
     /// Records the user's real key and mouse events in this pane (``AgentPaneUserGestures``).
     private var gestureMonitor: Any?
     var transportPacer: AgentPaneFramePacer?
@@ -158,6 +164,9 @@ public final class AgentPaneView: NSView {
     /// Bounded reports from the app-owned webview UI picker.
     /// Receives a bounded element report while the debug UI pointer is active.
     public var uiPointerReport: (@MainActor (JSONValue) -> Void)?
+    /// Told the ids of browser picks (``AgentPaneDesignSelection``) that left this chat's composer,
+    /// removed or sent, so the browser takes their pins off its page.
+    public var designSelectionReleased: (@MainActor ([String]) -> Void)?
     /// Where (screen points) and when (system uptime) this page's context menu last opened:
     /// Inspect Element starts the picker there, with no app-wide right-click monitor.
     public internal(set) var lastContextMenu: (point: NSPoint, uptime: TimeInterval)?
@@ -285,6 +294,7 @@ public final class AgentPaneView: NSView {
         self.webView = webView
         super.init(frame: .zero)
         pageEvents?.onUiPointerReport = { [weak self] value in self?.uiPointerReport?(value) }
+        pageEvents?.onDesignSelectionReleased = { [weak self] ids in self?.designSelectionReleased?(ids) }
         pageEvents?.onFlicker = { [weak self] params in self?.recordPageFlicker(params) }
         pageResources?.themeKey = { [weak self] in
             guard let self else { return nil }
@@ -447,6 +457,7 @@ public final class AgentPaneView: NSView {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             uiScaleObservation?.cancel()
+            gitHubChangeObservation?.cancel()
             actAsMePill.stop()
             sessionStatusObservation?.cancel()
             model.sessionInfo.hostObservation?.cancel()
@@ -609,7 +620,9 @@ public final class AgentPaneView: NSView {
 
     public override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
-        themeFollower.rebind()
+        themeFollower.rebind(); redraw.paneWired(self)
+        // Left the drawn keep by any path (a pane took it back, the closed-tab retirer moved it): no longer away.
+        if page?.isDrawnAway == true, AgentPageDrawnParking.holding(self) == nil { cameBackDrawn() }
         onNativeToolOwnerChange?()
     }
 

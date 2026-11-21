@@ -55,7 +55,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: ios-reliability-matrix-${{ github.ref }}
+  # A dispatch (main's nightly cron) or a schedule gets a group of its own: with
+  # cancel-in-progress false, GitHub still cancels a run pending in a group when a newer
+  # one joins it, so a nightly queued behind a running push run would be dropped by the
+  # next push (cmux-next-ios-kit.yml's nightly 43572826977, 2026-11-14).
+  group: ios-reliability-matrix-${{ github.ref }}${{ contains(fromJSON('["workflow_dispatch","schedule"]'), github.event_name) && format('-nightly-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -321,7 +325,7 @@ jobs:
   report:
     name: matrix report
     needs: [protocol, ios]
-    if: always()
+    if: ${{ !cancelled() }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 5
     steps:

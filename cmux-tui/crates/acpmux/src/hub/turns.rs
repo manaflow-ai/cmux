@@ -329,7 +329,7 @@ impl Hub {
             return answer;
         }
         if opts.resend
-            && let Some(logged) = self.logged_prompt(session, &prompt_id)
+            && let Some(logged) = self.logged_prompt_past_inbox(session, &prompt_id)
         {
             if let Some(f) = opts.on_accepted.take() {
                 let value = match &logged {
@@ -500,8 +500,12 @@ impl Hub {
         let replaced = std::sync::OnceLock::<Vec<String>>::new();
         // Another agent's message queued as the running turn crosses its cap still gets the
         // turn its notice (`turn_cap.rs`): the timer may have looked at the queue just before.
-        // An FYI asks for none.
-        let fyi = opts.class == Some(crate::prompt_class::PromptClass::Fyi);
+        // An unclassified notice is informational by default, so use its effective class for
+        // cap checks and routing before any path can treat it as a result.
+        let notice_class = super::inbox::is_notice(opts.provenance.as_ref())
+            .then_some(crate::prompt_class::PromptClass::Fyi);
+        let effective_class = opts.class.or(notice_class);
+        let fyi = effective_class == Some(crate::prompt_class::PromptClass::Fyi);
         let from_agent =
             super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref()).is_some()
                 && !opts.send_now;
@@ -543,7 +547,7 @@ impl Hub {
             &blocks,
             control,
             opts.send_now,
-            opts.class,
+            effective_class,
             opts.provenance.as_ref(),
             opts.agent.as_deref(),
             opts.inbox,
@@ -654,7 +658,7 @@ impl Hub {
         // Who sent it, as the queue knows its prompts' senders (`digest.rs`).
         let agent = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
         // What it asks of this chat: another agent's only, `result` when it named none.
-        let class = crate::prompt_class::of_message(opts.class, agent.is_some());
+        let class = crate::prompt_class::of_message(effective_class, agent.is_some());
         // A question no caller reads the reply of, from a session that did not start this chat
         // and that the inbox did not take: its reply goes back when the turn that answers it ends
         // (`question_replies.rs`). It is due under this prompt until its turn is known: its steer
@@ -944,6 +948,9 @@ impl Hub {
         // the turn has started, so none leaves the queue for a turn that never runs. A forum push
         // is no agent's message: it never leads one.
         let parts = self.take_joined(session, &run, &prompt_id, &turn_id, joined);
+        // The message that leads it goes back with them when the account's limit refuses the
+        // turn before its model read it (`digest.rs` `requeue_unread`).
+        joined.lead(&prompt_id, client, &run);
         // This turn answers the questions its prompt and the joined ones carry
         // (`question_replies.rs`).
         for id in std::iter::once(&prompt_id).chain(parts.iter().map(|part| &part.prompt_id)) {
@@ -1007,6 +1014,14 @@ impl Hub {
             }
             m.turn_count += 1;
         }
+        // The first turn after a rate-limit reset carries the continuation it folded
+        // (`rate_hold.rs`). Appended, as above; never to a slash command, whose words it would
+        // become.
+        if !text.trim_start().starts_with('/')
+            && let Some(note) = Self::take_rate_note(session)
+        {
+            blocks.push(json!({"type": "text", "text": note}));
+        }
         // A turn on lane reports only reports nothing (`lane_reports.rs`).
         self.lane_turn_started(session, provenance.as_ref());
         // A family prompt (`subsessions.rs`) never clears the floor a Web
@@ -1051,6 +1066,10 @@ impl Hub {
         // The prompt is recorded and acknowledged above before the agent is started again (it
         // died, or the daemon restarted), so a client hears prompt_accepted at once.
         self.wake_cause(session, "prompt");
+        // A start for this turn asks for suggestions only when a person's prompt starts it.
+        session
+            .start_for
+            .store(super::host_level::start_for(&run, provenance.as_ref()), Ordering::SeqCst);
         // Boxed: two starts and the fallback check inline overflowed a debug build's 2 MiB
         // worker stack (`fatal runtime error: stack overflow` in every prompt after #27484).
         let mut started = Box::pin(self.child_for_since(session, stops)).await;
@@ -1267,6 +1286,11 @@ impl Hub {
         // session-info title can still win before the cheap completion is spent.
         let delivers_context = control != Control::Web
             && blocks.iter().any(|b| b.pointer("/_meta/acpmux/contextSource").is_some());
+        let person = super::prompt_sender::person_turn(&run, provenance.as_ref());
+        // Only a person's own turn makes a recap worth asking for (`away_recap.rs`), or a
+        // summary worth a model call (`rolling_summary.rs`).
+        self.recap_turn_started(session, person);
+        self.summary_turn_started(session, person);
         let mut result = super::steer_end::agent_prompt_hook(
             session,
             &child,
@@ -1297,6 +1321,8 @@ impl Hub {
                 // Written: a notice this is went in, and what is new in the inbox may steer in
                 // behind it (`inbox.rs`).
                 self.inbox_prompt_written(session, &prompt_id);
+                // A Codex chat's stop condition becomes its goal now that a turn has its task.
+                self.codex_goal_after_prompt(session, &child, &agent_sid);
                 self.title_after_prompt(session)
             },
         )
@@ -1619,6 +1645,12 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         // This turn's number, before taking it lets the next one start (`lane_reports.rs`).
         let turn = session.meta().turn_count;
+        // A turn its agent ended well clears the chat's rate-limit strikes (`rate_hold.rs`):
+        // every turn's end comes here, a recovered or carried one's too.
+        if matches!(&result, Ok(v) if v.get("stopReason").and_then(Value::as_str) != Some("cancelled"))
+        {
+            self.rate_turn_ok(session);
+        }
         // A model switch (`detach_child`) ended this turn already: its failure is not the queue's.
         let in_place = next.map(|n| n.next.clone());
         // Taken under the shutdown's lock: its sweep finds the turn running or here, never in
@@ -1742,8 +1774,14 @@ impl Hub {
         }
         // The agent messages that went in with it go back before anything here waits, so one sent
         // from now on goes behind them (`digest.rs`).
-        if let (Err(_), Some(joined)) = (&result, joined) {
-            self.requeue_joined(session, joined, true);
+        // A turn the account's limit refused before its model read a word: every agent message in
+        // it goes in again with the next turn, the one that led it too (`rate_hold.rs`).
+        if let (Err(e), Some(joined)) = (&result, joined) {
+            if self.unread_by_limit(session, turn_seq, &e.message) {
+                self.requeue_unread(session, joined);
+            } else {
+                self.requeue_joined(session, joined, true);
+            }
         }
         // A failure on a bound route names the route and its fallback
         // (route_switch.rs), in the error's data and the turn result.
@@ -1849,6 +1887,8 @@ impl Hub {
             // Whether it taught something, taken however it ended: a turn's signals never carry
             // into the next one.
             let taught = crate::memory_inbox::take(&session.id);
+            // Its recap and question: the chat's rolling summary (`rolling_summary.rs`).
+            let wrap_up_recap = crate::wrap_up_suggestion::take_recap(&session.id);
             let wrap_up_answer = crate::wrap_up_suggestion::take(&session.id);
             match &result {
                 Ok(v) => {
@@ -1885,6 +1925,7 @@ impl Hub {
                         }
                     }
                     self.write_turn_result(session, msg, git);
+                    self.summary_turn_ended(session, status == "completed", wrap_up_recap);
                     if status == "completed"
                         && let Some(answer) = wrap_up_answer
                     {
@@ -1920,6 +1961,7 @@ impl Hub {
                     if !detached {
                         self.pause_queue(session, turn_id);
                     }
+                    self.summary_turn_ended(session, false, None);
                     let mut msg = json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id, "turnCount": turn, "trigger": trigger});
                     if let Some(o) = msg.as_object_mut() {
                         let agent_error =
@@ -2476,6 +2518,20 @@ impl Hub {
     }
 
     pub async fn rename(&self, session: &Arc<Session>, name: String) -> Result<(), RpcError> {
+        self.rename_as(session, name, super::task_names::Naming::Hand).await
+    }
+
+    /// `rename`, saying who names it (`task_names::Naming`): a person's or an agent's rename
+    /// titles it by the name in words, a task's by the task's title, an address (`register`)
+    /// leaves its title as it is. Every one keeps the old name as a former name
+    /// (`former_names.rs`); a name another session has now is refused, one it had is taken.
+    pub(super) async fn rename_as(
+        &self,
+        session: &Arc<Session>,
+        name: String,
+        naming: super::task_names::Naming<'_>,
+    ) -> Result<(), RpcError> {
+        use super::task_names::Naming;
         if self
             .sessions
             .lock()
@@ -2485,15 +2541,36 @@ impl Hub {
         {
             return Err(RpcError::invalid_params(format!("session name {name:?} is taken")));
         }
-        let old = {
+        let old = session.read_meta(|m| m.name.clone());
+        self.release_former_names(session, &name, &old);
+        let (old, titled) = {
             let mut m = session.meta.lock().unwrap();
             // A chat renamed before it was titled asks no model for a title (`titles.rs`).
             super::titles::title_renamed(&mut m);
+            let titled = match naming {
+                Naming::Hand => super::task_names::name_in_words(&name).inspect(|title| {
+                    m.title = Some(title.clone());
+                    m.title_source = Some(super::titles::NAMED.to_owned());
+                    m.title_prompt = None;
+                }),
+                Naming::Task(title) => {
+                    m.title = Some(title.to_owned());
+                    m.title_source = Some(super::task_names::TASK.to_owned());
+                    m.title_prompt = None;
+                    Some(title.to_owned())
+                }
+                Naming::Address => None,
+            };
             m.name_given = true;
-            std::mem::replace(&mut m.name, name.clone())
+            let old = std::mem::replace(&mut m.name, name.clone());
+            super::former_names::push_former(&mut m.former_names, &old, &name);
+            (old, titled)
         };
         // Both kept (`store/durability.rs`): the answer waits until they are written, not synced.
         self.append(session, "mux", "renamed", json!({"from": old, "to": name}));
+        if let Some(title) = titled {
+            self.append(session, "mux", "titled", json!({"title": title}));
+        }
         self.save_meta_kept(session)?;
         // Its running Claude Code takes the name too (`live_name.rs`).
         self.rename_live_claude(session);
@@ -2718,6 +2795,7 @@ impl Hub {
                 update_line: Default::default(),
                 row: Default::default(),
                 list_seq: 0,
+                peer_batch: false,
             });
             drop(sessions);
             // Gone from v1: a chat that comes back under the id gets a book again.

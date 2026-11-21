@@ -23,6 +23,7 @@
       "appearance.paneArt.light": "domain:backdrop_pictures",
       "appearance.backgroundSchedule": "domain:backdrop_schedule",
       "appearance.backgroundLocation": "domain:backdrop_location",
+      "appearance.backgroundMemory": "domain:backdrop_memory",
       "appearance.customDensities": "domain:custom_densities",
       "agentPane.display.commandLabels": "domain:command_labels",
       "browser.customSearchEngine.search": "domain:search_template",
@@ -61,9 +62,6 @@
     ],
     "browser.omnibar.glass": [
       "transparent"
-    ],
-    "computerUse.driver": [
-      "legacy"
     ],
     "diff.layout": [
       "unified"

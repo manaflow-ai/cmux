@@ -14,6 +14,7 @@ const claude = [
   { id: "opus[1m]", name: "Opus · 1M context" },
   { id: "opusplan", name: "Opus plan · Sonnet execute" },
   { id: "sonnet[1m]", name: "Sonnet · 1M context" },
+  { id: "claude-fable-5-2", name: "Fable 5.2" },
   { id: "claude-fable-5-1", name: "Fable 5.1" },
   { id: "claude-fable-5", name: "Fable 5" },
   { id: "claude-opus-5-5", name: "Opus 5.5" },
@@ -70,7 +71,8 @@ describe("Retry's model list", () => {
 
   test("lists the curated top models first and folds the rest under More models", () => {
     const { latest, more } = retryModelSections(claude, "claude-opus-5-5", "Claude Code", top);
-    expect(names(latest)).toEqual(["Opus 5.5", "Sonnet 5.5", "Haiku 5.5", "Fable 5.1"]);
+    expect(names(latest)).toEqual(["Opus 5.5", "Sonnet 5.5", "Haiku 5.5", "Fable 5.2"]);
+    expect(names(more)).toContain("Fable 5.1");
     expect(names(more)).toContain("Fable 5.1 · 1M context");
     expect(names(more)).toContain("Opus 4.8");
     expect(names(more)).toContain("Opus plan · Sonnet execute");

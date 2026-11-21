@@ -4,12 +4,17 @@
 //! terminal (Leo, 2026-11-15: "can we not have it instantly drop you into the guinview of the
 //! terminal in iOS").
 //!
+//! The toggle shows only where both faces work. A tab where one face cannot show offers no
+//! toggle at all, so no tap ever lands on a face that only says why it cannot show (Leo,
+//! 2026-11-17: "bro this is pretty goofy / why is this even a behaviour that happens / just...
+//! stop showijg the toggle on gui."). On the phone the toggle is off until the person turns it
+//! on in Settings (Leo, 2026-11-17: "the toggle js just so a** rn it needs more baking tiem").
+//!
 //! The Mac's route decides whether a tab is half of a terminal and chat pair
 //! (`cmux-window-rules` `tabs::terminal_chat_toggle`, the one the Mac's
 //! `palette.toggleTerminalChat` asks). This module asks that same route and says what it
 //! means on the phone, where a pair is one tab with two faces, both kept built:
-//! - which faces a tab offers, which one it opens on, and which are enabled
-//!   ([`terminal_chat_faces`]);
+//! - which faces a tab offers and which one it opens on ([`terminal_chat_faces`]);
 //! - what a tap on a face does ([`terminal_chat_swap`]);
 //! - which of the Mac's acpmux chats already shows a harness session, so the phone
 //!   shows that one instead of asking for another ([`terminal_chat_session`]).
@@ -30,6 +35,9 @@ pub enum TabFace {
 /// The facts of one tab, as the phone reads them.
 #[derive(Debug, Clone, Default, PartialEq, Eq, uniffi::Record)]
 pub struct TerminalChatFacts {
+    /// The person turned Terminal and Chat on in Settings (off by default). Off, no tab
+    /// offers the toggle: every tab shows only its own kind.
+    pub toggle_on: bool,
     /// A terminal tab: `agent` and `session` are its agent's report (the hook's agent and
     /// `agent_session_id`).
     pub terminal: bool,
@@ -42,22 +50,21 @@ pub struct TerminalChatFacts {
     pub running: bool,
     /// A terminal: no chat of the Mac shows `session`, and the Mac's acpmux refused to
     /// make a View Only one for the phone (`remote.adopt_refused`: a remote device adopts
-    /// no local session). The chat face waits for a chat the Mac opens.
+    /// no local session). The tab is only a terminal.
     pub chat_refused: bool,
 }
 
 /// What a tab offers.
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct TerminalChatFaces {
-    /// The tab offers its page menu's Show Chat / Show Terminal row.
+    /// The tab offers its page menu's Show Chat / Show Terminal row: both faces work.
     pub offered: bool,
     /// The face the tab opens on when the person chose none: the tab's own kind (a
     /// terminal on its terminal, a chat on its chat).
     pub default_face: TabFace,
+    /// Whether each face can show: both on a pair, else only `default_face`.
     pub chat_enabled: bool,
     pub terminal_enabled: bool,
-    /// Why a face is disabled, in the person's words; None when both are enabled.
-    pub disabled_reason: Option<String>,
     /// The acpmux harness (`claude` or `codex`) and the harness's session id of the pair.
     pub harness: Option<String>,
     pub session: Option<String>,
@@ -73,8 +80,6 @@ pub enum TerminalChatSwap {
     /// A chat's terminal face is the terminal tab running its session: that tab shows, on
     /// its terminal face (the Mac's Toggle reveals that terminal too).
     RevealTerminal { harness: String, session: String },
-    /// The face cannot show on the phone; `reason` says why.
-    Unavailable { reason: String },
 }
 
 /// One of the Mac's acpmux chats (`_acpmux/sessions`), as far as the pairing needs it.
@@ -92,15 +97,6 @@ pub struct TerminalChatCandidate {
     pub status: String,
 }
 
-/// A chat no terminal runs: the Mac resumes it in a new terminal (its Toggle stops the
-/// chat's run first), which the phone does not do yet.
-pub const NO_TERMINAL: &str = "No terminal runs this chat. Toggle it on the Mac to resume it in a terminal.";
-
-/// A terminal whose session no chat shows, when the Mac's acpmux makes no View Only chat
-/// for a phone: the Mac's Toggle Terminal and Chat opens one, which the phone then shows.
-pub const NO_CHAT: &str =
-    "This session has no chat yet. Toggle Terminal and Chat on the Mac once to open one here.";
-
 fn route(facts: &TerminalChatFacts) -> TerminalChatToggle {
     tabs::terminal_chat_toggle(&ToggleFacts {
         terminal: facts.terminal,
@@ -108,6 +104,8 @@ fn route(facts: &TerminalChatFacts) -> TerminalChatToggle {
         agent: facts.agent.clone(),
         session: facts.session.clone(),
         running: facts.running,
+        // The phone has no `acpmux resume-here`: a chat no terminal runs is only a chat.
+        cannot_start_terminal: true,
         ..ToggleFacts::default()
     })
 }
@@ -121,43 +119,33 @@ pub fn terminal_chat_faces(facts: TerminalChatFacts) -> TerminalChatFaces {
         default_face: own,
         chat_enabled: own == TabFace::Chat,
         terminal_enabled: own == TabFace::Terminal,
-        disabled_reason: None,
         harness: None,
         session: None,
     };
-    let pair = |harness: String, session: String, terminal_enabled: bool| TerminalChatFaces {
-        offered: true,
-        default_face: own,
-        chat_enabled: true,
-        terminal_enabled,
-        disabled_reason: (!terminal_enabled).then(|| NO_TERMINAL.to_owned()),
-        harness: Some(harness),
-        session: Some(session),
-    };
+    if !facts.toggle_on {
+        return none;
+    }
     match route(&facts) {
+        // Both faces work: the terminal's chat is a View Only chat of its session, a chat's
+        // terminal is the live terminal running its session.
+        TerminalChatToggle::ToChat { .. } if facts.chat_refused => none,
+        TerminalChatToggle::ToChat { harness, session }
+        | TerminalChatToggle::ToTerminal { harness, session } => TerminalChatFaces {
+            offered: true,
+            default_face: own,
+            chat_enabled: true,
+            terminal_enabled: true,
+            harness: Some(harness),
+            session: Some(session),
+        },
+        // One face cannot show here, so the tab is only its own kind: no toggle.
         TerminalChatToggle::NotAgentTab
         | TerminalChatToggle::NoSession
-        | TerminalChatToggle::UnsupportedHarness => none,
-        // No chat to show: the terminal stays, its chat face shown but disabled with why.
-        TerminalChatToggle::ToChat { harness, session } if facts.chat_refused => TerminalChatFaces {
-            default_face: TabFace::Terminal,
-            chat_enabled: false,
-            terminal_enabled: true,
-            disabled_reason: Some(NO_CHAT.to_owned()),
-            ..pair(harness, session, true)
-        },
-        TerminalChatToggle::ToChat { harness, session }
-        | TerminalChatToggle::ToTerminal { harness, session } => pair(harness, session, true),
-        // The Mac's own hand-off: stop the chat's run, resume the session in a new
-        // terminal. The phone has no such step, so the terminal face stays disabled.
-        TerminalChatToggle::ResumeInTerminal { harness, session } => pair(harness, session, false),
-        // The phone sends no hand-off or turn facts, so these never come; were they to,
-        // the terminal face waits as above.
-        TerminalChatToggle::HandingOff { .. } | TerminalChatToggle::Busy => {
-            let harness = tabs::harness(facts.agent.as_deref()).map(str::to_owned);
-            let session = facts.session.clone().map(|s| s.trim().to_owned());
-            TerminalChatFaces { harness, session, ..pair(String::new(), String::new(), false) }
-        }
+        | TerminalChatToggle::UnsupportedHarness
+        | TerminalChatToggle::NoTerminal
+        | TerminalChatToggle::ResumeInTerminal { .. }
+        | TerminalChatToggle::HandingOff { .. }
+        | TerminalChatToggle::Busy => none,
     }
 }
 
@@ -168,21 +156,14 @@ pub fn terminal_chat_swap(facts: TerminalChatFacts, shown: TabFace, to: TabFace)
     if !faces.offered || shown == to {
         return TerminalChatSwap::Stay;
     }
-    if to == TabFace::Chat && !faces.chat_enabled {
-        return TerminalChatSwap::Unavailable {
-            reason: faces.disabled_reason.unwrap_or_else(|| NO_CHAT.to_owned()),
-        };
-    }
     // A terminal tab holds both faces itself: its chat is a View Only chat of its session.
     if facts.terminal || to == TabFace::Chat {
         return TerminalChatSwap::Show { face: to };
     }
     // A chat tab's terminal face is the terminal that runs its session.
-    match (faces.terminal_enabled, faces.harness, faces.session) {
-        (true, Some(harness), Some(session)) => TerminalChatSwap::RevealTerminal { harness, session },
-        _ => TerminalChatSwap::Unavailable {
-            reason: faces.disabled_reason.unwrap_or_else(|| NO_TERMINAL.to_owned()),
-        },
+    match (faces.harness, faces.session) {
+        (Some(harness), Some(session)) => TerminalChatSwap::RevealTerminal { harness, session },
+        _ => TerminalChatSwap::Stay,
     }
 }
 
@@ -286,6 +267,7 @@ mod tests {
 
     fn terminal(agent: Option<&str>, session: Option<&str>) -> TerminalChatFacts {
         TerminalChatFacts {
+            toggle_on: true,
             terminal: true,
             agent: agent.map(str::to_owned),
             session: session.map(str::to_owned),
@@ -295,6 +277,7 @@ mod tests {
 
     fn chat(agent: &str, session: Option<&str>, running: bool) -> TerminalChatFacts {
         TerminalChatFacts {
+            toggle_on: true,
             chat: true,
             agent: Some(agent.to_owned()),
             session: session.map(str::to_owned),
@@ -326,10 +309,29 @@ mod tests {
             assert!(faces.offered, "{agent}");
             assert_eq!(faces.default_face, TabFace::Terminal, "{agent}");
             assert!(faces.chat_enabled && faces.terminal_enabled, "{agent}");
-            assert_eq!(faces.disabled_reason, None);
             assert_eq!(faces.harness.as_deref(), Some(harness));
             assert_eq!(faces.session.as_deref(), Some("h-1"));
         }
+    }
+
+    #[test]
+    fn the_toggle_is_off_until_the_person_turns_it_on() {
+        // Leo, 2026-11-17: "the toggle js just so a** rn it needs more baking tiem". Off (the
+        // default), no tab offers it, a pair included, and a tap does nothing.
+        for facts in [terminal(Some("claude"), Some("h-1")), chat("codex", Some("h-2"), true)] {
+            let off = TerminalChatFacts { toggle_on: false, ..facts };
+            let faces = terminal_chat_faces(off.clone());
+            assert!(!faces.offered, "{off:?}");
+            assert_eq!(
+                terminal_chat_swap(off.clone(), faces.default_face, TabFace::Chat),
+                TerminalChatSwap::Stay
+            );
+            assert_eq!(
+                terminal_chat_swap(off, faces.default_face, TabFace::Terminal),
+                TerminalChatSwap::Stay
+            );
+        }
+        assert!(!TerminalChatFacts::default().toggle_on);
     }
 
     #[test]
@@ -358,16 +360,65 @@ mod tests {
         assert_eq!(faces.harness.as_deref(), Some("codex"));
     }
 
+    // Leo, 2026-11-17: "bro this is pretty goofy / why is this even a behaviour that happens /
+    // just... stop showijg the toggle on gui." A chat no terminal runs is only a chat on the
+    // phone (it cannot start a terminal): no toggle, so no tap lands on a face that cannot show.
     #[test]
-    fn a_chat_no_terminal_runs_keeps_its_terminal_face_disabled() {
-        let faces = terminal_chat_faces(chat("claude", Some("h-3"), false));
-        assert!(faces.offered);
-        assert!(faces.chat_enabled && !faces.terminal_enabled);
-        assert_eq!(faces.disabled_reason.as_deref(), Some(NO_TERMINAL));
-        assert_eq!(
-            terminal_chat_swap(chat("claude", Some("h-3"), false), TabFace::Chat, TabFace::Terminal),
-            TerminalChatSwap::Unavailable { reason: NO_TERMINAL.to_owned() }
-        );
+    fn a_chat_no_terminal_runs_shows_no_toggle() {
+        for facts in [chat("claude", Some("h-3"), false), chat("codex", Some("h-3"), false)] {
+            let faces = terminal_chat_faces(facts.clone());
+            assert!(!faces.offered, "{facts:?}");
+            assert_eq!(faces.default_face, TabFace::Chat);
+            assert!(faces.chat_enabled && !faces.terminal_enabled);
+            assert_eq!(terminal_chat_swap(facts, TabFace::Chat, TabFace::Terminal), TerminalChatSwap::Stay);
+        }
+    }
+
+    /// Whatever the facts, an offered toggle has both faces working: no tab shows a toggle a
+    /// tap cannot follow.
+    #[test]
+    fn an_offered_toggle_always_has_both_faces() {
+        let bools = [false, true];
+        let agents = [None, Some("claude"), Some("codex"), Some("opencode")];
+        let sessions = [None, Some("h"), Some(" ")];
+        for toggle_on in bools {
+            for terminal in bools {
+                for chat in bools {
+                    for running in bools {
+                        for chat_refused in bools {
+                            for agent in agents {
+                                for session in sessions {
+                                    let facts = TerminalChatFacts {
+                                        toggle_on,
+                                        terminal,
+                                        chat,
+                                        agent: agent.map(str::to_owned),
+                                        session: session.map(str::to_owned),
+                                        running,
+                                        chat_refused,
+                                    };
+                                    let faces = terminal_chat_faces(facts.clone());
+                                    if faces.offered {
+                                        assert!(faces.chat_enabled && faces.terminal_enabled, "{facts:?}");
+                                        assert!(
+                                            faces.harness.is_some() && faces.session.is_some(),
+                                            "{facts:?}"
+                                        );
+                                    }
+                                    for (shown, to) in [
+                                        (TabFace::Chat, TabFace::Terminal),
+                                        (TabFace::Terminal, TabFace::Chat),
+                                    ] {
+                                        let swap = terminal_chat_swap(facts.clone(), shown, to);
+                                        assert!(faces.offered || swap == TerminalChatSwap::Stay, "{facts:?}");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]
@@ -404,21 +455,13 @@ mod tests {
     }
 
     #[test]
-    fn a_terminal_whose_chat_the_mac_refused_stays_a_terminal() {
+    fn a_terminal_whose_chat_the_mac_refused_is_only_a_terminal() {
         let facts = TerminalChatFacts { chat_refused: true, ..terminal(Some("codex"), Some("h-7")) };
         let faces = terminal_chat_faces(facts.clone());
-        assert!(faces.offered);
+        assert!(!faces.offered);
         assert_eq!(faces.default_face, TabFace::Terminal);
         assert!(faces.terminal_enabled && !faces.chat_enabled);
-        assert_eq!(faces.disabled_reason.as_deref(), Some(NO_CHAT));
-        assert_eq!(
-            terminal_chat_swap(facts.clone(), TabFace::Terminal, TabFace::Chat),
-            TerminalChatSwap::Unavailable { reason: NO_CHAT.to_owned() }
-        );
-        assert_eq!(
-            terminal_chat_swap(facts, TabFace::Chat, TabFace::Terminal),
-            TerminalChatSwap::Show { face: TabFace::Terminal }
-        );
+        assert_eq!(terminal_chat_swap(facts, TabFace::Terminal, TabFace::Chat), TerminalChatSwap::Stay);
     }
 
     #[test]
