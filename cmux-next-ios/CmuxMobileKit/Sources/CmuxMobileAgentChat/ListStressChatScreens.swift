@@ -31,9 +31,15 @@ enum ListStressChatScreens {
             let source = RigSource()
             let store = AgentChatStore(source: source)
             seedTranscript(store, items: max(settings.count, 0), running: settings.streams, giant: settings.giant)
-            if settings.streams { live = streamTranscript(store, source: source) }
+            // `late`: the stream starts after `edgeAfter` seconds (a reader at rest at the end first).
+            if settings.streams, settings.edge != "late" { live = streamTranscript(store, source: source) }
             let holder = RigStoreHolder(store: store)
             switch settings.edge {
+            case "late" where settings.streams:
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(settings.edgeAfter))
+                    live = streamTranscript(store, source: source)
+                }
             case "removed":
                 // The chat's records go (its chat closed, or a history that no longer has it).
                 Task { @MainActor in

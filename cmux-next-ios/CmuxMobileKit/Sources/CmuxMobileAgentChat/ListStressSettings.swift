@@ -88,6 +88,7 @@ public struct ListStressSettings: Equatable, Sendable {
     /// while the transcript is open), `offline` (subagent: the Mac goes offline mid-run),
     /// `drop` (inspector: 60 more records arrive, dropping the oldest under the reader), `burst`
     /// (subagent: 1000 items in one main-actor turn), `offline` (inspector: no more records).
+    /// `late` (subagent, with `LIST_STREAM=1`): the stream starts after `edgeAfter`.
     public var edge: String?
     /// `CMUX_MOBILE_LIST_EDGE_AFTER=SECONDS` (default 4): when the edge case happens.
     public var edgeAfter: Double

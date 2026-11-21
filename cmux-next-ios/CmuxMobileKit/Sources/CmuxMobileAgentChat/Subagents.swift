@@ -99,6 +99,17 @@ final class SubagentRowsMemo {
                     keep = starts[row] == first ? row : row + 1
                 }
             }
+            // A run of calls just before can take the changed items in (a removed answer between
+            // two runs joins them): made again from its first call too.
+            if keep > 0 {
+                switch rows[keep - 1] {
+                case .tool, .toolGroup:
+                    keep -= 1
+                    from = starts[keep]
+                default:
+                    break
+                }
+            }
         }
         let made = TurnRowBuilder.rows(items, hidden: turn.hiddenToolCalls, permissionTools: tools, from: from)
         rowsMade += made.rows.count

@@ -11,7 +11,7 @@ final class SubagentTranscriptUITests: XCTestCase {
     }
 
     @MainActor
-    private func launch(_ screen: String, count: Int, stream: Bool = false, edge: String? = nil) -> XCUIApplication {
+    private func launch(_ screen: String, count: Int, stream: Bool = false, edge: String? = nil, after: Double? = nil) -> XCUIApplication {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
@@ -21,6 +21,7 @@ final class SubagentTranscriptUITests: XCTestCase {
         app.launchEnvironment["CMUX_MOBILE_LIST_SETTLE"] = "0"
         if stream { app.launchEnvironment["CMUX_MOBILE_LIST_STREAM"] = "1" }
         if let edge { app.launchEnvironment["CMUX_MOBILE_LIST_EDGE"] = edge }
+        if let after { app.launchEnvironment["CMUX_MOBILE_LIST_EDGE_AFTER"] = "\(after)" }
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-no-restore"]
         app.launch()
         return app
@@ -105,13 +106,18 @@ final class SubagentTranscriptUITests: XCTestCase {
     /// being read stays put while rows arrive below; back at the end, it follows again.
     @MainActor
     func testRunningTranscriptFollowsAtTheEndAndHoldsTheReaderAway() {
-        let app = launch("subagent", count: 20, stream: true)
+        // The stream starts 30 s after launch: the reader reaches the end of a still transcript
+        // first (a live one grows faster than swipes reach its end, and never idles for them).
+        let app = launch("subagent", count: 20, stream: true, edge: "late", after: 30)
         defer { app.terminate() }
         XCTAssertTrue(app.navigationBars["WireGuard dialer"].waitForExistence(timeout: 40), "the transcript opens\n\(app.debugDescription)")
         let footer = app.staticTexts["chat.subagent.footer"].firstMatch
-        for _ in 0..<20 where !(footer.exists && footer.isHittable) { app.swipeUp() }
+        for _ in 0..<20 where !(footer.exists && footer.isHittable) { app.swipeUp(velocity: .fast) }
         XCTAssertTrue(footer.isHittable, "the reader reaches the end\n\(app.debugDescription)")
         attach(app, "1-at-end")
+        // The stream starts and runs: the end stays in view.
+        let streaming = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "token")).firstMatch
+        XCTAssertTrue(streaming.waitForExistence(timeout: 45), "the stream starts\n\(app.debugDescription)")
         pass(5)
         XCTAssertTrue(footer.isHittable, "at the end, the transcript follows 5 s of new rows\n\(app.debugDescription)")
         attach(app, "2-followed")
@@ -131,7 +137,7 @@ final class SubagentTranscriptUITests: XCTestCase {
         XCTAssertFalse(footer.isHittable, "scrolled away, the transcript does not follow")
         attach(app, "4-held")
 
-        for _ in 0..<20 where !(footer.exists && footer.isHittable) { app.swipeUp() }
+        for _ in 0..<30 where !(footer.exists && footer.isHittable) { app.swipeUp(velocity: .fast) }
         pass(4)
         XCTAssertTrue(footer.isHittable, "back at the end, it follows again\n\(app.debugDescription)")
         attach(app, "5-follows-again")
