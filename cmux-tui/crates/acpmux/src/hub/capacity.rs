@@ -50,11 +50,15 @@ impl Route {
         spawn.env = configured;
         let resolved = crate::agent::resolved_profile_env(&spawn).ok()?;
         let effective = crate::login_env::effective_for(Some("claude"), &resolved);
-        let sr2 = profile.argv.get(1).is_some_and(|word| word == "claude2");
-        Self::from_env(sr2, &effective)
+        Self::from_env(&profile.argv, &effective)
     }
 
-    fn from_env(sr2: bool, env: &BTreeMap<String, String>) -> Option<Self> {
+    fn from_env(argv: &[String], env: &BTreeMap<String, String>) -> Option<Self> {
+        // Fleet profiles can put the coordinator wrapper and its options before sr2.
+        let sr2 = argv.windows(2).any(|pair| {
+            pair[1] == "claude2"
+                && Path::new(&pair[0]).file_name().is_some_and(|name| name == "sr2" || name == "sr")
+        });
         let base = if sr2 {
             env.get("SUBROUTER2_BASE_URL")
                 .cloned()
@@ -693,12 +697,37 @@ mod capacity_gate_tests {
     }
 
     #[test]
+    fn capacity_route_uses_the_same_gateway_for_direct_and_wrapped_sr2() {
+        let env = BTreeMap::from([
+            ("SUBROUTER2_BASE_URL".to_owned(), "https://gateway.test".to_owned()),
+            ("SUBROUTER2_PROXY_TOKEN".to_owned(), "proxy-token".to_owned()),
+            ("ANTHROPIC_BASE_URL".to_owned(), "https://other.test".to_owned()),
+        ]);
+        let direct = ["sr2", "claude2"].map(str::to_owned);
+        let wrapped = [
+            "/home/test/.local/bin/claude-coord-cap",
+            "600000",
+            "",
+            "/home/test/bin/sr2",
+            "claude2",
+            "--autocompact",
+            "100000",
+        ]
+        .map(str::to_owned);
+        let direct = Route::from_env(&direct, &env).unwrap();
+        let wrapped = Route::from_env(&wrapped, &env).unwrap();
+        assert_eq!(wrapped.url, direct.url);
+        assert_eq!(wrapped.url.as_str(), "https://gateway.test/v1/messages");
+        assert_eq!(wrapped.bearer.as_deref(), Some("proxy-token"));
+    }
+
+    #[test]
     fn capacity_route_uses_inherited_anthropic_credentials() {
         let env = BTreeMap::from([
             ("ANTHROPIC_BASE_URL".to_owned(), "https://gateway.test".to_owned()),
             ("ANTHROPIC_API_KEY".to_owned(), "inherited-key".to_owned()),
         ]);
-        let route = Route::from_env(false, &env).unwrap();
+        let route = Route::from_env(&[], &env).unwrap();
         assert_eq!(route.api_key.as_deref(), Some("inherited-key"));
     }
 
@@ -714,7 +743,7 @@ mod capacity_gate_tests {
             &|_, _| Err("unexpected keychain lookup".to_owned()),
         )
         .unwrap();
-        let route = Route::from_env(false, &env).unwrap();
+        let route = Route::from_env(&[], &env).unwrap();
         assert_eq!(route.bearer.as_deref(), Some("referenced-token"));
     }
 
@@ -735,7 +764,7 @@ mod capacity_gate_tests {
             Err("unexpected keychain lookup".to_owned())
         })
         .unwrap();
-        let route = Route::from_env(false, &env).unwrap();
+        let route = Route::from_env(&[], &env).unwrap();
         assert_eq!(route.api_key.as_deref(), Some("file-token"));
     }
 }
