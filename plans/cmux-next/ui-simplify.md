@@ -22,6 +22,7 @@ Rules for every cut:
 | Agent chats | Feature tip callouts off by default (`updates.showFeatureTips`) | batch 1 |
 | Every right-click menu | "Customize Menu…" row off by default (`contextMenus.showCustomizeItem`); Settings > Menus keeps it reachable | batch 1 |
 | Workspace hover card | Compact by default (`sidebar.hoverCards.layout`): the facts and the last three moments, not a 20-line scrolling history; Stats and History is one setting away | batch 2 |
+| Agent chat and pane copy | 45 strings say one thing each: placeholders ("Ask {agent} anything", "Search, URL or !command"), errors ("Nothing to push.", "Not sent: too large. …"), permission and peer titles. UI text budget allowlist 274 → 234 rows | batch 3 |
 | Tab strip | Separators kept (Lawrence 2026-11-05 asked for them); tab menu rows kept (Leo's screenshot, 2026-10-23) | kept |
 | Composer | Dictation mic stays (Lawrence uses it); context ring stays (asked for). Nothing cut yet | review |
 | Empty workspace | Already one wordmark and one title line; nothing to cut | done |
