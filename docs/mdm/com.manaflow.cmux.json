@@ -410,6 +410,17 @@
       "title" : "Scroll to Bottom When I Send",
       "type" : "boolean"
     },
+    "agentPane.sessionWorktrees" : {
+      "default" : "off",
+      "description" : "Choose where to keep worktrees for local chats and forks.",
+      "enum" : [
+        "off",
+        "shared",
+        "project"
+      ],
+      "title" : "Session Worktrees",
+      "type" : "string"
+    },
     "agentPane.showContextUsage" : {
       "default" : true,
       "description" : "The ring beside the model that fills as the chat uses its context window.",
@@ -1831,6 +1842,12 @@
       ],
       "title" : "Pane Backgrounds",
       "type" : "string"
+    },
+    "appearance.previousGlass" : {
+      "default" : false,
+      "description" : "Draws menus, popovers, the composer and cards with the glass from before November 2026.",
+      "title" : "Previous Glass Look",
+      "type" : "boolean"
     },
     "appearance.rotateFavoriteThemes" : {
       "default" : "off",
@@ -3387,6 +3404,12 @@
       "title" : "EnrollmentToken",
       "type" : "string"
     },
+    "experiments.composerV2" : {
+      "default" : false,
+      "description" : "A glass composer with mode chips, mention chips and a round send button. Still being shaped.",
+      "title" : "Composer Refresh",
+      "type" : "boolean"
+    },
     "experiments.glassToolbarGroups" : {
       "default" : false,
       "description" : "The chat header's buttons become round glass buttons, with related actions sharing one glass capsule, a search chip and shortcut keycaps.",
@@ -4884,9 +4907,10 @@
       "type" : "string"
     },
     "sidebar.groupHeader.background" : {
-      "default" : "auto",
-      "description" : "How a group's background draws. Sections shows plain headings instead.",
+      "default" : "folder",
+      "description" : "How a group draws. Folders shows plain folders; Sections shows plain headings.",
       "enum" : [
+        "folder",
         "auto",
         "glass",
         "solid",
