@@ -7977,6 +7977,49 @@ class SourceCacheBound(unittest.TestCase):
         self.assertTrue(self.has_blob())
 
 
+class JobsCacheBound(unittest.TestCase):
+    """prune_kept, the jobs cache's prune (kept job lists and settled reads): past its age, a crashed write's spare
+    file past an hour, then the oldest answers until the directory fits JOBS_CACHE_MAX_BYTES."""
+
+    def setUp(self):
+        top = tempfile.TemporaryDirectory(prefix="bre-jobs-")
+        self.addCleanup(top.cleanup)
+        self.where = Path(top.name)
+
+    def kept(self, name, size, age):
+        path = self.where / name
+        path.write_bytes(b"x" * size)
+        when = time.time() - age
+        os.utime(path, (when, when))
+        return path
+
+    def test_the_oldest_answers_go_until_the_directory_fits_the_cap(self):
+        oldest, older, newest = self.kept("a.json", 400, 300), self.kept("b.json", 400, 200), self.kept("c.json", 400, 100)
+        (self.where / "settled").mkdir()
+        with unittest.mock.patch.dict(os.environ, {excuse.JOBS_CACHE_MAX_BYTES_ENV: "900"}):
+            excuse.prune_kept(self.where, 3600)
+        self.assertEqual([path.exists() for path in (oldest, older, newest)], [False, True, True])
+        self.assertTrue((self.where / "settled").is_dir())
+
+    def test_answers_past_their_age_and_stale_spare_files_go_under_the_cap(self):
+        old, fresh = self.kept("old.json", 10, 7200), self.kept("new.json", 10, 10)
+        spare, live = self.kept(".x.json.1", 10, 2 * excuse.KEPT_SPARE_SECONDS), self.kept(".y.json.2", 10, 5)
+        other = self.kept("notes.txt", 10, 7200)
+        excuse.prune_kept(self.where, 3600)
+        self.assertEqual([path.exists() for path in (old, fresh, spare, live, other)], [False, True, False, True, True])
+
+    def test_settled_put_prunes_the_settled_store_by_size(self):
+        settled = self.where / "settled"
+        settled.mkdir()
+        stale = self.kept("settled/0.json", 2000, 100)
+        with unittest.mock.patch.dict(os.environ, {excuse.JOBS_CACHE_ENV: str(self.where),
+                                                   excuse.JOBS_CACHE_MAX_BYTES_ENV: "1000"}), \
+                unittest.mock.patch.object(excuse, "_SETTLED_PRUNED", []):
+            excuse.settled_put("repos/o/r/actions/jobs/1", {"id": 1})
+            self.assertEqual(excuse.settled_get("repos/o/r/actions/jobs/1"), {"id": 1})
+        self.assertFalse(stale.exists())
+
+
 class WsCheckSquashTree(unittest.TestCase):
     """ws_check_squash_tree in a real git repository: the tree a pinned squash of the head onto the base tip makes, cut
     to leo-workspace's hosted paths, whichever checkout or runner made the run. Compared by tree, never by path."""

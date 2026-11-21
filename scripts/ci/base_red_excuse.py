@@ -388,9 +388,7 @@ def settled_put(route: str, found, state: tuple | None = None) -> None:
         os.replace(spare, path)
         if not _SETTLED_PRUNED:
             _SETTLED_PRUNED.append(True)
-            for old in path.parent.glob("*.json"):
-                if time.time() - old.stat().st_mtime > SETTLED_KEEP_SECONDS:
-                    old.unlink(missing_ok=True)
+            prune_kept(path.parent, SETTLED_KEEP_SECONDS)
     except OSError:
         pass
 
@@ -4216,6 +4214,50 @@ JOBS_CACHE_ENV = "BASE_RED_EXCUSE_JOBS_CACHE"  # a directory, or "off"
 JOBS_CACHE_SECONDS = 6 * 3600
 
 
+# The jobs cache's size bound, beside each directory's age bound (JOBS_CACHE_SECONDS for kept job lists,
+# SETTLED_KEEP_SECONDS for settled reads): past JOBS_CACHE_MAX_BYTES (BASE_RED_EXCUSE_JOBS_CACHE_MAX_BYTES) in one
+# directory, its oldest answers go first until it is under. A spare file a crashed write left (".NAME.PID") goes after
+# KEPT_SPARE_SECONDS. Every kept answer is only a saved read: one removed is read from GitHub again.
+JOBS_CACHE_MAX_BYTES_ENV = "BASE_RED_EXCUSE_JOBS_CACHE_MAX_BYTES"
+JOBS_CACHE_MAX_BYTES = 256 * 1024 * 1024
+KEPT_SPARE_SECONDS = 3600
+
+
+def jobs_cache_max_bytes() -> int:
+    raw = os.environ.get(JOBS_CACHE_MAX_BYTES_ENV, "")
+    try:
+        value = int(raw) if raw else JOBS_CACHE_MAX_BYTES
+    except ValueError:
+        return JOBS_CACHE_MAX_BYTES
+    return value if value > 0 else JOBS_CACHE_MAX_BYTES
+
+
+def prune_kept(where: Path, keep_seconds: float) -> None:
+    """Prune one kept-answers directory WHERE: answers older than KEEP_SECONDS, spare files older than
+    KEPT_SPARE_SECONDS, then the oldest answers until the rest fit in jobs_cache_max_bytes()."""
+    now, kept = time.time(), []
+    for entry in os.scandir(where):
+        try:
+            if not entry.is_file(follow_symlinks=False):
+                continue
+            stat = entry.stat(follow_symlinks=False)
+        except OSError:
+            continue
+        spare = entry.name.startswith(".")
+        if not spare and not entry.name.endswith(".json"):
+            continue
+        if now - stat.st_mtime > (KEPT_SPARE_SECONDS if spare else keep_seconds):
+            Path(entry.path).unlink(missing_ok=True)
+        elif not spare:
+            kept.append((stat.st_mtime, stat.st_size, entry.path))
+    total, cap = sum(size for _, size, _ in kept), jobs_cache_max_bytes()
+    for _, size, path in sorted(kept):
+        if total <= cap:
+            break
+        Path(path).unlink(missing_ok=True)
+        total -= size
+
+
 def jobs_cache() -> Path | None:
     named = os.environ.get(JOBS_CACHE_ENV)
     if named == "off":
@@ -4251,9 +4293,7 @@ def base_run_jobs(repo: str, run: dict, github) -> list[dict]:
             spare = key.with_name(f".{key.name}.{os.getpid()}")
             spare.write_text(json.dumps(jobs))
             os.replace(spare, key)
-            for old in key.parent.glob("*.json"):
-                if time.time() - old.stat().st_mtime > JOBS_CACHE_SECONDS:
-                    old.unlink(missing_ok=True)
+            prune_kept(key.parent, JOBS_CACHE_SECONDS)
         except OSError:
             pass
     return jobs
