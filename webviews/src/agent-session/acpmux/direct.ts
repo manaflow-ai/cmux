@@ -170,6 +170,7 @@ import { startedCardsShown } from "./started/startedSessions";
 import { PLAN_BUILD_KIND } from "./planBuild/planBuild";
 import { PlanBuildRows } from "./planBuild/planBuildRows";
 import { OfferChildren } from "./offer/offerChildren";
+import { dependencyFromValue } from "./dependency";
 import type { OfferPicks } from "./offer/offerChoice";
 import { errorMessage, startCancelled, knownRefusalText, switchFailedText } from "./transportErrors";
 import { failedSendText, heldSendNotice, retryHelps, sendCause } from "./sendFailure";
@@ -178,6 +179,7 @@ import type { UnsentPromptRecord, UnsentPromptStore } from "./unsentPrompts";
 import {
   SessionPageError,
   SessionPager,
+  type SessionPage,
   withUsage,
   LIST_FOLLOW_CAPABILITY,
   allSessionsWanted,
@@ -866,6 +868,7 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
   const subjectTool = subject?.type === "tool_call" ? objectValue(subject.toolCall) : undefined;
   const subjectCommand = subject?.type === "command" ? subject : undefined;
   const toolCall = raw.toolCall ?? subjectTool;
+  const dependency = dependencyFromValue(toolCall?._meta?.acpmux?.dependency);
   const suggestions = Array.isArray(claudeMeta?.suggestions)
     ? claudeMeta.suggestions.flatMap((suggestion: unknown) => {
         if (typeof suggestion === "string" && suggestion.trim()) return [suggestion.trim()];
@@ -885,6 +888,7 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
     : [];
   return {
     ...(question ? { question } : {}),
+    ...(dependency ? { dependency } : {}),
     permissionId: String(permissionId),
     groupId: typeof envelope.groupId === "string" ? envelope.groupId : undefined,
     turnId: typeof envelope.turnId === "string" ? envelope.turnId : undefined,

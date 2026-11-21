@@ -27,7 +27,10 @@ import {
   type PermissionKeyAction,
 } from "./permissions/prompt";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
+import { DependencyGate } from "./dependency";
 import { focusRoute } from "../../ui/focusRoute";
+
+export { permissionOptionKind } from "./permissions/prompt";
 
 type PermissionOption = AcpmuxPermission["options"][number];
 
@@ -609,6 +612,7 @@ export function PermissionCard({
             <Markdown plainCode>{plan}</Markdown>
           </div>
         )}
+        {permission.dependency && <DependencyGate dependency={permission.dependency} />}
       </div>
       {(commandBlock || scopeBlock) && (
         <div className="acpmux-permission-details">

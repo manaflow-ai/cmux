@@ -8,6 +8,7 @@ import { permissionDiffs, shellCommand } from "../direct";
 import { useT, type StringKey } from "../i18n";
 import { SHORTCUT_ACTIONS, useShortcut, withShortcut } from "../shortcuts";
 import { errorMessage } from "../transportErrors";
+import { DependencyGate, dependencyFromValue } from "../dependency";
 import type { PermissionClientState, PermissionDecision, PermissionGroupItem } from "./protocol";
 import { permissionKeyAction } from "./prompt";
 import { ProposedEdits } from "./ProposedEdits";
@@ -64,6 +65,9 @@ function askOf(item: PermissionGroupItem, fallback: string) {
   const requestTitle = text(request?.title) ?? text(request?.description);
   const tool = record(request?.toolCall) ?? subjectTool;
   const input = record(tool?.rawInput) ?? subjectCommand;
+  const toolMeta = record(tool?._meta);
+  const acpmuxMeta = record(toolMeta?.acpmux);
+  const dependency = dependencyFromValue(acpmuxMeta?.dependency);
   const kind = text(tool?.kind) ?? (subjectCommand ? "execute" : undefined);
   const paths = (Array.isArray(tool?.locations) ? tool.locations : [])
     .map((location) => text(record(location)?.path))
@@ -106,6 +110,7 @@ function askOf(item: PermissionGroupItem, fallback: string) {
       text(input?.cwd),
     paths,
     input: tool?.rawInput,
+    dependency,
   };
 }
 
@@ -154,6 +159,7 @@ function AskRow({
         {actions}
       </div>
       {ask.scope && <p className="acpmux-ask-scope">{t("permission.cwd", { path: ask.scope })}</p>}
+      {ask.dependency && <DependencyGate dependency={ask.dependency} compact />}
       {open && (
         <div id={detailsId} className="acpmux-ask-details">
           {ask.command ? (

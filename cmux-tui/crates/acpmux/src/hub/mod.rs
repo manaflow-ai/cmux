@@ -60,6 +60,7 @@ mod catalog_reload;
 mod complete;
 pub mod composers;
 mod cursor_ext;
+mod dependency_gate;
 mod digest;
 pub(crate) mod dispatch;
 pub(crate) mod file_uploads;
