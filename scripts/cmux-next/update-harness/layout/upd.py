@@ -19,6 +19,11 @@
   upd.py launches ID [N]
       the last N (default 3) lines of the app's launch-times.jsonl, one JSON line each with the marks the
       comparison reads.
+  upd.py wipe ID
+      with the app quit: delete ID's defaults (`defaults delete`, since cfprefsd ignores HOME) and its
+      caches, support folders, web storage, logs and code-sign clone folder, so a proof's first launch
+      starts from nothing. Run it once before the old build's first launch, not between builds of one
+      proof (prep runs for each build under the same ID). Refuses shipped ids.
 """
 import json, os, plistlib, subprocess, sys, time
 
@@ -26,6 +31,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 KEYS_SWIFT = os.path.join(HERE, "..", "keys.swift")  # the harness key tool, one level up
 FEED_URL = "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"
 RESTRICTED = ("com.apple.application-identifier", "com.apple.developer.", "keychain-access-groups")
+SHIPPED_IDS = ("com.cmuxterm.app", "com.cmuxterm.app.next")  # wipe refuses these and the prefixes below
+SHIPPED_PREFIXES = ("com.cmuxterm.app.nightly", "com.cmuxterm.app.staging", "com.cmuxterm.app.rc")
 
 
 def run(cmd, **kw):
@@ -176,6 +183,39 @@ def launches(a):
         print(json.dumps({k: record.get(k) for k in keys}))
 
 
+def wipe(a):
+    bundle_id = a[0]
+    if not bundle_id or "/" in bundle_id or bundle_id in (".", ".."):
+        sys.exit(f"wipe: not a bundle id: {bundle_id!r}")
+    if bundle_id in SHIPPED_IDS or bundle_id.startswith(SHIPPED_PREFIXES):
+        sys.exit(f"wipe: {bundle_id} is a shipped app's id; wipe only a prepped proof id")
+    # cfprefsd ignores HOME, so the id's defaults go through `defaults`, not the plist file alone.
+    had_defaults = subprocess.run(["defaults", "delete", bundle_id], capture_output=True).returncode == 0
+    lib = os.path.expanduser("~/Library")
+    temp = subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True).stdout.strip()
+    paths = [os.path.join(lib, "Preferences", bundle_id + ".plist"),
+             os.path.join(lib, "Caches", bundle_id),
+             support_dir(bundle_id),
+             os.path.join(lib, "Application Support", "cmux-next", bundle_id),
+             os.path.join(lib, "HTTPStorages", bundle_id),
+             os.path.join(lib, "WebKit", bundle_id),
+             os.path.expanduser(os.path.join("~/.cmux/chief", bundle_id))]
+    if temp:
+        paths.append(os.path.realpath(os.path.join(temp, "..", "X", bundle_id + ".code_sign_clone")))
+    logs = os.path.join(lib, "Logs", "cmux-next")
+    if os.path.isdir(logs):
+        paths += [os.path.join(logs, n) for n in sorted(os.listdir(logs)) if n.startswith(bundle_id + "-")]
+    removed = []
+    for p in paths:
+        if os.path.lexists(p):
+            if os.path.isdir(p) and not os.path.islink(p):
+                run(["/bin/rm", "-rf", p])
+            else:
+                os.remove(p)
+            removed.append(p)
+    print(json.dumps({"bundle_id": bundle_id, "deleted_defaults": had_defaults, "removed": removed}))
+
+
 if __name__ == "__main__":
     cmd, rest = sys.argv[1], sys.argv[2:]
     if cmd == "detach":
@@ -188,4 +228,5 @@ if __name__ == "__main__":
             os.execvp(rest[1], rest[1:])
         print(pid)
     else:
-        {"prep": prep, "publish": publish, "rpc": rpc, "install-cold": install_cold, "launches": launches}[cmd](rest)
+        {"prep": prep, "publish": publish, "rpc": rpc, "install-cold": install_cold, "launches": launches,
+         "wipe": wipe}[cmd](rest)
