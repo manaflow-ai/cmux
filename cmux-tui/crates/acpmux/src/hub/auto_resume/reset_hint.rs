@@ -243,8 +243,20 @@ fn retry_after(text: &str, now_ms: u64) -> Option<u64> {
 /// 2026 5:20 PM." or "… try again at 4:05 AM.", in the machine's local time, which Codex formats it
 /// in (cmux#48665: with none of it read, the chat's hold ended a minute later and every attempt
 /// failed the same way).
+/// The local zone is the libc one (`cli::process::local_offset`), not `chrono::Local`, whose
+/// macOS zone lookup links CoreFoundation, which the cross-built daemon does not.
 fn try_again_at(error: &str, now_ms: u64) -> Option<u64> {
-    try_again_at_in(error, now_ms, &chrono::Local)
+    let offset = |secs: u64| {
+        let secs = i64::try_from(secs).ok()?;
+        chrono::FixedOffset::east_opt(i32::try_from(crate::cli::process::local_offset(secs)).ok()?)
+    };
+    let now = offset(now_ms / 1000)?;
+    let deadline = try_again_at_in(error, now_ms, &now)?;
+    // A clock change between now and the reset: read it again at the reset's own offset.
+    match offset(deadline / 1000)? {
+        at if at == now => Some(deadline),
+        at => try_again_at_in(error, now_ms, &at),
+    }
 }
 
 fn try_again_at_in<Z: TimeZone>(error: &str, now_ms: u64, zone: &Z) -> Option<u64> {
