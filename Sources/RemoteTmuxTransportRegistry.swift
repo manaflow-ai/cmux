@@ -105,6 +105,14 @@ enum RemoteTmuxControlAttachMode: Sendable, Equatable, Hashable {
     /// 80x24, so its first window flashes at that size before the client's first
     /// `refresh-client -C` lands.
     case attachOrCreateSized(columns: Int, rows: Int)
+    /// `attach-session -t $<id>`: the first attach of a session discovery just listed.
+    ///
+    /// A session can be renamed between the listing and the attach (a tmux config that names
+    /// sessions after the active window's title renames a busy one several times a second),
+    /// and its id survives that (#16103). Only the first spawn uses it. Once the stream has
+    /// reached control mode every reconnect is `.attach` by the name tmux last reported,
+    /// because an id from before a tmux server restart can name a different session.
+    case attachSessionID(Int)
 
     /// The mode a caller's `createIfMissing` flag means, so the socket boundary's length check
     /// and the connection that spawns the command cannot measure different shapes. They did:
@@ -130,6 +138,8 @@ enum RemoteTmuxControlAttachMode: Sendable, Equatable, Hashable {
                 "-CC", "new-session", "-A", "-s", sessionName,
                 "-x", String(columns), "-y", String(rows),
             ]
+        case let .attachSessionID(sessionID):
+            return ["-CC", "attach-session", "-t", "$\(sessionID)"]
         }
     }
 }
