@@ -61,7 +61,7 @@ The renderer accepts the existing [scene ABI](../../../../cmux-tui/crates/cmux-a
   `rotation` turns it about its center (a clock hand). A ZStack child's `position {x, y, unit?}` places
   its center in points or as a fraction of the stack, outside the stack's sizing.
 - Shared decorations support `padding` (number or edge object),
-  `paddingHorizontal`, `paddingVertical`, `frame`, `background`, `hoverBackground`,
+  `paddingHorizontal`, `paddingVertical`, `frame`, `background`, `glass`, `hoverBackground`,
   `color`, `borderColor`, `borderWidth`, `cornerRadius`, `opacity`, `rotation`,
   `fixedSize`, `cursor`, `help`, `disabled`, `onTap` and context `menu` entries.
   Colors accept semantic ABI tokens and `#RRGGBB[AA]`, rather than arbitrary CSS.
