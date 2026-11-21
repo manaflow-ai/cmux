@@ -33,6 +33,8 @@ FAST_REASON = "(no Mac tier)"
 NO_FAST_TIER_REASON = "(no Mac fast tier)"
 # The router imports these from scripts/ci; the old router gets its own copies.
 ROUTER_FILES = ("cmux_next_route.py", "select_package_tests.py")
+# Read by the router when the ref has them (the daemon tier's map, cmux#45464); an older base has none.
+OPTIONAL_ROUTER_FILES = ("affected-jobs.json",)
 
 Router = Callable[[list[str]], tuple[dict[str, str], list[str]]]
 
@@ -67,10 +69,11 @@ def compare(old: dict[str, str], new: dict[str, str], new_reasons: list[str]) ->
     return Verdict("unexplained", f"dropped {change} with no fast-tier reason")
 
 
-# A cmux-tui path no Swift compile reads (the router's NO_SWIFT_COMPILE_REASON) drops only the Swift
-# compiles: native and scheme, nothing else, and the same Swift test targets.
+# A path no Swift compile reads (the router's NO_SWIFT_COMPILE_REASON: cmux-tui Rust, a CI file, a tree in
+# NO_SWIFT_COMPILE_ROOTS) drops only the Swift compiles: native and scheme, and `macos` when they were its only
+# Mac tier (macos is derived: any Mac tier), nothing else, and the same Swift test targets.
 NO_SWIFT_COMPILE_REASON = "(no Swift compile reads it)"
-SWIFT_COMPILE_TIERS = frozenset(("native", "scheme"))
+SWIFT_COMPILE_TIERS = frozenset(("native", "scheme", "macos"))
 # A pull request a running app takes live (the router's hot_only) drops the app build and test tiers, never the
 # daemon tier or `full`.
 HOT_ONLY_REASON = "(hot-only: no app build)"
@@ -135,6 +138,11 @@ def load_router(root: Path, ref: str | None) -> Router:
         text = subprocess.run(["git", "show", f"{ref}:scripts/ci/{name}"], cwd=root, check=True,
                               capture_output=True, text=True).stdout
         (directory / name).write_text(text)
+    for name in OPTIONAL_ROUTER_FILES:
+        found = subprocess.run(["git", "show", f"{ref}:scripts/ci/{name}"], cwd=root, check=False,
+                               capture_output=True, text=True)
+        if found.returncode == 0:
+            (directory / name).write_text(found.stdout)
     return _router(_load(directory, "cmux_next_route_old"), root)
 
 

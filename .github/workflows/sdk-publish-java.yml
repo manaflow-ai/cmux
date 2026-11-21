@@ -23,6 +23,7 @@ env:
 jobs:
   version:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 10
     permissions:
       contents: read
     outputs:
@@ -101,11 +102,16 @@ jobs:
             echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           fi
 
+      # The reused fleet image (LINUX_RUNNER) has no hosted toolcache JDK
+      # (JAVA_HOME_17_X64 unset); setup-java provisions Temurin 17 on any runner.
+      - name: Set up JDK 17
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "17"
+
       - name: Java version
         run: |
-          echo "JAVA_HOME_17_X64=$JAVA_HOME_17_X64"
-          echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
-          export PATH="$JAVA_HOME_17_X64/bin:$PATH"
           java -version
           javac -version
 
@@ -126,6 +132,7 @@ jobs:
   maven-central-todo:
     needs: bindings-e2e-java
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:

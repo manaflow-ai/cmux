@@ -169,7 +169,8 @@ public nonisolated final class AcpmuxMacApprover: Sendable {
         read[kSecReturnData as String] = true
         read[kSecMatchLimit as String] = kSecMatchLimitOne
         var out: CFTypeRef?
-        let status = SecItemCopyMatching(read as CFDictionary, &out)
+        // Every call here refuses UI: a Keychain that would ask answers errSecInteractionNotAllowed.
+        let status = SecItemCopyMatching(KeychainNoPromptContext.applied(to: read) as CFDictionary, &out)
         if status == errSecSuccess, let blob = out as? Data,
            (try? SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: blob)) != nil {
             return .enclave(blob)
@@ -184,11 +185,11 @@ public nonisolated final class AcpmuxMacApprover: Sendable {
         guard let access = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
                                                            .privateKeyUsage, &error),
               let made = try? SecureEnclave.P256.Signing.PrivateKey(accessControl: access) else { return nil }
-        if status == errSecSuccess { _ = SecItemDelete(query as CFDictionary) }
+        if status == errSecSuccess { _ = SecItemDelete(KeychainNoPromptContext.applied(to: query) as CFDictionary) }
         var add = query
         add[kSecValueData as String] = made.dataRepresentation
         add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let added = SecItemAdd(add as CFDictionary, nil)
+        let added = SecItemAdd(KeychainNoPromptContext.applied(to: add) as CFDictionary, nil)
         guard added == errSecSuccess else {
             logger.error("mac approver key not stored: \(added, privacy: .public)")
             return nil

@@ -27,6 +27,8 @@ import { useAttachedVideoPlayer } from "./videoAttachmentTileModel";
 import { FileAttachment } from "../FileAttachment";
 import { PastedTextChip } from "./PastedTextChip";
 import { UIPickChip } from "./UIPickChip";
+import { BrowserPickChip } from "./BrowserPickChip";
+import { isBrowserPick } from "./browserPickModel";
 import { isUIPick } from "./uiPickModel";
 import { TextAttachmentCard } from "./TextAttachmentCard";
 import { pastedSize } from "./textAttachmentCardModel";
@@ -424,7 +426,7 @@ function AttachmentChipPreview({
   );
   /// The image's natural size, from its thumbnail or from the image itself once it loads.
   const [size, setSize] = useState<{ width: number; height: number }>();
-  const videoPlayer = useAttachedVideoPlayer(attachment.path, attachment.name);
+  const videoPlayer = useAttachedVideoPlayer(attachment.path, attachment.name, attachment.video);
   const isImage = attachment.kind === "image" && Boolean(attachment.data);
   const image = isImage && !broken;
   const source = image ? `data:${attachment.mimeType};base64,${attachment.data}` : undefined;
@@ -560,6 +562,13 @@ function AttachmentChipPreview({
       keep,
     );
   }
+  // A browser pick (browserPickModel.ts): its number and comment over the element, one chip with its
+  // crop inside, opening its whole card in place (BrowserPickChip.tsx).
+  if (attachment.kind === "text" && attachment.text !== undefined && isBrowserPick(attachment))
+    return menu(
+      undefined,
+      <BrowserPickChip host="strip" name={attachment.name} text={attachment.text} remove={remove} />,
+    );
   // An inspector pick (uiPickModel.ts): the element and a snippet of its text, opening its whole
   // report in place (UIPickChip.tsx).
   if (attachment.kind === "text" && attachment.text !== undefined && isUIPick(attachment))

@@ -31,7 +31,9 @@ letter. A form with a second New Tab key and fewer `chord` cases than half of it
 close-move whose close did not move its panes (Reduce Motion, pane animations off, a close in one frame) is counted
 apart (`no_move`), and the form with fewer cases in a move than half of its cases is NOT PROVED: with no move the
 form is the plain close of a pane. A case with no note of a hold's start in the log is `not_run`: no read is not
-`dropped 0`. A switch case whose setup did not put the letter in each of its 2 fields is `not_run`.
+`dropped 0`. A switch case whose setup did not put the letter in each of its 2 fields is `not_run`. A select is
+done when the app names its tab as the tab that the pane shows (`Letters.shown`); a case with a select that the
+pane does not show in SELECT_S is `not_run`, and its record has the tab that the pane shows and the app's refusal.
 
 LIMITS: the cases come after the measure's rows, in the session that the rows left, and a case that would start
 after the run's budget (BUDGET_S) is `not_run`. The app is not the active app
@@ -58,6 +60,7 @@ SWITCH_FORMS = ("switch-next", "switch-previous")
 LETTER = "x"  # what the key X puts in a field
 BUDGET_S = 900.0  # of all cases of a run: a case that would start later is `not_run`
 SETTLE_S = 0.7  # after a sequence: the 3 keys take 70 ms, and the hold's log has each note at once
+SELECT_S = 5.0  # for the app's word that a pane shows the tab of a select; after it the case is `not_run`
 DROPPED = re.compile(r"dropped (\d+) key")
 COMMIT, MOVES = "layout.commit", re.compile(r"layout\.commit: close moves \d+ panes")
 OPENING_KEYS = ("spare", "idle", "cross_window", "refit")  # an app gives a part of them: the record has what it gave
@@ -161,8 +164,22 @@ class Letters:
     def ids(self, workspace, pane):
         return [tab.get("id") for tab in self.builder.settled_tabs(workspace, pane, seconds=10)]
 
-    def select(self, tab):
-        self.builder.action("tab.focus", target=f"tab:{tab}")
+    def shown(self, workspace, pane):
+        """The tab that `pane` shows, by the app's word, or None. The snapshot names it in the pane's `selected_tab`
+        (a tab of the daemon has no key `selected` there; an app-only page tab has one). When the snapshot names
+        none, the focus model's word on the pane (`debug.focus`), as the measure's own read of a pane does."""
+        found = next((part for part in self.builder.panes(self.builder.workspace(workspace)) if part.get("id") == pane), None) or {}
+        store = found.get("selected_tab") or next((tab.get("id") for tab in found.get("tabs") or [] if tab.get("selected")), None)
+        return store or next((part.get("selected") for window in (self.rpc("debug.focus") or {}).get("windows") or []
+                              for part in window.get("topology") or [] if part.get("pane") == pane), None)
+
+    def select(self, tab, workspace, pane):
+        """`pane` shows `tab`: the action, then a wait for the app's word that the pane shows it (SELECT_S at most)."""
+        reply = self.builder.action("tab.focus", target=f"tab:{tab}")
+        if not self.wait(lambda: self.shown(workspace, pane) == tab, SELECT_S, 0.1):
+            shown, said = self.shown(workspace, pane), reply.get("error") if isinstance(reply, dict) else None
+            raise NotRun(f"the pane shows {f'the tab {shown}' if shown else 'no tab that the app names'}, not the tab {tab}, "
+                         f"after its select" + (f": the app said: {str(said)[:160]}" if said else ""))
         self.pause(0.4)  # test script: the pane's paint hold is 500 ms at most, and the next act is a read or a key
 
     def keys(self, pane, steps):
@@ -190,15 +207,15 @@ class Letters:
             second = next((tab for tab in self.ids(workspace, pane) if tab not in before), None)
             if not second or not self.wait(lambda: self.field().get("text") == "", 20, 0.1):
                 raise NotRun("the New Tab key of the setup made no tab with a ready field")
-            self.select(first)
-            self.select(second)
+            self.select(first, workspace, pane)
+            self.select(second, workspace, pane)
         elif form == "from-chat":
             fallbacks, before = self.builder.chat_fallbacks, set(self.ids(workspace, pane))
             self.builder.add_tab(workspace, pane, "chat")
             chat = next((tab for tab in self.ids(workspace, pane) if tab not in before), None)
             if self.builder.chat_fallbacks != fallbacks or not chat:
                 raise NotRun("the app opened no agent chat")
-            self.select(chat)
+            self.select(chat, workspace, pane)
             self.rpc("debug.agent_pane", {"action": "focus_composer", "pane": pane})
             focused = self.wait(lambda: (self.rpc("debug.agent_pane", {"action": "composer_focused", "pane": pane}) or {}).get("focused"), 20, 0.1)
             if not focused:
@@ -211,7 +228,7 @@ class Letters:
             if self.setup_fields != [LETTER, LETTER]:
                 raise NotRun(f"a letter of the setup did not get to its field: the 2 fields have {self.setup_fields}")
             if form == "switch-next":
-                self.select(first)
+                self.select(first, workspace, pane)
             return pane, pane, chord(NEXT_TAB if form == "switch-next" else PREVIOUS_TAB, shift=True) + three_keys(SWITCH_WAIT_MS)
         elif form == "close-move":
             other = self.builder.split(workspace, pane, "splitRight")
@@ -261,9 +278,7 @@ class Letters:
             if not made:
                 raise NotRun("the keys made no tab in the pane")
             self.builder.focus_pane(target)
-            self.select(made[0])
-            if made[0] not in [tab.get("id") for tab in self.builder.tabs(workspace, target) if tab.get("selected")]:
-                raise NotRun(f"the pane does not show the first new tab {made[0]} after its select")
+            self.select(made[0], workspace, target)
             text = self.wait(lambda: self.field().get("text"), 5, 0.1) or self.field().get("text")
             record.update({"field": text, **judge(form, notes, text)})
         except NotRun as error:
