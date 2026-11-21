@@ -257,12 +257,8 @@ final class EventInspectorRows {
     /// Journals whose kept records take more bytes than this are filtered off the main thread.
     @ObservationIgnored let offMainAbove: Int
     private(set) var query = ""
-    /// The query every row matches. While an off-main filter for a new `query` runs, the rows
-    /// stay this one's (new records matched against it too), so the list and its copy are one
-    /// query's rows, never a mix.
-    private(set) var shownQuery = ""
-    /// An off-main filter for `query` is running (the screen holds Copy until it lands).
-    private(set) var isFiltering = false
+    /// Bumped when an off-main filter's result lands (the screen redraws).
+    private var landed = 0
     @ObservationIgnored private var matched: [AgentInspectorEvent] = []
     /// The first shown row of `matched` (those before it were dropped).
     @ObservationIgnored private var head = 0
@@ -271,6 +267,8 @@ final class EventInspectorRows {
     /// The journal's generation these rows are of (-1: none yet).
     @ObservationIgnored private var generation = -1
     @ObservationIgnored private var filtering: Task<Void, Never>?
+    /// RED STUB: the seam the head's screen reads (c29face4 had no such state).
+    var isFiltering: Bool { filtering != nil }
     @ObservationIgnored private var token = 0
     /// `matches` calls made (tests: the work a record or a query costs).
     @ObservationIgnored private(set) var matchCalls = 0
@@ -292,7 +290,6 @@ final class EventInspectorRows {
         token &+= 1
         filtering?.cancel()
         filtering = nil
-        isFiltering = false
         let all = journal.rows
         if query.isEmpty || journal.keptBytes <= offMainAbove {
             builds += 1
@@ -304,18 +301,16 @@ final class EventInspectorRows {
             }
             head = 0
             nextID = journal.nextID
-            shownQuery = query
             shownQueries.append(query)
             return
         }
         // Off the main thread: the records can be megabytes. Until it lands, the rows shown are
-        // the last query's (`shownQuery`), newer records matched against that one as they come.
-        isFiltering = true
+        // the last query's, with newer records matched against this one as they come.
         let snapshot = Array(all)
         let through = journal.nextID
         let token = token
         let generation = generation
-        filtering = Task { [weak self, weak journal] in
+        filtering = Task { [weak self] in
             // A newer query cancels this one, and the scan stops with it.
             let scan = Task.detached(priority: .userInitiated) { () -> [AgentInspectorEvent] in
                 var out: [AgentInspectorEvent] = []
@@ -326,41 +321,29 @@ final class EventInspectorRows {
                 return out
             }
             let result = await withTaskCancellationHandler { await scan.value } onCancel: { scan.cancel() }
-            guard let self, let journal, self.token == token, !Task.isCancelled else { return }
-            self.land(result, through: through, generation: generation, looked: snapshot.count, journal: journal)
+            guard let self, self.token == token, !Task.isCancelled else { return }
+            self.land(result, through: through, generation: generation, looked: snapshot.count)
         }
     }
 
-    private func land(_ result: [AgentInspectorEvent], through: Int, generation: Int, looked: Int, journal: AgentEventJournal) {
+    private func land(_ result: [AgentInspectorEvent], through: Int, generation: Int, looked: Int) {
         filtering = nil
-        isFiltering = false
         builds += 1
         matchCalls += looked
-        shownQuery = query
-        if generation == journal.generation {
-            // The scan's matches still kept, then the records that came while it ran, matched
-            // against this query (they were matched against the shown one).
-            let first = journal.firstID
-            var rows = result.filter { $0.id >= first }
-            let later = journal.events(from: through)
-            matchCalls += later.count
-            rows += later.filter { $0.matches(query) }
-            matched = rows
+        if generation == self.generation {
+            // Records from `through` on were matched against this query as they came.
+            matched = result + matched[head...].filter { $0.id >= through }
             head = 0
-            nextID = journal.nextID
-            self.generation = generation
-        } else {
-            // Cleared while it ran: the records since are matched against this query.
-            self.generation = -1
-            sync(journal)
+            nextID = max(nextID, through)
         }
         shownQueries.append(query)
+        landed &+= 1
     }
 
     /// The rows matching the query, brought up to the journal (what changed since the last read).
     func rows(_ journal: AgentEventJournal) -> ArraySlice<AgentInspectorEvent> {
         // A new query (set after this read, from the screen's onChange) and a landed filter redraw.
-        _ = (query, shownQuery, isFiltering)
+        _ = (query, landed)
         sync(journal)
         return matched[head...]
     }
@@ -393,11 +376,11 @@ final class EventInspectorRows {
             return
         }
         for event in journal.events(from: nextID) {
-            if shownQuery.isEmpty {
+            if query.isEmpty {
                 matched.append(event)
             } else {
                 matchCalls += 1
-                if event.matches(shownQuery) { matched.append(event) }
+                if event.matches(query) { matched.append(event) }
             }
         }
         nextID = journal.nextID
