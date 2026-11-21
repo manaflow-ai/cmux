@@ -352,6 +352,8 @@ final class WindowManager {
             await onboarding.migrateClassicAtLaunch(firstWorkspace: firstWorkspace)
             // One step at a time: Agents, then Bring your history once its window closed.
             await services.onboarding.showFirstRunSteps(isFirstRun: isFirstRun)
+            // A new person's first launch: a new agent chat, ready to type (cmux#48416).
+            await services.onboarding.openFirstChat(isFirstRun: isFirstRun)
             // Then, once per channel: `cmux` in Terminal that would not run this app.
             await CLIInstallHandlers.offerAtLaunch(skipsOnboarding: services.environment.launchSteps.skipsFirstRun)
         }
