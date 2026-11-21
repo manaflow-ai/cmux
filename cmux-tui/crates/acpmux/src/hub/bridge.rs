@@ -630,6 +630,22 @@ impl Hub {
         if text == current {
             return;
         }
+        // A registration that stops holding is its unregister (`register.rs`); daemon.log keeps
+        // both ends (`close_record.rs`).
+        match &text {
+            Some(text) => tracing::info!(
+                target: "acpmux::lifecycle",
+                session = %session.id,
+                name = %name,
+                "session unregistered: {text}"
+            ),
+            None => tracing::info!(
+                target: "acpmux::lifecycle",
+                session = %session.id,
+                name = %name,
+                "session registration holds again"
+            ),
+        }
         match text {
             Some(text) => {
                 let mut set = serde_json::Map::new();

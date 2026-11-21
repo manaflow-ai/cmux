@@ -43,6 +43,7 @@ mod workflow_runs;
 // A turn ends when its agent ends it; the steers it runs on with are the next turn's.
 mod carried_turn;
 pub(crate) mod clone_boot;
+pub(crate) mod close_record;
 mod exit_reason;
 mod fallback_start;
 pub(crate) mod session_auth;
@@ -2160,6 +2161,8 @@ impl Hub {
             replaced: AtomicBool::new(false),
             purging: AtomicBool::new(false),
             closing: AtomicBool::new(false),
+            close_cause: StdMutex::new(None),
+            last_exit: StdMutex::new(None),
             stops: AtomicU64::new(0),
             cancels: AtomicU64::new(0),
             claim_runs: StdMutex::new(Default::default()),
@@ -3229,6 +3232,12 @@ impl Hub {
         let reopened = self.write_status(session, SessionStatus::Idle, Some(stops));
         if reopened {
             self.append(session, "mux", "reopened", json!({}));
+            tracing::info!(
+                target: "acpmux::lifecycle",
+                session = %session.id,
+                name = %session.read_meta(|m| m.name.clone()),
+                "session reopened"
+            );
         }
         reopened
     }
@@ -3245,7 +3254,7 @@ impl Hub {
             }
         }
         let _done = Done(&session.status_writes);
-        let (was, link) = {
+        let (was, link, closed) = {
             let mut m = session.meta.lock().unwrap();
             let was = m.status;
             let reopens = reopen.is_some_and(|stops| session.stops.load(Ordering::SeqCst) == stops);
@@ -3258,6 +3267,11 @@ impl Hub {
             if was != status {
                 session.status_changes.fetch_add(1, Ordering::SeqCst);
             }
+            // Open again: the close's record stays in its log only (`close_record.rs`).
+            if was == SessionStatus::Closed && status != SessionStatus::Closed {
+                m.closed = None;
+            }
+            let closed = (status == SessionStatus::Closed).then(|| m.closed.clone()).flatten();
             // Only a change dates the chat: stopping a closed chat again logs nothing and leaves
             // it as old as it was, or a chat stopped every day would never be old enough for log
             // retention (`retention.rs`) and would move up the lists that sort by it.
@@ -3270,7 +3284,7 @@ impl Hub {
             if let Some(link) = &m.subsession {
                 self.subsessions.note_status(&link.started_by, &session.id, status);
             }
-            (was, m.subsession.clone())
+            (was, m.subsession.clone(), closed)
         };
         self.update_live_session_index(session);
         if was != status {
@@ -3286,7 +3300,12 @@ impl Hub {
                 self.subsession_status(&session.id, link, was, status);
             }
             session.mark_waiting(status == SessionStatus::Waiting);
-            self.append(session, "mux", "status", json!({"status": status.to_string()}));
+            // A close's event says why (`close_record.rs`).
+            let msg = match closed {
+                Some(closed) => json!({"status": status.to_string(), "closed": closed}),
+                None => json!({"status": status.to_string()}),
+            };
+            self.append(session, "mux", "status", msg);
             self.save_meta(session);
             self.care_status(status);
             // A sub-session that starts or ends a turn, or closes, changes its parent's work.

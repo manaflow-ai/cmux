@@ -361,6 +361,16 @@ impl Hub {
             "registered",
             json!({"name": name, "family": family, "pid": pid, "token": token_kept}),
         );
+        tracing::info!(
+            target: "acpmux::lifecycle",
+            session = %session.id,
+            name = %name,
+            family = %family,
+            pid = ?pid,
+            token = token_kept,
+            bridged = watched,
+            "session registered"
+        );
         Ok(json!({
             "sessionId": session.id,
             "name": name,
