@@ -36,6 +36,12 @@ class Stream(unittest.TestCase):
         self.assertNotIn("fake_agent", sent)
         self.assertEqual(sent[0]["content"]["text"], "word0 ")
 
+    def test_a_chunk_size_fills_each_chunk(self):
+        sent = self.run_prompt([{"type": "text", "text": "stream: 900 8 400"}])
+        text = sent[0]["content"]["text"]
+        self.assertTrue(text.startswith("word0 "))
+        self.assertEqual(len(text), 400)
+
     def test_a_stream_prompt_behind_a_lead_mark_streams(self):
         mark = {"type": "text", "text": "From a program that did not say who it is, not the person:",
                 "_meta": {"acpmux": {"attribution": True}}}

@@ -304,7 +304,8 @@ class ManyChatsTests(unittest.TestCase):
 
     def test_preset_and_rows(self):
         args = bp.apply_preset(argparse_namespace(), "many-chats")
-        self.assertEqual((args.load_local, args.load_streaming, args.load_seeded_open, args.load_tabs), (4, 4, 196, 13))
+        self.assertEqual((args.load_local, args.load_streaming, args.load_seeded_open, args.load_tabs, args.stream_chunk),
+                         (10, 10, 190, 13, 400))
         result = {"label": "many-chats", "seconds": 60, "roles": {"app": {"main_thread_pct": 41.5, "cpu_pct": 90.0}},
                   "hangs": {"over_100ms": 7, "over_250ms": 2, "max_ms": 480.0, "total_ms": 2100.0}}
         rows = bp.many_chats_rows(result)
@@ -323,7 +324,7 @@ class ManyChatsTests(unittest.TestCase):
 def argparse_namespace():
     import argparse
     return argparse.Namespace(load_remote=None, load_local=None, load_streaming=None, load_tabs=None,
-                              load_seeded_open=None, settle=None, measure=None)
+                              load_seeded_open=None, stream_chunk=None, settle=None, measure=None)
 
 
 if __name__ == "__main__":
