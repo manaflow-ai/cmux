@@ -47,15 +47,10 @@ name: fleet test-compile (advisory)
 # none passed). So this check is again what compiles a PR's CmuxNext test
 # targets.
 
+# Cut from pull requests on 2026-11-21 (ci-time-map: advisory, read by nothing; ~6.9k fleet runner-min a day). It stays runnable
+# by workflow_dispatch; cmux-next-tip-test-compile.yml still compiles the test targets on the base.
 on:
-  pull_request:
-    branches: [feat-cmux-next]
-    paths:
-      - "Packages/**"
-      - "vendor/**"
-      - "scripts/ci/compile_test_plan.py"
-      - "scripts/ci/package-test-lane.sh"
-      - ".github/workflows/fleet-test-compile.yml"
+  workflow_dispatch:
 
 permissions: {}
 
