@@ -108,6 +108,7 @@ import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./ha
 import {
   injectedNewTabContext,
   useEarlyNewTabContext,
+  useLostSharedPart,
   useNewTabAdoption,
   useNewTabPlaces,
   adoptionPlan,
@@ -116,14 +117,13 @@ import {
   useSessionAdoption,
   type SessionAdoption,
   withHandshakeNewTab,
-  useLostSharedPart,
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import {
   heldPick,
-  shownCloudStartPick,
-  withDraftFolder,
   withCloudStartFolder,
+  withDraftFolder,
+  shownCloudStartPick,
   withCloudStartPick,
 } from "./newtab/draftFolder";
 import {
@@ -139,7 +139,7 @@ import { rememberStartedProject } from "./newtab/startedProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { TaskGoalStrip } from "./TaskGoalStrip";
 import { goalHatPlace } from "./goalHat.experiment";
-import { githubFolderRepo, githubFolder } from "./githubRepos";
+import { githubFolder, githubFolderRepo } from "./githubRepos";
 import { StyleSwitch } from "./newtab/StyleSwitch";
 import { useSessionCommands } from "./newtab/useSessionCommands";
 import { screenTemplate, shownTemplate, pageStyle, pickNewTabStyle } from "./newtab/templates";
@@ -586,6 +586,8 @@ import {
   cloudStartTeam,
   makeCloudSignInRetry,
   grantedCloudStart,
+  pickedChatCloudCall,
+  pickOnlyNewChat,
   newTabProjectPick,
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
@@ -594,8 +596,6 @@ import {
   heldPromptShown,
   cloudPickExtras,
   composerCloudStartFolder,
-  pickedChatCloudCall,
-  pickOnlyNewChat,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
 import { holdsDraft, promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
@@ -848,11 +848,11 @@ import { holdWebSwap, pageEditHold, pageReleaseHold } from "../../pages/shared/w
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import {
   SandboxTab,
-  newTabRunModeRows,
   sandboxAgent,
   sandboxPageRefusal,
   sandboxRetryable,
   type RunMode,
+  newTabRunModeRows,
 } from "./sandboxRun";
 import { SandboxRunView } from "./SandboxRunView";
 import { PaneFeatureTips } from "./featureTips";
@@ -3795,7 +3795,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
 
   const processSource = useMemo<ProcessSource>(
     () => ({
-      listProcesses: (sessionId) => directClient.current?.listProcesses(sessionId) ?? Promise.reject(new Error()),
+      listProcesses: (sessionId, recent) =>
+        directClient.current?.listProcesses(sessionId, recent) ?? Promise.reject(new Error()),
       watchProcesses: (listener) => directClient.current?.watchProcesses(listener) ?? (() => undefined),
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new client is a new source
@@ -3869,6 +3870,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       backgroundOpen ||
       snapshot.isWorking ||
       transcriptRunning.length > 0,
+    // The whole history only while a list of it shows; the tray and the card read the recent ones.
+    (sessionInfoOn && sessionInfoOpened) || backgroundOpen,
   );
   const runningCommandList = useMemo(
     () =>
@@ -6198,20 +6201,25 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         : NO_COMMANDS,
     [subagentTray, processRegistry, transcriptTasks],
   );
-  const endedCommandsKey = endedCommandList
-    .map((task) =>
-      [
-        task.id,
-        task.state,
-        task.command,
-        task.description ?? "",
-        task.startedAt ?? "",
-        task.endedAt ?? "",
-        task.toolCallId ?? "",
-        task.subagent ?? "",
-      ].join("\u0000"),
-    )
-    .join("\u0001");
+  // Built when the list changes, never per render: a chat's ended commands can number thousands.
+  const endedCommandsKey = useMemo(
+    () =>
+      endedCommandList
+        .map((task) =>
+          [
+            task.id,
+            task.state,
+            task.command,
+            task.description ?? "",
+            task.startedAt ?? "",
+            task.endedAt ?? "",
+            task.toolCallId ?? "",
+            task.subagent ?? "",
+          ].join("\u0000"),
+        )
+        .join("\u0001"),
+    [endedCommandList],
+  );
   const endedCommandItems = useMemo((): TrayItem[] => {
     const byId = new Map(trayAgents.map((agent) => [agent.id, agent]));
     return endedCommandList.map((command) => {
@@ -11822,9 +11830,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     };
     for (const project of directProjects) byPath.set(project.cwd, project);
     for (const path of newTab?.projects ?? []) byPath.set(path, listed(path));
+    // Each folder once: a large profile lists thousands of chats in a few hundred folders.
+    const named = new Set<string>();
     for (const session of newTabFolderSessions) {
-      if (typeof session.cwd !== "string" || !session.cwd) continue;
+      if (typeof session.cwd !== "string" || !session.cwd || named.has(session.cwd)) continue;
       if (session.host && session.hostKind !== "local") continue;
+      named.add(session.cwd);
       byPath.set(session.cwd, listed(session.cwd));
     }
     if (newTab?.cwd) byPath.set(newTab.cwd, listed(newTab.cwd));
