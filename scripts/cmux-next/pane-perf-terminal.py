@@ -84,6 +84,11 @@ parser.add_argument("--pages", type=int, default=0,
 parser.add_argument("--page-resize-work-ms", type=float, default=0,
                     help="with --browser: the probe page's resize handler keeps the page busy this long, as a page that lays "
                          "itself out again in script does (the AWS console: 2 to 4 frames); the gap counts read it")
+parser.add_argument("--film", type=int, default=0,
+                    help="with --browser: after the rounds, this many takes of each action as a movie of every composited "
+                         "frame (`debug.motion record_*`, ScreenCaptureKit), in <out>/films/ and <out>/films.tgz; the probe "
+                         "page gets a magenta bar on its right and bottom edges, so a frame where the page's backdrop shows "
+                         "past them is a gap frame (scripts/cmux-next/film-page-gap.py counts them)")
 parser.add_argument("--json")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--gate", action="store_true", help="fail on the budget rows")
@@ -315,7 +320,13 @@ def open_page():
     focused (TabLifecycle.newBrowser, PaneController.newBrowserTab). Returns an error, or None once its loop runs."""
     PROBE.clear()
     path = os.path.join(opts.out, "pane-perf-probe.html")
-    open(path, "w").write(PROBE_PAGE.replace("window.__work = 0;", f"window.__work = {max(0.0, opts.page_resize_work_ms)};"))
+    page = PROBE_PAGE.replace("window.__work = 0;", f"window.__work = {max(0.0, opts.page_resize_work_ms)};")
+    if opts.film:
+        # The page's own right and bottom edges, in a color nothing else in the window has (film-page-gap.py).
+        page = page.replace("</style>", "#edge-r{position:fixed;top:0;right:0;bottom:0;width:12px;background:#ff00ff}"
+                            "#edge-b{position:fixed;left:0;right:0;bottom:0;height:12px;background:#ff00ff}</style>"
+                            ).replace("<header>", "<i id=\"edge-r\"></i><i id=\"edge-b\"></i><header>")
+    open(path, "w").write(page)
     # The URL goes under `args` (a top-level `url` opens the New Tab page).
     verb = f"openBrowser.{opts.browser_engine}"
     opened = action(verb, {"url": pathlib.Path(path).resolve().as_uri()}, timeout=120)  # --out may be relative
@@ -696,6 +707,25 @@ def steps():
     return names
 
 
+def film(name, label):
+    """One take of `name` as a movie of every frame the window server composited for the app's windows."""
+    folder = os.path.join(opts.out, "films")
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, label.replace(" ", "-") + ".mov")
+    started = rpc("debug.motion", {"action": "record_start", "path": path, "seconds": 6})
+    if not isinstance(started, dict) or started.get("error"):
+        print(f"  (no film of {label}: {started})", flush=True)
+        return
+    if not wait(lambda: (rpc("debug.motion", {"action": "record_read"}) or {}).get("capturing"), 5):
+        print(f"  (no film of {label}: the capture never ran)", flush=True)
+    time.sleep(0.4)  # test harness: the film has the window at rest before the act
+    perform(name)
+    time.sleep(1.6)  # test harness: the act and the page's layout land
+    rpc("debug.motion", {"action": "record_stop"})
+    if not wait(lambda: (rpc("debug.motion", {"action": "record_read"}) or {}).get("written"), 10):
+        print(f"  (film of {label}: not written in 10 s)", flush=True)
+
+
 def record(name, label):
     folder = os.path.join(opts.out, "frames", label.replace(" ", "-"))
     reply = rpc("debug.window_record", {"dir": folder, "seconds": 2.0})
@@ -912,6 +942,12 @@ def main():
             where, _, what = wanted.partition(":")
             if where == name and not not_applicable(what, columns if name != "stress" else None):
                 profile(what, f"{name}-{what}")
+        for take in range(opts.film if opts.browser else 0):
+            for step in sequence:
+                if step in GAP_ACTIONS and not not_applicable(step, columns if name != "stress" else None):
+                    if step not in ("close", "close-down", "column-close", "unzoom"):
+                        focus_page()
+                    film(step, f"{name}-{step}-{take}")
         if opts.record:
             for step in sequence:
                 if not not_applicable(step, columns if name != "stress" else None):
@@ -973,6 +1009,8 @@ finally:
     # One artifact with everything (report, samples, pictures, recordings): artifacts/.../out.tgz.
     subprocess.run(["tar", "-czf", os.path.join(opts.out, "out.tgz"), "-C", opts.out]
                    + [p for p in os.listdir(opts.out) if p.endswith((".json", ".txt", ".png")) or p == "frames"], capture_output=True)
+    if opts.film and os.path.isdir(os.path.join(opts.out, "films")):
+        subprocess.run(["tar", "-czf", os.path.join(opts.out, "films.tgz"), "-C", opts.out, "films"], capture_output=True)
     if opts.record and os.path.isdir(os.path.join(opts.out, "frames")):
         # One artifact: the recordings and snapshots beside the report.
         subprocess.run(["tar", "-czf", os.path.join(opts.out, "frames.tgz"), "-C", opts.out, "frames"]
