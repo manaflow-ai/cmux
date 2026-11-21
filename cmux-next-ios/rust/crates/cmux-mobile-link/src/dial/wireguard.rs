@@ -1987,6 +1987,7 @@ impl Dialer for WireGuardDialer {
                 .map_err(|e| DialError::Signaling(e.to_string()))?;
             options.timeline.mark("wg_init_sent");
             let agreed;
+            let reliable;
             let video_agreed;
             let webrtc_media_agreed;
             let (peer_key, peer_endpoints, peer_ip, peer_relayed, peer_relayed_tls, peer_version) = loop {
@@ -2006,6 +2007,7 @@ impl Dialer for WireGuardDialer {
                                 .parse()
                                 .map_err(|_| DialError::Unexpected("wg-resp overlayIP is not IPv4".into()))?;
                             agreed = super::input_lane_agreed(options, &lanes);
+                            reliable = super::reliable_agreed(options, &lanes);
                             video_agreed = options.video_lane && super::video_lane_listed(&lanes);
                             webrtc_media_agreed =
                                 video_agreed && options.webrtc_media && super::webrtc_media_listed(&lanes);
@@ -2103,6 +2105,7 @@ impl Dialer for WireGuardDialer {
                 lane,
                 media,
                 webrtc_media,
+                reliable,
             })
         })
     }
@@ -2128,6 +2131,7 @@ impl Dialer for WireGuardDialer {
                 return Err(DialError::Unexpected("expected wg-init".into()));
             };
             let agreed = super::input_lane_agreed(options, &lanes);
+            let reliable = super::reliable_agreed(options, &lanes);
             let video_wanted = options.video_lane && super::video_lane_listed(&lanes);
             let webrtc_media_wanted =
                 video_wanted && options.webrtc_media && super::webrtc_media_listed(&lanes);
@@ -2249,6 +2253,7 @@ impl Dialer for WireGuardDialer {
                 guard: Box::new(guard),
                 lane,
                 webrtc_media,
+                reliable,
                 media: media.map(|carrier| {
                     options.timeline.mark("video_lane");
                     super::PendingMedia::Send(carrier)

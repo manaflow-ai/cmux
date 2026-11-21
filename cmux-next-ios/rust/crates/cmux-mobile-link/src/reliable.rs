@@ -129,6 +129,12 @@ impl ResumeRegistry {
     }
 }
 
+impl std::fmt::Debug for ResumeRegistry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ResumeRegistry").field("links", &self.len()).finish()
+    }
+}
+
 /// Whether a reliable link's carrier is up.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Carrier {
