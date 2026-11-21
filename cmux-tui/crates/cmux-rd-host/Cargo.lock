@@ -548,6 +548,7 @@ version = "0.1.0"
 dependencies = [
  "cmux-file-lock",
  "cmux-process",
+ "cmux-rd-link",
  "hpke",
  "libc",
  "p256",
@@ -613,6 +614,8 @@ dependencies = [
  "hmac",
  "libc",
  "md-5",
+ "serde",
+ "serde_json",
  "sha1",
  "snow",
 ]
