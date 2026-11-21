@@ -2392,7 +2392,7 @@
             "text": "Adds Customize Menu… to the end of every right-click menu."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "context menu",
             "right click",
