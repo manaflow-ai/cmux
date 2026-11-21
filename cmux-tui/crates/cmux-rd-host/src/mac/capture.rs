@@ -739,7 +739,7 @@ pub fn displays(which: &str) -> Res<(Vec<(u32, u32)>, usize, Vec<u32>)> {
     let ids: Vec<u32> = displays.iter().map(|d| d.1).collect();
     // SAFETY: CGMainDisplayID has no preconditions.
     let main = unsafe { cg::CGMainDisplayID() };
-    let current = pick_index(&ids, main, which).unwrap_or(0);
+    let current = super::display_pick::pick_index(&ids, main, which).unwrap_or(0);
     let sizes = displays
         .iter()
         .map(|&(_, id)| {
@@ -757,52 +757,8 @@ fn pick(displays: &[(Id, u32)], which: &str) -> Res<(Id, u32)> {
     let ids: Vec<u32> = displays.iter().map(|d| d.1).collect();
     // SAFETY: CGMainDisplayID has no preconditions.
     let main = unsafe { cg::CGMainDisplayID() };
-    let index = pick_index(&ids, main, which)?;
+    let index = super::display_pick::pick_index(&ids, main, which)?;
     Ok(displays[index])
-}
-
-/// The index in `ids` that `which` names (see [`pick`]). An `id:<n>` no longer listed (the run
-/// that made the display ended) picks the main display, so an old link still shows something.
-fn pick_index(ids: &[u32], main: u32, which: &str) -> Res<usize> {
-    let main_index = || {
-        ids.iter()
-            .position(|&d| d == main)
-            .or((!ids.is_empty()).then_some(0))
-            .ok_or_else(|| "no display to capture (is Screen Recording allowed?)".into())
-    };
-    if which == "main" {
-        return main_index();
-    }
-    if let Some(id) = which.strip_prefix("id:") {
-        let id: u32 =
-            id.parse().map_err(|_| format!("--display {which}: id:<CGDirectDisplayID>"))?;
-        return ids.iter().position(|&d| d == id).map_or_else(main_index, Ok);
-    }
-    let index: usize =
-        which.parse().map_err(|_| format!("--display {which}: use main, an index or id:<n>"))?;
-    if index < ids.len() {
-        Ok(index)
-    } else {
-        Err(format!("no display {index}").into())
-    }
-}
-
-#[cfg(test)]
-mod pick_tests {
-    use super::pick_index;
-
-    #[test]
-    fn picks_main_index_and_display_id() {
-        let ids = [1, 5, 17];
-        assert_eq!(pick_index(&ids, 5, "main").unwrap(), 1);
-        assert_eq!(pick_index(&ids, 5, "2").unwrap(), 2);
-        assert!(pick_index(&ids, 5, "3").is_err());
-        assert_eq!(pick_index(&ids, 5, "id:17").unwrap(), 2);
-        // A run's display that is gone falls back to the main display.
-        assert_eq!(pick_index(&ids, 5, "id:99").unwrap(), 1);
-        assert!(pick_index(&ids, 5, "id:x").is_err());
-        assert!(pick_index(&[], 5, "main").is_err());
-    }
 }
 
 /// How long ago, in µs, the mach absolute time `then` was. The Mach timebase and clock calls are
