@@ -383,10 +383,6 @@ pub const PLACEMENT: Argument = Argument { name: "placement", title: t("Localiza
 #[rustfmt::skip]
 pub const TARGET: Argument = Argument { name: "target", title: t("RemoteActions", "argument.chiefMoveTarget", "Target"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "chiefMoveTargets", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
-pub const CHIEF_3: Argument = Argument { name: "chief", title: t("Localizable", "argument.chiefImportChief", "Cloud Chief"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
-#[rustfmt::skip]
-pub const SOURCE: Argument = Argument { name: "source", title: t("Localizable", "argument.chiefImportSource", "Source"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
-#[rustfmt::skip]
 pub const ENTRY: Argument = Argument { name: "entry", title: t("ActionCatalog", "argument.gallery.entry", "Entry"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const VARIANT_2: Argument = Argument { name: "variant", title: t("ActionCatalog", "argument.gallery.variant", "Variant"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
