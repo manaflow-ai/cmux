@@ -102,7 +102,7 @@ struct ChiefChatColorsSheet: View {
             .overlay(Circle().strokeBorder(selected ? Color.accentColor : .clear, lineWidth: 2.5))
             .contentShape(Circle())
         }
-        .buttonStyle(.cmuxPressFill)
+        .buttonStyle(.cmuxPressFillCircle)
         .accessibilityLabel(color?.hex ?? String(localized: "mobile.chief.colors.default", defaultValue: "Default", bundle: .module))
         .accessibilityAddTraits(selected ? .isSelected : [])
         .accessibilityIdentifier("chief.colors.\(id)")
