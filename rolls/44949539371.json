@@ -1,0 +1,112 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44949539371",
+  "recorded_at": "2026-11-21T21:19:45Z",
+  "reason": "cmux-tui d0b731b6e91b changes the image's cmux-tui (pinned 229690498cfd)",
+  "dry_run": false,
+  "cmux_tui": "d0b731b6e91b2b520942085fafd44a09173543e5",
+  "fixes": [
+    {
+      "sha": "bc439827762986ed742a8a18dcf124a59e257c87",
+      "mergedAt": "2026-11-21T19:47:13+00:00",
+      "subject": "cmux link sync push: a file deleted here but changed on the machine stays a conflict (#28729)"
+    },
+    {
+      "sha": "e74efa70639bec5372667b34074b1c48dd5582c5",
+      "mergedAt": "2026-11-21T11:43:32-08:00",
+      "subject": "cmux server: close R-004, refuse write ACLs on the macOS service log path"
+    },
+    {
+      "sha": "bf1e91a9858ab8123b89d6b0e2358bd0dae01e32",
+      "mergedAt": "2026-11-21T19:36:39+00:00",
+      "subject": "Extensions: third-party js and external app servers, run only with the person's approval (#49223)"
+    },
+    {
+      "sha": "2bd941518333be7f5d1f4340b4fd2a3bf7b51592",
+      "mergedAt": "2026-11-21T19:34:31+00:00",
+      "subject": "cmux agent ls: a session's alias is the name it shows (#49040)"
+    },
+    {
+      "sha": "c18aae37dd8f330a81e696be18a5641940c349e6",
+      "mergedAt": "2026-11-21T11:34:04-08:00",
+      "subject": "cmux NEXT DEV: the Files pane asks for Downloads once for every DEV build (#47032)"
+    },
+    {
+      "sha": "299541cbd9505348d646b468bd3c69dea5ec1177",
+      "mergedAt": "2026-11-21T19:23:59+00:00",
+      "subject": "acpmux: a peer's forward of an agent's message goes to the inbox, not a turn of its own (#49167)"
+    },
+    {
+      "sha": "89399ecd39d43c6edc51b823f4c14f9c9ab059d9",
+      "mergedAt": "2026-11-21T19:20:04+00:00",
+      "subject": "Composer: list extension @ mentions (cmux.composer.mention/1) in the @ menu (#49239)"
+    },
+    {
+      "sha": "e4a684fc72bc2da905a5ae52e6cfa9b810bb67b4",
+      "mergedAt": "2026-11-21T19:17:41+00:00",
+      "subject": "cmux-fault: the Remote and Cloud fault harness and its first scenarios (ticket-expire, mint-down, disk-full) (#44576)"
+    },
+    {
+      "sha": "bb9d76bc157bae7839ab02942f65a84d3650f20d",
+      "mergedAt": "2026-11-21T19:13:51+00:00",
+      "subject": "bin/cmux links with -no_exported_symbols: drop its 6.8 MB dead export trie (#48978)"
+    },
+    {
+      "sha": "37150ef2c05d73c27742008748bd70b7b36032da",
+      "mergedAt": "2026-11-21T12:12:30-07:00",
+      "subject": "acpmux: Send now stops the step beside background helpers (#49115)"
+    },
+    {
+      "sha": "2bfa748eb3ad58d86a0cc50df5afe44b60a798da",
+      "mergedAt": "2026-11-21T11:11:31-08:00",
+      "subject": "Lift the no-new-CI rule: agents may add CI checks (#46980)"
+    },
+    {
+      "sha": "09002b8038e6ca059af9571e62b214fe93552558",
+      "mergedAt": "2026-11-21T18:48:10+00:00",
+      "subject": "launch-shell: cmux_launch_shell_plan reads the launch record (C entry for the stage-0 window) (#45389)"
+    },
+    {
+      "sha": "e67cf92d777d987285ae41b67f101d9a1de9b3d5",
+      "mergedAt": "2026-11-21T18:46:33+00:00",
+      "subject": "App Store: list only cmux's own apps (the widgets included); samples move to a developers-only Examples shelf, cmux ext dev apps show as Local (dev) (#47762)"
+    },
+    {
+      "sha": "2de83dc739b2e6eb0bf6ec0123782d648f3c964a",
+      "mergedAt": "2026-11-21T18:44:12+00:00",
+      "subject": "Add an installable Recents sidebar for agent sessions (#48798)"
+    },
+    {
+      "sha": "13bd9eb0694dbe2255b16acb1e5b46185257876f",
+      "mergedAt": "2026-11-21T18:42:03+00:00",
+      "subject": "terminal scroll probe (local, ssh) and its first find: a reattach no longer moves a scrolled-back terminal (successor of #47201) (#47485)"
+    },
+    {
+      "sha": "e7661a785d8696891e371875b168da2288c241bb",
+      "mergedAt": "2026-11-21T10:17:26-08:00",
+      "subject": "acpmux: agent messages to an idle chat wait 2 s to go in together (#48391)"
+    },
+    {
+      "sha": "f0acdb3affedac0edd3f04b2f9b43b3620aa45cc",
+      "mergedAt": "2026-11-21T10:11:50-08:00",
+      "subject": "Settings: Claude Code and Codex settings shown and edited in cmux NEXT (Labs) (#47282)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-21T21:19:45Z",
+    "snapshot_id": "sh-2d289aaaa15d4a7483121dad247b7ab3",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44949539371): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a74aa9f1875271acfb0f20b423d669c59bd57acc",
+    "image": "cloud-native-auto-d0b731b6-44949539371-1",
+    "revision": "ci-44949539371-1",
+    "at": "2026-11-21T21:19:45Z"
+  },
+  "rolled_back": false
+}
