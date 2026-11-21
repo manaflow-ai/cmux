@@ -20,6 +20,7 @@ public struct CustomSidebarContentView: View {
     private let dispatch: SidebarActionDispatch
     private let contentInsets: CustomSidebarContentInsets
     private let dataContext: [String: SwiftValue]
+    private let imageResolver = DSLBundledImageResolver()
 
     /// Creates the sidebar presentation for a loaded file state.
     ///
@@ -67,7 +68,7 @@ public struct CustomSidebarContentView: View {
             // Route JSON node actions through the same host dispatch the
             // interpreted path uses, so taps in a declarative sidebar run
             // instead of being silently dropped.
-            scrollWrap(DSLSidebarRenderer(node: document.root) { action in
+            scrollWrap(DSLSidebarRenderer(node: document.root, imageResolver: imageResolver) { action in
                 dispatch.run(action.buttonAction)
             })
         case .swiftSource:
@@ -77,10 +78,10 @@ public struct CustomSidebarContentView: View {
                 // A split root owns its own per-column scrolling and fills the
                 // sidebar height, so it is not wrapped in the outer ScrollView.
                 if node.kind == .hsplit {
-                    RenderNodeView(node: node)
+                    RenderNodeView(node: node, imageResolver: imageResolver)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    scrollWrap(RenderNodeView(node: node))
+                    scrollWrap(RenderNodeView(node: node, imageResolver: imageResolver))
                 }
             } else if hasRenderedSwift {
                 scrollWrap(errorView(String(localized: "sidebar.custom.noView", defaultValue: "No supported SwiftUI view found.", bundle: .module)))
@@ -93,7 +94,7 @@ public struct CustomSidebarContentView: View {
             // The reactive JS runtime: program runs once, data flows as
             // per-key diffs, and rows keep stable identity (so the
             // Reorderable drag survives live data updates).
-            scrollWrap(JSSidebarHostView(source: source, dataContext: dataContext, dispatch: dispatch))
+            scrollWrap(JSSidebarHostView(source: source, dataContext: dataContext, dispatch: dispatch, imageResolver: imageResolver))
         case let .failed(message):
             scrollWrap(errorView(message))
         }

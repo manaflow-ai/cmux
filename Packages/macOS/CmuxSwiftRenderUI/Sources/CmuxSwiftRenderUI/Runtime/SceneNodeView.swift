@@ -64,17 +64,19 @@ extension EnvironmentValues {
 /// runtime's per-prop update ops.
 struct SceneNodeView: View {
     let nodeId: String
+    var imageResolver = DSLBundledImageResolver()
     @Environment(\.sceneStore) private var store
 
     var body: some View {
         if let node = store?.node(nodeId) {
-            SceneNodeContent(node: node)
+            SceneNodeContent(node: node, imageResolver: imageResolver)
         }
     }
 }
 
 private struct SceneNodeContent: View {
     let node: SceneNode
+    let imageResolver: DSLBundledImageResolver
     @Environment(\.sceneStore) private var store
     @Environment(\.sceneEventSink) private var sink
     @Environment(\.sceneHovered) private var ancestorHovered
@@ -86,7 +88,7 @@ private struct SceneNodeContent: View {
         if let menuId = contextMenuChildId {
             styled(content)
                 .contextMenu {
-                    SceneNodeView(nodeId: menuId)
+                    SceneNodeView(nodeId: menuId, imageResolver: imageResolver)
                 }
         } else {
             styled(content)
@@ -120,7 +122,12 @@ private struct SceneNodeContent: View {
                 Text(node.string("text") ?? "")
             }
         case "image":
-            Image(systemName: node.string("systemName") ?? "questionmark.square.dashed")
+            DSLImageView(
+                name: node.string("asset") ?? node.string("systemName"),
+                symbolName: node.string("systemName") ?? node.string("asset"),
+                size: node.double("size"),
+                imageResolver: imageResolver
+            )
         case "button":
             if node.children.isEmpty {
                 Button(node.string("text") ?? "", role: node.bool("destructive") ? .destructive : nil) {
@@ -163,7 +170,7 @@ private struct SceneNodeContent: View {
         case "textfield":
             SceneTextFieldView(node: node, sink: sink, autofocusGate: store?.autofocusGate)
         case "reorderable":
-            ReorderableColumnView(node: node)
+            ReorderableColumnView(node: node, imageResolver: imageResolver)
         default:
             EmptyView()
         }
@@ -177,7 +184,7 @@ private struct SceneNodeContent: View {
     private var children: some View {
         // contextMenu children never render inline (see body).
         ForEach(node.children.filter { store?.node($0)?.type != "contextMenu" }, id: \.self) { childId in
-            SceneNodeView(nodeId: childId)
+            SceneNodeView(nodeId: childId, imageResolver: imageResolver)
         }
     }
 

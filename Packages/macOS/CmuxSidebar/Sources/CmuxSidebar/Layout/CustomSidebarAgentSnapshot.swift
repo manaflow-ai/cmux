@@ -42,6 +42,10 @@ public struct CustomSidebarAgentSnapshot: Sendable, Equatable {
     /// Child agent runs (Claude Task spawns, Codex subagent runs) observed
     /// under this session (`agents[j].children`).
     public let children: [CustomSidebarAgentChildSnapshot]
+    /// The bundled agent mark cmux shows for this runtime, e.g.
+    /// "AgentIcons/Claude"; `nil` when cmux has none (`agents[j].icon`,
+    /// which `Image(...)` renders).
+    public let iconAssetName: String?
 
     /// Creates an agent snapshot from already-resolved leaf values.
     public init(
@@ -57,7 +61,8 @@ public struct CustomSidebarAgentSnapshot: Sendable, Equatable {
         workingDirectory: String?,
         transcriptPath: String?,
         pid: Int?,
-        children: [CustomSidebarAgentChildSnapshot] = []
+        children: [CustomSidebarAgentChildSnapshot] = [],
+        iconAssetName: String? = nil
     ) {
         self.sessionId = sessionId
         self.kind = kind
@@ -72,6 +77,7 @@ public struct CustomSidebarAgentSnapshot: Sendable, Equatable {
         self.transcriptPath = transcriptPath
         self.pid = pid
         self.children = children
+        self.iconAssetName = iconAssetName
     }
 }
 
