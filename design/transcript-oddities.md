@@ -42,8 +42,8 @@ State: **fixed** (merged), **open** (root cause known), **unknown** (seen, not r
 | ID | What the reader sees | Stage | State |
 |---|---|---|---|
 | T1 | A reply written in a background finish's turn never draws: "Used a tool and ran a command / Worked for 18s", then the next turn's words | 1 | fixed here |
-| T2 | Every reply after a daemon restart is hidden: a background bracket that never closed owns all later rows | 1 | open |
-| T3 | Under the Claude `runs` fold, a background turn's reply takes the prompt turn's answer slot, and the real answer folds away | 2 | open |
+| T2 | Every reply after a daemon restart is hidden: a background bracket that never closed owns all later rows | 1 | fixed (follow-up PR) |
+| T3 | Under the Claude `runs` fold, a background turn's reply takes the prompt turn's answer slot, and the real answer folds away | 2 | fixed (follow-up PR) |
 | T4 | A large gap between the last tool row and the live Thinking line | 3 or 4 | unknown |
 | T5 | The settled reply flickers in from the left middle of the pane, then lands | 4 | unknown |
 | T6 | A one-line acknowledgement of a background finish is hidden with nothing to open it from | 2 | open (taste) |
@@ -91,9 +91,14 @@ State: **fixed** (merged), **open** (root cause known), **unknown** (seen, not r
 - **Root cause**: `OrderedRows.backgroundAt` (`direct.ts`) matches every later row once a span has
   no end. acpmux keeps running background turns in memory only, so a restart or a hot swap while
   Claude Code runs its own turn never writes the `ended` record.
-- **Fix, planned**: a prompt that opens a turn closes any open span in the pane, as acpmux's own
-  `ended` with reason `prompt` would have; acpmux writes the `ended` record for an open bracket
-  when it starts.
+- **Fix**: a prompt that opens a turn (a `user_message` that is no steer, or a `turn_started`
+  with `carried`) ends every background turn still open before it (`promptEndsBackground`), as
+  acpmux's own `ended` with reason `prompt` would have. And a reply acpmux stamped with a prompt's
+  turn (its segment starts with the turn's id, "-" for the agent's own turn) is never a background
+  turn's, whatever span its record falls in (`OrderedRows.promptsReply`); a record that splits
+  such a reply no longer cuts it in two rows.
+- **Test**: `conversation/finalReplyClass.test.ts` R1 to R3b, and its sweep of 1,872 orders.
+- **Follow-up**: acpmux writes the `ended` record for a bracket left open when it starts.
 
 ### T3. A background reply takes the turn's answer slot (`claude-turn-fold: runs`)
 
@@ -104,7 +109,9 @@ State: **fixed** (merged), **open** (root cause known), **unknown** (seen, not r
 - **Root cause**: `answerAt` (`turns.ts`) reads the background reply as the turn's last reply, so
   the real answer is marked `foldedReply`. Only under the `runs` arm with the Claude family; the
   default arm draws both.
-- **Fix, planned**: `answerAt` skips rows another turn owns (`inBackground`).
+- **Fix**: `answerAt` skips rows another turn owns (`inBackground`) when the turn has a reply of
+  its own.
+- **Test**: `conversation/finalReplyClass.test.ts` R4.
 
 ### T4. A large gap between the last tool row and the Thinking line
 
