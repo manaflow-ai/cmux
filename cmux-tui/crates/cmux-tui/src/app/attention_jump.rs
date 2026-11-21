@@ -4,6 +4,9 @@
 //! from this client's tree and agent roster, on the key press only (never per
 //! frame), and focus through the sidebar's tab activation, so the jump
 //! reports client focus and acknowledges the tab like any user focus change.
+//! Both are the person's explicit request to go to the tab, as `cmux
+//! attention next --focus`: they also move the session's shared focus, so
+//! `pane list` and `tab list` say where the person is.
 
 use cmux_tui_core::SurfaceId;
 use ghostty_vt::ProgramStatusState;
@@ -114,8 +117,8 @@ impl App {
     }
 
     /// `next-attention`: focus the tab after the focused one in the queue,
-    /// or the first. A toast says so when nothing needs the person, and
-    /// shows the agent's reason when the jump lands on a requested tab.
+    /// or the first. A toast names the tab it went to and why it needs the
+    /// person (`Needs you: perm · waiting on you`), or says nothing does.
     pub(super) fn jump_to_next_attention(&mut self) -> anyhow::Result<()> {
         let entries = self.attention_entries();
         let queue: Vec<_> = entries.iter().map(|entry| entry.candidate.clone()).collect();
@@ -124,13 +127,20 @@ impl App {
             self.show_toast(localization::catalog().attention.nothing.to_string());
             return Ok(());
         };
-        let reason = entries
-            .iter()
-            .find(|entry| entry.candidate.key == target)
-            .and_then(|entry| entry.reason.clone());
-        self.focus_attention_surface(target)?;
-        if let Some(reason) = reason {
-            self.show_toast(format!("{}: {reason}", localization::catalog().attention.needs_you));
+        let toast = entries.iter().find(|entry| entry.candidate.key == target).map(|entry| {
+            let messages = &localization::catalog().attention;
+            let text = format!(
+                "{}: {} · {}",
+                messages.needs_you,
+                entry.tab,
+                attention_detail(entry, false)
+            );
+            crate::ui::truncate(&text, 72)
+        });
+        if self.focus_attention_surface(target)?
+            && let Some(toast) = toast
+        {
+            self.show_toast(toast);
         }
         Ok(())
     }
@@ -165,9 +175,10 @@ impl App {
         self.capture_menu_resources();
     }
 
-    /// Focus `surface` the way a sidebar tab click does. A tab that left
-    /// the tree since the queue was read is skipped.
-    pub(super) fn focus_attention_surface(&mut self, surface: SurfaceId) -> anyhow::Result<()> {
+    /// Focus `surface` the way a sidebar tab click does, then move the
+    /// session's shared focus there. A tab that left the tree since the
+    /// queue was read is skipped. Whether this client now shows `surface`.
+    pub(super) fn focus_attention_surface(&mut self, surface: SurfaceId) -> anyhow::Result<bool> {
         let location = self.tree.workspaces().iter().enumerate().find_map(|(w, workspace)| {
             workspace.screens.iter().enumerate().find_map(|(s, screen)| {
                 screen.panes.iter().find_map(|pane| {
@@ -176,7 +187,7 @@ impl App {
                 })
             })
         });
-        let Some((workspace, screen, pane, index)) = location else { return Ok(()) };
+        let Some((workspace, screen, pane, index)) = location else { return Ok(false) };
         self.activate_sidebar_tab(&SidebarTabTarget {
             workspace,
             screen,
@@ -186,26 +197,39 @@ impl App {
             name: String::new(),
             subtitle: String::new(),
             active: false,
-        })
+        })?;
+        if self.active_surface() != Some(surface) {
+            return Ok(false);
+        }
+        self.session.focus_tab_for_person(pane, index);
+        Ok(true)
+    }
+}
+
+/// Why `entry` needs the person: a requested tab's reason (in the list
+/// prefixed with `needs you`, `prefixed`), else what its kind means.
+fn attention_detail(entry: &AttentionEntry, prefixed: bool) -> String {
+    let messages = &localization::catalog().attention;
+    match entry.candidate.kind {
+        AttentionKind::Requested => match &entry.reason {
+            Some(reason) if prefixed => format!("{}: {reason}", messages.requested),
+            Some(reason) => reason.clone(),
+            None => messages.requested.to_string(),
+        },
+        AttentionKind::Blocked => messages.blocked.to_string(),
+        AttentionKind::Done => messages.done.to_string(),
+        AttentionKind::Unread => messages.unread.to_string(),
     }
 }
 
 /// `! work › claude · needs you: approve deploy`: the marker (`!` the person
 /// must act, `•` done or unread), the workspace, the tab, and why.
 fn attention_row_label(entry: &AttentionEntry) -> String {
-    let messages = &localization::catalog().attention;
-    let (marker, detail) = match entry.candidate.kind {
-        AttentionKind::Requested => (
-            "!",
-            match &entry.reason {
-                Some(reason) => format!("{}: {reason}", messages.requested),
-                None => messages.requested.to_string(),
-            },
-        ),
-        AttentionKind::Blocked => ("!", messages.blocked.to_string()),
-        AttentionKind::Done => ("•", messages.done.to_string()),
-        AttentionKind::Unread => ("•", messages.unread.to_string()),
+    let marker = match entry.candidate.kind {
+        AttentionKind::Requested | AttentionKind::Blocked => "!",
+        AttentionKind::Done | AttentionKind::Unread => "•",
     };
+    let detail = attention_detail(entry, true);
     let label = format!("{marker} {} › {} · {detail}", entry.workspace, entry.tab);
     crate::ui::truncate(&label, 72)
 }
