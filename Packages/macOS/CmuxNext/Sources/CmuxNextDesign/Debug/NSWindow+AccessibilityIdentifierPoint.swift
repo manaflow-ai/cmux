@@ -6,7 +6,7 @@ extension NSWindow {
     /// `identifier`: of several, the one furthest right and then highest (the top-right pane's). Nil without a match.
     ///
     /// `debug.pointer_hover {identifier:}` aims the ``SyntheticPointer`` here, so a capture can hover a control it
-    /// cannot find by row, such as the tab bar's ⌄ (`cmux.tabs.newTabMenu`) or the pane's ⋮ (`cmux.pane.more`).
+    /// cannot find by row, such as the tab bar's ⌄ (`cmux.tabs.newTabMenu`) or a pane's Exit Zoom (`cmux.pane.exitZoom`).
     public func debugCenter(ofAccessibilityIdentifier identifier: String) -> CGPoint? {
         guard let root = contentView else { return nil }
         var best: CGRect?

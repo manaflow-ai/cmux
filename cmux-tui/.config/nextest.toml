@@ -87,9 +87,20 @@ filter = '''
 | (binary_id(cmux-tui-core) & test(=state::group_update_latency_tests::ordinary_registry_writers_progress_while_personal_writes_stay_queued))
 | (binary_id(cmux-remote::interactive_latency_e2e) & test(=interactive_echo_stays_responsive_during_bidirectional_bulk_transfer))
 | (binary_id(acpmux::start_mode) & test(=the_policy_gate_round_trip_under_approve_all_is_measured))
+| binary_id(acpmux::stop_watchdog)
 '''
 test-group = 'timing-alone'
 threads-required = 'num-test-threads'
+
+# The stop watchdog's test (acpmux tests/stop_watchdog.rs) prints its STOP-WATCHDOG lines (each
+# home's held stops with and without `start`, and stops not held) on stderr; a fleet step shows
+# them only when a passing test's output is kept. It starts and stops a daemon twelve times over
+# each of two homes, the god one written first: 300 s is the margin under load; a hang still
+# fails.
+[[profile.default.overrides]]
+filter = 'binary_id(acpmux::stop_watchdog)'
+slow-timeout = { period = "60s", terminate-after = 5, grace-period = "5s" }
+success-output = "final"
 
 # The shell-integration fork counts on Linux: a count is the gap in the
 # system PID counter, so a process any other test starts in the window
@@ -143,6 +154,20 @@ success-output = "final"
 filter = 'binary_id(cmux-tui-core) & test(/^mux::tests::create_commit_cost::/)'
 success-output = "final"
 
+# Three tests of cmux-tui tests/holder_terminals/holder_late_start.rs print a HOLDER-LATE-START
+# line on stderr. The large-session restart: how many terminals re-attached inside the
+# start's wait for the holder and how many after the start. The two restarts while the holder
+# is stopped: each daemon's line of its ask of the holder. The listener with a connect whose
+# client is gone: what this system gives for that connect. A run shows these lines only when
+# a passing test's output is kept.
+[[profile.ci.overrides]]
+filter = '''
+test(=holder_late_start::a_restart_of_a_large_session_reattaches_every_terminal)
+| test(=holder_late_start::a_second_restart_while_the_holder_is_stopped_reattaches_the_terminal)
+| test(=holder_late_start::a_listener_with_a_connect_whose_client_is_gone_prints_what_the_system_gives)
+'''
+success-output = "final"
+
 # The git lane tests (cmux-tui-core tests/git_lane.rs) print their "git-lane:" lines on stderr:
 # what was answered while git was held, the git children at one time, and the wait of a
 # git.status on another connection. A fleet step shows them only when a passing test's output
@@ -157,6 +182,13 @@ success-output = "final"
 # test's output is kept.
 [[profile.ci.overrides]]
 filter = 'binary_id(cmux-tui-core::git_status)'
+success-output = "final"
+
+# The git.fingerprint tests (cmux-tui-core tests/git_fingerprint.rs) print their
+# "git-fingerprint:" lines on stderr: the git children of one git.fingerprint beside the count
+# of a git.diff with each patch. A fleet step shows them only when a passing test's output is kept.
+[[profile.ci.overrides]]
+filter = 'binary_id(cmux-tui-core::git_fingerprint)'
 success-output = "final"
 
 # The idle tests (cmux-tui tests/idle_wakeups.rs) print one "idle daemon:" line for each
@@ -220,3 +252,23 @@ success-output = "final"
 [[profile.ci.overrides]]
 filter = 'binary_id(cmux-tui-core) & test(/^mux::tests::journal_seal_cost::/)'
 success-output = "final"
+
+# The disk section read cost test (mux/tests/disk_usage_read_cost.rs) prints the SQLite memory the
+# read took (its disk_usage_read_cost line); a fleet step shows it only when a passing
+# test's output is kept.
+[[profile.ci.overrides]]
+filter = 'binary_id(cmux-tui-core) & test(/^mux::tests::disk_usage_read_cost::/)'
+success-output = "final"
+
+# The live automation journey (tests/automation_live_journey.rs) runs a real runner on the real
+# clock: up to 100 s for a minute slot, 150 s with the runner off, then the catch-up and a failed
+# run, about 5 minutes in all. Outside a fleet step keyed automation-live it returns at once. Its
+# eprintln lines are the proof, so a passing run keeps its output.
+[[profile.default.overrides]]
+filter = 'binary_id(cmux-tui::automation_live_journey)'
+slow-timeout = { period = "60s", terminate-after = 8, grace-period = "5s" }
+
+[[profile.ci.overrides]]
+filter = 'binary_id(cmux-tui::automation_live_journey)'
+success-output = "final"
+slow-timeout = { period = "60s", terminate-after = 8, grace-period = "5s" }

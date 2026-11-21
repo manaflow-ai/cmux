@@ -152,8 +152,21 @@ fn agent(id: &str) -> Participant {
     }
 }
 
-// Chat widgets are gone (user, Nov 9: "remove widgets completely"): a
-// `widget` part is a type this build does not know, and nobody can post one.
+// Widget parts. cmux ships no widgets of its own: the hardcoded ones
+// 4f3b29a4073 removed stay removed (user, Nov 9: "remove widgets
+// completely"). Leo, 2026-11-14: "it was about the hardcoded widgets. thats
+// it. we want them to be super supported but not necessarily ship built
+// versions outselevs (yet)". So an extension's widget part is accepted, and
+// one naming a first-party (built-in) app is refused.
+
+fn widget_part(app: &str) -> serde_json::Value {
+    json!({
+        "type": "widget", "app": app, "widget": "cmux.chat.widget/1",
+        "props": {"repo": "manaflow-ai/cmux", "number": 38629},
+        "fallback": "PR #38629: Model picker finds any model",
+        "url": "https://github.com/manaflow-ai/cmux/pull/38629"
+    })
+}
 
 fn send_parts(host: &mut Host, actor: &str, key: &str, parts: Vec<Part>) -> Result<Commit, Reject> {
     let op = Op::MessageSend {
@@ -168,14 +181,61 @@ fn send_parts(host: &mut Host, actor: &str, key: &str, parts: Vec<Part>) -> Resu
 }
 
 #[test]
-fn a_widget_part_is_unknown_and_refused() {
-    let raw = json!({
-        "type": "widget", "app": "cmux/pr-card", "widget": "cmux.chat.widget/1",
-        "props": {"repo": "manaflow-ai/cmux", "number": 38629},
-        "fallback": "PR #38629: Model picker finds any model"
-    });
+fn a_built_in_widget_part_is_refused() {
+    for app in ["cmux/pr-card", "manaflow-ai/pr-card"] {
+        let part: Part = serde_json::from_value(widget_part(app)).unwrap();
+        assert!(matches!(part, Part::Widget(_)), "{app}: {part:?}");
+        let mut host = Host::new();
+        assert_eq!(
+            send_parts(&mut host, MUX, "w1", vec![part]).unwrap_err(),
+            Reject::InvalidParts,
+            "{app}"
+        );
+    }
+}
+
+#[test]
+fn an_extension_widget_part_is_accepted_round_trips_and_is_searchable() {
+    let raw = widget_part("octo/pr-card");
     let part: Part = serde_json::from_value(raw.clone()).unwrap();
-    assert_eq!(part, Part::Unknown(raw));
+    let Part::Widget(widget) = &part else { panic!("not a widget part: {part:?}") };
+    assert_eq!(widget.app, "octo/pr-card");
+    assert_eq!(serde_json::to_value(&part).unwrap(), raw);
     let mut host = Host::new();
-    assert_eq!(send_parts(&mut host, MUX, "w1", vec![part]).unwrap_err(), Reject::InvalidParts);
+    let commit = send_parts(&mut host, MUX, "w1", vec![part]).unwrap();
+    let message = commit.message.unwrap();
+    assert!(message_text(&message).contains("Model picker finds any model"));
+}
+
+#[test]
+fn a_person_cannot_send_a_widget() {
+    let part: Part = serde_json::from_value(widget_part("local/pr-card")).unwrap();
+    let mut host = Host::new();
+    assert_eq!(send_parts(&mut host, ALICE, "w1", vec![part]).unwrap_err(), Reject::InvalidParts);
+}
+
+#[test]
+fn malformed_widgets_are_refused() {
+    let big = "x".repeat(MAX_WIDGET_PROPS_BYTES);
+    let cases = [
+        ("/props", json!(["not", "an", "object"])),
+        ("/props", json!({"blob": big})),
+        ("/fallback", json!("")),
+        ("/fallback", json!("a\u{0007}b")),
+        ("/url", json!("http://example.com/x")),
+        ("/app", json!("no-slash")),
+        ("/app", json!("octo/Bad Name")),
+        ("/widget", json!("")),
+    ];
+    for (pointer, value) in cases {
+        let mut raw = widget_part("octo/pr-card");
+        *raw.pointer_mut(pointer).unwrap() = value;
+        let part: Part = serde_json::from_value(raw).unwrap();
+        let mut host = Host::new();
+        assert_eq!(
+            send_parts(&mut host, MUX, "w1", vec![part]).unwrap_err(),
+            Reject::InvalidParts,
+            "{pointer}"
+        );
+    }
 }

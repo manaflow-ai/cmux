@@ -27,7 +27,7 @@ public struct StackSymbolicator: Sendable {
     /// frames after the first resolve `address - 1`, the call itself. Each
     /// frame still reports its address, and offsets count from it.
     public func frames(for addresses: [UInt]) -> [HangFrame] {
-        let executable = _dyld_get_image_header(0).map { UnsafeRawPointer($0) }
+        let executable: UnsafeRawPointer? = UnsafeRawPointer(AppSymbolMap.codeImage)
         // Each image's function starts and UUID, read once per stack (images repeat within one stack).
         var startsByImage: [UInt: FunctionStarts?] = [:]
         var uuidByImage: [UInt: String?] = [:]
@@ -64,7 +64,8 @@ public struct StackSymbolicator: Sendable {
     ///   - returnAddress: The frame is a return address (every frame but the crashed one).
     /// - Returns: The demangled function and the offset into it.
     public func executableFunction(uuid: String, imageOffset: UInt, returnAddress: Bool) -> (symbol: String, offset: UInt)? {
-        guard let header = _dyld_get_image_header(0), let own = AppSymbolMap.uuid(of: header),
+        let header = AppSymbolMap.codeImage
+        guard let own = AppSymbolMap.uuid(of: header),
               own.uuidString.caseInsensitiveCompare(uuid) == .orderedSame else { return nil }
         let base = UInt(bitPattern: header)
         let found = frame(index: returnAddress ? 1 : 0, address: base &+ imageOffset, executable: UnsafeRawPointer(header),

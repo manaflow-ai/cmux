@@ -13,18 +13,8 @@ import CmuxNextDesign
 extension PaneContentView {
     /// The band host this pane wants now; nil keeps the strip in its frame.
     private var wantedBandHost: (any PaneHeaderBandHosting)? {
-        guard hostsContent, Self.stripSitsInBand(strip: barPosition, toolbar: toolbarPosition, order: barOrder) else { return nil }
+        guard hostsContent, toolbarPosition.holdsStripBand(strip: barPosition, order: barOrder) else { return nil }
         return content as? any PaneHeaderBandHosting
-    }
-
-    /// Whether the strip goes between a browser's toolbar and its page: both on one edge, and
-    /// the order puts the strip on the page's side (tab bar below a top toolbar, above a bottom one).
-    static func stripSitsInBand(strip: TabBarPosition, toolbar: ToolbarPosition, order: TabBarOrder) -> Bool {
-        switch (strip, toolbar) {
-        case (.top, .top): order == .belowToolbar
-        case (.bottom, .bottom): order == .aboveToolbar
-        default: false
-        }
     }
 
     /// Hands `toolbarPosition` to the content on screen; a parked view takes it when shown again.

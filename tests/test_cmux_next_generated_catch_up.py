@@ -62,7 +62,7 @@ def pr(number, **overrides):
 class GeneratedPaths(unittest.TestCase):
     def setUp(self):
         self.catch_up = load()
-        self.patterns = self.catch_up.generated_patterns((ROOT / ".gitattributes").read_text(encoding="utf-8"))
+        self.patterns = self.catch_up.merge_rules((ROOT / ".gitattributes").read_text(encoding="utf-8"))
 
     def test_the_bundles_and_strings_tables_are_generated(self):
         for path in (
@@ -72,6 +72,9 @@ class GeneratedPaths(unittest.TestCase):
             "Resources/markdown-viewer/webviews-app/chunks/vendor.mjs",
             "webviews/src/agent-session/acpmux/generated/strings.json",
             "webviews/src/pages/settings/generated/strings.json",
+            # Every other generated family (scripts/cmux-next/generated_merge.py), the protocol codegen included.
+            "webviews/src/protocol/generated/types.ts",
+            "webviews/src/agent-session/acpmux/protocol/generated/types.ts",
         ):
             self.assertTrue(self.catch_up.is_generated(path, self.patterns), path)
 
@@ -79,7 +82,9 @@ class GeneratedPaths(unittest.TestCase):
         for path in (
             "webviews/src/agent-session/acpmux/App.tsx",
             "webviews/src/agent-session/acpmux/Localizable.xcstrings",
-            "webviews/src/protocol/generated/types.ts",
+            # Hand-written files inside a generated directory, taken back out by a later `!merge`.
+            "cmux-tui/bindings/java/src/com/cmux/raw/CmuxClient.java",
+            "cmux-tui/crates/cmux-agent-pane-policy/policy.json",
             "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneModel.swift",
             ".gitattributes",
         ):
@@ -211,7 +216,7 @@ class Workflow(unittest.TestCase):
         job = self.doc["jobs"]["catch-up"]
         # A Blacksmith VM runs one job and is destroyed; no variable can move
         # the write token to a reused mini.
-        self.assertEqual(workflow_jobs.runs_on_cells(job), ["${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_2 }}"])
+        self.assertEqual(workflow_jobs.runs_on_cells(job), ["${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}"])
         mint = next(step for step in job["steps"] if step.get("uses", "").startswith("actions/create-github-app-token"))
         self.assertEqual(mint["with"].get("permission-contents"), "write")
         self.assertNotIn("permission-pull-requests", mint["with"])

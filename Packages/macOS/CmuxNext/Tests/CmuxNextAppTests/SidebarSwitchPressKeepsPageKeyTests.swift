@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextFocus
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// SPACE SWITCH 4 (hold l1, aws-m4pro-8, 120 Hz, twin 646125b19f9b, gated for the host clock): a workspace switch by
@@ -26,7 +27,7 @@ import Testing
 /// Test windows are never key, so the app's key state comes in through the window's press router
 /// (`WindowPressRouter.appKeyState`), its key requests are counted (`makeKey`), and the focus model's reports of the
 /// list as the first responder are counted from its observer. No assertion holds a time.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarSwitchPressKeepsPageKeyTests {
     @MainActor final class Rig {
         let bench: SpaceSwitchBench
@@ -168,11 +169,13 @@ struct SidebarSwitchPressKeepsPageKeyTests {
     }
 
     /// The window's press path gives the row the press, and with it the drags and the release. A press that becomes a
-    /// drag lifts the row and shows the workspace of before again (`beginDrag`), and no key moves.
-    @Test func aRowPressThatBecomesADragLiftsTheRowAndShowsTheWorkspaceOfBefore() async throws {
+    /// drag lifts the row and keeps the workspace its press showed (#42553, Leo 2026-11-13: "The second you click, it
+    /// focuses", as a tab drag in Chrome and Edge; `beginDrag` no longer puts the workspace of before back), and no key
+    /// moves.
+    @Test func aRowPressThatBecomesADragLiftsTheRowAndKeepsItShown() async throws {
         let rig = try await Rig()
         defer { rig.close() }
-        let shown = try #require(rig.bench.shownWorkspace)
+        let before = try #require(rig.bench.shownWorkspace)
         let target = try rig.otherWorkspace()
         let point = try rig.point(ofRow: target)
         rig.list.leftButtonIsDown = { true }
@@ -180,7 +183,8 @@ struct SidebarSwitchPressKeepsPageKeyTests {
         #expect(rig.bench.shownWorkspace == target, "the press did not show \(target)")
         for dy in [CGFloat(10), 40, 0] { try rig.send(.leftMouseDragged, NSPoint(x: point.x, y: point.y - dy)) }
         #expect(rig.list.drag != nil, "the drags after the press did not reach the row: nothing lifted")
-        #expect(rig.bench.shownWorkspace == shown, "the drag left \(rig.bench.shownWorkspace ?? "nothing") shown, not \(shown)")
+        #expect(rig.bench.shownWorkspace == target, "the drag showed \(rig.bench.shownWorkspace ?? "nothing"), not the dragged \(target)")
+        #expect(target != before, "the fixture presses a workspace other than the shown one")
         rig.list.leftButtonIsDown = { false }
         try rig.send(.leftMouseUp, point)
         #expect(rig.list.press == nil, "the release did not reach the row: its press is still held")

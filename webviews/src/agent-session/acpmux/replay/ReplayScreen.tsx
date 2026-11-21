@@ -3,7 +3,7 @@ import { KeyboardScope } from "../../../ui/KeyboardScope";
 import { AcpmuxDirectClient, type EventRecord } from "../direct";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
-import type { AcpmuxRow } from "../model";
+import type { AcpmuxSnapshot } from "../model";
 import {
   clockLabel,
   continueSeq,
@@ -55,12 +55,13 @@ export function ReplayScreen({
   /** Forks a live chat through the turn whose `turn_result` is `throughSeq`; absent when the chat
    * cannot be forked. */
   onContinue?: (throughSeq: number) => void;
-  /** Draws the replayed rows; the pane passes its transcript. */
-  transcript: (rows: AcpmuxRow[]) => ReactNode;
+  /** Draws the replayed snapshot; the pane shapes its rows into turns as the live chat does and
+   * passes its transcript. */
+  transcript: (snapshot: AcpmuxSnapshot) => ReactNode;
 }) {
   const t = useT();
   const [loaded, setLoaded] = useState<Loaded | "loading" | "failed">("loading");
-  const [rows, setRows] = useState<AcpmuxRow[]>([]);
+  const [snapshot, setSnapshot] = useState<AcpmuxSnapshot | undefined>();
   const [playing, setPlaying] = useState(true);
   const [speed, setSpeed] = useState<number>(1);
   // Replay time lives in a ref and the scrubber is uncontrolled: a frame moves both without a
@@ -76,7 +77,7 @@ export function ReplayScreen({
     void load().then(
       (events) => {
         if (!live) return;
-        const client = AcpmuxDirectClient.replay(sessionId, events, (snapshot) => live && setRows(snapshot.rows));
+        const client = AcpmuxDirectClient.replay(sessionId, events, (next) => live && setSnapshot(next));
         time.current = 0;
         setLoaded({ client, timeline: replayTimeline(client.sessionEvents()) });
       },
@@ -170,7 +171,7 @@ export function ReplayScreen({
         <p className="acpmux-replay-note">{t("replay.empty")}</p>
       ) : (
         <>
-          {transcript(rows)}
+          {snapshot && transcript(snapshot)}
           <div className="acpmux-replay-controls">
             <button
               type="button"

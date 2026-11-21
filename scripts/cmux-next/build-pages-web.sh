@@ -45,7 +45,6 @@ history
 home-channels
 home-messages
 icon-picker
-import-history
 keybindings
 machines
 mobile-pairing
@@ -56,6 +55,7 @@ settings
 setup-card
 stash
 stats
+glass-parity
 task-manager
 tasks
 "
@@ -67,7 +67,10 @@ PAGES="$PAGES cookie-import"
 PAGES="$PAGES sidebar-chats"
 # Pages whose string table ships as one script per locale (locales/<locale>.js), loaded before the
 # app: only English and the active locale are parsed at open (R82 first-open speed).
-SPLIT_STRINGS="settings"
+SPLIT_STRINGS="settings home-channels"
+# Pages that also carry a subset of the agent pane's table (generated/pane-strings.json, for the
+# pane rows they reuse): it ships the same way, as pane-locales/<locale>.js into __cmuxPaneStrings.
+SPLIT_PANE_STRINGS="home-channels"
 command -v bun >/dev/null 2>&1 || { echo "error: bun is required to build the pages" >&2; exit 1; }
 "$ROOT/scripts/check-webviews-bun-version.sh"
 
@@ -83,7 +86,11 @@ bun scripts/pages/gen-strings.mjs
 
 # No CSP meta: the scheme handler sends each page's policy as a header (PageCSP, strict unless a
 # first-party page widens it). A meta policy would also apply and could only narrow it.
-bun scripts/pages/bundle.mjs "$WORK" $PAGES
+if [ -n "${CMUX_ARTIFACT_RUNTIME_METAFILE:-}" ]; then
+  CMUX_ARTIFACT_RUNTIME_METAFILE="$CMUX_ARTIFACT_RUNTIME_METAFILE" bun scripts/pages/bundle.mjs "$WORK" $PAGES
+else
+  bun scripts/pages/bundle.mjs "$WORK" $PAGES
+fi
 [ -s "$WORK/__shared/page-base.css" ] || { echo "error: pages builder did not emit __shared/page-base.css" >&2; exit 1; }
 if [ -n "${CMUX_PAGES_METAFILE:-}" ]; then cp "$WORK/metafile.json" "$CMUX_PAGES_METAFILE"; fi
 for page in $PAGES; do
@@ -92,6 +99,12 @@ for page in $PAGES; do
   loader=""
   case " $SPLIT_STRINGS " in
     *" $page "*) loader="$(bun scripts/pages/split-strings.mjs "$src/generated/strings.json" "$WORK/$page/locales")" ;;
+  esac
+  case " $SPLIT_PANE_STRINGS " in
+    *" $page "*)
+      pane_loader="$(bun scripts/pages/split-strings.mjs "$src/generated/pane-strings.json" "$WORK/$page/pane-locales" __cmuxPaneStrings)"
+      loader="$loader
+$pane_loader" ;;
   esac
   {
     printf '<!doctype html>\n<html lang="en" data-cmux-page="%s">\n<head>\n' "$page"
@@ -116,10 +129,12 @@ for page in $PAGES; do
     mkdir -p "$OUT_ROOT/$page"
     cp "$WORK/$page/index.html" "$out"
     cp "$WORK/$page/app.js" "$OUT_ROOT/$page/app.js"
-    if [ -d "$WORK/$page/locales" ]; then
-      rm -rf "$OUT_ROOT/$page/locales"
-      cp -R "$WORK/$page/locales" "$OUT_ROOT/$page/locales"
-    fi
+    for dir in locales pane-locales; do
+      if [ -d "$WORK/$page/$dir" ]; then
+        rm -rf "${OUT_ROOT:?}/$page/$dir"
+        cp -R "$WORK/$page/$dir" "$OUT_ROOT/$page/$dir"
+      fi
+    done
     echo "wrote $out ($(wc -c < "$out" | tr -d ' ') bytes)"
   fi
 done

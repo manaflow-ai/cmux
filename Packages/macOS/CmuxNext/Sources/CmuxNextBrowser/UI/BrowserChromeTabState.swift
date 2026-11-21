@@ -23,6 +23,11 @@ public final class BrowserChromeTabState: Sendable {
         get { loads.onPageFinished }
         set { loads.onPageFinished = newValue }
     }
+    /// Each main-frame URL the tab commits, once (`BrowserPageLoads.onPageCommitted`).
+    public var onPageCommitted: ((URL) -> Void)? {
+        get { loads.onPageCommitted }
+        set { loads.onPageCommitted = newValue }
+    }
     public var loadOverride: ((URL) -> Bool)? { didSet { chrome?.loadOverride = loadOverride } }
     public var onOpenURL: ((URL, OmnibarDisposition) -> Void)? { didSet { chrome?.onOpenURL = onOpenURL } }
     public var onTypedCommit: (() -> Void)? { didSet { chrome?.onTypedCommit = onTypedCommit } }
@@ -112,6 +117,13 @@ public final class BrowserChromeTabState: Sendable {
 extension BrowserChromeView {
     /// Shows `tab` with its own toolbar state `state` (`BrowserChromeTabSwitch`): a tab switch in a pane whose tabs share this chrome.
     public func bind(_ tab: any BrowserTab, state: BrowserChromeTabState) { BrowserChromeTabSwitch(chrome: self).bind(tab, state) }
+
+    /// Whether this chrome shows `state` now: a tab whose state moved to another tab id (a new tab's stand-in replaced by
+    /// the daemon's tab, `TabContentCache.moveBrowser`) is the same tab here, so its omnibar keeps the keyboard and its text.
+    ///
+    /// - Parameter state: The toolbar state of the tab the pane is about to show.
+    /// - Returns: True when ``bind(_:state:)`` would change nothing.
+    public func shows(_ state: BrowserChromeTabState) -> Bool { boundState === state }
 }
 
 /// A tab switch in a shared chrome (`BrowserChromeView.bind(_:state:)`). The tab that leaves keeps its state and its

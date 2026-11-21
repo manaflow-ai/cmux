@@ -48,6 +48,17 @@ PR_17470 = [
 ]
 
 
+# A shell `case` arm whose body is empty (`images/*|art/*) ;;`): the paths it lists are named to be ignored.
+EMPTY_CASE_ARM = re.compile(r"^[ \t]*[^\n#()]+\)[ \t]*;;[^\n]*$", re.MULTILINE)
+
+
+def names_path(text: str, pattern: str) -> bool:
+    """Whether TEXT names a NO_APP_INPUT PATTERN's path anywhere but an empty `case` arm."""
+    prefix = pattern.removesuffix("*")
+    named = re.compile(r"(^|[^A-Za-z0-9_.-])" + re.escape(prefix) + ("" if prefix.endswith("/") else r"\b"))
+    return named.search(EMPTY_CASE_ARM.sub("", text)) is not None
+
+
 def call_arguments(text: str, index: int) -> str:
     """The top-level arguments of the call open at INDEX (just inside its parenthesis), up to the parenthesis
     that closes it. String literals ("...", \"\"\"...\"\"\", raw #"..."#) are kept whole at the top level;
@@ -379,7 +390,8 @@ class PullRequestTiers(unittest.TestCase):
         self.assertEqual(result["swift_targets"], "CmuxNextAppTests CmuxNextDesignTests")
         self.assertEqual(result["daemon"], "false")
         self.assertEqual(result["scheme"], "false")
-        self.assertEqual(result["generated"], "true")
+        # No action or settings export input changed: the generated files job would repeat the base's verdict.
+        self.assertEqual(result["generated"], "false")
         self.assertEqual(result["native"], "true")
         self.assertEqual(result["swift_filter"], r"^(CmuxNextAppTests|CmuxNextDesignTests)\.")
 
@@ -478,11 +490,19 @@ class PullRequestTiers(unittest.TestCase):
         inputs += [p for p in ROOT.glob("Packages/macOS/CmuxNext/**/*.sh") if ".build" not in p.parts]
         self.assertGreater(len(inputs), 50)
         for pattern in route_module.NO_APP_INPUT:
-            prefix = pattern.removesuffix("*")
-            named = re.compile(r"(^|[^A-Za-z0-9_.-])" + re.escape(prefix) + ("" if prefix.endswith("/") else r"\b"))
             for path in inputs:
                 with self.subTest(pattern=pattern, input=str(path.relative_to(ROOT))):
-                    self.assertIsNone(named.search(path.read_text(encoding="utf-8", errors="replace")))
+                    self.assertFalse(names_path(path.read_text(encoding="utf-8", errors="replace"), pattern))
+
+    def test_a_path_only_an_empty_case_arm_names_is_not_read(self):
+        """swap-binary.sh (#46110) lists paths a swap ignores as empty `case` arms (`images/*) ;;`): naming a path to
+        do nothing with it is not reading it. A non-empty arm, or any other mention, still is."""
+        ignored = 'case "$p" in\n  .agents/*|tests_v2/*) ;;\n  art/*|images/*) ;;       # not in the app\nesac\n'
+        self.assertFalse(names_path(ignored, "images/*"))
+        self.assertFalse(names_path(ignored, ".agents/*"))
+        self.assertTrue(names_path('case "$p" in\n  images/*) cp -R "$p" "$out" ;;\nesac\n', "images/*"))
+        self.assertTrue(names_path("cp -R images/ \"$out\"\n", "images/*"))
+        self.assertTrue(names_path('"images/*"\n', "images/*"))
 
     def test_cmux_tui_a_dev_build_still_bundles_it(self):
         result = tiers(["cmux-tui/crates/acpmux/src/peer.rs"], labels=frozenset({"dev-build"}))
@@ -499,7 +519,9 @@ class PullRequestTiers(unittest.TestCase):
                 result = tiers([path])
                 self.assertEqual(result["native"], "true")
                 self.assertEqual(result["scheme"], "true")
-                self.assertEqual(result["daemon"], "true")
+                # The daemon tier runs the published binaries, which build none of the FFI-only crates; the
+                # toolchain builds them all (scripts/ci/affected-jobs.json daemon-test).
+                self.assertEqual(result["daemon"], "true" if path.endswith("rust-toolchain.toml") else "false")
 
     def test_app_ffi_inputs_match_the_pin_check(self):
         """The router's CCmuxAppFFI crates are the ones check-app-ffi-pin.sh derives."""
@@ -637,11 +659,41 @@ class PullRequestTiers(unittest.TestCase):
     def test_checks_job_inputs_a_build_reads_keep_the_mac_tiers(self):
         """Admitted for the checks job's tests too, but each can change what the app build gets: the GhosttyKit
         download, the reload script's instance stop, the release strip and its symbol map, and the checkout's
-        text attributes (the bundled license texts are `-text`). They stay out of CI_ONLY."""
+        text attributes (the bundled license texts are `-text`). They stay out of CI_ONLY. The scripts are outside
+        every Swift compile's inputs (NO_SWIFT_COMPILE_ROOTS): the scheme compile runs, the SwiftPM app compiles
+        (`native`) do not."""
         for path in ("scripts/download-prebuilt-ghosttykit.sh", "scripts/lib/stop-app-instances.sh",
                      "scripts/strip-release-bundle.sh", "scripts/write-app-symbol-map.py", ".gitattributes"):
             with self.subTest(path=path):
-                self.assertEqual(tiers([path])["native"], "true")
+                result = tiers([path])
+                self.assertEqual(result["scheme"], "true")
+                self.assertEqual(result["native"], "false" if path.startswith("scripts/") else "true")
+
+    def test_a_tree_no_swift_compile_reads_runs_no_app_compile(self):
+        """Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period". A measure script, a
+        script test, Chief's Rust (a scheme build phase builds it) or a Python test changes nothing the fleet's
+        SwiftPM app compiles read (Packages/ only): no `native`, so no fleet Release compile and no app compile
+        (build fleet); the scheme compile still lists it. Beside a Swift change, `native` stays."""
+        for path in ("scripts/measure/launch.py", "scripts/cmux-next/tests/foo.test.sh",
+                     "Native/OptChat/optchat-chief/tests/harness.rs", "backend/apps/api/src/index.ts",
+                     "cmux-next-ios/scripts/x.sh", ".github/actionlint.yaml"):
+            with self.subTest(path=path):
+                result = tiers([path])
+                self.assertEqual(result["native"], "false")
+                self.assertEqual(result["scheme"], "true")
+        mixed = tiers(["scripts/measure/launch.py", "Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift"])
+        self.assertEqual(mixed["native"], "true")
+        # A packaging input the build names keeps native, under scripts/ or not.
+        self.assertEqual(tiers(["scripts/cmux-next/check-release-compile.sh"])["native"], "true")
+        self.assertEqual(tiers(["THIRD_PARTY_LICENSES.md"])["native"], "true")
+        self.assertEqual(tiers(["App/main.swift"])["native"], "true")
+        # An unknown top-level tree still runs it (fail open).
+        self.assertEqual(tiers(["somewhere-new/thing.txt.cfg"])["native"], "true")
+
+    def test_a_ci_file_beside_another_change_adds_no_app_compile(self):
+        """A CI file alone runs no Mac tier; beside a Native/ change it adds no `native` either."""
+        result = tiers(["scripts/ci/pr_router.py", "Native/OptChat/optchat-chief/src/main.rs"])
+        self.assertEqual(result["native"], "false")
 
     def test_native_script_inputs_run_the_app_compiles(self):
         """Every file the app build or its packaging reads runs the app compiles, whatever its name: the
@@ -709,6 +761,29 @@ class PullRequestTiers(unittest.TestCase):
         result = tiers(["plans/cmux-next/actions.md"])
         self.assertEqual(result["generated"], "true")
         self.assertIn("CmuxNextActionsTests", result["swift_targets"].split())
+
+    def test_generator_inputs_alone_run_the_generated_files_job(self):
+        """The job's verdict reads the action exports' closure (action_export_inputs.py) and the settings source
+        stamp's files; any other CmuxNext path gets the base's verdict there (2026-11-21: 104 of 290 runs)."""
+        for path in (f"{PACKAGE}/Sources/CmuxNextActions/ActionCatalog.swift",
+                     f"{PACKAGE}/Tests/CmuxNextActionsTests/ActionCatalogTests.swift",
+                     f"{PACKAGE}/Sources/CmuxNextSettings/SettingsSchema.swift",
+                     f"{PACKAGE}/Tests/CmuxNextSettingsTests/SettingsSchemaExportTests.swift",
+                     f"{PACKAGE}/Package.swift"):
+            with self.subTest(path=path):
+                self.assertEqual(tiers([path])["generated"], "true")
+        for path in (f"{PACKAGE}/Sources/CmuxNextApp/Windows/WindowManager.swift",
+                     f"{PACKAGE}/Tests/CmuxNextAppTests/CloudBringBackTests.swift",
+                     f"{PACKAGE}/Tests/CmuxNextSettingsTests/OtherSettingsTests.swift"):
+            with self.subTest(path=path):
+                result = route(ROOT, "pull_request", [path], set())
+                self.assertFalse(result.generated)
+                self.assertTrue(result.swift)
+                self.assertTrue(any("(no generator input)" in reason for reason in result.reasons))
+
+    def test_an_unreadable_action_closure_keeps_every_package_path_an_input(self):
+        with mock.patch.object(cmux_next_route, "action_export_closure", return_value=None):
+            self.assertEqual(tiers([f"{PACKAGE}/Sources/CmuxNextApp/Windows/WindowManager.swift"])["generated"], "true")
 
 
 class EveryTier(unittest.TestCase):
@@ -802,14 +877,15 @@ class LinuxLaneTests(unittest.TestCase):
         entries = [dict(e, lane="macos-shell") if e["path"] == self.sample else e
                    for e in load_tree(ROOT)]
         with mock.patch("test_execution_registry.load_tree", return_value=entries):
-            self.assertIn("native", mac_tiers(tiers([self.sample])))
+            self.assertIn("scheme", mac_tiers(tiers([self.sample])))
 
     def test_an_unreadable_registry_allowlists_nothing(self):
         with mock.patch("test_execution_registry.load_tree", side_effect=ValueError("bad registry")):
             self.assertEqual(self.route.linux_guard_tests(ROOT), frozenset())
-            self.assertIn("native", mac_tiers(tiers([self.sample])))
-            self.assertIn("native", mac_tiers(tiers(["tests/test-execution.toml"])))
-            self.assertIn("native", mac_tiers(tiers(["tests/test-execution.d/ci.toml"])))
+            # A test under tests/ no Mac tier reads is outside every Swift compile's inputs: the scheme lists it.
+            self.assertIn("scheme", mac_tiers(tiers([self.sample])))
+            self.assertIn("scheme", mac_tiers(tiers(["tests/test-execution.toml"])))
+            self.assertIn("scheme", mac_tiers(tiers(["tests/test-execution.d/ci.toml"])))
 
     def test_a_linux_guard_test_a_mac_tier_reads_keeps_its_tier(self):
         with mock.patch.object(self.route, "SWIFT_JOB_INPUTS", self.route.SWIFT_JOB_INPUTS + (self.sample,)):
@@ -830,15 +906,17 @@ class LinuxLaneTests(unittest.TestCase):
                 self.assertEqual(mac_tiers(tiers([path])), [], path)
 
     def test_an_unknown_path_still_routes_to_mac(self):
-        for path in ("newdir/tool.py", "tests/helper_not_registered.py", "tests/test_not_in_registry_xyz.py"):
+        self.assertIn("native", mac_tiers(tiers(["newdir/tool.py"])))
+        # Under tests/ (NO_SWIFT_COMPILE_ROOTS) no Swift compile reads it: a Mac tier still lists it, `native` does not.
+        for path in ("tests/helper_not_registered.py", "tests/test_not_in_registry_xyz.py"):
             with self.subTest(path=path):
-                self.assertIn("native", mac_tiers(tiers([path])))
+                self.assertEqual(mac_tiers(tiers([path])), ["scheme"])
 
     def test_a_linux_guard_test_with_another_file_still_compiles(self):
-        for other in ("scripts/cmux-next/new-step.sh", "Resources/new.json",
-                      f"{PACKAGE}/Sources/CmuxNextApp/AgentTabs+Wiring.swift"):
+        for other in ("Resources/new.json", f"{PACKAGE}/Sources/CmuxNextApp/AgentTabs+Wiring.swift"):
             with self.subTest(other=other):
                 self.assertIn("native", mac_tiers(tiers([self.sample, other])))
+        self.assertIn("scheme", mac_tiers(tiers([self.sample, "scripts/cmux-next/new-step.sh"])))
 
 
 class UnreadDocs(unittest.TestCase):
@@ -1060,7 +1138,8 @@ class FastTierRoute(unittest.TestCase):
 
     def test_web_bundle_inputs_beside_rust_skip_it(self):
         """#28160 and #28015: acpmux Rust and the pane's protocol types. The fast tier job builds no
-        bundle, and no suite reads one (BundleInputs): the daemon tier and the compiles carry them."""
+        bundle, and no suite reads one (BundleInputs): the daemon tier carries them, and a running app
+        takes both live (HotOnlyRoute), so no app compile runs."""
         for changed in (["cmux-tui/crates/acpmux/src/rpc.rs", "webviews/src/agent-session/acpmux/direct.ts",
                          "webviews/src/agent-session/acpmux/protocol/generated/methods.ts"],
                         ["cmux-tui/crates/acpmux/src/lib.rs",
@@ -1070,7 +1149,8 @@ class FastTierRoute(unittest.TestCase):
                 self.assertEqual(result["fast_tier"], "false")
                 self.assertEqual(result["swift"], "false")
                 self.assertEqual(result["daemon"], "true")
-                self.assertEqual(result["native"], "true")
+                self.assertEqual(result["native"], "false")
+                self.assertEqual(result["hot_only"], "true")
         # Read only by CmuxNextSettingsTests (no fast tier suite) and a bundle input.
         result = tiers(["schemas/settings/settings-schema.json"])
         self.assertEqual((result["swift"], result["fast_tier"]), ("true", "false"))
@@ -1111,12 +1191,13 @@ class FastTierRoute(unittest.TestCase):
     def test_daemon_or_app_host_only_changes_skip_it(self):
         for changed in (["cmux-tui/crates/acpmux/src/cli/help_examples/session.rs"],
                         ["cmux-tui/crates/acpmux/src/hub/queue.rs", "cmux-tui/crates/acpmux/src/hub/transfer_out.rs"],
-                        ["Native/OptChat/optchat-chief/tests/harness.rs"],
                         ["App/main.swift"]):
             with self.subTest(changed=changed):
                 result = tiers(changed)
                 self.assertEqual(result["macos"], "true")
                 self.assertEqual(result["fast_tier"], "false")
+        # Chief's Rust is outside every Swift compile's inputs: no Mac tier places at all.
+        self.assertEqual(tiers(["Native/OptChat/optchat-chief/tests/harness.rs"])["fast_tier"], "false")
 
     def test_web_and_ci_only_changes_skip_it(self):
         for changed in (["web/app/page.tsx"], ["scripts/ci/cmux_next_route.py"], ["plans/cmux-next/sidebar-owner.md"]):
@@ -1371,11 +1452,16 @@ class RunnerAndScriptRoutes(unittest.TestCase):
         self.assertEqual(tiers(["scripts/cmux-next/check-daemon-capabilities.sh"])["daemon"], "true")
 
     def test_a_script_a_build_phase_runs_keeps_the_compiles_not_swift_test(self):
-        for script in ("scripts/build-diff-sidecar.sh", "scripts/cmux-next/build-mobile-host.sh",
-                       "scripts/cmux-next/build-web-bundles.sh"):
+        """A script only the Xcode app's build phases run is the scheme compile's: the fleet compiles (SwiftPM
+        package and app executable) and the Mac Release compile (package scheme CmuxNextApp) run no build phase.
+        The web bundle build runs before every package build, so it keeps `native`."""
+        for script in ("scripts/build-diff-sidecar.sh", "scripts/cmux-next/build-mobile-host.sh"):
             with self.subTest(script=script):
                 result = tiers([script])
-                self.assertEqual((result["native"], result["swift"], result["daemon"]), ("true", "false", "false"))
+                self.assertEqual((result["native"], result["scheme"], result["swift"], result["daemon"]),
+                                 ("false", "true", "false", "false"))
+        result = tiers(["scripts/cmux-next/build-web-bundles.sh"])
+        self.assertEqual((result["native"], result["swift"], result["daemon"]), ("true", "false", "false"))
 
     def test_a_rust_only_change_runs_the_daemon_tier_not_swift_test(self):
         result = tiers(["cmux-tui/crates/acpmux/src/hub/queue.rs"])
@@ -1732,7 +1818,11 @@ class RouteLabels(unittest.TestCase):
             subprocess.run([*git, "add", "-A"], check=True)
             subprocess.run([*git, "commit", "-qm", "head"], check=True)
             out = Path(tmp) / "out"
-            env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "EVENT_NAME": "pull_request",
+            # Every variable the step's env block sets exists on a runner, so the fixture sets each one
+            # (empty unless named below): a new env line under `set -u` no longer fails this test
+            # (#44253 added SAME_REPO_PR and the step stopped at "unbound variable").
+            step_env = {name: "" for name in step.get("env", {})}
+            env = {**step_env, **os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "EVENT_NAME": "pull_request",
                    "PR_NUMBER": "7", "GITHUB_REPOSITORY": "o/r", "GITHUB_RUN_ATTEMPT": attempt,
                    "EVENT_LABELS": "full-ci,risk:low", "RUNNER_TEMP": tmp, "GITHUB_OUTPUT": str(out),
                    "GITHUB_STEP_SUMMARY": str(Path(tmp) / "summary"), "DEV_DAILY": "false",
@@ -1756,7 +1846,7 @@ class RouteLabels(unittest.TestCase):
 
 
 class FfiRepinRoute(unittest.TestCase):
-    """A pure app FFI re-pin runs the app compile alone; any other diff keeps every tier (2026-11-10: re-pin
+    """A pure app FFI re-pin runs compile and handler coverage; any other diff keeps every tier (2026-11-10: re-pin
     #40576 sat 2 h 49 min behind the Mac queue every Package.swift change took, and base stayed red on
     "Check the app FFI pin" from 13:36 to 18:25Z)."""
 
@@ -1803,7 +1893,7 @@ class FfiRepinRoute(unittest.TestCase):
         return subprocess.run([*self.git, "diff", "--no-renames", "--name-only", "HEAD^1", "HEAD"], check=True,
                               capture_output=True, text=True).stdout.split()
 
-    def test_a_pure_repin_routes_to_the_app_compile_alone(self):
+    def test_a_pure_repin_routes_to_compile_and_handler_coverage(self):
         changed = self.repin(self.new_source)
         reason = cmux_next_route.pure_ffi_repin(self.repo, changed, "HEAD^1")
         self.assertIsNotNone(reason)
@@ -1812,7 +1902,9 @@ class FfiRepinRoute(unittest.TestCase):
         self.assertEqual(result["native"], "true")
         self.assertEqual(result["mac_release"], "true", "the Mac Release compile stays the no-verdict fallback")
         self.assertEqual(result["macos"], "true")
-        for tier in ("full", "scheme", "generated", "swift", "daemon", "fast_tier"):
+        self.assertEqual(result["fast_tier"], "true")
+        self.assertEqual(result["ffi_repin"], "true", "both runners select only HandlerCoverageTests")
+        for tier in ("full", "scheme", "generated", "swift", "daemon"):
             self.assertEqual(result[tier], "false", tier)
 
     def test_the_same_files_without_the_repin_reason_run_every_tier(self):
@@ -1867,6 +1959,261 @@ class FfiRepinRoute(unittest.TestCase):
                                  capture_output=True, text=True).stdout.split()
         self.assertEqual(sorted(changed), sorted([self.MANIFEST, self.PIN]))
         self.assertIsNone(cmux_next_route.pure_ffi_repin(self.repo, changed, "HEAD^1"))
+
+
+class HotOnlyRoute(unittest.TestCase):
+    """Leo, 2026-11-15: "if it's only needing to swap out the app, isn't there like a more minimal set of CI that we
+    can get it to do". A pull request a running app takes live (web bundle sources, daemon Rust hot-apply.py swaps)
+    runs no app compile or package test tier; the daemon tier stays. Anything else keeps the full routing."""
+
+    APP_TIERS = ("native", "scheme", "swift", "generated", "fast_tier", "mac_release", "swift_canary")
+
+    def assert_hot(self, changed, layers):
+        result = tiers(changed)
+        self.assertEqual(result["hot_only"], "true", changed)
+        self.assertEqual(result["hot_layers"], layers)
+        for tier in self.APP_TIERS:
+            self.assertEqual(result[tier], "false", tier)
+        self.assertEqual(result["swift_targets"], "")
+        return result
+
+    def assert_not_hot(self, result):
+        self.assertEqual(result["hot_only"], "false")
+        self.assertEqual(result["hot_layers"], "")
+
+    def test_web_only(self):
+        result = self.assert_hot(["webviews/src/agent-session/pane.tsx", "webviews/src/agent-session/pane.css"], "web")
+        self.assertEqual(result["daemon"], "false")
+        self.assertEqual(result["macos"], "false")
+
+    def test_daemon_rust_only_keeps_the_daemon_tier(self):
+        for changed in (["cmux-tui/crates/acpmux/src/lib.rs"],
+                        ["cmux-tui/crates/acpmux/src/rpc.rs", "cmux-tui/crates/cmux-app-host/src/lib.rs"]):
+            with self.subTest(changed=changed):
+                result = self.assert_hot(changed, "rust")
+                self.assertEqual(result["daemon"], "true")
+                self.assertEqual(result["macos"], "true")
+
+    def test_web_and_daemon_rust_drop_the_app_compiles(self):
+        """Before hot_only the web sources ran the scheme and Release compiles beside the daemon tier."""
+        result = self.assert_hot(["cmux-tui/crates/acpmux/src/rpc.rs", "webviews/src/agent-session/acpmux/direct.ts"],
+                                 "rust web")
+        self.assertEqual(result["daemon"], "true")
+        self.assertEqual(result["macos"], "true")
+
+    def test_docs_and_ci_files_beside_a_hot_change_stay_hot(self):
+        self.assert_hot(["webviews/src/agent-session/pane.tsx", "docs/cmux-next.md", "tests/test_ci_warm_sources.py"],
+                        "web")
+
+    def test_rust_beside_swift_runs_the_full_routing(self):
+        result = tiers(["cmux-tui/crates/acpmux/src/lib.rs", f"{PACKAGE}/Sources/CmuxNextApp/WorkspaceSpawn.swift"])
+        self.assert_not_hot(result)
+        self.assertEqual(result["native"], "true")
+        self.assertEqual(result["swift"], "true")
+        self.assertEqual(result["daemon"], "true")
+
+    def test_web_beside_resources_runs_the_app_compiles(self):
+        for changed in (["webviews/src/agent-session/pane.tsx", "Resources/markdown-viewer/viewer-navigation.js"],
+                        ["webviews/src/agent-session/pane.tsx", "App/Assets.xcassets/AppIcon.appiconset/Contents.json"],
+                        ["cmux-tui/crates/acpmux/src/lib.rs", f"{PACKAGE}/Sources/CmuxNextApp/Resources/x.json"]):
+            with self.subTest(changed=changed):
+                result = tiers(changed)
+                self.assert_not_hot(result)
+                self.assertEqual(result["native"], "true")
+
+    def test_rust_the_app_links_or_bundles_is_not_hot(self):
+        """CCmuxAppFFI and the swift test job's crates need a new app (hot-apply.py linked_rust), as does Rust the
+        scheme's build phases bundle (helper_rust)."""
+        import cmux_next_route as route_module
+        changed = [["cmux-tui/crates/cmux-app-ffi/src/lib.rs"], ["cmux-tui/rust-toolchain.toml"]]
+        changed += [[p.rstrip("/") + "/src/lib.rs" if p.endswith("/") else p]
+                    for p in route_module.scheme_phase_rust_inputs(ROOT)[:3] if p.startswith("cmux-tui/")]
+        for paths in changed:
+            with self.subTest(changed=paths):
+                self.assert_not_hot(tiers(paths))
+
+    def test_the_web_abi_and_files_a_swift_test_reads_are_not_hot(self):
+        self.assert_not_hot(tiers(["webviews/src/web-abi.json"]))
+        self.assert_not_hot(tiers(["webviews/test/fixtures/new-tab-intents.json"]))
+        self.assert_not_hot(tiers(["cmux-tui/crates/acpmux/src/rpc.rs", "cmux-tui/spec/sdk-schema.json"]))
+
+    def test_full_ci_dev_build_and_pushes_run_the_full_routing(self):
+        changed = ["cmux-tui/crates/acpmux/src/rpc.rs", "webviews/src/agent-session/acpmux/direct.ts"]
+        result = tiers(changed, labels=frozenset({"full-ci"}))
+        self.assert_not_hot(result)
+        self.assertEqual(result["full"], "true")
+        result = tiers(changed, labels=frozenset({"dev-build"}))
+        self.assert_not_hot(result)
+        self.assertEqual(result["scheme"], "true")
+        for event in ("push", "workflow_dispatch"):
+            with self.subTest(event=event):
+                result = tiers(changed, event=event)
+                self.assert_not_hot(result)
+                self.assertEqual(result["full"], "true")
+
+    def test_the_replay_explains_the_dropped_app_tiers(self):
+        import cmux_next_route_replay as replay
+        changed = ["cmux-tui/crates/acpmux/src/rpc.rs", "webviews/src/agent-session/acpmux/direct.ts"]
+        before = outputs(cmux_next_route.path_route(ROOT, "pull_request", changed, set()))
+        self.assertEqual(before["native"], "true")
+        result = route(ROOT, "pull_request", changed, set())
+        verdict = replay.explain(before, outputs(result), list(result.reasons))
+        self.assertEqual(verdict.kind, "explained", verdict.detail)
+        # The reason never explains a dropped daemon tier.
+        after = dict(outputs(result), daemon="false")
+        self.assertEqual(replay.explain(before, after, list(result.reasons)).kind, "unexplained")
+
+    def test_the_hot_only_flag_writes_only_the_hot_outputs(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as scratch:
+            changed, output = Path(scratch) / "changed.txt", Path(scratch) / "output"
+            for files, hot, layers in ((["webviews/src/agent-session/pane.tsx"], "true", "web"),
+                                       ([f"{PACKAGE}/Sources/CmuxNextApp/WorkspaceSpawn.swift"], "false", "")):
+                with self.subTest(files=files):
+                    changed.write_text("\n".join(files) + "\n", encoding="utf-8")
+                    output.write_text("", encoding="utf-8")
+                    with mock.patch("builtins.print"):
+                        cmux_next_route.main(["--hot-only", "--event", "pull_request", "--changed-files", str(changed),
+                                              "--github-output", str(output)])
+                    self.assertEqual(output.read_text(encoding="utf-8").splitlines(),
+                                     [f"hot_only={hot}", f"hot_layers={layers}"])
+
+
+def workflow_step(workflow: str, job: str, step: str) -> dict:
+    import yaml
+    document = yaml.safe_load((ROOT / ".github" / "workflows" / workflow).read_text(encoding="utf-8"))
+    return next(s for s in document["jobs"][job]["steps"] if s.get("name") == step)
+
+
+class HotAwareWorkflows(unittest.TestCase):
+    """Leo, 2026-11-15: "if it's only needing to swap out the app, isn't there like a more minimal set of CI that we
+    can get it to do". The two feat-cmux-next pull request workflows outside cmux-next.yml that spent Mac time on
+    hot-only pull requests (2026-11-08..14: tooling-tests 0.9 min, fleet-test-compile 0.4 min a PR) read the
+    router's `--hot-only` verdict on the same merge-commit diff: tooling-tests stays on Linux, the test compile plan
+    is empty. Anything else keeps its route, and a router failure reads as not hot."""
+
+    HOT = ["webviews/src/agent-session/pane.tsx", "cmux-tui/crates/acpmux/src/lib.rs"]
+    APP = ["webviews/src/agent-session/pane.tsx", f"{PACKAGE}/Sources/CmuxNextApp/WorkspaceSpawn.swift"]
+
+    def run_step(self, script: str, cwd: Path, changed: list[str], labels: str = "") -> tuple[object, dict, str]:
+        """Run a workflow step's script in `cwd` with a git whose merge-commit diff is `changed`."""
+        import os
+        import shutil
+        import subprocess
+        import tempfile
+        with tempfile.TemporaryDirectory() as scratch:
+            scratch_path = Path(scratch)
+            (scratch_path / "bin").mkdir()
+            files = scratch_path / "files.txt"
+            files.write_text("".join(f"{path}\n" for path in changed), encoding="utf-8")
+            fake = scratch_path / "bin" / "git"
+            fake.write_text("#!/usr/bin/env bash\n"
+                            'if [ "$1" = rev-parse ] && [ "$2" = HEAD^1 ]; then echo ' + "b" * 40 + "; exit 0; fi\n"
+                            f'if [ "$1" = diff ] && [ "$2" = --no-renames ]; then cat {files}; exit 0; fi\n'
+                            f'exec {shutil.which("git")} "$@"\n', encoding="utf-8")
+            fake.chmod(0o755)
+            output, summary = scratch_path / "output", scratch_path / "summary"
+            env = {key: value for key, value in os.environ.items() if not key.startswith("GITHUB_")}
+            env.update(PATH=f"{scratch_path / 'bin'}:{env.get('PATH', '')}", RUNNER_TEMP=scratch,
+                       GITHUB_OUTPUT=str(output), GITHUB_STEP_SUMMARY=str(summary), EVENT_LABELS=labels)
+            done = subprocess.run(["bash", "-c", script], cwd=cwd, env=env, capture_output=True, text=True,
+                                  timeout=120)
+            values = dict(line.split("=", 1) for line in output.read_text(encoding="utf-8").splitlines()
+                          if "=" in line) if output.exists() else {}
+            return done, values, summary.read_text(encoding="utf-8") if summary.exists() else ""
+
+    # cmux-next-guards.yml: portable-placement's hot-only route step, then tooling-tests' runs-on.
+
+    def guards_route(self, changed: list[str], labels: str = "") -> dict:
+        step = workflow_step("cmux-next-guards.yml", "portable-placement", "Route the pull request (cmux_next_route.py --hot-only)")
+        done, values, _ = self.run_step(step["run"], ROOT, changed, labels)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        return values
+
+    def test_guards_hot_route_reads_the_router(self):
+        self.assertEqual(self.guards_route(self.HOT)["hot_only"], "true")
+        self.assertEqual(self.guards_route(self.APP)["hot_only"], "false")
+        self.assertEqual(self.guards_route(self.HOT, labels="full-ci")["hot_only"], "false")
+        self.assertEqual(self.guards_route(self.HOT, labels="dev-build")["hot_only"], "false")
+
+    def test_tooling_tests_skips_the_mini_only_when_hot(self):
+        import yaml
+        guards = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text(encoding="utf-8"))
+        job = guards["jobs"]["tooling-tests"]
+        # The 30-minute window gate (#48652) holds a push's guards; a pull request skips it (its output is
+        # empty, never 'false'), and a skipped or failed placement still runs the tests.
+        self.assertEqual(job["needs"], ["coalesce", "portable-placement"])
+        self.assertEqual(job["if"], "${{ !cancelled() && needs.coalesce.outputs.run != 'false' }}")
+        legs = job["runs-on"].split(" || ")
+        mini = [leg for leg in legs if "outputs.mini_runner" in leg]
+        linux = [leg for leg in legs if "outputs.linux_runner" in leg]
+        self.assertEqual(len(mini), 1, legs)
+        self.assertTrue(mini[0].startswith("needs.portable-placement.outputs.hot_only != 'true' && "), mini[0])
+        # Fleet Linux and the Blacksmith fallbacks stay for a hot-only pull request.
+        self.assertEqual(len(linux), 1, legs)
+        self.assertNotIn("hot_only", linux[0])
+        self.assertTrue(legs[-1].strip().startswith("fromJSON(vars.RUNNER_POOLS)"), legs[-1])
+        # The route is a step of portable-placement since 2026-11-21 (cmuxterm-hq#16094), not a job of its own.
+        self.assertNotIn("hot-route", guards["jobs"])
+        place = guards["jobs"]["portable-placement"]
+        self.assertNotIn("macos", place["runs-on"])
+        self.assertEqual(place["outputs"]["hot_only"], "${{ steps.hot-route.outputs.hot_only }}")
+        steps = {step.get("name"): step for step in place["steps"]}
+        route = steps["Route the pull request (cmux_next_route.py --hot-only)"]
+        checkout = steps["Check out the merge commit and its base (hot-only route)"]
+        for step in (route, checkout):
+            self.assertIn("github.event_name == 'pull_request'", step["if"])
+            self.assertIs(step.get("continue-on-error"), True)  # a failed route never fails the placement
+        self.assertEqual(route["working-directory"], checkout["with"]["path"])
+        self.assertEqual(checkout["with"]["fetch-depth"], 2)
+        # The placement stays the last step.
+        self.assertEqual(place["steps"][-1]["id"], "place")
+
+    # fleet-test-compile.yml: the plan step.
+
+    def plan(self, changed: list[str], labels: str = "", fake_plan: str | None = "Packages/macOS/CmuxNext",
+             router: str | None = None) -> tuple[object, dict, str]:
+        """The plan step over `changed`, with a stand-in compile_test_plan.py printing `fake_plan` (None: the real
+        one) and the real router (or `router`'s text in its place)."""
+        import tempfile
+        step = workflow_step("fleet-test-compile.yml", "plan", "Plan the test targets this change reaches")
+        with tempfile.TemporaryDirectory() as work:
+            ci = Path(work) / "scripts" / "ci"
+            ci.mkdir(parents=True)
+            planner = ci / "compile_test_plan.py"
+            if fake_plan is None:
+                planner.symlink_to(ROOT / "scripts" / "ci" / "compile_test_plan.py")
+            else:
+                planner.write_text(f"print({fake_plan!r})\n", encoding="utf-8")
+            if router is None:
+                (ci / "cmux_next_route.py").symlink_to(ROOT / "scripts" / "ci" / "cmux_next_route.py")
+            else:
+                (ci / "cmux_next_route.py").write_text(router, encoding="utf-8")
+            done, values, summary = self.run_step(step["run"], Path(work), changed, labels)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        return done, values, summary
+
+    def test_a_hot_only_pull_request_compiles_nothing(self):
+        _, values, summary = self.plan(self.HOT)
+        self.assertEqual(values["needed"], "false")
+        self.assertEqual(values["packages"], "")
+        self.assertIn("Hot-only pull request", summary)
+        self.assertIn("Packages/macOS/CmuxNext", summary)  # what the path plan would have compiled
+        # With the real planner a hot-only diff plans nothing either (its CmuxNext targets come from the router).
+        self.assertEqual(self.plan(self.HOT, fake_plan=None)[1]["needed"], "false")
+
+    def test_any_other_pull_request_keeps_its_plan(self):
+        for changed, labels in ((self.APP, ""), (self.HOT, "full-ci"), (self.HOT, "dev-build")):
+            with self.subTest(changed=changed, labels=labels):
+                _, values, summary = self.plan(changed, labels)
+                self.assertEqual(values["needed"], "true")
+                self.assertEqual(values["packages"], "CmuxNext")
+                self.assertNotIn("Hot-only", summary)
+
+    def test_a_router_failure_keeps_the_plan(self):
+        done, values, _ = self.plan(self.HOT, router="import sys\nsys.exit(3)\n")
+        self.assertEqual(values["needed"], "true")
+        self.assertIn("::warning", done.stdout)
 
 
 if __name__ == "__main__":

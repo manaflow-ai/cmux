@@ -1,5 +1,6 @@
 // l10n-allow-file: experiment descriptions are gallery (developer tool) text, never shown in the pane.
 import { defineExperiment } from "../../experiments/experiment";
+import { MOTION_MS } from "../../motion/scale.generated";
 
 /// Opening another chat in the pane (chatSwitch.ts): whether the transcript, its title and Session
 /// Info move as one short performance or simply appear. Leo, 2026-11-01: "honestly i just want to
@@ -14,16 +15,17 @@ export const chatSwitchMotion = defineExperiment({
     "Opening another chat: the transcript's visible rows, the chat title and the Session Info body. Watch whether the switch reads as one movement and whether the reading position (the bottom rows) settles first.",
   arms: {
     off: { label: "Off", description: "Today: the new chat is drawn in one frame." },
-    fade: { label: "Fade", description: "Transcript, title and Session Info fade in together over 120 ms, no travel." },
+    fade: {
+      label: "Fade",
+      description: `Transcript, title and Session Info fade in together over ${MOTION_MS.micro} ms, no travel.`,
+    },
     stagger: {
       label: "Stagger",
-      description:
-        "The title, then the visible rows from the bottom up, each rising 6 px on one spring, 16 ms apart; Session Info's body follows from the right. All settled within 240 ms.",
+      description: `The title, then the visible rows from the bottom up, each rising 6 px on one spring, 16 ms apart; Session Info's body follows from the right. All settled within ${MOTION_MS.large} ms.`,
     },
     depth: {
       label: "Depth",
-      description:
-        "The transcript comes forward from 98.5% as one sheet while Session Info slides 8 px in from its edge, on the same spring, in 180 ms.",
+      description: `The transcript comes forward from 98.5% as one sheet while Session Info slides 8 px in from its edge, on the same spring, in ${MOTION_MS.standard} ms.`,
     },
   },
   defaultArm: "off",
