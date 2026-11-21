@@ -43,6 +43,13 @@ extension TabManager {
         return panel
     }
 
+    /// Returns the focused panel if it's a project panel, nil otherwise.
+    var focusedProjectPanel: ProjectPanel? {
+        guard let tab = selectedWorkspace,
+              let panelId = tab.focusedPanelId else { return nil }
+        return tab.panels[panelId] as? ProjectPanel
+    }
+
     /// Returns the focused panel if it's a MarkdownPanel showing the rendered
     /// preview, nil otherwise. Zoom applies to the preview WKWebView, so the raw
     /// text-edit mode is deliberately excluded.

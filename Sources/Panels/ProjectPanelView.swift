@@ -11,6 +11,7 @@ struct ProjectPanelView: View {
     @Environment(\.cmuxAccentColor) private var cmuxAccent
     @ObservedObject var panel: ProjectPanel
     let isFocused: Bool
+    let isSelectedInPane: Bool
     let onRequestPanelFocus: () -> Void
 
     var body: some View {
@@ -201,11 +202,11 @@ struct ProjectPanelView: View {
     private func tabContent(for model: ProjectModel) -> some View {
         switch panel.activeTab {
         case .files:
-            ProjectFilesTabView(panel: panel, model: model)
+            ProjectFilesTabView(panel: panel, model: model, isSelectedInPane: isSelectedInPane)
         case .targets:
             ProjectTargetsTabView(panel: panel, model: model)
         case .buildSettings:
-            ProjectBuildSettingsTabView(panel: panel, model: model)
+            ProjectBuildSettingsTabView(panel: panel, model: model, isSelectedInPane: isSelectedInPane)
         case .schemes:
             ProjectSchemesTabView(panel: panel, model: model)
         }
