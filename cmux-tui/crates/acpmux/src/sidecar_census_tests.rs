@@ -524,8 +524,9 @@ fn a_rewritten_argv_does_not_make_a_server() {
         (who("/usr/bin/python3", &["/opt/cmux/bin/cmux", "mcp", "serve"]), false),
         // A script's argv, but the executable is no interpreter.
         (who("/opt/devserver", &["node", "/opt/fetch/server.js", "--stdio"]), false),
-        // A file named like an interpreter that is not the script's.
-        (who("/tmp/node", &["/tmp/node", "/opt/fetch/server.js", "--stdio"]), false),
+        // An interpreter that is not the script's. (Another copy of the script's own, `/tmp/node`,
+        // runs that server: `a_server_whose_interpreter_moved_is_still_that_server`.)
+        (who("/tmp/python3", &["/tmp/python3", "/opt/fetch/server.js", "--stdio"]), false),
     ];
     for (identity, server) in cases {
         let found = [under(11, 10, &identity.argv.join(" "))];
@@ -704,4 +705,207 @@ fn the_kept_servers_survive_the_session_file() {
     let back: crate::store::SessionMeta =
         serde_json::from_value(serde_json::to_value(&meta).unwrap()).unwrap();
     assert_eq!(back.idle_launch, Some(stored));
+}
+
+/// An executable file at `p`, its folders made.
+fn executable(p: &Path, text: &str) -> String {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+    std::fs::write(p, text).unwrap();
+    std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o755)).unwrap();
+    p.to_string_lossy().into_owned()
+}
+
+/// Codex starts an installed plugin's MCP servers itself, from the plugin's `.mcp.json`, in the
+/// plugin's folder and with its own bundled `node` (Leo's NIGHTLY Mac, 2026-11-16:
+/// `.../codex-runtimes/codex-primary-runtime/dependencies/node/bin/node ./mcp/launch.mjs` under
+/// the Codex app-server). The census read only `config.toml`, so that server kept every idle
+/// Codex harness up for weeks.
+#[test]
+fn a_codex_plugins_server_runs_in_the_plugins_folder() {
+    let root = std::env::temp_dir().join(format!("idle-census-{}", uuid::Uuid::now_v7()));
+    let (home, work) = (root.join("home"), root.join("work"));
+    let plugin = home.join(".codex/plugins/cache/openai-curated/notes/1.2.0");
+    std::fs::create_dir_all(&work).unwrap();
+    std::fs::create_dir_all(plugin.join(".codex-plugin")).unwrap();
+    std::fs::write(plugin.join(".codex-plugin/plugin.json"), r#"{"name": "notes"}"#).unwrap();
+    let mcp = json!({"mcpServers": {
+        "launch": {"command": "node", "args": ["./mcp/launch.mjs"]},
+        "server": {"command": "node", "args": ["./mcp/server.mjs", "--stdio"]},
+    }});
+    std::fs::write(plugin.join(".mcp.json"), mcp.to_string()).unwrap();
+    for script in ["launch", "server", "dev"] {
+        executable(&plugin.join(format!("mcp/{script}.mjs")), "");
+    }
+    // A `node` on the harness's `PATH`, and the runtime's own one that really runs the server.
+    let path_node = executable(&root.join("bin/node"), "");
+    let runtime = executable(&root.join("runtimes/primary/dependencies/node/bin/node"), "");
+    let launch = crate::agent::Launch {
+        args: vec!["codex".into(), "app-server".into()],
+        env: [("HOME".to_string(), home.to_string_lossy().into_owned())].into_iter().collect(),
+        cwd: work.clone(),
+    };
+    let path = root.join("bin").to_string_lossy().into_owned();
+    let servers = resolved(from_launch("codex", &launch), &path, &work);
+    assert_eq!(servers.len(), 2, "{servers:?}");
+    let who = |exe: &str, argv: &[&str], cwd: &Path| Identity {
+        exe: exe.into(),
+        argv: argv.iter().map(|w| w.to_string()).collect(),
+        cwd: Some(cwd.to_path_buf()),
+    };
+    let clear = [
+        who(&runtime, &[&runtime, "./mcp/launch.mjs"], &plugin),
+        who(&runtime, &[&runtime, "./mcp/server.mjs", "--stdio"], &plugin),
+        who(&path_node, &["node", "./mcp/launch.mjs"], &plugin),
+    ];
+    let busy = [
+        // The same argv run in another folder runs another script.
+        who(&runtime, &[&runtime, "./mcp/launch.mjs"], &work),
+        // Other args, another script, or another interpreter.
+        who(&runtime, &[&runtime, "./mcp/server.mjs"], &plugin),
+        who(&runtime, &[&runtime, "./mcp/dev.mjs"], &plugin),
+        who("/usr/bin/python3", &["/usr/bin/python3", "./mcp/launch.mjs"], &plugin),
+        // `exec -a node`: argv names node, the kernel runs another program.
+        who("/opt/devserver", &["node", "./mcp/launch.mjs"], &plugin),
+    ];
+    let cases = clear.iter().map(|w| (w, true)).chain(busy.iter().map(|w| (w, false)));
+    for (identity, server) in cases {
+        let found = [under(11, 10, &identity.argv.join(" "))];
+        let census = classify(&found, 10, &servers, Some(&path), |_| Some(identity.clone()));
+        assert_eq!(matches!(census, Census::Clear), server, "{identity:?}");
+    }
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// A config's `cwd` is the folder its server runs in: a relative script is the one there.
+#[test]
+fn a_configured_cwd_is_where_a_relative_server_runs() {
+    let root = std::env::temp_dir().join(format!("idle-census-{}", uuid::Uuid::now_v7()));
+    let (tools, work) = (root.join("tools"), root.join("work"));
+    executable(&tools.join("server.py"), "");
+    executable(&work.join("server.py"), "");
+    let text = format!(
+        "[mcp_servers.t]\ncommand = \"python3\"\nargs = [\"server.py\"]\ncwd = \"{}\"\n",
+        tools.display()
+    );
+    let servers = resolved(from_toml(&text), "", &work);
+    let who = |cwd: &Path| Identity {
+        exe: "/usr/bin/python3".into(),
+        argv: vec!["/usr/bin/python3".into(), "server.py".into()],
+        cwd: Some(cwd.to_path_buf()),
+    };
+    for (cwd, server) in [(&tools, true), (&work, false)] {
+        let identity = who(cwd);
+        let found = [under(11, 10, "python3 server.py")];
+        let census = classify(&found, 10, &servers, None, |_| Some(identity.clone()));
+        assert_eq!(matches!(census, Census::Clear), server, "{cwd:?}");
+    }
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// Homebrew upgraded Python (3.15.0 to 3.15.2) under a server that had run since before: it still
+/// runs as the old Cellar's framework app, while the interpreter its `#!` line names now resolves
+/// to the new one. The census took it for foreign work (Leo's NIGHTLY Mac, 2026-11-16:
+/// `agent-memory mcp` under a harness up since Oct 29). The same interpreter, moved, still runs
+/// that server; another Python version or another interpreter does not.
+#[test]
+fn a_server_whose_interpreter_moved_is_still_that_server() {
+    let root = std::env::temp_dir().join(format!("idle-census-{}", uuid::Uuid::now_v7()));
+    let cellar = |v: &str, x: &str| {
+        root.join(format!("Cellar/python@{x}/{v}/Frameworks/Python.framework/Versions/{x}"))
+    };
+    let real = executable(&cellar("3.15.2", "3.15").join("bin/python3.15"), "");
+    let app = "Resources/Python.app/Contents/MacOS/Python";
+    executable(&cellar("3.15.2", "3.15").join(app), "");
+    // The old Cellar is gone: Homebrew removed it after the upgrade.
+    let old = cellar("3.15.0", "3.15").join(app).to_string_lossy().into_owned();
+    let other = cellar("3.14.1", "3.14").join(app).to_string_lossy().into_owned();
+    std::fs::create_dir_all(root.join("bin")).unwrap();
+    std::os::unix::fs::symlink(&real, root.join("bin/python3")).unwrap();
+    let script = executable(&root.join("agent-memory"), "#!/usr/bin/env python3\nprint(1)\n");
+    let path = root.join("bin").to_string_lossy().into_owned();
+    let servers = resolved(vec![sidecar(&script, &["mcp".to_owned()]).unwrap()], &path, &root);
+    let who = |exe: &str, argv: &[&str]| Identity {
+        exe: exe.into(),
+        argv: argv.iter().map(|w| w.to_string()).collect(),
+        cwd: None,
+    };
+    let cases = [
+        (who(&old, &[&old, &script, "mcp"]), true),
+        (who(&real, &[&real, &script, "mcp"]), true),
+        (who("/usr/local/bin/python3.15", &["python3.15", &script, "mcp"]), true),
+        (who(&old, &[&old, &script, "serve"]), false),
+        (who(&other, &[&other, &script, "mcp"]), false),
+        (who("/usr/bin/python3.12", &["/usr/bin/python3.12", &script, "mcp"]), false),
+        (who("/usr/bin/node", &["/usr/bin/node", &script, "mcp"]), false),
+        (who("/opt/devserver", &[&old, &script, "mcp"]), false),
+    ];
+    for (identity, server) in cases {
+        let found = [under(11, 10, &identity.argv.join(" "))];
+        let census = classify(&found, 10, &servers, Some(&path), |_| Some(identity.clone()));
+        assert_eq!(matches!(census, Census::Clear), server, "{identity:?}");
+    }
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// A wrapper harness whose agent does not carry the wrapper's args unchanged (`sr2 claude2 -p ...`
+/// runs `claude` with its own): the wrapper's one child, whose own children are all the harness's
+/// servers, is the real harness (Leo's NIGHTLY Mac, 2026-11-16: comm=claude kept it up). One
+/// wrapper level only, and only when every grandchild is a server.
+#[test]
+fn a_wrappers_only_child_running_only_servers_is_the_harness() {
+    let servers = from_json(Some(&json!({
+        "cmux": {"command": "/home/u/cmux", "args": ["mcp", "serve"]},
+        "forum": {"command": "/home/u/acpmux", "args": ["forum-mcp"]},
+    })));
+    let sr2 = "/Users/u/bin/sr2 claude2 -p --session-id S";
+    let claude = "/Users/u/.local/bin/claude --output-format stream-json --verbose";
+    let idle = vec![
+        under(11, 10, claude),
+        under(12, 11, "/home/u/cmux mcp serve"),
+        under(13, 11, "/home/u/acpmux forum-mcp"),
+        under(14, 12, "/home/u/cmux helper"),
+    ];
+    assert!(matches!(census_of(&idle, sr2, &servers), Census::Clear));
+    // Work beside the servers, a second child of the wrapper, a child with no servers under it,
+    // or the servers one level further down keep it up.
+    let cases: Vec<(Vec<Under>, u32)> = vec![
+        ([idle.clone(), vec![under(15, 11, "/usr/bin/cargo build")]].concat(), 11),
+        ([idle.clone(), vec![under(15, 10, "/usr/bin/node server.js")]].concat(), 11),
+        (vec![under(11, 10, claude)], 11),
+        (
+            vec![
+                under(11, 10, "/bin/sh -c claude"),
+                under(12, 11, claude),
+                under(13, 12, "/home/u/cmux mcp serve"),
+            ],
+            11,
+        ),
+    ];
+    for (found, busy) in cases {
+        let census = census_of(&found, sr2, &servers);
+        assert!(matches!(census, Census::Busy { pid, .. } if pid == busy), "{found:?}");
+    }
+}
+
+/// A dev server or a build under an idle harness keeps it up, as a direct child or under the
+/// real harness of a wrapper, whatever its interpreter.
+#[test]
+fn a_dev_server_or_build_under_the_harness_keeps_it_up() {
+    let servers = from_json(Some(&json!({
+        "cmux": {"command": "/home/u/cmux", "args": ["mcp", "serve"]},
+        "local": {"command": "node", "args": ["./mcp/server.mjs"]},
+    })));
+    let servers = resolved(servers, "", Path::new("/home/u/plugin"));
+    let sr2 = "/Users/u/bin/sr2 claude2 -p --session-id S";
+    let claude = "/Users/u/.local/bin/claude --verbose";
+    for work in ["node server.js", "/usr/bin/node ./mcp/server.mjs --watch", "cargo build"] {
+        let direct = [under(11, 10, "/home/u/cmux mcp serve"), under(12, 10, work)];
+        let census = census_of(&direct, claude, &servers);
+        assert!(matches!(census, Census::Busy { pid: 12, .. }), "{work}");
+        let wrapped =
+            [under(11, 10, claude), under(12, 11, "/home/u/cmux mcp serve"), under(13, 11, work)];
+        let census = census_of(&wrapped, sr2, &servers);
+        assert!(matches!(census, Census::Busy { pid: 11, .. }), "{work}");
+    }
 }

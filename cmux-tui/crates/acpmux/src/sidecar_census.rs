@@ -30,15 +30,20 @@
 //! (acpmux's own, from `/Applications/cmux NIGHTLY.app`) matches, and one process's words can
 //! never pass for another's. Argv is the process's own to rewrite (`exec -a`, `process.title`), so
 //! the executable the kernel says it runs (`tree::exe`) must be the server's program too, or for
-//! a script the interpreter its argv names. A child whose executable or argv cannot be read is not
-//! a server. What runs under a server is the server's. A launcher (an interpreter running a
+//! a script the interpreter its argv names. That interpreter may have moved under a server that
+//! kept running (Homebrew's next Cellar folder, Codex's own bundled `node`): the same program name
+//! and version, as argv and executable both, still runs it (`moved_interpreter`), the script being
+//! the same file, a relative one read in the process's folder against the server's (its config's
+//! `cwd`, a plugin's folder: `plugin_servers`). A child whose executable or argv cannot be read
+//! is not a server. What runs under a server is the server's. A launcher (an interpreter running a
 //! script by path: npm's `node .../bin/codex ARGS`) whose child runs a program of the script's
 //! name with exactly the same args relays to that child, which is then the harness too: its
 //! children may be servers, and a program beside it named after it (`codex-code-mode-host`) is its
 //! own helper, though what runs under a helper is judged on its own (`relays`, `part_of`). A
 //! native wrapper (`sr2 claude ARGS`: a program, not an interpreter, naming the agent and its
 //! args) whose own child runs that agent by absolute path with those args unchanged among its own
-//! relays the same way (`wrapper`, `relays_for`). The
+//! relays the same way (`wrapper`, `relays_for`); so does its only child when that runs the agent
+//! it names and every process under it is a server, whatever its args (one wrapper level). The
 //! configs, and `ps` with the argv reads, each get [`CENSUS_BUDGET`]; past it the harness stays
 //! up, so the leases the pass holds are never held longer.
 
@@ -49,9 +54,13 @@ use std::path::{Path, PathBuf};
 
 /// One configured MCP server: its command and args, word by word.
 /// `resolved`: for a command given by name, the program the harness's `PATH` runs for it; for a
-/// relative path (`./mcp-server`), that path in the harness's folder, where the harness runs it.
+/// relative path (`./mcp-server`), that path in the server's folder, where the harness runs it.
 /// `interpreter`: for a script, the interpreter its `#!` line runs (`#!/usr/bin/env node`: the
 /// `node` the harness's `PATH` runs).
+/// `cwd`: the folder the server runs in, when its config names one or it is a plugin's (the
+/// plugin's folder); else the harness's.
+/// `script`: for a server whose command is an interpreter (`node ./mcp/launch.mjs`), the script
+/// its first arg names, in the server's folder.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Sidecar {
     command: String,
@@ -60,6 +69,10 @@ pub struct Sidecar {
     // A record written before servers carried an interpreter has none: none is known.
     #[serde(default)]
     interpreter: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    cwd: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    script: Option<String>,
 }
 
 /// A harness's MCP servers (`Hub::sidecars`), and the `PATH` it started with (`None` for a harness
@@ -217,18 +230,25 @@ pub(crate) fn launch_only(given: Option<&Value>) -> Option<Value> {
     (!list.is_empty()).then_some(Value::Array(list))
 }
 
-/// `servers` with each one given by name resolved on `path`, each relative path in `cwd` (the
-/// harness's folder: never acpmux's own), and each script's interpreter, without repeats.
+/// `servers` with each one given by name resolved on `path`, each relative path in the server's
+/// folder (its own `cwd`, in `cwd`, the harness's folder: never acpmux's own), each script's
+/// interpreter, and an interpreter server's script, without repeats.
 pub(crate) fn resolved(mut servers: Vec<Sidecar>, path: &str, cwd: &Path) -> Vec<Sidecar> {
     for s in servers.iter_mut() {
+        let folder = s.cwd.as_deref().map_or_else(|| cwd.to_path_buf(), |own| cwd.join(own));
         if !s.command.contains('/') {
             s.resolved = first_on_path(&s.command, path);
         } else if Path::new(&s.command).is_relative() {
-            s.resolved = Some(cwd.join(&s.command).to_string_lossy().into_owned());
+            s.resolved = Some(folder.join(&s.command).to_string_lossy().into_owned());
         }
         let program =
             s.resolved.as_deref().or(Path::new(&s.command).is_absolute().then_some(&*s.command));
         s.interpreter = program.and_then(|p| shebang(Path::new(p), path));
+        s.script = is_interpreter(&s.command)
+            .then(|| s.args.first())
+            .flatten()
+            .filter(|a| !a.is_empty() && !a.starts_with('-'))
+            .map(|a| folder.join(a).to_string_lossy().into_owned());
     }
     servers.dedup();
     servers
@@ -259,7 +279,7 @@ fn shebang(script: &Path, path: &str) -> Option<String> {
 /// `--mcp-config` files and JSON (acpmux's own among them), and unless `--strict-mcp-config`
 /// its `.claude.json` (`$CLAUDE_CONFIG_DIR`, else `$HOME`: user servers and this folder's
 /// project entry) and the folder's `.mcp.json`; Codex's `config.toml` (`$CODEX_HOME`, else
-/// `$HOME/.codex`).
+/// `$HOME/.codex`); and each harness's installed plugins' servers (`plugin_servers`).
 fn from_launch(family: &str, launch: &crate::agent::Launch) -> Vec<Sidecar> {
     let mut out = Vec::new();
     let env = |k: &str| launch.env.get(k).filter(|v| !v.is_empty()).map(PathBuf::from);
@@ -283,6 +303,8 @@ fn from_launch(family: &str, launch: &crate::agent::Launch) -> Vec<Sidecar> {
         if launch.args.iter().any(|a| a == "--strict-mcp-config") {
             return out;
         }
+        let plugins = env("CLAUDE_CONFIG_DIR").unwrap_or_else(|| home.join(".claude"));
+        out.extend(plugin_servers(&plugins.join("plugins/cache")));
         let dir = env("CLAUDE_CONFIG_DIR").unwrap_or(home);
         let keys: Vec<String> = [Some(cwd.clone()), cwd.canonicalize().ok()]
             .into_iter()
@@ -302,6 +324,7 @@ fn from_launch(family: &str, launch: &crate::agent::Launch) -> Vec<Sidecar> {
         if let Ok(text) = std::fs::read_to_string(dir.join("config.toml")) {
             out.extend(from_toml(&text));
         }
+        out.extend(plugin_servers(&dir.join("plugins/cache")));
     }
     out
 }
@@ -336,7 +359,16 @@ fn sidecar(command: &str, args: &[String]) -> Option<Sidecar> {
         args: args.to_vec(),
         resolved: None,
         interpreter: None,
+        cwd: None,
+        script: None,
     })
+}
+
+impl Sidecar {
+    /// This server run in `cwd`, as its config names it (none: the harness's folder).
+    fn in_folder(self, cwd: Option<&str>) -> Self {
+        Self { cwd: cwd.filter(|c| !c.is_empty()).map(str::to_owned), ..self }
+    }
 }
 
 /// The stdio servers of a `{"name": {"command", "args"}}` map (a project entry nests it) or an
@@ -362,9 +394,71 @@ pub(crate) fn from_json(servers: Option<&Value>) -> Vec<Sidecar> {
                     .map(|a| a.as_str().map(str::to_owned))
                     .collect::<Option<_>>()?,
             };
-            sidecar(command, &args)
+            let cwd = s.get("cwd").and_then(Value::as_str);
+            sidecar(command, &args).map(|server| server.in_folder(cwd))
         })
         .collect()
+}
+
+/// The most folders [`plugin_servers`] looks at.
+const PLUGIN_FOLDERS: usize = 512;
+
+/// The MCP servers of each plugin installed under `cache` (`<marketplace>/<plugin>/<version>`,
+/// Codex's `$CODEX_HOME/plugins/cache` and Claude Code's `~/.claude/plugins/cache`): a plugin is a
+/// folder with a manifest (`.codex-plugin/plugin.json`, `.claude-plugin/plugin.json`) or a
+/// `.mcp.json`. The harness starts these itself, from the plugin's folder. Every installed one is
+/// read, enabled or not: a server counts only when a child of the harness runs exactly its argv.
+fn plugin_servers(cache: &Path) -> Vec<Sidecar> {
+    let mut out = Vec::new();
+    let mut folders = vec![(cache.to_path_buf(), 0usize)];
+    let mut seen = 0;
+    while let Some((dir, depth)) = folders.pop() {
+        seen += 1;
+        if seen > PLUGIN_FOLDERS {
+            break;
+        }
+        let manifest = [".codex-plugin", ".claude-plugin", ".cursor-plugin"]
+            .iter()
+            .find_map(|m| read_json(&dir.join(m).join("plugin.json")));
+        if manifest.is_some() || dir.join(".mcp.json").is_file() {
+            out.extend(in_plugin(&dir, manifest.as_ref()));
+            continue;
+        }
+        if depth >= 4 {
+            continue;
+        }
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        for entry in entries.flatten() {
+            if entry.file_type().is_ok_and(|t| t.is_dir()) {
+                folders.push((entry.path(), depth + 1));
+            }
+        }
+    }
+    out
+}
+
+/// The servers of the plugin in `root`: its `.mcp.json`, and what its manifest's `mcpServers`
+/// names (a file in the plugin, or the servers themselves). Each runs in the plugin's folder (or
+/// its own `cwd` there), with `${CLAUDE_PLUGIN_ROOT}` (`${PLUGIN_ROOT}`) that folder.
+fn in_plugin(root: &Path, manifest: Option<&Value>) -> Vec<Sidecar> {
+    let mut servers = from_json(read_json(&root.join(".mcp.json")).as_ref());
+    match manifest.and_then(|m| m.get("mcpServers")) {
+        Some(Value::String(file)) => {
+            servers.extend(from_json(read_json(&root.join(file)).as_ref()))
+        }
+        Some(listed @ Value::Object(_)) => servers.extend(from_json(Some(listed))),
+        _ => {}
+    }
+    let text = root.to_string_lossy();
+    let expand =
+        |w: &str| w.replace("${CLAUDE_PLUGIN_ROOT}", &text).replace("${PLUGIN_ROOT}", &text);
+    for s in servers.iter_mut() {
+        s.command = expand(&s.command);
+        s.args = s.args.iter().map(|a| expand(a)).collect();
+        let folder = s.cwd.as_deref().map_or_else(|| root.to_path_buf(), |own| root.join(own));
+        s.cwd = Some(folder.to_string_lossy().into_owned());
+    }
+    servers
 }
 
 /// Codex's `[mcp_servers.<name>]` tables.
@@ -386,7 +480,8 @@ fn from_toml(text: &str) -> Vec<Sidecar> {
                     .map(|a| a.as_str().map(str::to_owned))
                     .collect::<Option<_>>()?,
             };
-            sidecar(command, &args)
+            let cwd = s.get("cwd").and_then(toml::Value::as_str);
+            sidecar(command, &args).map(|server| server.in_folder(cwd))
         })
         .collect()
 }
@@ -429,18 +524,95 @@ fn runs(who: &crate::agent_host::tree::Identity, s: &Sidecar) -> bool {
     let by_app = |first: &str| {
         app.as_deref().is_some_and(|app| same_file(Path::new(first), app) && runs_file(who, first))
     };
+    // The interpreter the script's `#!` line runs, moved since (`moved_interpreter`).
+    let moved = |first: &str| {
+        s.interpreter
+            .as_deref()
+            .is_some_and(|i| moved_interpreter(who, first, &interpreter_keys(i)))
+    };
     let runs_script = |first: &str, second: &str| {
-        ((interpreter(first) && s.interpreter.as_deref().is_some_and(is_exe)) || by_app(first))
+        ((interpreter(first) && s.interpreter.as_deref().is_some_and(is_exe))
+            || by_app(first)
+            || moved(first))
             && second.contains('/')
             && program(second)
             && script_is(second)
     };
+    // A server that is an interpreter running a script (`node ./mcp/launch.mjs`, from a plugin's
+    // folder): any copy of that interpreter (`moved_interpreter`: Codex runs its own bundled
+    // `node`) running that same file, the script word read in the process's own folder.
+    let runs_by_script = |first: &str, second: &str| {
+        let interp = s.resolved.as_deref().unwrap_or(&s.command);
+        s.script.as_deref().is_some_and(|script| {
+            moved_interpreter(who, first, &interpreter_keys(interp))
+                && s.args.first().is_some_and(|a| a == second)
+                && runs_file_at(who, second, script)
+        })
+    };
     let at = match who.argv.as_slice() {
         [first, ..] if runs_program(first) => 1,
         [first, second, ..] if runs_script(first, second) => 2,
+        [first, second, ..] if runs_by_script(first, second) => 1,
         _ => return false,
     };
     who.argv.get(at..) == Some(s.args.as_slice())
+}
+
+/// Whether `word`, a path in `who`'s argv (relative: in the folder it runs in), is the file
+/// `script`.
+#[cfg(unix)]
+fn runs_file_at(who: &crate::agent_host::tree::Identity, word: &str, script: &str) -> bool {
+    let at = if Path::new(word).is_absolute() {
+        PathBuf::from(word)
+    } else {
+        let Some(cwd) = &who.cwd else { return false };
+        cwd.join(word)
+    };
+    same_file(&at, Path::new(script))
+}
+
+/// What an interpreter is known by when it moves (`moved_interpreter`): its file name for one of
+/// [`INTERPRETERS`] (`node`, `python3.15`), or for a framework Python's app
+/// (`.../Python.framework/Versions/3.15/Resources/Python.app/Contents/MacOS/Python`), the
+/// framework's version (`Python.framework/3.15`). None for any other program.
+fn program_key(p: &Path) -> Option<String> {
+    let up = |n: usize| p.ancestors().nth(n).and_then(Path::file_name).and_then(|f| f.to_str());
+    let app = [(0, "Python"), (1, "MacOS"), (2, "Contents"), (3, "Python.app"), (4, "Resources")]
+        .iter()
+        .all(|(n, name)| up(*n) == Some(*name))
+        && up(6) == Some("Versions")
+        && up(7).is_some_and(|f| f.ends_with(".framework"));
+    if app {
+        return up(5).map(|version| format!("Python.framework/{version}"));
+    }
+    let name = up(0)?;
+    is_interpreter(name).then(|| name.to_owned())
+}
+
+/// The names (`program_key`) a server's interpreter runs as: its own, the file it links to
+/// (`python3` to `python3.15`), and a framework Python's app (`framework_app`).
+fn interpreter_keys(interpreter: &str) -> Vec<String> {
+    let p = Path::new(interpreter);
+    [Some(p.to_path_buf()), std::fs::canonicalize(p).ok(), framework_app(interpreter)]
+        .into_iter()
+        .flatten()
+        .filter_map(|p| program_key(&p))
+        .collect()
+}
+
+/// Whether `who` runs the interpreter named by `keys` at whatever path: its argv's first word and
+/// the executable the kernel says it runs are both that program (`program_key`). An interpreter
+/// moves under a server that keeps running: Homebrew's next Cellar folder (`python@3.15/3.15.0`
+/// to `3.15.2`), or a harness's own bundled runtime (Codex's `node`). Only the same program name
+/// and version: another Python, or a program that renames itself (`exec -a node`), is not it.
+#[cfg(unix)]
+fn moved_interpreter(
+    who: &crate::agent_host::tree::Identity,
+    first: &str,
+    keys: &[String],
+) -> bool {
+    let named = |p: &Path| program_key(p).is_some_and(|k| keys.contains(&k));
+    named(Path::new(first)) && named(&who.exe)
 }
 
 /// Whether `who`'s executable is the file `w` names: the same path, or the same file once both
@@ -593,7 +765,16 @@ fn wrapper<'a>(
 /// wrapper adds its own before them or after them), and the file the kernel says it runs.
 #[cfg(unix)]
 fn relays_for(who: &crate::agent_host::tree::Identity, wrapper: &Wrapper) -> bool {
-    let [program, args @ ..] = who.argv.as_slice() else { return false };
+    let [_, args @ ..] = who.argv.as_slice() else { return false };
+    names_agent(who, wrapper) && args.windows(wrapper.args.len()).any(|run| run == wrapper.args)
+}
+
+/// Whether `who` runs the agent a native wrapper (`wrapper`) names: a program by absolute path,
+/// not an interpreter, named the wrapper's `NAME` or `<prefix>-NAME`, and the file the kernel
+/// says it runs.
+#[cfg(unix)]
+fn names_agent(who: &crate::agent_host::tree::Identity, wrapper: &Wrapper) -> bool {
+    let Some(program) = who.argv.first() else { return false };
     let Some(file) = Path::new(program).file_name().and_then(|n| n.to_str()) else {
         return false;
     };
@@ -604,11 +785,7 @@ fn relays_for(who: &crate::agent_host::tree::Identity, wrapper: &Wrapper) -> boo
                 .and_then(|prefix| prefix.strip_suffix('-'))
                 .is_some_and(|prefix| !prefix.is_empty())
     });
-    program.starts_with('/')
-        && !is_interpreter(program)
-        && named
-        && args.windows(wrapper.args.len()).any(|run| run == wrapper.args)
-        && runs_file(who, program)
+    program.starts_with('/') && !is_interpreter(program) && named && runs_file(who, program)
 }
 
 /// Whether `who` runs one of the harness's own helper programs: an absolute path in the same
@@ -657,6 +834,27 @@ pub(crate) fn classify(
     // Each child's identity is read once, however many passes look at it.
     let mut identities: std::collections::HashMap<u32, Option<Identity>> =
         std::collections::HashMap::new();
+    // A native wrapper whose agent does not carry its args unchanged (`relays_for` fails: `sr2
+    // claude2 -p ...` runs `claude` with args of its own): the wrapper's only child, the agent it
+    // names by its executable, whose own children are all the harness's servers, is the
+    // harness. One wrapper level: what runs under that agent is judged as the harness's children.
+    if let Some(w) = &wrapped
+        && let [only] = found.iter().filter(|p| p.ppid == leader).collect::<Vec<_>>().as_slice()
+    {
+        let agent = identities
+            .entry(only.pid)
+            .or_insert_with(|| identity_of(only.pid))
+            .as_ref()
+            .is_some_and(|who| names_agent(who, w));
+        let mut server = |pid: u32| {
+            let who = identities.entry(pid).or_insert_with(|| identity_of(pid));
+            who.as_ref().is_some_and(|who| sidecars.iter().any(|s| runs(who, s)))
+        };
+        let below: Vec<u32> = found.iter().filter(|p| p.ppid == only.pid).map(|p| p.pid).collect();
+        if agent && !below.is_empty() && below.into_iter().all(|pid| server(pid)) {
+            harness.push(only.pid);
+        }
+    }
     let mut grew = true;
     while grew {
         grew = false;
