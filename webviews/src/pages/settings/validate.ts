@@ -185,6 +185,20 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
       Object.entries(value).every(([time, picture]) => isBackdropTime(time) && isBackdropPicture(picture));
     return ok ? null : 'expected {"07:00" | "sunset-30m": picture, ...}';
   }
+  if (row.validation === "domain:backdrop_memory") {
+    const folder = (text: unknown) => typeof text === "string" && /^folder:\/./.test(text);
+    const member: Record<string, (text: unknown) => boolean> = {
+      rotate: (text) => text === "daily" || folder(text),
+      folder,
+      off: (text) => text === "none" || isBackdropPicture(text),
+    };
+    const ok =
+      typeof value === "object" &&
+      value !== null &&
+      !Array.isArray(value) &&
+      Object.entries(value).every(([name, text]) => Object.hasOwn(member, name) && member[name]!(text));
+    return ok ? null : 'expected {"rotate": daily | folder:<path>, "folder": folder:<path>, "off": none | picture}';
+  }
   if (row.validation === "domain:backdrop_location") {
     return isBackdropLocation(value) ? null : "expected LAT,LON such as 37.77,-122.42";
   }

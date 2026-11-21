@@ -49,9 +49,9 @@ pub const RESERVED_KEYS: [&str; 6] =
     ["name", "description", "$schema", "colors", "ghostty", "density"];
 /// Look keys that are no part of a look: the theme file itself, the star
 /// list and its rotation, per-machine and per-display maps, the sun location
-/// (where this Mac is), the saved
+/// (where this Mac is), what each background mode last showed, the saved
 /// custom densities, and the keys the person changed over the file.
-const EXCLUDED_KEYS: [&str; 9] = [
+const EXCLUDED_KEYS: [&str; 10] = [
     SETTING_KEY,
     "appearance.favoriteThemes",
     "appearance.rotateFavoriteThemes",
@@ -60,6 +60,7 @@ const EXCLUDED_KEYS: [&str; 9] = [
     "appearance.displayBackgroundRotations",
     "appearance.customDensities",
     "appearance.backgroundLocation",
+    "appearance.backgroundMemory",
     EXCEPTIONS_KEY,
 ];
 /// The look keys the person changed in Settings while the active theme

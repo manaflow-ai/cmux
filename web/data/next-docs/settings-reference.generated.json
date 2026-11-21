@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 641,
+  "count": 640,
   "sections": [
     {
       "id": "general",
@@ -4376,7 +4376,7 @@
           "title": "Show Spaces",
           "help": "",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Sidebar"
         },
         {
@@ -6962,7 +6962,7 @@
         {
           "key": "labs.previewFeatures",
           "title": "Show Preview Features",
-          "help": "Unfinished surfaces, such as the agent session's coverage label and Pull requests view.",
+          "help": "Unfinished surfaces, such as the App Store and the agent session's coverage label and Pull requests view.",
           "kind": "toggle",
           "default": false,
           "group": "Labs"
