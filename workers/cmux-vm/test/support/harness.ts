@@ -25,7 +25,7 @@ import { makeFakeUpstream } from "./fake-upstream.ts";
 import { makeS3aFakes } from "./s3a-fakes.ts";
 import { TeamAdmin } from "../../src/auth/team-admin.ts";
 import { ApiKeyAdminStore } from "../../src/db/api-keys.ts";
-import { applyServiceScopeGrants, parseServiceScopeGrants, ServiceKeys } from "../../src/auth/service-keys.ts";
+import { applyServiceScopeGrants, parseServiceScopeGrants, ServiceKeys, teamKeysOf } from "../../src/auth/service-keys.ts";
 import { makeMeshFakes, type MeshFakeOptions } from "./mesh-fakes.ts";
 import { AgentStore, type ClientSessionRow } from "../../src/db/agents.ts";
 
@@ -66,6 +66,8 @@ export interface HarnessOptions {
   readonly ciTrust?: string;
   /** CMUX_VM_SIZED_IMAGE_SERVICE_IDS and CMUX_VM_CREATE_NO_READS_SERVICE_IDS: service key ids; both off by default. */
   readonly createSwitches?: CreateSwitches;
+  /** The CMUX_VM_TEAM_KEYS var (src/auth/team-keys.ts), merged with the service keys as the Worker does. */
+  readonly teamKeys?: string;
 }
 
 export interface CreateSwitches {
@@ -276,7 +278,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     Layer.succeed(ServiceKeys, {
       find: (sha256) =>
         Effect.sync(() =>
-          Option.map(Option.fromNullable(serviceKeys.find((key) => key.sha256 === sha256)), (key) =>
+          Option.orElse(Option.map(Option.fromNullable(serviceKeys.find((key) => key.sha256 === sha256)), (key) =>
             applyServiceScopeGrants(
               [
                 {
@@ -289,7 +291,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
               ],
               parseServiceScopeGrants(options.serviceScopeGrants).grants,
             )[0]!,
-          ),
+          ), () => Option.fromNullable(teamKeysOf([], options.teamKeys).find((key) => key.sha256 === sha256))),
         ),
     }),
     auditStore,

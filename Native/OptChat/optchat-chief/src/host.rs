@@ -2015,7 +2015,6 @@ fn start(
         membership: membership.clone(),
         keep_turn_session: env("CHIEF_KEEP_TURN_SESSION").as_deref() != Some("0"),
         chief_inbox,
-        screen_share: Some(paths.screen.clone()),
     };
     let brain_log: crate::brain::Log = Arc::new(|line: &str| log(line));
     // Section 10: persist after each turn.
@@ -2196,7 +2195,7 @@ fn start(
                 },
                 Arc::new(crate::cloud::auth::InstallTokens::new(
                     *install,
-                    Arc::new(crate::cloud::auth::UreqHttp),
+                    Arc::new(crate::cloud::auth::UreqHttp::new()),
                 )),
                 sink,
                 brain_log,

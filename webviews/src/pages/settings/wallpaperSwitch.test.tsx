@@ -4,6 +4,7 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { installDom } from "./testDom";
 import {
+  forgetWallpaperMemory,
   formatWhen,
   modeOf,
   nextWhen,
@@ -26,10 +27,11 @@ let page: Rendered | null = null;
 afterEach(() => {
   page?.unmount();
   page = null;
+  forgetWallpaperMemory();
 });
 
 async function card(values: Record<string, unknown> = { "appearance.background": "friedrich-forest-moonlight" }) {
-  page = await renderPage({ path: "/settings/personalization", mock: { values } });
+  page = await renderPage({ path: "/settings/personalization?part=background", mock: { values } });
   await act(async () =>
     page!.provider.setHost({
       ...page!.provider.host,
@@ -100,6 +102,66 @@ describe("the model", () => {
     expect(writesFor("off", { ...off, background: SONOMA, dynamic: "time" }, { choices, lastFixed: null })).toEqual([
       ["appearance.backgroundDynamic", null],
     ]);
+  });
+
+  test("Off from Rotate with no last picture shows a picture another mode still names, not none", () => {
+    expect(
+      writesFor("off", { ...off, background: "folder:/Users/me/Art", light: HARBOR }, { choices, lastFixed: null }),
+    ).toEqual([["appearance.background", HARBOR]]);
+  });
+});
+
+// Leo, 2026-11-19: "i was examining my background settings and switched around from the rotating to
+// day/night/whatever but it lost the folder or something idk i couldn't get back into it? i couldn't
+// see the prev[iew]". Each mode keeps what it showed while another mode is on.
+describe("switching modes never loses a mode's folder or picture", () => {
+  const ART = "folder:/Users/me/Art";
+  const folderChoice = (title: string) =>
+    [...control().querySelectorAll<HTMLInputElement>(".wallpaper-editor input[type=radio]")].find(
+      (input) => input.getAttribute("aria-label") === title,
+    );
+
+  test("Rotate goes back to the folder it shuffled after Light & Dark and Time of Day", async () => {
+    await card({ "appearance.background": ART });
+    expect(control().dataset.wallpaperSwitch).toBe("rotate");
+    await click(mode("Light & Dark"));
+    expect(value("appearance.background")).toBe("appearance");
+    await click(mode("Rotate"));
+    expect(value("appearance.background")).toBe(ART);
+    expect(folderChoice("Art")?.checked).toBe(true);
+    await click(mode("Time of Day"));
+    await click(mode("Off"));
+    await click(mode("Rotate"));
+    expect(value("appearance.background")).toBe(ART);
+  });
+
+  test("the folder survives leaving Appearance in another mode, and the picker offers it again", async () => {
+    await card({ "appearance.background": ART });
+    await click(mode("Light & Dark"));
+    page!.unmount();
+    page = null;
+    const backdrop = await card({ "appearance.background": "appearance", "appearance.backgroundLight": HARBOR });
+    // The grid still has the folder's tile, so one click recovers it.
+    const tile = backdrop.querySelector<HTMLButtonElement>('.backdrop-grid [aria-label="Shuffling Art"]');
+    expect(tile).not.toBeNull();
+    await click(mode("Rotate"));
+    expect(value("appearance.background")).toBe(ART);
+  });
+
+  test("a chosen No Wallpaper is what Off puts back, also after the card remounts", async () => {
+    await card({ "appearance.background": "none" });
+    await click(mode("Rotate"));
+    page!.unmount();
+    page = null;
+    await card({ "appearance.background": "daily", "appearance.backgroundLight": HARBOR });
+    await click(mode("Off"));
+    expect(value("appearance.background")).toBe("none");
+  });
+
+  test("Off after Rotate keeps the picture on screen before it", async () => {
+    await card({ "appearance.background": ART, "appearance.backgroundLight": HARBOR });
+    await click(mode("Off"));
+    expect(value("appearance.background")).toBe(HARBOR);
   });
 });
 

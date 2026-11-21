@@ -72,7 +72,9 @@ export type QuickMenu = {
   /// the effort and fast mode the query named. Without it typing opens the full picker.
   search?: {
     find(query: string): QuickModel[];
-    pick(model: QuickModel): void;
+    /// Lands `model`; true when the pick instead sets its harness up (installs it or signs it in), whose
+    /// progress the columns menu shows, so it stays open (QuickModelColumns.tsx).
+    pick(model: QuickModel): boolean | void;
   };
   /// When the search field shows (gallery versions): `always` (the default), `typed` (only once
   /// a key is typed), or `long` (when the list holds more than LONG_LIST models, or once typed).
@@ -243,7 +245,8 @@ export type QuickFamilies = {
   list: QuickFamily[];
   /// The chat's harness: its tab opens first, and only it shows Effort and Account.
   current?: string;
-  onPick(model: QuickModel): void;
+  /// Lands `model`; true when the pick instead sets its harness up, as `search.pick`.
+  onPick(model: QuickModel): boolean | void;
   /// Add harness…, the last item in the harness strip.
   onAddHarness?(): void;
   onLaunch?(id: string): void;
