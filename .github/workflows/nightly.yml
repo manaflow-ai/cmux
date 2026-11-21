@@ -336,10 +336,26 @@ jobs:
             /scripts/ci/warm_distance.py
           sparse-checkout-cone-mode: false
 
+      # A second budget for decide's reads: GITHUB_TOKEN draws on the repository's Actions installation, which
+      # every cmux workflow shares and which ran dry at 01:22Z on 2026-11-21 (run 44849687076). The glaeda-route
+      # App is a separate installation with its own hourly budget. Optional: decide waits for the reset without it.
+      - name: Mint a spare read token for decide
+        id: decide-spare-token
+        if: github.repository == 'manaflow-ai/cmux' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-contents: read
+          permission-actions: read
+
       - name: Decide whether a nightly build is needed
         id: decide
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
+          SPARE_READ_TOKEN: ${{ steps.decide-spare-token.outputs.token }}
           FORCE_BUILD: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force == 'true' && 'true' || 'false' }}
           FAST_BUILD: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'true' || 'false' }}
           BUILD_ONLY: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && 'true' || 'false' }}
@@ -367,10 +383,14 @@ jobs:
           script: |
             // GitHub API rate limits (the installation's shared hourly budget, or a secondary limit) must not
             // fail the nightly: run 41153241702's decide died on "API rate limit exceeded for installation".
-            // Every request this script makes waits for the limit's reset (Retry-After, else x-ratelimit-reset,
-            // capped at 10 minutes a wait, 20 minutes in all) and tries again; any other error is unchanged.
+            // A rate-limited read first goes again on the spare token (another installation's budget), when the
+            // job minted one. Otherwise every request waits for the limit's reset (Retry-After, else
+            // x-ratelimit-reset) and tries again; any other error is unchanged. The core budget resets hourly, so
+            // the cap is 65 minutes in all: run 44849687076 ran dry at 01:22Z, gave up at the old 20-minute cap at
+            // 01:42Z, and the reset was 01:51Z.
+            const spareReader = process.env.SPARE_READ_TOKEN ? getOctokit(process.env.SPARE_READ_TOKEN) : null;
             if (github.hook && typeof github.hook.wrap === 'function') github.hook.wrap('request', async (request, options) => {
-              const deadline = Date.now() + 20 * 60 * 1000;
+              const deadline = Date.now() + 65 * 60 * 1000;
               for (let attempt = 1; ; attempt += 1) {
                 try {
                   return await request(options);
@@ -380,13 +400,24 @@ jobs:
                   const message = String((error && error.message) || '');
                   const limited = (status === 403 || status === 429) &&
                     (headers['x-ratelimit-remaining'] === '0' || headers['retry-after'] !== undefined || /rate limit/i.test(message));
-                  if (!limited || Date.now() >= deadline) throw error;
+                  if (!limited) throw error;
+                  if (spareReader && String(options.method || 'GET').toUpperCase() === 'GET') {
+                    try {
+                      const { headers: { authorization, ...spareHeaders } = {}, request: _hooks, ...route } = options;
+                      const response = await spareReader.request({ ...route, headers: spareHeaders });
+                      core.notice(`GitHub API rate limited (${status}) on GET ${options.url}; read it with the spare token`);
+                      return response;
+                    } catch (spareError) {
+                      core.warning(`the spare token could not read ${options.url} either (${spareError && spareError.status}); waiting for the reset`);
+                    }
+                  }
+                  if (Date.now() >= deadline) throw error;
                   const retryAfter = Number(headers['retry-after']);
                   const reset = Number(headers['x-ratelimit-reset']);
                   let waitMs = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000
                     : Number.isFinite(reset) && reset > 0 ? reset * 1000 - Date.now() + 2000
                     : Math.min(60000 * attempt, 300000);
-                  waitMs = Math.max(5000, Math.min(waitMs, 600000, deadline - Date.now()));
+                  waitMs = Math.max(5000, Math.min(waitMs, 3660000, deadline - Date.now()));
                   core.warning(`GitHub API rate limited (${status}) on ${options.method} ${options.url}; retrying in ${Math.round(waitMs / 1000)} s (attempt ${attempt})`);
                   await new Promise((resolve) => setTimeout(resolve, waitMs));
                 }
