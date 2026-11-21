@@ -141,6 +141,8 @@
               "updates.web",
               "updates.liveWebReload",
               "updates.installOnQuit",
+              "updates.installWhenIdle",
+              "updates.installWhenIdleMinutes",
               "updates.notify",
               "updates.keepPreviousVersions",
               "updates.showWhatsNew",
@@ -316,6 +318,7 @@
               "appearance.displayBackgroundRotations",
               "appearance.paneBackgrounds",
               "ui.reducedBackgrounds",
+              "appearance.agentGlow",
               "appearance.backgroundOpacity",
               "appearance.backgroundBlur",
               "appearance.inactiveWindowDim",
@@ -1225,6 +1228,10 @@
               "agentPane.display.presentation",
               "agentPane.display.statusVerbs.mode",
               "agentPane.display.statusVerbs.custom",
+              "agentPane.display.thinking.shimmer",
+              "agentPane.display.thinking.shimmerPeriod",
+              "agentPane.display.thinking.shimmerBand",
+              "agentPane.display.thinking.jumpButton",
               "agentPane.needsYou.enabled",
               "agentPane.showMachineLoadWarnings"
             ],
@@ -1533,6 +1540,38 @@
 
         ],
         "groups" : [
+          {
+            "key" : "settings.group.mcpServers",
+            "rows" : [
+              "agents.mcpServers.enabled"
+            ],
+            "title" : {
+              "key" : "settings.group.mcpServers",
+              "text" : "Agent Chats"
+            }
+          }
+        ],
+        "id" : "mcpServers",
+        "lead" : [
+          "mcpServers"
+        ],
+        "symbol" : "server.rack",
+        "title" : {
+          "key" : "settings.category.mcpServers",
+          "text" : "MCP Servers"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
 
         ],
         "id" : "models",
@@ -1757,6 +1796,7 @@
               "notifications.attention.flashOnTyping",
               "notifications.attention.showOnTab",
               "notifications.attention.showOnSidebar",
+              "notifications.attention.mark",
               "notifications.attention.moveToTop",
               "notifications.attention.moveToTopOnAgentFinish"
             ],
@@ -1853,7 +1893,8 @@
           {
             "key" : "settings.group.macScreenKeyboard",
             "rows" : [
-              "macScreen.systemShortcuts"
+              "macScreen.systemShortcuts",
+              "macScreen.shareWithoutAsking"
             ],
             "title" : {
               "key" : "settings.group.macScreenKeyboard",
@@ -2307,6 +2348,7 @@
           "chat",
           "agents",
           "computerUse",
+          "mcpServers",
           "models",
           "cloud",
           "chief"
@@ -3820,7 +3862,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.window",
@@ -10146,6 +10188,279 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.updates",
+        "text" : "Updates"
+      },
+      "help" : {
+        "key" : "settings.updates.installWhenIdle.help",
+        "text" : "Installs a downloaded update after cmux has been idle for the time below, never while an agent is working or a message is unsent. Agents keep running."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "updates.installWhenIdle",
+      "keywords" : [
+        "update",
+        "install",
+        "idle",
+        "automatic",
+        "restart"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "updates",
+        "installWhenIdle"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:updates.installWhenIdle"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.updates.installWhenIdle",
+        "text" : "Update When Idle"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        240,
+        120.5
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 15,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.updates",
+        "text" : "Updates"
+      },
+      "help" : {
+        "key" : "settings.updates.installWhenIdleMinutes.help",
+        "text" : "How long cmux must be idle before Update When Idle installs."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "updates.installWhenIdleMinutes",
+      "keywords" : [
+        "update",
+        "install",
+        "idle",
+        "automatic",
+        "restart",
+        "minutes"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "updates",
+        "installWhenIdleMinutes"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 240,
+        "min" : 1,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "minutes"
+      },
+      "refuses" : [
+        -238,
+        479,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:updates.installWhenIdleMinutes"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.updates.installWhenIdleMinutes",
+        "text" : "Idle Time Before Updating"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "badge",
         "silent"
       ],
@@ -16264,6 +16579,140 @@
         true,
         false
       ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.mcpServers",
+        "text" : "Agent Chats"
+      },
+      "help" : {
+        "key" : "settings.agents.mcpServers.enabled.help",
+        "text" : "New chats can use the servers listed above."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.mcpServers.enabled",
+      "keywords" : [
+        "mcp",
+        "servers",
+        "integrations",
+        "connections",
+        "agents",
+        "tools"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "mcpServers",
+        "enabled"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:agents.mcpServers.enabled"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.mcpServers.enabled",
+        "text" : "Saved Servers in Agent Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "userOnly",
       "agent_settable" : false,
       "consumers" : [
@@ -16681,7 +17130,7 @@
         false
       ],
       "agent_refusal" : null,
-      "agent_settable" : false,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -16744,7 +17193,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -16756,9 +17205,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -24749,7 +25200,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.workspaceHibernation",
@@ -26712,6 +27163,152 @@
       "title" : {
         "key" : "settings.appearance.themeFile",
         "text" : "Theme File"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "ws-1",
+          "2B7F0C3A-workspace"
+        ]
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.appTheme",
+        "text" : "App Theme"
+      },
+      "help" : {
+        "key" : "settings.appearance.themeFileExceptions.help",
+        "text" : "Settings you changed while a theme file sets them. Your value applies over the file's; resetting the row returns to the file's. Choosing another theme file clears the list."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.themeFileExceptions",
+      "keywords" : [
+        "theme file",
+        "override",
+        "exception"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : true,
+      "path" : [
+        "appearance",
+        "themeFileExceptions"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "ws-1",
+        [
+          1
+        ],
+        [
+          ""
+        ],
+        {
+
+        }
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : false,
+          "operations" : [
+
+          ],
+          "reason" : "a Settings change to a row the theme file sets edits it: a list of setting keys",
+          "row" : null
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.themeFileExceptions",
+        "text" : "Changed Over Theme File"
       },
       "validation" : "portable"
     },
@@ -33124,6 +33721,144 @@
       "title" : {
         "key" : "settings.ui.reducedBackgrounds",
         "text" : "Plain Backgrounds"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.agentGlow.help",
+        "text" : "Calm while agents are idle; a soft glow in the machine's color when an agent needs you."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.agentGlow",
+      "keywords" : [
+        "agent",
+        "agents",
+        "glow",
+        "react",
+        "reactive",
+        "background",
+        "attention",
+        "needs you",
+        "idle",
+        "calm",
+        "machine color"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "agentGlow"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.agentGlow"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.agentGlow",
+        "text" : "React to Agents"
       },
       "validation" : "portable"
     },
@@ -53959,6 +54694,621 @@
       "title" : {
         "key" : "settings.agentPane.display.statusVerbs.custom",
         "text" : "Custom Working Verbs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "cadenced",
+        "continuous"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.thinkingShimmerCadenced",
+            "text" : "Every Few Seconds"
+          },
+          "value" : "cadenced"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.thinkingShimmerContinuous",
+            "text" : "Continuous"
+          },
+          "value" : "continuous"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "cadenced",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.thinking.shimmer.help",
+        "text" : "How the light band moves across the live status line."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.thinking.shimmer",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "thinking",
+        "shimmer",
+        "status",
+        "animation",
+        "sweep",
+        "claude"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "thinking",
+        "shimmer"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.thinking.shimmer"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.thinking.shimmer",
+        "text" : "Thinking Shimmer"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        600,
+        4000,
+        2300
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1250,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.thinking.shimmerPeriod.help",
+        "text" : "How long one continuous pass of the shimmer takes."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.thinking.shimmerPeriod",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "thinking",
+        "shimmer",
+        "speed",
+        "period",
+        "duration",
+        "animation",
+        "claude"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "thinking",
+        "shimmerPeriod"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 4000,
+        "min" : 600,
+        "placeholder" : 1250,
+        "step" : 50,
+        "unit" : "milliseconds"
+      },
+      "refuses" : [
+        -2800,
+        7400,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.thinking.shimmerPeriod"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.thinking.shimmerPeriod",
+        "text" : "Shimmer Speed"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        240,
+        120
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.thinking.shimmerBand.help",
+        "text" : "The width of the shimmer's light band. 0 uses half the line."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.thinking.shimmerBand",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "thinking",
+        "shimmer",
+        "band",
+        "width",
+        "animation",
+        "claude"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "thinking",
+        "shimmerBand"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 240,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 4,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -240,
+        480,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.thinking.shimmerBand"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.thinking.shimmerBand",
+        "text" : "Shimmer Width"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "arrow",
+        "dots"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.thinkingJumpArrow",
+            "text" : "Arrow"
+          },
+          "value" : "arrow"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.dots",
+            "text" : "Dots"
+          },
+          "value" : "dots"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "arrow",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.thinking.jumpButton.help",
+        "text" : "What the Jump to latest button shows while the agent works."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.thinking.jumpButton",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "thinking",
+        "jump",
+        "latest",
+        "scroll",
+        "button",
+        "arrow",
+        "dots",
+        "claude"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "thinking",
+        "jumpButton"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.thinking.jumpButton"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.thinking.jumpButton",
+        "text" : "Jump to Latest While Working"
       },
       "validation" : "portable"
     },
@@ -93650,7 +95000,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.chiefDock",
@@ -99882,6 +101232,156 @@
       "title" : {
         "key" : "settings.attention.showOnSidebar",
         "text" : "Mark the Sidebar Row"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "badge",
+        "glow"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.badge",
+            "text" : "Badge"
+          },
+          "value" : "badge"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.glow",
+            "text" : "Glow"
+          },
+          "value" : "glow"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "badge",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.attention",
+        "text" : "Attention Ring"
+      },
+      "help" : {
+        "key" : "settings.attention.mark.help",
+        "text" : "How a tab and a sidebar row that wait for you show it: the badge, or a gentle glow until you look at them."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "notifications.attention.mark",
+      "keywords" : [
+        "needs you",
+        "glow",
+        "badge",
+        "unread",
+        "waiting",
+        "motion"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "attention",
+        "mark"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:notifications.attention.mark"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.attention.mark",
+        "text" : "Needs You Look"
       },
       "validation" : "portable"
     },
@@ -106836,6 +108336,142 @@
       "title" : {
         "key" : "settings.macScreen.systemShortcuts",
         "text" : "Send System Shortcuts to the Remote Mac"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.macScreenKeyboard",
+        "text" : "Mac Screen"
+      },
+      "help" : {
+        "key" : "settings.macScreen.shareWithoutAsking.help",
+        "text" : "Your own cmux CLI, agents and devices turn sharing on with no sheet. Each device's access still applies."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "macScreen.shareWithoutAsking",
+      "keywords" : [
+        "mac screen",
+        "remote",
+        "screen sharing",
+        "share this mac",
+        "confirm",
+        "ask"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "macScreen",
+        "shareWithoutAsking"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "keyboard",
+      "summary" : {
+        "key" : "settings.macScreen.shareWithoutAsking.summary",
+        "text" : "Sharing turns on without asking"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:macScreen.shareWithoutAsking"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.macScreen.shareWithoutAsking",
+        "text" : "Share This Mac Without Asking"
       },
       "validation" : "portable"
     },
