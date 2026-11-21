@@ -12,6 +12,12 @@ final class GlassMenuListView: NSView {
     var onBack: () -> Void = {}
     /// A key equivalent of one of the menu's items was pressed while the menu had the keys.
     var onKeyEquivalent: (NSEvent) -> Bool = { _ in false }
+    /// Typing picked row `index` (``GlassMenuTypeSelect``); the list highlights it unless the owner says otherwise.
+    lazy var onTypeSelect: (Int) -> Void = { [weak self] index in self?.highlight(index) }
+    /// Escape reached the list (the popup host's own Escape closes the menu first when it sees it).
+    var onCancel: () -> Void = {}
+
+    private var typeSelect = GlassMenuTypeSelect()
 
     private var rows: [GlassMenuRow] = []
     private var views: [NSView] = []
@@ -50,6 +56,11 @@ final class GlassMenuListView: NSView {
         layout.trailingGap = MenuMetrics.shortcutGap
         layout.minHeight = GlassMenuMaterial.rowHeight
         layout.hoverFills = false
+        if let stepper = item as? GlassMenuStepperItem {
+            let row = GlassMenuStepperRowView(stepper, leading: iconColumn ? icon(item.image) : nil, layout: layout)
+            if let identifier = item.identifier { row.setAccessibilityIdentifier(identifier.rawValue) }
+            return row
+        }
         var subtitle: String?
         if #available(macOS 14.4, *) { subtitle = item.subtitle }
         let row = PopupRowView(leading: iconColumn ? icon(item.image) : nil, title: item.title, subtitle: subtitle,
@@ -112,6 +123,8 @@ final class GlassMenuListView: NSView {
         }
     }
 
+    /// How many rows (separators included) the list shows.
+    var rowCount: Int { rows.count }
     func row(at index: Int) -> GlassMenuRow? { rows.indices.contains(index) ? rows[index] : nil }
     /// The row whose view holds `point` (the list's coordinates), or nil on the inset.
     func index(at point: CGPoint) -> Int? { views.firstIndex { $0.frame.contains(point) } }
@@ -123,6 +136,29 @@ final class GlassMenuListView: NSView {
     }
 
     func highlightFirst() { highlight(step(from: nil, by: 1)) }
+
+    /// The highlighted row (nil: none).
+    var highlightedIndex: Int? { highlighted }
+
+    /// Reads every stepper row's value and buttons again (its owner's state changed).
+    func refreshControls() {
+        views.compactMap { $0 as? GlassMenuStepperRowView }.forEach { $0.refresh() }
+    }
+
+    /// The stepper row at `index`, if that row is one.
+    func stepperRow(at index: Int) -> GlassMenuStepperRowView? { view(at: index) as? GlassMenuStepperRowView }
+
+    /// Typing jumps to the row whose title starts with the letters (``GlassMenuTypeSelect``); false
+    /// when `event` types no letter or no row matches.
+    func typeSelect(_ event: NSEvent) -> Bool {
+        guard event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
+              let characters = event.characters, characters.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.contains($0) })
+        else { return false }
+        let titles = rows.map { row in row.item.flatMap { $0.isEnabled ? $0.title : nil } }
+        guard let index = typeSelect.pick(characters, at: event.timestamp, titles: titles, current: highlighted) else { return false }
+        onTypeSelect(index)
+        return true
+    }
 
     /// The next enabled row from `index` in `direction`, wrapping.
     private func step(from index: Int?, by direction: Int) -> Int? {
@@ -136,15 +172,20 @@ final class GlassMenuListView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
+        // A stepper row takes Left, Right and Return itself (− and +, reset): the menu stays open.
+        if let highlighted, let stepper = stepperRow(at: highlighted), stepper.handleKey(event) { return }
         switch event.keyCode {
         case 125: highlight(step(from: highlighted, by: 1))  // Down
         case 126: highlight(step(from: highlighted, by: -1))  // Up
         case 124: if let highlighted { onOpenSubmenu(highlighted) }  // Right
         case 123: onBack()  // Left (Escape is the popup host's: it closes the whole menu)
         case 36, 76, 49: if let highlighted { onPick(highlighted) }  // Return, Enter, Space
-        default: if !onKeyEquivalent(event) { super.keyDown(with: event) }
+        case 53: onCancel()  // Escape
+        default: if !onKeyEquivalent(event), !typeSelect(event) { super.keyDown(with: event) }
         }
     }
+
+    override func cancelOperation(_ sender: Any?) { onCancel() }
 
     /// A shortcut pressed while the menu is open runs its row, as it does in an open `NSMenu`
     /// (⌘, opens Settings), instead of going nowhere.

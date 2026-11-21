@@ -56,32 +56,39 @@ public final class GlassMenu {
         list.onHoverRow = { [weak self] index in self?.hovered(index) }
         list.onBack = { [weak self] in self?.closeLayer() }
         list.onKeyEquivalent = { [weak self] event in self?.runKeyEquivalent(event) ?? false }
+        list.onTypeSelect = { [weak self] index in
+            self?.closeChild()
+            self?.list.highlight(index)
+        }
+        list.onCancel = { [weak self] in self?.root.finish(runs: nil) }
     }
 
     /// Whether the menu is on screen.
     public var isShown: Bool { host.isShown }
 
     /// Opens the menu over `anchor` (a control in a window) in `anchor`'s theme: above it with its
-    /// leading edges lined up (`preferred` .above, the sidebar's bottom-left), or below. Returns false
-    /// when it cannot show (no window, no visible row).
+    /// leading edges lined up (`preferred` .above, the sidebar's bottom-left), or below. `trailing`
+    /// lines up the trailing edges instead (a toolbar's last button, the browser's More). Returns
+    /// false when it cannot show (no window, no visible row).
     @discardableResult
-    public func show(from anchor: NSView, preferred: PopupPlacement.Side = .below) -> Bool {
+    public func show(from anchor: NSView, preferred: PopupPlacement.Side = .below, trailing: Bool = false) -> Bool {
         guard let window = anchor.window else { return false }
         anchorView = anchor
         let rect = window.convertToScreen(anchor.convert(anchor.bounds, to: nil))
-        return show(at: rect, in: window, preferred: preferred, scope: anchor.themeScope.fullStrength)
+        return show(at: rect, in: window, preferred: preferred, trailing: trailing, scope: anchor.themeScope.fullStrength)
     }
 
-    /// Opens the menu at `anchor` (screen) over `window`, in `scope` (the window's when nil).
+    /// Opens the menu at `anchor` (screen) over `window`, in `scope` (the window's when nil);
+    /// `trailing` lines up the trailing edges.
     @discardableResult
     public func show(at anchor: CGRect, in window: NSWindow, preferred: PopupPlacement.Side = .below,
-                     scope: ThemeScope? = nil) -> Bool {
-        present(at: anchor, in: window, preferred: preferred, sideBySide: false, makeKey: true,
+                     trailing: Bool = false, scope: ThemeScope? = nil) -> Bool {
+        present(at: anchor, in: window, preferred: preferred, trailing: trailing, sideBySide: false, makeKey: true,
              scope: scope ?? window.themeScope.fullStrength)
     }
 
-    private func present(at anchor: CGRect, in window: NSWindow, preferred: PopupPlacement.Side, sideBySide: Bool,
-                      makeKey: Bool, scope: ThemeScope) -> Bool {
+    private func present(at anchor: CGRect, in window: NSWindow, preferred: PopupPlacement.Side, trailing: Bool = false,
+                         sideBySide: Bool, makeKey: Bool, scope: ThemeScope) -> Bool {
         menu.update()
         let rows = GlassMenuRow.rows(of: menu)
         guard rows.contains(where: { $0.item != nil }) else { return false }
@@ -89,7 +96,7 @@ public final class GlassMenu {
         scope.adopt(panel)
         list.load(rows)
         let size = list.fittingMenuSize()
-        guard host.show(size: size, anchor: anchor, in: window, preferred: preferred, makeKey: makeKey,
+        guard host.show(size: size, anchor: anchor, in: window, preferred: preferred, trailing: trailing, makeKey: makeKey,
                         sideBySide: sideBySide) != nil else { return false }
         // The rows fill the card the host placed (a screen too short for them shortens it).
         surface.layoutSubtreeIfNeeded()
@@ -102,6 +109,37 @@ public final class GlassMenu {
 
     /// Closes the menu and its submenus without running a row.
     public func close() { root.finish(runs: nil) }
+
+    /// Reads the menu's stepper rows (``GlassMenuStepperItem``) again, in its submenus too: the
+    /// owner's state they show changed (a page's zoom settled after a press).
+    public func refreshControls() {
+        list.refreshControls()
+        child?.refreshControls()
+    }
+
+    /// Opens the submenu of the shown menu's row titled `title` as Right on it does (keys and
+    /// highlight in the submenu), then each later title's in that submenu. Returns false when a
+    /// title names no enabled submenu row (captures and tests: a capture slot's app never takes
+    /// the keys, so posted arrows cannot reach the menu).
+    @discardableResult
+    public func openSubmenus(_ titles: [String]) -> Bool {
+        var menu = self
+        for title in titles {
+            guard let index = (0..<menu.list.rowCount).first(where: { menu.list.row(at: $0)?.item?.title == title }),
+                  menu.list.row(at: index)?.item?.submenu != nil else { return false }
+            menu.list.highlight(index)
+            menu.openSubmenu(index, fromKeyboard: true)
+            guard let next = menu.child else { return false }
+            menu = next
+        }
+        return true
+    }
+
+    /// Loads the menu's rows without showing it (tests drive the rows and keys directly).
+    func loadRows() {
+        menu.update()
+        list.load(GlassMenuRow.rows(of: menu))
+    }
 
     // MARK: Press tracking
 
@@ -136,7 +174,8 @@ public final class GlassMenu {
             }
         case .leftMouseUp:
             if let (menu, index) = hit {
-                guard let index, let item = menu.list.row(at: index)?.item, item.isEnabled, item.submenu == nil else { return }
+                guard let index, let item = menu.list.row(at: index)?.item, item.isEnabled, item.submenu == nil,
+                      !(item is GlassMenuStepperItem) else { return }
                 root.finish(runs: item)
                 return
             }
@@ -145,6 +184,18 @@ public final class GlassMenu {
         default:
             return
         }
+    }
+
+    /// The stepper row of this menu (or a submenu) whose button `event`'s key equivalent runs.
+    private func stepperPart(matching event: NSEvent) -> (GlassMenuStepperItem, NSMenuItem)? {
+        func find(in menu: NSMenu) -> (GlassMenuStepperItem, NSMenuItem)? {
+            for item in menu.items where !item.isHidden {
+                if let stepper = item as? GlassMenuStepperItem, let part = stepper.part(matching: event) { return (stepper, part) }
+                if let submenu = item.submenu, let found = find(in: submenu) { return found }
+            }
+            return nil
+        }
+        return find(in: menu)
     }
 
     /// The last open menu of the chain (the root without a submenu open).
@@ -193,12 +244,20 @@ public final class GlassMenu {
     private func pick(_ index: Int) {
         guard let row = list.row(at: index), let item = row.item, item.isEnabled else { return }
         if item.submenu != nil { return openSubmenu(index, fromKeyboard: true) }
+        // A stepper row's buttons run its items; the row itself never closes the menu.
+        if item is GlassMenuStepperItem { return }
         root.finish(runs: item)
     }
 
     /// Runs the root menu's item whose key equivalent `event` presses; false when none does.
     func runKeyEquivalent(_ event: NSEvent) -> Bool {
         let root = root
+        // A stepper's shortcut (⌘- ⌘= ⌘0 on the zoom row) steps it in place: the menu stays open.
+        if let (stepper, part) = root.stepperPart(matching: event) {
+            stepper.run(part)
+            root.refreshControls()
+            return true
+        }
         guard let item = GlassMenuRow.item(matching: event, in: root.menu) else { return false }
         root.finish(runs: item)
         return true
