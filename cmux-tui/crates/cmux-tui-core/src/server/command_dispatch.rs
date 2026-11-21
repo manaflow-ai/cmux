@@ -114,6 +114,7 @@ fn dispatch_command(
         | Command::ListTerminalCommands(_)
         | Command::DeleteTerminalCommands(_)) => command_history::handle(mux, client, command),
         Command::ServerStats { include } => cmd_server::server_stats(mux, client, include),
+        Command::ProcessCensus => cmd_server::process_census(mux, client),
         Command::BrowserHostProvider => cmd_browser::browser_host_provider(mux, client),
         Command::RemoteHostStatus => remote_host_command::status(mux, client),
         Command::RemoteHostCall { method, params } => {
