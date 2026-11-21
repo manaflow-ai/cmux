@@ -64,8 +64,8 @@ mod ledger;
 mod offers;
 mod search;
 mod stats;
-mod waiting_day;
 mod team_audit;
+mod waiting_day;
 mod workspace_purge;
 
 use crate::no_panic::JsonExt;
