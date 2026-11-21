@@ -158,19 +158,41 @@ fn lock_free_session_guard(
     Ok((SessionLease { lock, path: lock_path, coordinator_waiter_dir: None }, coordinator))
 }
 
-/// What the last owner run of the session `component` of `root` left in its
-/// session directory: the newest modification time and the total size of
-/// its top-level files (registry, its WAL, `startup-timings.jsonl`). Every
-/// owner start and every adoption commits there, so a change means an owner
-/// ran in between; nothing else writes there while its guard is free.
-pub(crate) fn session_owner_mark(root: &Path, component: &str) -> String {
+/// The top-level files of the session `component` of `root` that only an
+/// owner run writes, with their metadata. SQLite's reader side files are left
+/// out: the registry is in WAL mode, and a read-only open (`cmux ps`, `cmux
+/// gc`, [`stored_terminal_references`]) leaves a `-shm` and an empty `-wal`
+/// behind and writes the `-shm` on each read. A reader never writes the main
+/// database or appends to the WAL; an owner's commit appends to the WAL (so
+/// it is no longer empty) and its checkpoint writes the main database, so the
+/// main database and a nonempty `-wal` still show every owner write.
+fn owner_written_files(root: &Path, component: &str) -> Vec<fs::Metadata> {
     let dir = platform::normalize_filesystem_path(root.join(component));
+    fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| {
+            let metadata = entry.metadata().ok()?;
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            let reader_side_file =
+                name.ends_with("-shm") || (name.ends_with("-wal") && metadata.len() == 0);
+            (metadata.is_file() && !reader_side_file).then_some(metadata)
+        })
+        .collect()
+}
+
+/// What the last owner run of the session `component` of `root` left in its
+/// session directory: the newest modification time, the total size and the
+/// count of the files only an owner writes ([`owner_written_files`]: the
+/// registry, a nonempty WAL, `startup-timings.jsonl`). Every owner start and
+/// every adoption commits there, so a change means an owner ran in between;
+/// nothing else writes them while its guard is free, and reading the
+/// registry leaves the mark as it was.
+pub(crate) fn session_owner_mark(root: &Path, component: &str) -> String {
     let (mut newest, mut size, mut files) = (0_u128, 0_u64, 0_usize);
-    for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
-        let Ok(metadata) = entry.metadata() else { continue };
-        if !metadata.is_file() {
-            continue;
-        }
+    for metadata in owner_written_files(root, component) {
         files += 1;
         size = size.saturating_add(metadata.len());
         let modified = metadata
@@ -184,22 +206,16 @@ pub(crate) fn session_owner_mark(root: &Path, component: &str) -> String {
 }
 
 /// When the last owner run of the session `component` of `root` last wrote
-/// its session directory (the newest modification time of its top-level
-/// files, as [`session_owner_mark`] reads them); `None` when the directory has
-/// no such file or its times cannot be read.
+/// its session directory (the newest modification time of the files only an
+/// owner writes, as [`session_owner_mark`] reads them); `None` when the
+/// directory has no such file or its times cannot be read.
 pub(crate) fn session_owner_last_active(
     root: &Path,
     component: &str,
 ) -> Option<std::time::SystemTime> {
-    let dir = platform::normalize_filesystem_path(root.join(component));
-    fs::read_dir(dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|entry| {
-            let metadata = entry.metadata().ok()?;
-            metadata.is_file().then(|| metadata.modified().ok()).flatten()
-        })
+    owner_written_files(root, component)
+        .iter()
+        .filter_map(|metadata| metadata.modified().ok())
         .max()
 }
 

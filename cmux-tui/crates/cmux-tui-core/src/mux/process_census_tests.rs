@@ -588,7 +588,6 @@ fn a_long_quiet_session_is_no_head_start_its_grace_counts_from_the_first_sightin
     assert!(
         census.hosts[0].gc.refusal.as_deref().is_some_and(|why| why.starts_with("in its grace"))
     );
-    assert!(census.errors.is_empty(), "{:?}", census.errors);
 
     // Seen unowned for longer than the grace (as saved by an earlier gc):
     // now it is a candidate.
@@ -752,7 +751,6 @@ fn reading_a_wal_registry_leaves_the_owner_mark_and_the_gc_clock_alone() {
     for _ in 0..2 {
         let census = census_with(&dir, None, &ops);
         assert_eq!(census.hosts.len(), 1, "{census:?}");
-        assert!(census.errors.is_empty(), "{:?}", census.errors);
     }
     assert_eq!(
         session_owner_mark(&dir, &component),

@@ -902,8 +902,7 @@ object{
       record_root, session?, shell_ended}>,
     exit_records: array<{terminal_id, incarnation, path, record_root,
       has_host_record}>,
-    unnamed_sockets: array<string>},
-  errors?: array<string>
+    unnamed_sockets: array<string>}
 }
 ```
 
@@ -919,17 +918,19 @@ its lease does: an adopted legacy host whose lease cannot be read reads
 `gc.candidate` is true only for a live host of a root whose guard is free,
 that the on-disk workspace registry of its session does not reference, after
 the reaper's grace (24 h, 10 min once its shell ended). The grace counts from
-the first time a census, a gc or a reaper saw the host with its guard free
-and no owner run since: they share one clock (`unowned-terminal-host-sightings.json`
-in each state root and each reaper's `unowned-terminal-hosts.json`), and a
-host never seen before is seen now, however long its session sat quiet
-(`gc.unowned_for_ms`). Stale records are records whose host's lease is dead.
+the earliest time a gc (dry run or `--apply`) or a reaper saw the host with its
+guard free and no owner run since (`unowned-terminal-host-sightings.json` in
+each state root, which only gc writes, and each reaper's
+`unowned-terminal-hosts.json`); a reaper counts only its own times, so gc never
+shortens a reaper's grace. A host never seen before is seen now, however long
+its session sat quiet (`gc.unowned_for_ms` 0, refusal `first seen unowned now`).
+The census writes nothing: reading a free session's registry leaves its owner
+mark as it was. Stale records are records whose host's lease is dead.
 `unnamed_sockets` are sockets under `/tmp/cmux-th-<uid>/` that no record read
 here names. Roots are read as the unowned-host reaper reads them: this state
 root and, on the app's per-build layout, every build's. The census only peeks
 at a free root's guard under its coordinator, so a session starting meanwhile
-waits for the peek instead of failing. `errors` lists what the census could
-not do (saving its sightings).
+waits for the peek instead of failing.
 
 Errors: `bad request: process census requires a trusted local connection`,
 `bad request: this session keeps no terminal host records`.
@@ -946,7 +947,8 @@ the guard go before the next root; each host is ended only over its socket
 under that guard, after an intent line (`host_gc_ending`) is appended to
 `terminal-host-gc.jsonl` next to `terminal-losses.jsonl`, and its outcome
 line follows. A host whose intent line cannot be written is not ended; log
-failures are listed in the report's `errors`.
+failures and a sightings file gc could not save are listed in the report's
+`errors`.
 
 ### browser-host-provider
 

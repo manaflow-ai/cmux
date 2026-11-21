@@ -29,10 +29,12 @@
 //! `cmux gc` ends only what [`super::unowned_hosts`] would end, with the same
 //! proof: a live host of a root whose session guard is free, held by gc while
 //! it ends the host so no daemon can start and adopt it meanwhile, after the
-//! same grace. The grace counts from the first time a census, a gc or a
-//! reaper saw the host with its guard free and no owner run since (one clock,
-//! [`super::unowned_hosts::Sightings`]); a host never seen unowned before is
-//! seen now, so its grace starts now, however long its session sat quiet.
+//! same grace. The grace counts from the first time a gc (dry run or
+//! `--apply`) or a reaper saw the host with its guard free and no owner run
+//! since ([`super::unowned_hosts::Sightings`]); a host never seen unowned
+//! before is seen now, so its grace starts now, however long its session sat
+//! quiet. The clock runs one way: gc reads the reapers' times, a reaper
+//! counts only its own, so gc never makes a reaper end a host sooner.
 //! gc refuses a host whose stream a live daemon holds, one a live workspace
 //! references (both imply a held guard), one the on-disk workspace registry of
 //! its free session still references (an unrestored workspace), one whose
@@ -45,6 +47,12 @@
 //! starting meanwhile waits on the coordinator for the peek, never fails on
 //! the guard. Only `cmux gc --apply` keeps a free root's guard, and only
 //! while it handles that root's hosts.
+//!
+//! `cmux ps` writes nothing: it reads the saved sightings to show each host's
+//! grace, and a host gc has not seen yet reads "first seen unowned now". Only
+//! gc, dry run or `--apply`, saves sightings ([`record_sightings`]). Reading a
+//! free session's registry leaves its owner mark as it was
+//! ([`session_owner_mark`] skips SQLite's reader side files).
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -173,8 +181,8 @@ pub(crate) struct HostFacts<'a> {
     pub(crate) reference: Reference<'a>,
     pub(crate) shell_ended: bool,
     /// How long it has been seen with its session guard free and no owner
-    /// run since, from the shared first sighting (only for a free root;
-    /// zero when first seen now).
+    /// run since, from the earliest saved sighting (a free root only); `None`
+    /// when no sighting is saved: it is seen now.
     pub(crate) unowned_for: Option<Duration>,
 }
 
@@ -328,23 +336,24 @@ fn classify_state(facts: &HostFacts<'_>, grace: impl Fn(bool) -> Duration) -> Ve
                     candidate,
                     refusal,
                     grace_ms: Some(millis(grace)),
-                    unowned_for_ms: facts.unowned_for.map(millis),
+                    unowned_for_ms: Some(millis(facts.unowned_for.unwrap_or_default())),
                 },
             };
-            match facts.unowned_for {
-                None => {
-                    verdict(false, Some("never seen unowned before: its grace starts now".into()))
-                }
-                Some(unowned_for) if unowned_for < grace => verdict(
-                    false,
-                    Some(format!(
-                        "in its grace: {} s of {} s left",
-                        (grace - unowned_for).as_secs(),
-                        grace.as_secs()
-                    )),
-                ),
-                Some(_) => verdict(true, None),
+            // Never seen before counts as seen now: its grace starts now.
+            let unowned_for = facts.unowned_for.unwrap_or_default();
+            if unowned_for >= grace {
+                return verdict(true, None);
             }
+            let refusal = if facts.unowned_for.is_none() {
+                format!("first seen unowned now: its grace of {} s starts now", grace.as_secs())
+            } else {
+                format!(
+                    "in its grace: {} s of {} s left",
+                    (grace - unowned_for).as_secs(),
+                    grace.as_secs()
+                )
+            };
+            verdict(false, Some(refusal))
         }
     }
 }
@@ -476,9 +485,6 @@ pub struct Census {
     pub hosts: Vec<HostEntry>,
     pub helpers: Vec<HelperEntry>,
     pub state: StateSection,
-    /// What this census could not do (saving its sightings).
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub errors: Vec<String>,
 }
 
 fn unix_ms(time: SystemTime) -> Option<u64> {
@@ -685,10 +691,10 @@ fn classify_root<'a>(
             _ => Reference::None,
         };
         let unowned_for =
-            root.owner_mark.as_deref().filter(|_| root.owner == RootOwner::Free).map(|mark| {
+            root.owner_mark.as_deref().filter(|_| root.owner == RootOwner::Free).and_then(|mark| {
                 let key = sighting_key(&root.record_root, &record.terminal_id, &record.incarnation);
-                let first = sightings.first_seen(&key, mark, now_ms).unwrap_or(now_ms);
-                Duration::from_millis(now_ms - first)
+                let first = sightings.first_seen(&key, mark, now_ms)?;
+                Some(Duration::from_millis(now_ms.saturating_sub(first)))
             });
         let facts = HostFacts {
             owner: root.owner,
@@ -705,9 +711,9 @@ fn classify_root<'a>(
     hosts
 }
 
-/// What a census saw of one root for the shared clock: a free root's live
-/// hosts keep (or start) their first sighting; any other root's leave. A
-/// root whose records could not be read is left as it was.
+/// What a gc saw of one root for its clock: a free root's live hosts keep
+/// (or start) their first sighting; any other root's leave. A root whose
+/// records could not be read is left as it was.
 fn root_sighting(root: &RootScan, hosts: &[ScannedHost<'_>]) -> Option<RootSighting> {
     if root.error.is_some() {
         return None;
@@ -794,17 +800,9 @@ fn census_with(state_root: &Path, own: Option<&OwnView>, ops: &CensusOps<'_>) ->
         .collect::<Vec<_>>();
     let mut state = StateSection::default();
     let mut scanned = Vec::new();
-    let mut seen = Vec::new();
     for root in &roots {
-        let hosts = classify_root(root, own, ops, &sightings, now_ms, &mut state.stale_records);
-        seen.extend(root_sighting(root, &hosts));
-        scanned.extend(hosts);
+        scanned.extend(classify_root(root, own, ops, &sightings, now_ms, &mut state.stale_records));
     }
-    let errors = record_sightings(state_root, &seen, now_ms)
-        .err()
-        .map(|error| format!("saving the unowned-host sightings: {error:#}"))
-        .into_iter()
-        .collect();
     let mut named = HashSet::new();
     for root in &roots {
         let exits =
@@ -888,7 +886,6 @@ fn census_with(state_root: &Path, own: Option<&OwnView>, ops: &CensusOps<'_>) ->
         helpers: own.map(|own| helpers(own.daemon_pid, &host_pids)).unwrap_or_default(),
         hosts,
         state,
-        errors,
     }
 }
 

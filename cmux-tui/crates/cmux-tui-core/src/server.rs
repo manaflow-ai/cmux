@@ -975,7 +975,8 @@ enum Command {
     /// The terminal hosts this daemon holds and every record root it can
     /// read, each host classified from records, leases and session guards,
     /// never from argv (`mux/process_census.rs`; `cmux ps`). Trusted local
-    /// connections only; read-only.
+    /// connections only; read-only: it saves nothing (`cmux gc` saves the
+    /// unowned-host sightings).
     ProcessCensus,
     /// `terminal-command-history-v1`, trusted local only (server/command_history.rs).
     SetTerminalCommandHistory(command_history::SetParams),
