@@ -291,7 +291,14 @@ def cmd_plan(args: argparse.Namespace) -> int:
         write_outputs(args.github_output, {"suites": f" {args.suite} ", "sha": args.probe_sha, "only": args.only or "", "base": ""})
         summary(args.summary, f"Probe: `{args.suite}` job `{args.only or '(all)'}` at `{args.probe_sha}`.")
         return 0
-    runs = list_runs(args.repo, args.branch)
+    try:
+        runs = list_runs(args.repo, args.branch)
+    except RuntimeError as err:
+        # Past the wait budget the run list is unreadable: run every suite rather than none, so the
+        # tip is still tested; the next batch's judge compares against this run as usual.
+        print(f"plan: earlier batch runs unreadable, running every suite: {err}", file=sys.stderr)
+        summary(args.summary, "- Earlier batch runs could not be read (rate limit): every suite runs.")
+        runs = []
     plan = plan_batch(args.sha, runs, suites, lambda base: changed_files(base, args.sha))
     write_outputs(
         args.github_output,
@@ -530,7 +537,7 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--github-output", default=os.environ.get("GITHUB_OUTPUT"))
         p.add_argument("--summary", default=os.environ.get("GITHUB_STEP_SUMMARY"))
         p.add_argument("--dry-run", action="store_true")
-        p.add_argument("--api-wait-seconds", type=float, default=None, help="total wait for a spent rate limit (judge 600, others 120)")
+        p.add_argument("--api-wait-seconds", type=float, default=None, help="total wait for a spent rate limit (judge 600, plan 420, revert 300, tick 120)")
 
     def probe_args(p: argparse.ArgumentParser) -> None:
         p.add_argument("--mode", choices=[BATCH, PROBE], default=BATCH)
@@ -572,7 +579,9 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(func=cmd_revert)
 
     args = parser.parse_args(argv)
-    API_WAIT_BUDGET["seconds"] = args.api_wait_seconds if args.api_wait_seconds is not None else (600.0 if args.cmd == "judge" else 120.0)
+    # Within each job's timeout-minutes (judge 15, plan 10); the tick's shim is short and skips on a refusal.
+    budgets = {"judge": 600.0, "plan": 420.0, "revert": 300.0}
+    API_WAIT_BUDGET["seconds"] = args.api_wait_seconds if args.api_wait_seconds is not None else budgets.get(args.cmd, 120.0)
     return args.func(args)
 
 

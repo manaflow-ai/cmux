@@ -123,6 +123,20 @@ class RateLimitTest(unittest.TestCase):
         self.assertEqual(pmb.rate_limit_wait(0, 1, 0), 0)
 
 
+    def test_plan_runs_every_suite_when_the_runs_are_unreadable(self) -> None:
+        def refused(*_a, **_k):
+            raise RuntimeError("gh: API rate limit exceeded for installation (HTTP 403)")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            saved = pmb.list_runs
+            pmb.list_runs = refused
+            try:
+                pmb.main(["plan", "--github-output", str(out), "--summary", str(Path(tmp) / "s"), "--sha", "a" * 40])
+            finally:
+                pmb.list_runs = saved
+            self.assertIn("suites= drill ", out.read_text())
+
 class BisectTest(unittest.TestCase):
     def walk(self, commits: list[str], culprit: str) -> tuple[str, int]:
         """Drives next_step from the confirming probe to its end with a red from culprit on."""
