@@ -237,6 +237,10 @@
       "scope": "channel:write",
       "class": "mutation"
     },
+    "chat.archive": {
+      "scope": "chat:write",
+      "class": "mutation"
+    },
     "chat.list": {
       "scope": "chat:read",
       "class": "read"

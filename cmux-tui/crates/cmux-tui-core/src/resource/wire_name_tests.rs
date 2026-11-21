@@ -36,6 +36,7 @@ fn wire_name_round_trips_through_serde() {
         "palette.rank",
         "chat.list",
         "chat.mark_read",
+        "chat.archive",
         "chat.pin",
         "theme.scheme.convert",
         "theme.scheme.export",

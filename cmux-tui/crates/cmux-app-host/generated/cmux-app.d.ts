@@ -43,8 +43,10 @@ declare namespace Cmux {
   type Budget = { wall_clock_seconds?: number; vm_minutes?: number; model_spend_usd?: unknown; tool_calls?: number }
   type CatchUp = "latest" | "all" | "none"
   type CellPixelsResult = { width_px: number; height_px: number; resized_terminals: Array<string /* terminal_… */>; failures: Record<string, string> }
+  type ChatArchiveOutcome = { chat: string; peer: string | null; error: string | null }
+  type ChatArchiveTarget = { chat: string; peer?: string | null }
   type ChatState = "working" | "input" | "idle" | "failed" | "lost"
-  type ChatSummary = { id: string; title: string; harness: string | null; state: Cmux.ChatState; unread: boolean; unread_turns: number; pinned: boolean; ci_failing: boolean | null; machine: string | null; cwd: string | null; project: string | null; workspace: string /* workspace_… */ | null; parent: string | null; step: string | null; error: string | null; since_ms: string | null; updated_ms: string | null; created_ms: string | null; pull_requests: Array<string> }
+  type ChatSummary = { id: string; title: string; harness: string | null; state: Cmux.ChatState; unread: boolean; unread_turns: number; pinned: boolean; ci_failing: boolean | null; machine: string | null; cwd: string | null; project: string | null; workspace: string /* workspace_… */ | null; parent: string | null; step: string | null; error: string | null; since_ms: string | null; updated_ms: string | null; created_ms: string | null; pull_requests: Array<string>; archived: boolean }
   type ChiefAvatarImage = { sha256: string; media_type: "image/gif" | "image/jpeg" | "image/png" | "image/webp"; bytes: number; data: string }
   type ChiefAvatarPage = { chief: string; avatar: Cmux.ChiefAvatarImage | null }
   type ChiefAvatarRef = { sha256: string; media_type: "image/gif" | "image/jpeg" | "image/png" | "image/webp"; bytes: number }
@@ -736,12 +738,14 @@ interface CmuxGlobal {
     create: CmuxOp<{ title: string; display_name?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeChief>>
   }
   chat: {
+    /** `chat.archive` (mutation, scope `chat:write`) */
+    archive: CmuxOp<{ machine?: string; session?: string; targets: Array<Cmux.ChatArchiveTarget>; archived: boolean }, Cmux.MutationResult<Array<Cmux.ChatArchiveOutcome>>>
     /** `chat.list` (read, scope `chat:read`) */
-    list: CmuxOp<{ machine?: string; session?: string }, Array<Cmux.ChatSummary>>
+    list: CmuxOp<{ machine?: string; session?: string; include_archived?: boolean }, Array<Cmux.ChatSummary>>
     /** `chat.mark_read` (mutation, scope `chat:write`) */
     mark_read: CmuxOp<{ machine?: string; session?: string; chat: string }, Cmux.MutationResult<Cmux.ChatSummary>>
     /** `chat.pin` (mutation, scope `chat:write`) */
-    pin: CmuxOp<{ machine?: string; session?: string; chat: string; pinned: boolean }, Cmux.MutationResult<Cmux.ChatSummary>>
+    pin: CmuxOp<{ machine?: string; session?: string; chat: string; pinned: boolean; peer?: string | null }, Cmux.MutationResult<Cmux.ChatSummary>>
   }
   chief: {
     /** `chief.continue` (mutation, scope `chief:write`) */
@@ -1973,7 +1977,7 @@ interface CmuxSignalMap {
   /** `agent.list`: The agents of the current session and their state (agent.list). The daemon pushes agent.changed when an agent's state changes, so the runtime never polls it. Scope: any of `agent:read`; pushed by `agent.changed`. */
   "agent.list": { params: { state?: string }; value: Array<Cmux.AgentSnapshot> }
   /** `chat.list`: Every ACP chat acpmux knows, on this machine and its peers, with its state, unread mark, pin and pull requests (chat.list). The daemon pushes chat.changed when a listed field changes, so the runtime never polls it. Scope: any of `chat:read`; pushed by `chat.changed`. */
-  "chat.list": { params: {  }; value: Array<Cmux.ChatSummary> }
+  "chat.list": { params: { include_archived?: boolean }; value: Array<Cmux.ChatSummary> }
   /** `github.changes`: Pull requests with their lines added and removed, check rollup and review decision, newest update first. `show` picks which: a repository's branch (a workspace's, from git.status github: true), the person's own, mentioning them, asking for their review, or a saved search. Read through the person's GitHub sign-in (the token stays in the gateway); with none, the public API (needs net:api.github.com, and `login` for the person's own lists). Every read is conditional (ETag). Pushed by github.changed (webhooks); polled every 60 s until that push is live. Scope: any of `integration:github:read`, `net:api.github.com`; pushed by `github.changed` from outside this machine: while that push is live it re-reads every 900 s, and until it is, it polls every 60 s (never faster than 30 s). */
   "github.changes": { params: { /** branch: the pull requests whose head is `branch` in `repo`. mine (default): the ones the person opened. mentions: the ones that mention them. review-requested: the ones that ask for their review. search: `query`, a GitHub search (is:pr is added). */ show?: "branch" | "mine" | "mentions" | "review-requested" | "search"; /** owner/name: the repository for show: branch; for the others it narrows the list to that repository. */ repo?: string; /** The head branch for show: branch. */ branch?: string; /** The GitHub search for show: search, for example `repo:manaflow-ai/cmux label:bug`. */ query?: string; /** open (default) or open-and-merged (closed unmerged ones are left out). */ include?: "open" | "open-and-merged"; /** At most this many pull requests (default 10). Each costs four conditional reads. */ limit?: number; /** The GitHub login the public fallback reads as the person, when no GitHub sign-in answers (needs net:api.github.com). */ login?: string }; value: Array<{ id: number; number: number; title: string; url: string; /** owner/name */ repo: string; author: string; draft: boolean; state: "open" | "merged" | "closed"; /** The head branch. */ headRef: string; headSha: string; /** Lines added. */ additions: number; /** Lines removed. */ deletions: number; /** The head commit's check runs and commit statuses, the latest of each. */ checks: { /** failing when any check failed, else pending when any runs, else passing; none with no checks. */ state: "failing" | "pending" | "passing" | "none"; failing: number; pending: number; passing: number }; /** Each reviewer's latest review: changes-requested wins, then approved; review-required while a review is requested and none came. */ review: "approved" | "changes-requested" | "review-required" | "commented" | "none"; updatedAt: string }> }
   /** `github.pulls`: The signed-in person's pull requests on GitHub: the ones they opened and the ones that ask for their review (roles), open by default, newest update first. Read through the person's connected GitHub account (the token stays in the integration gateway); with no connection, the public search API for `login`. The Cloud pushes github.changed from the GitHub App's webhooks, so a check or review flips within seconds; until that push is live (signed out, no GitHub connection, an app without integration:github:read) the runtime polls. Scope: any of `integration:github:read`, `net:api.github.com`; pushed by `github.changed` from outside this machine: while that push is live it re-reads every 900 s, and until it is, it polls every 300 s (never faster than 60 s). */

@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "3e3c6ce7d81dd4965680e38134441ebfaa59e5dbd1a020688fd707cc4221a03b",
+  "catalog_sha256": "cfb11803502aa05364c5a8a39f5a7f26bb9dad8adc6a8b87e146298f9e10e697",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -96,6 +96,9 @@
     },
     "browser_import.read": {
       "class": "read"
+    },
+    "chat.archive": {
+      "class": "mutation"
     },
     "chat.list": {
       "class": "read"

@@ -195,6 +195,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         ResourceOperation::PaletteRank => OperationOwner::PaletteRank,
         ResourceOperation::ChatList
         | ResourceOperation::ChatMarkRead
+        | ResourceOperation::ChatArchive
         | ResourceOperation::ChatPin => OperationOwner::Chat,
         ResourceOperation::ThemeSchemeConvert
         | ResourceOperation::ThemeSchemeExport

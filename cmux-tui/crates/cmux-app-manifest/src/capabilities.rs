@@ -179,7 +179,7 @@ pub const PANEL_OPS: &[&str] = &["fs.pick"];
 
 /// Ops that change what the person has seen or chosen about their chats: an app
 /// marks a chat read or pins it only in answer to a tap, never on its own.
-pub const PERSON_MARK_OPS: &[&str] = &["chat.mark_read", "chat.pin"];
+pub const PERSON_MARK_OPS: &[&str] = &["chat.archive", "chat.mark_read", "chat.pin"];
 
 /// Page ops that draw over or act in the browser page the person sees (link
 /// hints, following one; provider family `page`, the Mac app's PageAppOps):

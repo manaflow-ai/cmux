@@ -341,6 +341,7 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         // these through `cmux raw operation chat.list` for now.
                         | "chat.list"
                         | "chat.mark_read"
+                        | "chat.archive"
                         | "chat.pin"
                         // `cmux theme import/export/from-image` convert in
                         // process with the same crate (cmux-theme-tokens);

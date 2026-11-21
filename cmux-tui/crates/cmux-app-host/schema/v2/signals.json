@@ -185,7 +185,7 @@
     "chat.list": {
       "docs": "Every ACP chat acpmux knows, on this machine and its peers, with its state, unread mark, pin and pull requests (chat.list). The daemon pushes chat.changed when a listed field changes, so the runtime never polls it.",
       "scopes": ["chat:read"],
-      "params": { "type": "object", "additionalProperties": false, "properties": {} },
+      "params": { "type": "object", "additionalProperties": false, "properties": { "include_archived": { "type": "boolean" } } },
       "value": { "type": "array", "items": { "$ref": "cmux:types/ChatSummary" } },
       "read": { "op": "chat.list" },
       "push": ["chat.changed"],

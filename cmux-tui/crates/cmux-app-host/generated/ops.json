@@ -60,6 +60,7 @@
     "calendar.event.respond",
     "calendar.events.list",
     "channel.create",
+    "chat.archive",
     "chat.list",
     "chat.mark_read",
     "chat.pin",

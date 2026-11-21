@@ -35,6 +35,7 @@
     "browser.viewer.release",
     "browser.viewer.resize",
     "browser_import.read",
+    "chat.archive",
     "chat.list",
     "chat.mark_read",
     "chat.pin",

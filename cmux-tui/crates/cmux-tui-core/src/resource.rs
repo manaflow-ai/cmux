@@ -422,6 +422,8 @@ pub enum ResourceOperation {
     ChatList,
     #[serde(rename = "chat.mark_read")]
     ChatMarkRead,
+    #[serde(rename = "chat.archive")]
+    ChatArchive,
     #[serde(rename = "chat.pin")]
     ChatPin,
     #[serde(rename = "sidebar_view.get")]

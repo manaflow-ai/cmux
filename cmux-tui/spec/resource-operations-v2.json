@@ -15509,6 +15509,70 @@
         "lost"
       ]
     },
+    "ChatArchiveTarget": {
+      "kind": "object",
+      "fields": {
+        "chat": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 256
+          },
+          "description": "The chat: its id from chat.list."
+        },
+        "peer": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The chat's acpmux peer from ChatSummary.machine, or null for local."
+        }
+      },
+      "extra": false
+    },
+    "ChatArchiveOutcome": {
+      "kind": "object",
+      "fields": {
+        "chat": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 256
+          },
+          "description": "The chat: its id from chat.list."
+        },
+        "peer": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "error": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Null after a successful write, otherwise the reason this target failed."
+        }
+      },
+      "extra": false
+    },
     "ChatSummary": {
       "kind": "object",
       "fields": {
@@ -15704,6 +15768,14 @@
             }
           },
           "description": "The pull request URLs it opened, oldest first."
+        },
+        "archived": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "The chat has an active archive tag."
         }
       },
       "extra": false
@@ -18913,6 +18985,68 @@
         "validation.invalid"
       ]
     },
+    "chat.archive": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "targets": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "ChatArchiveTarget"
+              }
+            },
+            "description": "Explicit chat ids and their peers. An omitted peer identifies a local chat."
+          },
+          "archived": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "True archives and false restores the selected chats."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ChatArchiveOutcome"
+            }
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "One app gesture and chat:write authorize the explicit targets. Each result corresponds to its input in order. A failed target does not roll back successful targets.",
+        "The archive tag is reversible. Repeated writes preserve its original timestamp."
+      ]
+    },
     "chat.list": {
       "class": "read",
       "idempotency": "forbidden",
@@ -18925,7 +19059,16 @@
           "machine": "required",
           "session": "required"
         },
-        "fields": {},
+        "fields": {
+          "include_archived": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Include chats carrying the archive tag. Defaults to false."
+          }
+        },
         "extra": false
       },
       "result": {
@@ -18944,7 +19087,7 @@
         "validation.invalid"
       ],
       "constraints": [
-        "Every ACP chat acpmux on this machine knows, its peers' included, that is neither closed nor archived, in no particular order: the reader ranks them.",
+        "Lists open chats on this machine and its peers. Archived chats are hidden unless include_archived is true.",
         "The daemon keeps the list from acpmux's own pushes, so a read costs no acpmux call. An App Store app's chat.changed fires once for each change of a listed field other than updated_ms.",
         "Empty while acpmux is not running."
       ]
@@ -19032,6 +19175,17 @@
               "name": "boolean"
             },
             "description": "true pins the chat, false unpins it."
+          },
+          "peer": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "The chat's acpmux peer from ChatSummary.machine, or null for local."
           }
         },
         "extra": false

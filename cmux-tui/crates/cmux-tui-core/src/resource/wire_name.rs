@@ -198,6 +198,7 @@ impl ResourceOperation {
             Self::AgentMessageUnsend => "agent.message.unsend",
             Self::ChatList => "chat.list",
             Self::ChatMarkRead => "chat.mark_read",
+            Self::ChatArchive => "chat.archive",
             Self::ChatPin => "chat.pin",
             Self::SidebarViewGet => "sidebar_view.get",
             Self::SidebarViewEnsure => "sidebar_view.ensure",

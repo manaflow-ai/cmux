@@ -178,6 +178,7 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("palette.rank", PALETTE_RANK_REASON),
     ("chat.list", CHAT_REASON),
     ("chat.mark_read", CHAT_REASON),
+    ("chat.archive", CHAT_REASON),
     ("chat.pin", CHAT_REASON),
     ("theme.scheme.convert", THEME_SCHEME_REASON),
     ("theme.scheme.export", THEME_SCHEME_REASON),

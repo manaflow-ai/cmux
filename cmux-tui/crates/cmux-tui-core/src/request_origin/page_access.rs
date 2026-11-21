@@ -408,6 +408,7 @@ const fn access(operation: Op) -> Access {
         // the app, never a page unless its allow list names one.
         | Op::ChatList
         | Op::ChatMarkRead
+        | Op::ChatArchive
         | Op::ChatPin
         // Scheme conversion and a palette from pixels the page sends: a page
         // reaches them only through its allow list (theme-scheme-v1).

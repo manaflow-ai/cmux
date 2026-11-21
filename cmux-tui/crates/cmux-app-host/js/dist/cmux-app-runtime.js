@@ -2044,7 +2044,11 @@
         params: {
           type: "object",
           additionalProperties: false,
-          properties: {}
+          properties: {
+            include_archived: {
+              type: "boolean"
+            }
+          }
         },
         value: {
           type: "array",
