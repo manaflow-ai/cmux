@@ -78,9 +78,22 @@ impl Hub {
         // A harness's own background process (a dev server, a watcher) ends with the harness:
         // never reap it for idleness. A task the daemon owns (`bg_tasks.rs`) is not in this
         // table and outlives the harness.
-        self.any_process_running(session)
-            // A background subagent, which the harness's exit would end too.
-            || session.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running() > 0
+        self.any_process_running(session) || self.holds_other_work_below(session)
+    }
+
+    /// [`Self::holds_work_below`] for a summary row: its process table only as this daemon has
+    /// read it, never a scan of the chat's log. A summary that read the log brought a
+    /// cold-archived chat's log back on every listing of it (`hub/cold_archive.rs`), and a list
+    /// read every unread chat's log. A table not read yet holds no running process: a harness
+    /// this daemon started reads it when its first process starts, and none outlives the harness
+    /// before it (`processes.rs` `read_processes`).
+    pub(super) fn holds_work_below_read(&self, session: &Session) -> bool {
+        self.running_processes_read(session) > 0 || self.holds_other_work_below(session)
+    }
+
+    fn holds_other_work_below(&self, session: &Session) -> bool {
+        // A background subagent, which the harness's exit would end too.
+        session.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running() > 0
             // A sub-session or background subagent at work (`work_below.rs`).
             || session.work_below_since.lock().is_ok_and(|v| *v != 0)
     }
