@@ -10,6 +10,7 @@ final class FeedNewPillTapUITests: XCTestCase {
     @MainActor
     func testNewPillEdgeTapsJumpToTop() {
         let (app, all, topFrame) = launchFeed(liveHz: 3)
+        defer { stopLiveStress(app) }
         let edges: [(String, CGVector)] = [("left", CGVector(dx: 0.05, dy: 0.5)), ("top", CGVector(dx: 0.5, dy: 0.1)),
                                            ("right", CGVector(dx: 0.95, dy: 0.5)), ("bottom", CGVector(dx: 0.5, dy: 0.9))]
         for (round, (name, offset)) in edges.enumerated() {
@@ -25,6 +26,7 @@ final class FeedNewPillTapUITests: XCTestCase {
     @MainActor
     func testNewPillDoubleTapLandsAtTopAndOpensNothing() {
         let (app, all, topFrame) = launchFeed(liveHz: 3)
+        defer { stopLiveStress(app) }
         for round in 0..<3 {
             let pill = scrollAway(app, all, round: round, swipes: 30)
             attach(app, "double\(round)-before-tap")
@@ -38,6 +40,7 @@ final class FeedNewPillTapUITests: XCTestCase {
     @MainActor
     func testNewPillWithManyUnseenAboveLandsAtTop() {
         let (app, all, topFrame) = launchFeed(liveHz: 4)
+        defer { stopLiveStress(app) }
         for round in 0..<3 {
             let pill = scrollAway(app, all, round: round, swipes: 8)
             // A new event a second arrives above: wait until a lot are waiting. (Faster live rates starve
@@ -121,6 +124,14 @@ final class FeedNewPillTapUITests: XCTestCase {
         shot.lifetime = .keepAlways
         add(shot)
     }
+}
+
+/// Ends a live-stress run (`CMUX_MOBILE_FEED_STRESS_LIVE`) when its test ends. Left running, the rig
+/// keeps adding events for as long as the suite runs, and the next suite's `launch()` first has to
+/// kill a saturated app: on the fleet that took about 90 s and the relaunch never loaded
+/// accessibility (FeedShowMoreAnchorUITests "has not loaded accessibility" after FeedNewPillUITests).
+@MainActor func stopLiveStress(_ app: XCUIApplication) {
+    app.terminate()
 }
 
 /// Past the setup screen to the Feed: taps the Manaflow space whenever the space chooser shows
