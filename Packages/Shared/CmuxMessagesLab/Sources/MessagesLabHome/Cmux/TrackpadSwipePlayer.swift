@@ -2,9 +2,11 @@ import AppKit
 
 /// Automation (DEBUG socket): a two-finger trackpad swipe played in real time as a trackpad sends
 /// it: fingers down (may-begin), began, one change per display frame, an optional still hold, then
-/// lifted (ended). Each event goes through `NSApp.sendEvent`, so the app's local event monitors
-/// (``SwipeReply``) see it before the window and its views, as they see a person's gesture. For
-/// captures of gestures on a Mac with no trackpad at hand (`debugTreeDrive("swipe")`).
+/// lifted (ended). `deliver` takes each event: `debugTreeDrive("swipe")` sends one the window server
+/// placed in the window through `NSApp.sendEvent` (local monitors, then the window), and one it did
+/// not (an app that is not frontmost gets no window for a made-up event) through the swipe's monitor
+/// path and then the transcript's scroll view, as that dispatch would. For captures of gestures on a
+/// Mac with no trackpad at hand.
 ///
 /// Paced by the view's display link (one step per frame), never by sleeps; the link holds the
 /// player until the gesture ends.
@@ -13,6 +15,9 @@ import AppKit
     private let duration: TimeInterval, hold: TimeInterval
     private let point: CGPoint
     private weak var window: NSWindow?
+    private let deliver: (NSEvent) -> String
+    /// How the first event went (`app` or `monitor`), for the answer.
+    private(set) var route = ""
     private var start: CFTimeInterval?
     private var sent: CGPoint = .zero
     private var began = false
@@ -20,8 +25,11 @@ import AppKit
 
     /// `point`: window coordinates (from the bottom left); `dx`, `dy`: points over `duration` s
     /// (right and down positive), then `hold` s still before the fingers lift.
-    init(point: CGPoint, dx: CGFloat, dy: CGFloat, duration: TimeInterval, hold: TimeInterval, window: NSWindow) {
+    /// `deliver` dispatches one event and names its route.
+    init(point: CGPoint, dx: CGFloat, dy: CGFloat, duration: TimeInterval, hold: TimeInterval, window: NSWindow,
+         deliver: @escaping (NSEvent) -> String) {
         (self.point, self.dx, self.dy, self.duration, self.hold, self.window) = (point, dx, dy, max(duration, 0.01), max(hold, 0), window)
+        self.deliver = deliver
     }
 
     /// The gesture's whole length (s).
@@ -68,6 +76,7 @@ import AppKit
         event.setDoubleValueField(.scrollWheelEventPointDeltaAxis2, value: Double(dx))
         event.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
         guard let e = NSEvent(cgEvent: event) else { return }
-        NSApp.sendEvent(e)
+        let how = deliver(e)
+        if route.isEmpty { route = how }
     }
 }
