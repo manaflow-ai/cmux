@@ -194,6 +194,9 @@ packages:
     path: CmuxMobileKit
   CmuxChiefVoiceCore:
     path: ../Packages/Shared/CmuxChiefVoiceCore
+  # Swift live code in the simulator (scripts/live-code/ios-sim.sh); only DEBUG code uses it.
+  CmuxLiveCode:
+    path: ../Packages/Shared/CmuxLiveCode
   CmuxConversation:
     path: ../Packages/iOS/CmuxConversation
 targets:
@@ -218,6 +221,7 @@ targets:
       - package: CmuxMobileKit
         product: CmuxMobileChief
       - package: CmuxChiefVoiceCore
+      - package: CmuxLiveCode
       # Long-press view of every cmux notification (verify/rich-push.md).
       - target: CmuxMobileNotificationContent
       # Opens sealed pushes (verify/notifications-trust.md).
