@@ -603,7 +603,7 @@ pub fn pin(ctx: &Context<'_>, args: &Args) -> Result<Output> {
     Ok(Output::new(json!({"pinned": pinned}), human))
 }
 
-/// `cmux server logs [--lines N] [--follow]`: the service's log. On Linux
+/// `cmux server logs [--lines N | -n N] [--follow | -f]`: the service's log. On Linux
 /// the unit's journal (`journalctl`), on macOS the LaunchAgent's log file.
 pub fn logs(ctx: &Context<'_>, args: &Args) -> Result<Output> {
     let layout = layout(ctx, false)?;

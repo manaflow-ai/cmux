@@ -24,8 +24,8 @@ The renderer accepts the existing [scene ABI](../../../../cmux-tui/crates/cmux-a
 
 - VStack, HStack, ZStack and LazyVStack render child layout with `spacing`;
   vertical stacks support `alignment`. Group and ForEach place children inline.
-  Reorderable has the native renderer's current stack layout; list drag handling
-  is not yet implemented in either renderer.
+  Reorderable with an `onMove` handler lets a person drag a row within the list.
+  A drop sends the row key and its final zero-based index to the app, which owns the order.
 - Text supports `text`, named or numeric `font`, `weight`, `italic`, `monospaced`, `fontDesign`
   (`rounded`, `serif`, `monospaced`: the system font's design at the same size), `strikethrough`,
   `color`, `lineLimit` and `contentTransition`. Layout uses the pane's typography and spacing tokens.
