@@ -3025,7 +3025,7 @@ PUSHED_BASE_SHA = "e" * 40
 class WebShardBaseGitHub(FakeGitHub):
     """cmux#37667 (2026-11-07): the head's ci.yml run 10 (workflow 7) failed 'web / Web tests (1/4)'. ci.yml runs on
     pull requests only; its one feat-cmux-next run, 20, is an old dispatch at BASE_SHA, behind the PR's merge-base
-    NEW_BASE_SHA. On base pushes the same ci-web.yml runs from cmux-next-post-merge.yml: its run 40 at PUSHED_BASE_SHA, after
+    NEW_BASE_SHA. On base pushes the same ci-web.yml runs from cmux-next-web.yml: its run 40 at PUSHED_BASE_SHA, after
     the merge-base, has its own verdict for the shard."""
 
     def __init__(self, name=WEB_SHARD):
@@ -3055,7 +3055,7 @@ class WebShardBaseGitHub(FakeGitHub):
             return {"status": "behind"}
         if f"/compare/{NEW_BASE_SHA}...{PUSHED_BASE_SHA}" in route:
             return {"status": "ahead"}
-        if "/actions/workflows/cmux-next-post-merge.yml/runs?" in route:
+        if "/actions/workflows/cmux-next-web.yml/runs?" in route:
             assert "branch=feat-cmux-next" in route and "status=" not in route, route
             return {"workflow_runs": copy.deepcopy(self.pushed_runs)}
         if route.endswith("/actions/runs/10"):
@@ -3065,7 +3065,7 @@ class WebShardBaseGitHub(FakeGitHub):
 
 
 class WebShardBaseVerdict(unittest.TestCase):
-    """A ci.yml web shard is judged against the base runs of cmux-next-post-merge.yml (BASE_WORKFLOW_FOR) when ci.yml has no
+    """A ci.yml web shard is judged against the base runs of cmux-next-web.yml (BASE_WORKFLOW_FOR) when ci.yml has no
     feat-cmux-next verdict at or after the PR's merge-base."""
 
     def judge(self, gh):
@@ -3075,24 +3075,6 @@ class WebShardBaseVerdict(unittest.TestCase):
         text = self.judge(WebShardBaseGitHub())
         self.assertIn(f"excused '{WEB_SHARD}'", text)
         self.assertIn("run 40", text)
-
-    def test_a_post_merge_probe_run_is_no_base_verdict(self):
-        # 2026-11-21: the base's web checks run in the post-merge batch tier. A probe run there tests one job of an
-        # older commit, yet carries the tip as head_sha: its green shard must not stand over the batch run's red.
-        gh = WebShardBaseGitHub()
-        gh.pushed_runs.insert(0, {"id": 43, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
-                                  "status": "completed", "conclusion": "success", "head_sha": PUSHED_BASE_SHA,
-                                  "path": ".github/workflows/cmux-next-post-merge.yml",
-                                  "display_title": f"probe web web-tests at {BASE_SHA}",
-                                  "created_at": "2026-11-07T12:00:00Z"})
-        gh.jobs[8] = dict(failed_job(8, 43, PUSHED_BASE_SHA, WEB_SHARD), conclusion="success",
-                          steps=[{"name": TEST_STEP, "status": "completed", "conclusion": "success"}])
-        text = self.judge(gh)
-        self.assertIn(f"excused '{WEB_SHARD}'", text)
-        self.assertIn("run 40", text)
-        self.assertNotIn("run 43", text)
-        self.assertTrue(excuse.post_merge_probe(gh.pushed_runs[0]))
-        self.assertFalse(excuse.post_merge_probe(dict(gh.pushed_runs[0], display_title="batch merge")))
 
     def red_web_status(self, gh):
         # ci-web.yml's Web status, red only because a web job under its needs is red (cmux#39559, hq#8503).
@@ -3169,7 +3151,7 @@ class WebShardBaseVerdict(unittest.TestCase):
         gh = WebShardBaseGitHub(name=SWIFT)
         with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next verdict at or after this PR's merge-base yet"):
             self.judge(gh)
-        self.assertFalse([route for route in gh.routes if "cmux-next-post-merge.yml" in route], gh.routes)
+        self.assertFalse([route for route in gh.routes if "cmux-next-web.yml" in route], gh.routes)
 
     def test_a_pr_into_main_never_reads_cmux_next_web(self):
         # cmux-next web runs on pushes to feat-cmux-next only; a dispatch of it on `main` is no evidence for main.
@@ -3184,7 +3166,7 @@ class WebShardBaseVerdict(unittest.TestCase):
         gh.json = answer
         with self.assertRaisesRegex(excuse.Refused, "no main verdict at or after this PR's merge-base yet"):
             excuse.judge(REPO, "main", HEAD, [10], gh)
-        self.assertFalse([route for route in gh.routes if "cmux-next-post-merge.yml" in route], gh.routes)
+        self.assertFalse([route for route in gh.routes if "cmux-next-web.yml" in route], gh.routes)
 
     def test_a_run_with_no_workflow_path_reads_only_its_own_workflow(self):
         gh = WebShardBaseGitHub()
@@ -3211,18 +3193,9 @@ class WebShardBaseVerdict(unittest.TestCase):
             self.assertEqual(pr_job["uses"], pushed_job.get("uses"))
             for where, job in ((pr_file, pr_job), (base_file, pushed_job)):
                 self.assertEqual(excuse._check_matcher(job_id, job, where), {"exact": [], "prefixes": [f"{job_id} / "]})
-            # The base caller runs on pushes to the base, or is the post-merge batch tier, dispatched on the base
-            # after merges, whose suite of the same key calls that workflow; the PR caller does not run on base
-            # pushes (else its own runs would be read).
-            triggers = pushed.get(True, pushed.get("on")) or {}
-            pushes = triggers.get("push") or {}
-            if base_file == "cmux-next-post-merge.yml":
-                self.assertIn("workflow_dispatch", triggers)
-                manifest = json.loads((excuse.WORKFLOWS.parent / "post-merge-batch.json").read_text())
-                suite = manifest["suites"][job_id]
-                self.assertEqual(f"./.github/workflows/{suite['workflow']}", pushed_job["uses"])
-            else:
-                self.assertIn(branch, pushes.get("branches") or [])
+            # The base caller runs on pushes to the base; the PR caller does not (else its own runs would be read).
+            pushes = (pushed.get(True, pushed.get("on")) or {}).get("push") or {}
+            self.assertIn(branch, pushes.get("branches") or [])
             pr_pushes = (pr.get(True, pr.get("on")) or {}).get("push") or {}
             self.assertNotIn(branch, pr_pushes.get("branches") or [] if isinstance(pr_pushes, dict) else [])
 
@@ -3440,7 +3413,7 @@ class WebReplayGitHub(WebShardBaseGitHub):
     """cmux#34111 at 64617d70 (2026-11-08): the head's ci.yml run 10 failed REPLAY, its merge-parent replay, which
     charged CAPSULES > CAPSULE_TEST to the change; its head shard (4), job 3, passed and printed the test's error. No
     base push runs a replay (ci-web.yml runs it on pull requests only). feat-cmux-next's webview runs are
-    cmux-next-post-merge.yml's: run 41 cancelled (coalesced), run 40 whose shard (1), job 5, fails the same test the same way
+    cmux-next-web.yml's: run 41 cancelled (coalesced), run 40 whose shard (1), job 5, fails the same test the same way
     and whose shard (2), job 6, passed."""
 
     def __init__(self):
@@ -4319,7 +4292,7 @@ def on_lane_parent(fixture, parent_head=BASE_SHA, parent_workflows=None):
 
 def web_on_lane_parent():
     """WebReplayGitHub as a child of CMUX_LANE: the parent's ci.yml run at its head is the fixture's web run 40."""
-    return on_lane_parent(WebReplayGitHub, PUSHED_BASE_SHA, {"7": "cmux-next-post-merge.yml"})
+    return on_lane_parent(WebReplayGitHub, PUSHED_BASE_SHA, {"7": "cmux-next-web.yml"})
 
 
 class StatusGitHub(FakeGitHub):
@@ -13798,9 +13771,9 @@ class StepFixture:
                     if "/actions/workflows/7/runs?" in route:
                         self.routes.append(route)
                         return {"workflow_runs": []}
-                    if "/actions/workflows/cmux-next-post-merge.yml/" in route:
+                    if "/actions/workflows/cmux-next-web.yml/" in route:
                         self.routes.append(route)
-                        route = route.replace("/actions/workflows/cmux-next-post-merge.yml/", "/actions/workflows/7/")
+                        route = route.replace("/actions/workflows/cmux-next-web.yml/", "/actions/workflows/7/")
                 found = super().json(route, paginate=paginate)
                 if "/actions/workflows/7/runs?" in route and "&head_sha=" in route:
                     sha = route.split("&head_sha=", 1)[1].split("&", 1)[0]
@@ -14127,7 +14100,7 @@ class FixedOnBaseByStep(StepFixture, unittest.TestCase):
                          ({guard: "red"}, {}), ({}, {}), ({}, {}))
 
     def test_review_41104_f2_the_base_callers_workflow_gives_the_merge_bases_verdict(self):
-        # ci.yml's web job runs on pull requests alone; cmux-next-post-merge.yml calls it on the base (BASE_WORKFLOW_FOR).
+        # ci.yml's web job runs on pull requests alone; cmux-next-web.yml calls it on base pushes (BASE_WORKFLOW_FOR).
         # The base verdict is the caller's, so the merge-base's is read from the caller's runs and named in the line.
         self.caller_only, self.head_path = True, ".github/workflows/ci.yml"
         with unittest.mock.patch.object(type(self), "JOB", "web / cmux-next checks"):
@@ -14135,8 +14108,8 @@ class FixedOnBaseByStep(StepFixture, unittest.TestCase):
                                       ({self.MOTION: "quiet-red"}, {}))
         self.assertTrue(said.startswith("excused 'web / cmux-next checks': fixed on base (run 10 / web / cmux-next "
                                         "checks, job 1, workflow .github/workflows/ci.yml, base workflow "
-                                        "cmux-next-post-merge.yml;"), said)
-        self.assertIn(f"repos/{REPO}/actions/workflows/cmux-next-post-merge.yml/runs?branch=feat-cmux-next&head_sha={BASE_SHA}"
+                                        "cmux-next-web.yml;"), said)
+        self.assertIn(f"repos/{REPO}/actions/workflows/cmux-next-web.yml/runs?branch=feat-cmux-next&head_sha={BASE_SHA}"
                       f"&per_page={excuse.STEP_PRIOR_RUNS}", github.routes)
 
 # What judge() refuses a red of the unplaced fixture with when the pin rule does not take it: the base passed the job,
@@ -17202,7 +17175,7 @@ class CutSearchConsumers(unittest.TestCase):
                                r"retry after \d\d:\d\dZ")
 
     def test_f1_a_cut_search_of_the_base_callers_workflow_is_incomplete(self):
-        # ci.yml has no feat-cmux-next verdict at all; cmux-next-post-merge.yml's search is cut before its red run 40.
+        # ci.yml has no feat-cmux-next verdict at all; cmux-next-web.yml's search is cut before its red run 40.
         github = WebShardBaseGitHub()
         github.base_runs = []
         github.pushed_runs = self.no_verdict_runs(github, WEB_SHARD, excuse.BASE_JOB_READS + 5, event="push") + [
