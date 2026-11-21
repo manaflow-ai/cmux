@@ -45,14 +45,18 @@ extension AuthCoordinator {
                 result = .failure(error)
             }
             if let id { try await settlePhase(id) }
-            try Task.checkCancellation()
-            guard !deadline.hasExpired() else { throw AuthError.timedOut }
-            return try result.get()
+            let value = try result.get()
+            // Finished, but too late for its caller: the result is discarded.
+            if Task.isCancelled || deadline.hasExpired() {
+                await discardLate?(value)
+                throw Task.isCancelled ? CancellationError() : AuthError.timedOut
+            }
+            return value
         }
-        if let id { track(work, id: id) }
+        let ended = id.map { track(work, id: $0) }
 
         return try await withTaskCancellationHandler {
-            try await race(work, phase: phase, id: id, timeout: timeout, deadline: deadline, discardLate: discardLate)
+            try await race(work, ended: ended, phase: phase, id: id, timeout: timeout, deadline: deadline, discardLate: discardLate)
         } onCancel: {
             work.cancel()
             guard let id else { return }
@@ -64,18 +68,22 @@ extension AuthCoordinator {
 
     private static var uptimeNanos: UInt64 { DispatchTime.now().uptimeNanoseconds }
 
-    private func track<T>(_ work: Task<T, any Error>, id: UInt64) {
-        let completion = Task { _ = await work.result }
-        phaseWork[id] = AuthTrackedTokenWork(cancel: { work.cancel() }, completion: completion)
-        Task {
-            await completion.value
+    /// Tracks a run until it ends. The returned task finishes once the
+    /// reducer has heard the run ended, so a caller (or a join) that resumes
+    /// after it can start the next run of the phase.
+    private func track<T>(_ work: Task<T, any Error>, id: UInt64) -> Task<Void, Never> {
+        let completion = Task {
+            _ = await work.result
             phaseWork[id] = nil
             feed(["phaseEnded": ["id": AuthWire(id)]])
         }
+        phaseWork[id] = AuthTrackedTokenWork(cancel: { work.cancel() }, completion: completion)
+        return completion
     }
 
     private func race<T: Sendable>(
         _ work: Task<T, any Error>,
+        ended: Task<Void, Never>?,
         phase: AuthPhase,
         id: UInt64?,
         timeout: Duration,
@@ -87,6 +95,7 @@ extension AuthCoordinator {
         let stream = AsyncThrowingStream<T, any Error> { continuation in
             let waiter = Task {
                 let result = await work.result
+                await ended?.value
                 guard await race.winOperation() else {
                     if case .success(let value) = result { await discardLate?(value) }
                     return
