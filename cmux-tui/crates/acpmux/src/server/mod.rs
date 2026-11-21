@@ -1794,8 +1794,7 @@ async fn serve_connection_from(
         dual_principal,
         list_stream: link_v2.is_some(),
         device_mesh: StdMutex::new(web_device::Slot::Empty),
-        page_origin: page_origin
-            .filter(|_| origin == Origin::Web && auth == ConnAuth::ListenerToken),
+        page_origin: page_origin.filter(|_| web_device::keeps_page_origin(origin, auth)),
         browser_sign_in: StdMutex::new(None),
         fan_flush,
     });
