@@ -1,5 +1,5 @@
 public import CMUXAuthCore
-import Foundation
+public import Foundation
 public import Observation
 import OSLog
 import StackAuth
