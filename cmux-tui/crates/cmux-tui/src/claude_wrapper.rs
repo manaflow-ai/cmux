@@ -470,6 +470,7 @@ mod launch_classification {
         "--allowed-tools",
         "--append-system-prompt",
         "--append-system-prompt-file",
+        "--autocompact",
         "--betas",
         "--dangerously-load-development-channels",
         "--debug-file",
@@ -488,6 +489,7 @@ mod launch_classification {
         "-n",
         "--output-format",
         "--permission-mode",
+        "--permission-prompts",
         "--plugin-dir",
         "--plugin-url",
         "--remote-control-session-name-prefix",
@@ -498,6 +500,7 @@ mod launch_classification {
         "--settings",
         "--system-prompt",
         "--system-prompt-file",
+        "--system-prompt-snapshot",
         "--teammate-mode",
         "--tools",
     ];
@@ -890,11 +893,20 @@ mod tests {
 
         assert!(should_inject(&[], env(&[])));
         assert!(should_inject(&os(&["--model", "opus", "fix the bug"]), env(&[])));
+        assert!(should_inject(&os(&["--autocompact", "1000000", "fix the bug"]), env(&[])));
+        assert!(should_inject(&os(&["--permission-prompts", "host", "fix the bug"]), env(&[])));
+        assert!(should_inject(&os(&["--system-prompt-snapshot", "off", "fix the bug"]), env(&[])));
         assert!(should_inject(&os(&["--resume"]), env(&[])));
         for args in [
             os(&["--version"]),
             os(&["-h"]),
             os(&["--model", "opus", "--help"]),
+            os(&["--autocompact", "1000000", "--help"]),
+            os(&["--permission-prompts", "host", "doctor"]),
+            os(&["--system-prompt-snapshot", "off", "--version"]),
+            os(&["--autocompact=auto", "doctor"]),
+            os(&["--permission-prompts=host", "doctor"]),
+            os(&["--system-prompt-snapshot=off", "--version"]),
             os(&["mcp", "list"]),
             os(&["--verbose", "doctor"]),
             os(&["agents", "--json"]),
