@@ -112,6 +112,31 @@ class SessionGateTests(unittest.TestCase):
         self.assertEqual(refused.exception.code, 1)
 
 
+class ConsoleUserTests(unittest.TestCase):
+    """The console user is the session WindowServer has on the console, not the last login (glass-perf step d4c6723f,
+    cmux9s, 2026-11-20): a hidden cmuxci-gui-0N account's Screen Sharing login set scutil's ConsoleUser Name while
+    cmux's session stayed on the console, and the bench refused with no-gui-session on a display worker."""
+
+    HIDDEN = [{"kCGSSessionUserNameKey": "cmux", "kCGSSessionOnConsoleKey": True},
+              {"kCGSSessionUserNameKey": "cmuxci-gui-03", "kCGSSessionOnConsoleKey": False}]
+
+    def test_a_hidden_screen_sharing_login_does_not_take_the_console(self):
+        scutil = "<dictionary> {\n  Name : cmuxci-gui-03\n}\n"
+        self.assertEqual(bl.console_user(sessions=self.HIDDEN, scutil=scutil), "cmux")
+
+    def test_nobody_on_the_console_is_none(self):
+        off = [{**s, "kCGSSessionOnConsoleKey": False} for s in self.HIDDEN]
+        self.assertIsNone(bl.console_user(sessions=off, scutil="  Name : cmux\n"))
+        self.assertIsNone(bl.console_user(sessions=[{"kCGSSessionUserNameKey": "loginwindow",
+                                                     "kCGSSessionOnConsoleKey": True}]))
+
+    def test_scutil_is_the_fallback_only_when_ioreg_does_not_answer(self):
+        with mock.patch.object(bl, "console_sessions", return_value=None):
+            self.assertEqual(bl.console_user(scutil="  Name : cmux\n"), "cmux")
+            self.assertIsNone(bl.console_user(scutil="  Name : loginwindow\n"))
+            self.assertIsNone(bl.console_user(scutil=""))
+
+
 class TagInUseTests(unittest.TestCase):
     def setUp(self):
         self.folder = tempfile.mkdtemp(prefix="bench-launch-test-")

@@ -431,27 +431,8 @@ def unique_paths(paths):
     return out
 
 
-def console_user():
-    """The user logged in on the console (SCDynamicStore State:/Users/ConsoleUser), or None at the login window.
-
-    Not /dev/console's owner (it reads root on a mini whose cmux session is up) and not `who` (it keeps console
-    lines of sessions that ended or went to the background)."""
-    try:
-        out = subprocess.run(["/usr/sbin/scutil"], input="show State:/Users/ConsoleUser\n", capture_output=True,
-                             text=True, timeout=10).stdout
-    except (OSError, subprocess.TimeoutExpired):
-        out = ""
-    match = re.search(r"^\s*Name : (\S+)", out, re.M)
-    if match:
-        return None if match.group(1) == "loginwindow" else match.group(1)
-    # No such key, a dictionary with no name, or no answer at all: nobody, fail closed like the hq worker gate (not
-    # /dev/console's owner, which disagrees with scutil).
-    return None
-
-
-def screen_locked(user):
-    """Whether `user`'s console session has its screen locked (IOConsoleUsers CGSSessionScreenIsLocked), None
-    when ioreg does not say. Reported only: the session rule does not use it."""
+def console_sessions():
+    """IOConsoleUsers (ioreg Root), a list of session dicts; None when ioreg does not answer or says nothing."""
     try:
         import plistlib
         out = subprocess.run(["/usr/sbin/ioreg", "-n", "Root", "-d1", "-a"], capture_output=True, timeout=10).stdout
@@ -460,7 +441,45 @@ def screen_locked(user):
         return None
     if isinstance(root, list):
         root = root[0] if root else {}
-    for entry in root.get("IOConsoleUsers") or []:
+    users = root.get("IOConsoleUsers") if isinstance(root, dict) else None
+    return users if isinstance(users, list) else None
+
+
+def console_user(sessions=None, scutil=None):
+    """The user whose session WindowServer has on the console (IOConsoleUsers kCGSSessionOnConsoleKey), or None
+    when nobody's is (login window).
+
+    The hq worker's measure gate reads the same key (build-fleet/cmd/worker/console_session.go). Not scutil's
+    State:/Users/ConsoleUser Name: that is the last account to log in, and a Screen Sharing login to another
+    account's own session sets it while the build user's session stays on the console. Since `fleet gui-ci-users`
+    (2026-11-18) the minis' hidden cmuxci-gui-0N accounts log in that way, so Name reads cmuxci-gui-0N and every
+    GUI bench refused with no-gui-session on workers the controller had sent it to as display workers (glass-perf
+    step d4c6723f on cmux9s, 2026-11-20). scutil is read only when ioreg does not answer. Not /dev/console's owner
+    (root on a mini whose cmux session is up, or the last Screen Sharing login) and not `who`."""
+    sessions = console_sessions() if sessions is None else sessions
+    if sessions is not None:
+        for entry in sessions:
+            if isinstance(entry, dict) and entry.get("kCGSSessionOnConsoleKey"):
+                name = entry.get("kCGSSessionUserNameKey")
+                return None if not name or name == "loginwindow" else name
+        return None
+    if scutil is None:
+        try:
+            scutil = subprocess.run(["/usr/sbin/scutil"], input="show State:/Users/ConsoleUser\n", capture_output=True,
+                                    text=True, timeout=10).stdout
+        except (OSError, subprocess.TimeoutExpired):
+            scutil = ""
+    match = re.search(r"^\s*Name : (\S+)", scutil, re.M)
+    if match:
+        return None if match.group(1) == "loginwindow" else match.group(1)
+    # No answer from either: nobody, fail closed like the hq worker gate.
+    return None
+
+
+def screen_locked(user):
+    """Whether `user`'s console session has its screen locked (IOConsoleUsers CGSSessionScreenIsLocked), None
+    when ioreg does not say. Reported only: the session rule does not use it."""
+    for entry in console_sessions() or []:
         if entry.get("kCGSSessionUserNameKey") == user and entry.get("kCGSSessionOnConsoleKey"):
             return bool(entry.get("CGSSessionScreenIsLocked", False))
     return None
