@@ -9,9 +9,9 @@ import {
   cloudStartEnded,
   cloudStartPushed,
   cloudStartSignedIn,
-  cloudStartWayOn,
   cloudFolderTooBig,
   folderSizeText,
+  cloudStartWayOn,
 } from "./cloudStartProgress";
 
 const begun = () => cloudStartBegun("k-1", "fix the build", "/Users/me/src/paint/");
