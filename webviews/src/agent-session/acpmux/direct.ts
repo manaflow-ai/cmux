@@ -4468,9 +4468,8 @@ export class AcpmuxDirectClient {
           protocolVersion: 1,
           clientInfo: { name: "cmux-react-agent-pane", version: "1" },
           clientCapabilities: {},
-          // A peer's list comes as one `_acpmux/peer_rows_changed`, read by the next follow
-          // (`SessionPager.peerRowsChanged`); an acpmux before it ignores the key and sends each row.
-          _meta: { acpmux: { peerRowBatches: true } },
+          // Restore layer for NIGHTLY d0b731b only: its relay refuses `_meta` on initialize
+          // (fixed by cmux#49148), so this page asks for per-row peer updates as before cmux#46563.
         },
         AcpmuxDirectClient.DAEMON_PROBE_AFTER_MS,
       );
