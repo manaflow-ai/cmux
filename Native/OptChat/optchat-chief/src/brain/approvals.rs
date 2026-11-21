@@ -256,6 +256,13 @@ impl Brain {
             }
             // Nor search the owner's whole chat word for word.
             "mcp__optchat__recall" => return false,
+            // Nor change the owner's wake settings or set wakes for them;
+            // ending the turn with nothing is fine.
+            // (nor read them: they hold the owner's notes).
+            "mcp__optchat__check_ins"
+            | "mcp__optchat__follow_up"
+            | "mcp__optchat__follow_ups"
+            | "mcp__optchat__ask" => return false,
             // Nor spend the owner's money on a Cloud machine.
             "mcp__optchat__cloud_workspace" => return false,
             // Nor run a command on the owner's machine: only list and cancel.

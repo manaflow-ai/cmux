@@ -38,7 +38,7 @@ import Testing
         card.frame = NSRect(x: 0, y: 0, width: 240, height: SidebarNoticeCardView.height(for: notice, width: 240))
         card.configure(notice)
         card.layoutSubtreeIfNeeded()
-        let pad = Metrics.space3
+        let pad = Metrics.cardPadding
         #expect(card.titleLabel.frame.minX == pad, "the title is indented: \(card.titleLabel.frame)")
         let button = card.trailingButton
         #expect(!button.isHidden)
@@ -87,6 +87,22 @@ import Testing
             updater.syncFlowPhase()
         }
         #expect(downloads == 1, "Update after a cancel did not download the found update")
+    }
+
+    @Test func quitCancelsAnActiveDownloadBeforeProceeding() {
+        let updater = UpdateLoadingIndicatorTests.updater()
+        var cancels = 0
+        updater.cancelDownloadNow = {
+            cancels += 1
+            updater.debugIndicatorPhase = .hidden
+            return true
+        }
+        updater.send(.attemptRequested)
+        updater.debugIndicatorPhase = .downloading(.downloading(received: 250, expected: 250))
+        updater.syncFlowPhase()
+
+        #expect(updater.prepareForQuit() == .proceed)
+        #expect(cancels == 1, "quit left the active update download running")
     }
 
     @Test func anUpdateClickWhoseCheckEndsEmptyDoesNotDownloadALaterUpdate() {

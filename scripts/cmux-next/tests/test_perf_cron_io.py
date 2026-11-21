@@ -115,10 +115,12 @@ class ReferenceTests(unittest.TestCase):
             self.assertEqual(measure_tip(state, sha(100 + k), {name: row(45.0)}, at(12 * (i - 3 + k))), "still")
         self.assertEqual([r["name"] for r in state["regressions"]], [name])
         self.assertEqual([e["p95"] for e in state["row_history"][name]], history, "no closing value entered the baseline")
-        state["current"] = cron.new_measurement(sha(12), "bisect", ["motion"], at(12 * (i + 2)), bisect_range=rng)
-        state["current"]["parts"] = {"motion": {"state": "done"}}
-        self.assertEqual(cron.finish_measurement(state, {name: row(45.0)}, 8.33, "bench", "u", at(12 * (i + 2)), budgets_mod),
-                         "narrowed")
+        # A bisect commit is decided by BISECT_RUNS agreeing runs (test_perf_bisect.py).
+        for k in range(cron.BISECT_RUNS):
+            state["current"] = cron.new_measurement(sha(12), "bisect", ["motion"], at(12 * (i + 2) + k), bisect_range=rng)
+            state["current"]["parts"] = {"motion": {"state": "done"}}
+            event = cron.finish_measurement(state, {name: row(45.0)}, 8.33, "bench", "u", at(12 * (i + 2) + k), budgets_mod)
+        self.assertEqual(event, "narrowed")
         self.assertEqual(state["regressions"][0]["range"]["bad"], sha(12), "45.0 is bad against the confirmed reference")
 
     def test_a_step_on_a_flat_row_starts_at_row_ok_even_when_the_week_old_median_is_a_little_lower(self):
