@@ -76,6 +76,15 @@ export const foldsBackground = (row: AcpmuxRow): boolean =>
   row.background.ownTurn !== true &&
   (row.background.running || row.background.quiet === true || backgroundWeight(row.background) === "silent");
 
+/// Whether a background turn ended and its rows draw at rest: it ended with something to say
+/// (`foldsBackground`), or, inline, it ended at all, as its calls draw where they ran
+/// (`hiddenInBackground`) whatever acpmux called it. turns.ts ends such a turn on its row of actions.
+export const endsDrawingRows = (row: AcpmuxRow): boolean =>
+  row.kind === BACKGROUND_TURN &&
+  row.background !== undefined &&
+  !row.background.running &&
+  (!foldsBackground(row) || backgroundTurnsInline(experimentArm(backgroundTurnLook)));
+
 /// Whether a background turn's reply says nothing: only dots, middle dots, bullets or an ellipsis
 /// ("·", ".", "…"), which Claude answers a task's end with (Leo, 2026-11-02: "why do you still do
 /// these"). Such a reply is never the agent's own turn: its task's call keeps its mark and the turn
