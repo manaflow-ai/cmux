@@ -371,6 +371,9 @@ pub struct Session {
     /// sends the agent no `session/cancel`: with no prompt of the turn to stop, a harness could
     /// keep that cancel and end the next turn with it.
     pub(super) unwritten_prompt: StdMutex<Option<(String, bool)>>,
+    /// The agent message that holds its turn's start in an idle chat for the gather window, by
+    /// its turn id, and when that window ends (`digest.rs` `AGENT_GATHER_MS`).
+    pub(super) gathering: StdMutex<Option<(String, tokio::time::Instant)>>,
     /// The forced `turn_result` already written for a turn, if any. This is
     /// separate from `cancel_forced_turn`: several prompt waiters can observe
     /// the same forced answer, but only one may append the result.
