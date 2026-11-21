@@ -221,8 +221,10 @@ final class HostView: NSView {
         placeTopFadeView()
         updateTopFadeScrollEdge()
         controller?.placeSendButton(animated: false)
-        fieldChrome.place(field: demo.compose.fieldRect, plus: demo.compose.plusRect,
-                          emoji: CGRect(x: bounds.width - Fixture.windowWidth + 586.5, y: demo.compose.plusRect.minY, width: 31, height: 30))
+        // A narrow pane drops the emoji button, then the "+" button, so the draft keeps its line (ComposeChromeLayout).
+        let chrome = ComposeChromeLayout(width: demo.compose.bounds.width)
+        fieldChrome.place(field: demo.compose.fieldRect, plus: chrome.showsPlus ? demo.compose.plusRect : nil,
+                          emoji: chrome.showsEmoji ? CGRect(x: chrome.emojiX, y: demo.compose.plusRect.minY, width: 31, height: 30) : nil)
         placeQuoteCard(above: demo.compose.fieldRect)
         placeSlashMenu(above: demo.compose.fieldRect)
     }
@@ -646,11 +648,12 @@ final class ChatController: NSObject, NSTextViewDelegate {
         // MessagesLab 7518134: the menu's glyphs and title icons are made before the first open (only
         // images; no view, window or event), on a later pass than this layout.
         RunLoop.main.perform(inModes: [.default]) { MenuGlyphs.warm(); MenuAction.warm() }
-        let tv = FieldTextView(usingTextLayoutManager: true)
+        // TextKit 1, as the composer field (ComposeTextView).
+        let tv = FieldTextView(usingTextLayoutManager: false)
         tv.frame = NSRect(x: 0, y: 0, width: 300, height: 40)
         tv.typingAttributes = ComposeView.typing
         tv.insertText("Warm", replacementRange: NSRange(location: 0, length: 0))
-        if let tlm = tv.textLayoutManager { tlm.ensureLayout(for: tlm.documentRange) }
+        tv.textKit1LayOutAll()
         let r = UIGraphicsImageRenderer(size: CGSize(width: 64, height: 32))
         if let cg = r.image(actions: { ctx in
             TextDraw.line("Warm", font: Fixture.bodyFont, color: .white, x: 2, baseline: 20, in: ctx.cgContext)
@@ -762,22 +765,65 @@ final class ChatController: NSObject, NSTextViewDelegate {
         let draft = store?.state.ui.draft.attachments ?? []
         // An edit can move the pictures: the remove button waits for the pointer to move again.
         demo.compose.inlineHover.hide()
-        // cmux: attachments are in the text (Draft+InlineMarks.swift). An attachment character that
-        // stands for no draft attachment (a pasted U+FFFC, an undo of a removal) leaves the text.
-        if let storage = tv.textStorage {
-            let orphans = ComposeInlineText.orphanRanges(in: storage, keeping: Set(draft.map(\.id)))
-            for r in orphans { storage.replaceCharacters(in: r, with: "") }
+        // cmux: attachments are in the text (Draft+InlineMarks.swift); the field leads and the draft
+        // follows it (ComposeFieldUndo.swift).
+        let text = followField(tv, draft: draft, compose: demo.compose)
+        composerHistory.textChanged(to: text)
+        intents?.draftChanged()
+        updateSlashMenu()  // cmux: the `/` menu follows the command
+    }
+
+    /// cmux: the draft takes the field's text and its attachments, in the field's order, and
+    /// returns the text. A picture the field shows that the draft does not have came back (Edit >
+    /// Undo of its deletion, Redo of its paste): the draft takes it in again when the host can
+    /// (`canRestoreDraftAttachment`). An attachment character that stands for no attachment that
+    /// can come back (a plain U+FFFC pasted as text) leaves the text, and with it the field's undo
+    /// entries, whose ranges no longer fit (cmux #48500).
+    private func followField(_ tv: FieldTextView, draft: [Attachment], compose: ComposeView) -> String {
+        let had = Set(draft.map(\.id))
+        var marks = tv.textStorage.map(ComposeInlineText.marks(in:)) ?? []
+        let orphans = marks.filter { m in
+            guard let a = m.attachment else { return true }
+            return !had.contains(a.attachmentID) && intents?.canRestoreDraftAttachment(a.attachmentID) == false
+        }
+        if !orphans.isEmpty, let storage = tv.textStorage {
+            for m in orphans.reversed() { storage.replaceCharacters(in: NSRange(location: m.offset, length: 1), with: "") }
+            tv.forgetUndo()
+            marks = ComposeInlineText.marks(in: storage)
         }
         // The draft is a native copy of the field's text (a bridged NSString): each key compares it.
         let text = String(nativeCopyOf: tv.string)
-        composerHistory.textChanged(to: text)
-        dispatch(.setDraft(text))
-        // An attachment whose character the person deleted (Delete, a cut, the remove button) leaves the draft.
-        let shown = Set(tv.textStorage.map(ComposeInlineText.ids(in:)) ?? [])
-        let gone = draft.filter { !shown.contains($0.id) }
-        for a in gone { dispatch(.removeDraftAttachment(a.id)) }
-        intents?.draftChanged()
-        updateSlashMenu()  // cmux: the `/` menu follows the command
+        let shown = marks.compactMap(\.attachment)
+        let shownIDs = shown.map(\.attachmentID)
+        // Every key: the same attachments, or some deleted (Delete, a cut, the remove button), in order.
+        if shownIDs.count <= draft.count, Self.isInOrder(shownIDs, in: draft.map(\.id)) {
+            dispatch(.setDraft(text))
+            let kept = Set(shownIDs)
+            for a in draft where !kept.contains(a.id) { dispatch(.removeDraftAttachment(a.id)) }
+            return text
+        }
+        // A picture came back, or the pictures moved: the draft's attachments again, in the field's
+        // order, each at its mark. The field already shows them, so the draft's render leaves it be.
+        compose.draftFollowsField = true
+        defer { compose.draftFollowsField = false }
+        dispatch(.setDraft(Draft.stripMarks(text)))
+        for a in draft { dispatch(.removeDraftAttachment(a.id)) }
+        for m in marks {
+            guard let inline = m.attachment else { continue }
+            let model = draft.first { $0.id == inline.attachmentID } ?? inline.model
+            dispatch(.attachAt(model, m.offset))
+        }
+        tv.typingAttributes = ComposeInlineText.attributes(inline: !shown.isEmpty)
+        return text
+    }
+
+    /// Whether IDS are PARENT's in its order, some left out.
+    private static func isInOrder(_ ids: [ID], in parent: [ID]) -> Bool {
+        var it = parent.makeIterator()
+        return ids.allSatisfy { id in
+            while let next = it.next() { if next == id { return true } }
+            return false
+        }
     }
 
     func escape() {
