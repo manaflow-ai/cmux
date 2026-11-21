@@ -21,7 +21,7 @@ import Testing
     }
 
     /// The Home transcript and conversation list (Packages/Shared/CmuxMessagesLab), which cmux-next hosts: their
-    /// controls show the themed tooltip through the host's `toolTipPresenter` (Lawrence 2026-11-20: one tooltip,
+    /// controls show the themed tooltip through the host's hooks (`MessagesLabHomeView.host`, `CmuxSidebarView.host`) (Lawrence 2026-11-20: one tooltip,
     /// everywhere), vendored MessagesLab files included.
     static var homeSources: URL {
         sources.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
