@@ -3212,7 +3212,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           source,
           open,
           {
-            working: snapshot.isWorking,
+            // A window whose newer records are left (direct.ts `newerLeft`) ends in history: the running turn's
+            // live line is drawn under the chat's latest row, never under the window's last.
+            working: snapshot.isWorking && snapshot.canLoadNewer !== true,
             clockOffset: snapshot.clockOffsetMs,
             turnStartedAtMs: snapshot.turnStartedAtMs,
             sessionStatus,
@@ -3307,6 +3309,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     started,
     folds,
     snapshot.isWorking,
+    snapshot.canLoadNewer,
     snapshot.clockOffsetMs,
     snapshot.turnStartedAtMs,
     sessionStatus,
@@ -3425,7 +3428,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const merged = mergeInboxNotices(
       withEarlierPlan(hatPlanRow ? turnRowsShown.filter((row) => row !== hatPlanRow) : turnRowsShown, pinnedEarlier),
     );
-    const rows = withWaitingRows(merged, group ? [...people, group] : people);
+    // The waiting messages follow the chat's latest row, not a window's last (direct.ts `newerLeft`).
+    const rows = snapshot.canLoadNewer ? merged : withWaitingRows(merged, group ? [...people, group] : people);
     return childRows ? rows : btwNotes.rows(rows, snapshot.sessionId, btwSnapshot);
   }, [
     chatPresentation,
@@ -3437,6 +3441,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     btwNotes,
     btwSnapshot,
     snapshot.sessionId,
+    snapshot.canLoadNewer,
     shownSessionId,
   ]);
   // Failed prompts in a row with one cause share one card (sendFailure.ts); a trust failure's card
@@ -8847,6 +8852,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         connectingClient = client;
         directClient.current = client;
         client.setFollowing(followingTranscript.current);
+        // A reader scrolled far up keeps the rows in view and the screens under them (direct.ts `shedNewerHeld`).
+        client.readerView = () => transcriptInView.current?.();
         client.toastSink = (text, kind) => (kind === "error" ? notices.failed(text) : notices.transient(text));
         connectedClients.connected(client);
         // connect() may have delivered its first snapshot before returning. Associate that
@@ -12244,6 +12251,29 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                             ) ?? Promise.resolve()
                                                                         : undefined
                                                                   }
+                                                                  canLoadNewer={
+                                                                    !workflowTranscript.rows &&
+                                                                    !childRows &&
+                                                                    snapshot.canLoadNewer === true
+                                                                  }
+                                                                  historyThrough={
+                                                                    childRows ? undefined : snapshot.historyThrough
+                                                                  }
+                                                                  later={childRows ? undefined : snapshot.laterPrompts}
+                                                                  onLoadNewer={
+                                                                    !childRows
+                                                                      ? () =>
+                                                                          directClient.current?.loadNewer() ??
+                                                                          Promise.resolve()
+                                                                      : undefined
+                                                                  }
+                                                                  onReturnToLatest={
+                                                                    !childRows
+                                                                      ? () =>
+                                                                          directClient.current?.returnToLatest() ??
+                                                                          Promise.resolve()
+                                                                      : undefined
+                                                                  }
                                                                   openAt={
                                                                     !childRows &&
                                                                     shownSessionId &&
@@ -12294,7 +12324,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                     snapshot.chatRead !== true
                                                                   }
                                                                   afterLatest={
-                                                                    childRows
+                                                                    childRows || snapshot.canLoadNewer
                                                                       ? undefined
                                                                       : afterLatestFooter(
                                                                           showOpenAppCard ? (

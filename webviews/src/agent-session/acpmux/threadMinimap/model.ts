@@ -672,6 +672,9 @@ export type MinimapTurns = {
   loadedTicks?: readonly MinimapTick[];
   loadedStart?: number;
   earlierTurns?: readonly MinimapTurn[];
+  /// Prompts newer than the rows (a window of the chat the reader scrolled far up holds), after the loaded turns.
+  laterRows?: readonly AcpmuxRow[];
+  laterTurns?: readonly MinimapTurn[];
   /// Historical prompts known only by count. They are not materialized in `turns` or `ticks`.
   pendingCount?: number;
   /// The list the next changed turns are written into (the one before `turns`), never `turns`.
@@ -710,6 +713,7 @@ export function minimapTurns(
   change?: RowsChange,
   earlierRows: readonly AcpmuxRow[] = EMPTY_EARLIER_ROWS,
   promptCount = 0,
+  laterRows: readonly AcpmuxRow[] = EMPTY_EARLIER_ROWS,
 ): MinimapTurns {
   const prior = previous?.sessionId === sessionId ? previous : undefined;
   const reuse = prior
@@ -826,6 +830,49 @@ export function minimapTurns(
   // earlier or the loaded turns change, never one a committed result still holds: the loaded turns'
   // own lists stay `spare`'s alone. With no earlier prompts the loaded lists are the result's.
   const withEarlier = (
+    loadedTurns: readonly MinimapTurn[],
+    loadedTicks: readonly MinimapTick[],
+    spare?: MinimapTurn[],
+  ): MinimapTurns => {
+    let result = withEarlierOnly(loadedTurns, loadedTicks, spare);
+    // A result kept from the last pass carries its later turns at the end: they go, and this pass's come.
+    const had = result.laterTurns?.length ?? 0;
+    if (had > 0 || result.laterRows)
+      result = {
+        ...result,
+        turns: result.turns.slice(0, result.turns.length - had),
+        ticks: result.ticks.slice(0, result.ticks.length - had),
+        laterRows: undefined,
+        laterTurns: undefined,
+      };
+    return laterRows.length ? withLater(result) : result;
+  };
+  // The prompts newer than the rows while a reader scrolled far up holds a window of the chat (the snapshot's
+  // `laterPrompts`): turns with no row (index -1) after the loaded ones, so the rail keeps every tick in its row.
+  const withLater = (result: MinimapTurns): MinimapTurns => {
+    const sameLater = prior?.laterRows === laterRows && prior.laterTurns !== undefined;
+    const later = sameLater
+      ? prior!.laterTurns!
+      : laterRows.map((row): MinimapTurn => ({
+          index: -1,
+          id: row.id,
+          key: turnKey(sessionId, row),
+          prompt: promptText(row),
+          ...withSender(row),
+          reply: [],
+        }));
+    const turns = [...result.turns, ...later];
+    const sameTicks = sameLater && prior!.ticks.length === turns.length && prior!.turns.length === turns.length;
+    return {
+      ...result,
+      turns,
+      ticks:
+        sameTicks && turns.every((turn, at) => prior!.turns[at] === turn) ? prior!.ticks : ticksOf(turns, prior?.ticks),
+      laterRows,
+      laterTurns: later,
+    };
+  };
+  const withEarlierOnly = (
     loadedTurns: readonly MinimapTurn[],
     loadedTicks: readonly MinimapTick[],
     spare?: MinimapTurn[],
@@ -980,7 +1027,8 @@ export function currentTurn(
   low = firstLoaded;
   while (low < high) {
     const middle = (low + high) >>> 1;
-    if ((tops(turns.at(middle)!.index) ?? 0) <= anchor) low = middle + 1;
+    // A turn newer than the rows (`laterTurns`) has no top: it is below every loaded one.
+    if ((tops(turns.at(middle)!.index) ?? Infinity) <= anchor) low = middle + 1;
     else high = middle;
   }
   return Math.max(firstLoaded, low - 1);
