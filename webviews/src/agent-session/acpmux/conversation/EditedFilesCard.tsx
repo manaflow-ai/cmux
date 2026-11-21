@@ -288,9 +288,7 @@ function Card({
         );
       })}
       {/* The turn's page pictures show with the card's contents: collapsed, they wait until it opens. */}
-      {row.ended === true && open && (
-        <TurnShots rowId={row.id} />
-      )}
+      {row.ended === true && open && <TurnShots rowId={row.id} />}
       {open && (more > 0 || showAll) && !single && total > limit && (
         <button
           type="button"
