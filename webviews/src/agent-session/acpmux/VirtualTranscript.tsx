@@ -6506,9 +6506,10 @@ function TranscriptView({
     // First on the window, so a fling's momentum held after a jump reaches no other listener.
     const removeMomentumHold = installMomentumHold(node, scrollRunning);
     const detachIntent = attachUserScrollIntent(node);
-    const followIntent = (next: boolean) => {
-      // The reader let the latest row go: room they come back down to is theirs (`heldRoom.reader`).
-      if (!next) heldRoom.current.reader = { ...heldRoom.current.reader, left: true };
+    /// `up`: the reader's own move up (a wheel, key or touch up, a scrollbar drag) let the latest row go, so
+    /// room they come back down to is theirs (`heldRoom.reader`). A click (the queue's fold) moves nothing.
+    const followIntent = (next: boolean, up?: true) => {
+      if (!next && up) heldRoom.current.reader = { ...heldRoom.current.reader, left: true };
       followRef.current(next);
     };
     const cancelProgrammatic = (event?: Event) => {
@@ -6520,7 +6521,7 @@ function TranscriptView({
           });
         }
         olderDragPending.current = true;
-        followIntent(false);
+        followIntent(false, true);
       }
       revealing.current = undefined;
       revealWindow.current = 0;
@@ -6648,7 +6649,7 @@ function TranscriptView({
       // Release the follow intent synchronously when a reader starts moving up. The browser can
       // deliver the input before its scroll event; a streamed snapshot in that gap must not pin
       // the view back to the bottom. Capture the event so nested rows cannot commit first.
-      if (movingUp) followIntent(false);
+      if (movingUp) followIntent(false, true);
       // A new downward/neutral gesture supersedes a retained scrollbar target. Without clearing
       // it here, the reserve-drain effect would put the reader back at the loaded edge after they
       // deliberately returned toward newer messages.
