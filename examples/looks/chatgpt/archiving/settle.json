@@ -1,0 +1,8 @@
+{
+  "cmuxProfile": 1,
+  "name": "codex-settle-finished",
+  "description": "Fold finished chats after their answer has been read.",
+  "settings": {
+    "sidebar.settleFinished": true
+  }
+}

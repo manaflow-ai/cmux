@@ -5,5 +5,8 @@
   "description": "Bind common desktop navigation, thread, composer, and review commands.",
   "version": "1.0.0",
   "cmuxProfile": 1,
-  "settings": {}
+  "settings": {},
+  "screenshots": [
+    "screenshots/codex-app-basic-light.webp"
+  ]
 }

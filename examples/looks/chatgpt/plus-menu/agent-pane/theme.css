@@ -1,0 +1,9 @@
+/* Both the anchored and portaled versions use the same menu dimensions. */
+.acpmux-composer-plus .acpmux-menu,
+.acpmux-menu.acpmux-composer-plus {
+  width: min(736px, calc(100vw - 16px));
+  max-width: calc(100vw - 16px);
+  --ui-popup-radius: 18px;
+  --ui-row-height: calc(28px * var(--cmux-interface-scale, 1));
+  --ui-row-radius: 999px;
+}

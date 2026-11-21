@@ -1,0 +1,14 @@
+{
+  "cmuxSetup": 1,
+  "cmuxProfile": 1,
+  "id": "manaflow-ai/chatgpt-project-environment",
+  "name": "Codex project and environment pickers",
+  "description": "Rounded project and machine popovers with the selected environment displayed on the left.",
+  "version": "1.0.0",
+  "screenshots": [
+    "screenshots/source-desktop.webp"
+  ],
+  "settings": {
+    "agentPane.display.environment.placement": "left"
+  }
+}

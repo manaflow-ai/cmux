@@ -22,5 +22,6 @@
   },
   "scopes": {
     "actions:run": "Open the selected preferences page."
-  }
+  },
+  "description": "Open native appearance, chat font, and keyboard preferences for this setup."
 }
