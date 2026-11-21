@@ -1228,7 +1228,7 @@ mod tests {
     #[test]
     fn a_forwarded_start_keeps_its_name_and_asks_to_keep_a_taken_one() {
         let mut p = json!({"_meta": {"acpmux": {
-            "peer": "gcp-agent-lane-2", "name": "slam-09", "harness": "codex",
+            "peer": "far-host", "name": "slam-09", "harness": "codex",
             "ifNameTaken": crate::hub::SUFFIX_TAKEN_NAME,
         }}});
         strip_new_meta(&mut p);

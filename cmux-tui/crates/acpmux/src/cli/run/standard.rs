@@ -1748,11 +1748,11 @@ mod tests {
     #[test]
     fn a_named_start_on_another_machine_keeps_its_name_when_taken() {
         // `--machine HOST` and `--machine auto` keep a taken name, suffixed, never the agent's.
-        assert!(super::keeps_name_suffixed(false, Some("gcp-agent-lane-2"), false));
+        assert!(super::keeps_name_suffixed(false, Some("far-host"), false));
         assert!(super::keeps_name_suffixed(true, None, false));
-        assert!(super::keeps_name_suffixed(true, Some("gcp-agent-lane-2"), false));
+        assert!(super::keeps_name_suffixed(true, Some("far-host"), false));
         // `--reuse` finds the running session by that name; a start here is refused as before.
-        assert!(!super::keeps_name_suffixed(true, Some("gcp-agent-lane-2"), true));
+        assert!(!super::keeps_name_suffixed(true, Some("far-host"), true));
         assert!(!super::keeps_name_suffixed(false, None, false));
     }
 

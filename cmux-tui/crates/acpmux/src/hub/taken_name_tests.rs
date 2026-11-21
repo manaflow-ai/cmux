@@ -1,6 +1,6 @@
 //! A start placed on or forwarded to this machine keeps the name it was given
 //! (`NewRequest::suffix_taken_name`): a taken one gets the first free `-N` suffix, never the
-//! agent's name (`codex`). Leo: "acpmux placed the session on gcp-agent-lane-2, under the name
+//! agent's name (`codex`). Leo: "acpmux placed the session on [a lane machine], under the name
 //! "codex" instead of the one I gave it".
 
 use super::*;
