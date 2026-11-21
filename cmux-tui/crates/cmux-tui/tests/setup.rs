@@ -727,6 +727,17 @@ fn cmux_setup_list_gives_a_chief_prompt_per_task_and_the_page_matches() {
         ),
         "{machine}"
     );
+    // A Cloud model connection is set up in Settings > Cloud, never through
+    // `cmux accounts` (CodeRouter, which Cloud chats do not use).
+    let cloud_chat =
+        list["tasks"].as_array().unwrap().iter().find(|t| t["id"] == "cloud_chat").unwrap();
+    let cloud_text =
+        format!("{} {} {}", cloud_chat["prompt"], cloud_chat["person"], cloud_chat["apply"]);
+    assert!(cloud_text.contains("cmux://settings/cloud/claude"), "{cloud_chat}");
+    assert!(
+        !cloud_text.contains("cmux accounts list") && !cloud_text.contains("cmux accounts connect"),
+        "{cloud_chat}"
+    );
 
     let output = world.run(&["setup", "list", "--prompts-md"]);
     assert_eq!(output.status.code(), Some(0), "{}", String::from_utf8_lossy(&output.stderr));

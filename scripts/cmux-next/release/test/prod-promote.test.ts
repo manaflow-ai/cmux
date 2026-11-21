@@ -561,3 +561,69 @@ describe("gates after a rollback (no person needed to move forward)", () => {
     expect(r.out).toContain("HOLD (rolled-back) production serves the Chief off switch")
   })
 })
+
+describe("one promote job reads each finished staging run's jobs once (the shared GITHUB_TOKEN hour)", () => {
+  // stale then gates, as backend.yml's promote-gates job runs them, each a fresh process sharing --runs-cache.
+  // Before: both read the run list and every listed run's jobs (2 x (1 + 30) calls); the 403 that held promotes
+  // came from this read when the repository's token hour was spent (run 44878749398, 2026-11-21).
+  const greenJobs = (at: string) => [
+    { name: "test", conclusion: "success" },
+    { name: "migrations-push-guard", conclusion: "success" },
+    { name: "deploy-staging", conclusion: "success", completed_at: at, steps: [{ name: "Smoke the API Worker; roll back on red", conclusion: "success" }] },
+  ]
+  const run = async (listed: Array<{ id: number; head_sha: string; run_attempt?: number }>, argv: Array<string>) => {
+    const saved = { fetch: globalThis.fetch, token: process.env.GITHUB_TOKEN, hold: process.env.CMUX_NEXT_PRODUCTION_HOLD }
+    process.env.GITHUB_TOKEN = "test-token"
+    delete process.env.CMUX_NEXT_PRODUCTION_HOLD
+    const calls: Array<string> = []
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url)
+      if (url.host === "api.cloudflare.com") return fakeFetch(input)
+      if (url.host !== "api.github.com") throw new Error(`unexpected host ${url.host}`)
+      calls.push(url.pathname.replace(/^\/repos\/[^/]+\/[^/]+/, ""))
+      if (url.pathname.endsWith("/backend.yml/runs")) return Response.json({ workflow_runs: listed })
+      if (/\/runs\/\d+\/jobs$/.test(url.pathname)) return Response.json({ jobs: greenJobs("2026-10-19T00:00:00Z") })
+      if (url.pathname.endsWith("/issues")) return Response.json([])
+      throw new Error(`unexpected GitHub path ${url.pathname}`)
+    }) as typeof fetch
+    const [log, error] = [console.log, console.error]
+    console.log = () => {}
+    console.error = () => {}
+    try {
+      // Only the reads matter here: a later gate (G3 reads approvals this repository lacks) may throw.
+      await main(argv).catch(() => {})
+      return calls
+    } finally {
+      ;[console.log, console.error] = [log, error]
+      globalThis.fetch = saved.fetch
+      if (saved.token === undefined) delete process.env.GITHUB_TOKEN
+      else process.env.GITHUB_TOKEN = saved.token
+      if (saved.hold === undefined) delete process.env.CMUX_NEXT_PRODUCTION_HOLD
+      else process.env.CMUX_NEXT_PRODUCTION_HOLD = saved.hold
+    }
+  }
+  const jobReads = (calls: Array<string>) => calls.filter((c) => c.endsWith("/jobs")).sort()
+
+  it("stale then gates read each run's jobs once, and the next promote reads only the new run", async () => {
+    versions = { v1: code(repo.A) }
+    setDeployments([{ version: "v1", trigger: "deployment" }])
+    const cache = join(tmpRoot, "staging-runs.json")
+    rmSync(cache, { force: true })
+    const listed = [{ id: 3, head_sha: repo.C }, { id: 2, head_sha: repo.B }, { id: 1, head_sha: repo.A }]
+    const stale = await run(listed, ["stale", "--runs-cache", cache])
+    const gates = await run(listed, ["gates", "--runs-cache", cache])
+    expect(jobReads([...stale, ...gates])).toEqual(["/actions/runs/1/jobs", "/actions/runs/2/jobs", "/actions/runs/3/jobs"])
+    // The next push: one new run, and run 2 re-run (a new attempt may end differently).
+    const next = await run([{ id: 4, head_sha: repo.C }, { id: 3, head_sha: repo.C }, { id: 2, head_sha: repo.B, run_attempt: 2 }, { id: 1, head_sha: repo.A }], ["gates", "--runs-cache", cache])
+    expect(jobReads(next)).toEqual(["/actions/runs/2/jobs", "/actions/runs/4/jobs"])
+  })
+
+  it("a cached verdict for another commit is read again, never trusted", async () => {
+    versions = { v1: code(repo.A) }
+    setDeployments([{ version: "v1", trigger: "deployment" }])
+    const cache = join(tmpRoot, "staging-runs-mismatch.json")
+    writeFileSync(cache, JSON.stringify({ "1:1": { sha: repo.B, run: { sha: repo.B, at: 0, green: true } } }))
+    const calls = await run([{ id: 1, head_sha: repo.A }], ["gates", "--runs-cache", cache])
+    expect(jobReads(calls)).toEqual(["/actions/runs/1/jobs"])
+  })
+})

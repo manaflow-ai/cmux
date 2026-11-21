@@ -68,6 +68,8 @@ public final class MessagesLabHomeView: NSView {
     private var openKeyboardWaits = false
     private weak var openKeyboardFrom: NSResponder?
     private var opensOnInstall = false
+    /// DEBUG drive `swipe_trail`: the last played swipe's events, each as the swipe took or passed it.
+    var debugSwipeTrail: [String] = []
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
