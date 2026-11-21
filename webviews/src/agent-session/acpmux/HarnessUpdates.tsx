@@ -1,11 +1,14 @@
 // Harness updates available (harnessUpdateList.ts): the model menus' update footer, every outdated
-// agent CLI on one row each (its mark, its name, the installed and newest versions, Update), Update
-// all in the heading once there are two, and the reason under them. The reference (Leo 2026-11-12)
-// listed Codex and OpenCode; it is the same list for Claude Code and every other harness.
+// agent CLI on one row each (its mark, its name, Update), Update all in the heading once there are
+// two, and the reason under them. The reference (Leo 2026-11-12) listed Codex and OpenCode; it is
+// the same list for Claude Code and every other harness. David Beyer (Nov 20 call) found it messy:
+// the versions and Skip This Version show only while Option is held (useOptionHeld.ts), and a
+// failed row says so in its name's place, so no row carries more than its name and one action.
 import type { ComponentProps, KeyboardEvent, Ref } from "react";
 import { AgentMark } from "../shared/AgentMark";
 import { Spinner } from "./conversation/icons";
 import { useT } from "./i18n";
+import { useOptionHeld } from "./useOptionHeld";
 import type { HarnessUpdateRow, HarnessUpdates } from "./harnessUpdateList";
 import "./harnessUpdates.css";
 
@@ -63,6 +66,7 @@ export function HarnessUpdatesSection({
   const t = useT();
   const title = t("harness.updatesAvailable");
   const all = updates.rows.length > 1;
+  const detailed = useOptionHeld();
   return (
     <section className="acpmux-harness-updates" aria-label={title} data-harness-updates={updates.rows.length}>
       <div className="acpmux-harness-updates-head">
@@ -92,17 +96,18 @@ export function HarnessUpdatesSection({
             data-phase={row.phase}
           >
             <AgentMark agent={row.harness} size={16} reserve />
-            <span className="acpmux-harness-update-name">{row.agent}</span>
-            {row.phase === "failed" ? (
-              <span className="acpmux-harness-update-versions">
-                {t("harness.updateFailedShort", { agent: row.agent })}
+            {/* The versions go under the name, so holding Option never cuts the name short. */}
+            <span className="acpmux-harness-update-label">
+              <span className="acpmux-harness-update-name">
+                {row.phase === "failed" ? t("harness.updateFailedShort", { agent: row.agent }) : row.agent}
               </span>
-            ) : (
-              <span className="acpmux-harness-update-versions">
-                {t("harness.versionChange", { version: row.version, latest: row.latest })}
-              </span>
-            )}
-            {row.skip && (
+              {detailed && row.phase !== "failed" && (
+                <span className="acpmux-harness-update-versions">
+                  {t("harness.versionChange", { version: row.version, latest: row.latest })}
+                </span>
+              )}
+            </span>
+            {detailed && row.skip && (
               <button type="button" className="acpmux-harness-update-skip" onClick={row.skip}>
                 {t("harness.skipVersion")}
               </button>
