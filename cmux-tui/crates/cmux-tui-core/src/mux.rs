@@ -408,7 +408,7 @@ use resource_content::ensure_screen_split_public_ids;
 #[cfg(unix)]
 pub(crate) use resource_topology::AgentCLIJobBusy;
 pub(crate) use resource_topology::{
-    BatchCloseOutcome, BatchCloseTarget, CloseReason, PANE_BROWSER_URL_FIELD,
+    BatchCloseOutcome, BatchCloseTarget, CloseReason, PANE_BROWSER_URL_FIELD, PANE_SPLIT_FIT_FIELD,
     PANE_SPLIT_FOCUS_FIELD, RoomClose, SCREEN_CREATE_FOCUS_FIELD, TabSplit,
     WORKSPACE_CREATE_FOCUS_FIELD,
 };

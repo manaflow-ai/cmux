@@ -878,6 +878,14 @@ try:
                 bad = [l for l in lines if any(w in l.lower() for w in ("error", "fail", "refus", "brain", "fall"))]
                 for l in (bad or lines)[-20:]:
                     log(f"BRAIN diag {name}: {l[:300]}")
+            # Which tools the brain called, and what its own log says about tools: a failed
+            # look or wake check is read from these, not guessed.
+            log(f"BRAIN diag tools called: {json.dumps(tool_names[:40])}")
+            for root, _dirs, files in os.walk(MUX):
+                if "agent.log" in files and os.sep + "brains" + os.sep in root + os.sep:
+                    lines = open(os.path.join(root, "agent.log"), errors="replace").read().splitlines()
+                    for l in [l for l in lines if "tool" in l.lower()][-40:]:
+                        log(f"BRAIN diag agent.log: {l[:300]}")
         json.dump(run, open(os.path.join(OUT, "run.json"), "w"), indent=1)
         raise SystemExit(0 if all(proof.values()) else 1)
 

@@ -371,60 +371,66 @@ pub(super) async fn run(app: String, artifacts: Option<Arc<artifacts::Artifacts>
         tools_with_preview(&tools_with_artifacts(artifacts.is_some()), preview)
     };
     let steer = (!inside).then(|| STEER.to_owned());
-    crate::secret_mcp::serve_as(SERVER_NAME, String::new(), tools, steer, move |_, params| {
-        let artifacts = artifacts.clone();
-        let app = app.clone();
-        async move {
-            if inside {
-                return error_result("this chat runs in acpmux: use its own cmux tools".to_owned());
-            }
-            let name = params.get("name").and_then(Value::as_str).unwrap_or_default();
-            let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
-            if !args.is_object() {
-                return error_result("arguments must be an object".to_owned());
-            }
-            if artifacts::TOOLS.contains(&name) {
-                return match &artifacts {
-                    Some(client) => artifacts::call(client, name, &args).await,
-                    None => error_result(
-                        "the artifact tools need a cmux sign-in on this machine".to_owned(),
-                    ),
-                };
-            }
-            match name {
-                NEW => return new(&app, &args).await,
-                handoff::NAME => {
-                    // Recheck on use: disabling Labs also stops clients with a cached tool list.
-                    let enabled = preview && handoff::enabled(&crate::user_settings::read());
-                    return match handoff::arguments(&args, enabled) {
-                        Ok(args) => new(&app, &args).await,
-                        Err(why) => error_result(why),
+    // Outside acpmux, this server is the chat's own child: acpmux's messages into a Claude Code
+    // chat go through it, so the chat does not hold them (`claude_inbox_relay.rs`). It ends with
+    // the server, or at once where no Claude Code session runs it.
+    let server =
+        crate::secret_mcp::serve_as(SERVER_NAME, String::new(), tools, steer, move |_, params| {
+            let artifacts = artifacts.clone();
+            let app = app.clone();
+            async move {
+                if inside {
+                    return error_result(
+                        "this chat runs in acpmux: use its own cmux tools".to_owned(),
+                    );
+                }
+                let name = params.get("name").and_then(Value::as_str).unwrap_or_default();
+                let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+                if !args.is_object() {
+                    return error_result("arguments must be an object".to_owned());
+                }
+                if artifacts::TOOLS.contains(&name) {
+                    return match &artifacts {
+                        Some(client) => artifacts::call(client, name, &args).await,
+                        None => error_result(
+                            "the artifact tools need a cmux sign-in on this machine".to_owned(),
+                        ),
                     };
                 }
-                MACHINES => return machines(&app).await,
-                "search" | "send_status" => {}
-                n if KEPT.contains(&n) => {}
-                other => {
-                    return error_result(crate::mcp_hint::unknown_tool(
-                        other,
-                        crate::mcp_hint::names(&tools_list()),
-                    ));
+                match name {
+                    NEW => return new(&app, &args).await,
+                    handoff::NAME => {
+                        // Recheck on use: disabling Labs also stops clients with a cached tool list.
+                        let enabled = preview && handoff::enabled(&crate::user_settings::read());
+                        return match handoff::arguments(&args, enabled) {
+                            Ok(args) => new(&app, &args).await,
+                            Err(why) => error_result(why),
+                        };
+                    }
+                    MACHINES => return machines(&app).await,
+                    "search" | "send_status" => {}
+                    n if KEPT.contains(&n) => {}
+                    other => {
+                        return error_result(crate::mcp_hint::unknown_tool(
+                            other,
+                            crate::mcp_hint::names(&tools_list()),
+                        ));
+                    }
+                }
+                // Only a tool that reads the daemon connects, and with no caller token, even one
+                // left in its env: the daemon takes a guest for no session (module docs).
+                let daemon = match crate::daemon::connect_without_caller(false).await {
+                    Ok(daemon) => daemon,
+                    Err(e) => return error_result(format!("{e:#}")),
+                };
+                match name {
+                    "search" => search_tool(&daemon, "", &args).await,
+                    "send_status" => send_status::call(&daemon, "", &args).await,
+                    _ => call_as(&daemon, &params, None).await,
                 }
             }
-            // Only a tool that reads the daemon connects, and with no caller token, even one
-            // left in its env: the daemon takes a guest for no session (module docs).
-            let daemon = match crate::daemon::connect_without_caller(false).await {
-                Ok(daemon) => daemon,
-                Err(e) => return error_result(format!("{e:#}")),
-            };
-            match name {
-                "search" => search_tool(&daemon, "", &args).await,
-                "send_status" => send_status::call(&daemon, "", &args).await,
-                _ => call_as(&daemon, &params, None).await,
-            }
-        }
-    })
-    .await
+        });
+    if inside { server.await } else { crate::claude_inbox_relay::beside(server).await }
 }
 
 fn tools_list() -> Value {
