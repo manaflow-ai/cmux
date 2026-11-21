@@ -3,6 +3,17 @@
 // over an in-page cmuxPage host that serves the patch (src/gallery/frame/pages.ts).
 import { diffPageEntry } from "../../gallery/format";
 import { pageDensities, pageDensityPlay } from "../../gallery/pageDensityFixtures";
+import type { PlayContext } from "../../gallery/play";
+
+/** Plain English is a row of the "..." menu (toolbar-model.ts): open the menu, choose it once it can run. */
+async function turnOnPlainEnglish(ctx: PlayContext): Promise<void> {
+  await ctx.waitFor(() => ctx.document.querySelector("#options-button"), { capMs: 10_000 });
+  await ctx.click({ selector: "#options-button" });
+  await ctx.waitFor(() => ctx.document.querySelector('[data-option="plain-english"]:not([aria-disabled="true"])'), {
+    capMs: 10_000,
+  });
+  await ctx.click({ selector: '[data-option="plain-english"]' });
+}
 
 const before = `export function request(url: string) {
   return fetch(url).then((response) => response.json());
@@ -339,10 +350,7 @@ export default diffPageEntry({
         },
       },
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector('#plain-english-toggle:not([aria-disabled="true"])'), {
-          capMs: 10_000,
-        });
-        await ctx.click({ selector: "#plain-english-toggle" });
+        await turnOnPlainEnglish(ctx);
         await ctx.waitFor(() => ctx.document.querySelectorAll('.plain-english-row[data-state="ready"]').length >= 3, {
           capMs: 10_000,
         });
@@ -363,10 +371,7 @@ export default diffPageEntry({
         },
       },
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector('#plain-english-toggle:not([aria-disabled="true"])'), {
-          capMs: 10_000,
-        });
-        await ctx.click({ selector: "#plain-english-toggle" });
+        await turnOnPlainEnglish(ctx);
         await ctx.waitFor(() => ctx.document.querySelector('.plain-english-row[data-state="ready"]'), {
           capMs: 10_000,
         });
@@ -382,24 +387,23 @@ export default diffPageEntry({
         sentences: { "export const added": "Doubles the value and adds a new string export." },
       },
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector('#plain-english-toggle:not([aria-disabled="true"])'), {
-          capMs: 10_000,
-        });
-        await ctx.click({ selector: "#plain-english-toggle" });
+        await turnOnPlainEnglish(ctx);
         await ctx.waitFor(() => ctx.document.querySelector('.plain-english-row[data-state="ready"]'), {
           capMs: 10_000,
         });
       },
     },
     "plain-english-unavailable": {
-      note: "No agent here can write summaries: the book button is off, and its tooltip says why.",
+      note: "No agent here can write summaries: the menu's Plain English row is off, and its tooltip says why.",
       files: [{ path: "src/net/client.ts", before, after }],
       summaries: { refused: "complete.not_installed" },
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector('#plain-english-toggle[aria-disabled="true"]'), {
+        await ctx.waitFor(() => ctx.document.querySelector("#options-button"), { capMs: 10_000 });
+        await ctx.click({ selector: "#options-button" });
+        await ctx.waitFor(() => ctx.document.querySelector('[data-option="plain-english"][aria-disabled="true"]'), {
           capMs: 10_000,
         });
-        await ctx.hover({ selector: "#plain-english-toggle" });
+        await ctx.hover({ selector: '[data-option="plain-english"]' });
       },
     },
     "review-brief": {
