@@ -360,6 +360,21 @@ extension AgentPaneModel {
         String(localized: "agentPane.github.connectPending", defaultValue: "Finish connecting GitHub in your browser.", bundle: .module)
     }
 
+    /// The folder menu's Connect GitHub for a team whose installation was suspended or uninstalled (`needs_reauth`).
+    static var gitHubReauthMessage: String {
+        String(localized: "agentPane.github.reauth", defaultValue: "GitHub access was suspended or removed. Connect GitHub again.", bundle: .module)
+    }
+
+    /// The folder menu's Connect GitHub for a connection the server marked `error`.
+    static var gitHubConnectionErrorMessage: String {
+        String(localized: "agentPane.github.connectionError", defaultValue: "GitHub reported a problem with this connection. Try again later.", bundle: .module)
+    }
+
+    /// The folder menu's Connect GitHub after the API refused the link the person came back with (an expired state).
+    static var gitHubLinkExpiredMessage: String {
+        String(localized: "agentPane.github.linkExpired", defaultValue: "The link expired; connect again.", bundle: .module)
+    }
+
     /// Connect GitHub with no cmux account signed in and no sign-in to start (`github.signed_out`).
     static var gitHubSignedOutMessage: String {
         String(localized: "agentPane.github.signedOut", defaultValue: "Sign in to cmux to connect GitHub.", bundle: .module)
