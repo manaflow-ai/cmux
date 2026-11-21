@@ -286,7 +286,7 @@ fn scan_names_each_roots_owner_from_its_session_guard() {
 
     // A dropped scan lets go of the free root: its session can start.
     let session = crate::workspace_registry::start_session_guard_for_test(&dir, "cmux-app-free");
-    assert!(session.is_ok(), "{session:?}");
+    assert!(session.is_ok(), "{:?}", session.as_ref().err());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -316,16 +316,10 @@ fn a_peek_never_holds_the_guard_a_starting_session_needs() {
     std::fs::create_dir_all(dir.join("session-locks")).unwrap();
     let component = crate::workspace_registry::session_guard_component("cmux-app-peek");
     std::fs::write(dir.join("session-locks").join(format!("{component}.lock")), b"").unwrap();
-    assert_eq!(
-        crate::workspace_registry::peek_session_owner(&dir, &component),
-        SessionOwnerPeek::Unowned
-    );
+    assert_eq!(peek_session_owner(&dir, &component), SessionOwnerPeek::Unowned);
     let session = crate::workspace_registry::start_session_guard_for_test(&dir, "cmux-app-peek");
-    assert!(session.is_ok(), "{session:?}");
-    assert_eq!(
-        crate::workspace_registry::peek_session_owner(&dir, &component),
-        SessionOwnerPeek::Owned
-    );
+    assert!(session.is_ok(), "{:?}", session.as_ref().err());
+    assert_eq!(peek_session_owner(&dir, &component), SessionOwnerPeek::Owned);
     drop(session);
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -428,7 +422,7 @@ fn gc_apply_ends_a_free_roots_host_past_grace_once_and_logs_intent_then_outcome(
     );
     // gc let go of the root's guard: its session can start now.
     let session = crate::workspace_registry::start_session_guard_for_test(&dir, FREE_SESSION);
-    assert!(session.is_ok(), "{session:?}");
+    assert!(session.is_ok(), "{:?}", session.as_ref().err());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -500,7 +494,7 @@ fn end_candidate_reports_each_outcome() {
         records: Vec::new(),
         error: None,
     };
-    let lease = || match crate::workspace_registry::probe_session_owner(&dir, &component) {
+    let lease = || match probe_session_owner(&dir, &component) {
         SessionOwnerProbe::Unowned(lease) => Some(lease),
         _ => panic!("the guard is free"),
     };
