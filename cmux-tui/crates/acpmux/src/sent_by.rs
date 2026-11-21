@@ -92,7 +92,9 @@ pub fn meta_model(meta: &crate::store::SessionMeta) -> Option<String> {
     });
     let current =
         meta.models.as_ref().and_then(|m| m.get("currentModelId")).and_then(Value::as_str);
-    [option, current, meta.model_request.as_deref()].into_iter().flatten().find_map(model_id)
+    // The newest report the harness made decides: a session switched to an alias (`sonnet`)
+    // names no model rather than the one it was started with.
+    [option, current, meta.model_request.as_deref()].into_iter().flatten().next().and_then(model_id)
 }
 
 /// This machine's short hostname, read once.
@@ -105,10 +107,23 @@ pub fn this_host() -> Option<String> {
     HOST.clone()
 }
 
+/// Whether `text` is a slash command (`/compact`, `/model opus`): a `/` and a command name, never
+/// a path (`/tmp/report.txt`, whose first word has a second `/`).
+fn is_command(text: &str) -> bool {
+    let Some(word) = text.trim_start().strip_prefix('/').and_then(|t| t.split_whitespace().next())
+    else {
+        return false;
+    };
+    !word.is_empty()
+        && !word.contains('/')
+        && word.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | ':'))
+}
+
 /// Appends `line` to a `session/prompt`'s `prompt` blocks: to its last text block after a blank
-/// line, or as a text block of its own when it has none or its only text is a slash command (a
-/// harness reads the first block's words as the command's arguments). Nothing when a text block
-/// has a [`PREFIX`] line already. Returns whether it stamped.
+/// line, or as a text block of its own when it has no text. A prompt whose first text is a slash
+/// command is left as it is: a harness reads the command's words as its arguments, and an adapter
+/// that sends only the last text block would send the line in place of the command. Nothing when a
+/// text block has a [`PREFIX`] line already. Returns whether it stamped.
 pub fn stamp_blocks(prompt: &mut Value, line: &str) -> bool {
     fn text_of(b: &Value) -> Option<&str> {
         (b.get("type").and_then(Value::as_str) == Some("text"))
@@ -121,10 +136,11 @@ pub fn stamp_blocks(prompt: &mut Value, line: &str) -> bool {
     if blocks.iter().filter_map(text_of).any(has_line) {
         return false;
     }
+    if blocks.iter().find_map(text_of).is_some_and(is_command) {
+        return false;
+    }
     let last = blocks.iter().rposition(|b| text_of(b).is_some());
-    let command =
-        last == Some(0) && blocks.first().and_then(text_of).is_some_and(|t| t.starts_with('/'));
-    match last.filter(|_| !command).and_then(|i| blocks.get_mut(i)) {
+    match last.and_then(|i| blocks.get_mut(i)) {
         Some(block) => {
             let text = block.get("text").and_then(Value::as_str).unwrap_or_default();
             let text = format!("{}\n\n{line}", text.trim_end_matches(['\n', '\r']));
@@ -221,11 +237,20 @@ mod tests {
     }
 
     #[test]
-    fn a_slash_command_or_no_text_gets_a_block_of_its_own() {
-        let mut p = json!({"prompt": [{"type": "text", "text": "/compact"}]});
-        stamp_blocks(&mut p, "Sent-by: a/b");
-        let own = json!({"type": "text", "text": "Sent-by: a/b"});
-        assert_eq!(p["prompt"], json!([{"type": "text", "text": "/compact"}, own]));
+    fn a_slash_command_is_left_as_it_is_and_no_text_gets_a_block_of_its_own() {
+        for command in ["/compact", "/model opus", "  /review 12"] {
+            let mut p = json!({"prompt": [{"type": "text", "text": command}]});
+            assert!(!stamp_blocks(&mut p, "Sent-by: a/b"), "{command}");
+            assert_eq!(p["prompt"], json!([{"type": "text", "text": command}]));
+        }
+        // A path is text, not a command: the line joins its block, so an adapter that sends the
+        // last text block sends both.
+        let mut p = json!({"prompt": [{"type": "text", "text": "/tmp/report.txt"}]});
+        assert!(stamp_blocks(&mut p, "Sent-by: a/b"));
+        assert_eq!(
+            p["prompt"],
+            json!([{"type": "text", "text": "/tmp/report.txt\n\nSent-by: a/b"}])
+        );
         let mut p = json!({"prompt": [{"type": "image", "data": "", "mimeType": "image/png"}]});
         stamp_blocks(&mut p, "Sent-by: a/b");
         assert_eq!(p["prompt"][1], json!({"type": "text", "text": "Sent-by: a/b"}));
@@ -252,5 +277,13 @@ mod tests {
         assert_eq!(meta_model(&meta), None);
         meta.models = Some(json!({"currentModelId": "claude-opus-5-5"}));
         assert_eq!(meta_model(&meta).as_deref(), Some("claude-opus-5-5"));
+        // Switched to an alias after starting: the old id is not named.
+        meta.model_request = Some("claude-opus-5-5".into());
+        meta.models = None;
+        meta.config_options = Some(
+            serde_json::from_value(json!([{"id": "model", "currentValue": "sonnet"}]))
+                .unwrap_or_else(|e| panic!("config options: {e}")),
+        );
+        assert_eq!(meta_model(&meta), None);
     }
 }
