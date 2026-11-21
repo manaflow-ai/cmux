@@ -155,7 +155,7 @@ export function Palette({
         if (!open) onClose();
       }}
       label={label}
-      className="lg-palette ui-glass ui-glass-floats"
+      className="lg-palette ui-glass ui-glass-floats ui-glass-transient"
       backdropClassName="lg-scrim"
     >
       <Combobox

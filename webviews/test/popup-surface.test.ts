@@ -85,7 +85,7 @@ ${tooltips}
 <div class="md-link-bubble" id="md-link-bubble">https://example.com</div>
 <div class="ui-popup ui-glass ui-popover md-link-popover" id="md-link-popover">Edit link</div>
 <div class="hc-msg-toolbar ui-glass ui-glass-floats ui-glass-transient" id="hc-msg-toolbar">React</div>
-<div class="ui-dialog lg-palette ui-glass ui-glass-floats" id="lg-palette">Search conversations</div>
+<div class="ui-dialog lg-palette ui-glass ui-glass-floats ui-glass-transient" id="lg-palette">Search conversations</div>
 <div class="ui-dialog ui-glass ui-glass-floats lg-form" id="lg-form">New message</div>
 <div id="editor-widget" style="background: var(--cmux-editor-widget-background)">Suggest</div>`,
     // Tooltips are frosted glass (tooltip-surface.test.ts).
