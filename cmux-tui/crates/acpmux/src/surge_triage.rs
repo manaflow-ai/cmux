@@ -360,11 +360,13 @@ pub fn triaged_record(batch: &Batch, decided: &[Decision], digest: Option<&str>)
                 "class": m.map(|m| m.class.as_str()).unwrap_or_default(),
                 "fingerprint": m.map(fingerprint).unwrap_or_default(),
             });
-            if let Some(o) = &d.owner {
-                v["owner"] = json!(o);
-            }
-            if let Some(r) = &d.repeat_of {
-                v["repeatOf"] = json!(r);
+            if let Some(fields) = v.as_object_mut() {
+                if let Some(o) = &d.owner {
+                    fields.insert("owner".into(), json!(o));
+                }
+                if let Some(r) = &d.repeat_of {
+                    fields.insert("repeatOf".into(), json!(r));
+                }
             }
             v
         })

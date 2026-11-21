@@ -354,6 +354,12 @@ impl Hub {
         *self.surge_triager.lock().unwrap_or_else(|e| e.into_inner()) = triager;
     }
 
+    /// Turns surge admission on or off for this hub, whatever the settings file says (tests).
+    #[cfg(test)]
+    pub(crate) fn set_surge_inbox(&self, on: Option<bool>) {
+        *self.surge_inbox.lock().unwrap_or_else(|e| e.into_inner()) = on;
+    }
+
     /// `session`'s journal, read up to its newest record: the cached one past its cursor, or,
     /// after a restart, the chat's records once.
     fn surge_journal(&self, session: &Session) -> Result<Journal, RpcError> {
@@ -500,10 +506,10 @@ impl Hub {
                 .map(|l| json!({"promptId": l.prompt_id, "threadId": l.thread_id}))
                 .collect();
             let mut marker = json!({"digestDelivered": id, "items": []});
-            if !redirected.is_empty() {
-                if let Some(fields) = marker.as_object_mut() {
-                    fields.insert("redirected".into(), json!(redirected));
-                }
+            if !redirected.is_empty()
+                && let Some(fields) = marker.as_object_mut()
+            {
+                fields.insert("redirected".into(), json!(redirected));
             }
             journal.read(triage::RECORD_KIND, &marker, crate::store::now_ms());
             let open = self.surge_open_topics(session, journal);

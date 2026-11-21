@@ -3255,7 +3255,10 @@ async fn dispatch_request_with_identity(
                         .await
                         .map_err(|e| RpcError::internal(format!("inbox search stopped: {e}")))?
                 }
-                method::MUX_INBOX_THREADS if params["countsOnly"] == true => {
+                method::MUX_INBOX_THREADS
+                    if params.get("countsOnly").and_then(serde_json::Value::as_bool)
+                        == Some(true) =>
+                {
                     Ok(json!({"sessionId": s.id, "surge": hub.surge_snapshot(&s)}))
                 }
                 method::MUX_INBOX_THREADS => Ok(hub.inbox_threads(&s)),
