@@ -173,9 +173,11 @@ const TYPED: readonly [RegExp, FailureKind][] = [
 /// io error kind ("invalid input parameter": a `[permissions]` profile with no `default_permissions`,
 /// which cmux-codex-acp sent for every thread until it set one) or "invalid configuration at PATH:LINE:COL".
 /// Another model or a sign-in does not help; the file does.
-const CODEX_CONFIG = /failed to (?:re)?load workspace requirements/i;
-/// The path may hold spaces; it ends at the first `:LINE:COLUMN` that ends a word.
-const CODEX_CONFIG_AT = /invalid configuration at (.+?):\d+:\d+(?!\S)/i;
+/// A config.toml that does not parse fails Codex's start (app-server, before any thread) with
+/// "failed to load configuration: PATH:LINE:COL: <toml error>" (Codex parity dogfood, 2026-11-20).
+const CODEX_CONFIG = /failed to (?:re)?load workspace requirements|failed to load configuration: \S/i;
+/// The path may hold spaces; it ends at the first `:LINE:COLUMN` that ends a word or meets the error's own colon.
+const CODEX_CONFIG_AT = /(?:invalid configuration at|failed to load configuration:) (.+?):\d+:\d+(?=:|\s|$)/i;
 const URL_HOST = /https?:\/\/([^\s/'")\]]+)/i;
 const STATUS = /\b([45]\d\d)\b/;
 /// Harness profiles that reach their provider through a proxy acpmux knows by name.
