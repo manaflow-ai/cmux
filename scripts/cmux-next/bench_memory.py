@@ -1761,16 +1761,19 @@ def relaunch_restored(bundle: str, config: dict, extra: dict, socket_path: str, 
         end_processes(left)
     # By executable path too (bundle_processes): the holder and the daemon's children start with a bare
     # argv[0], so a command-line match (bundle_pids) misses them, and the relaunch would reattach to them.
-    survivors = sorted(kind for kind, _ in bundle_processes(process_table(), bundle).values())
+    first = bundle_processes(process_table(), bundle)
+    survivors = sorted(kind for kind, _ in first.values())
     info["after_quit"] = survivors
     print(f"== relaunch: after the quit (mode {mode}): {survivors}", flush=True)
     if mode == "cold":
+        # Taken before end_bundle: once the daemon is gone the holder (a copy outside the bundle, found only
+        # through its parent or owner) is launchd's child and bundle_processes no longer sees it.
         end_bundle(bundle)
-        end_processes(set(bundle_processes(process_table(), bundle)))
-        left = bundle_processes(process_table(), bundle)
+        end_processes(set(first))
+        left = still_running(set(first), 0) | set(bundle_processes(process_table(), bundle))
         if left:
             raise SystemExit(f"bench-memory --relaunch-restored cold: processes of the first launch are still up "
-                             f"after the cleanup: {sorted((p, k) for p, (k, _) in left.items())}")
+                             f"after the cleanup: {sorted(left)}")
     pid, socket_path, _ = launch(bundle, config, extra, scratch=scratch)
     after = wait_terminal_shown(App(bundle, socket_path), None, 60)
     after["same_workspace"] = after["shown"] == workspace
