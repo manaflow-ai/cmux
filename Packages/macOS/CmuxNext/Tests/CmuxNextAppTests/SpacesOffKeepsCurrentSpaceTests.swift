@@ -51,6 +51,17 @@ struct SpacesOffKeepsCurrentSpaceTests {
         #expect(registry.unavailableReason(for: "newWindow") == nil, "New Window keeps working")
         #expect(!registry.perform("space.new"))
         #expect(fixture.store.profileIDs.count == 2)
+
+        // A workspace of another space no open window lists (a closed window's; picked in the palette or a
+        // notification) opens in a window of its own. This window keeps its view.
+        windows.claim(workspaceID: "k4", in: fixture.state)
+        #expect(fixture.state.profileID == Fixture.work, "a claim swapped this window's sidebar")
+        #expect(fixture.shown == ["k2", "k3"])
+        let owner = try #require(windows.registry.value.owner(of: "k4"))
+        #expect(owner != fixture.state.id)
+        #expect(windows.state(for: owner).profileID == .defaultProfile)
+        windows.controller(for: owner)?.teardown()
+        windows.controller(for: owner)?.window?.close()
     }
 
     /// Spaces on again: the switcher's actions come back and the window moves between spaces as before.
@@ -121,9 +132,9 @@ struct SpacesOffKeepsCurrentSpaceTests {
             try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
         }
 
-        /// The default space holds k1; Work holds k2 and k3.
+        /// The default space holds k1 and k4 (no window lists k4); Work holds k2 and k3.
         static func tree() -> DaemonTree {
-            let keys = ["k1", "k2", "k3"]
+            let keys = ["k1", "k2", "k3", "k4"]
             var tree = DaemonTree(registryID: "s-local", workspaces: keys.enumerated().map { index, key in
                 WorkspaceSnapshot(id: WorkspaceHandle(rawValue: UInt64(index + 1)), key: WorkspaceKey(rawValue: key), name: key, screens: [])
             })

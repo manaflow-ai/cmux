@@ -224,6 +224,13 @@ extension WindowManager {
         }
         // A workspace of another room: the window enters that room first, so the selection repair
         // after the move finds it shown there and picks it (Home took a second click otherwise).
+        // Spaces off (#48355): this window keeps its view; the workspace opens in a window of its own on its space.
+        if shows, !spacesOn, let room = WindowProfiles.room(of: workspaceID, current: state.profileID, machines: services.machines) {
+            let windowID = UUID().uuidString.lowercased()
+            self.state(for: windowID).enterProfile(room)
+            openWindow(id: windowID, workspaces: [workspaceID])
+            return
+        }
         if shows { enterProfile(of: workspaceID, in: state) }
         transition(select: shows ? [state.id: [workspaceID]] : [:], gesture: true) { $0.move([workspaceID], to: state.id) }
         fileOpenedMachine(of: workspaceID, into: state.id)
