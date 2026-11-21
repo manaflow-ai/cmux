@@ -73,7 +73,8 @@ async fn session_aliases_collide_with_names_and_generic_alias_tags_do_not_route(
 
     let hub = test_hub();
     list_with_alias(&hub, "lanevm-7", "0199aaaa-1111", "canonical", "idle", Some("friendly"));
-    let row = hub.remote_sessions.read().get("lanevm-7/0199aaaa-1111").unwrap();
+    let remote_sessions = hub.remote_sessions.read();
+    let row = remote_sessions.get("lanevm-7/0199aaaa-1111").unwrap();
     assert_eq!(row.summary.alias(), Some("friendly"));
     assert_eq!(hub.key_route("alias").unwrap(), None);
 }

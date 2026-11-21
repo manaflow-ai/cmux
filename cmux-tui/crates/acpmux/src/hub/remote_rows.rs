@@ -21,6 +21,8 @@ use super::*;
 
 /// A persistent map: `clone` is O(1), its nodes shared until one side writes.
 type PMap<K, V> = imbl::HashMap<K, V>;
+/// A persistent sorted map, used where prefix lookup needs ordered keys.
+type POrdMap<K, V> = imbl::OrdMap<K, V>;
 /// A persistent sorted set, likewise.
 type PSet<A> = imbl::OrdSet<A>;
 
@@ -271,7 +273,7 @@ impl RemoteRows {
 struct Names {
     by_name: PMap<String, PSet<String>>,
     by_bare_name: PMap<String, PSet<String>>,
-    by_alias: PMap<String, PSet<String>>,
+    by_alias: POrdMap<String, PSet<String>>,
     by_last_segment: PMap<String, PSet<String>>,
     keys: PSet<String>,
     muxes: PSet<(String, String)>,
