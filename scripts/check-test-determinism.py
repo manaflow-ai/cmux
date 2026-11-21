@@ -720,9 +720,11 @@ _JAVASCRIPT_CONTROL_HEAD_KEYWORDS = frozenset({"if", "while", "for", "with"})
 _JAVASCRIPT_EXPRESSION_KEYWORDS = frozenset(
     {"await", "delete", "in", "instanceof", "new", "of", "return", "throw", "typeof", "void", "yield"}
 )
-_JAVASCRIPT_BLOCK_KEYWORDS = frozenset({"do", "else", "finally", "try"})
-# Restricted productions: a line terminator after these ends the statement (automatic semicolon insertion).
-_JAVASCRIPT_ASI_KEYWORDS = frozenset({"return", "yield"})
+# `break` and `continue` take only a label name, never a `{`: one after them starts the next statement, a block.
+_JAVASCRIPT_BLOCK_KEYWORDS = frozenset({"break", "continue", "do", "else", "finally", "try"})
+# Restricted productions: a line terminator after these ends the statement (automatic semicolon insertion). TypeScript's
+# parser reads `throw` the same way (it reports the line break, and parses no operand).
+_JAVASCRIPT_ASI_KEYWORDS = frozenset({"return", "throw", "yield"})
 _JAVASCRIPT_LINE_TERMINATOR = re.compile("[\n\r\u2028\u2029]")
 # Heads after whose `)` a `{` opens a block (a statement's body): the control heads, `switch` and `catch`.
 _JAVASCRIPT_BLOCK_HEAD_KEYWORDS = _JAVASCRIPT_CONTROL_HEAD_KEYWORDS | {"switch", "catch"}
@@ -772,58 +774,165 @@ def _javascript_skip_blanks(source: str, index: int) -> int:
     return index
 
 
+def _javascript_skip_trivia(source: str, index: int) -> int:
+    """INDEX moved past blanks and comments (`/* */`, and `//` up to its line terminator), as a parser's lookahead
+    skips them: `<T /*doc*/ extends U>` and `(x: T) /*m*/ => x` read as if the comments were not there."""
+    while True:
+        index = _javascript_skip_blanks(source, index)
+        if source.startswith("/*", index):
+            close = source.find("*/", index + 2)
+            if close < 0:
+                return len(source)
+            index = close + 2
+        elif source.startswith("//", index):
+            line_end = _JAVASCRIPT_LINE_TERMINATOR.search(source, index + 2)
+            index = line_end.start() if line_end else len(source)
+        else:
+            return index
+
+
 _JAVASCRIPT_TYPE_LOOKAHEAD = 2000
 _JAVASCRIPT_CLOSERS = {"(": ")", "[": "]", "{": "}", "<": ">"}
 
 
-def _javascript_balanced_end(source: str, index: int) -> int:
-    """The offset just past the bracket that closes the one at INDEX (`(`, `[`, `{` or `<`), skipping nested brackets
-    and quoted strings, or -1 when it is not within reach."""
-    stack = [_JAVASCRIPT_CLOSERS[source[index]]]
-    position = index + 1
-    limit = min(len(source), index + _JAVASCRIPT_TYPE_LOOKAHEAD)
-    while position < limit:
-        character = source[position]
-        if source.startswith("=>", position):
-            position += 2  # a function type's arrow closes no `<`
-            continue
-        if character in "'\"`":
-            close = source.find(character, position + 1, limit)
-            if close < 0:
-                return -1
-            position = close + 1
-            continue
-        if character in _JAVASCRIPT_CLOSERS:
-            stack.append(_JAVASCRIPT_CLOSERS[character])
-        elif character == stack[-1]:
-            stack.pop()
-            if not stack:
-                return position + 1
-        position += 1
-    return -1
+# Whether a type-parameter lookahead is running: the lookahead lexes its window, and a `<Name extends` in that window
+# must not start another lookahead, or n generic arrows in a row cost 2^n - 1 of them (review of #41464, F1). Inside a
+# lookahead such a `<` is unresolved: an arrow nested in another's lookahead leaves the outer one undecided.
+_JAVASCRIPT_LOOKAHEAD_ACTIVE = False
+# What the parameter walk returns when a closer does not match its opener: no parameter list TypeScript would parse.
+_JAVASCRIPT_PARAMETERS_MISMATCH = -2
 
 
-def _javascript_angle_is_type_parameters(source: str, index: int) -> bool:
+def _javascript_expression_starts_after(
+    source: str, index: int, executable: bytes, comments: bytes
+) -> bool:
+    """Whether an expression starts at INDEX: the code token before it is an operator or an opener, not an operand
+    (a name, a literal or a closer)."""
+    previous = index - 1
+    while previous >= 0 and (comments[previous] or _javascript_is_blank(source[previous])):
+        previous -= 1
+    if previous < 0:
+        return True
+    if not executable[previous]:
+        return False  # a literal's end
+    return source[previous] in "=(,?:[{!&|+-*%^~;<>"
+
+
+def _javascript_angle_is_type_parameters(source: str, index: int) -> Optional[bool]:
     """Whether the `<` at INDEX opens a generic arrow's type parameters, the way TypeScript reads a .tsx file: the
-    list closes with `>`, then a parenthesized parameter list, then `=>` or a `:` return type."""
-    close = _javascript_balanced_end(source, index)
-    if close < 0:
+    list closes with `>`, then a parenthesized parameter list, then `=>` or a `:` return type. None when the text
+    cannot tell.
+
+    The text within reach after the `<` is read by the lexer itself, as .tsx, so a `//`, `/*`, quote or bracket inside
+    a regex, string, template, comment or JSX element there is that literal's text: in `<T extends U>(x = /[//]/) => x`
+    the regex's `//` hides no `)`, and in `(x = <div></div>)` the closing tag's slash opens no regex. Only code tokens
+    count as brackets. That lex starts no lookahead of its own (`_JAVASCRIPT_LOOKAHEAD_ACTIVE`): each `<` costs one
+    lex of a bounded window, so a file costs time linear in its size.
+
+    In the type parameter list `<` and `>` are brackets (a type holds no comparison), and an unresolved slash makes it
+    no list (a type holds no regex and no division: `<Tile extends {...p} />` is a tag). In the parameter list `<` and
+    `>` inside a default value (after `=`, up to its `,`) compare (`${a < b}`) or delimit JSX, and close nothing;
+    elsewhere (a type annotation, a binding pattern) they are a type's brackets. A closer that does not match its
+    opener (`({a < b})`: no parameter list), an unresolved token, or a nested arrow's `<`, makes the answer None."""
+    global _JAVASCRIPT_LOOKAHEAD_ACTIVE
+    # The `<` itself is left out (a blank in its place keeps the offsets): read, it would ask this lookahead again.
+    window = " " + source[index + 1 : index + _JAVASCRIPT_TYPE_LOOKAHEAD]
+    _JAVASCRIPT_LOOKAHEAD_ACTIVE = True
+    try:
+        executable, comments, unresolved = _lexical_positions_and_unresolved(window, ".tsx")
+    finally:
+        _JAVASCRIPT_LOOKAHEAD_ACTIVE = False
+    first_unresolved = min(unresolved, default=len(window))
+
+    def type_parameters_end() -> Optional[int]:
+        # Just past the `>` that closes the list; -1 when it is not within reach, None when a nested arrow's `<`
+        # (unresolved in this lex) comes first.
+        stack = [">"]
+        position = 1
+        while position < len(window):
+            if position == first_unresolved:
+                return None if window[position] == "<" else -1
+            character = window[position]
+            if not executable[position]:
+                pass
+            elif window.startswith("=>", position):
+                position += 2  # a function type's arrow closes no `<`
+                continue
+            elif character in _JAVASCRIPT_CLOSERS:
+                stack.append(_JAVASCRIPT_CLOSERS[character])
+            elif character == stack[-1]:
+                stack.pop()
+                if not stack:
+                    return position + 1
+            position += 1
+        return -1
+
+    def parameters_end(start: int) -> Optional[int]:
+        # Just past the `)` that closes the list at START; -1 when it is not within reach, None when an unresolved
+        # token comes first, _JAVASCRIPT_PARAMETERS_MISMATCH when a closer does not match its opener.
+        frames = [[")", False]]  # [closer, inside a default value]
+        position = start + 1
+        while position < len(window):
+            if position == first_unresolved:
+                return None
+            character = window[position]
+            if not executable[position]:
+                pass
+            elif window.startswith("=>", position):
+                position += 2
+                continue
+            elif character == "<" and frames[-1][0] != ">" and any(in_default for _, in_default in frames):
+                # In a default value a `<` where an expression starts and that opens no JSX tag opens a nested
+                # arrow's type parameters (`<V,>`, `<V = W>`); after an operand it compares, and closes nothing.
+                # (A nested `<V extends W>` was left unresolved by the lex, so the walk never gets here with one.)
+                if _javascript_expression_starts_after(
+                    window, position, executable, comments
+                ) and not _javascript_jsx_tag_opens_at(window, position):
+                    frames.append([">", False])
+            elif character == ">" and frames[-1][0] != ">" and any(in_default for _, in_default in frames):
+                pass
+            elif character in _JAVASCRIPT_CLOSERS:
+                frames.append([_JAVASCRIPT_CLOSERS[character], False])
+            elif character in ")]}>":
+                if character != frames[-1][0]:
+                    return _JAVASCRIPT_PARAMETERS_MISMATCH
+                frames.pop()
+                if not frames:
+                    return position + 1
+            elif character == "=" and window[position + 1 : position + 2] != "=" and window[position - 1] not in "=!":
+                frames[-1][1] = True
+            elif character == ",":
+                frames[-1][1] = False
+            position += 1
+        return -1
+
+    def skip_trivia(position: int) -> int:
+        while position < len(window) and (comments[position] or _javascript_is_blank(window[position])):
+            position += 1
+        return position
+
+    close = type_parameters_end()
+    if close is None or close < 0:
+        return None if close is None else False
+    params = skip_trivia(close)
+    if not window.startswith("(", params):
         return False
-    params = _javascript_skip_blanks(source, close)
-    if not source.startswith("(", params):
-        return False
-    params_end = _javascript_balanced_end(source, params)
+    params_end = parameters_end(params)
+    if params_end is None or params_end == _JAVASCRIPT_PARAMETERS_MISMATCH:
+        return None
     if params_end < 0:
         return False
-    after = _javascript_skip_blanks(source, params_end)
-    return source.startswith(("=>", ":"), after)
+    return window.startswith(("=>", ":"), skip_trivia(params_end))
 
 
-def _javascript_jsx_tag_opens_at(source: str, index: int) -> bool:
+def _javascript_jsx_tag_opens_at(source: str, index: int, path_suffix: str = ".tsx") -> Optional[bool]:
     """Whether the `<` at INDEX reads as a JSX open tag or fragment where an expression may start: `<>` or `<Name`,
     unless the name is followed by `=` or `,` (`<T = V>`, `<T,>`: type parameters), or by `extends` that opens a
     generic arrow's type parameters (`<T extends U>(x) => x`). An attribute named `extends`, bare or with a value
-    (`<Tile extends {...p} />`, `<div extends="x">`), keeps the tag. Blanks are ECMAScript's (U+00A0 included)."""
+    (`<Tile extends {...p} />`, `<div extends="x">`), keeps the tag. Blanks are ECMAScript's (U+00A0 included), and
+    a comment between the name and what follows is skipped (`<T /*doc*/ extends U>`). None when the type-parameter
+    lookahead cannot tell, or runs inside another one. Only a .tsx file has type parameters: in a .js or .jsx file
+    `<Tile extends U>` is always a tag."""
     after = index + 1
     if after >= len(source):
         return False
@@ -834,16 +943,21 @@ def _javascript_jsx_tag_opens_at(source: str, index: int) -> bool:
     end = after + 1
     while end < len(source) and _javascript_identifier_character(source[end]):
         end += 1
-    end = _javascript_skip_blanks(source, end)
+    end = _javascript_skip_trivia(source, end)
     if source.startswith(("=", ","), end):
         return False
     if source.startswith("extends", end) and not (
         end + 7 < len(source) and _javascript_identifier_character(source[end + 7])
     ):
-        rest = _javascript_skip_blanks(source, end + 7)
+        rest = _javascript_skip_trivia(source, end + 7)
         if source.startswith("=", rest) and not source.startswith(("==", "=>"), rest):
             return True  # `extends="x"`: an attribute
-        return not _javascript_angle_is_type_parameters(source, index)
+        if path_suffix != ".tsx":
+            return True
+        if _JAVASCRIPT_LOOKAHEAD_ACTIVE:
+            return None
+        type_parameters = _javascript_angle_is_type_parameters(source, index)
+        return None if type_parameters is None else not type_parameters
     return True
 
 
@@ -851,7 +965,7 @@ def _javascript_word_before(source: str, end: int, comments: bytearray) -> tuple
     """The identifier or keyword that ends just before END (skipping blanks and comments), and where it starts;
     ("", END) when there is none."""
     previous = end - 1
-    while previous >= 0 and (source[previous].isspace() or comments[previous]):
+    while previous >= 0 and (_javascript_is_blank(source[previous]) or comments[previous]):
         previous -= 1
     start = previous + 1
     while start > 0 and _javascript_identifier_character(source[start - 1]):
@@ -865,7 +979,7 @@ def _javascript_is_keyword_at(source: str, start: int, comments: bytearray) -> b
     if start > 0 and source[start - 1] == "#":
         return False
     before = start - 1
-    while before >= 0 and (source[before].isspace() or comments[before]):
+    while before >= 0 and (_javascript_is_blank(source[before]) or comments[before]):
         before -= 1
     return not (before >= 0 and source[before] == ".")
 
@@ -940,7 +1054,7 @@ def _javascript_brace_closes_block(
     if open_brace < 0:
         return None
     previous = open_brace - 1
-    while previous >= 0 and (source[previous].isspace() or comments[previous]):
+    while previous >= 0 and (_javascript_is_blank(source[previous]) or comments[previous]):
         previous -= 1
     if previous < 0:
         return True
@@ -966,8 +1080,8 @@ def _javascript_brace_closes_block(
         if not _javascript_is_keyword_at(source, start, comments):
             return None
         if word in _JAVASCRIPT_ASI_KEYWORDS and _JAVASCRIPT_LINE_TERMINATOR.search(source, start + len(word), open_brace):
-            # `return` and `yield` take no line terminator before their operand: a semicolon is inserted, and the
-            # `{` on the next line opens a block (a terminator inside a comment between counts too).
+            # `return`, `yield` and `throw` take no line terminator before their operand: a semicolon is inserted,
+            # and the `{` on the next line opens a block (a terminator inside a comment between counts too).
             return True
         if word in _JAVASCRIPT_EXPRESSION_KEYWORDS:
             return False
@@ -995,7 +1109,7 @@ def _javascript_regex_literal_starts_at(
     """
     previous = index - 1
     while previous >= 0 and (
-        source[previous].isspace() or comments[previous]
+        _javascript_is_blank(source[previous]) or comments[previous]
     ):
         previous -= 1
     if previous < 0:
@@ -1033,15 +1147,20 @@ def _javascript_regex_literal_starts_at(
         and executable[previous - 1]
     ):
         return False
-    if character == "!" and previous > 0 and executable[previous - 1]:
-        # A `!` right after a name, `)` or `]` is TypeScript's postfix non-null assertion (`value!`): the expression
-        # is complete. After a keyword (`return!x`) it is the prefix not.
-        before = source[previous - 1]
-        if before in ")]":
-            return False
-        if _javascript_identifier_character(before):
-            word, start = _javascript_word_before(source, previous, comments)
-            return _javascript_is_keyword_at(source, start, comments) and word in _JAVASCRIPT_REGEX_PREFIX_KEYWORDS
+    if character == "!":
+        # A `!` right after a name, `)` or `]` is TypeScript's postfix non-null assertion (`value!`), and so is each
+        # `!` of a run of them (`value!!`): the expression is complete. After a keyword (`return!x`) it is the prefix
+        # not.
+        bangs = previous
+        while bangs > 0 and source[bangs - 1] == "!" and executable[bangs - 1]:
+            bangs -= 1
+        if bangs > 0 and executable[bangs - 1]:
+            before = source[bangs - 1]
+            if before in ")]":
+                return False
+            if _javascript_identifier_character(before):
+                word, start = _javascript_word_before(source, bangs, comments)
+                return _javascript_is_keyword_at(source, start, comments) and word in _JAVASCRIPT_REGEX_PREFIX_KEYWORDS
     return True
 
 
@@ -1122,6 +1241,16 @@ def _lexical_positions_and_unresolved(
     expression_stop = _LEXER_JSX_EXPRESSION_STOP if is_jsx else _LEXER_EXPRESSION_STOP
     index = 0
     length = len(line)
+    hashbang = (0, 0)
+    if path_suffix in _JAVASCRIPT_SUFFIXES:
+        # A `#!` line at the very start (after a byte order mark) is ECMAScript's hashbang comment: trivia the parser
+        # lists as no comment. It is read as blanks (a `/` or `/*` in it opens nothing, and the first token after it
+        # starts the file), then left unmarked: neither code nor a comment.
+        start = 1 if line.startswith("\ufeff") else 0
+        if line.startswith("#!", start):
+            line_end = _JAVASCRIPT_LINE_TERMINATOR.search(line, start)
+            hashbang = (start, line_end.start() if line_end else length)
+            line = line[: hashbang[0]] + " " * (hashbang[1] - hashbang[0]) + line[hashbang[1] :]
     while index < length:
         kind, brace_depth, delimiter = contexts[-1]
         if kind == "code":
@@ -1166,7 +1295,10 @@ def _lexical_positions_and_unresolved(
                 # The closing `>` is no operator: like a string's end, a slash after it divides.
                 contexts.pop()
                 index = close + 1
-            elif _javascript_jsx_tag_opens_at(line, index):
+            elif (tag_opens := _javascript_jsx_tag_opens_at(line, index, path_suffix)) is not False:
+                # Undecided, it is read as a tag (in children a `<` can only open one), but unresolved.
+                if tag_opens is None:
+                    unresolved.append(index)
                 executable[index] = True
                 contexts.append(("jsx-tag", 0, ""))
                 index += 1
@@ -1175,8 +1307,22 @@ def _lexical_positions_and_unresolved(
             continue
 
         if kind == "jsx-tag":
-            # Inside `<Name ...`, up to its `>` (its children follow) or `/>` (it is complete).
-            if line.startswith("/>", index):
+            # Inside `<Name ...`, up to its `>` (its children follow) or `/>` (it is complete). A comment may sit
+            # between the name and attributes (`<a /*doc*/ b="1">`, `<a // c` and a new line), and any ECMAScript
+            # blank (U+FEFF too) separates them.
+            if line.startswith("/*", index):
+                comments[index : index + 2] = b"\x01\x01"
+                contexts.append(("block-comment", 1, ""))
+                index += 2
+            elif line.startswith("//", index):
+                line_end = _JAVASCRIPT_LINE_TERMINATOR.search(line, index + 2)
+                comment_end = line_end.start() if line_end else length
+                comments[index:comment_end] = b"\x01" * (comment_end - index)
+                index = comment_end
+            elif _javascript_is_blank(character):
+                executable[index] = True
+                index += 1
+            elif line.startswith("/>", index):
                 contexts.pop()
                 index += 2
             elif character == ">":
@@ -1359,11 +1505,12 @@ def _lexical_positions_and_unresolved(
             index = comment_end
             continue
 
-        if is_jsx and character == "<" and _javascript_jsx_tag_opens_at(line, index):
+        if is_jsx and character == "<" and (tag_opens := _javascript_jsx_tag_opens_at(line, index, path_suffix)) is not False:
             # Where an expression starts, `<Name` or `<>` opens a JSX element; after a name or a value it is a
-            # comparison. Where the text cannot tell (after a `)` or `}` it cannot classify), it is unresolved.
+            # comparison. Where the text cannot tell (after a `)` or `}` it cannot classify, or a slash in the
+            # type-parameter lookahead it cannot), it is unresolved.
             expression_starts = _javascript_regex_literal_starts_at(line, index, executable, comments)
-            if expression_starts is None:
+            if expression_starts is None or (tag_opens is None and expression_starts):
                 unresolved.append(index)
             elif expression_starts:
                 executable[index] = True
@@ -1483,6 +1630,7 @@ def _lexical_positions_and_unresolved(
                 contexts[-1] = (kind, brace_depth - 1, delimiter)
         index += 1
 
+    executable[hashbang[0] : hashbang[1]] = bytes(hashbang[1] - hashbang[0])
     return bytes(executable), bytes(comments), tuple(unresolved)
 
 
@@ -5622,6 +5770,13 @@ _ATTRIBUTION_CONSTRUCTS: list[tuple[str, str, str]] = [
     # A `!` right after a name is TypeScript's postfix non-null assertion: the `<` after it compares (F3).
     ("tsx comparison after a non-null assertion", "web/tests/b32.test.tsx",
      "    const n = value! <limit > floor; const o = {\n      a: 1 };\n"),
+    # The type-parameter lookahead reads `<` and `>` as brackets only in the type parameter list, and JSX in a
+    # parameter default as JSX: a comparison in a template hole, or a closing tag's slash, leaves the arrow an arrow
+    # (review of #41452, F1 and F2).
+    ("tsx generic arrow with a comparison in a default's template hole", "web/tests/b33.test.tsx",
+     "    const f = <T extends U>(x = `${a < b}`) => x; const o = {\n      a: 1 };\n"),
+    ("tsx generic arrow with JSX in a parameter default", "web/tests/b34.test.tsx",
+     "    const f = <T extends U>(x = <div></div>) => x; const o = {\n      a: 1 };\n"),
     ("swift multi-line string", "cmuxTests/A1Tests.swift", "        let json = \"\"\"\n        {\"a\": 1\n        \"\"\"\n"),
     ("swift raw string with quotes", "cmuxTests/A2Tests.swift", "        let s = #\"a \"{\" b\"#\n"),
     ("swift multi-line raw string", "cmuxTests/A3Tests.swift",
@@ -5797,6 +5952,20 @@ ATTRIBUTION_GUARDS: list[tuple[str, str, str, str, dict[int, str]]] = [
      "        time.sleep(0.5)\n"
      "        self.assertTrue(done())\n",
      RULE_SLEEP_THEN_ASSERT, {6: "Waits.test_a"}),
+    # `<Tile extends U>({a < b}): x</Tile>` is a tag: a .jsx file has no type parameters, and in a .tsx file `({a < b})`
+    # is no parameter list TypeScript parses, so it is unresolved there, never a guessed arrow. The sleep after the
+    # tag is in its comment (review of #41464, F2).
+    ("jsx tag named like a generic arrow, a comparison in a hole", "web/tests/g14.test.jsx",
+     _js_attribution_fixture(
+         "    const el = <Tile extends U>({a < b}): x</Tile>; // await new Promise((r) => setTimeout(r, 200));\n"
+         "    expect(drawn).toBe(true);\n"
+     ), RULE_SLEEP_THEN_ASSERT, {7: "pane.b"}),
+    ("tsx tag named like a generic arrow, a comparison in a hole", "web/tests/g15.test.tsx",
+     _js_attribution_fixture(
+         "    const el = <Tile extends U>({a < b}): x</Tile>; // await new Promise((r) => setTimeout(r, 200));\n"
+         "    expect(drawn).toBe(true);\n"
+     ), RULE_SLEEP_THEN_ASSERT,
+     {3: "<unresolved: JSX tag or comparison at 3:16>", 7: "<unresolved: JSX tag or comparison at 3:16>"}),
 ]
 
 
@@ -5868,12 +6037,15 @@ def _attribution_self_test() -> list[str]:
     return failures
 
 
-# The regex-after-token table shared with manaflow-ai/cmux-platform#1271's JS tokenizer: each case is a source
-# and whether the text `echo` after its slash is code (a hit) or a comment. regex-after-token.json is a pinned
-# byte copy (its .pin sidecar names the commit and sha256). cmux-rows.json holds the rows cmux has sent to #1271's
-# table and that are not in the pinned copy yet; a row there with "unresolved": true is one a strict lexer cannot
-# decide, so its expected answer is "unresolved" (a tokenizer that scans both readings reads it as a hit).
+# The regex-after-token table shared with manaflow-ai/cmux-platform's JS tokenizer: each row is a source and whether
+# the text `echo` after its slash is code (a hit) or a comment. regex-after-token.json is a pinned byte copy (its .pin
+# sidecar names the commit and sha256). Its "ranges" (on each row, and on each "parsed" case) are where TypeScript's
+# parser puts each comment, string, regex, template and JSX text, read as a .tsx file: the parser is the lexer's
+# oracle, offline. cmux-rows.json holds the rows cmux has sent to the table and that the pinned copy does not hold yet;
+# a row there with "unresolved": true is one a strict lexer cannot decide, so its expected answer is "unresolved" (a
+# tokenizer that scans both readings reads it as a hit).
 REGEX_AFTER_TOKEN_DIR = pathlib.Path(__file__).resolve().parent / "fixtures" / "regex-after-token"
+_JAVASCRIPT_LINE_TERMINATORS = "\n\r\u2028\u2029"
 
 
 def _regex_after_token_cases(table: dict) -> list[tuple[str, bool, bool]]:
@@ -5903,9 +6075,34 @@ def _regex_after_token_cases(table: dict) -> list[tuple[str, bool, bool]]:
     return cases
 
 
-def _regex_after_token_self_test() -> tuple[list[str], int]:
+def _regex_after_token_parsed_verdict(source: str, ranges: list) -> tuple[str, int]:
+    """Compare the lexer's comments in SOURCE (read as .tsx) with the parser's comment RANGES, character by character
+    (a line terminator inside a block comment counts as neither). ("agree", -1); ("disagree", offset) for the first
+    character they read differently, when no unresolved token comes before it; or ("unresolved", offset) for the
+    first token the lexer could not decide (it fails closed: what follows may be read either way)."""
+    parser = bytearray(len(source))
+    for kind, start, end in ranges:
+        if kind == "comment":
+            parser[start:end] = b"\x01" * (end - start)
+    _, comments, unresolved = _lexical_positions_and_unresolved(source, ".tsx")
+    first_unresolved = min(unresolved, default=len(source))
+    for offset, character in enumerate(source):
+        if character in _JAVASCRIPT_LINE_TERMINATORS:
+            continue
+        if bool(comments[offset]) != bool(parser[offset]):
+            if offset < first_unresolved:
+                return "disagree", offset
+            break
+    if unresolved:
+        return "unresolved", first_unresolved
+    return "agree", -1
+
+
+def _regex_after_token_self_test(strict: bool = False) -> tuple[list[str], int, str]:
     """Run the lexer over the shared table and cmux's rows, strictly: each case the table decides gives its answer,
-    and each it cannot decide is unresolved (fails --strict), never a guess. Returns the failures and the count."""
+    and each it cannot decide is unresolved, never a guess. Every row with parser ranges and every "parsed" case must
+    also read its comments where the parser does, or come out unresolved: a disagreement always fails, an unresolved
+    one fails under STRICT. Returns the failures, the case count and a summary of the parser comparison."""
     import hashlib
 
     failures: list[str] = []
@@ -5922,9 +6119,13 @@ def _regex_after_token_self_test() -> tuple[list[str], int]:
             f"({pin.get('repo')}@{pin.get('commit')}:{pin.get('path')}); copy that file unchanged or re-pin it"
         )
     cases = 0
+    counts = {
+        group: {"agree": 0, "unresolved": 0, "disagree": 0, "skipped": 0} for group in ("rows", "parsed")
+    }
     # cmux-rows.json exists only while cmux has rows the pinned copy does not hold yet.
     for path in (path for path in (shared, REGEX_AFTER_TOKEN_DIR / "cmux-rows.json") if path.exists()):
-        for source, hit, forks in _regex_after_token_cases(json.loads(path.read_text(encoding="utf-8"))):
+        table = json.loads(path.read_text(encoding="utf-8"))
+        for source, hit, forks in _regex_after_token_cases(table):
             cases += 1
             target = source.index("echo")
             _, comments, unresolved = _lexical_positions_and_unresolved(source, ".tsx")
@@ -5939,7 +6140,105 @@ def _regex_after_token_self_test() -> tuple[list[str], int]:
                     f"REGEX-AFTER-TOKEN {path.name}: the text after the slash reads as "
                     f"{'a comment' if hit else 'code'}, the table says {'code' if hit else 'a comment'}: {source!r}"
                 )
-    return failures, cases
+        for group, entries in (("rows", table.get("rows", [])), ("parsed", table.get("parsed", []))):
+            for entry in entries:
+                if "ranges" not in entry:
+                    # A source the parser reports a syntax error in has no ranges (nor does a row of cmux-rows.json).
+                    counts[group]["skipped"] += bool(entry.get("syntax_error"))
+                    continue
+                cases += group == "parsed"
+                verdict, offset = _regex_after_token_parsed_verdict(entry["source"], entry["ranges"])
+                counts[group][verdict] += 1
+                label = f"REGEX-AFTER-TOKEN {path.name} {group}" + (
+                    f" ({entry['family']})" if "family" in entry else ""
+                )
+                if verdict == "disagree":
+                    failures.append(
+                        f"{label}: offset {offset} reads as "
+                        f"{'code' if any(k == 'comment' and s <= offset < e for k, s, e in entry['ranges']) else 'a comment'}"
+                        f", the parser says otherwise: {entry['source']!r}"
+                    )
+                elif verdict == "unresolved" and strict and group == "parsed":
+                    failures.append(f"{label}: unresolved at offset {offset} where the parser decides: {entry['source']!r}")
+    summary = "; ".join(
+        f"{group} {count['agree']} agree, {count['unresolved']} unresolved, {count['disagree']} disagree"
+        + (f", {count['skipped']} skipped (syntax error)" if count["skipped"] else "")
+        for group, count in counts.items()
+    )
+    return failures, cases, summary
+
+
+# The review of #41464 (F1) measured 24 generic arrows in a row past 10 s, where the base took 0.07 s.
+_LOOKAHEAD_SCALING_ARROWS = 64
+_LOOKAHEAD_CALLS_PER_ARROW = 2
+_LOOKAHEAD_CLI_SECONDS = 10
+
+
+def _lookahead_scaling_self_test() -> list[str]:
+    """The type-parameter lookahead costs a bounded amount per `<`: for N = 1..64 generic arrows in a row the lexer
+    runs at most 2N lookaheads (counted, never timed; the count stops at its budget, so an exponential lexer fails
+    fast instead of hanging). And the CLI finishes a file of 24 or 200 of them, with its finding, within 10 s: an
+    outcome (the run ends, the finding is reported), not a timing."""
+    import subprocess
+    import tempfile
+
+    failures: list[str] = []
+    module = sys.modules[__name__]
+    original = module._javascript_angle_is_type_parameters
+
+    class OverBudget(Exception):
+        pass
+
+    def arrows(count: int) -> str:
+        return "".join(f"const f{k} = <T extends U>(x: T) => x;\n" for k in range(count))
+
+    for count in range(1, _LOOKAHEAD_SCALING_ARROWS + 1):
+        budget = _LOOKAHEAD_CALLS_PER_ARROW * count
+        calls = 0
+
+        def counted(source: str, index: int) -> Optional[bool]:
+            nonlocal calls
+            calls += 1
+            if calls > budget:
+                raise OverBudget
+            return original(source, index)
+
+        module._javascript_angle_is_type_parameters = counted
+        try:
+            _lexical_positions_and_unresolved(arrows(count), ".tsx")
+        except OverBudget:
+            failures.append(
+                f"LOOKAHEAD scaling: {count} generic arrows in a row ran more than {budget} type-parameter lookaheads "
+                f"({_LOOKAHEAD_CALLS_PER_ARROW} per arrow)"
+            )
+            break
+        finally:
+            module._javascript_angle_is_type_parameters = original
+
+    for count in (24, 200):
+        with tempfile.TemporaryDirectory() as tmp:
+            rel = f"web/tests/arrows{count}.test.tsx"
+            source = arrows(count) + _js_attribution_fixture("    const a = 1;\n")
+            (pathlib.Path(tmp) / "web/tests").mkdir(parents=True)
+            (pathlib.Path(tmp) / rel).write_text(source)
+            want = f"{rel}:{_sleep_line(source)}: {RULE_SLEEP_THEN_ASSERT} in pane.b:"
+            try:
+                result = subprocess.run(
+                    [sys.executable, str(pathlib.Path(__file__).resolve()), "--repo-root", tmp, "--allowlist",
+                     "allow.txt", "--roots", "web/tests", "--strict"],
+                    capture_output=True, text=True, timeout=_LOOKAHEAD_CLI_SECONDS, stdin=subprocess.DEVNULL,
+                )
+            except subprocess.TimeoutExpired:
+                failures.append(
+                    f"LOOKAHEAD {count} generic arrows: the CLI did not finish within {_LOOKAHEAD_CLI_SECONDS} s"
+                )
+                continue
+            if result.returncode != 1 or want not in result.stdout:
+                failures.append(
+                    f"LOOKAHEAD {count} generic arrows: expected exit 1 with {want!r}, got {result.returncode}: "
+                    f"{result.stdout + result.stderr!r}"
+                )
+    return failures
 
 
 def _allowlist_self_test() -> list[str]:
@@ -6041,7 +6340,7 @@ def _allowlist_self_test() -> list[str]:
     return failures
 
 
-def _self_test() -> int:
+def _self_test(strict: bool = False) -> int:
     # (filename, source, expected rules present, rules that must NOT be present)
     positives: list[tuple[str, str, set[str]]] = [
         # A temp git repo with git's detached auto maintenance still on (the Errno 39 '.git' race).
@@ -8216,8 +8515,10 @@ def _self_test() -> int:
     failures += _isolated_import_self_test()
     failures += _allowlist_self_test()
     failures += _attribution_self_test()
-    regex_failures, regex_cases = _regex_after_token_self_test()
+    failures += _lookahead_scaling_self_test()
+    regex_failures, regex_cases, parser_summary = _regex_after_token_self_test(strict)
     failures += regex_failures
+    print(f"regex-after-token against the parser's ranges: {parser_summary}")
     isolated_fixtures = 6
 
     if failures:
@@ -8266,7 +8567,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument(
         "--strict",
         action="store_true",
-        help="exit non-zero if any non-allowlisted finding exists",
+        help="exit non-zero if any non-allowlisted finding exists (with --self-test: if any parsed case is unresolved)",
     )
     parser.add_argument(
         "--write-allowlist",
@@ -8286,7 +8587,7 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
 
     if args.self_test:
-        return _self_test()
+        return _self_test(args.strict)
 
     repo_root = args.repo_root.resolve(strict=False)
     allowlist_path = (
