@@ -2887,13 +2887,13 @@
         {
           "key": "appearance.metrics.chromeFontSize",
           "title": "Text Size",
-          "help": "Text size of tabs, the sidebar and chat. Terminals have their own size.",
+          "help": "Text size of the sidebar, tabs, menus and chat. Terminals have their own size.",
           "kind": "number",
           "default": null,
           "group": "Density and Motion",
           "range": {
             "min": 10,
-            "max": 16,
+            "max": 20,
             "unit": "points"
           }
         },

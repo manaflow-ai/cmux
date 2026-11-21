@@ -207,7 +207,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.customDensity` | string |  |  | Custom Density |
 | `appearance.customDensities` | string | `[]` |  | Custom Densities |
 | `app.uiScale` | real | `1` | 0.25 to 5 | App Zoom. Zoom for chat, Settings and other app pages. |
-| `appearance.metrics.chromeFontSize` | real |  | 10 to 16 | Text Size. Text size of tabs, the sidebar and chat. Terminals have their own size. |
+| `appearance.metrics.chromeFontSize` | real |  | 10 to 20 | Text Size. Text size of the sidebar, tabs, menus and chat. Terminals have their own size. |
 | `appearance.fontSmoothing` | string | `"auto"` | `auto`, `antialiased`, `subpixel` | Text Smoothing. How text draws. Some text changes after cmux restarts; terminals keep their own. |
 | `appearance.interfaceScale` | real |  | 0.9 to 1.25 | Interface Size. Text size of tabs, the sidebar and other controls. Terminal text has its own size. |
 | `appearance.metrics.sidebarWidth` | real |  | 160 to 420 | Sidebar Width |
