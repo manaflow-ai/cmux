@@ -11,6 +11,11 @@ import CmuxNextDesign
 /// own transform (the frame does not move); `position` (`{x, y}`, points or, with `unit: "fraction"`,
 /// 0...1 of the parent) places a ZStack child's center (``AppSceneZStackNSView``); `glow` and
 /// `gradient` are drawn in AppSceneNodeNSView+Motion.swift.
+/// `glass` (`chrome`, `popover`, `menu` or `chip`) puts the App's own glass at that level under the node's
+/// content: Liquid Glass on macOS 26, the vibrancy material before, the level's opaque surface under Reduce
+/// Transparency, rounded by `cornerRadius`; it replaces `background`, a gradient one too. It is paint only:
+/// the node's size and its children's frames never change with it, so a look that adds or drops glass moves
+/// nothing. An unknown level draws no glass.
 extension AppSceneNodeNSView {
     /// One `frame` dimension: a number, or `"infinity"` (fill).
     func frameDimension(_ key: String) -> CGFloat? {
@@ -60,6 +65,7 @@ extension AppSceneNodeNSView {
         // A glow is a shadow outside the bounds: a node that glows rounds without clipping.
         layer.masksToBounds = clipsContent || (cornerRadius > 0 && node.glow == nil)
         layer.borderWidth = node.props["borderColor"]?.stringValue == nil ? 0 : CGFloat(node.number("borderWidth") ?? 1)
+        configureGlass()
         // Painted now too, so a node reads right before its first draw.
         performWithTheme { paintDecorations() }
     }
@@ -69,7 +75,11 @@ extension AppSceneNodeNSView {
     func paintDecorations() {
         guard let layer else { return }
         let hover = isDecorationHovered ? node.props["hoverBackground"]?.sceneColor : nil
-        if hover == nil, let gradient = AppSceneGradient(node.props["background"]) {
+        // Glass replaces the fill, a gradient one too (the glass view sits over the layer's own fill).
+        if glassLevel != nil {
+            decorationGradient?.isHidden = true
+            layer.backgroundColor = nil
+        } else if hover == nil, let gradient = AppSceneGradient(node.props["background"]) {
             let fill = backgroundGradientLayer(in: layer)
             fill.isHidden = false
             fill.frame = layer.bounds
@@ -82,6 +92,51 @@ extension AppSceneNodeNSView {
         animateColor(layer, \.borderColor, "borderColor", node.props["borderColor"]?.sceneColor?.cgColor)
         paintGlow()
         paintGradientBackground()
+    }
+
+    /// The level a `glass` prop names; nil for none or an unknown one.
+    var glassLevel: GlassLevel? { node.string("glass").flatMap(GlassLevel.init(rawValue:)) }
+
+    /// Adds, swaps or drops the glass view for the node's `glass` level. A glass view is not a child: it
+    /// sits below every subview, takes no clicks, and only its own frame follows the node's bounds.
+    private func configureGlass() {
+        guard let level = glassLevel else {
+            decorationGlass?.view.removeFromSuperview()
+            decorationGlass = nil
+            return
+        }
+        if let current = decorationGlass, current.level == level {
+            Self.shapeGlass(current.view, radius: cornerRadius)
+            return
+        }
+        decorationGlass?.view.removeFromSuperview()
+        let view = Self.makeGlass(level, radius: cornerRadius)
+        view.frame = bounds
+        addSubview(view, positioned: .below, relativeTo: nil)
+        decorationGlass = (level, view)
+    }
+
+    /// The App's surface for `level`: docked (`chrome`) is the sidebar card's glass (a `Panel`'s); the
+    /// floating levels are the overlay roles' glass, as the agent pane's host glass draws them.
+    static func makeGlass(_ level: GlassLevel, radius: CGFloat) -> NSView {
+        let view: NSView
+        switch level {
+        case .chrome:
+            let card = CardSurfaceView(cornerRadius: radius)
+            card.takesThemeTint = true
+            view = card
+        case .popover: view = Glass.makeSurface(.popover, cornerRadius: radius, interactive: false)
+        case .menu: view = Glass.makeSurface(.menu, cornerRadius: radius, interactive: false)
+        case .chip: view = Glass.makeSurface(.tooltip, cornerRadius: radius, interactive: false)
+        }
+        view.translatesAutoresizingMaskIntoConstraints = true
+        return view
+    }
+
+    /// Follows a changed `cornerRadius` on the glass already in place.
+    static func shapeGlass(_ view: NSView, radius: CGFloat) {
+        if let surface = view as? OverlaySurfaceView, surface.cornerRadius != radius { surface.cornerRadius = radius }
+        if let card = view as? CardSurfaceView, card.cornerRadius != radius { card.cornerRadius = radius }
     }
 
     /// The layer a gradient `background` draws in, below every child (made once per view).
@@ -98,6 +153,7 @@ extension AppSceneNodeNSView {
     /// layer's own transform (it does not move the node's frame), and the gradients' and glow's
     /// geometry; on each layout, since they depend on the size.
     func layoutDecorations() {
+        if let glass = decorationGlass?.view, glass.frame != bounds { glass.frame = bounds }
         guard let layer else { return }
         // A gradient `background`'s points follow the box's shape: repaint it at the new size.
         if let decorationGradient, !decorationGradient.isHidden, decorationGradient.frame != layer.bounds { needsDisplay = true }

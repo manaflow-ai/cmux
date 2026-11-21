@@ -35,6 +35,7 @@ import {
   textStyle,
   sceneGradient,
   type SceneStyle,
+  sceneGlass,
 } from "./sceneStyle";
 import type { SceneNode, SceneStore } from "./store";
 import { currentMotionEnv, useSceneMotion, type MotionPart } from "./useSceneMotion";
@@ -574,6 +575,8 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
     "data-style": node.type === "Panel" ? (props.style === "card" ? "card" : "glass") : undefined,
     "data-loop": loop?.effect,
     "aria-hidden": own === true || node.type === "Particles" ? true : undefined,
+    // `glass`: the page's glass at that level (ui/glass/glass.css), the web twin of the App's material.
+    "data-glass-level": sceneGlass(props.glass),
     "data-transition": typeof props.transition === "string" ? props.transition : undefined,
     "data-entering": entering && !leaving ? "" : undefined,
     "data-leaving": own === true ? "" : undefined,
@@ -584,7 +587,7 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
     "data-fill-width": frame.maxWidth === "infinity" && frame.width === undefined ? "" : undefined,
     // A ZStack child's `position` (scene.css): its center at `--app-x`, `--app-y`.
     "data-positioned": style["--app-x"] !== undefined ? "" : undefined,
-    className: `cmux-app-scene-node cmux-app-scene-${node.type.toLowerCase()}`,
+    className: `cmux-app-scene-node cmux-app-scene-${node.type.toLowerCase()}${sceneGlass(props.glass) ? " ui-glass" : ""}`,
     ref: element as RefObject<HTMLDivElement & HTMLButtonElement>,
     style,
     title: sceneText(props.help) || undefined,

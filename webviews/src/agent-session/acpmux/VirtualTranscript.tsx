@@ -2524,17 +2524,22 @@ function TranscriptView({
     // handed to the follow chase, held as it holds), and the card grows on over them, as `cardHold`
     // does. Played on, the rise moved the rows while the reader scrolled up. Two style reads, on input
     // only while a rise plays.
+    // The stack's own moves (below) freeze the same way.
+    const stackMoves = new Set<Animation>();
     freezeGrowthRise.current = () => {
       const rows = thread.current;
       const move = rowsMove;
-      if (!rows || !move || move.playState === "finished" || move.playState === "idle") return;
+      const playing = (one: Animation | undefined) => one && one.playState !== "finished" && one.playState !== "idle";
+      if (!rows || (!playing(move) && stackMoves.size === 0)) return;
       const drawnY = () => {
         const value = getComputedStyle(rows).translate;
         return value && value !== "none" ? Number.parseFloat(value.split(" ")[1] ?? "") || 0 : 0;
       };
       const before = drawnY();
-      move.cancel();
+      move?.cancel();
       rowsMove = undefined;
+      for (const one of stackMoves) one.cancel();
+      stackMoves.clear();
       followChase.current?.carry(rows, before - drawnY());
     };
     /// What the field has yet to grow (px), 0 once it rests (and the growth is over).
@@ -2575,7 +2580,33 @@ function TranscriptView({
           setDockNotice(nextNotice);
         });
     };
-    const observer = new ResizeObserver(take);
+    // The stack changed height on its own (an ask that left or came, the trust question answered
+    // over the permission card under it): the room takes the new height at once, as above, and the
+    // rows the room moved start where they were drawn and glide home on the fold's clock, one move
+    // for every row (the same move the field's growth plays). A move the room did not make (the
+    // tray, notice and card holds keep the rows still) has no delta and plays nothing.
+    // A second change while one plays adds its own move on top (composite add), so the rows never
+    // jump to where the first was headed.
+    const resized = () => {
+      const rows = thread.current;
+      if (!rows || growth) {
+        take();
+        return;
+      }
+      const before = rows.getBoundingClientRect().top;
+      take();
+      const delta = before - rows.getBoundingClientRect().top;
+      const ms = Math.abs(delta) < 0.5 ? 0 : foldMs(rows);
+      if (!(ms > 0)) return;
+      const move = rows.animate([{ translate: `0 ${delta}px` }, { translate: "0 0" }], {
+        duration: ms,
+        easing: foldMotion.easing(rows),
+        composite: "add",
+      });
+      stackMoves.add(move);
+      move.addEventListener("finish", () => stackMoves.delete(move));
+    };
+    const observer = new ResizeObserver(resized);
     // perf-hot: one render and two layout reads per growth (not per frame) composer-field-growth
     const grew = (event: Event) => {
       const { detail, target } = event as FieldGrowthEvent;
@@ -2620,6 +2651,7 @@ function TranscriptView({
       dock.removeEventListener("click", toggled, { capture: true });
       dock.removeEventListener(FIELD_GROWTH_EVENT, grew);
       rowsMove?.cancel();
+      for (const move of stackMoves) move.cancel();
       freezeGrowthRise.current = () => {};
     };
   }, [dock, noteQueue]);
