@@ -231788,6 +231788,534 @@
         }
       }
     },
+    "settings.experiments.agentBadges": {
+      "comment": "Settings > Advanced > Experiments: the title of the Agent Badges switch (taste prototype, off by default)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Badges"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شارات الوكيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oznake agenta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentmærker"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Badges"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Insignias de agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Badges d’agent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Badge dell’agente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントバッジ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្លាកភ្នាក់ងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 배지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentmerker"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plakietki agenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selos do agente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Значки агента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ป้ายเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan rozetleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Значки агента"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Huy hiệu tác tử"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能体徽章"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式徽章"
+          }
+        }
+      }
+    },
+    "settings.experiments.agentBadges.help": {
+      "comment": "Settings > Advanced > Experiments: the help line under the Agent Badges switch. Running, Needs approval and Done are the pill's three labels.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent tabs show a count of unread messages and approvals, and sidebar rows show a status pill: Running, Needs approval or Done."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعرض علامات تبويب الوكيل عدد الرسائل غير المقروءة والموافقات، وتعرض صفوف الشريط الجانبي شارة حالة: قيد التشغيل أو بانتظار الموافقة أو تم."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kartice agenta prikazuju broj nepročitanih poruka i odobrenja, a redovi bočne trake oznaku stanja: Radi, Čeka odobrenje ili Gotovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentfaner viser et antal ulæste beskeder og godkendelser, og rækker i sidebjælken viser en status: Kører, Afventer godkendelse eller Færdig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Tabs zeigen die Zahl ungelesener Nachrichten und Freigaben, Seitenleistenzeilen eine Status-Pille: Läuft, Freigabe nötig oder Fertig."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las pestañas de agente muestran un recuento de mensajes sin leer y aprobaciones, y las filas de la barra lateral un estado: En curso, Requiere aprobación o Listo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les onglets d’agent affichent le nombre de messages non lus et d’approbations, et les lignes de la barre latérale un statut : En cours, Approbation requise ou Terminé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le schede dell’agente mostrano il numero di messaggi non letti e approvazioni, e le righe della barra laterale uno stato: In corso, Serve approvazione o Fatto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントのタブに未読メッセージと承認待ちの数を、サイドバーの行に状態(実行中、承認が必要、完了)を表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងភ្នាក់ងារបង្ហាញចំនួនសារមិនទាន់អាន និងការអនុម័ត ហើយជួរនៅរបារចំហៀងបង្ហាញស្ថានភាព៖ កំពុងដំណើរការ ត្រូវការការអនុម័ត ឬរួចរាល់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 탭에 읽지 않은 메시지와 승인 수를, 사이드바 행에 상태(실행 중, 승인 필요, 완료)를 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentfaner viser antall uleste meldinger og godkjenninger, og rader i sidefeltet viser en status: Kjører, Trenger godkjenning eller Ferdig."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karty agenta pokazują liczbę nieprzeczytanych wiadomości i zatwierdzeń, a wiersze paska bocznego stan: Działa, Wymaga zatwierdzenia lub Gotowe."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As abas do agente mostram a contagem de mensagens não lidas e aprovações, e as linhas da barra lateral um status: Em execução, Precisa de aprovação ou Concluído."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкладки агента показывают число непрочитанных сообщений и запросов на одобрение, а строки боковой панели — статус: Работает, Нужно одобрение или Готово."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แท็บเอเจนต์แสดงจำนวนข้อความที่ยังไม่อ่านและการอนุมัติ และแถวในแถบข้างแสดงสถานะ: กำลังทำงาน ต้องอนุมัติ หรือเสร็จแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan sekmeleri okunmamış mesaj ve onay sayısını, kenar çubuğu satırları bir durum gösterir: Çalışıyor, Onay gerekiyor veya Bitti."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкладки агента показують кількість непрочитаних повідомлень і запитів на схвалення, а рядки бічної панелі — статус: Працює, Потрібне схвалення або Готово."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các tab tác tử hiện số tin nhắn chưa đọc và yêu cầu phê duyệt, còn các hàng ở thanh bên hiện trạng thái: Đang chạy, Cần phê duyệt hoặc Xong."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能体标签页显示未读消息和待批准的数量,侧边栏行显示状态:运行中、需要批准或已完成。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式分頁顯示未讀訊息與待核准的數量,側邊欄列顯示狀態:執行中、需要核准或已完成。"
+          }
+        }
+      }
+    },
+    "settings.experiments.agentBadgesBeam": {
+      "comment": "Settings > Advanced > Experiments: the title of the Agent Badges variant switch, a light that runs along a working sidebar row's edge",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Badges: Running Beam"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شارات الوكيل: شعاع التشغيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oznake agenta: svjetlo rada"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentmærker: lysstribe under kørsel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Badges: Lichtstreifen beim Laufen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Insignias de agente: haz en curso"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Badges d’agent : faisceau en cours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Badge dell’agente: fascio in corso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントバッジ: 実行中の光"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្លាកភ្នាក់ងារ៖ ពន្លឺពេលដំណើរការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 배지: 실행 중 빛"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentmerker: lysstripe under kjøring"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plakietki agenta: światło pracy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selos do agente: feixe em execução"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Значки агента: луч во время работы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ป้ายเอเจนต์: แสงขณะทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan rozetleri: çalışma ışığı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Значки агента: промінь під час роботи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Huy hiệu tác tử: vệt sáng khi chạy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能体徽章:运行光带"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式徽章:執行光帶"
+          }
+        }
+      }
+    },
+    "settings.experiments.agentBadgesBeam.help": {
+      "comment": "Settings > Advanced > Experiments: the help line under the Agent Badges running-beam switch",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "With Agent Badges on, a thin light travels along a sidebar row's edge while its agent runs."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند تشغيل شارات الوكيل، يتحرك ضوء رفيع على حافة صف الشريط الجانبي أثناء عمل وكيله."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kad su oznake agenta uključene, tanko svjetlo putuje rubom reda bočne trake dok njegov agent radi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Med agentmærker slået til løber et tyndt lys langs kanten af en række i sidebjælken, mens dens agent kører."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bei aktiven Agent-Badges läuft ein feines Licht am Rand einer Seitenleistenzeile entlang, solange ihr Agent arbeitet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Con las insignias de agente activadas, una luz fina recorre el borde de una fila de la barra lateral mientras su agente trabaja."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avec les badges d’agent activés, une fine lumière parcourt le bord d’une ligne de la barre latérale pendant que son agent travaille."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Con i badge dell’agente attivi, una luce sottile scorre lungo il bordo di una riga della barra laterale mentre il suo agente lavora."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントバッジがオンのとき、エージェントの実行中はサイドバーの行の縁を細い光が流れます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលបើកស្លាកភ្នាក់ងារ ពន្លឺស្តើងរត់តាមគែមជួរនៅរបារចំហៀង ខណៈភ្នាក់ងាររបស់វាកំពុងដំណើរការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 배지가 켜져 있으면 에이전트가 실행되는 동안 사이드바 행의 가장자리를 따라 가는 빛이 흐릅니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Med agentmerker på går et tynt lys langs kanten av en rad i sidefeltet mens agenten kjører."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy plakietki agenta są włączone, cienkie światło biegnie wzdłuż krawędzi wiersza paska bocznego, dopóki agent pracuje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Com os selos do agente ativados, uma luz fina percorre a borda de uma linha da barra lateral enquanto o agente trabalha."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда значки агента включены, вдоль края строки боковой панели бежит тонкий свет, пока работает её агент."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อเปิดป้ายเอเจนต์ แสงบางๆ จะวิ่งไปตามขอบแถวในแถบข้างขณะที่เอเจนต์ของแถวนั้นทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan rozetleri açıkken, ajanı çalıştığı sürece kenar çubuğu satırının kenarında ince bir ışık dolaşır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Коли значки агента ввімкнено, уздовж краю рядка бічної панелі біжить тонке світло, поки працює його агент."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi bật huy hiệu tác tử, một vệt sáng mảnh chạy dọc mép hàng ở thanh bên trong lúc tác tử của hàng đó chạy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开启智能体徽章后,智能体运行期间,一道细光会沿侧边栏行的边缘移动。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟代理程式徽章後,代理程式執行期間,一道細光會沿側邊欄列的邊緣移動。"
+          }
+        }
+      }
+    },
     "settings.experiments.glassToolbarGroups": {
       "extractionState": "manual",
       "localizations": {
