@@ -12,6 +12,12 @@ public struct CloudMoveStrings {
         String(format: String(localized: "cloud.move.moved", defaultValue: "This chat now runs on %@.", table: "Cloud", bundle: .module), machine)
     }
     public static var retry: String { String(localized: "cloud.move.retry", defaultValue: "Retry", table: "Cloud", bundle: .module) }
+    /// The sidebar row's line under a Cloud chat whose start failed (cmux#47678): Cloud, the machine it took when it had
+    /// one, and that it couldn't start.
+    public static func startFailedRow(machine: String?) -> String {
+        guard let machine else { return String(localized: "cloud.start.failedRow", defaultValue: "Cloud · Couldn't start", table: "Cloud", bundle: .module) }
+        return String(format: String(localized: "cloud.start.failedRowOn", defaultValue: "Cloud · %@ · Couldn't start", table: "Cloud", bundle: .module), machine)
+    }
     public static var notAChat: String {
         String(localized: "cloud.move.notAChat", defaultValue: "Move to Cloud works on a chat tab.", table: "Cloud", bundle: .module)
     }

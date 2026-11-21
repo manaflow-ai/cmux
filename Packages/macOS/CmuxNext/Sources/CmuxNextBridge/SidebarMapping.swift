@@ -71,16 +71,20 @@ public struct SidebarMapping {
         public var audio: SidebarWorkspaceAudio?
         /// The front tab is a New Tab page whose Send starts a Cloud chat (``AgentCloudStartTitles``): the row's cloud mark.
         public var startsInCloud = false
+        /// The row's meta line for a Cloud chat whose start failed ("Cloud · cloud-chats-12 · Couldn't start",
+        /// ``AgentCloudStartTitles/failedStart(of:)``); nil for every other page.
+        public var cloudStage: String?
         /// A cmux page's own icon (`cmux://remote-view` of a Cloud machine: the Cloud icon), in place of a favicon:
         /// a cmux page is no site, so its row never wears the no-favicon globe.
         public var icon: IconName?
 
         public init(title: String? = nil, favicon: SidebarFavicon? = nil, audio: SidebarWorkspaceAudio? = nil, startsInCloud: Bool = false,
-                    icon: IconName? = nil) {
+                    cloudStage: String? = nil, icon: IconName? = nil) {
             self.title = title
             self.favicon = favicon
             self.audio = audio
             self.startsInCloud = startsInCloud
+            self.cloudStage = cloudStage
             self.icon = icon
         }
     }
