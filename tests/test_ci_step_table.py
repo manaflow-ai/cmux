@@ -16,9 +16,11 @@ This test holds two things:
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import os
+import platform
 import re
 import subprocess
 import sys
@@ -26,6 +28,7 @@ import tempfile
 import textwrap
 import time
 import unittest
+import zipfile
 from pathlib import Path
 from unittest import mock
 
@@ -310,6 +313,48 @@ class SetupTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertNotIn("setup-ran", out)
 
+    def test_a_tool_is_made_only_for_a_routed_step_that_needs_it(self) -> None:
+        t = table('''
+            [tools]
+            bun = "mkdir -p \\"$CI_TOOLS/bin\\"; echo made-bun >&2; printf '#!/bin/sh\\\\necho bun-ran\\\\n' > \\"$CI_TOOLS/bin/bun\\"; chmod +x \\"$CI_TOOLS/bin/bun\\""
+            node = "echo made-node >&2"
+            [step.a]
+            job = "linux"
+            needs = ["bun"]
+            inputs = ["mux/**"]
+            run = "bun"
+            [step.b]
+            job = "linux"
+            needs = ["node"]
+            inputs = ["workers/**"]
+            run = "true"
+        ''')
+        code, out = self.run_job(t, "linux", ["mux/a.ts"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("bun-ran", out)
+        self.assertEqual(out.count("::group::tool (bun)"), 1)
+        self.assertNotIn("made-node", out)
+        code, out = self.run_job(t, "linux", ["docs/x.md"])
+        self.assertNotIn("made-", out)
+
+    def test_a_failed_tool_fails_the_job_and_runs_no_step(self) -> None:
+        t = table('''
+            [tools]
+            bun = "echo no-release; exit 4"
+            [step.a]
+            job = "linux"
+            needs = ["bun"]
+            run = "echo step-ran"
+        ''')
+        code, out = self.run_job(t, "linux")
+        self.assertEqual(code, 1)
+        self.assertIn("no-release", out)
+        self.assertNotIn("step-ran", out)
+
+    def test_needs_names_a_tool_of_the_table(self) -> None:
+        with self.assertRaises(ci_steps.TableError):
+            table('[step.a]\njob = "linux"\nneeds = ["bun"]\nrun = "true"')
+
     def test_setup_names_a_job_of_the_table(self) -> None:
         with self.assertRaises(ci_steps.TableError):
             table('[setup]\nwindows = "true"\n[step.a]\njob = "linux"\nrun = "true"')
@@ -441,6 +486,82 @@ class PipelineTest(unittest.TestCase):
         for name in ("indexnow-tests.yml", "vendored-agent-cursor.yml", "r2-upload-tests.yml",
                      "cmux-skill-contract.yml", "ci-cache-receipts.yml"):
             self.assertFalse((ROOT / ".github/workflows" / name).exists(), f"{name}: the step table runs it")
+
+    def test_the_moved_pull_request_triggers_are_gone(self) -> None:
+        # These keep their push, dispatch or post-merge runs; a pull request runs them as steps of the table.
+        moved = {"labels-sync.yml": "labels-manifest",
+                 "cmux-next-shim-cpp.yml": "shim-cpp", "cmux-next-chromium-currency.yml": "chromium-currency",
+                 "swift-acpmux-protocol.yml": "swift-acpmux-protocol",
+                 "app-platform.yml": "app-platform", "ci-artifact-transport.yml": "ci-artifact-transport",
+                 "cloud-vm-image-lock.yml": "cloud-vm-image-lock", "mux.yml": "mux",
+                 "automation-bench.yml": "automation-bench",
+                 "repair-nightly-appcast-content-types.yml": "repair-nightly-appcast"}
+        steps = ci_steps.load().steps
+        for name, step in moved.items():
+            with self.subTest(workflow=name):
+                wf = yaml.safe_load((ROOT / ".github/workflows" / name).read_text())
+                self.assertNotIn("pull_request", wf.get("on", wf.get(True)), "the step table runs it")
+                self.assertEqual(steps[step].job, "linux")
+        self.assertNotIn("validate", yaml.safe_load((ROOT / ".github/workflows/labels-sync.yml").read_text())["jobs"])
+        # These workflows keep the pull_request trigger for a macOS job; the moved Linux job skips it, and
+        # a pull request runs it as a step of the table with the same command.
+        jobs = {("agent-brands.yml", "drift"): "agent-brands-drift",
+                ("terminal-hang-diagnostics.yml", "release-gate"): "terminal-hang-release-gate"}
+        for (name, job), step in jobs.items():
+            with self.subTest(workflow=name, job=job):
+                wf = yaml.safe_load((ROOT / ".github/workflows" / name).read_text())
+                self.assertEqual(wf["jobs"][job]["if"], "github.event_name != 'pull_request'")
+                runs = [s["run"] for s in wf["jobs"][job]["steps"] if "run" in s]
+                self.assertEqual(runs, [steps[step].run])
+                self.assertEqual(steps[step].job, "linux")
+
+    def test_a_step_that_runs_bun_or_node_says_so(self) -> None:
+        # The tools come from [tools], only for a routed step that lists them; nothing else puts bun or node
+        # on the linux job's PATH, and the runner image is not assumed to hold either.
+        table = ci_steps.load()
+        self.assertEqual(sorted(table.tools), ["bun", "node"])
+        wants_bun = {"app-platform", "mux", "automation-bench", "cloud-vm-image-lock"}
+        wants_node = {"ci-artifact-worker"}
+        for name, step in table.steps.items():
+            if step.job != "linux":
+                continue
+            with self.subTest(step=name):
+                self.assertEqual("bun" in step.needs, name in wants_bun)
+                self.assertEqual("node" in step.needs, name in wants_node)
+                words = set(re.findall(r"[A-Za-z0-9_./-]+", step.run))
+                if words & {"npm", "npx", "node"}:
+                    self.assertIn("node", step.needs)
+                if words & {"bun"}:
+                    self.assertIn("bun", step.needs)
+
+    def test_the_artifact_transport_halves_split_on_workers_ci_artifacts(self) -> None:
+        steps = ci_steps.load().steps
+        self.assertEqual(steps["ci-artifact-worker"].inputs, ("workers/ci-artifacts/**",))
+        self.assertIn("workers/ci-artifacts/**", steps["ci-artifact-transport"].inputs)
+        self.assertEqual(steps["ci-artifact-transport"].needs, ())
+
+    def test_the_pipeline_job_runs_on_the_persistent_pool(self) -> None:
+        wf = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
+        self.assertEqual(
+            wf["jobs"]["linux"]["runs-on"],
+            "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && "
+            "github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || "
+            "vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}")
+
+    def test_the_shim_step_runs_every_cpp_script(self) -> None:
+        run = ci_steps.load().steps["shim-cpp"].run
+        scripts = sorted((ROOT / "scripts" / "cmux-next").glob("test-*-cpp.sh"))
+        self.assertGreaterEqual(len(scripts), 10)
+        for script in scripts:
+            with self.subTest(script=script.name):
+                self.assertIn(f"./scripts/cmux-next/{script.name}", run)
+
+    def test_the_job_timeout_covers_setup_and_every_wave(self) -> None:
+        # Setup, the tools a routed step needs, then the linux steps two at once (a 2 vCPU runner), each wave as long as the longest step.
+        linux = [s for s in ci_steps.load().steps.values() if s.job == "linux"]
+        need = ci_steps.SETUP_TIMEOUT + ci_steps.TOOL_TIMEOUT + -(-len(linux) // 2) * max(s.timeout for s in linux)
+        wf = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
+        self.assertGreaterEqual(wf["jobs"]["linux"]["timeout-minutes"] * 60, need)
 
 
 class RepositoryAdvisoryStepsTest(unittest.TestCase):
@@ -613,6 +734,90 @@ class PrChecksAdvisoryJobTest(unittest.TestCase):
             self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
             self.assertIn(f"merge-base={base} head={head} files=1 commits=1", run.stdout)
             self.assertEqual("No merge base in the last 14 days" in run.stdout, old, run.stdout)
+
+# scripts/ci/ensure-bun.sh: bun VERSION ends up in BIN_DIR, from the PATH, the tool cache or a checked download.
+BUN_SCRIPT = ROOT / "scripts/ci/ensure-bun.sh"
+BUN_VERSION = "1.4.4"
+BUN_OS = {"Darwin": "darwin", "Linux": "linux"}.get(platform.system(), "")
+BUN_ARCH = {"arm64": "aarch64", "aarch64": "aarch64", "x86_64": "x64"}.get(platform.machine(), "")
+
+
+def fake_bun(path: Path, version: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"#!/bin/sh\necho {version}\n")
+    path.chmod(0o755)
+
+
+@unittest.skipUnless(BUN_OS and BUN_ARCH, "needs macOS or Linux on arm64 or x64")
+class EnsureBun(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(self.tmp)])
+        self.cache = self.tmp / "toolcache"
+        self.bin = self.tmp / "ci-bin"
+        self.path_bin = self.tmp / "path-bin"
+        self.path_bin.mkdir()
+        self.dist = self.tmp / "dist" / f"bun-v{BUN_VERSION}"
+        self.dist.mkdir(parents=True)
+
+    def publish(self, *, corrupt: bool = False, reports: str = BUN_VERSION) -> None:
+        name = f"bun-{BUN_OS}-{BUN_ARCH}"
+        staged = self.tmp / "staged"
+        fake_bun(staged / name / "bun", reports)
+        archive = self.dist / f"{name}.zip"
+        with zipfile.ZipFile(archive, "w") as z:
+            z.write(staged / name / "bun", f"{name}/bun")
+        digest = "0" * 64 if corrupt else hashlib.sha256(archive.read_bytes()).hexdigest()
+        (self.dist / "SHASUMS256.txt").write_text(f"{'f' * 64}  other.zip\n{digest}  {name}.zip\n")
+
+    def run_script(self) -> subprocess.CompletedProcess[str]:
+        env = {"PATH": f"{self.path_bin}:/usr/bin:/bin", "HOME": str(self.tmp), "RUNNER_TOOL_CACHE": str(self.cache),
+               "ENSURE_BUN_DIST": (self.tmp / "dist").as_uri()}
+        return subprocess.run(["bash", str(BUN_SCRIPT), BUN_VERSION, str(self.bin)], env=env, text=True,
+                              capture_output=True, timeout=60)
+
+    def test_bun_of_the_major_on_path_is_linked_and_nothing_is_downloaded(self) -> None:
+        for have in ("1.4.4", "1.4.5", "1.10.0"):
+            with self.subTest(have=have):
+                fake_bun(self.path_bin / "bun", have)
+                done = self.run_script()  # no dist published: a download would fail
+                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+                self.assertEqual(subprocess.run([self.bin / "bun", "--version"], text=True,
+                                                capture_output=True).stdout.strip(), have)
+
+    def test_an_older_or_other_bun_is_not_taken(self) -> None:
+        self.publish()
+        for have in ("1.4.3", "1.3.14", "2.0.0", "1.4.4-rc.1", "garbage"):
+            with self.subTest(have=have):
+                fake_bun(self.path_bin / "bun", have)
+                done = self.run_script()
+                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+                self.assertIn(f"bun {BUN_VERSION} from", done.stdout)
+                self.assertEqual(subprocess.run([self.bin / "bun", "--version"], text=True,
+                                                capture_output=True).stdout.strip(), BUN_VERSION)
+
+    def test_a_download_is_checked_unpacked_and_kept_in_the_tool_cache(self) -> None:
+        self.publish()
+        done = self.run_script()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertTrue((self.cache / "bun" / BUN_VERSION / BUN_ARCH / "bun").is_file())
+        (self.dist / "SHASUMS256.txt").unlink()  # the second run finds it cached: no network
+        done = self.run_script()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("from " + str(self.cache), done.stdout)
+
+    def test_a_download_that_does_not_match_its_checksum_fails(self) -> None:
+        self.publish(corrupt=True)
+        done = self.run_script()
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("does not match SHASUMS256.txt", done.stdout + done.stderr)
+        self.assertFalse((self.bin / "bun").exists())
+
+    def test_a_download_that_reports_another_version_fails(self) -> None:
+        self.publish(reports="1.4.3")
+        done = self.run_script()
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("not " + BUN_VERSION, done.stdout + done.stderr)
 
 
 if __name__ == "__main__":
