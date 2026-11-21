@@ -63,7 +63,6 @@ function roomFraction(scroller: HTMLElement): number {
   return room - Math.floor(room);
 }
 
-
 await requireBrowserLane("chat-open-breakpoint-harness.test.ts", async () => {
   setDefaultTimeout(300_000);
   try {
