@@ -57,6 +57,8 @@ ALLOWED: dict[str, str] = {
         "a few kB of test durations; the next run restores the newest by prefix",
     "indexnow.yml: Save submitted URLs":
         "a few kB of submitted URLs, one scheduled job; the next run restores the newest by prefix",
+    "base-coalesce.yml: Record this tip as tested":
+        "a 41-byte marker per tip a coalesced run started on (one a window); the next push finds the newest by prefix",
     "cmux-next-web.yml: Record this push as the last covered one":
         "an empty marker per feat-cmux-next push that the next push reads to coalesce",
     "cmux-next.yml: Save the DEV compile cache (Blacksmith)":
