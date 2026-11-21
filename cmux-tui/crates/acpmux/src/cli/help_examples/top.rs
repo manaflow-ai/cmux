@@ -351,6 +351,13 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "board",
+        &[(
+            "Show local sessions grouped by branch, as JSON (Labs: Show Preview Features)",
+            "acpmux board",
+        )],
+    ),
+    (
         "web",
         &[
             ("Open the dashboard in the browser", "acpmux web"),

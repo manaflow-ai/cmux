@@ -495,6 +495,7 @@ acpmux chats roots                             # which folders the index reads, 
 cmux agent resolve 'https://cmux.com/deeplink/agent?harness=claude&session=…'   # the session a link, id or name names
 acpmux who-else src/lib.rs --topic "resize lag" # live and recent sessions here and on peers on these files or topic
 cmux agent history NAME                            # what a session did, one turn per line
+acpmux board                                   # local sessions grouped by branch, as JSON (Labs preview)
 acpmux ledger --since 30d --by pr              # what turns cost, per repo, pull request, day, model or account
 acpmux bead ls cx-cus7j.230                    # the sessions working on a tracker bead
 acpmux process list                            # background processes agents left running
