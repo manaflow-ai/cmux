@@ -55,6 +55,23 @@ import Testing
         #expect(frames.steps.withLock { $0 }.filter { $0.contains(#""_acpmux\/event""#) || $0.contains(#""_acpmux/event""#) }.count == 4)
     }
 
+    /// The first token can reach the page in a page of records (an attach's first page, or the replay after an
+    /// attachment that dropped) instead of as a push: it is told from there too, once.
+    @Test func aPageOfRecordsThatHoldsTheAgentsTextTellsTheFirstToken() throws {
+        let told = Told()
+        let start: RemoteAcpmuxWire.Start = { _, _, _ in throw CancellationError() }
+        let wire = RemoteAcpmuxWire(start: start, milestone: { step in told.steps.withLock { $0.append(step) } })
+        let page = { (kinds: [String]) in ["events": try kinds.map { try JSONSerialization.jsonObject(with: Self.record($0)) }, "hasMore": false] as [String: Any] }
+        wire.tellFirstToken(in: nil)
+        wire.tellFirstToken(in: ["session": ["sessionId": "s"]])
+        wire.tellFirstToken(in: try page(["user_message_chunk", "tool_call"]))
+        #expect(told.steps.withLock { $0 }.isEmpty)
+        wire.tellFirstToken(in: try page(["user_message_chunk", "agent_message_chunk"]))
+        wire.tellFirstToken(in: try page(["agent_thought_chunk"]))
+        wire.pushed(.record(Self.record("agent_message_chunk")))
+        #expect(told.steps.withLock { $0 } == ["first token"])
+    }
+
     /// A wire with no timeline to tell tells nothing and still sends the page its records.
     @Test func aWireWithNoMilestoneOnlyForwards() async throws {
         let frames = Told()
