@@ -260,7 +260,8 @@ pub(super) fn run_enroll(
         match parsed.action {
             EnrollAdminAction::Create => return print_created_invitation(&parsed, result),
             EnrollAdminAction::Revoke => {
-                println!("{}", revoked_device_summary(&parsed.positionals[0], result));
+                let device_id = parsed.positionals.first().map_or("", String::as_str);
+                println!("{}", revoked_device_summary(device_id, result));
                 return Ok(());
             }
             _ => {}
@@ -272,7 +273,10 @@ pub(super) fn run_enroll(
 /// `enroll create` prints the URI as stdout's only line, for scripts that
 /// capture it, and what an owner needs next on stderr.
 fn print_created_invitation(parsed: &EnrollAdminArgs, result: &Value) -> anyhow::Result<()> {
-    let uri = result["uri"].as_str().ok_or_else(|| anyhow!("missing invitation URI"))?;
+    let uri = result
+        .get("uri")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("missing invitation URI"))?;
     println!("{uri}");
     let invitation = EnrollmentInvitation::from_uri(uri)?;
     let bound = parsed
@@ -350,8 +354,8 @@ fn utc_clock(unix: u64) -> String {
 /// What `enroll revoke` revoked. A daemon older than this reply sends `{}`;
 /// then only the id the owner passed is known.
 pub(super) fn revoked_device_summary(device_id: &str, result: &Value) -> String {
-    let fingerprint = result["fingerprint"].as_str().unwrap_or(device_id);
-    match result["name"].as_str().filter(|name| !name.is_empty()) {
+    let fingerprint = result.get("fingerprint").and_then(Value::as_str).unwrap_or(device_id);
+    match result.get("name").and_then(Value::as_str).filter(|name| !name.is_empty()) {
         Some(name) => format!("revoked device {name} ({fingerprint}); it can no longer connect"),
         None => format!("revoked device {fingerprint}; it can no longer connect"),
     }
