@@ -12,9 +12,13 @@ public struct RemoteTmuxCommandBuilder: Sendable {
 
     /// Creates a builder for one `tmux` argument vector.
     ///
-    /// - Parameter arguments: Arguments passed to the resolved `tmux` executable.
-    public init(arguments: [String]) {
-        self.arguments = arguments
+    /// - Parameters:
+    ///   - arguments: Arguments passed to the resolved `tmux` executable.
+    ///   - socketName: A tmux server name (`-L <name>`), placed before `arguments` so every
+    ///     command this builder produces reaches that server. `nil` keeps tmux's default
+    ///     server, which is the historical behavior.
+    public init(arguments: [String], socketName: String? = nil) {
+        self.arguments = RemoteTmuxSocketName.arguments(for: socketName) + arguments
     }
 
     /// The argv used to run the resolver through `/bin/sh`.
