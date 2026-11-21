@@ -305,7 +305,6 @@ select_packages() {
     CmuxDeviceHub
     CmuxHomeCore
     CmuxHomeRender
-    CmuxLiveCode
     CmuxMobileBilling
     CmuxMobileSupport
     CmuxMobileTunnel
