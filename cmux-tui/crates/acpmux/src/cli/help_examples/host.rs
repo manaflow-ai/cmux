@@ -406,6 +406,36 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "machine screen-share",
+        &[
+            ("Whether screen sharing to this Mac is ready", "acpmux machine screen-share status"),
+            (
+                "Install the Screen Sharing helper beside the daemon",
+                "acpmux machine screen-share install",
+            ),
+        ],
+    ),
+    (
+        "machine screen-share status",
+        &[
+            ("Ask the installed helper now, as JSON", "acpmux machine screen-share status --json"),
+            (
+                "Install the helper first, then ask it again",
+                "acpmux machine screen-share status --install --json",
+            ),
+        ],
+    ),
+    (
+        "machine screen-share install",
+        &[
+            ("Copy the helper out of the cmux app", "acpmux machine screen-share install"),
+            (
+                "Install it for a machine set up from another device",
+                "acpmux machine screen-share install --joined",
+            ),
+        ],
+    ),
+    (
         "machine deps",
         &[
             ("Restore this project's dependencies from the cache", "acpmux machine deps warm"),

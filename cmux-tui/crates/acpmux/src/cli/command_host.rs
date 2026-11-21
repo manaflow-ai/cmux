@@ -170,6 +170,14 @@ pub enum PeerCmd {
         #[command(subcommand)]
         cmd: DepsCmd,
     },
+    /// Screen sharing on this machine: the Screen Sharing helper (installed beside this
+    /// daemon from a cmux app here) and whether it holds the macOS grants
+    /// (`cmux.screen-share.status/1`). Reads only; grants nothing.
+    #[command(name = "screen-share")]
+    ScreenShare {
+        #[command(subcommand)]
+        cmd: ScreenShareCmd,
+    },
     /// Install this binary and a daemon on a machine over ssh, then add it as a machine here.
     /// A Linux machine also gets acpmux-update.timer, which keeps its daemon on
     /// the newest feat-cmux-next build (`machine self-update`).
@@ -544,5 +552,25 @@ pub enum TicketCmd {
         /// on or off.
         #[arg(value_parser = ["on", "off"])]
         state: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ScreenShareCmd {
+    /// Read the status now, from a fresh helper process (exit 0 always).
+    Status {
+        /// Install or update the helper from a cmux app here first.
+        #[arg(long)]
+        install: bool,
+        /// This machine is being set up from another of the person's devices
+        /// (`cmux device setup`): a join, so its sharing turns on unless the person turned it off.
+        #[arg(long)]
+        joined: bool,
+    },
+    /// Install or update the helper from a cmux app here, then read the status.
+    Install {
+        /// As for `status --joined`.
+        #[arg(long)]
+        joined: bool,
     },
 }
