@@ -377,7 +377,7 @@ private struct PreviewParser {
         return out
     }
 
-    /// Whether `ch` is one of the characters `inline` acts on (`\ ` ! [ < * _ ~`). One ASCII value and an integer
+    /// Whether `ch` is one of the characters `inline` acts on (`\ ` ! [ < * _ ~`). One ASCII value and one integer
     /// switch: a character with a combining mark or a non-ASCII character never is one.
     static func mayStartInline(_ ch: Character) -> Bool {
         guard let ascii = ch.asciiValue else { return false }
