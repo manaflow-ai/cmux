@@ -78,7 +78,8 @@ final class NativeNewTabRowView: NSView {
             let header = icon[..<comma]
             guard header.hasSuffix(";base64") else { return placeholder(for: content.symbol) }
             if let cached = faviconImages.object(forKey: icon as NSString) { return cached }
-            if let data = Data(base64Encoded: icon[icon.index(after: comma)...]), let image = NSImage(data: data) {
+            let payload = String(icon[icon.index(after: comma)...])
+            if let data = Data(base64Encoded: payload), let image = NSImage(data: data) {
                 image.size = NSSize(width: 16, height: 16)
                 faviconImages.setObject(image, forKey: icon as NSString)
                 return image
