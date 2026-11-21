@@ -138,7 +138,7 @@ export type TrayHandleSide = "left" | "middle" | "right";
 export const UNREAD_BANNER_KEY = "agentPane.display.unreadBanner";
 /// Settings > Agent Chat > Chat Minimap (Swift AgentPaneDisplaySettingsSchema has the same row).
 export const MINIMAP_KEY = "agentPane.display.minimap";
-/// Settings > Updates > Show Feature Tips (featureTips.tsx), on unless set false. The host sends it
+/// Settings > Updates > Show Feature Tips (featureTips.tsx), off unless set true. The host sends it
 /// with the chat's keys (Swift AgentPaneDisplaySetting.followedAppPaths). Not part of ChatDisplay.
 export const FEATURE_TIPS_KEY = "updates.showFeatureTips";
 /// cmux-next.json only: the command rules and presets the running tray names background commands
@@ -406,7 +406,7 @@ let unreadBanner: UnreadBannerMode = "off";
 let threadMinimapArm: ThreadMinimapArm | null = null;
 let transcriptView: TranscriptView = "normal";
 let presentation: Presentation = "transcript";
-let featureTipsOn = true;
+let featureTipsOn = false;
 let commandLabels = "null";
 let promptCoachOn = true;
 let highContrastArm: keyof typeof highContrastLook.arms = "off";
@@ -450,7 +450,7 @@ export function setChatDisplay(value: unknown): void {
   const view = isTranscriptView(stored) ? stored : "normal";
   const storedPresentation = raw[PRESENTATION_KEY];
   const nextPresentation = isPresentation(storedPresentation) ? storedPresentation : "transcript";
-  const tips = raw[FEATURE_TIPS_KEY] !== false;
+  const tips = raw[FEATURE_TIPS_KEY] === true;
   const labels = JSON.stringify(raw[COMMAND_LABELS_KEY] ?? null);
   const coach = raw[PROMPT_COACH_KEY] !== false;
   const same = JSON.stringify(next) === JSON.stringify(current);
