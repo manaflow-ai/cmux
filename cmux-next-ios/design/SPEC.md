@@ -706,17 +706,30 @@ and code boxes would vanish:
 Each step is a full-screen page in a `NavigationStack` with a back circle; progress is implicit
 (no dots). Skippable steps have a "Not now" `TextCTA` under the primary.
 
-1. Team (only if the user has 2+ teams and none chosen): list of `SidebarTeamRow`s, tap to pick.
+1. "Your Mac, live on your phone": the welcome art at rest, then four rows (icon + title + detail)
+   naming what the phone does on the Mac, never what a signed-in person already knows: "Type in
+   your Mac's terminals", "Run agent sessions", "Hand work to Chief", "Use your Mac's browser"
+   (its tabs stream here). Primary "Continue".
+2. Team (only if the user has 2+ teams and none chosen): list of `SidebarTeamRow`s, tap to pick.
    Zero teams: "Create your team" with a name field and the color/emoji editor inline.
-2. Pair a Mac (only if the team has no Macs owned by the user): the Codex setup screen
+3. Pair a Mac (only if the team has no Macs owned by the user): the Codex setup screen
    (`chatgpt-10-codex-setup-onboarding`): 48 pt `desktopcomputer` glyph, title "Set up cmux on
    your Mac", two explanatory rows (icon 22 + `body`): "Install cmux on your Mac and sign in with
    this account." / "Your Mac appears here when it's online." Primary "I'm signed in on my Mac"
    (goes to 5.6), secondary glass "Email me a download link".
-3. Notifications priming: glyph `bell.badge` 48, title "Know when an agent needs you", rows:
-   "Questions and permission requests", "Finished tasks", "Live Activities for running
-   agents". Primary "Turn on notifications" (system prompt), "Not now".
-4. Done → Shell, Home tab, with a one-time crossfade (`gentle`).
+4. Notifications priming: a real screenshot of three cmux notifications in Notification Center
+   (`OnboardingPushes`, from `OnboardingPushShotUITests` on a simulator; never a drawing), radius
+   28 continuous, clipped, hairline `separator` stroke. Title "See what needs you, as it happens",
+   one line under it. Primary "Turn on notifications" (system prompt), "Not now".
+5. Plans (only on a build that sells plans, for an account on Free that can buy in the app):
+   title "Keep agents running with your Mac closed" and one line, then a segmented Pro / Max
+   switcher (Pro picked; Go is retired and never offered), Yearly and Monthly cards side by side
+   (yearly first, with a "Save N%" badge from the StoreKit prices when N >= 5), the plan's
+   allowances on one line, then Restore, Terms and Privacy in one row over the renewal
+   disclosure. One primary "Subscribe to <plan>" with the charge under it; "Not now" in the
+   navigation bar. No trial toggle (App Review 3.1.2). At accessibility sizes the primary scrolls
+   with the page.
+6. "Start your first agent", then Shell, Home tab, with a one-time crossfade (`gentle`).
 
 ### 5.6 Pairing a Mac (Codex flow, `chatgpt-05` to `chatgpt-11`)
 

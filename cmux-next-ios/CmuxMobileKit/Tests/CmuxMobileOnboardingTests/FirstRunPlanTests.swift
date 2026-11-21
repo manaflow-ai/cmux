@@ -26,15 +26,6 @@ import Testing
         #expect(SetupFlow.step(after: .plan, in: plan) == .firstChat)
     }
 
-    @Test func theNotificationsPageVersionComesFromItsLaunchArgument() {
-        #expect(NotificationsPrimer.choice(in: ["app", "-cmux-mobile-notifications-primer", "preview"]) == .preview)
-        #expect(NotificationsPrimer.choice(in: ["app", "-cmux-mobile-notifications-primer", "actions"]) == .actions)
-        #expect(NotificationsPrimer.choice(in: ["app", "-cmux-mobile-notifications-primer", "nope"]) == nil)
-        #expect(NotificationsPrimer.choice(in: ["app", "-cmux-mobile-notifications-primer"]) == nil)
-        #expect(NotificationsPrimer.allCases.count == 4)
-        #expect(NotificationsPrimer.choice(in: ["app", "-cmux-mobile-notifications-primer", "real"]) == .real)
-    }
-
     @Test func nothingToAskMeansNoSetup() {
         #expect(SetupFlow.plan(teamCount: 1, macOnline: true, asksNotifications: false).isEmpty)
     }

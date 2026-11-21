@@ -283,7 +283,7 @@ public struct SetupFlow: View {
 /// A setup page (design spec, section 8): a 40 pt symbol or the welcome's art,
 /// a `title2` semibold title, the content, then the actions 24 pt above the
 /// account footer.
-struct SetupPage<Header: View, Content: View, Actions: View>: View {
+private struct SetupPage<Header: View, Content: View, Actions: View>: View {
     let title: LocalizedStringKey
     @ViewBuilder let header: () -> Header
     @ViewBuilder let content: () -> Content
@@ -323,7 +323,7 @@ extension SetupPage where Header == SetupSymbol {
     }
 }
 
-struct SetupSymbol: View {
+private struct SetupSymbol: View {
     let name: String
 
     var body: some View {
@@ -331,25 +331,6 @@ struct SetupSymbol: View {
             .font(.system(size: 40, weight: .regular))
             .foregroundStyle(theme.colors.label)
             .accessibilityHidden(true)
-    }
-}
-
-struct ExplainerRow: View {
-    let symbol: String
-    let text: LocalizedStringKey
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 14) {
-            Image(systemName: symbol)
-                .font(.system(size: 17))
-                .frame(width: 22)
-                .foregroundStyle(theme.colors.label)
-                .accessibilityHidden(true)
-            Text(text)
-                .font(theme.type.body)
-                .foregroundStyle(theme.colors.label)
-        }
-        .padding(.vertical, 8)
     }
 }
 
@@ -741,81 +722,26 @@ private struct PairMacCTAStyle: ButtonStyle {
     }
 }
 
-/// Notification priming before the system prompt. Planned only for builds
-/// that can receive pushes, while the system has not asked yet. `real` ships;
-/// DEBUG builds switch between the versions (`NotificationsPrimer`) on the page.
+/// Notification priming before the system prompt: real cmux notifications
+/// (`NotificationsShot`), what they are for, and the ask. Planned only for builds
+/// that can receive pushes, while the system has not asked yet.
 private struct NotificationsStep: View {
     let next: () -> Void
-    #if DEBUG
-    @AppStorage("cmuxMobile.debug.notificationsPrimer2") private var stored = NotificationsPrimer.real.rawValue
-    private var primer: NotificationsPrimer { NotificationsPrimer(rawValue: stored) ?? .real }
-    #else
-    private let primer = NotificationsPrimer.real
-    #endif
 
     var body: some View {
-        page
+        SetupPage(title: "See what needs you, as it happens") {
+            NotificationsShot()
+        } content: {
+            Text("A request to approve, a finished task, a word from Chief. Press and hold one to answer it without opening cmux.")
+                .font(theme.type.rowSubtitle)
+                .foregroundStyle(theme.colors.label2)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 340)
+        } actions: { actions }
             #if DEBUG
-            .safeAreaInset(edge: .top, spacing: 0) {
-                // Dev builds only: compare the three versions on a phone.
-                Picker("Version", selection: $stored) {
-                    ForEach(NotificationsPrimer.allCases, id: \.rawValue) { Text($0.label).tag($0.rawValue) }
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, theme.metrics.sideMargin)
-                .padding(.top, 4)
-                .accessibilityIdentifier("setup.notifications.version")
-            }
             .onChange(of: DemoDirector.shared.serial) { if DemoDirector.shared.command == .setupNotNow { next() } }
-            .onAppear { if let choice = NotificationsPrimer.launchChoice { stored = choice.rawValue } }
             #endif
-    }
-
-    @ViewBuilder private var page: some View {
-        switch primer {
-        case .real:
-            SetupPage(title: "See what needs you, as it happens") {
-                RealNotificationsShot()
-            } content: {
-                Text("A request to approve, a finished task, a word from Chief. Press and hold one to answer it without opening cmux.")
-                    .font(theme.type.rowSubtitle)
-                    .foregroundStyle(theme.colors.label2)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: 340)
-            } actions: { actions }
-        case .list:
-            SetupPage(symbol: "bell.badge", title: "Know when an agent needs you") {
-                VStack(alignment: .leading, spacing: 4) {
-                    ExplainerRow(symbol: "questionmark.bubble", text: "Questions and permission requests")
-                    ExplainerRow(symbol: "checkmark.circle", text: "Finished tasks")
-                    ExplainerRow(symbol: "exclamationmark.triangle", text: "Errors that stop an agent")
-                }
-                .frame(maxWidth: 340, alignment: .leading)
-            } actions: { actions }
-        case .preview:
-            SetupPage(title: "Your agents tap you on the shoulder") {
-                NotificationStackPreview()
-            } content: {
-                Text("Only when an agent asks, finishes or gets stuck. Never for every line of output.")
-                    .font(theme.type.rowSubtitle)
-                    .foregroundStyle(theme.colors.label2)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: 340)
-            } actions: { actions }
-        case .actions:
-            SetupPage(title: "Answer from the lock screen") {
-                NotificationActionsPreview()
-            } content: {
-                Text("Press and hold a request to allow or deny it without opening cmux. Allowing asks for Face ID first.")
-                    .font(theme.type.rowSubtitle)
-                    .foregroundStyle(theme.colors.label2)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: 340)
-            } actions: { actions }
-        }
     }
 
     @ViewBuilder private var actions: some View {

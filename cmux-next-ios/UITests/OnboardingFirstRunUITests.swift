@@ -228,24 +228,14 @@ final class OnboardingFirstRunUITests: UIStateCaptureCase {
     }
 
     @MainActor
-    func testCaptureNotificationVersions() {
-        let g = "D Notifications, four versions"
-        func at(_ primer: String, _ extra: [String] = []) -> [String] {
-            Self.at("notifications", ["-cmux-mobile-notifications-primer", primer] + extra)
-        }
+    func testCaptureNotifications() {
+        let g = "D Notifications"
         capture([
-            Scene(group: g, id: "R-real", args: at("real"), env: Self.mock, signedIn: false, settle: 3) { app in
+            Scene(group: g, id: "notifications-real", args: Self.at("notifications"), env: Self.mock, signedIn: false, settle: 3) { app in
                 C.wait(C.any(app, "setup.notifications.shot"), "real notifications screenshot")
             },
-            Scene(group: g, id: "R-real-large-text", args: at("real", Self.largeText), env: Self.mock, signedIn: false, settle: 3),
-            Scene(group: g, id: "R-real-ax-text", args: at("real", Self.axText), env: Self.mock, signedIn: false, settle: 3),
-            Scene(group: g, id: "A-list", args: at("list"), env: Self.mock, signedIn: false, settle: 3),
-            Scene(group: g, id: "B-preview", args: at("preview"), env: Self.mock, signedIn: false, settle: 3),
-            Scene(group: g, id: "C-actions", args: at("actions"), env: Self.mock, signedIn: false, settle: 3),
-            Scene(group: g, id: "B-preview-large-text", args: at("preview", Self.largeText), env: Self.mock, signedIn: false, settle: 3),
-            Scene(group: g, id: "C-actions-large-text", args: at("actions", Self.largeText), env: Self.mock, signedIn: false, settle: 3),
-            Scene(group: g, id: "B-preview-ax-text", args: at("preview", Self.axText), env: Self.mock, signedIn: false, settle: 3),
-            Scene(group: g, id: "C-actions-ax-text", args: at("actions", Self.axText), env: Self.mock, signedIn: false, settle: 3),
+            Scene(group: g, id: "notifications-large-text", args: Self.at("notifications", Self.largeText), env: Self.mock, signedIn: false, settle: 3),
+            Scene(group: g, id: "notifications-ax-text", args: Self.at("notifications", Self.axText), env: Self.mock, signedIn: false, settle: 3),
         ])
     }
 
