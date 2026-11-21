@@ -116,6 +116,10 @@ UNWIRED: set[str] = {
     # No new CI tests (CLAUDE.md): #44697 added it with no step. It reads test-ios.yml only as data (a bot's re-run
     # on a cmux-next lane takes the picker's Blacksmith route); run it by hand when that route changes. Exit: as below.
     "tests/test_ci_ios_bot_rerun_route.py",
+    # lane = "manual": no new CI tests (AGENTS.md:214, Lawrence 2026-10-23). It reads the fast-check workflows only
+    # as data (each routed job's needs and if, and its declared inputs in scripts/ci/fast-check-inputs.json); run
+    # it by hand when fast_check_route.py, that map or a routed workflow changes. Exit: as below.
+    "tests/test_ci_fast_check_route.py",
     # lane = "manual": no new CI tests (AGENTS.md:214, Lawrence 2026-10-23). Both read the workflows only as data
     # (the receipt jobs' verifier calls; each pull-request job's same-tree reuse or denial in
     # scripts/ci/same_tree_reuse.json); run them by hand when ci_receipt.py, same_tree_reuse.py, its map or a
