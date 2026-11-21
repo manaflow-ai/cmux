@@ -220,6 +220,7 @@ jobs:
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
       # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
       - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        working-directory: ${{ github.workspace }}
         if: runner.os == 'Linux'
         shell: bash
         run: |
@@ -691,6 +692,7 @@ jobs:
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
       # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
       - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        working-directory: ${{ github.workspace }}
         if: runner.os == 'Linux'
         shell: bash
         run: |
@@ -756,7 +758,7 @@ jobs:
 
   # The before/after table in the run summary (first-build.ts --report; no Freestyle access).
   first-build-report:
-    if: always() && inputs.mode == 'bake' && inputs.dev_tree
+    if: ${{ !cancelled() && inputs.mode == 'bake' && inputs.dev_tree }}
     needs: [bake, first-build-before]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
@@ -765,6 +767,7 @@ jobs:
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
       # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
       - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        working-directory: ${{ github.workspace }}
         if: runner.os == 'Linux'
         shell: bash
         run: |

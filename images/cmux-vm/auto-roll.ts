@@ -10,14 +10,16 @@
 //     Fails closed (exits non-zero) on a shallow checkout or a pinned commit the checkout lacks: the guard that
 //     never rolls an older build needs the pin's history.
 //   bun images/cmux-vm/auto-roll.ts approve --candidate <channel-dev.json> --revision <ci-RUN-ATTEMPT>
-//       --run <roll run id> --attempt <roll run attempt> [--wrangler <path>] [--lock <path>]
+//       --run <roll run id> --attempt <roll run attempt> [--wrangler <path>] [--lock <path>] [--platform-wrangler <path>]
 //     Puts the baked, gated image first in production's VM_BOOT_IMAGES and last in staging's, trims the
-//     oldest auto-rolled entries, and refuses when the lock no longer hashes to what was baked.
+//     oldest auto-rolled entries, and refuses when the lock no longer hashes to what was baked. --platform-wrangler
+//     (cmux-platform's root wrangler.jsonc) names its CLOUD_VM_API_IMAGE pins, which are never trimmed.
 //   bun images/cmux-vm/auto-roll.ts behind --pin <40-hex> [--lock <path>] [--repo <checkout>]
 //     Exits 3 when the pin is older than the cmux-tui the lock pins (a newer roll landed while this one baked),
 //     0 when it may roll; fails closed on a shallow checkout or a commit it lacks. image-roll-push.sh asks before
 //     it writes the pin onto the tip.
-//   bun images/cmux-vm/auto-roll.ts rollback --image <id> [--wrangler <path>]
+//   bun images/cmux-vm/auto-roll.ts rollback --image <id> [--wrangler <path>] [--platform-wrangler <path>]
+//     (refuses an image cmux-platform pins)
 //     Removes an auto-rolled image from both lists wherever it is, so it can never be first again (when it was
 //     first, the entry before it boots again). Prints what it did; never removes a hand-approved image.
 //   bun images/cmux-vm/auto-roll.ts settle --kind roll|rollback --image <id> --deploy <result> --product <outcome>
@@ -122,10 +124,11 @@ export function validate(images: BootImage[], env: string): void {
 const SHA256 = /^[0-9a-f]{64}$/u;
 
 /** Drops the oldest auto-rolled entries past KEEP_AUTO; `newestFirst` says which end of the list is newest. */
-export function trimAuto(images: BootImage[], newestFirst: boolean): BootImage[] {
+export function trimAuto(images: BootImage[], newestFirst: boolean, keep: readonly string[] = []): BootImage[] {
   const ordered = newestFirst ? images : [...images].reverse();
   let seen = 0;
-  const kept = ordered.filter((i) => !i.id.startsWith(AUTO_PREFIX) || ++seen <= KEEP_AUTO);
+  // An image cmux-platform pins (platformPins) is never trimmed and does not count toward KEEP_AUTO.
+  const kept = ordered.filter((i) => !i.id.startsWith(AUTO_PREFIX) || keep.includes(i.id) || ++seen <= KEEP_AUTO);
   return newestFirst ? kept : kept.reverse();
 }
 
@@ -163,14 +166,30 @@ export function withFallback(images: BootImage[], env: Env, fallback = fallbackI
   return [...images.slice(0, at), { ...fallback, services: [...SERVICES[env]] }, ...images.slice(at)];
 }
 
+/**
+ * cmux-platform's CLOUD_VM_API_IMAGE pins, from its wrangler.jsonc text (every environment, each id once): the image a
+ * create boots before its isolate reads a list, and the one a create that recorded the pin boots after. A pin a list no
+ * longer names fails as cloud.provider.image_withdrawn (production, 2026-11-20: cloud-native-auto-9d5f6bd6-44156090531-1,
+ * trimmed by KEEP_AUTO), so approve and rollback keep every pin listed.
+ */
+export function platformPins(text: string): string[] {
+  const pins = [...text.matchAll(/"CLOUD_VM_API_IMAGE"\s*:\s*"([^"]+)"/gu)].map((m) => m[1]!);
+  return [...new Set(pins)];
+}
+
 /** The approved entry for a baked candidate: production first, staging last (its order is append-only). */
-export function approve(text: string, entry: BootImage): { text: string; previousFirst: string } {
+export function approve(text: string, entry: BootImage, keep: readonly string[] = []): { text: string; previousFirst: string } {
   const prod = locate(text, "production").images;
   const staging = locate(text, "staging").images;
   if (prod.some((i) => i.id === entry.id) || staging.some((i) => i.id === entry.id)) throw new Error(`${entry.id} is already approved`);
   const fallback = fallbackImage();
-  const nextProd = withFallback(trimAuto([{ ...entry, services: [...SERVICES.production] }, ...prod], true), "production", fallback);
-  const nextStaging = withFallback(trimAuto([...staging, { ...entry, services: [...SERVICES.staging] }], false), "staging", fallback);
+  const nextProd = withFallback(trimAuto([{ ...entry, services: [...SERVICES.production] }, ...prod], true, keep), "production", fallback);
+  const nextStaging = withFallback(trimAuto([...staging, { ...entry, services: [...SERVICES.staging] }], false, keep), "staging", fallback);
+  for (const [before, after, env] of [[prod, nextProd, "production"], [staging, nextStaging, "staging"]] as const) {
+    for (const id of keep) {
+      if (before.some((i) => i.id === id) && !after.some((i) => i.id === id)) throw new Error(`approve would take cmux-platform's pinned ${id} out of ${env}'s list`);
+    }
+  }
   let out = replaceList(text, "production", nextProd);
   out = replaceList(out, "staging", nextStaging);
   return { text: out, previousFirst: prod[0]?.id ?? "" };
@@ -181,10 +200,11 @@ export function approve(text: string, entry: BootImage): { text: string; previou
  * second only until that newer roll is rolled back, and would then boot again with no check; removing it wherever
  * it is means it can never come back.
  */
-export function rollback(text: string, id: string): { text: string; rolledBack: boolean; reason: string; nowFirst: string } {
+export function rollback(text: string, id: string, keep: readonly string[] = []): { text: string; rolledBack: boolean; reason: string; nowFirst: string } {
   const prod = locate(text, "production").images;
   const first = prod[0]?.id ?? "";
   if (!id.startsWith(AUTO_PREFIX)) return { text, rolledBack: false, reason: `${id} is not an auto-rolled image`, nowFirst: first };
+  if (keep.includes(id)) return { text, rolledBack: false, reason: `cmux-platform pins ${id} (CLOUD_VM_API_IMAGE); move its pin first`, nowFirst: first };
   const staging = locate(text, "staging").images;
   const inProd = prod.some((i) => i.id === id);
   if (!inProd && !staging.some((i) => i.id === id)) return { text, rolledBack: false, reason: `${id} is in neither list`, nowFirst: first };
@@ -429,6 +449,15 @@ function arg(argv: string[], name: string, fallback?: string): string {
   return value;
 }
 
+/** --platform-wrangler PATH: cmux-platform's root wrangler.jsonc, whose CLOUD_VM_API_IMAGE pins approve and rollback keep. */
+function pinsFrom(rest: string[]): string[] {
+  const file = rest.includes("--platform-wrangler") ? arg(rest, "--platform-wrangler") : "";
+  if (!file) return [];
+  const pins = platformPins(readFileSync(file, "utf8"));
+  if (pins.length === 0) throw new Error(`${file} names no CLOUD_VM_API_IMAGE: not cmux-platform's wrangler.jsonc`);
+  return pins;
+}
+
 async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv;
   const wrangler = arg(rest, "--wrangler", DEFAULT_WRANGLER);
@@ -462,14 +491,14 @@ async function main(argv: string[]): Promise<number> {
     }
     const entry = rolledImage(candidate, arg(rest, "--revision"), pinnedCmuxTui(lockText), arg(rest, "--run"), arg(rest, "--attempt"));
     const before = readFileSync(wrangler, "utf8");
-    const { text, previousFirst } = approve(before, entry);
+    const { text, previousFirst } = approve(before, entry, pinsFrom(rest));
     writeFileSync(wrangler, text);
     console.log(JSON.stringify({ image: { id: entry.id, revision: entry.revision, snapshotId: entry.snapshotId }, previousFirst }, null, 2));
     return 0;
   }
   if (command === "rollback") {
     const before = readFileSync(wrangler, "utf8");
-    const result = rollback(before, arg(rest, "--image"));
+    const result = rollback(before, arg(rest, "--image"), pinsFrom(rest));
     if (result.rolledBack) writeFileSync(wrangler, result.text);
     console.log(JSON.stringify({ rolledBack: result.rolledBack, reason: result.reason, nowFirst: result.nowFirst }, null, 2));
     return 0;
