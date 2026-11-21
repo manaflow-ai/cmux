@@ -329,7 +329,7 @@ impl Hub {
 
     /// Whether `session` holds records apart from its journal (`kept_unstored`): a restore point
     /// saved then would carry what they changed, and they would be read again past it.
-    fn keeps_unstored(session: &Session) -> bool {
+    pub(super) fn keeps_unstored(session: &Session) -> bool {
         !session.unparked.lock().unwrap_or_else(|e| e.into_inner()).is_empty()
             || session
                 .parked
@@ -681,7 +681,7 @@ impl Hub {
 
     /// The turn `session`'s log has started and not settled, read from the records past
     /// `after`; none when the log did not read.
-    fn open_turn(&self, session: &Session, after: u64) -> Option<Option<OpenTurn>> {
+    pub(super) fn open_turn(&self, session: &Session, after: u64) -> Option<Option<OpenTurn>> {
         // Scan the whole log (or all of it past a restore point): a long turn can stream far
         // more records than any fixed tail window after its `turn_started`.
         let mut open: Option<(u64, Value, Value, bool)> = None;

@@ -58,6 +58,19 @@ impl Hub {
         session: &Session,
         from: Option<&super::restore_point::RestorePoint>,
     ) -> Option<Option<(u64, bool)>> {
+        let read = self.fold_transfer_authority(session, from)?;
+        let latest = read.unwrap_or((0, false));
+        session.note_transfer_authority(latest.0, latest.1);
+        Some(read)
+    }
+
+    /// The fold of [`Self::restore_transfer_authority_after`] alone: it notes nothing in `session`,
+    /// so a running chat's restore point can be moved from it (`restore_point.rs`).
+    pub(super) fn fold_transfer_authority(
+        &self,
+        session: &Session,
+        from: Option<&super::restore_point::RestorePoint>,
+    ) -> Option<Option<(u64, bool)>> {
         let after = from.map_or(0, |p| p.seq);
         let start = from.and_then(|p| p.transfer_authority);
         let mut latest = start.unwrap_or((0, false));
@@ -78,10 +91,7 @@ impl Hub {
                 true
             },
         ) {
-            Ok(()) => {
-                session.note_transfer_authority(latest.0, latest.1);
-                Some(found.then_some(latest))
-            }
+            Ok(()) => Some(found.then_some(latest)),
             Err(error) => {
                 tracing::warn!(session = %session.id, "transfer authority unreadable: {error}");
                 None
@@ -98,6 +108,18 @@ impl Hub {
     /// [`Self::restore_ownership_epoch`] of the records past a restore point, from its epoch
     /// (`restore_point.rs`); none: the whole log. Returns the epoch.
     pub(super) fn restore_ownership_epoch_after(
+        &self,
+        session: &Session,
+        from: Option<&super::restore_point::RestorePoint>,
+    ) -> anyhow::Result<u64> {
+        let epoch = self.fold_ownership_epoch(session, from)?;
+        session.restore_ownership_epoch(epoch);
+        Ok(epoch)
+    }
+
+    /// The fold of [`Self::restore_ownership_epoch_after`] alone: it restores nothing in
+    /// `session`, so a running chat's restore point can be moved from it (`restore_point.rs`).
+    pub(super) fn fold_ownership_epoch(
         &self,
         session: &Session,
         from: Option<&super::restore_point::RestorePoint>,
@@ -120,7 +142,6 @@ impl Hub {
             },
         )?;
         anyhow::ensure!(!malformed, "transfer event contains a malformed ownership epoch");
-        session.restore_ownership_epoch(epoch);
         Ok(epoch)
     }
 }

@@ -1403,6 +1403,13 @@ pub trait Store: Send + Sync {
             !kept || visit(rec)
         })
     }
+    /// The bytes of `id`'s log a read of the records past `after` opens: the segment that holds
+    /// `after + 1` and every later one, whole (`store/segment_starts.rs`). That is what a load
+    /// from a restore point at `after` reads at the next start (`hub/restore_point.rs`). None in
+    /// a store that cannot say.
+    fn log_bytes_after(&self, _id: &str, _after: u64) -> Option<u64> {
+        None
+    }
     /// The restore point `id`'s last log load saved (`hub/restore_point.rs`), as saved. None in a
     /// store that keeps none.
     fn restore_point(&self, _id: &str) -> Option<Vec<u8>> {
@@ -2504,6 +2511,16 @@ impl Store for LocalStore {
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
         self.scan_kinds_keyed_in(id, kinds, keep, visit)
+    }
+
+    fn log_bytes_after(&self, id: &str, after: u64) -> Option<u64> {
+        let segments = self.list_segments(id).ok()?.0;
+        let start = self.segment_starts.start(id, &segments, after).ok()?;
+        let mut bytes = 0u64;
+        for (_, path) in segments.iter().skip(start) {
+            bytes = bytes.saturating_add(std::fs::metadata(path).ok()?.len());
+        }
+        Some(bytes)
     }
 
     fn restore_point(&self, id: &str) -> Option<Vec<u8>> {

@@ -22,6 +22,18 @@ impl Hub {
         self.restore_queue_after(session, only, None);
     }
 
+    /// What [`Self::restore_queue_after`] would carry from `from` to the log's end, when its read
+    /// ends quiet, and nothing else: it restores no queue, branch, move or agent pair, and writes
+    /// no record. A running chat's restore point is moved from it (`restore_point.rs`), where
+    /// those are live already.
+    pub(in crate::hub) fn queue_carry_after(
+        &self,
+        session: &Arc<Session>,
+        from: Option<(u64, &QueueCarry)>,
+    ) -> Option<QueueCarry> {
+        self.queue_fold(session, None, from, true)
+    }
+
     /// [`Self::restore_queue`] of the records past a restore point's seq, from what the point
     /// carries (`restore_point.rs`); none: the whole log. Returns what a restore point at the end
     /// of this read carries, when the read ended quiet: nothing waits, no prompt left the queue
@@ -32,6 +44,18 @@ impl Hub {
         session: &Arc<Session>,
         only: Option<&str>,
         from: Option<(u64, &QueueCarry)>,
+    ) -> Option<QueueCarry> {
+        self.queue_fold(session, only, from, false)
+    }
+
+    /// The fold of both; `dry`: it changes nothing in `session` or the log, and a read that
+    /// would restore a prompt ends not quiet.
+    fn queue_fold(
+        &self,
+        session: &Arc<Session>,
+        only: Option<&str>,
+        from: Option<(u64, &QueueCarry)>,
+        dry: bool,
     ) -> Option<QueueCarry> {
         if session.meta().status == SessionStatus::Closed {
             return None;
@@ -243,7 +267,7 @@ impl Hub {
             && unstarted.settled()
             && digests.settled();
         let carry_branch = branch.clone();
-        if only.is_none() {
+        if only.is_none() && !dry {
             if scanned.is_ok() {
                 self.restore_git_branch(session, branch);
             }
@@ -255,6 +279,8 @@ impl Hub {
         if scanned.is_ok() && only.is_none() {
             let left = direct.finish();
             quiet &= left.is_empty();
+            // A dry read puts none back: one left is a prompt a load would restore.
+            let left = if dry { Vec::new() } else { left };
             for e in self.requeue_unstarted(session, left) {
                 order.prioritize_restart(e.msg.get("promptId").unwrap_or(&Value::Null));
                 waiting.push(e);
@@ -265,6 +291,9 @@ impl Hub {
             unstarted.key(Some(&json!(id)), order).unwrap_or_else(|| order.key(Some(&json!(id))))
         });
         let mut waiting = waiting.into_records();
+        if dry && !waiting.is_empty() {
+            return None;
+        }
         if scanned.is_err() || waiting.is_empty() {
             return (quiet && waiting.is_empty()).then(|| QueueCarry {
                 git_branch: carry_branch,

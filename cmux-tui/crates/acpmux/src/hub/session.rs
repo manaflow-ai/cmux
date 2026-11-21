@@ -109,6 +109,8 @@ pub struct Session {
     /// The startup pass left its log unread, the chat being cold-archived (`load_logs`): the
     /// pass's end does not make it read (`Hub::session_log_loaded`).
     pub(super) log_skipped: AtomicBool,
+    /// What keeps its restore point near the log's end while it runs (`restore_point.rs`).
+    pub(super) roll: super::restore_point::Roll,
     /// Claim retry recovery once per session object; imports may replace a chat with the
     /// same id and a different journal, which must get its own recovery pass.
     pub(super) auto_resume_restored: AtomicBool,
