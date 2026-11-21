@@ -29,7 +29,9 @@ impl Hub {
             || session.replaced.load(std::sync::atomic::Ordering::SeqCst)
             || session.status() == SessionStatus::Closed
             || session.turn().is_some()
-            || session.queue().iter().any(|q| !q.aside())
+            // What a rate-limit hold (restored first, `rate_hold.rs`) kept queued waits for this
+            // continuation, which folds it into its one turn, as before the restart.
+            || (!Self::rate_held(session) && session.queue().iter().any(|q| !q.aside()))
         {
             return;
         }

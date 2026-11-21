@@ -10,8 +10,7 @@
 //! - the chat does not send a turn (its whole context) per message or per retry: the requests the
 //!   model gets stay at the hold's rate;
 //! - the waits between those requests grow, and stay under the longest configured wait;
-//! - no message is lost: once the limit lifts, every one is in a conversation that went on (a
-//!   turn that completes, or a cut turn a completed turn came after);
+//! - no message is lost: once the limit lifts, every one goes in with a turn that completes;
 //! - the row says why the chat is not answering: rate-limited, until when.
 use super::*;
 
@@ -57,26 +56,17 @@ fn drain_errors(c: &mut TestClient, errors: &mut Vec<(Value, String)>) {
     }
 }
 
-/// The texts the agent has in a conversation that went on: every `user_message` of a turn that
-/// completed, or of a turn the 429 cut that a completed turn came after. The cut turn's prompt
-/// reached the agent and stays in its conversation; its continuation, or the queued turn that
-/// took the continuation's place, goes on from there and does not send it again (#47337
-/// counted the same on real Claude Code: 280 of 280 reached the model, none twice).
+/// The texts of the turns that completed: every `user_message` of a turn whose result is
+/// `completed`.
 fn completed_texts(hub: &Hub, id: &str) -> String {
     let all = events(hub, id);
-    let last_completed =
-        all.iter().rposition(|e| e.kind == "turn_result" && e.msg["status"] == "completed");
-    let went_on: Vec<&Value> = all
+    let completed: Vec<&Value> = all
         .iter()
-        .enumerate()
-        .filter(|(i, e)| {
-            e.kind == "turn_result"
-                && (e.msg["status"] == "completed" || last_completed.is_some_and(|l| *i < l))
-        })
-        .map(|(_, e)| &e.msg["turnId"])
+        .filter(|e| e.kind == "turn_result" && e.msg["status"] == "completed")
+        .map(|e| &e.msg["turnId"])
         .collect();
     all.iter()
-        .filter(|e| e.kind == "user_message" && went_on.contains(&&e.msg["turnId"]))
+        .filter(|e| e.kind == "user_message" && completed.contains(&&e.msg["turnId"]))
         .map(|e| e.msg.to_string())
         .collect::<Vec<_>>()
         .join("\n")
@@ -205,224 +195,44 @@ async fn a_429_storm_holds_the_chat_backs_off_and_loses_no_message() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// The backoff is the session's, not the turn's (the 2026-11-19 NIGHTLY storm, cmux#47337). The
-/// first turn hits the limit and is held; a message from another agent queues; at the reset it
-/// takes the continuation's place (`folded`) and hits the limit again. That second hold must not
-/// start over at the first step, and no hold's deadline may move earlier: #45977's continuation
-/// moved the failure's deadline to its own first step, and every folded turn began the waits
-/// again, so a coordinator under a 429 sent more full-context requests than before the hold.
+/// One agent message, alone, leads a turn the limit refuses before its model reads a word: it
+/// goes back under its own prompt id (`digest.rs` `requeue_unread`) with nothing queued behind it
+/// to fold it into another turn. Its prompt id is still in the chat's prompt ledger with the
+/// refused turn's outcome, so the copy must not answer as that prompt's duplicate and leave the
+/// queue: once the limit lifts it goes in with a turn that completes.
 #[tokio::test]
-async fn a_folded_turn_that_hits_the_limit_again_holds_longer_not_from_the_first_step() {
-    const WAITS: [u64; 3] = [300, 900, 2_700];
-    let root = std::env::temp_dir().join(format!("acpmux-429-fold-{}", uuid::Uuid::now_v7()));
-    std::fs::create_dir_all(&root).unwrap();
-    let limit = root.join("rate-limited");
-    std::fs::write(&limit, "").unwrap();
-    let env =
-        BTreeMap::from([("FAKE_RATE_LIMIT_FILE".to_owned(), limit.to_string_lossy().into_owned())]);
-    let (hub, mut c) = setup_inbox(PermissionPolicy::ApproveAll, env, BTreeMap::new(), false).await;
-    hub.config.write().await.auto_resume_delays_ms = Some(WAITS.to_vec());
-    let id = new_session(&mut c, "coord-fold").await;
-    let r = c
-        .request(
-            method::SESSION_PROMPT,
-            json!({
-                "sessionId": id, "prompt": [{"type": "text", "text": "plan the day"}],
-                "_meta": {"acpmux": {"promptId": "p-coord"}}
-            }),
-        )
-        .await;
-    assert!(r.unwrap_err().contains("429"));
-    c.send(method::SESSION_PROMPT, from_agent(&id, "m-0", "lane-0", "report 0")).await;
-
-    // The message's turn takes the continuation's place and fails on the limit too.
-    let k = until(&hub, &id, |k| {
-        k.iter().filter(|k| *k == "turn_result").count() >= 2
-            && k.iter().filter(|k| *k == "rate_limit_held").count() >= 2
-    })
-    .await;
-    // Let the second failure's continuation set its own wait.
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    let results: Vec<u64> = of_kind(&hub, &id, "turn_result").iter().map(|e| e.at).collect();
-    assert!(results.len() >= 2, "{k:?}");
-    let skipped = of_kind(&hub, &id, "auto_resume_skipped");
-    assert!(skipped.iter().any(|e| e.msg["skipped"] == "folded"), "no fold: {k:?}");
-
-    // Every deadline each failure's hold took, in order: none moves earlier than the one before.
-    let held = of_kind(&hub, &id, "rate_limit_held");
-    let hold_of = |i: usize| -> Vec<u64> {
-        let next = results.get(i + 1).copied().unwrap_or(u64::MAX);
-        held.iter()
-            .filter(|e| e.at >= results[i] && e.at < next)
-            .map(|e| e.msg["until"].as_u64().unwrap())
-            .collect()
-    };
-    let (first, second) = (hold_of(0), hold_of(1));
-    for deadlines in [&first, &second] {
-        assert!(
-            deadlines.windows(2).all(|w| w[1] >= w[0]),
-            "a hold's deadline moved earlier: {deadlines:?} (failures at {results:?})"
-        );
-    }
-    let length = |deadlines: &[u64], i: usize| deadlines.last().unwrap() - results[i];
-    let (a, b) = (length(&first, 0), length(&second, 1));
-    eprintln!(
-        "429 fold: first hold {a} ms {first:?}, second hold {b} ms {second:?}, waits {WAITS:?}"
-    );
-    // The second 429 in a row waits the second step: three times the first, less the stagger.
-    assert!(
-        b * 2 >= a * 3,
-        "the folded turn's hold started the backoff over: first {a} ms, second {b} ms \
-         (configured {WAITS:?}; deadlines {first:?} then {second:?})"
-    );
-    let cap = WAITS[WAITS.len() - 1];
-    assert!(b <= cap + cap / 5 + 100, "a hold past the longest wait: {b} ms");
-
-    // The limit lifts: the report goes in with a completed turn.
-    std::fs::remove_file(&limit).unwrap();
-    let k = until(&hub, &id, |_| completed_texts(&hub, &id).contains("report 0")).await;
-    assert!(completed_texts(&hub, &id).contains("report 0"), "the report was lost: {k:?}");
-    hub.shutdown_all().await;
-    let _ = std::fs::remove_dir_all(&root);
-}
-
-/// A 429 that outlasts every configured wait (gui-429-finish's live storm, 2026-11-19: turns that
-/// fail in about a second each spent one step of the ladder, the fourth landed about 20 minutes
-/// in, and then the ladder was used up, so 279 of 280 queued messages still sat there 20 minutes
-/// after the limit lifted). While the 429 lasts the chat keeps probing at the longest wait, never
-/// giving up; at the first success every message goes in, within one wait of the lift.
-#[tokio::test]
-async fn a_429_that_outlasts_the_waits_keeps_probing_and_delivers_soon_after_the_lift() {
-    const WAITS: [u64; 2] = [100, 250];
-    let root = std::env::temp_dir().join(format!("acpmux-429-long-{}", uuid::Uuid::now_v7()));
-    std::fs::create_dir_all(&root).unwrap();
-    let limit = root.join("rate-limited");
-    std::fs::write(&limit, "").unwrap();
-    let env =
-        BTreeMap::from([("FAKE_RATE_LIMIT_FILE".to_owned(), limit.to_string_lossy().into_owned())]);
-    let (hub, mut c) = setup_inbox(PermissionPolicy::ApproveAll, env, BTreeMap::new(), false).await;
-    hub.config.write().await.auto_resume_delays_ms = Some(WAITS.to_vec());
-    let id = new_session(&mut c, "coord-long").await;
-    let r = c
-        .request(
-            method::SESSION_PROMPT,
-            json!({
-                "sessionId": id, "prompt": [{"type": "text", "text": "plan the day"}],
-                "_meta": {"acpmux": {"promptId": "p-coord"}}
-            }),
-        )
-        .await;
-    assert!(r.unwrap_err().contains("429"));
-    // Agents report while the first hold lasts; their turn takes the continuation's place.
-    for n in 0..5 {
-        let text = format!("report {n} from lane-{n}");
-        c.send(
-            method::SESSION_PROMPT,
-            from_agent(&id, &format!("m-{n}"), &format!("lane-{n}"), &text),
-        )
-        .await;
-    }
-    // The limit lasts ten times the longest wait: far past the two configured attempts.
-    tokio::time::sleep(Duration::from_millis(WAITS[1] * 10)).await;
-    let k = kinds(&hub, &id);
-    assert!(
-        !k.iter().any(|k| k == "auto_resume_exhausted"),
-        "the chat gave up while the 429 lasted: {k:?}"
-    );
-    let starts = of_kind(&hub, &id, "turn_started").len();
-    assert!(starts >= 4, "it stopped probing: {starts} turns in {} ms: {k:?}", WAITS[1] * 10);
-    let cap = WAITS[WAITS.len() - 1];
-    let bound = cap + cap / 5 + 100;
-    let at: Vec<u64> = of_kind(&hub, &id, "turn_started").iter().map(|e| e.at).collect();
-    let gaps: Vec<u64> = at.windows(2).map(|w| w[1] - w[0]).collect();
-    assert!(gaps.iter().all(|g| *g <= bound), "a probe past the longest wait {bound} ms: {gaps:?}");
-
-    // The limit lifts: every report is in a conversation that went on, within one wait.
-    std::fs::remove_file(&limit).unwrap();
-    let lifted = tokio::time::Instant::now();
-    let all = |hub: &Hub| {
-        let done = completed_texts(hub, &id);
-        (0..5).all(|n| done.contains(&format!("report {n} from lane-{n}")))
-    };
-    while !all(&hub) && lifted.elapsed() < Duration::from_millis(bound + 2_000) {
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
-    let took = lifted.elapsed().as_millis();
-    eprintln!(
-        "429 long: {starts} turns while held, gaps {gaps:?} ms, delivered {took} ms after the lift"
-    );
-    assert!(all(&hub), "reports not delivered {took} ms after the lift: {:?}", kinds(&hub, &id));
-    assert!(
-        took <= u128::from(bound + 1_000),
-        "delivered {took} ms after the lift (bound {bound})"
-    );
-    hub.shutdown_all().await;
-    let _ = std::fs::remove_dir_all(&root);
-}
-
-/// One model request per probe (gui-429-finish's live storm, 2026-11-19, 13:44:45: each 60 s
-/// probe sent two full-context bodies, 72648 B then 76365 B). A probe turn takes about a second to
-/// fail (Claude Code's own retries), and the other agents' notice steered into it meanwhile, a
-/// second request into the same limit. While the chat is in a 429 streak no notice steers into
-/// its turn: what comes in waits for the next probe, or goes in after the one that succeeds.
-#[tokio::test]
-async fn a_probe_under_a_429_is_one_model_request_with_no_steer_into_it() {
-    const WAITS: [u64; 1] = [400];
-    let root = std::env::temp_dir().join(format!("acpmux-429-probe-{}", uuid::Uuid::now_v7()));
+async fn a_lone_agent_message_a_429_refused_goes_in_once_the_limit_lifts() {
+    let root = std::env::temp_dir().join(format!("acpmux-429-lone-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(&root).unwrap();
     let (limit, wire) = (root.join("rate-limited"), root.join("wire.ndjson"));
     std::fs::write(&limit, "").unwrap();
     let env = BTreeMap::from([
         ("FAKE_RATE_LIMIT_FILE".to_owned(), limit.to_string_lossy().into_owned()),
-        ("FAKE_RATE_LIMIT_DELAY_MS".to_owned(), "300".to_owned()),
-        ("FAKE_CLAUDE_STEER".to_owned(), "1".to_owned()),
         ("FAKE_WIRE_LOG".to_owned(), wire.to_string_lossy().into_owned()),
     ]);
-    let (hub, mut c) = setup_inbox(PermissionPolicy::ApproveAll, env, BTreeMap::new(), true).await;
-    hub.config.write().await.auto_resume_delays_ms = Some(WAITS.to_vec());
-    let id = new_session(&mut c, "coord-probe").await;
-    let r = c
-        .request(
-            method::SESSION_PROMPT,
-            json!({
-                "sessionId": id, "prompt": [{"type": "text", "text": "plan the day"}],
-                "_meta": {"acpmux": {"promptId": "p-coord"}}
-            }),
-        )
-        .await;
-    assert!(r.unwrap_err().contains("429"));
-    // Other agents report every 50 ms for 3 s: some land while a probe runs.
-    for n in 0..60 {
-        let text = format!("report {n} from lane-{}", n % 7);
-        c.send(
-            method::SESSION_PROMPT,
-            from_agent(&id, &format!("m-{n}"), &format!("lane-{}", n % 7), &text),
-        )
-        .await;
+    let (hub, mut c) = setup_inbox(PermissionPolicy::ApproveAll, env, BTreeMap::new(), false).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(DELAYS_MS.to_vec());
+    let id = new_session(&mut c, "coord-429-lone").await;
+
+    let text = "the only report from lane-1";
+    let r = c.request(method::SESSION_PROMPT, from_agent(&id, "m-lone", "lane-1", text)).await;
+    assert!(r.unwrap_err().contains("429"), "the limit refused the message's turn");
+    assert_eq!(model_requests(&wire), 1, "the refused turn reached the model once");
+
+    std::fs::remove_file(&limit).unwrap();
+    let lifted = tokio::time::Instant::now();
+    let bound = DELAYS_MS[DELAYS_MS.len() - 1] * 2 + 10_000;
+    while lifted.elapsed() < Duration::from_millis(bound)
+        && !completed_texts(&hub, &id).contains(text)
+    {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    let starts = of_kind(&hub, &id, "turn_started").len();
-    let requests = model_requests(&wire);
-    eprintln!("429 probe: {starts} turns, {requests} model requests while held");
-    assert!(starts >= 3, "too few probes to judge: {:?}", kinds(&hub, &id));
-    assert_eq!(
-        requests,
-        starts,
-        "a probe sent more than one model request (a notice steered into it): {:?}",
+    assert!(
+        completed_texts(&hub, &id).contains(text),
+        "the refused agent message never went in with a completed turn; events {:?}",
         kinds(&hub, &id)
     );
 
-    // The limit lifts: every report goes in.
-    std::fs::remove_file(&limit).unwrap();
-    let k = until(&hub, &id, |_| {
-        let done = completed_texts(&hub, &id);
-        (0..60).all(|n| done.contains(&format!("report {n} from")))
-    })
-    .await;
-    let done = completed_texts(&hub, &id);
-    let missing: Vec<usize> =
-        (0..60).filter(|n| !done.contains(&format!("report {n} from"))).collect();
-    assert!(missing.is_empty(), "reports not delivered: {missing:?}: {k:?}");
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }

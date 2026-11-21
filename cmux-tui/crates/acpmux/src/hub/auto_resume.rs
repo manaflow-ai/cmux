@@ -167,7 +167,7 @@ fn split_attempt(prompt_id: &str) -> (&str, usize) {
 }
 
 /// The text the agent gets; `reason` is the failure's [`super::turn_errors::resume_cause`].
-fn continue_text(error: &str, reason: &str) -> String {
+pub(super) fn continue_text(error: &str, reason: &str) -> String {
     let error: String = error.chars().take(MAX_ERROR_CHARS).collect();
     let cause = match reason {
         "agent_exited" => "an agent process exit",
@@ -377,10 +377,20 @@ pub(super) fn check_cut(
     after: Option<&str>,
     waiting: bool,
 ) -> Result<(), RpcError> {
+    // A rate limit's compaction runs ahead of what the hold queued, as `compact_first` decided.
+    let rate_held = rate_compaction_runs(session);
     match after {
-        Some(cut) if waiting || !still_cut(session, cut) => Err(superseded()),
+        Some(cut) if waiting || !still_cut_by(session, cut, rate_held) => Err(superseded()),
         _ => Ok(()),
     }
+}
+
+/// Whether `session`'s account rate limit holds it while its compaction runs (`rate_hold.rs`):
+/// that one prompt goes ahead of what the hold queued, which goes in after it with the
+/// continuation.
+pub(super) fn rate_compaction_runs(session: &Session) -> bool {
+    Hub::rate_held(session)
+        && session.auto_resume.compacting.lock().unwrap_or_else(|e| e.into_inner()).is_some()
 }
 
 /// Up to a fifth more than `delay`, the same for a chat each time.
@@ -586,10 +596,12 @@ impl Hub {
         }
         // The account's limit holds the whole chat from now on, a continuation or none: what comes
         // in meanwhile queues for the reset (`rate_hold.rs`).
+        // Its strikes grow its backoff; enough of them park it (no timer, one line to the
+        // session it reports to); its continuation then waits for a retry.
         if let (Some(cut), Some(RetryReason::RateLimit), Some(true)) =
             (cut.as_ref(), reason, ending)
         {
-            self.hold_at_failure(session, turn_id, cut.error, cut.not_before);
+            let _parked = self.hold_at_failure(session, turn_id, cut.error, cut.not_before);
         }
         let (Some(cut), Some(reason), Some(true)) = (cut, reason, ending) else {
             if ending.is_some() {
@@ -616,13 +628,7 @@ impl Hub {
         // Off the turn's path: the turn lock is still held here.
         tokio::spawn(async move {
             let configured = hub.config.read().await.auto_resume_delays_ms.clone();
-            // A rate limit waits on its own capped ladder and never gives up (`rate_hold.rs`).
-            let rate = reason == RetryReason::RateLimit;
-            let delays = if rate {
-                super::rate_hold::rate_waits_of(configured)
-            } else {
-                effective_delays(configured)
-            };
+            let delays = effective_delays(configured);
             // A chat past its context window goes on only once compacted, and at once.
             let context = reason == RetryReason::Context;
             if context && !hub.can_compact(&session).await {
@@ -632,15 +638,7 @@ impl Hub {
                 return;
             }
             let delays = if context { compact_first::waits(&delays) } else { delays };
-            // A rate limit backs off across the session, not per prompt (`rate_hold.rs`): a
-            // queued turn that took a continuation's place waits the session's next step, past
-            // the last step the last one again, for as long as the 429 lasts.
-            let delay = if rate {
-                super::rate_hold::step_delay(&delays, done.max(session.rate_hold.step()))
-            } else {
-                delays.get(done).copied()
-            };
-            let Some(delay) = delay else {
+            let Some(&delay) = delays.get(done) else {
                 let ours = hub.take_pending(&session, &turn_id);
                 if done > 0 {
                     let msg = json!({"promptId": root, "attempts": done, "turnId": turn_id, "reason": reason.as_str()});
@@ -654,22 +652,21 @@ impl Hub {
             let now = super::now_ms();
             let limits = session.meta().usage_limits;
             let reset = reset_hint::reset_at(&error, limits.as_ref(), now).max(not_before);
-            // Never sooner than the hold the failure set.
-            let held = session.rate_hold.until().filter(|_| rate);
-            let next_at = match (rate, reset) {
-                // A rate limit that names its reset (retry-after, the error's or the account
-                // window's) goes on exactly then, not a backoff step after it.
-                (true, Some(reset)) => reset.max(held.unwrap_or(reset)),
-                _ => now
-                    .saturating_add(staggered(delay, &session.id))
-                    .max(reset.unwrap_or(now))
-                    .max(held.unwrap_or(now)),
-            };
+            let mut next_at =
+                now.saturating_add(staggered(delay, &session.id)).max(reset.unwrap_or(now));
+            // A rate limit's continuation waits out the chat's backoff, which grows with its
+            // strikes, however early its own attempt would come; a parked chat's waits for a
+            // retry (`rate_hold.rs`).
+            let parked = reason == RetryReason::RateLimit && session.rate_hold.parked().is_some();
+            if reason == RetryReason::RateLimit {
+                let base = super::rate_hold::backoff_base(&delays);
+                let backoff = super::rate_hold::backoff_ms(session.rate_hold.strikes(), base);
+                next_at = next_at.max(now.saturating_add(staggered(backoff, &session.id)));
+            }
             let delay = next_at.saturating_sub(now);
             let retry = RetrySummary {
                 attempt: attempt as u64,
-                // A rate limit's attempts have no last one: this one is the last so far.
-                of: (if rate { delays.len().max(attempt) } else { delays.len() }) as u64,
+                of: delays.len() as u64,
                 reason,
                 next_at,
                 prompt_id: root.clone(),
@@ -681,6 +678,9 @@ impl Hub {
             msg.set("control", json!(control.as_str()));
             msg.set("trustGate", json!(trust_gate));
             msg.set("notBefore", json!(not_before));
+            if parked {
+                msg.set("parked", json!(true));
+            }
             if let Some(from) = &from {
                 msg.set("from", json!(from));
             }
@@ -778,11 +778,28 @@ impl Hub {
     }
 
     /// Stop or close: the chat's waiting continuation does not fire, and the turn running or
-    /// ending now gets none, however it ends.
+    /// ending now gets none, however it ends. A chat the rate limit has parks instead
+    /// (`rate_hold.rs` `park_at_stop`).
     pub(super) fn stop_auto_resume(&self, session: &Session) {
+        // A chat the account's rate limit has (held, parked, or with a strike) is parked by a
+        // Stop, not released: it starts nothing by itself until a retry or the person's own
+        // prompt (`rate_hold.rs`). Its rate-limit continuation that waits stays, and goes on
+        // with that retry; one a turn now running would get, or a closed chat's, does not.
+        if session.rate_hold.limited() {
+            let keeps = !session.closing.load(std::sync::atomic::Ordering::SeqCst)
+                && session.turn().is_none()
+                && matches!(
+                    session.auto_resume.lock().as_ref(),
+                    Some(Mark::Waiting { retry: Some(r), .. }) if r.reason == RetryReason::RateLimit
+                );
+            // Parked first: the continuation the stop below wakes finds it so, and lifts nothing.
+            self.park_at_stop(session, keeps);
+            if !keeps {
+                self.stop_auto_resume_by(session, None);
+            }
+            return;
+        }
         self.stop_auto_resume_by(session, None);
-        // Stop, close or a move ends a rate-limit hold too: the person takes the chat back.
-        self.lift_rate_hold(session, "stopped");
     }
 
     /// Read durable exact-prompt tombstones once per restored session. Callers hold

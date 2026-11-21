@@ -165,6 +165,10 @@ pub struct Session {
     /// was none: until it is, the chat is not caught up and its log not read (review of #37284 at
     /// 23e76b07, F2). Taken under `append_lock`.
     pub(super) kept_read: AtomicBool,
+    /// The held tool output bodies an earlier run left beside the log are read back
+    /// (`Hub::take_back_held`), or there were none: until they are, the chat is not caught up.
+    /// Taken under `append_lock`.
+    pub(super) held_read: AtomicBool,
     /// The restore try whose thread writes this chat meanwhile (0: none).
     pub(super) restore_token: AtomicU64,
     /// Serializes the handoff of a turn's prompt and a session-wide cancel. A compacting Stop
@@ -179,6 +183,8 @@ pub struct Session {
     pub(super) turn: StdMutex<Option<TurnInfo>>,
     /// When the person left it and the recap made meanwhile (`away_recap.rs`).
     pub(super) away: StdMutex<super::away_recap::Away>,
+    /// Whether a person started the running turn, and the summary request (`rolling_summary.rs`).
+    pub(super) rolling: StdMutex<super::rolling_summary::Rolling>,
     /// The person's corrections and the prompt coach's offer (`prompt_coach.rs`).
     pub(super) coach: StdMutex<crate::prompt_coach::Coach>,
     /// The turn `finish_turn` took and has not ended yet: a shutdown settles it if its end does
