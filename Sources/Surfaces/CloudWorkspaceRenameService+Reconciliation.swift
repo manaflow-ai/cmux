@@ -121,8 +121,23 @@ extension CloudWorkspaceRenameService {
             if workspace.panelTitles[projection.panelID] != resource.cloudProcessDisplayTitle {
                 _ = workspace.updatePanelTitle(panelId: projection.panelID, title: resource.cloudProcessDisplayTitle)
             }
-            guard let tabID = remoteTabID(for: projection, resource: resource),
-                  let tab = state.lookupIndex.tab(id: tabID) else { continue }
+            guard let tabID = remoteTabID(for: projection, resource: resource) else { continue }
+            guard let tab = state.lookupIndex.tab(id: tabID) else {
+                let key = CloudRenameCoordinator.Key.tab(machine: machine, id: tabID)
+                if catalog.pendingCloudRenameName(for: key) != nil { continue }
+                // The accepted Cloud graph is authoritative. A terminal can stay
+                // open locally after its agent tab exits, closes, detaches, or is
+                // reassigned; clear only an automatic/remote projection so an
+                // intentional local rename remains untouched.
+                if (workspace.panelCustomTitleSources[projection.panelID] ?? .user) != .user,
+                   catalog.pendingCloudRenameName(for: .tab(machine: machine, id: tabID)) == nil {
+                    _ = workspace.setPanelCustomTitle(
+                        panelId: projection.panelID, title: nil, source: .remote,
+                        propagateToRemoteTmux: false, propagateToCloud: false
+                    )
+                }
+                continue
+            }
             let key = CloudRenameCoordinator.Key.tab(machine: machine, id: tabID)
             if let pending = catalog.pendingCloudRenameName(for: key), pending != (tab.name ?? "") { continue }
             guard workspace.panelCustomTitles[projection.panelID] != tab.name else { continue }
