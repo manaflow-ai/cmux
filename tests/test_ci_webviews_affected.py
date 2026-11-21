@@ -276,7 +276,7 @@ class PullRequestShardsTest(unittest.TestCase):
     def test_no_touched_test_runs_shard_1_and_all_means_all(self) -> None:
         import webviews_pr_shards as ps  # noqa: PLC0415
         self.touched("unrelated/tool.py")
-        self.assertEqual(ps.pick(self.root, "HEAD^1", "HEAD", 12), ([1], "the change touches no webviews test"))
+        self.assertEqual(ps.pick(self.root, "HEAD^1", "HEAD", 12), ([1], "the change touches no webviews test", {}))
         run = subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_pr_shards.py"), "--all", "--count", "3"],
                              capture_output=True, text=True, check=True)
         self.assertEqual(run.stdout.strip(), '[{"shard":1,"shard_count":3},{"shard":2,"shard_count":3},{"shard":3,"shard_count":3}]')
@@ -296,6 +296,22 @@ class PullRequestShardsTest(unittest.TestCase):
         finally:
             ps.shard_files = real
         self.assertEqual(seen, [1, 2])
+
+    def test_a_picked_shard_past_1_owns_only_its_touched_tests(self) -> None:
+        """--direct-out: shards 2..N run the touched tests they were picked for, not their closure share."""
+        import webviews_pr_shards as ps  # noqa: PLC0415
+        self.touched("webviews/src/leaf.ts")
+        split = {2: {"webviews/test/leaf.test.ts", "webviews/test/a.test.ts"}, 3: {"webviews/test/other.test.ts"}}
+        real = ps.shard_files
+        ps.shard_files = lambda repo, shard, count, selected: split[shard]
+        try:
+            shards, _, own = ps.pick(self.root, "HEAD^1", "HEAD", 3)
+        finally:
+            ps.shard_files = real
+        self.assertEqual(shards, [1, 2])
+        self.assertEqual(own, {2: ["test/leaf.test.ts"]})
+        self.touched("webviews/package.json")
+        self.assertEqual(ps.pick(self.root, "HEAD^1", "HEAD", 3)[2], {})  # every shard runs its whole split
 
     def test_files_of_refuses_shards_outside_the_count(self) -> None:
         run = subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_pr_shards.py"), "--base", "HEAD^1",

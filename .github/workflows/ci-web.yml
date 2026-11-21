@@ -121,7 +121,8 @@ jobs:
         run: |
           picked=""
           if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ "$FULL_CI" != true ]; then
-            picked="$(timeout 150 python3 scripts/ci/webviews_pr_shards.py --base HEAD^1 --head HEAD --count "$REACT_APPS_SHARDS")" || picked=""
+            picked="$(timeout 150 python3 scripts/ci/webviews_pr_shards.py --base HEAD^1 --head HEAD --count "$REACT_APPS_SHARDS" \
+              --direct-out "$RUNNER_TEMP/webviews-durations/pr-shard-direct.json")" || { picked=""; rm -f "$RUNNER_TEMP/webviews-durations/pr-shard-direct.json"; }
           fi
           [ -n "$picked" ] || picked="$(python3 scripts/ci/webviews_pr_shards.py --all --count "$REACT_APPS_SHARDS")"
           echo "react-apps-check shards: $picked"
@@ -148,6 +149,7 @@ jobs:
             ${{ runner.temp }}/webviews-durations/manifest.json
             ${{ runner.temp }}/webviews-durations/base-reds.json
             ${{ runner.temp }}/webviews-durations/pr-shard-files
+            ${{ runner.temp }}/webviews-durations/pr-shard-direct.json
           if-no-files-found: error
           # A same-run handoff: the cache keeps the manifest between runs.
           retention-days: 1
@@ -774,6 +776,16 @@ jobs:
           # or an unmapped path); empty output runs every file. A feat-cmux-next push and full-ci run all.
           if [ -n "$BASE_REF" ] && [ "$FULL_CI" != true ]; then
             CMUX_WEB_TEST_FILES="$(python3 ../scripts/ci/webviews_affected.py --base "$BASE_REF" --head HEAD)" || CMUX_WEB_TEST_FILES=""
+            # A shard from 2 to N was picked for the tests the change touches (webviews_pr_shards.py --direct-out):
+            # it runs just those, as one unsplit list, not its share of the closure above. No entry (an every-shard
+            # pick, a failed pick, no file) keeps the closure share.
+            own="$(python3 -c 'import json,sys; print("\n".join(json.load(open(sys.argv[1])).get(sys.argv[2], [])))' \
+              "$RUNNER_TEMP/webviews-durations/pr-shard-direct.json" "$CMUX_WEB_TEST_SHARD" 2>/dev/null)" || own=""
+            if [ "$CMUX_WEB_TEST_SHARD" != 1 ] && [ -n "$own" ]; then
+              CMUX_WEB_TEST_FILES="$own"
+              export CMUX_WEB_TEST_SHARD=1 CMUX_WEB_TEST_SHARD_COUNT=1 CMUX_WEB_TEST_SHARD_HEAD_START=""
+              echo "shard ${{ matrix.shard }} runs its $(printf '%s\n' "$own" | wc -l) touched tests"
+            fi
             export CMUX_WEB_TEST_FILES
           fi
           ../scripts/ci/webviews-tests-new-reds.sh "$BASE_REF"
