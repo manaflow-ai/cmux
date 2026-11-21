@@ -43,6 +43,15 @@ async fn heard_counts_bytes_as_they_arrive() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn pong_read_to_handler_timing_stays_at_the_transport_handoff() {
+    let heard = Heard::default();
+    heard.mark();
+    assert_eq!(heard.read_to_handler(), Duration::ZERO);
+    tokio::time::advance(Duration::from_millis(5)).await;
+    assert_eq!(heard.read_to_handler(), Duration::from_millis(5));
+}
+
+#[tokio::test(start_paused = true)]
 async fn ssh_gives_up_on_a_dead_network_in_seconds_unless_the_host_is_slow_or_waking() {
     let connect = |argv: Vec<String>| argv.iter().any(|a| a == "ConnectTimeout=3");
     let (tx, _rx) = mpsc::channel(8);
