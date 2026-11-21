@@ -668,7 +668,7 @@ struct ChatComposer: View {
     }
 
     private func mentionMatches(_ mention: ComposerMention) -> [TerminalArtifact] {
-        let collected = SessionArtifacts.collect(turns: store.turns, subagents: store.subagents, cwd: store.summary.cwd)
+        let collected = store.artifacts
         return ComposerMention.candidates(mention.query, in: collected.artifacts)
     }
 
