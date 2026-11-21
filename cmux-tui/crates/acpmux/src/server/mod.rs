@@ -1800,6 +1800,9 @@ async fn serve_connection_from(
         };
         match msg {
             Message::Request { id, method: m, mut params } => {
+                if m == method::MUX_SHUTDOWN {
+                    tracing::debug!(target: crate::daemon::HANDOFF_TIMING, "handoff timing: read");
+                }
                 // An open of a chat's view is timed from here to its reply (`gauges.attach`).
                 let attach_from = crate::gauges::opens_a_chat(&m).then(std::time::Instant::now);
                 // Once a local connection has been admitted as a trigger
