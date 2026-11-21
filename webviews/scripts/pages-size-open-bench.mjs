@@ -55,7 +55,6 @@ const pages = [
   "home-channels",
   "home-messages",
   "icon-picker",
-  "import-history",
   "keybindings",
   "machines",
   "mobile-pairing",

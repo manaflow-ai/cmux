@@ -6,18 +6,17 @@
 // section's cards are in before the host shows the page: no card draws a frame late.
 import { Suspense, use, type ReactNode } from "react";
 import type { CategoryCard } from "../categories";
-import type { PartID } from "../personalizationParts";
+import { useRouterState } from "@tanstack/react-router";
+import { useSettingsRouter } from "../context";
 import { sections } from "../schema";
 import { text } from "../strings";
 
 /** How a card draws: `focus` is the route's focused key, `workspace` the workspace the page was
- * opened for, `reveal` whether the route opens the page on this card, `part` the Personalization part
- * the route shows. */
+ * opened for, `reveal` whether the route opens the page on this card. */
 export type CardRender = (
   focus: string | null,
   workspace: string | null,
   reveal: boolean,
-  part: PartID,
 ) => ReactNode;
 
 const machinesTitle = () => text(sections.find((section) => section.id === "machines")?.title);
@@ -47,8 +46,12 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
     import("./AgentHarnesses").then(({ AgentHarnesses }) => (focus) => <AgentHarnesses focus={focus} />),
   agentIntegrations: () =>
     import("./AgentIntegrations").then(({ AgentIntegrations }) => (focus) => <AgentIntegrations focus={focus} />),
+  agentCustomization: () =>
+    import("./AgentCustomizationCard").then(({ AgentCustomizationCard }) => () => <AgentCustomizationCard />),
   agentTools: () =>
     import("./AgentToolsCard").then(({ AgentToolsCard }) => () => <AgentToolsCard />),
+  agentSkills: () =>
+    import("./AgentSkillsCard").then(({ AgentSkillsCard }) => () => <AgentSkillsCard />),
   chiefs: () =>
     import("./ChiefsCard").then(({ ChiefsCard }) => (focus) => <ChiefsCard focus={focus} />),
   advancedInfo: () =>
@@ -57,7 +60,7 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
     import("./PlaceholderSection").then(({ PlaceholderSection }) => () => <PlaceholderSection section="advanced" />),
   backdrops: () =>
     import("./HostCards").then(({ Backdrops }) => (focus, workspace) => (
-      <Backdrops focus={focus} workspace={workspace} />
+      <BackdropsSlot Backdrops={Backdrops} focus={focus} workspace={workspace} />
     )),
   mobile: () =>
     import("./MobileCard").then(({ MobileCard }) => () => <MobileCard />),
@@ -67,6 +70,8 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
     import("./ChiefPetCard").then(({ ChiefPetCard }) => (focus) => <ChiefPetCard focus={focus} />),
   density: () =>
     import("./DensityCard").then(({ DensityCard }) => (focus) => <DensityCard focus={focus} />),
+  textSize: () =>
+    import("./TextSizeCard").then(({ TextSizeCard }) => () => <TextSizeCard />),
   importSuggestions: () =>
     import("./ImportSuggestionsCard").then(({ ImportSuggestionsCard }) => () => <ImportSuggestionsCard />),
   channels: () =>
@@ -105,11 +110,24 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
     import("./WorktreeSetupCard").then(({ WorktreeSetupCard }) => () => <WorktreeSetupCard />),
   contextMenus: () =>
     import("./ContextMenusCard").then(({ ContextMenusCard }) => (focus) => <ContextMenusCard focus={focus} />),
-  personalization: () =>
-    import("./PersonalizationCard").then(({ PersonalizationCard }) => (focus, workspace, _reveal, part) => (
-      <PersonalizationCard key={part} part={part} focus={focus} workspace={workspace} />
-    )),
 };
+
+/** The background picker. The host adds a fresh `open` token to each Change Background… request:
+ * the picker mounts again and reveals the saved tile, even when Appearance already shows. */
+function BackdropsSlot({
+  Backdrops,
+  focus,
+  workspace,
+}: {
+  Backdrops: typeof import("./HostCards").Backdrops;
+  focus: string | null;
+  workspace: string | null;
+}) {
+  const router = useSettingsRouter();
+  const search = useRouterState({ router, select: (state) => state.location.searchStr });
+  const open = new URLSearchParams(search).get("open");
+  return <Backdrops key={JSON.stringify([workspace, open])} focus={focus} workspace={workspace} />;
+}
 
 /** Every card. */
 export const CARD_IDS = Object.keys(LOADERS) as CategoryCard[];
@@ -143,9 +161,9 @@ export async function loadCards(cards: Iterable<CategoryCard>): Promise<void> {
   await Promise.all([...cards].map(loadCard));
 }
 
-function LoadedCard({ card, focus, workspace, reveal, part }: CardProps) {
+function LoadedCard({ card, focus, workspace, reveal }: CardProps) {
   const load: Promise<CardRender> = loadCard(card);
-  return use(load)(focus, workspace, reveal, part);
+  return use(load)(focus, workspace, reveal);
 }
 
 type CardProps = {
@@ -153,7 +171,6 @@ type CardProps = {
   focus: string | null;
   workspace: string | null;
   reveal: boolean;
-  part: PartID;
 };
 
 /** Draws `card`. Its section's ensure loaded it, so it draws in the same frame as the section; a

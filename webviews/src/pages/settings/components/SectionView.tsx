@@ -4,7 +4,6 @@ import { GroupList } from "./GroupList";
 import { APPEARANCE_CATEGORIES } from "../appearanceUndo";
 import { AppearanceBar } from "./AppearanceBar";
 import { DENSITY_CARD_ROWS } from "../density";
-import { PERSONALIZATION_KEYS, personalizationPart, type PartID } from "../personalizationParts";
 import { SectionActions } from "./SectionActions";
 import {
   ACCENT_KEY,
@@ -25,22 +24,16 @@ import {
 import { arrangeGroups } from "../rowLevels";
 import { Card } from "./cardModules";
 
-/** Every key Personalization draws: its one home on the page. */
-// The density card there also draws Text Size and the custom densities (DENSITY_CARD_ROWS).
-const HUB_KEYS: ReadonlySet<string> = new Set([...PERSONALIZATION_KEYS, ...DENSITY_CARD_ROWS]);
-
 /** One category: its title, the cards before its groups, the groups, the cards after, actions. */
 export function SectionView({
   section,
   focus,
   workspace = null,
-  part = null,
   reveal = null,
 }: {
   section: string;
   focus: string | null;
   workspace?: string | null;
-  part?: PartID | null;
   /** The card the route opens the page on (`#/settings/machines`), else null. */
   reveal?: CategoryCard | null;
 }) {
@@ -48,11 +41,7 @@ export function SectionView({
   // The theme studio draws appearance.theme, appearance.appTheme, appearance.accent,
   // appearance.highlightColor, appearance.rotateFavoriteThemes and appearance.themeFile itself; the
   // schema's group for them would draw each a second time (a second "App Theme" card).
-  // Personalization is the one home of what it draws (the theme studio among it): no other page
-  // draws those rows, and it does not draw them a second time as rows under its parts.
-  const hub = category.lead.includes("personalization");
-  const currentPart = personalizationPart(focus, part);
-  const studio = hub || category.lead.includes("themeStudio");
+  const studio = category.lead.includes("themeStudio");
   const drawn = new Set(
     studio ? [THEME_KEY, APP_THEME_KEY, ACCENT_KEY, HIGHLIGHT_COLOR_KEY, ROTATE_FAVORITES_KEY, THEME_FILE_KEY] : [],
   );
@@ -77,7 +66,6 @@ export function SectionView({
         (row) =>
           row.key !== THEME_EDITS_KEY &&
           row.key !== FAVORITE_THEMES_KEY &&
-          !HUB_KEYS.has(row.key) &&
           !drawn.has(row.key) &&
           !(picker && BACKDROP_ROWS.has(row.key)) &&
           !(pet && CHIEF_PET_ROWS.has(row.key)) &&
@@ -92,30 +80,14 @@ export function SectionView({
   const cards = arrangeGroups(category.id, groups, focus);
   return (
     <div className="section" data-section={category.id}>
-      {!hub && <h1 className="section-title">{text(category.title)}</h1>}
+      <h1 className="section-title">{text(category.title)}</h1>
       {category.lead.map((card) => (
-        <CardSlot
-          key={card}
-          card={card}
-          focus={focus}
-          workspace={workspace}
-          part={currentPart}
-          reveal={reveal === card}
-        />
+        <CardSlot key={card} card={card} focus={focus} workspace={workspace} reveal={reveal === card} />
       ))}
       {cards.length > 0 && <GroupList groups={cards} focus={focus} pageTitle={text(category.title)} />}
-      {category.trail
-        .filter((card) => card !== "customizeLibrary" || !hub || currentPart === "theme")
-        .map((card) => (
-          <CardSlot
-            key={card}
-            card={card}
-            focus={focus}
-            workspace={workspace}
-            part={currentPart}
-            reveal={reveal === card}
-          />
-        ))}
+      {category.trail.map((card) => (
+        <CardSlot key={card} card={card} focus={focus} workspace={workspace} reveal={reveal === card} />
+      ))}
       {category.actions.map((id) => (
         <SectionActions key={id} section={id} />
       ))}
@@ -129,8 +101,8 @@ function CardSlot(props: {
   card: CategoryCard;
   focus: string | null;
   workspace: string | null;
-  part: PartID;
   reveal: boolean;
 }) {
   return <Card {...props} />;
 }
+

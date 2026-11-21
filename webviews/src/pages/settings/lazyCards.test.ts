@@ -61,9 +61,9 @@ test("a section's ensure loads its cards before it resolves", async () => {
   const mock = createMockClient();
   const store = new SettingsStore(mock.client);
   await store.start();
-  const cards = [...categoryById("personalization").lead, ...categoryById("personalization").trail];
+  const cards = [...categoryById("appearance").lead, ...categoryById("appearance").trail];
   expect(cards.length).toBeGreaterThan(0);
-  await ensureSection(store.queryClient, store, "personalization");
+  await ensureSection(store.queryClient, store, "appearance");
   for (const card of cards) expect(loadCard(card).status).toBe("fulfilled");
   store.dispose();
   mock.close();
