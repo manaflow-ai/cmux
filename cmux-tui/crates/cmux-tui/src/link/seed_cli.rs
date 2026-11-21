@@ -647,7 +647,6 @@ fn project_first(socket: &Path, local: &Path, remote: &str) -> Option<Pushed> {
             Some(projected(&answer))
         }
         Ok(Err(why)) => {
-            sync_cli::project::forget(remote);
             eprintln!(
                 "cmux link seed push: {} is not projected ({why:?}); seeding or copying it",
                 local.display()
@@ -655,7 +654,6 @@ fn project_first(socket: &Path, local: &Path, remote: &str) -> Option<Pushed> {
             None
         }
         Err(error) => {
-            sync_cli::project::forget(remote);
             eprintln!(
                 "cmux link seed push: projecting {} failed: {error:#}; seeding or copying it",
                 local.display()
@@ -684,15 +682,14 @@ fn projected(answer: &Value) -> Pushed {
 /// `--since-last` of a folder [`project_first`] projected: projected again, as it is now (the
 /// chat may have changed it since, until the move froze it), in place of the older manifest. It
 /// never falls back to a copy, which would write the whole folder into the projection.
-fn project_again(socket: &Path, local: &Path, remote: &str) -> anyhow::Result<Pushed> {
-    let key = sync_cli::project::move_key(remote);
+fn project_again(socket: &Path, local: &Path, remote: &str, key: &str) -> anyhow::Result<Pushed> {
     let failed = |why: String| {
         SeedError::new(
             "sync_failed",
             format!("{} could not be projected again: {why}", local.display()),
         )
     };
-    match sync_cli::project::restart(socket, local, remote, &key) {
+    match sync_cli::project::restart(socket, local, remote, key) {
         Ok(Ok(answer)) => Ok(projected(&answer)),
         Ok(Err(why)) => Err(failed(format!("{why:?}")).into()),
         Err(error) => Err(failed(format!("{error:#}")).into()),
@@ -706,10 +703,13 @@ pub(super) fn push_since_last(socket: &Path, local: &Path, remote: &str) -> anyh
     let canonical = std::fs::canonicalize(local).map_err(|error| {
         SeedError::new("sync_failed", format!("cannot open {}: {error}", local.display()))
     })?;
-    if sync_cli::project::projected_from(remote).as_deref() == Some(canonical.as_path()) {
-        return project_again(socket, &canonical, remote);
-    }
     let machine = Machine::read(socket)?;
+    if let Some(on) = sync_cli::project::projected_at(remote)
+        && on.local == canonical
+        && machine.id.as_deref() == Some(on.machine.as_str())
+    {
+        return project_again(socket, &canonical, remote, &on.chat);
+    }
     let local = canonical;
     let no_previous = |why: &str| SeedError::new("seed.no_previous", why);
     let Some(mut record) = record::load(&local, remote)? else {

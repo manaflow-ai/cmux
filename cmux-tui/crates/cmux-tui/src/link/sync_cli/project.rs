@@ -169,9 +169,10 @@ pub(crate) fn start(
     if !enabled() {
         return Ok(Err(NotProjected::Off));
     }
-    if !machine_serves(socket) {
+    let Some(identity) = serving_identity(socket) else {
         return Ok(Err(NotProjected::Unserved));
-    }
+    };
+    let machine = identity.get("session_id").and_then(Value::as_str).unwrap_or_default();
     let exe = std::env::current_exe().context("cannot find this cmux binary")?;
     let log = cmux_tui_core::platform::workspace_state_dir()
         .map(|dir| dir.join("link-sync").join("projections"))
@@ -204,8 +205,12 @@ pub(crate) fn start(
         // It runs on as the folder's server; `cmux link project stop --at REMOTE` ends it.
         let _ = std::fs::write(log.join(format!("{server}.pid")), child.id().to_string());
         // What it serves and to which machine: a moved chat's frozen push projects it again
-        // ([`projected_from`], [`restart`]).
-        let served = Served { socket: socket.to_path_buf(), local: local.to_path_buf() };
+        // ([`projected_at`], [`restart`]).
+        let served = ServerRecord {
+            machine: machine.to_owned(),
+            chat: chat.to_owned(),
+            local: local.to_path_buf(),
+        };
         let _ = std::fs::write(log.join(format!("{server}.served")), served.encode());
         child.detach("the folder's server outlives the start that made it");
         drop(child);
@@ -255,6 +260,12 @@ fn stop_server(remote: &str) -> anyhow::Result<bool> {
         return Ok(false);
     };
     let pid = pid.trim().parse::<u32>().context("a bad pid file")?;
+    if !still_serving(remote) {
+        // A server that ended (it gives up, or the Mac restarted) leaves its pid file; that pid
+        // may be another process's now.
+        let _ = std::fs::remove_file(&pid_file);
+        return Ok(false);
+    }
     let stopped = cmux_process::Command::new("kill")
         .arg(pid.to_string())
         .status()
@@ -271,6 +282,35 @@ fn stop_server(remote: &str) -> anyhow::Result<bool> {
     Ok(stopped)
 }
 
+/// The lock file a server for `remote` holds for as long as it runs ([`hold_lock`]).
+fn lock_path(remote: &str) -> anyhow::Result<PathBuf> {
+    Ok(servers_dir()?.join(format!("{}.lock", name_of(remote))))
+}
+
+/// Held by the server for `remote` until it exits, however it exits: its pid file outlives it (it
+/// gives up, the Mac restarts), and that pid may be another process's by then. None when the lock
+/// cannot be taken; the server runs on without it.
+fn hold_lock(remote: &str) -> Option<std::fs::File> {
+    let path = lock_path(remote).ok()?;
+    std::fs::create_dir_all(path.parent()?).ok()?;
+    let file =
+        std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(path).ok()?;
+    file.try_lock().ok()?;
+    Some(file)
+}
+
+/// Whether the pid on record for `remote` is still its server: its lock is held. A server from an
+/// older build left no lock file, and its pid is taken at its word, as before.
+fn still_serving(remote: &str) -> bool {
+    let Ok(path) = lock_path(remote) else {
+        return true;
+    };
+    let Ok(file) = std::fs::OpenOptions::new().write(true).open(path) else {
+        return true;
+    };
+    matches!(file.try_lock(), Err(std::fs::TryLockError::WouldBlock))
+}
+
 /// Whether process `pid` still runs (`kill -0`).
 fn alive(pid: u32) -> bool {
     cmux_process::Command::new("kill")
@@ -280,18 +320,22 @@ fn alive(pid: u32) -> bool {
         .is_ok_and(|status| status.success())
 }
 
-/// What a projection server serves: the machine's link socket and this Mac's folder (its
-/// `.served` file beside its pid file: the socket's bytes, a NUL, the folder's bytes).
-#[derive(Debug, PartialEq, Eq)]
-struct Served {
-    socket: PathBuf,
-    local: PathBuf,
+/// What a projection server [`start`] left serves (its `.served` file beside its pid file): the
+/// machine it projects to (`identify`'s `session_id`), the chat key its projection is named for
+/// ([`chat_name`]) and this Mac's folder, NUL-separated, the folder last.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ServerRecord {
+    pub(crate) machine: String,
+    pub(crate) chat: String,
+    pub(crate) local: PathBuf,
 }
 
-impl Served {
+impl ServerRecord {
     fn encode(&self) -> Vec<u8> {
         use std::os::unix::ffi::OsStrExt as _;
-        let mut bytes = self.socket.as_os_str().as_bytes().to_vec();
+        let mut bytes = self.machine.as_bytes().to_vec();
+        bytes.push(0);
+        bytes.extend_from_slice(self.chat.as_bytes());
         bytes.push(0);
         bytes.extend_from_slice(self.local.as_os_str().as_bytes());
         bytes
@@ -299,47 +343,47 @@ impl Served {
 
     fn decode(bytes: &[u8]) -> Option<Self> {
         use std::os::unix::ffi::OsStrExt as _;
-        let at = bytes.iter().position(|byte| *byte == 0)?;
-        let (socket, local) = (bytes.get(..at)?, bytes.get(at + 1..)?);
-        if socket.is_empty() || local.is_empty() {
+        let mut parts = bytes.splitn(3, |byte| *byte == 0);
+        let (machine, chat, local) = (parts.next()?, parts.next()?, parts.next()?);
+        if machine.is_empty() || chat.is_empty() || local.is_empty() {
             return None;
         }
-        let path = |part: &[u8]| PathBuf::from(std::ffi::OsStr::from_bytes(part));
-        Some(Self { socket: path(socket), local: path(local) })
+        Some(Self {
+            machine: String::from_utf8(machine.to_vec()).ok()?,
+            chat: String::from_utf8(chat.to_vec()).ok()?,
+            local: PathBuf::from(std::ffi::OsStr::from_bytes(local)),
+        })
     }
 }
 
-/// The folder of this Mac a server [`start`] left projects at `remote`; None when none is on
-/// record. Read by the folder, not the link socket: the app's link to the machine may have been
+/// What the server [`start`] left for `remote` serves; None when none is on record. Read by the
+/// folder and the machine's id, not the link socket: the app's link to the machine may have been
 /// made again between a move's push and its push once the chat is frozen.
-pub(crate) fn projected_from(remote: &str) -> Option<PathBuf> {
+pub(crate) fn projected_at(remote: &str) -> Option<ServerRecord> {
     let dir = servers_dir().ok()?;
     let server = name_of(remote);
     if !dir.join(format!("{server}.pid")).exists() {
         return None;
     }
-    let served = Served::decode(&std::fs::read(dir.join(format!("{server}.served"))).ok()?)?;
-    Some(served.local)
+    ServerRecord::decode(&std::fs::read(dir.join(format!("{server}.served"))).ok()?)
 }
 
-/// Forgets what the server at `remote` serves (it runs on): a push that seeded or copied the
-/// folder there instead is never projected again by a later `--since-last`.
-pub(crate) fn forget(remote: &str) {
-    if let Ok(dir) = servers_dir() {
-        let _ = std::fs::remove_file(dir.join(format!("{}.served", name_of(remote))));
-    }
-}
-
-/// The projection name of a chat that moves to a machine (Move to Cloud's `cmux link seed push`):
-/// one per machine folder, so the move's push once the chat is frozen (`--since-last`) mounts the
-/// same projection again, its upper layer kept.
+/// A new projection name for a chat that moves to a machine (Move to Cloud's `cmux link seed
+/// push`): one per move, so a later move of the folder there never mounts an earlier move's edits
+/// over the Mac's newer files. The move's push once the chat is frozen (`--since-last`) reuses it
+/// from the server's record ([`projected_at`]), its upper layer kept.
 #[must_use]
 pub(crate) fn move_key(remote: &str) -> String {
-    format!("move-{}", name_of(remote))
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_nanos());
+    // 64 bits of the time: the daemon's names are at most 64 letters, digits, - or _.
+    format!("move-{}-{:x}", name_of(remote), u64::try_from(now).unwrap_or(u64::MAX))
 }
 
-/// [`start`] after ending the server already projecting `local` at `remote` (an earlier push of
-/// this move, or of an earlier move of the folder there). The new server lists the
+/// [`start`] after ending the server already projecting `local` at `remote` to the same machine
+/// (an earlier push of this move, or of an earlier move of the folder there; a server projecting it
+/// to another machine runs on). The new server lists the
 /// folder as it is now: the machine mounts that manifest in place of the older one, which it would
 /// otherwise answer every read of a changed file from as `changed`, and never list a new one.
 pub(crate) fn restart(
@@ -348,19 +392,29 @@ pub(crate) fn restart(
     remote: &str,
     chat: &str,
 ) -> anyhow::Result<Result<Value, NotProjected>> {
-    if enabled() && projected_from(remote).as_deref() == Some(local) {
+    if enabled()
+        && let Some(on) = projected_at(remote)
+        && on.local == local
+        && machine_id(socket).as_deref() == Some(on.machine.as_str())
+    {
         stop_server(remote)?;
     }
     start(socket, local, remote, chat)
 }
 
-/// Whether the machine's `identify` lists `projection-v1`.
-fn machine_serves(socket: &Path) -> bool {
-    super::machine_call(socket, "identify", json!({})).is_ok_and(|identity| {
+/// The machine's `identify` when it lists `projection-v1`.
+fn serving_identity(socket: &Path) -> Option<Value> {
+    super::machine_call(socket, "identify", json!({})).ok().filter(|identity| {
         identity.get("capabilities").and_then(Value::as_array).is_some_and(|served| {
             served.iter().any(|name| name == cmux_tui_core::projection::PROJECTION_CAPABILITY)
         })
     })
+}
+
+/// The machine's store id (`identify`'s `session_id`).
+fn machine_id(socket: &Path) -> Option<String> {
+    let identity = super::machine_call(socket, "identify", json!({})).ok()?;
+    identity.get("session_id").and_then(Value::as_str).map(str::to_owned)
 }
 
 /// `serve`: lists the folder, dials the machine, sends the manifest and prints the machine's
@@ -400,6 +454,8 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
         data.insert("manifest_bytes".into(), json!(encoded.len()));
         data.insert("ready_ms".into(), json!(elapsed_ms(started)));
     }
+    // Taken before the answer, so the pid [`start`] writes on it is never one without the lock.
+    let _lock = hold_lock(&at);
     let mut stdout = std::io::stdout();
     let _ = writeln!(stdout, "{answer}");
     let _ = stdout.flush();
