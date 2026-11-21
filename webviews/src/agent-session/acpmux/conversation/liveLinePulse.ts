@@ -32,6 +32,13 @@ export type LiveLinePulseSource = LiveLinePulse & {
 /// How far from the end the live line can sit: after it only the todo list or a held prompt's rows.
 const LINE_TAIL = 8;
 
+export function newestLiveLine(rows: readonly AcpmuxRow[]): AcpmuxRow | undefined {
+  for (let index = rows.length - 1; index >= Math.max(0, rows.length - LINE_TAIL); index -= 1) {
+    if (rows[index]!.id === LIVE_THINKING) return rows[index];
+  }
+  return undefined;
+}
+
 export function createLiveLinePulse(now: () => number = Date.now): LiveLinePulseSource {
   let current: AcpmuxRow | undefined;
   let heard: number | undefined;
@@ -44,12 +51,7 @@ export function createLiveLinePulse(now: () => number = Date.now): LiveLinePulse
       return () => listeners.delete(listener);
     },
     note(rows) {
-      let line: AcpmuxRow | undefined;
-      for (let index = rows.length - 1; index >= Math.max(0, rows.length - LINE_TAIL); index -= 1)
-        if (rows[index]!.id === LIVE_THINKING) {
-          line = rows[index];
-          break;
-        }
+      const line = newestLiveLine(rows);
       if (!line || line === current) return;
       const before = current;
       current = line;

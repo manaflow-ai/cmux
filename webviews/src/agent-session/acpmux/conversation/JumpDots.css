@@ -1,11 +1,13 @@
-/* A look's working dots on Jump to latest (JumpDots.tsx; agentPane.display.thinking.jumpButton "dots", off
+/* A look's working dots on the live line and Jump to latest (agentPane.display.thinking.jumpButton "dots", off
    by default), measured from Claude's desktop app at 10 fps: three dots in the accent, 2.4 px, one cycle
    every 1350 ms. The ends rest big (1.35x) and spread (6.6 px from the middle) while the middle is
    small; then, eased in and out, the ends draw in to 4.9 px and shrink (0.9x) as the middle swells
    (1.25x), and back. Size and place move together; colour and opacity never change. The arrow takes the
    cell back on hover and keyboard focus, and the dots go with the agent's work. Reduce Motion, the
    static status look and the motion gate hold the dots still and even; a hidden page pauses them
-   (desktop.css); the button off screen (no `data-shown`) runs nothing. */
+   (desktop.css); the button off screen (no `data-shown`) runs nothing.
+   Searching turns a triad. Reading or running a command turns a four-dot square that expands and contracts.
+   The glyph always takes the same space, and reduced motion uses the same three still dots for each activity. */
 .cv-jump-dots {
   --cv-jump-dot: 2.4px;
   position: relative;
@@ -28,6 +30,14 @@
 }
 .cv-jump-dots__dot[data-dot="end"] {
   transform: translateX(5.6px);
+}
+.cv-jump-dots[data-inline] {
+  flex: 0 0 auto;
+  align-self: center;
+  margin-inline-end: var(--grid-gap);
+}
+.cv-jump-dots__dot[data-dot="fourth"] {
+  visibility: hidden;
 }
 .acpmux-jump-latest[data-working-dots]:not(:hover, :focus-visible) .acpmux-jump-latest__arrow,
 .acpmux-jump-latest[data-working-dots]:is(:hover, :focus-visible) .cv-jump-dots {
@@ -147,21 +157,64 @@
     transform: translateX(6.6px) scale(1.35);
   }
 }
+@keyframes cv-activity-dot-orbit {
+  to {
+    transform: rotate(120deg);
+  }
+}
+@keyframes cv-activity-dot-square {
+  50% {
+    transform: rotate(45deg) scale(1.18);
+  }
+  100% {
+    transform: rotate(90deg);
+  }
+}
 @media (prefers-reduced-motion: no-preference) {
   /* motion-allow: a look's opt-in working mark; runs only while the button shows and the agent works. */
   :root:not([data-status-indicators="static"], [data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"])
-    .acpmux-jump-latest[data-shown]
-    .cv-jump-dots__dot[data-dot="start"] {
-    animation: cv-jump-dots-start var(--cv-jump-dots-period, 1350ms) linear infinite;
+    :is(.cv-jump-dots[data-inline], .acpmux-jump-latest[data-shown] .cv-jump-dots) {
+    &[data-motion="thinking"] {
+      .cv-jump-dots__dot[data-dot="start"] {
+        animation: cv-jump-dots-start var(--cv-jump-dots-period, 1350ms) linear infinite var(--cv-jump-dot-play-state, running);
+      }
+      .cv-jump-dots__dot[data-dot="middle"] {
+        animation: cv-jump-dots-middle var(--cv-jump-dots-period, 1350ms) linear infinite var(--cv-jump-dot-play-state, running);
+      }
+      .cv-jump-dots__dot[data-dot="end"] {
+        animation: cv-jump-dots-end var(--cv-jump-dots-period, 1350ms) linear infinite var(--cv-jump-dot-play-state, running);
+      }
+    }
+    &[data-motion="search"] {
+      animation: cv-activity-dot-orbit 700ms linear infinite var(--cv-jump-dot-play-state, running);
+      .cv-jump-dots__dot[data-dot="start"] {
+        transform: rotate(0deg) translateY(-4.8px);
+      }
+      .cv-jump-dots__dot[data-dot="middle"] {
+        transform: rotate(120deg) translateY(-4.8px);
+      }
+      .cv-jump-dots__dot[data-dot="end"] {
+        transform: rotate(240deg) translateY(-4.8px);
+      }
+    }
+    &[data-motion="square"] {
+      animation: cv-activity-dot-square 1400ms ease-in-out infinite var(--cv-jump-dot-play-state, running);
+      .cv-jump-dots__dot[data-dot="start"] {
+        transform: translate(-3.5px, -3.5px);
+      }
+      .cv-jump-dots__dot[data-dot="middle"] {
+        transform: translate(3.5px, -3.5px);
+      }
+      .cv-jump-dots__dot[data-dot="end"] {
+        transform: translate(3.5px, 3.5px);
+      }
+      .cv-jump-dots__dot[data-dot="fourth"] {
+        transform: translate(-3.5px, 3.5px);
+        visibility: visible;
+      }
+    }
   }
-  :root:not([data-status-indicators="static"], [data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"])
-    .acpmux-jump-latest[data-shown]
-    .cv-jump-dots__dot[data-dot="middle"] {
-    animation: cv-jump-dots-middle var(--cv-jump-dots-period, 1350ms) linear infinite;
-  }
-  :root:not([data-status-indicators="static"], [data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"])
-    .acpmux-jump-latest[data-shown]
-    .cv-jump-dots__dot[data-dot="end"] {
-    animation: cv-jump-dots-end var(--cv-jump-dots-period, 1350ms) linear infinite;
+  .acpmux-jump-latest[data-working-dots]:is(:hover, :focus-visible) {
+    --cv-jump-dot-play-state: paused;
   }
 }

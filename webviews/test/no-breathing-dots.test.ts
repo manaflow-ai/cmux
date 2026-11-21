@@ -34,8 +34,14 @@ const ALLOWED: { file: string; keyframes: string; selector: string; why: string;
     file: "agent-session/acpmux/conversation/JumpDots.css",
     keyframes: `cv-jump-dots-${dot}`,
     selector: ".cv-jump-dots__dot",
-    why: "a look's opt-in working mark on Jump to latest (agentPane.display.thinking.jumpButton dots, off by default; Claude's scroll-to-bottom button), drawn only while the agent works and the button shows; the dots trade size and place, never fade, and Static, Reduce Motion and the motion gate hold them still",
+    why: "the opt-in activity mark on the live working line and visible Jump to latest button; the dots trade size and position and honor static and reduced motion",
   })),
+  {
+    file: "agent-session/acpmux/conversation/JumpDots.css",
+    keyframes: "cv-activity-dot-square",
+    selector: ".cv-jump-dots[data-inline]",
+    why: "the opt-in activity mark while reading or executing; the square turns and spreads only while working, and honors static and reduced motion",
+  },
   {
     file: "agent-session/acpmux/styles.css",
     keyframes: "acpmux-mic-wait",

@@ -8,8 +8,10 @@
 import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import { JumpToLatest } from "../VirtualTranscript";
+import { activityDotMotion } from "./JumpDots";
 import { LiveShimmer } from "./LiveShimmer";
 import { RowShimmer } from "./ShimmerText";
+import { Thinking } from "./Thinking";
 import {
   configureThinkingLook,
   THINKING_JUMP_BUTTON_KEY,
@@ -25,18 +27,22 @@ type Props = {
   still?: boolean;
   /** Running tool rows above the line (the per-frame cost check draws 20). */
   rows?: number;
+  activity?: "thinking" | "search" | "read";
+  before?: boolean;
 };
 
 const LINE = "Reading note and passthrough";
 const ROW = "Reading dots.jpg";
 
-function Fixture({ settings, still = false, rows = 1 }: Props) {
+function Fixture({ settings, still = false, rows = 1, activity, before = false }: Props) {
   // Before the first render, as the host's display push lands before the pane mounts.
   useState(() => {
     configureThinkingLook(settings ?? {});
     if (still) document.documentElement.dataset.statusIndicators = "static";
     return null;
   });
+  const [atLatest, setAtLatest] = useState(false);
+  const doing = activity === "search" ? "Searching files" : activity === "read" ? "Reading a file" : undefined;
   return (
     <div style={{ position: "relative", height: 130 + rows * 22, padding: "16px 24px", overflow: "hidden" }}>
       <div className="cv-tools">
@@ -52,21 +58,31 @@ function Fixture({ settings, still = false, rows = 1 }: Props) {
           );
         })}
       </div>
-      <div className="cv-worked cv-worked--live">
-        <span className="cv-shimmer__row">
-          <output className="cv-thinking is-shimmer">
-            <LiveShimmer label={LINE} />
-          </output>
-          <span className="cv-worked__time">28s</span>
-        </span>
-        <span className="cv-worked__count">
-          <span className="cv-worked__sep" aria-hidden="true">
-            ·
+      {activity && !before ? (
+        <Thinking activityDots doing={doing} doingKind={activity} />
+      ) : (
+        <div className="cv-worked cv-worked--live">
+          <span className="cv-shimmer__row">
+            <output className="cv-thinking is-shimmer">
+              <LiveShimmer label={doing ?? LINE} />
+            </output>
+            <span className="cv-worked__time">28s</span>
           </span>
-          82.6K tokens
-        </span>
-      </div>
-      <JumpToLatest shown working lift={0} onJump={() => {}} />
+          <span className="cv-worked__count">
+            <span className="cv-worked__sep" aria-hidden="true">
+              ·
+            </span>
+            82.6K tokens
+          </span>
+        </div>
+      )}
+      <JumpToLatest
+        shown={!atLatest}
+        working
+        dotMotion={before ? undefined : activityDotMotion(activity)}
+        lift={0}
+        onJump={() => setAtLatest(true)}
+      />
     </div>
   );
 }
@@ -104,8 +120,20 @@ export default componentEntry<Props>({
       note: "cmux's defaults, unchanged: a one-second pass every four seconds, the band half the line, the arrow.",
     },
     claude: {
-      props: { settings: CLAUDE },
+      props: { settings: CLAUDE, activity: "thinking" },
       note: "The Claude look: a continuous eased pass every 1250 ms, an 80 px band, Jump to latest's working dots.",
+    },
+    "search-before": {
+      props: { settings: CLAUDE, activity: "search", before: true },
+      note: "Before: the line has no activity dots and Jump to latest always uses the same three-dot loop.",
+    },
+    search: {
+      props: { settings: CLAUDE, activity: "search" },
+      note: "Three dots turn in a triangle while the agent searches.",
+    },
+    read: {
+      props: { settings: CLAUDE, activity: "read" },
+      note: "Four dots turn and spread while the agent reads or runs a command.",
     },
     quick: {
       props: { settings: { ...CLAUDE, [THINKING_SHIMMER_PERIOD_KEY]: 900, [THINKING_SHIMMER_BAND_KEY]: 56 } },
@@ -124,7 +152,7 @@ export default componentEntry<Props>({
       note: "The Claude look on 20 running rows: the per-frame cost check (every band is one compositor loop).",
     },
     "reduced-motion": {
-      props: { settings: CLAUDE, still: true },
+      props: { settings: CLAUDE, activity: "read", still: true },
       note: "Reduce Motion or static status indicators: the dim words and even dots, still.",
     },
   },

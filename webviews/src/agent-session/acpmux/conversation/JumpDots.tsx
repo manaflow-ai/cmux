@@ -5,12 +5,27 @@
 // (JumpDots.css). Decorative: the button's label already says the agent works.
 import "./JumpDots.css";
 
-export function JumpDots() {
+export type DotMotion = "thinking" | "search" | "square";
+
+export function activityDotMotion(kind?: string): DotMotion {
+  switch (kind) {
+    case "search":
+      return "search";
+    case "read":
+    case "execute":
+      return "square";
+    default:
+      return "thinking";
+  }
+}
+
+export function JumpDots({ motion = "thinking", inline = false }: { motion?: DotMotion; inline?: boolean }) {
   return (
-    <span className="cv-jump-dots" aria-hidden="true">
+    <span className="cv-jump-dots" data-motion={motion} data-inline={inline || undefined} aria-hidden="true">
       <span className="cv-jump-dots__dot" data-dot="start" />
       <span className="cv-jump-dots__dot" data-dot="middle" />
       <span className="cv-jump-dots__dot" data-dot="end" />
+      {motion === "square" && <span className="cv-jump-dots__dot" data-dot="fourth" />}
     </span>
   );
 }
