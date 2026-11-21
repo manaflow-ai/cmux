@@ -1,6 +1,270 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "pages.confirm.cloud.surge": {
+      "comment": "Cloud Surge",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هل تريد بدء زيادة سعة السحابة؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokrenuti proširenje u oblaku?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Start ekstra cloudkapacitet?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud-Zusatzkapazität starten?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start Cloud Surge?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "¿Ampliar la capacidad en la nube?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Augmenter la capacité cloud ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Espandere la capacità cloud?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "クラウドの容量追加を開始しますか？"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចាប់ផ្តើមបង្កើនសមត្ថភាពក្លោដឬ?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "클라우드 용량 확장을 시작할까요?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Starte ekstra skykapasitet?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uruchomić dodatkową pojemność w chmurze?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aumentar a capacidade na nuvem?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Подключить дополнительную мощность в облаке?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เริ่มเพิ่มความจุบนคลาวด์หรือไม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ek bulut kapasitesi başlatılsın mı?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запустити додаткову хмарну потужність?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bắt đầu tăng công suất đám mây?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "开始云端扩容？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "開始擴充雲端容量？"
+          }
+        }
+      }
+    },
+    "pages.confirm.cloud.surgeDetail": {
+      "comment": "Cloud Surge",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يؤدي هذا إلى تشغيل أجهزة سحابية مؤقتة وفقًا للتقدير المعروض."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovo pokreće privremene mašine u oblaku prema prikazanoj procjeni."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette starter midlertidige cloudmaskiner ud fra det viste prisoverslag."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dadurch werden temporäre Cloud-Maschinen gemäß der angezeigten Schätzung gestartet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This starts temporary cloud machines based on the estimate in the Surge sheet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se iniciarán máquinas temporales en la nube según la estimación mostrada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Des machines cloud temporaires seront lancées selon l’estimation affichée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saranno avviate macchine cloud temporanee in base alla stima mostrata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "表示された見積もりに基づいて一時的なクラウドマシンを起動します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "វាចាប់ផ្តើមម៉ាស៊ីនក្លោដបណ្ដោះអាសន្នតាមតម្លៃប៉ាន់ស្មានដែលបានបង្ហាញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "표시된 예상 비용을 기준으로 임시 클라우드 머신을 시작합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette starter midlertidige skymaskiner basert på anslaget som vises."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tymczasowe maszyny w chmurze zostaną uruchomione na podstawie wyświetlonego kosztorysu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Isso inicia máquinas temporárias na nuvem com base na estimativa exibida."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Временные облачные машины запустятся по показанной оценке стоимости."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การดำเนินการนี้จะเริ่มเครื่องคลาวด์ชั่วคราวตามค่าใช้จ่ายโดยประมาณที่แสดง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu işlem, gösterilen tahmine göre geçici bulut makinelerini başlatır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Тимчасові хмарні машини запускаються відповідно до показаної оцінки вартості."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các máy đám mây tạm thời sẽ khởi động theo chi phí ước tính được hiển thị."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "这将根据显示的费用预估启动临时云端机器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "這會根據顯示的預估費用啟動暫時性雲端機器。"
+          }
+        }
+      }
+    },
     "projection.workspace.named": {
       "comment": "Name of a projection window's first workspace; %@ is the worktree folder's name",
       "extractionState": "manual",
