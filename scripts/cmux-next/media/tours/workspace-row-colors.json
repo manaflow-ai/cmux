@@ -1,0 +1,199 @@
+{
+  "title": "Workspace row colors: picked colors at rest and selected, default style",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Workspace workspace-1005",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "workspace-1005"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Workspace Blue",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Blue"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Workspace Green",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Green"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Workspace Red",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Red"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Workspace Yellow",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Yellow"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Workspace Purple",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Purple"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Focus Blue",
+      "cmux": [
+        "workspace",
+        "name:Blue",
+        "focus"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Blue is blue",
+      "cmux": [
+        "workspace",
+        "set-color",
+        "--color",
+        "blue"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Focus Green",
+      "cmux": [
+        "workspace",
+        "name:Green",
+        "focus"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Green is green",
+      "cmux": [
+        "workspace",
+        "set-color",
+        "--color",
+        "green"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Focus Red",
+      "cmux": [
+        "workspace",
+        "name:Red",
+        "focus"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Red is red",
+      "cmux": [
+        "workspace",
+        "set-color",
+        "--color",
+        "red"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Focus Yellow",
+      "cmux": [
+        "workspace",
+        "name:Yellow",
+        "focus"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Yellow is yellow",
+      "cmux": [
+        "workspace",
+        "set-color",
+        "--color",
+        "yellow"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Focus Purple",
+      "cmux": [
+        "workspace",
+        "name:Purple",
+        "focus"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Purple is purple",
+      "cmux": [
+        "workspace",
+        "set-color",
+        "--color",
+        "purple"
+      ],
+      "shot": false,
+      "wait": 1
+    },
+    {
+      "title": "Select Purple: colored rows at rest beside a selected colored row",
+      "cmux": [
+        "workspace",
+        "name:Purple",
+        "focus"
+      ],
+      "wait": 2
+    },
+    {
+      "title": "Select workspace-1005: every colored row at rest",
+      "cmux": [
+        "workspace",
+        "name:workspace-1005",
+        "focus"
+      ],
+      "wait": 2
+    }
+  ]
+}

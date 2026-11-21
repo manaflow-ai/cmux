@@ -161,7 +161,6 @@
     "cmux-tui-tree-request.yml: Check the commit is on feat-cmux-next": "baseline 2026-11-04",
     "cmux-tui-tree-request.yml: Dispatch one publisher when the tree is missing": "baseline 2026-11-04",
     "cmux-tui.yml: Rust god-file check": "baseline 2026-11-04",
-    "cmux-vm-upstream-refresh.yml: Open a pull request": "baseline 2026-11-04",
     "coderouter-publish-npm.yml: Download verified npm package": "baseline 2026-11-04",
     "coderouter-publish-pypi.yml: Download verified wheels": "baseline 2026-11-04",
     "coderouter-release.yml: Prepare draft release": "baseline 2026-11-04",
