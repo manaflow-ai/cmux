@@ -1046,10 +1046,11 @@ impl Hub {
                             params,
                         ))
                 {
-                    return Err(person_required(&format!(
-                        "a spawn env (one not approved in {})",
-                        approved_presets::SYSTEM_PATH
-                    )));
+                    return Err(person_required(if cfg!(target_os = "linux") {
+                        "a spawn env (one /etc/acpmux/approved-presets.json does not approve)"
+                    } else {
+                        "a spawn env"
+                    }));
                 }
                 if !asking_policy_value(set.and_then(|s| s.get("policy"))) {
                     return Err(person_required("a permission policy other than ask or deny-all"));

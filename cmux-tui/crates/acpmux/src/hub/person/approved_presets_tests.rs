@@ -1,7 +1,7 @@
 //! `approved_presets`: a preset env the reviewed root-owned list approves needs no person; every
 //! other spawn env is refused as before. The list is owned by the test's own user here (root on a
-//! host), and the home is a temp folder standing in for `/home/leo`.
-#![cfg(unix)]
+//! host), and the home is a temp folder standing in for `/home/leo`. Linux only, as the list is.
+#![cfg(target_os = "linux")]
 
 use super::approved_presets::{Source, approves};
 use super::*;
@@ -21,6 +21,10 @@ impl Fixture {
         let home = dir.path().join("home-leo");
         std::fs::create_dir(&etc).unwrap();
         std::fs::create_dir(&home).unwrap();
+        // Whatever the runner's umask: the folders above the list must not be group-writable.
+        for d in [dir.path(), etc.as_path()] {
+            std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
         std::fs::create_dir(home.join(".codex-leo-personal")).unwrap();
         Self { _dir: dir, etc, home }
     }
@@ -149,6 +153,11 @@ fn a_path_outside_the_home_is_refused_even_when_the_file_lists_it() {
         format!("{home}-other/.codex"),
         ".codex-leo-personal".to_owned(),
         String::new(),
+        // The spawn expands these (`config.rs`): `${model}` comes from the same request.
+        format!("{home}/x${{model}}"),
+        format!("{home}/${{home}}"),
+        "~/.codex-leo-personal".to_owned(),
+        format!("{home}/~x"),
     ] {
         f.write_entry(json!({"CODEX_HOME": value}));
         assert!(!approves(&f.source(), &the_command(&value)), "{value:?}");
@@ -165,6 +174,14 @@ fn a_path_outside_the_home_is_refused_even_when_the_file_lists_it() {
 
 #[test]
 fn a_list_anyone_but_its_owner_could_write_approves_nothing() {
+    // Not a regular file: a FIFO at the path (opened non-blocking, then refused).
+    {
+        let f = Fixture::new();
+        let c = std::ffi::CString::new(f.file().to_str().unwrap()).unwrap();
+        // SAFETY: a NUL-terminated path.
+        assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o644) }, 0);
+        assert!(!approves(&f.source(), &the_command(&f.codex_home())));
+    }
     let f = Fixture::new();
     f.write_entry(json!({"CODEX_HOME": f.codex_home()}));
     let req = the_command(&f.codex_home());
@@ -183,6 +200,13 @@ fn a_list_anyone_but_its_owner_could_write_approves_nothing() {
     assert!(!approves(&f.source(), &req));
     std::fs::set_permissions(&f.etc, std::fs::Permissions::from_mode(0o755)).unwrap();
     assert!(approves(&f.source(), &req));
+    // A folder above it that is a symlink to a folder another user could own: resolved, then checked.
+    let linked = f.home.join("etc-link");
+    std::os::unix::fs::symlink(&f.etc, &linked).unwrap();
+    assert!(approves(&Source { path: linked.join("approved-presets.json"), ..f.source() }, &req));
+    std::fs::set_permissions(&f.etc, std::fs::Permissions::from_mode(0o775)).unwrap();
+    assert!(!approves(&Source { path: linked.join("approved-presets.json"), ..f.source() }, &req));
+    std::fs::set_permissions(&f.etc, std::fs::Permissions::from_mode(0o755)).unwrap();
     // The path itself a symlink to a good file.
     let link = f.etc.join("link.json");
     std::os::unix::fs::symlink(f.file(), &link).unwrap();
@@ -216,7 +240,8 @@ fn a_malformed_list_approves_nothing() {
 fn test_hub(f: Option<&Fixture>) -> Arc<Hub> {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut cfg: crate::config::Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["python3", fake]}},
+        "harnesses": {"fake": {"argv": ["python3", fake]},
+                      "claude": {"argv": ["claude"], "family": "claude"}},
         "defaultHarness": "fake",
     }))
     .unwrap();
@@ -256,9 +281,20 @@ async fn the_person_check_lets_the_approved_preset_through_and_nothing_wider() {
     let mut approve = req.clone();
     approve["approveMode"] = json!(true);
     assert!(refused(check(&hub, method::MUX_PRESETS, &approve).await));
-    let mut moded = req.clone();
-    moded["set"]["mode"] = json!("full-access");
-    assert!(refused(check(&hub, method::MUX_PRESETS, &moded).await));
+    // A mode: the preset mode check still runs. A Claude preset with its approved config folder
+    // may start in an asking mode, never in one that skips the asks.
+    let dir = f.home.join(".claude-other").to_str().unwrap().to_owned();
+    f.write(&json!({"schema": 1, "presets": [
+        {"name": "claude-other", "harness": "claude", "env": {"CLAUDE_CONFIG_DIR": dir}}
+    ]}));
+    let claude = |mode: &str| {
+        json!({"name": "claude-other", "set": {
+            "harness": "claude", "mode": mode, "env": {"CLAUDE_CONFIG_DIR": dir},
+        }})
+    };
+    check(&hub, method::MUX_PRESETS, &claude("plan")).await.expect("an asking mode");
+    assert!(refused(check(&hub, method::MUX_PRESETS, &claude("bypassPermissions")).await));
+    f.write_entry(json!({"CODEX_HOME": f.codex_home()}));
     // Another value, key or name.
     let other = f.home.join(".codex").to_str().unwrap().to_owned();
     assert!(refused(check(&hub, method::MUX_PRESETS, &the_command(&other)).await));
