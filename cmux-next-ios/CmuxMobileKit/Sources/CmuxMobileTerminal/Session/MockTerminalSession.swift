@@ -354,6 +354,18 @@ public final class MockTerminalSession: TerminalSession {
                 + "› Ask Codex to do anything\r\n\r\n  ? for shortcuts                          100% context left")
             write("\u{1B}[2A\r\u{1B}[2C")
             return
+        case "claudeinline":
+            // claudeinline [MS=80] [CLEAR_EVERY=0]: Claude Code CLI's inline
+            // screen (Leo, 2026-11-21: "this claude code cli is often slow to
+            // scroll"). It draws on the primary screen: transcript rows go
+            // into the scrollback, and every MS ms the spinner, input box and
+            // status rows below them are redrawn in place (cursor up, erase
+            // line). Every CLEAR_EVERY redraws it clears the screen and its
+            // scrollback and prints everything again, as Claude Code does
+            // when its screen overflows. Runs until Ctrl-C.
+            let delay = max(8, parts.count > 1 ? Int(parts[1]) ?? 80 : 80)
+            let clearEvery = parts.count > 2 ? Int(parts[2]) ?? 0 : 0
+            try await claudeInline(delay: delay, clearEvery: clearEvery)
         case "clear": write("\u{1B}[H\u{1B}[2J")
         case "echo": write(parts.dropFirst().joined(separator: " ") + "\r\n")
         case "cat": try await stream(MockOutput.file(named: parts.dropFirst().first ?? ""))
@@ -400,6 +412,45 @@ public final class MockTerminalSession: TerminalSession {
         guard !chunk.isEmpty else { return }
         write(chunk.map { $0 + "\r\n" }.joined())
         try await pause(lineDelay)
+    }
+
+    /// `claudeinline`'s loop: a transcript row every few frames, the live
+    /// region (7 rows) redrawn every `delay` ms.
+    private func claudeInline(delay: Int, clearEvery: Int) async throws {
+        let rule = String(repeating: "\u{2500}", count: max(10, min(80, columns - 2)))
+        let spinner = ["\u{00B7}", "\u{2722}", "\u{2733}", "\u{2736}", "\u{273B}", "\u{273D}"]
+        var transcript: [String] = []
+        func row(_ index: Int) -> String {
+            index % 5 == 0
+                ? "\u{1B}[32m\u{23FA}\u{1B}[0m \u{1B}[1mUpdate\u{1B}[0m(Sources/File\(index).swift) answer row \(index)"
+                : "  \u{23BF} transcript row \(index) " + String(repeating: "lorem ", count: 1 + index % 9)
+        }
+        func live(_ tick: Int) -> String {
+            "\r\n\u{1B}[33m\(spinner[tick % spinner.count])\u{1B}[0m Thinking\u{2026} (\(tick / 10)s \u{00B7} \u{2191} \(tick * 37) tokens \u{00B7} esc to interrupt)\r\n\r\n"
+                + "\u{256D}\(rule)\u{256E}\r\n\u{2502} > \r\n\u{2570}\(rule)\u{256F}\r\n"
+                + "  \u{1B}[2m? for shortcuts\u{1B}[0m"
+        }
+        // The live region is 7 rows: up 6 from its last row, then erase it.
+        let liveRows = 7
+        let erase = "\r\u{1B}[\(liveRows - 1)A\u{1B}[J"
+        write("\u{1B}[33m\u{273B}\u{1B}[0m Welcome to Claude Code (mock)\r\n")
+        for index in 1...60 { transcript.append(row(index)); write(row(index) + "\r\n") }
+        write(live(0))
+        var tick = 1
+        while !Task.isCancelled {
+            try await pause(delay)
+            var out = erase
+            if clearEvery > 0, tick % clearEvery == 0 {
+                out = "\u{1B}[H\u{1B}[2J\u{1B}[3J" + transcript.map { $0 + "\r\n" }.joined()
+            }
+            if tick % 3 == 0 {
+                let next = row(transcript.count + 1)
+                transcript.append(next)
+                out += next + "\r\n"
+            }
+            write(out + live(tick))
+            tick += 1
+        }
     }
 
     // MARK: htop
