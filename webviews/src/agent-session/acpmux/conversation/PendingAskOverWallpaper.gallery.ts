@@ -53,6 +53,14 @@ const overWallpaper =
       );
   };
 
+/// The same pane after a click on Dismiss: the line and its card go, and the turns that were under
+/// them stay in sight, none blanked where the line sat.
+const dismissed: Play = async (ctx) => {
+  await overWallpaper(120)(ctx);
+  await ctx.click({ selector: ".acpmux-pending-ask__dismiss" });
+  await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-pending-ask__head"));
+};
+
 export default agentPaneEntry({
   id: "agent-pane.pending-ask-wallpaper",
   title: "Needs your input over a wallpaper",
@@ -70,6 +78,11 @@ export default agentPaneEntry({
       note: 'Scrolled up a little: the turns pass behind the line and stay in sight ("Worked for" is not cut off); only the cards hide them.',
       snapshot,
       play: overWallpaper(120),
+    },
+    dismissed: {
+      note: "After Dismiss: the line and its card are gone, and the turns behind where they sat stay in sight.",
+      snapshot,
+      play: dismissed,
     },
   },
 });
