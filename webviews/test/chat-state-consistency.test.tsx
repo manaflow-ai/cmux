@@ -301,6 +301,20 @@ describe("1. the model and effort shown are the session's", () => {
     expect(harnessSwitch.view().configs).toBeUndefined();
   });
 
+  test("a level, then a model that resets it: once both are answered the session's level draws", async () => {
+    const { harnessSwitch, answer } = await liveSwitch(() => ({ sessionId: "s1", harness: "codex" }));
+    harnessSwitch.pickConfig("effort", "high", { sessionId: "s1", current: "medium", model: "claude-opus-5-5" });
+    void harnessSwitch.pickModel("claude-sonnet-5-5", { sessionId: "s1", model: "claude-opus-5-5" });
+    expect(effortOf(await drawn(snapshotOf(summaryOf("s1")), harnessSwitch))).toBe("high");
+    await answer();
+    // One report after both answers: the new model, its level reset to the one the pick left.
+    const reported = summaryOf("s1", { model: "claude-sonnet-5-5" });
+    const settled = await drawn(snapshotOf(reported), harnessSwitch);
+    expect(settled.summary?.model).toBe("claude-sonnet-5-5");
+    expect(effortOf(settled)).toBe("medium");
+    expect(harnessSwitch.view().configs).toBeUndefined();
+  });
+
   test("an effort pick in one chat never draws on another, nor on the first again", async () => {
     const { harnessSwitch } = await liveSwitch(() => ({ sessionId: "s1", harness: "claude" }));
     harnessSwitch.pickConfig("effort", "high", { sessionId: "s1", current: "medium" });

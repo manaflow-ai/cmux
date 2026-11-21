@@ -166,6 +166,23 @@ export type SwitchView = {
   settling?: Settling;
 };
 
+/// One live config option pick (`SwitchView.configs`), with the model the session ran when it was
+/// made (`modelAt`): a model change resets the level (Codex), so once the agent answered and the
+/// session reports another model, the session's own value is the one to draw.
+export type ConfigPick = {
+  sessionId: string;
+  configId: string;
+  from?: string;
+  value: string;
+  answered?: boolean;
+  modelAt?: string;
+};
+
+/// Whether an answered config pick was overtaken by a model change since it was made.
+function modelMoved(pick: ConfigPick, model: string | undefined): boolean {
+  return pick.answered === true && pick.modelAt !== undefined && model !== undefined && model !== pick.modelAt;
+}
+
 /// What a switch's held picks set on the session it opened, the agent having answered each: the
 /// model, the mode and each config option, with the value the session reported before (`from`).
 /// The switch ends (its prompts go) as soon as the agent answered, often before the session's own
@@ -173,9 +190,6 @@ export type SwitchView = {
 /// goes straight from the held pick to the session's report of it, never back to the start value
 /// in between (Leo 2026-11-17: picks "don't randomly change to other things"). Each draws only
 /// while the session still reports `from`, as an answered live pick does.
-/// One live config option pick (`SwitchView.configs`).
-export type ConfigPick = { sessionId: string; configId: string; from?: string; value: string; answered?: boolean };
-
 export type Settling = {
   sessionId: string;
   model?: { from?: string; value: string };
@@ -335,10 +349,13 @@ export class HarnessSwitch {
     const model = this.modelPick && settledPick(snapshot, this.modelPick, snapshot.summary?.model);
     const configs = this.configPicks.filter(
       (pick) =>
-        !settledPick(
-          snapshot,
-          pick,
-          snapshot.summary?.configOptions?.find((item) => item.id === pick.configId)?.currentValue,
+        !(
+          settledPick(
+            snapshot,
+            pick,
+            snapshot.summary?.configOptions?.find((item) => item.id === pick.configId)?.currentValue,
+          ) ||
+          (snapshot.sessionId === pick.sessionId && modelMoved(pick, snapshot.summary?.model))
         ),
     );
     const config = configs.length !== this.configPicks.length;
@@ -591,13 +608,19 @@ export class HarnessSwitch {
     this.changed();
     return true;
   }
-  pickConfig(configId: string, value: string, live?: { sessionId: string; current?: string }): boolean {
+  pickConfig(configId: string, value: string, live?: { sessionId: string; current?: string; model?: string }): boolean {
     if (!this.intent) {
       const port = this.port;
       if (!port || !live) return false;
       // A second pick of the same option replaces the first; the model's and other options' stay.
       const earlier = this.configPicks.find((item) => item.configId === configId && item.sessionId === live.sessionId);
-      const pick: ConfigPick = { sessionId: live.sessionId, configId, from: earlier?.from ?? live.current, value };
+      const pick: ConfigPick = {
+        sessionId: live.sessionId,
+        configId,
+        from: earlier?.from ?? live.current,
+        value,
+        ...(live.model !== undefined && { modelAt: earlier?.modelAt ?? live.model }),
+      };
       const others = (list: readonly ConfigPick[]) => list.filter((item) => item.configId !== configId);
       this.configPicks = [...others(this.configPicks), pick];
       this.settling = undefined;
@@ -1177,6 +1200,8 @@ export function applySwitch(
       if (!option || option.currentValue === config.value) continue;
       // Answered, and the session reports another value than the pick left: it is the session's.
       if (config.answered && option.currentValue !== config.from) continue;
+      // Answered, and the session runs another model since: its reset level is the session's.
+      if (modelMoved(config, summary.confirmedModel ?? summary.model)) continue;
       summary = {
         ...summary,
         configOptions: summary.configOptions?.map((item) =>
