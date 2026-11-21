@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44891147401",
+  "recorded_at": "2026-11-21T09:59:04Z",
+  "reason": "image inputs changed in 2be87c61d7b47b495d26cbf8ac1710c99f81d45e..ce8f9837f00527a318642999c82a7c01f242e187",
+  "dry_run": false,
+  "cmux_tui": "dc6f7a40fec6a64805169019b263729463db0a0b",
+  "fixes": [
+    {
+      "sha": "ce8f9837f00527a318642999c82a7c01f242e187",
+      "mergedAt": "2026-11-21T09:46:11Z",
+      "subject": "Cloud image probe: acpmux's MCP gateway attaches cmux as loopback HTTP (#48700)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-21T09:59:04Z",
+    "snapshot_id": "sh-a6474f1178df48aab869d96c2bf8a211",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44891147401): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "d91bdc9e4396010b0a20a99a7ecc6631b6d37cdf",
+    "image": "cloud-native-auto-dc6f7a40-44891147401-1",
+    "revision": "ci-44891147401-1",
+    "at": "2026-11-21T09:59:04Z"
+  },
+  "rolled_back": false
+}
