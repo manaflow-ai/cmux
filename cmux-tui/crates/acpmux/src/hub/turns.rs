@@ -1282,6 +1282,11 @@ impl Hub {
         // session-info title can still win before the cheap completion is spent.
         let delivers_context = control != Control::Web
             && blocks.iter().any(|b| b.pointer("/_meta/acpmux/contextSource").is_some());
+        // Only a person's own turn makes a recap worth asking for (`away_recap.rs`).
+        self.recap_turn_started(
+            session,
+            super::prompt_sender::person_turn(&run, provenance.as_ref()),
+        );
         let mut result = super::steer_end::agent_prompt_hook(
             session,
             &child,
