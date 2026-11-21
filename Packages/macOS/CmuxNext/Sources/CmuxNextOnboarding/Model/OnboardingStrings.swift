@@ -109,7 +109,7 @@ enum OnboardingStrings {
 
     /// The workspace an import of extensions opens; `source`: "Google Chrome · Work".
     static func extensionsWorkspace(_ source: String) -> String {
-        String(format: String(localized: "onboarding.import.extensionsWorkspace", defaultValue: "Extensions from %@", bundle: .module), source)
+        String(format: String(localized: "onboarding.import.extensionsWorkspace", defaultValue: "Extensions from %@", bundle: .localizedModule), source)
     }
 
     /// "Google Chrome · Work" (Safari and one-profile browsers: the browser name).

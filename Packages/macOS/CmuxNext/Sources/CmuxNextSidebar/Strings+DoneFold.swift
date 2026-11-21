@@ -7,7 +7,7 @@ extension Strings {
     }
     /// Seen, finished agent chats (`sidebar.settleFinished`).
     static func settledFold(_ count: Int) -> String {
-        String(localized: "sidebar.settledFold.title", defaultValue: "Settled (\(count))", bundle: .module)
+        String(localized: "sidebar.settledFold.title", defaultValue: "Settled (\(count))", bundle: .localizedModule)
     }
     static func archivedFold(_ count: Int) -> String {
         String(localized: "sidebar.archivedFold.title", defaultValue: "Archived (\(count))", bundle: .localizedModule)
