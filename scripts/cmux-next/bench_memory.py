@@ -62,6 +62,12 @@ Two ways to run (macOS only, a fleet or capture mini, never a laptop):
           leases end after 10 minutes, so churn there stays short).
   launch  no --socket: starts the bundle's app with a scratch HOME,
           TMPDIR and config, and quits it at the end.
+          --relaunch-restored [cold|warm]: a returning user's launch. The first
+          launch opens and shows one terminal workspace and quits (the session
+          saves); the measured launch is the relaunch into the same scratch,
+          checked to show a terminal workspace and not Home (an empty launch lands
+          on Home, FirstWorkspace.swift). cold ends what outlived the quit
+          first. `relaunch` in the report. --env NAME=VALUE sets the app's env.
 
 Usage:
   bench_memory.py --app BUNDLE [--socket PATH --app-pid PID]
@@ -1720,6 +1726,96 @@ def print_app_vm(label: str, vm: dict) -> None:
             print(f"APP-VM {label} {tool} stderr: {entry['stderr']}", flush=True)
 
 
+def shown_workspace(app: App) -> dict:
+    """What the app's first window shows: its workspace id, whether that is Home (`debug.home`'s workspace,
+    or a workspace of kind `home`), and the kinds of its tabs (`snapshot.get` topology)."""
+    topology = (app.call("snapshot.get", timeout=30) or {}).get("topology") or {}
+    home = ((app.call("debug.home", timeout=30) or {}).get("home_workspace") or {}).get("workspace")
+    shown = [w.get("workspace") for w in topology.get("windows") or [] if isinstance(w, dict) and w.get("workspace")]
+    workspace = next((ws for ws in topology.get("workspaces") or [] if isinstance(ws, dict) and shown
+                      and ws.get("id") == shown[0]), {})
+    tabs = [tab.get("kind") for screen in workspace.get("screens") or [] for pane in screen.get("panes") or []
+            for tab in pane.get("tabs") or []]
+    return {"shown": shown[0] if shown else None, "windows": len(topology.get("windows") or []), "home": home,
+            "kind": workspace.get("kind"), "tabs": tabs,
+            "is_home": bool(shown) and (shown[0] == home or workspace.get("kind") == "home")}
+
+
+def wait_terminal_shown(app: App, workspace: str | None, seconds: float) -> dict:
+    """Waits until the first window shows a terminal workspace that is not Home (`workspace` when given);
+    returns the last `shown_workspace`, with `ok`."""
+    deadline = time.monotonic() + seconds
+    while True:
+        got = shown_workspace(app)
+        got["ok"] = (got["shown"] is not None and not got["is_home"] and "terminal" in got["tabs"]
+                     and (workspace is None or got["shown"] == workspace))
+        if got["ok"] or time.monotonic() >= deadline:
+            return got
+        time.sleep(1)  # test script: waiting for the restore to place the workspace in the window
+
+
+def relaunch_restored(bundle: str, config: dict, extra: dict, socket_path: str, scratch: str,
+                      mode: str) -> tuple[int, str, dict]:
+    """--relaunch-restored: a returning user's launch, which shows the user's own last workspace, not Home.
+
+    In the first launch, one terminal workspace opened and shown (`goToWorkspace`); the app quit as a
+    person's Cmd-Q does (`quitKeepSessions`, which saves the session; SIGTERM after 20 s, as
+    bench_relaunch_reconnect.py); then relaunched into the same scratch. `cold` (default) also ends every
+    process of the bundle that outlived the quit (its daemons), as a login after a restart: no process of
+    the first launch, which showed Home, is measured in the relaunch. `warm` leaves them running.
+    Refuses (SystemExit) a relaunch whose window shows Home or no terminal workspace (a restore may give
+    the workspace a new id, so any terminal workspace counts; `same_workspace` says whether it kept its id)."""
+    app = App(bundle, socket_path)
+    info: dict = {"mode": mode, "first_launch": shown_workspace(app)}
+    workspace = open_workspace(app, "terminal", "", 0)
+    if workspace is None:
+        raise SystemExit(f"bench-memory --relaunch-restored: no terminal workspace opened ({PANE_FAILURES[-1:]})")
+    app.action("goToWorkspace", workspace=workspace, focus=True)
+    before = wait_terminal_shown(app, workspace, 30)
+    info["before_quit"] = before
+    print(f"== relaunch: shown before the quit {json.dumps(before)}", flush=True)
+    if not before["ok"]:
+        raise SystemExit(f"bench-memory --relaunch-restored: the opened terminal workspace {workspace} is not shown "
+                         f"before the quit: {json.dumps(before)}")
+    binary_dir = os.path.join(bundle, "Contents/MacOS")
+    apps = {p for p, _, cmd in process_table() if cmd.startswith(binary_dir + "/") and not is_clone_cleanup(cmd)}
+    quit_reply = app.action("quitKeepSessions", wait=False)
+    left = still_running(apps, 20)
+    info["quit"] = {"reply": quit_reply, "sigterm": sorted(left)}
+    if left:
+        print(f"   relaunch: the app was still up 20 s after quitKeepSessions; SIGTERM {sorted(left)}", file=sys.stderr)
+        end_processes(left)
+    # By executable path too (bundle_processes): the holder and the daemon's children start with a bare
+    # argv[0], so a command-line match (bundle_pids) misses them, and the relaunch would reattach to them.
+    table = process_table()
+    first = bundle_processes(table, bundle)
+    first_cmd = {pid: cmd for pid, _, cmd in table if pid in first}
+    survivors = sorted(kind for kind, _ in first.values())
+    info["after_quit"] = survivors
+    print(f"== relaunch: after the quit (mode {mode}): {survivors}", flush=True)
+    if mode == "cold":
+        # Taken before end_bundle: once the daemon is gone the holder (a copy outside the bundle, found only
+        # through its parent or owner) is launchd's child and bundle_processes no longer sees it.
+        end_bundle(bundle)
+        # Only a pid whose command line is unchanged: one that exited during end_bundle may be another process now.
+        now_cmd = {pid: cmd for pid, _, cmd in process_table()}
+        end_processes({pid for pid in first if now_cmd.get(pid) == first_cmd[pid]})
+        left = still_running(set(first), 0) | set(bundle_processes(process_table(), bundle))
+        if left:
+            raise SystemExit(f"bench-memory --relaunch-restored cold: processes of the first launch are still up "
+                             f"after the cleanup: {sorted(left)}")
+    pid, socket_path, _ = launch(bundle, config, extra, scratch=scratch)
+    after = wait_terminal_shown(App(bundle, socket_path), None, 60)
+    after["same_workspace"] = after["shown"] == workspace
+    info["restored"] = after
+    print(f"== relaunch: shown after the relaunch {json.dumps(after)}", flush=True)
+    if not after["ok"]:
+        end_bundle(bundle)
+        raise SystemExit(f"bench-memory --relaunch-restored: the relaunch does not show a terminal workspace "
+                         f"(opened {workspace}): {json.dumps(after)}")
+    return pid, socket_path, info
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--app", required=True, help="the .app bundle")
@@ -1802,8 +1898,19 @@ def main():
                              "time each to its first frame (show_latency)")
     parser.add_argument("--gpu", action="store_true",
                         help="each measured window also samples the GPU's counters (ioreg IOAccelerator)")
+    parser.add_argument("--relaunch-restored", nargs="?", const="cold", choices=("cold", "warm"),
+                        help="launch: open and show one terminal workspace, quit (the session saves), relaunch into "
+                             "the same scratch and check that the window shows a terminal workspace, not Home, then "
+                             "sample: a returning user's launch (relaunch_restored). cold (default) ends the "
+                             "processes that outlived the quit first; warm leaves them")
+    parser.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
+                        help="launch: an environment variable for the app (repeatable), e.g. CMUX_NEXT_CHIEF_START=visible")
     parser.add_argument("--out")
     args = parser.parse_args()
+    if args.relaunch_restored and args.socket:
+        parser.error("--relaunch-restored needs an app that this run launches (no --socket)")
+    if any("=" not in pair or not pair.split("=", 1)[0] for pair in args.env):
+        parser.error("--env takes NAME=VALUE")
     global SAMPLE_GPU
     SAMPLE_GPU = args.gpu
     if args.axis and args.axis.startswith("chat-") and not args.fake_agent:
@@ -1848,7 +1955,16 @@ def main():
         config = json.loads(args.config)
         if chat_renderer_crash.enabled():
             config = merged(config, chat_renderer_crash.CONFIG)
+        extra.update(pair.split("=", 1) for pair in args.env)
         launched, socket_path, scratch = launch(bundle, config, extra)
+        if args.relaunch_restored:
+            try:
+                launched, socket_path, relaunch = relaunch_restored(bundle, config, extra, socket_path, scratch,
+                                                                    args.relaunch_restored)
+            except BaseException:
+                end_bundle(bundle)
+                shutil.rmtree(scratch, ignore_errors=True)
+                raise
         app_pid = launched
     app = App(bundle, socket_path)
     chats = None
@@ -1860,6 +1976,10 @@ def main():
     diff_scratch = None
     if child_check is not None:
         report["child_time_check"] = child_check
+    if args.env:
+        report["env"] = args.env
+    if args.relaunch_restored:
+        report["relaunch"] = relaunch
 
     def settle_and_sample(label, diff_tab=None):
         time.sleep(args.settle)  # test script: let the app and its helpers go idle
