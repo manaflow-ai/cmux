@@ -9,6 +9,8 @@
 //!   trait, selected by [`TransportKind`].
 //! - [`hybrid`]: the phone's WebRTC media session beside a WireGuard link.
 //! - [`keepalive`]: the phone's one keepalive clock (Align Keepalives).
+//! - [`outbox`]: the phone's send outbox: local ack, dedupe by client id,
+//!   reconcile on the Mac's ack, resend on the next link.
 
 pub mod api;
 pub mod build_space;
@@ -19,6 +21,7 @@ pub mod hybrid;
 pub mod keepalive;
 pub mod link;
 pub mod media;
+pub mod outbox;
 mod send_queue;
 pub mod signaling;
 #[cfg(feature = "testing")]
