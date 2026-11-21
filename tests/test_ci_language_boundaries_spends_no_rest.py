@@ -106,7 +106,7 @@ class FilesFromGit(unittest.TestCase):
         git(work, "add", "-A")
         git(work, "commit", "-qm", "base")
         self.base = git(work, "rev-parse", "HEAD")
-        git(work, "checkout", "-qb", "head")
+        git(work, "checkout", "-qb", "topic")
         (work / "webviews" / "src").mkdir(parents=True)
         (work / "webviews" / "src" / "Transcript.swift").write_text("struct Transcript {}\n")
         git(work, "add", "-A")
@@ -115,7 +115,7 @@ class FilesFromGit(unittest.TestCase):
         git(work, "checkout", "-q", "main")
         (work / "README.md").write_text("base moved on\n")
         git(work, "commit", "-qam", "base moves")
-        git(work, "merge", "-q", "--no-ff", "-m", "merge", "head")
+        git(work, "merge", "-q", "--no-ff", "-m", "merge", "topic")
         self.merge = git(work, "rev-parse", "HEAD")
         self.work = work
 
