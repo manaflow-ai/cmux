@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44869770033",
+  "recorded_at": "2026-11-21T05:25:16Z",
+  "reason": "cmux-tui dc6f7a40fec6 changes the image's cmux-tui (pinned fa39367953bb)",
+  "dry_run": false,
+  "cmux_tui": "dc6f7a40fec6a64805169019b263729463db0a0b",
+  "fixes": [
+    {
+      "sha": "8370f160d9cc777e4e3d9970de4a67eb9bc50ef4",
+      "mergedAt": "2026-11-20T20:34:46-08:00",
+      "subject": "NEXT: Cloud pick only sets the target; Cmd+D beside Cloud reads Cloud; Cloud chat row never last; pickers stay independent (#47677) (#47734)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-21T05:25:16Z",
+    "snapshot_id": "sh-14bc3289168348869877ce1bd74ca2f8",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44869770033): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "633dd784f746cfaac7655633b27509c67caf05fe",
+    "image": "cloud-native-auto-dc6f7a40-44869770033-1",
+    "revision": "ci-44869770033-1",
+    "at": "2026-11-21T05:25:16Z"
+  },
+  "rolled_back": false
+}
