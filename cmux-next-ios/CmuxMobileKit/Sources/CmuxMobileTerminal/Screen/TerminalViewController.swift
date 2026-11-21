@@ -1841,6 +1841,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// Flings a reset stopped to place the reader (demo and bench readout,
     /// `historyfling`).
     private(set) var flingsStoppedByReset = 0
+    /// A fling reached within a screen of the oldest row held: the older
+    /// rows are asked for when it ends. Their replay starts with a reset,
+    /// and a reset stops a fling to place the reader, so asking mid-fling
+    /// cut the first fling up short (Leo, 2026-11-21: "this claude code cli
+    /// is often slow to scroll up and down from ios").
+    private var olderRowsWanted = false
     /// A place is waiting to be put back (the held frame stays for it).
     private var restorePending: Bool { readingMark != nil || pendingRestore != nil }
     /// A place is waiting and the replay that places it is in (or overdue).
@@ -2988,9 +2994,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // The reader moved to within a screen of the oldest row held: a Mac
         // terminal that attached with its latest screen first brings older
         // rows (never for the page's own placement or a short document).
-        if scrollView.isTracking || scrollView.isDecelerating || fling != nil,
-           scrollView.contentOffset.y < -scrollView.contentInset.top + scrollView.bounds.height {
-            model.session.loadOlderHistory()
+        // A finger on the page asks at once; a fling asks when it ends
+        // (`olderRowsWanted`), since the replay's reset would stop it.
+        if scrollView.contentOffset.y < -scrollView.contentInset.top + scrollView.bounds.height {
+            if scrollView.isTracking {
+                model.session.loadOlderHistory()
+            } else if scrollView.isDecelerating || fling != nil {
+                olderRowsWanted = true
+            }
         }
         // A fling that reaches the bottom follows from there: while output
         // streams the deceleration would otherwise run on against a growing
@@ -3034,6 +3045,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         fling?.stop()
         fling = nil
         stopGlide()
+        // A finger caught the fling: it asks for older rows itself if it
+        // drags near the top.
+        olderRowsWanted = false
     }
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
@@ -3072,7 +3086,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         scrollMeter = ScrollMeter()
         #endif
+        let olderWanted = olderRowsWanted
+        olderRowsWanted = false
         guard !model.isTUI, cell.height > 0 else { return }
+        if olderWanted, scrollView.contentOffset.y < -scrollView.contentInset.top + scrollView.bounds.height {
+            model.session.loadOlderHistory()
+        }
         scroll.settled(offsetY: scrollView.contentOffset.y, bottomOffsetY: maxOffsetY, layout: document, rowHeight: cell.height)
         if measureAfterGesture {
             measureAfterGesture = false
