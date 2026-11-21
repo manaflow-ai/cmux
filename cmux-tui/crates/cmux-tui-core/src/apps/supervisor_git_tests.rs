@@ -258,7 +258,7 @@ fn an_install_is_the_commit_its_card_showed_even_after_the_branch_moves() {
     let f = fixture();
     let git = with_git(&f);
     let one = app_tarball("octo/hello", "1.0.0", json!({}));
-    let two = app_tarball("octo/hello", "2.0.0", json!({"net:*": "Reach the internet"}));
+    let two = app_tarball("octo/hello", "2.0.0", json!({"net:example.com": "Reach example.com"}));
     git.serve("octo", "hello", A, &[("refs/heads/main", A)], &[(A, one.clone()), (B, two.clone())]);
     let card =
         call(&f, "cmux.apps.catalog.get", json!({"app": "github.com/octo/hello"}), Origin::Cli)
