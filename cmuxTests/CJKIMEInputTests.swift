@@ -1298,6 +1298,257 @@ final class VietnameseIMEBackspaceRegressionTests: XCTestCase {
 }
 
 @MainActor
+final class IMEModifiedKeyCommitRegressionTests: XCTestCase {
+    private struct SentKey {
+        let action: ghostty_input_action_e
+        let keycode: UInt32
+        let mods: ghostty_input_mods_e
+        let text: String?
+    }
+
+    /// Composes `preedit`, then dispatches one keyDown and its keyUp while the
+    /// input method commits `committed` from interpretKeyEvents. Returns every
+    /// key event sent to the Ghostty surface, and whether marked text remains.
+    private func dispatchCommit(
+        preedit: String,
+        committed: String,
+        modifierFlags: NSEvent.ModifierFlags,
+        characters: String,
+        charactersIgnoringModifiers: String,
+        keyCode: UInt16,
+        passesKeyToKeyBindings: Bool = false,
+        remainingPreedit: String? = nil
+    ) async -> (sent: [SentKey], hasMarkedText: Bool)? {
+        var result: (sent: [SentKey], hasMarkedText: Bool)?
+        await AppContextSerialGate.withExclusiveAppContext {
+            _ = NSApplication.shared
+
+            let surface = TerminalSurface(
+                tabId: UUID(),
+                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                configTemplate: nil,
+                workingDirectory: nil
+            )
+            let hostedView = surface.hostedView
+
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            let previousObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+            defer {
+                GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousObserver
+                surface.releaseHostedSurfaceForTesting()
+                window.orderOut(nil)
+            }
+
+            guard let contentView = window.contentView else {
+                XCTFail("Expected content view")
+                return
+            }
+
+            hostedView.frame = contentView.bounds
+            hostedView.autoresizingMask = [.width, .height]
+            contentView.addSubview(hostedView)
+
+            window.makeKeyAndOrderFront(nil)
+            window.displayIfNeeded()
+            contentView.layoutSubtreeIfNeeded()
+            hostedView.setVisibleInUI(true)
+            hostedView.setActive(true)
+            _ = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) { surface.surface != nil }
+            XCTAssertNotNil(surface.surface, "Expected native surface before dispatching composed input")
+
+            guard let view = findGhosttyNSView(in: hostedView) else {
+                XCTFail("Expected hosted GhosttyNSView")
+                return
+            }
+
+            view.setMarkedText(
+                preedit,
+                selectedRange: NSRange(location: (preedit as NSString).length, length: 0),
+                replacementRange: NSRange(location: NSNotFound, length: 0)
+            )
+
+            installCJKIMEInterpretKeyEventsSwizzle()
+            cjkIMEInterpretKeyEventsHook = { candidateView, _ in
+                guard candidateView === view else { return false }
+                candidateView.insertText(committed, replacementRange: NSRange(location: NSNotFound, length: 0))
+                if let remainingPreedit {
+                    candidateView.setMarkedText(
+                        remainingPreedit,
+                        selectedRange: NSRange(location: (remainingPreedit as NSString).length, length: 0),
+                        replacementRange: NSRange(location: NSNotFound, length: 0)
+                    )
+                }
+                // An input method that does not consume the key lets AppKit
+                // run its key bindings, which reach doCommand(by:).
+                if passesKeyToKeyBindings {
+                    candidateView.doCommand(by: NSSelectorFromString("noop:"))
+                }
+                return true
+            }
+            defer { cjkIMEInterpretKeyEventsHook = nil }
+
+            var sent: [SentKey] = []
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+                sent.append(SentKey(
+                    action: keyEvent.action,
+                    keycode: keyEvent.keycode,
+                    mods: keyEvent.mods,
+                    text: keyEvent.text.map { String(cString: $0) }
+                ))
+            }
+
+            guard let down = NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: modifierFlags,
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: characters,
+                charactersIgnoringModifiers: charactersIgnoringModifiers,
+                isARepeat: false,
+                keyCode: keyCode
+            ), let up = NSEvent.keyEvent(
+                with: .keyUp,
+                location: .zero,
+                modifierFlags: modifierFlags,
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: characters,
+                charactersIgnoringModifiers: charactersIgnoringModifiers,
+                isARepeat: false,
+                keyCode: keyCode
+            ) else {
+                XCTFail("Failed to create key events")
+                return
+            }
+
+            window.makeFirstResponder(view)
+            view.keyDown(with: down)
+            view.keyUp(with: up)
+            result = (sent, view.hasMarkedText())
+        }
+        return result
+    }
+
+    /// macSKK confirms a conversion with Ctrl-J and commits it through
+    /// insertText (#37489). The key is the input method's command: the text
+    /// must reach the terminal on its own, and Ctrl-J must not be encoded.
+    func testControlKeyThatCommitsPreeditSendsOnlyTheText() async throws {
+        let outcome = await dispatchCommit(
+            preedit: "かんじ",
+            committed: "漢字",
+            modifierFlags: [.control],
+            characters: "\n",
+            charactersIgnoringModifiers: "j",
+            keyCode: 38
+        )
+        let (sent, hasMarkedText) = try XCTUnwrap(outcome)
+
+        XCTAssertFalse(hasMarkedText, "Ctrl-J should commit the conversion")
+        let presses = sent.filter { $0.action == GHOSTTY_ACTION_PRESS }
+        XCTAssertEqual(presses.map(\.text), ["漢字"], "Only the committed text may reach the terminal")
+        XCTAssertEqual(presses.first?.mods, GHOSTTY_MODS_NONE, "The committed text must not carry Ctrl, or it encodes as Ctrl-J")
+        XCTAssertFalse(sent.contains { $0.keycode == 38 }, "Neither Ctrl-J's press nor its release may be sent")
+    }
+
+    /// A modified arrow that commits the preedit still moves after the text,
+    /// as in Ghostty: Option-Left while a Hangul syllable is composing.
+    func testModifiedArrowThatCommitsPreeditIsReplayedAfterTheText() async throws {
+        let outcome = await dispatchCommit(
+            preedit: "한",
+            committed: "한",
+            modifierFlags: [.option],
+            characters: "\u{F702}",
+            charactersIgnoringModifiers: "\u{F702}",
+            keyCode: 123
+        )
+        let (sent, _) = try XCTUnwrap(outcome)
+
+        let presses = sent.filter { $0.action == GHOSTTY_ACTION_PRESS }
+        XCTAssertEqual(presses.map(\.text), ["한", nil], "The syllable goes out first, then the arrow without text")
+        XCTAssertEqual(presses.last?.keycode, 123)
+        XCTAssertEqual(
+            presses.last.map { $0.mods.rawValue & GHOSTTY_MODS_ALT.rawValue },
+            GHOSTTY_MODS_ALT.rawValue,
+            "The replayed arrow keeps Option"
+        )
+        XCTAssertTrue(
+            sent.contains { $0.action == GHOSTTY_ACTION_RELEASE && $0.keycode == 123 },
+            "The replayed arrow keeps its release"
+        )
+    }
+
+    /// An arrow that commits only part of the preedit and leaves the rest
+    /// marked moved inside the composition, so it must not move the
+    /// terminal's cursor under the remaining preedit.
+    func testModifiedArrowThatKeepsPreeditIsNotReplayed() async throws {
+        let outcome = await dispatchCommit(
+            preedit: "かんじへ",
+            committed: "漢字",
+            modifierFlags: [.option],
+            characters: "\u{F703}",
+            charactersIgnoringModifiers: "\u{F703}",
+            keyCode: 124,
+            remainingPreedit: "へ"
+        )
+        let (sent, hasMarkedText) = try XCTUnwrap(outcome)
+
+        XCTAssertTrue(hasMarkedText, "The rest of the preedit stays marked")
+        let presses = sent.filter { $0.action == GHOSTTY_ACTION_PRESS }
+        XCTAssertEqual(presses.map(\.text), ["漢字"], "Only the committed prefix may reach the terminal")
+        XCTAssertFalse(sent.contains { $0.keycode == 124 }, "The arrow belongs to the composition")
+    }
+
+    /// Ctrl-C while a Hangul syllable is composing: the input method commits
+    /// the syllable but leaves the key to AppKit's key bindings, so it is a
+    /// terminal shortcut and must still reach the terminal after the text.
+    func testModifiedKeyTheInputMethodPassesOnIsReplayedAfterTheText() async throws {
+        let outcome = await dispatchCommit(
+            preedit: "한",
+            committed: "한",
+            modifierFlags: [.control],
+            characters: "\u{03}",
+            charactersIgnoringModifiers: "c",
+            keyCode: 8,
+            passesKeyToKeyBindings: true
+        )
+        let (sent, _) = try XCTUnwrap(outcome)
+
+        let presses = sent.filter { $0.action == GHOSTTY_ACTION_PRESS }
+        XCTAssertEqual(presses.map(\.text), ["한", nil], "The syllable goes out first, then Ctrl-C without text")
+        XCTAssertEqual(presses.first?.mods, GHOSTTY_MODS_NONE)
+        XCTAssertEqual(presses.last?.keycode, 8)
+        XCTAssertNotEqual(presses.last.map { $0.mods.rawValue & GHOSTTY_MODS_CTRL.rawValue }, 0, "The replayed key keeps Ctrl")
+        XCTAssertTrue(sent.contains { $0.action == GHOSTTY_ACTION_RELEASE && $0.keycode == 8 })
+    }
+
+    /// A plain key that commits keeps today's path: the text goes out on the
+    /// key's own event, as for Space or Return confirming a conversion.
+    func testPlainKeyThatCommitsPreeditKeepsItsKeyEvent() async throws {
+        let outcome = await dispatchCommit(
+            preedit: "かんじ",
+            committed: "漢字",
+            modifierFlags: [],
+            characters: " ",
+            charactersIgnoringModifiers: " ",
+            keyCode: 49
+        )
+        let (sent, _) = try XCTUnwrap(outcome)
+
+        let presses = sent.filter { $0.action == GHOSTTY_ACTION_PRESS }
+        XCTAssertEqual(presses.map(\.text), ["漢字"])
+        XCTAssertEqual(presses.first?.keycode, 49)
+    }
+}
+
+@MainActor
 final class KoreanIMEMarkedTextLeakRegressionTests: XCTestCase {
     func testKeyDownDoesNotLeakJamoWhileMarkedTextIsActive() async {
         await AppContextSerialGate.withExclusiveAppContext {
