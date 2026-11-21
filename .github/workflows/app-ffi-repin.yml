@@ -30,8 +30,15 @@ jobs:
     name: open the re-pin pull request
     if: github.ref == 'refs/heads/feat-cmux-next'
     environment: ffi-release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 10
+    # The release's LINUX ROUTE (app-ffi-release.yml): the nightly lane's reserved label first, attempts 1 and 2.
+    # On vars.LINUX_RUNNER this job waited behind all PR CI on a saturated Blacksmith pool (run 44645693256, 40 min
+    # pending, 2026-11-20) while the published release cmux-app-ffi-789a832a sat unpinned.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_RELEASE_PIN_SLOT != 'off' && github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    # 20, not 10 (2026-11-20): checkout alone took about 1.5 min and one healthy re-pin about 8 (run 44655157417),
+    # so runs 44660432819, 44661713537, 44662970467 and 44664319551 hit the 10 min bound and re-dispatched. 30, not
+    # 20: publish-app-ffi-repin.sh may also wait up to 10 min (REPIN_RATE_LIMIT_WAIT_S) for GitHub's rate limit, and
+    # a timeout in that wait would hide its "Re-pin rate-limited" reason.
+    timeout-minutes: 30
     # actions: write only for the failure step's dispatch of app-ffi-repin.yml; the re-pin script reads runs and
     # jobs with this token (READ_TOKEN) and writes nothing with it.
     permissions:
@@ -42,7 +49,9 @@ jobs:
     # One group with app-ffi-release.yml's repin job: re-pins run one at a time
     # on the same pull request.
     concurrency:
-      group: app-ffi-repin
+      # -v2 (2026-11-20): GitHub kept the old key held after runs 44636531297 and 44645693256 were cancelled; every
+      # later re-pin sat PENDING with no holder (run 44651765158). A new key keeps the same one-at-a-time rule.
+      group: app-ffi-repin-v2
       cancel-in-progress: false
     steps:
       # The same two tokens as app-ffi-release.yml's repin job (see there).
@@ -113,6 +122,10 @@ jobs:
           READ_TOKEN: ${{ github.token }}
           BASE_TOKEN: ${{ steps.base-token.outputs.token }}
           BASE_PIN_ENABLED: ${{ vars.CMUX_NEXT_BASE_AUTOFIX == '1' }}
+          # A stalled git transfer (a lazy tree fetch of this treeless clone, or `git fetch origin $previous`) aborts
+          # after 60 s under 1 KB/s instead of hanging the job to its timeout; the script treats a failed read as before.
+          GIT_HTTP_LOW_SPEED_LIMIT: "1000"
+          GIT_HTTP_LOW_SPEED_TIME: "60"
         shell: bash
         run: bash scripts/cmux-next/publish-app-ffi-repin.sh
 

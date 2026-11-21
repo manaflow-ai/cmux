@@ -23,6 +23,8 @@
 //! window is open.
 
 use serde::{Deserialize, Serialize};
+use std::io::Read;
+use std::path::Path;
 
 /// What the app knows once the live tree applied.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
@@ -75,6 +77,37 @@ pub fn verdict(facts: &SnapshotFacts) -> Verdict {
     let shown_missing = facts.shown.as_ref().is_some_and(|shown| !has(shown));
     let listed_missing = !facts.listed.is_empty() && !facts.listed.iter().any(has);
     if shown_missing || listed_missing { Verdict::UnknownWorkspaces } else { Verdict::Current }
+}
+
+/// The registry file's name prefix: `cmux-next/launch-snapshot-registry.<session>`
+/// under a home's Application Support.
+pub const REGISTRY_FILE_PREFIX: &str = "launch-snapshot-registry.";
+/// A registry id longer than this is not one the app wrote.
+pub const MAX_REGISTRY_ID_BYTES: usize = 256;
+
+/// The registry id (session) this home's app last saw live for `session`:
+/// what its last handshake wrote to
+/// `<app_support>/cmux-next/launch-snapshot-registry.<session>` (the id alone,
+/// UTF-8). The one reader of that file: the app's launch read compares it with
+/// the launch snapshot's before drawing (`verdict`), and the launch shell's
+/// stage 0 with its launch record's. `app_support` is the home's
+/// `Library/Application Support`; `session` the daemon session name as in the
+/// app's `cmuxNext.launchSnapshotPath.<session>` default. None when the file is
+/// missing, empty, not UTF-8 or longer than [`MAX_REGISTRY_ID_BYTES`].
+pub fn current_registry_id(app_support: &Path, session: &str) -> Option<String> {
+    if session.is_empty() || session.contains(['/', '\0']) {
+        return None;
+    }
+    let path = app_support.join("cmux-next").join(format!("{REGISTRY_FILE_PREFIX}{session}"));
+    let mut bytes = Vec::with_capacity(64);
+    let file = std::fs::File::open(path).ok()?;
+    // One byte past the bound tells an over-long file from a full one.
+    file.take(MAX_REGISTRY_ID_BYTES as u64 + 1).read_to_end(&mut bytes).ok()?;
+    if bytes.len() > MAX_REGISTRY_ID_BYTES {
+        return None;
+    }
+    let id = std::str::from_utf8(&bytes).ok()?.trim();
+    (!id.is_empty()).then(|| id.to_owned())
 }
 
 /// Where the person last was, from the daemon's saved front window (its record, not the launch snapshot). Home is
