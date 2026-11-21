@@ -302,8 +302,23 @@ impl MediaSession {
         self.encoder.encoder_name()
     }
 
-    /// Runs until the viewer stops, the host stops the session, or the carrier fails.
+    /// Runs until the viewer stops, the host stops the session, or the carrier fails, then logs
+    /// what the clipboard channel refused. Returns why the session ended.
     pub fn run(
+        &mut self,
+        carrier: &mut dyn Carrier,
+        table: &mut SessionTable,
+        session: SessionId,
+        viewer: &Principal,
+    ) -> String {
+        let reason = self.run_until_end(carrier, table, session, viewer);
+        if let Some(line) = self.clipboard.as_ref().and_then(|c| c.counters().log_line()) {
+            eprintln!("{line}");
+        }
+        reason
+    }
+
+    fn run_until_end(
         &mut self,
         carrier: &mut dyn Carrier,
         table: &mut SessionTable,
