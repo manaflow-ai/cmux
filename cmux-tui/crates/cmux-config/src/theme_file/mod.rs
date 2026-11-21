@@ -87,15 +87,17 @@ const LOOK_PREFIXES: [&str; 8] = [
     "browser.omnibar.glass",
     "app.uiScale",
 ];
-/// Look keys outside those prefixes: the terminal font and the chat code font;
-/// the sidebar's shape, edges, text, group headers and buttons, and the sidebar
-/// look (`sidebar_look`); the tab strip's and titlebar's buttons and inactive
-/// tabs; pane corners; and the agent chat's text sizes, sender marks and Session
+/// Look keys outside those prefixes: the terminal font and cursor and the chat
+/// code font; the sidebar's shape, edges, text, group headers and buttons, and
+/// the sidebar look (`sidebar_look`); the tab strip's and titlebar's buttons and
+/// inactive tabs; pane corners; and the agent chat's text sizes, sender marks and Session
 /// Info. Keep in step with Swift `ThemeFileOverlay.lookKeys`.
-const LOOK_KEYS: [&str; 37] = [
+const LOOK_KEYS: [&str; 39] = [
     "terminal.fontFamily",
     "agentPane.display.code.family",
     "terminal.fontSize",
+    "terminal.cursorStyle",
+    "terminal.cursorBlink",
     "sidebar.style",
     "sidebar.border",
     "sidebar.borderWidth",
@@ -485,6 +487,10 @@ impl<'a> Reader<'a> {
             Validation::Domain(DomainKind::BackdropSelection | DomainKind::BackdropPicture)
         ) {
             self.picture(written)
+        } else if let (Validation::Domain(DomainKind::BackdropPictures), Value::Array(items)) =
+            (&row.validation, written)
+        {
+            Value::Array(items.iter().map(|item| self.picture(item)).collect())
         } else if row.key == crate::font_faces::SETTING_KEY {
             // A font pack's face files resolve as pictures do: `file:../fonts/x.woff2`.
             match written {

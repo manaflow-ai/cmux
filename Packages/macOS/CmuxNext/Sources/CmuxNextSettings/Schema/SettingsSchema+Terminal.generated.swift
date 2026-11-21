@@ -10,6 +10,15 @@ extension TerminalFontSetting {
     public nonisolated static let sizePlaceholder: Double = 13
 }
 
+extension TerminalCursorSetting {
+    /// `terminal.cursorStyle`.
+    public nonisolated static let cursorStylePath = ["terminal", "cursorStyle"]
+    public nonisolated static let cursorStyleValues = ["block", "bar", "underline", "block_hollow"]
+    /// `terminal.cursorBlink`.
+    public nonisolated static let cursorBlinkPath = ["terminal", "cursorBlink"]
+    public nonisolated static let cursorBlinkValues = ["on", "off"]
+}
+
 extension TerminalLinkOpener {
     /// `terminal.linkOpener.default`: The target when no rule matches.
     public nonisolated static let defaultPath = ["terminal", "linkOpener", "default"]
@@ -51,6 +60,42 @@ nonisolated enum TerminalSettingsSchema {
                 default: nil,
                 defaultLabel: SettingsText.keyed("settings.source.ghostty", "Ghostty"),
                 keywords: ["font", "text", "size", "zoom", "font-size", "ghostty"]
+            ),
+        ]
+    }
+
+    static var cursorRows: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.terminalCursor", "Cursor")
+        return [
+            SettingDescriptor(
+                TerminalCursorSetting.cursorStylePath,
+                section: .terminal,
+                group: group,
+                title: SettingsText.keyed("settings.terminal.cursorStyle", "Cursor Style"),
+                help: SettingsText.keyed("settings.terminal.cursorStyle.help", "The terminal cursor's shape. Unset, the Ghostty config's cursor-style."),
+                kind: .choice([
+                    SettingChoice("block", SettingsText.keyed("settings.choice.cursorStyle.block", "Block")),
+                    SettingChoice("bar", SettingsText.keyed("settings.choice.cursorStyle.bar", "Bar")),
+                    SettingChoice("underline", SettingsText.keyed("settings.choice.cursorStyle.underline", "Underline")),
+                    SettingChoice("block_hollow", SettingsText.keyed("settings.choice.cursorStyle.blockHollow", "Hollow Block")),
+                ]),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.ghosttyConfig", "Ghostty Config"),
+                keywords: ["cursor", "caret", "bar", "block", "underline", "theme"]
+            ),
+            SettingDescriptor(
+                TerminalCursorSetting.cursorBlinkPath,
+                section: .terminal,
+                group: group,
+                title: SettingsText.keyed("settings.terminal.cursorBlink", "Cursor Blink"),
+                help: SettingsText.keyed("settings.terminal.cursorBlink.help", "Whether the terminal cursor blinks. Unset, the Ghostty config's cursor-style-blink."),
+                kind: .choice([
+                    SettingChoice("on", SettingsText.keyed("settings.choice.cursorBlink.on", "Blink")),
+                    SettingChoice("off", SettingsText.keyed("settings.choice.cursorBlink.off", "Steady")),
+                ]),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.ghosttyConfig", "Ghostty Config"),
+                keywords: ["cursor", "blink", "caret", "theme"]
             ),
         ]
     }
@@ -106,6 +151,6 @@ nonisolated enum TerminalSettingsSchema {
 
     /// Every list of schemas/settings/source/terminal.json, in order.
     static var descriptors: [SettingDescriptor] {
-        [fontRows, linkRows, compatibilityRows].flatMap { $0 }
+        [fontRows, cursorRows, linkRows, compatibilityRows].flatMap { $0 }
     }
 }

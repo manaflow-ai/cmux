@@ -337,24 +337,34 @@ extension PaneRingConfigParser {
     nonisolated static let focusRingShowWhenSinglePaneDefault = false
 }
 
-/// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
-nonisolated enum AppearanceSettingsSchema {
-    static var iconTheme: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.iconTheme", "Icon Theme")
-        return [
-            SettingDescriptor(
-                NekoIconThemeSetting.configPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.iconTheme", "Icon Theme"),
-                help: SettingsText.keyed("settings.appearance.iconTheme.help", "The icon drawings used by cmux."),
-                kind: .choice([
-                    SettingChoice(NekoIconTheme.default.rawValue, SettingsText.keyed("settings.choice.default", "Default")),
-                    SettingChoice(NekoIconTheme.neko.rawValue, SettingsText.keyed("settings.choice.neko", "Neko")),
-                ]),
-                default: .string(NekoIconThemeSetting.fallback.rawValue),
-                keywords: ["icons", "icon", "theme", "neko", "cat"]
-            ).hiddenFromSettingsPage("reserved until the Neko artwork passes light/dark 1x/2x review"),
-        ]
-    }
+extension ThemeFlourishSetting {
+    /// `appearance.accentGlow.dark`.
+    public nonisolated static let accentGlowDarkPath = ["appearance", "accentGlow", "dark"]
+    /// `appearance.accentGlow.light`.
+    public nonisolated static let accentGlowLightPath = ["appearance", "accentGlow", "light"]
+    /// `appearance.accentGlow.radius`.
+    public nonisolated static let accentGlowRadiusPath = ["appearance", "accentGlow", "radius"]
+    public nonisolated static let accentGlowRadiusRange: ClosedRange<Double> = 0...200
+    /// `appearance.accentGlow.opacity`.
+    public nonisolated static let accentGlowOpacityPath = ["appearance", "accentGlow", "opacity"]
+    public nonisolated static let accentGlowOpacityRange: ClosedRange<Double> = 0...1
+    /// `appearance.tabClose.from`.
+    public nonisolated static let tabCloseFromPath = ["appearance", "tabClose", "from"]
+    /// `appearance.tabClose.toDark`.
+    public nonisolated static let tabCloseToDarkPath = ["appearance", "tabClose", "toDark"]
+    /// `appearance.tabClose.toLight`.
+    public nonisolated static let tabCloseToLightPath = ["appearance", "tabClose", "toLight"]
+    /// `appearance.tabClose.interpolation`.
+    public nonisolated static let tabCloseInterpolationPath = ["appearance", "tabClose", "interpolation"]
+    public nonisolated static let tabCloseInterpolationValues = ["oklab", "srgb"]
+    /// `appearance.sidebarHeader.dark`.
+    public nonisolated static let sidebarHeaderDarkPath = ["appearance", "sidebarHeader", "dark"]
+    /// `appearance.sidebarHeader.light`.
+    public nonisolated static let sidebarHeaderLightPath = ["appearance", "sidebarHeader", "light"]
+    /// `appearance.paneArt.dark`.
+    public nonisolated static let paneArtDarkPath = ["appearance", "paneArt", "dark"]
+    public nonisolated static let paneArtDarkDefault: [String] = []
+    /// `appearance.paneArt.light`.
+    public nonisolated static let paneArtLightPath = ["appearance", "paneArt", "light"]
+    public nonisolated static let paneArtLightDefault: [String] = []
 }

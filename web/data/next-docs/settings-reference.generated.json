@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 652,
+  "count": 666,
   "sections": [
     {
       "id": "general",
@@ -2339,6 +2339,48 @@
           ]
         },
         {
+          "key": "appearance.accentGlow.dark",
+          "title": "Accent Glow (Dark)",
+          "help": "A soft glow in this color around the focused pane in the dark appearance. Unset, no glow.",
+          "kind": "color",
+          "default": null,
+          "group": "Theme Flourishes"
+        },
+        {
+          "key": "appearance.accentGlow.light",
+          "title": "Accent Glow (Light)",
+          "help": "The glow's color in the light appearance. Unset, the dark color.",
+          "kind": "color",
+          "default": null,
+          "group": "Theme Flourishes"
+        },
+        {
+          "key": "appearance.accentGlow.opacity",
+          "title": "Accent Glow Opacity",
+          "help": "How strong the accent glow is.",
+          "kind": "number",
+          "default": null,
+          "group": "Theme Flourishes",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "appearance.accentGlow.radius",
+          "title": "Accent Glow Radius",
+          "help": "How far the accent glow spreads from the focused pane.",
+          "kind": "number",
+          "default": null,
+          "group": "Theme Flourishes",
+          "range": {
+            "min": 0,
+            "max": 200,
+            "unit": "points"
+          }
+        },
+        {
           "key": "appearance.agentGlow",
           "title": "React to Agents",
           "help": "Calm while agents are idle; a soft glow in the machine's color when an agent needs you.",
@@ -3018,6 +3060,22 @@
           }
         },
         {
+          "key": "appearance.paneArt.dark",
+          "title": "Pane Art (Dark)",
+          "help": "Pictures behind panes in the dark appearance, one per pane in turn. Empty, panes show the window background as set above.",
+          "kind": "string_list",
+          "default": [],
+          "group": "Theme Flourishes"
+        },
+        {
+          "key": "appearance.paneArt.light",
+          "title": "Pane Art (Light)",
+          "help": "Pictures behind panes in the light appearance. Empty, the dark list.",
+          "kind": "string_list",
+          "default": [],
+          "group": "Theme Flourishes"
+        },
+        {
           "key": "appearance.paneBackgrounds",
           "title": "Pane Backgrounds",
           "help": "One background behind the window, or a copy in each pane.",
@@ -3062,6 +3120,22 @@
             "max": 2,
             "unit": "fraction"
           }
+        },
+        {
+          "key": "appearance.sidebarHeader.dark",
+          "title": "Sidebar Header Image (Dark)",
+          "help": "A picture across the top of the sidebar in the dark appearance (file: and an absolute path). Unset, none.",
+          "kind": "text",
+          "default": null,
+          "group": "Theme Flourishes"
+        },
+        {
+          "key": "appearance.sidebarHeader.light",
+          "title": "Sidebar Header Image (Light)",
+          "help": "The sidebar header picture in the light appearance. Unset, the dark picture.",
+          "kind": "text",
+          "default": null,
+          "group": "Theme Flourishes"
         },
         {
           "key": "appearance.sidebarSurface",
@@ -3453,6 +3527,42 @@
             "max": 1,
             "unit": "fraction"
           }
+        },
+        {
+          "key": "appearance.tabClose.from",
+          "title": "Tab Close Color",
+          "help": "The color of a tab's close button. Unset, the text color.",
+          "kind": "color",
+          "default": null,
+          "group": "Theme Flourishes"
+        },
+        {
+          "key": "appearance.tabClose.interpolation",
+          "title": "Tab Close Blend",
+          "help": "How the close button's color blends to its hover color.",
+          "kind": "choice",
+          "default": null,
+          "group": "Theme Flourishes",
+          "values": [
+            "oklab",
+            "srgb"
+          ]
+        },
+        {
+          "key": "appearance.tabClose.toDark",
+          "title": "Tab Close Hover Color (Dark)",
+          "help": "The color a tab's close button turns to under the pointer in the dark appearance. Unset, the standard hover.",
+          "kind": "color",
+          "default": null,
+          "group": "Theme Flourishes"
+        },
+        {
+          "key": "appearance.tabClose.toLight",
+          "title": "Tab Close Hover Color (Light)",
+          "help": "The close button's hover color in the light appearance. Unset, the dark color.",
+          "kind": "color",
+          "default": null,
+          "group": "Theme Flourishes"
         },
         {
           "key": "appearance.theme",
@@ -4948,6 +5058,32 @@
           "values": [
             "xterm-256color",
             "xterm-ghostty"
+          ]
+        },
+        {
+          "key": "terminal.cursorBlink",
+          "title": "Cursor Blink",
+          "help": "Whether the terminal cursor blinks. Unset, the Ghostty config's cursor-style-blink.",
+          "kind": "choice",
+          "default": null,
+          "group": "Cursor",
+          "values": [
+            "on",
+            "off"
+          ]
+        },
+        {
+          "key": "terminal.cursorStyle",
+          "title": "Cursor Style",
+          "help": "The terminal cursor's shape. Unset, the Ghostty config's cursor-style.",
+          "kind": "choice",
+          "default": null,
+          "group": "Cursor",
+          "values": [
+            "block",
+            "bar",
+            "underline",
+            "block_hollow"
           ]
         }
       ]

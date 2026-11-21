@@ -242,6 +242,18 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `focusRing.color` | string |  |  | Color |
 | `focusRing.width` | real | `1` | 0.5 to 8 | Width |
 | `focusRing.showWhenSinglePane` | boolean | `false` |  | Show With One Pane |
+| `appearance.accentGlow.dark` | string |  |  | Accent Glow (Dark). A soft glow in this color around the focused pane in the dark appearance. Unset, no glow. |
+| `appearance.accentGlow.light` | string |  |  | Accent Glow (Light). The glow's color in the light appearance. Unset, the dark color. |
+| `appearance.accentGlow.radius` | real |  | 0 to 200 | Accent Glow Radius. How far the accent glow spreads from the focused pane. |
+| `appearance.accentGlow.opacity` | real |  | 0 to 1 | Accent Glow Opacity. How strong the accent glow is. |
+| `appearance.tabClose.from` | string |  |  | Tab Close Color. The color of a tab's close button. Unset, the text color. |
+| `appearance.tabClose.toDark` | string |  |  | Tab Close Hover Color (Dark). The color a tab's close button turns to under the pointer in the dark appearance. Unset, the standard hover. |
+| `appearance.tabClose.toLight` | string |  |  | Tab Close Hover Color (Light). The close button's hover color in the light appearance. Unset, the dark color. |
+| `appearance.tabClose.interpolation` | string |  | `oklab`, `srgb` | Tab Close Blend. How the close button's color blends to its hover color. |
+| `appearance.sidebarHeader.dark` | string |  |  | Sidebar Header Image (Dark). A picture across the top of the sidebar in the dark appearance (file: and an absolute path). Unset, none. |
+| `appearance.sidebarHeader.light` | string |  |  | Sidebar Header Image (Light). The sidebar header picture in the light appearance. Unset, the dark picture. |
+| `appearance.paneArt.dark` | array | `[]` |  | Pane Art (Dark). Pictures behind panes in the dark appearance, one per pane in turn. Empty, panes show the window background as set above. |
+| `appearance.paneArt.light` | array | `[]` |  | Pane Art (Light). Pictures behind panes in the light appearance. Empty, the dark list. |
 | `ui.calm` | string | `"off"` | `off`, `calm`, `still` | Calm Mode. Calm stops sliding, spinning and hover highlights; Still also makes animations instant. |
 | `ui.animations.enabled` | boolean | `true` |  | Play Animations. Off turns every animation off. On, the switches below pick by area. |
 | `ui.animations.sidebar` | boolean | `true` |  | Animate the Sidebar. Rows, groups and the sidebar itself slide as they change. |
@@ -352,6 +364,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.commandLabels` | string | `[]` |  | Command Labels. The names the chat shows for background commands. |
 | `terminal.fontFamily` | string |  |  | Font Family. A monospaced font installed on this Mac. |
 | `terminal.fontSize` | real |  | 4 to 96 | Font Size |
+| `terminal.cursorStyle` | string |  | `block`, `bar`, `underline`, `block_hollow` | Cursor Style. The terminal cursor's shape. Unset, the Ghostty config's cursor-style. |
+| `terminal.cursorBlink` | string |  | `on`, `off` | Cursor Blink. Whether the terminal cursor blinks. Unset, the Ghostty config's cursor-style-blink. |
 | `terminal.linkOpener.default` | string | `"cmux"` |  | Open Program Links In. Where terminal programs open URLs: cmux, system, chrome, safari, app:<name> or command:<cmd>. |
 | `terminal.linkOpener.rules` | array | `[]` |  | Program Link Rules. <match> -> <target>, first match wins. Example: caller:gh github.com -> safari |
 | `terminal.term` | string | `"xterm-256color"` | `xterm-256color`, `xterm-ghostty` | Terminal Type (TERM). xterm-ghostty needs Ghostty's terminfo on every host you ssh to. |
