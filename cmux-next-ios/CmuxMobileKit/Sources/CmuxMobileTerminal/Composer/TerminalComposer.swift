@@ -188,7 +188,7 @@ struct TerminalComposer: View {
         // rounded shape clips the cut lines at the corners too.
         .frame(minHeight: TerminalDockMetrics.control, alignment: .top)
         .clipShape(.rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
-        .glassSurface(in: .rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
+        .glassSurface(in: .rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous), interactive: false)
     }
 
     private var sendButton: some View {
@@ -352,8 +352,13 @@ extension View {
     /// The composer's Liquid Glass (classic: the field container and the
     /// round buttons). No opaque backing: the screen's own backing under the
     /// dock keeps scrolled rows from showing through (SPEC M3).
-    func glassSurface(in shape: some Shape) -> some View {
-        glassEffect(.regular.interactive(), in: shape)
+    ///
+    /// `interactive: false` for the text field (as the agent chat's
+    /// composers draw theirs): interactive glass is for controls, and on the
+    /// field it brightened once the draft passed three lines (Leo,
+    /// 2026-11-21: "the composer brightening up when you have >3 lines").
+    func glassSurface(in shape: some Shape, interactive: Bool = true) -> some View {
+        glassEffect(interactive ? .regular.interactive() : .regular, in: shape)
     }
 }
 
