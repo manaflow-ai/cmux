@@ -10,7 +10,7 @@ Exit status: 1 when a cell with `gate: true` failed or did not run in a suite
 that was given a log; 0 otherwise (failing `gate: false` cells are reported,
 not gating).
 
-    ios_reliability_matrix.py --rust cargo.log --ios xcodebuild.log [--json out.json]
+    ios_reliability_matrix.py --rust cargo.log --ios xcodebuild.log [--ios-ui ui.log] [--json out.json]
 """
 
 from __future__ import annotations
@@ -39,6 +39,8 @@ SWIFT_RESULT = re.compile(
     r"Test (?:[Cc]ase )?['\"]?(?:-\[[\w.]+ (?P<objc>\w+)\]|(?:[\w.]+[/.])?(?P<name>\w+)\((?:[^)]*)\))['\"]? "
     r"(?P<result>passed|failed)"
 )
+# XCTest (UI tests): `Test Case '-[Module.Class testName]' passed (1.2 seconds).`
+XCTEST_RESULT = re.compile(r"Test Case '-\[[\w.]+ (?P<name>\w+)\]' (?P<result>passed|failed)")
 SWIFT_STARTED = re.compile(
     r"Test (?:[Cc]ase )?['\"]?(?:-\[[\w.]+ (?P<objc>\w+)\]|(?:[\w.]+[/.])?(?P<name>\w+)\((?:[^)]*)\))['\"]? started"
 )
@@ -194,7 +196,7 @@ def parse_swift(log: str) -> dict[str, str]:
     crashed = False
     summary = False
     for line in log.splitlines():
-        match = SWIFT_RESULT.search(line)
+        match = SWIFT_RESULT.search(line) or XCTEST_RESULT.search(line)
         if match:
             _record(results, match["name"] or match["objc"], "pass" if match["result"] == "passed" else "fail")
             summary = False
@@ -264,6 +266,7 @@ def build(cells: list[dict], logs: dict[str, str]) -> list[dict]:
     results = {
         "rust": parse_rust(logs.get("rust", "")),
         "ios": parse_swift(logs.get("ios", "")),
+        "ios-ui": parse_swift(logs.get("ios-ui", "")),
     }
     metrics: dict[str, list[dict]] = {}
     for log in logs.values():
@@ -307,19 +310,50 @@ def table(rows: list[dict]) -> str:
         counts[row["status"]] = counts.get(row["status"], 0) + 1
     out.append("")
     out.append("Cells: " + ", ".join(f"{key} {value}" for key, value in sorted(counts.items())))
+    out.append("")
+    out.append("Axes:")
+    for axis, line in axes(rows):
+        out.append(f"- {axis}: {line}")
+    reasons = [row for row in rows if not row.get("gate") and row.get("reason")]
+    if reasons:
+        out.append("")
+        out.append("Not gating, and why:")
+        for row in reasons:
+            out.append(f"- `{row['id']}`: {row['reason']}")
     return "\n".join(out)
+
+
+def axes(rows: list[dict]) -> list[tuple[str, str]]:
+    """One summary per axis, in catalog order: its cells, how many gate, and their results."""
+    order: list[str] = []
+    by_axis: dict[str, list[dict]] = {}
+    for row in rows:
+        if row["axis"] not in by_axis:
+            order.append(row["axis"])
+        by_axis.setdefault(row["axis"], []).append(row)
+    out = []
+    for axis in order:
+        cells = by_axis[axis]
+        results: dict[str, int] = {}
+        for row in cells:
+            results[row["status"]] = results.get(row["status"], 0) + 1
+        gating = sum(1 for row in cells if row.get("gate"))
+        summary = ", ".join(f"{key} {value}" for key, value in sorted(results.items()))
+        out.append((axis, f"{len(cells)} cells ({gating} gating): {summary}"))
+    return out
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--rust", type=Path, help="cargo test log (rust cells)")
     parser.add_argument("--ios", type=Path, help="xcodebuild or swift test log (ios cells)")
+    parser.add_argument("--ios-ui", type=Path, help="xcodebuild log of the app's UI tests (ios-ui cells)")
     parser.add_argument("--cells", type=Path, default=CELLS)
     parser.add_argument("--json", type=Path, help="write the rows as JSON here")
     args = parser.parse_args(argv)
     cells = json.loads(args.cells.read_text())["cells"]
     logs = {}
-    for suite, path in (("rust", args.rust), ("ios", args.ios)):
+    for suite, path in (("rust", args.rust), ("ios", args.ios), ("ios-ui", args.ios_ui)):
         if path is not None:
             logs[suite] = path.read_text(errors="replace") if path.exists() else ""
     rows = build(cells, logs)
