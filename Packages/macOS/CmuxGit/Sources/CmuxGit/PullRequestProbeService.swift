@@ -216,6 +216,7 @@ public struct PullRequestProbeService: Sendable {
             }
 
             var matchedPullRequest: GitHubPullRequestProbeItem?
+            var matchedRepositorySlug: String?
             var matchedPullRequestUsedCache = false
             var sawTransientFailure = false
             var sawCachedSuccess = false
@@ -229,6 +230,7 @@ public struct PullRequestProbeService: Sendable {
                     }
                     if let candidateMatch = cacheEntry.pullRequestsByBranch[candidate.branch] {
                         matchedPullRequest = candidateMatch
+                        matchedRepositorySlug = repoSlug
                         matchedPullRequestUsedCache = usedCache
                         break
                     }
@@ -249,7 +251,8 @@ public struct PullRequestProbeService: Sendable {
                         number: matchedPullRequest.number,
                         urlString: matchedPullRequest.url,
                         statusRawValue: status.rawValue,
-                        branch: candidate.branch
+                        branch: candidate.branch,
+                        repositorySlug: matchedRepositorySlug
                     )
                 )
                 usedCachedRepoData = matchedPullRequestUsedCache

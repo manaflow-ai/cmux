@@ -92,7 +92,8 @@ extension PullRequestPollService {
                 url: currentPullRequest.url,
                 status: nextStatus,
                 branch: currentPullRequest.branch,
-                isStale: false
+                isStale: false,
+                deliveryStatus: currentPullRequest.deliveryStatus
             )
         )
     }

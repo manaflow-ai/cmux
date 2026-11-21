@@ -22,6 +22,8 @@ public struct SidebarPullRequestBadge: Equatable, Sendable {
     /// Whether the badge is showing data that repeated transient refresh
     /// failures could not confirm.
     public let isStale: Bool
+    /// Passive check and deployment details for this PR, when available.
+    public let deliveryStatus: PullRequestDeliveryStatus?
 
     /// Creates a badge value.
     public init(
@@ -30,7 +32,8 @@ public struct SidebarPullRequestBadge: Equatable, Sendable {
         url: URL,
         status: PullRequestStatus,
         branch: String? = nil,
-        isStale: Bool = false
+        isStale: Bool = false,
+        deliveryStatus: PullRequestDeliveryStatus? = nil
     ) {
         self.number = number
         self.label = label
@@ -38,5 +41,6 @@ public struct SidebarPullRequestBadge: Equatable, Sendable {
         self.status = status
         self.branch = branch
         self.isStale = isStale
+        self.deliveryStatus = deliveryStatus
     }
 }
