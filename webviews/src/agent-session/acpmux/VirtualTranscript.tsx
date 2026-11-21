@@ -204,6 +204,7 @@ import {
 } from "./jumpUp";
 import { topZoneOffset } from "./overlayLayout";
 import "./jumpPair.css";
+import "./jumpPlace.css";
 import { jumpUpButton } from "./jumpUp.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import { jumpPairLook } from "./jumpPair.experiment";
