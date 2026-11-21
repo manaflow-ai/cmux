@@ -38,17 +38,32 @@ pub(crate) fn listed_as(executable: &std::path::Path) -> String {
 /// This Mac's short name (`cosmic-gray.local` is `cosmic-gray`), for the words a viewer reads.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) fn host_name() -> String {
-    let mut buf = [0u8; 256];
-    // SAFETY: gethostname writes at most `buf.len()` bytes into our own buffer.
-    let ok = unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) } == 0;
-    let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
-    let name = if ok { String::from_utf8_lossy(&buf[..end]).into_owned() } else { String::new() };
+    let name = kernel_host_name();
     let short = name.strip_suffix(".local").unwrap_or(&name);
     if short.is_empty() {
         "this Mac".into()
     } else {
         short.to_owned()
     }
+}
+
+#[cfg(unix)]
+fn kernel_host_name() -> String {
+    let mut buf = [0u8; 256];
+    // SAFETY: gethostname writes at most `buf.len()` bytes into our own buffer.
+    let ok = unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) } == 0;
+    let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+    if ok {
+        String::from_utf8_lossy(&buf[..end]).into_owned()
+    } else {
+        String::new()
+    }
+}
+
+/// Windows has no `gethostname` in libc: the computer name Settings > System shows.
+#[cfg(not(unix))]
+fn kernel_host_name() -> String {
+    std::env::var("COMPUTERNAME").unwrap_or_default().trim().to_owned()
 }
 
 /// The reason a share ends with when Screen Recording is not granted: the cause, the Mac and
