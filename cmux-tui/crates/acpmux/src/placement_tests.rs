@@ -122,6 +122,41 @@ fn a_host_at_its_lane_cap_or_out_of_ram_has_no_room_yet_the_work_still_goes_some
     assert!(v["why"].as_str().unwrap().starts_with("no host has room"), "{v:#}");
 }
 
+/// 2026-11-20: a lane host ran 38 sessions against a cap of 6 and ran out of memory. With no
+/// host left with room, the fallback took the best-ranked one, however far past its cap: room
+/// is clamped at 0, so a host 32 over tied with one at its cap. The one least far past its
+/// limits takes the work now, and it is still taken, never refused.
+#[test]
+fn with_no_room_anywhere_the_host_least_far_past_its_limits_takes_the_work() {
+    let lanes = |rank| {
+        json!({"rank": rank, "build": false, "free_gb_floor": 20, "reserved_gb": 7,
+            "per_lane_gb": 8, "disk_per_lane_gb": 20, "max_lanes": 6})
+    };
+    let reg = json!({"machines": {"crowded": {"lanes": lanes(1)}, "at-cap": {"lanes": lanes(2)}}});
+    // crowded: 38/6 lanes and 2 GB free, under its 7 GB floor; at-cap: 6/6 and 20 GB free.
+    let hosts = [
+        c("crowded", health(2.0, 16, 30.0, 200.0, 38)),
+        c("at-cap", health(20.0, 16, 4.0, 200.0, 6)),
+    ];
+    let v = place(&hosts, Some(&reg), Work::Agent);
+    assert_eq!(host(&v, "crowded")["refused"], "no room: lanes is the limit", "{v:#}");
+    assert_eq!(host(&v, "at-cap")["refused"], "no room: lanes is the limit", "{v:#}");
+    assert_eq!((&v["pick"], &v["overloaded"]), (&json!("at-cap"), &json!(true)), "{v:#}");
+    // In either order, and alone the crowded host still takes it: caps only warn.
+    let v = place(&[hosts[1].clone(), hosts[0].clone()], Some(&reg), Work::Agent);
+    assert_eq!(v["pick"], "at-cap", "{v:#}");
+    let v = place(&hosts[..1], Some(&reg), Work::Agent);
+    assert_eq!((&v["pick"], &v["overloaded"]), (&json!("crowded"), &json!(true)), "{v:#}");
+    // RAM under its floor counts too: at the same lane count, more RAM short loses.
+    let short_ram = [
+        c("crowded", health(1.0, 16, 4.0, 200.0, 6)),
+        c("at-cap", health(20.0, 16, 4.0, 200.0, 6)),
+    ];
+    let v = place(&short_ram, Some(&reg), Work::Agent);
+    assert_eq!(host(&v, "crowded")["refused"], "no room: RAM is the limit", "{v:#}");
+    assert_eq!(v["pick"], "at-cap", "{v:#}");
+}
+
 #[test]
 fn an_old_peer_is_never_refused_for_its_build_and_ranks_after_one_with_a_reading() {
     let old = json!({"unsupported": true});
