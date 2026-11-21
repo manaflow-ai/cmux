@@ -2620,7 +2620,11 @@ function TranscriptView({
         return;
       }
       const before = rows.getBoundingClientRect().top;
+      const trayBefore = dockTrayRef.current;
       take();
+      // The tray coming, going or taking a line makes room at once, as it always has (`trayHold`
+      // below): the frame the tray first draws in places the rows above it in that same frame.
+      if (Math.abs(dockTrayRef.current - trayBefore) >= 0.5) return;
       const delta = before - rows.getBoundingClientRect().top;
       const ms = Math.abs(delta) < 0.5 ? 0 : foldMs(rows);
       if (!(ms > 0)) return;
