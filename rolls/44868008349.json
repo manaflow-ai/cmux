@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44868008349",
+  "recorded_at": "2026-11-21T05:02:29Z",
+  "reason": "cmux-tui 650df72d3f0c changes the image's cmux-tui (pinned 4cde87f468bc)",
+  "dry_run": false,
+  "cmux_tui": "650df72d3f0c7c92255c0659c0e1b5896bc95593",
+  "fixes": [
+    {
+      "sha": "650df72d3f0c7c92255c0659c0e1b5896bc95593",
+      "mergedAt": "2026-11-20T20:20:06-08:00",
+      "subject": "acpmux: GUI Codex chats route the configured model like a terminal codex (#48354) (#48360)"
+    },
+    {
+      "sha": "9a291a41731eaab956eb8d5d8c496934c44dc825",
+      "mergedAt": "2026-11-20T20:13:02-08:00",
+      "subject": "cmux-tui: test the app's Cloud Claude start lands in Auto with no mode picked"
+    },
+    {
+      "sha": "0e12294b941f19c0b20062c0683f2eabe86ee785",
+      "mergedAt": "2026-11-20T20:13:02-08:00",
+      "subject": "acpmux: start the Claude translator in the mode the process runs in"
+    },
+    {
+      "sha": "b17a5d3d31f7085ca9723475b900f4f9bbf3704a",
+      "mergedAt": "2026-11-20T20:13:02-08:00",
+      "subject": "acpmux: red test, a pinned Claude profile reports its own mode before init"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-21T05:02:29Z",
+    "snapshot_id": "sh-63800a4e0ca64379b00163c9e9679e8d",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 44868008349): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "02623eba0b3ea102f163fa7c3e499896b95bc0c6",
+    "image": "cloud-native-auto-650df72d-44868008349-1",
+    "revision": "ci-44868008349-1",
+    "at": "2026-11-21T05:02:29Z"
+  },
+  "rolled_back": false
+}
