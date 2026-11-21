@@ -173,3 +173,79 @@ test("dates from an earlier year hold no timer", async () => {
   await mount([lastYear, lastYear - 30 * DAY, Date.now() - 400 * DAY, lastYear - 9 * DAY]);
   expect(pageClocks(dom.window.document).running).toBe(0);
 });
+
+/// Every setTimeout and clearTimeout the app's code (webviews/src, not React's act) makes while `run`
+/// runs, on the page's window and the runtime's.
+async function timersDuring(run: () => void | Promise<void>) {
+  const counts = { armed: 0, cleared: 0 };
+  const fromApp = () => /webviews[\\/]src[\\/]/.test(new Error().stack ?? "");
+  const targets = [globalThis, dom.window] as unknown as {
+    setTimeout: (...args: unknown[]) => unknown;
+    clearTimeout: (handle: unknown) => void;
+  }[];
+  const originals = targets.map((target) => [target.setTimeout, target.clearTimeout] as const);
+  targets.forEach((target, index) => {
+    const [set, clear] = originals[index];
+    target.setTimeout = (...args: unknown[]) => {
+      if (fromApp()) counts.armed++;
+      return set.apply(target, args);
+    };
+    target.clearTimeout = (handle: unknown) => {
+      if (fromApp()) counts.cleared++;
+      clear.call(target, handle);
+    };
+  });
+  try {
+    await act(async () => {
+      await run();
+    });
+  } finally {
+    targets.forEach((target, index) => {
+      [target.setTimeout, target.clearTimeout] = originals[index];
+    });
+  }
+  return counts;
+}
+
+test("finished rows a scroll up mounts and unmounts arm and clear no timer of their own", async () => {
+  // Leo, 2026-11-17: "how about speeding up the scrolling up of chats? ... as in i scroll up and it
+  // loads the stuff". A finished row (its age, its copy button) shares the page's one label timer:
+  // mounting a page of older rows above the ones drawn, or dropping them, arms and clears none.
+  const { createRoot } = await import("react-dom/client");
+  const { MessageTime } = await import("../src/agent-session/acpmux/conversation/MessageActions");
+  const { CopyButton } = await import("../src/agent-session/acpmux/conversation/CopyButton");
+  const now = Date.now();
+  const Row = ({ at }: { at: number }) => (
+    <div>
+      <MessageTime at={at} className="cv-user__time" />
+      <CopyButton text={`row ${at}`} label="Copy" />
+    </div>
+  );
+  // Drawn oldest first, as the transcript is: newer rows below are due sooner.
+  const rows = (ats: number[]) => ats.map((at) => <Row key={at} at={at} />);
+  const N = 200;
+  const recent = Array.from({ length: N }, (_, index) => now - (N - index) * 13 * MINUTE);
+  const older = Array.from({ length: N }, (_, index) => recent[0] - (N - index) * 37 * MINUTE);
+  const host = dom.window.document.getElementById("root")!;
+  root = createRoot(host);
+
+  const opened = await timersDuring(() => root!.render(<>{rows(recent)}</>));
+  expect(host.querySelectorAll("time").length).toBe(N);
+  // The chat opening arms the one shared timer (and moves it once to the soonest row), not one per row.
+  expect(opened.armed).toBeLessThanOrEqual(2);
+  expect(opened.cleared).toBeLessThanOrEqual(1);
+
+  const scrolledUp = await timersDuring(() => root!.render(<>{rows([...older, ...recent])}</>));
+  expect(host.querySelectorAll("time").length).toBe(2 * N);
+  expect(scrolledUp).toEqual({ armed: 0, cleared: 0 });
+
+  const scrolledBack = await timersDuring(() => root!.render(<>{rows(recent)}</>));
+  expect(scrolledBack).toEqual({ armed: 0, cleared: 0 });
+  expect(pageClocks(dom.window.document)).toMatchObject({ running: 1, subscribers: N });
+
+  const closed = await timersDuring(() => root!.unmount());
+  root = undefined;
+  // The last label leaving stops the shared timer: one clear, nothing armed.
+  expect(closed).toEqual({ armed: 0, cleared: 1 });
+  expect(pageClocks(dom.window.document)).toMatchObject({ running: 0, subscribers: 0 });
+});

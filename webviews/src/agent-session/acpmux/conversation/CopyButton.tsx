@@ -30,7 +30,14 @@ export function CopyButton({
   const t = useT();
   const [copied, setCopied] = useState(false);
   const timer = useRef<number | undefined>(undefined);
-  useEffect(() => () => window.clearTimeout(timer.current), []);
+  // Only a button clicked in the last COPIED_MS holds a timer: one never clicked (nearly every row
+  // a scroll mounts and unmounts) clears nothing.
+  useEffect(
+    () => () => {
+      if (timer.current !== undefined) window.clearTimeout(timer.current);
+    },
+    [],
+  );
   const name = copied ? t("code.copied") : label;
   return (
     <button
@@ -43,9 +50,14 @@ export function CopyButton({
       data-copied={copied || undefined}
       onClick={async () => {
         const done = await copy(text);
-        window.clearTimeout(timer.current);
+        if (timer.current !== undefined) window.clearTimeout(timer.current);
+        timer.current = undefined;
         setCopied(done);
-        if (done) timer.current = window.setTimeout(() => setCopied(false), COPIED_MS);
+        if (done)
+          timer.current = window.setTimeout(() => {
+            timer.current = undefined;
+            setCopied(false);
+          }, COPIED_MS);
       }}
     >
       {copied ? <Check size={size} /> : <Copy size={size} />}
