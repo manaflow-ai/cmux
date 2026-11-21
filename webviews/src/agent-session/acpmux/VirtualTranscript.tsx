@@ -738,10 +738,6 @@ function arrivedAtTail(before: readonly AcpmuxRow[], after: readonly AcpmuxRow[]
   return false;
 }
 
-/// Whether a pass brought a sent prompt (a new user row that is no line). It lands at once with what
-/// came in the same pass (its live line, a reply already there); tool rows and the reply that land in
-/// the send's window after it are the turn's and chase. O(1): inspect bounded windows at the append
-/// boundary and tail, so a prompt followed by a burst of rows is still recognized without scanning history.
 /// The newest prompt's row id (a user row that is no line), or undefined: the turn the room the reader
 /// came back to is kept for (`readerRoom`). Reads back from the end to that prompt only.
 function newestPromptId(rows: readonly AcpmuxRow[]): string | undefined {
@@ -752,6 +748,10 @@ function newestPromptId(rows: readonly AcpmuxRow[]): string | undefined {
   return undefined;
 }
 
+/// Whether a pass brought a sent prompt (a new user row that is no line). It lands at once with what
+/// came in the same pass (its live line, a reply already there); tool rows and the reply that land in
+/// the send's window after it are the turn's and chase. O(1): inspect bounded windows at the append
+/// boundary and tail, so a prompt followed by a burst of rows is still recognized without scanning history.
 export function broughtSentPrompt(before: readonly AcpmuxRow[], after: readonly AcpmuxRow[]): boolean {
   const promptRow = (row: AcpmuxRow | undefined): row is AcpmuxRow => row?.kind === "user" && !isLineRow(row);
   const becameCanonical = (was: AcpmuxRow | undefined, row: AcpmuxRow | undefined) => {
