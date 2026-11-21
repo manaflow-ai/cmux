@@ -6,6 +6,7 @@
         "Every routing label has an online runner": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly runner preflight fails a run whose routing label has no online runner", "note": "tests/test_nightly_runner_preflight.py runs scripts/ci/nightly_runner_preflight.py on the 2026-11-10 census and variables"}},
       "decide": {
         "Mint the routing token for early nightly controls": {"plumbing": true},
+        "Mint a spare read token for decide": {"nightly_only": "mints an optional glaeda-route GitHub App token for decide's rate-limit fallback; pull requests do not run the scheduled nightly decision"},
         "Place the light jobs on the all-nightly reservation while it has idle runners": {"pr": "cmux-next-guards.yml:ci-guard-group:Run the ci guard group and the routed groups", "note": "guards-local.sh runs test_ci_portable_job_placement.py and test_nightly_dedicated_mini.py, which cover the reservation placement, its bounded wait and the runs-on fallbacks"},
         "Place credentialed early picker on owned minis": {"pr": "cmux-next-guards.yml:ci-guard-group:Run the ci guard group and the routed groups", "note": "Existing portable placement tests cover unknown API capacity and owned-only eligibility"},
         "Decide whether a nightly build is needed": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly push throttle"}},
@@ -140,7 +141,8 @@
         "Build the web bundles": {"pr": "cmux-next.yml:web-bundles:Build the web bundles for this source key"},
         "Generate the third-party notices": {"pr": "cmux-next-guards.yml:rust-notices-tree:Generate the Rust notices from this tree (as the nightly does)"}},
       "check-nightly-webviews": {
-        "Webview checks on the build commit": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly publishes no red webview tree and no known-bad commit", "note": "the same fast_gate_webviews_checks.py pieces run on every feat-cmux-next pull request in ci-web.yml react-apps-check (1); this test pins that the nightly runs them on its build commit and that publication waits for them"}
+        "Webview checks on the build commit": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly publishes no red webview tree and no known-bad commit", "note": "the same fast_gate_webviews_checks.py pieces run on every feat-cmux-next pull request in ci-web.yml react-apps-check (1); this test pins that the nightly runs them on its build commit and that publication waits for them"},
+        "Report the lint-class webview checks": {"pr": "ci-guards.yml:workflow-guard-tests:Validate lint-class webview checks are fixed forward on the nightly"}
       },
       "resolve-nightly-cmux-tui-client": {
         "Fix this run's build number": {"plumbing": true},
@@ -344,6 +346,8 @@
         "Mint the routing token without the org permission": {"nightly_only": "mints the glaeda-route GitHub App token with repository administration read only, when the org-permission mint failed on a nightly-next push or dispatch"},
         "Mint the glaeda read token": {"nightly_only": "mints a glaeda-route GitHub App token with actions read only, for the pool snapshot reads, on nightly-next push and dispatch runs with owned pools on; its scope and the GITHUB_TOKEN fallback are checked by tests/test_nightly_sign_runner.py"},
         "Write the owned-pool watch marker": {"nightly_only": "writes the owned-pool rescue's watch marker only when a nightly-next dispatch or re-run picked an owned Mac; its guard is checked by tests/test_nightly_build_runner.py"}},
+      "pick-nightly-next-signer": {
+        "Pick an idle signer Mac, else the one whose build ends soonest": {"nightly_only": "chooses the live nightly-next run's signer from the runner census and active jobs; tests/test_nightly_next_signer_pick.py exercises the same decision with fixtures"}},
       "pick-nightly-sign-runner": {
         "Mint the glaeda read token": {"nightly_only": "mints a glaeda-route GitHub App token with actions read only, for the pool snapshot and signing-job reads, on nightly-next push and dispatch runs with owned pools on; its scope and the GITHUB_TOKEN fallback are checked by tests/test_nightly_sign_runner.py"},
         "Mint the owned-pool routing token": {"nightly_only": "mints a glaeda-route GitHub App token from GLAEDA_ROUTE_APP_KEY, only on nightly-next push attempt 1; its guard is checked by tests/test_nightly_sign_runner.py"},
@@ -383,6 +387,7 @@
       "wake-nightly-next-tick": {
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Ask main's nightly-next tick": {"nightly_only": "dispatches main's nightly-next-tick.yml when nightly-next-one ends (tests/test_nightly_next_push_slot_at_build.py)"},
+        "Retry the commit that left the slot unless nightly-next moved": {"nightly_only": "dispatches nightly.yml with nightly_next_loop_retry after nightly-next-one left the slot before nightly-next moved (scripts/ci/nightly-steps/slot-left-retry.sh; tests/test_nightly_next_push_slot_at_build.py)"},
         "Check the published feed offers deltas": {"nightly_only": "reads the live nightly-next feed and fails when the published build lists no served delta (tests/test_nightly_next_delta_check.py)"}},
       "dispatch-nightly-next-sign": {
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
@@ -456,9 +461,16 @@
         "Verify shipped libintl has its source": {"pr": "ci-guards.yml:workflow-guard-tests:Validate shipped libintl check"},
         "Verify nightly binary architectures": {"nightly_only": "lipo -archs and file on every bundled binary of the thinned Release app; needs the Release cmux.app that only the nightly builds (xcodebuild Release on a Mac)"},
         "Finish the webview checks before any signing secret": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly publishes no red webview tree and no known-bad commit", "note": "the same fast_gate_webviews_checks.py pieces run on every feat-cmux-next pull request in ci-web.yml react-apps-check (1); this test pins that the nightly runs them on its build commit and that publication waits for them"},
+        "Report the lint-class webview checks": {"pr": "ci-guards.yml:workflow-guard-tests:Validate lint-class webview checks are fixed forward on the nightly"},
         "Install build deps": {"plumbing": true},
         "Refuse stray processes before secrets": {"nightly_only": "reads the signing Mac's own process table (ps -E, lsof); tests/test_refuse_stray_processes.py runs scripts/ci/refuse_stray_processes.py on fixtures and on a real detached child"},
         "Refuse stray processes before secrets (publication)": {"nightly_only": "reads the signing Mac's own process table (ps -E, lsof); tests/test_refuse_stray_processes.py runs scripts/ci/refuse_stray_processes.py on fixtures and on a real detached child"},
+        "Start the nearest deltas and the notes fetch (no key, no token)": {"nightly_only": "downloads the live feed's nearest earlier DMGs from R2 and runs BinaryDelta on the notarized DMG on the signing Mac; tests/test_nightly_next_one_job.py holds its place and that it gets no secret"},
+        "Wait for the nearest deltas and the notes fetch": {"plumbing": true},
+        "Package unsigned app for signer shadow": {"plumbing": true},
+        "Record unsigned app digest for signer shadow": {"plumbing": true},
+        "Refuse stray processes before the Sparkle key": {"nightly_only": "reads the signing Mac's own process table (ps -E, lsof); tests/test_refuse_stray_processes.py runs scripts/ci/refuse_stray_processes.py on fixtures and on a real detached child"},
+        "Put this build's appcast and deltas beside the final DMG": {"plumbing": true},
         "Derive Sparkle public key from private key": {"nightly_only": "derives key from Sparkle private key"},
         "Inject nightly identities and metadata": {"nightly_only": "PlistBuddy edits of the Release app's Info.plist on a Mac; needs the Release cmux.app that only the nightly builds (xcodebuild Release on a Mac)"},
         "Embed verified SSH daemon manifest": {"pr": "cmux-next-remote-daemon.yml:release-packaging:Reject broken app bundles and daemon artifacts"},
@@ -573,7 +585,9 @@
         "Wait for the visual gate, at most 10 min past the signed build": {"pr": "ci-guards.yml:workflow-guard-tests:Test the cmux NEXT nightly visual gate"},
         "Record failed advisory verdict": {"plumbing": true}},
       "report-visual-gate-nightly": {
-        "Record the verdict in the visual gate issue": {"nightly_only": "writes the verdict comment to the nightly-next visual gate issue with the run's token"}}
+        "Record the verdict in the visual gate issue": {"nightly_only": "writes the verdict comment to the nightly-next visual gate issue with the run's token"}},
+      "report-nightly-fix-forward": {
+        "File the lint-class reds in the fix-forward issue": {"nightly_only": "opens, updates or closes the nightly fix-forward issue with the run's token; its logic is unit-tested in tests/test_nightly_lint_fix_forward.py"}}
     },
     "nightly-tag-permission-probe.yml": {
       "probe": {
