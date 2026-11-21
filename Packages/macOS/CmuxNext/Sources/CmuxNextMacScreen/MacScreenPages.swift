@@ -116,6 +116,9 @@ public final class MacScreenPages {
     private var confirmed: [String: MacScreenRecord] = [:]
     /// Tab key -> the record it shows, set before its view is made.
     private var records: [String: MacScreenRecord] = [:]
+    /// Tabs just opened on a run's screen link (it names a display): the person's own link, so the tab
+    /// connects when shown, View Only (Full Control only when a person opened it here).
+    private var runLinks: Set<String> = []
     /// Open tabs (made views), by key.
     private(set) var tabs: [String: MacScreenTab] = [:]
     private var termination: (any NSObjectProtocol)?
@@ -346,6 +349,7 @@ public final class MacScreenPages {
     public func prepare(_ key: String, record: MacScreenRecord, byPerson: Bool) {
         records[key] = record
         if byPerson { confirmed[key] = record } else { confirmed[key] = nil }
+        if record.isRunLink { runLinks.insert(key) } else { runLinks.remove(key) }
     }
 
     /// What runs once tab `key` exists: `created`, and for a tab opened unselected (`focus` false)
@@ -377,7 +381,11 @@ public final class MacScreenPages {
 
     /// The route of `record`.
     static func route(of record: MacScreenRecord) -> String {
-        if let device = record.deviceID { return "device:" + device }
+        if let device = record.deviceID {
+            // A run's link keeps its display, control and name: "device:<id>?display=<n>&control=1&name=<run>".
+            let query = record.url.query(percentEncoded: true).map { $0.split(separator: "&").filter { !$0.hasPrefix("device=") }.joined(separator: "&") }
+            return "device:" + device + (query.map { $0.isEmpty ? "" : "?" + $0 } ?? "")
+        }
         return record.macID.map { "mac:" + $0.uuidString } ?? "home"
     }
 
@@ -385,9 +393,11 @@ public final class MacScreenPages {
     public static func record(route: String) -> MacScreenRecord? {
         if route == "home" { return MacScreenRecord(macID: nil) }
         if route.hasPrefix("device:") {
-            let id = String(route.dropFirst(7))
+            let parts = route.dropFirst(7).split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
+            let id = String(parts.first ?? "")
             guard MacScreenRecord.normalizedDeviceID(id) != nil else { return nil }
-            return MacScreenRecord(deviceID: id)
+            guard parts.count > 1, let url = URL(string: "cmux://mac-screen?device=\(id)&" + parts[1]) else { return MacScreenRecord(deviceID: id) }
+            return MacScreenRecord(url: url) ?? MacScreenRecord(deviceID: id)
         }
         guard route.hasPrefix("mac:"), let id = UUID(uuidString: String(route.dropFirst(4))) else { return nil }
         return MacScreenRecord(macID: id)
@@ -399,6 +409,8 @@ public final class MacScreenPages {
         guard records[key] == nil else { return }
         let record = Self.record(route: route) ?? MacScreenRecord(macID: nil)
         prepare(key, record: record, byPerson: false)
+        // A restored run's tab waits for Connect like any other.
+        runLinks.remove(key)
         // The strip may have asked for the title before the route came back: a device tab is retitled once its pane lists it.
         if record.deviceID != nil {
             Task { @MainActor [weak self] in self?.events.titleChanged(key) }
@@ -429,6 +441,7 @@ public final class MacScreenPages {
         tabs.removeValue(forKey: key)?.clear()
         records[key] = nil
         confirmed[key] = nil
+        runLinks.remove(key)
         systemShortcuts.update()
     }
 
@@ -490,6 +503,11 @@ public final class MacScreenPages {
         let pane = MacScreenPane(hubDevice: viewer, name: deviceName(deviceID), platform: hub?.devices.first { $0.id == deviceID }?.platform,
                                  preferences: ScreenPreferences())
         if confirmed[key] == record, let scope = pendingScopes.removeValue(forKey: deviceID) { viewer.resumeScope = scope }
+        if runLinks.remove(key) != nil, viewer.resumeScope == nil, record.scope == .view || confirmed[key] == record {
+            viewer.resumeScope = record.scope
+        }
+        pane.session?.linkedDisplay = record.display
+        pane.model.runName = record.name
         #if DEBUG
         if relayOnly { pane.setRelayOnly(true) }
         #endif

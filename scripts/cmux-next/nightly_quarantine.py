@@ -3,7 +3,7 @@
 
 feat-cmux-next takes direct pushes, and a direct push meets no PR check. Leo, 2026-11-12, asked whether to require pull
 requests: "ugh we can just warn/pre-whatever/quarantine stuff idk", and "like run [something] right after a direct
-push/some direct pushes potentially". cmux adds no CI for it (CLAUDE.md: "Never add CI gates ... CI jobs or steps"):
+push/some direct pushes potentially". cmux added no CI for it (the 2026-10-23 "no new CI" rule, lifted 2026-11-18):
 cmuxterm-hq's base-red-watch reads feat-cmux-next's own push runs, and when a confirmed red's every suspect is a direct
 push it posts CONTEXT `failure` on that commit, then `success` on the tip once it is fixed or reverted. Nothing is
 reverted. This reads those statuses only: walking TIP's first-parent history (the commits request-nightly-next.sh
