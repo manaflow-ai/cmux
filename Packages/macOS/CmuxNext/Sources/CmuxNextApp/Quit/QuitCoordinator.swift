@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextAgentActivity
 import CmuxNextAgentPane
 import CmuxNextCompat
@@ -27,6 +28,10 @@ final class QuitCoordinator {
     private(set) var isQuitting = false
     /// Runs once when the next quit is refused (an update's relaunch behind waits on that quit).
     var onQuitRefused: (() -> Void)?
+    /// Cmd-Q's guard against an accidental quit (`app.warnBeforeQuitShortcut`, https://github.com/manaflow-ai/cmux/issues/48621).
+    let shortcutGuard = QuitShortcutGuard()
+    /// "Hold ⌘Q or press it again to quit", while it shows.
+    private var shortcutWarning: CmuxToastHandle?
     private unowned let services: AppServices
     /// The quit hook's participants (`AppServices.quitUnsaved`; tests replace it).
     var unsaved: QuitUnsavedRegistry
@@ -62,6 +67,54 @@ final class QuitCoordinator {
         self.services = services
         unsaved = services.quitUnsaved
         deadline = QuitDeadline(reason: "its quit deadline was armed (a keep quit decided, or an End quit's engines began to stop)", end: services.quitDeadlineEnd())
+        shortcutGuard.onDisarm = { [weak self] in self?.endShortcutWarning() }
+        shortcutGuard.onHeldQuit = { [weak self] in self?.requestQuit(.interactive) }
+    }
+
+    /// Whether this run of Quit waits instead (Chrome's "Warn Before Quitting"): the
+    /// shortcut's first press shows "Hold ⌘Q or press it again to quit", and the hold or a second
+    /// press within `QuitShortcutPresses.pressAgainInterval` quits. A menu pick, the palette, a
+    /// script and a window-less app quit at once, as does everything with the setting off.
+    func holdsShortcutQuit(_ invocation: ActionInvocation, event: NSEvent? = NSApp?.currentEvent) -> Bool {
+        guard !isQuitting, invocation.origin == .user, !invocation.viaControlSocket, !invocation.menuPick,
+              let event, QuitShortcutGuard.isShortcutPress(event),
+              services.settings?.snapshot.warnBeforeQuitShortcut ?? CmuxConfigSnapshot.warnBeforeQuitShortcutDefault,
+              let window = sheetWindow() ?? services.windows.active?.window, window.isVisible else {
+            shortcutGuard.disarm()
+            return false
+        }
+        switch shortcutGuard.press(event) {
+        case .quit:
+            endShortcutWarning()
+            return false
+        case .wait:
+            return true
+        case .warn:
+            showShortcutWarning(ActionRegistry.shortcuts(for: event).first?.displayString ?? "⌘Q", in: window)
+            return true
+        }
+    }
+
+    private func showShortcutWarning(_ shortcut: String, in window: NSWindow) {
+        // The replaced warning's dismissal must not disarm the press that replaced it.
+        shortcutWarning = nil
+        let toast = CmuxToast(id: "quit.shortcutWarning", message: QuitStrings.shortcutWarning(shortcut),
+                              action: CmuxToast.Action(title: QuitStrings.shortcutWarningQuit),
+                              duration: .seconds(QuitShortcutPresses.pressAgainInterval), oneWindow: true, keepsDuration: true)
+        let handle = CmuxToastCenter.shared.show(toast, in: window)
+        handle.onAction = { [weak self] in self?.requestQuit(.interactive) }
+        handle.onDismiss = { [weak self, weak handle] _ in
+            guard let self, let handle, shortcutWarning === handle else { return }
+            shortcutWarning = nil
+            shortcutGuard.disarm()
+        }
+        shortcutWarning = handle
+    }
+
+    private func endShortcutWarning() {
+        let handle = shortcutWarning
+        shortcutWarning = nil
+        handle?.dismiss()
     }
 
     /// Records the origin, then starts AppKit's termination. A quit already
