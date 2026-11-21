@@ -7,12 +7,12 @@ import React, {
   useCallback,
   useEffect,
   useEffectEvent,
-  useInsertionEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
+  useInsertionEffect,
 } from "react";
 import { useScrollEdges } from "../../../ui/scrollEdges";
 import type { ConnectKind } from "../environments";
@@ -1097,6 +1097,10 @@ export function NewTabScreen(props: Props) {
   // A highlighted row that went away (its tab closed) hands Return back to the top row.
   const kept = selected === undefined ? -1 : rows.findIndex((row) => rowKey(row) === selected);
   const current = selected === undefined || (kept < 0 && selected !== NO_ROW) ? defaultSelection(rows) : kept;
+  // Where the pointer last moved over a suggestion. WebKit sends a mousemove at the same spot when the list opens or
+  // scrolls under a still pointer (an arrow key's keepInView), which must not take the selection back. So a move only
+  // selects when the spot is known and changed: the first move only records it.
+  const pointerAt = useRef("");
   const pick = (index: number) => {
     const row = rows[index];
     setSelected(row ? rowKey(row) : NO_ROW);
@@ -1232,6 +1236,8 @@ export function NewTabScreen(props: Props) {
     (node: HTMLDivElement | null) => {
       list.current = node;
       listEdges(node);
+      // A list that opens again opens under a pointer that may have moved while it was closed: the spot is unknown.
+      pointerAt.current = "";
     },
     [listEdges],
   );
@@ -2623,7 +2629,10 @@ export function NewTabScreen(props: Props) {
           label={nt("suggestions")}
           // One row (a prompt on many lines): whole-pixel padding and row, so it sits centered (screen.css).
           className={
-            rows.length === 1 ? "nt-composer-surface nt-popover nt-popover-single" : "nt-composer-surface nt-popover"
+            // The Console template's field has the popup corner; the portal cannot see the screen's template.
+            `nt-composer-surface nt-popover${rows.length === 1 ? " nt-popover-single" : ""}${
+              template === "console" ? " nt-popover-console" : ""
+            }`
           }
           hostGlass={false}
           initialFocus={false}
@@ -2648,6 +2657,15 @@ export function NewTabScreen(props: Props) {
                 aria-selected={index === current}
                 data-type={row.type}
                 className={index === current ? "nt-row is-selected" : "nt-row"}
+                // The pointer moves the one selection the arrow keys move, as the shared lists do (ui/Listbox.tsx), so
+                // a hovered row and a keyed row never light up at once (Lucas 2026-11-20).
+                onMouseMove={(event) => {
+                  const at = `${event.screenX},${event.screenY}`;
+                  if (at === pointerAt.current) return;
+                  const known = pointerAt.current !== "";
+                  pointerAt.current = at;
+                  if (known && index !== current) pick(index);
+                }}
                 onMouseDown={(event) => {
                   event.preventDefault();
                   activate(row, event.altKey || event.metaKey);

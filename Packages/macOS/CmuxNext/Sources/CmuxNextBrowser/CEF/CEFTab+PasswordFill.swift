@@ -7,8 +7,9 @@ extension CEFTab {
         if passwordFill.setAllowedByProfile(allowed) { applyPasswordFill() }
     }
 
+    /// Every agent action calls it: the first marks the tab; each one refuses WebAuthn again after the person took it.
     public func markAgentDriven() {
-        guard !isAgentDriven else { return }
+        guard !isAgentDriven else { return applyWebAuthnRefusal() }
         isAgentDriven = true
         applyPasswordFill()
         applyWebAuthnRefusal()
