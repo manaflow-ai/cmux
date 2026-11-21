@@ -95,6 +95,7 @@ import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
 import { setAttentionTabs } from "./needsYou/attentionTabs";
 import { NewTabScreen, type NewTabScreenActions } from "./newtab/NewTabScreen";
+import type { NewTabStartFailure } from "./newtab/StartFailure";
 import { HistoryScreen } from "./newtab/HistoryScreen";
 import { NewTabAppPage } from "./newtab/NewTabAppPage";
 import { historyPages } from "./queue/historyPages";
@@ -4702,6 +4703,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   const [newTab, setNewTab] = useState<NewTabHost | undefined>(injectedNewTabContext);
   const [newTabFixError, setNewTabFixError] = useState<string>();
+  /// The New Tab page a queued start left, until that start opens a chat or fails (it then comes
+  /// back with `newTabStartFailure`, never the chat view's empty-chat hero).
+  const startLeftNewTab = useRef<NewTabHost | undefined>(undefined);
+  const [newTabStartFailure, setNewTabStartFailure] = useState<Omit<NewTabStartFailure, "retry">>();
+  const restoredAfterFailedStart = useRef(false);
   const newTabStartGeneration = useRef(0);
   const [sessionSelection, setSessionSelection] = useState<
     { sessionId: string; state: "pending" | "failed" } | undefined
@@ -11633,6 +11639,42 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (heldBack.current?.length === 0) heldBack.current = undefined;
     return waiting;
   };
+  // A queued start from New Tab makes the page the chat at once (screenActions.ts: the switch's
+  // first row says "Starting Claude Code…"). When that start fails before any chat opened, the
+  // page comes back with the failure said in place (Retry, Details) and the prompt in its field.
+  // Before, the chat view's empty-chat hero stayed ("What should we build?", No folder, Needs you)
+  // under a "couldn't start" card: Leo, 2026-11-17, "this is an old ass deprecated view. this
+  // should not have been shown." (test/new-tab-start-frames.test.ts).
+  const failedSwitch = switchView.intent?.phase === "failed" ? switchView.intent : undefined;
+  // Before paint: the failed chat view never draws a frame.
+  useLayoutEffect(() => {
+    const left = startLeftNewTab.current;
+    if (!left) return;
+    // A chat opened: the page is that chat now, and a later failure is the chat's own.
+    if (snapshot.sessionId) {
+      startLeftNewTab.current = undefined;
+      return;
+    }
+    if (!failedSwitch || newTab !== undefined) return;
+    startLeftNewTab.current = undefined;
+    setNewTabStartFailure({
+      harness: failedSwitch.harness,
+      error: failedSwitch.error || translate("switch.unknownError"),
+      ...(failedSwitch.code ? { code: failedSwitch.code } : {}),
+      local: true,
+    });
+    // The switch handed the prompt to the chat view's composer: the page takes it as it mounts.
+    composerStoodIn.current = true;
+    restoredAfterFailedStart.current = true;
+    harnessSwitch.cancel();
+    setNewTab(left);
+  }, [failedSwitch, snapshot.sessionId, newTab, harnessSwitch]);
+  useEffect(() => {
+    if (newTab === undefined || !restoredAfterFailedStart.current) return;
+    // The page that came back took the draft; no later page does.
+    restoredAfterFailedStart.current = false;
+    composerStoodIn.current = false;
+  }, [newTab]);
   // Activity disconnects the hidden page's draft/attachment/choice holds during setup. Keep
   // the reload hold in the parent until the page is visible and its own effects reconnect.
   useWebSwapHold(showNewTab && harnessesOpen ? "newtab.setup" : null);
@@ -14095,6 +14137,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       : newTabSnapshot
                   }
                   {...(newTabFixError ? { fixError: newTabFixError } : {})}
+                  {...(newTabStartFailure ? { startFailure: newTabStartFailure } : {})}
                   omnibar={newTab.omnibar}
                   location={newTab.location}
                   lastAgent={newTab.lastAgent}
@@ -14156,6 +14199,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       // The chat's composer glides from where New Tab's drew (composer/composerHandover.ts).
                       leave: () => {
                         holdComposerPlace();
+                        // Kept until the start opens a chat or fails (`startLeftNewTab`).
+                        startLeftNewTab.current = newTab;
+                        setNewTabStartFailure(undefined);
                         setNewTab(undefined);
                       },
                       selectSession,
