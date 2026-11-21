@@ -23,14 +23,16 @@ public nonisolated struct SidebarHistoryChat: Hashable, Sendable, Identifiable {
 }
 
 /// The session tree's chat history (`sidebar.sessionTree`, hq#2569 #6): the chats the user pinned,
-/// listed above the tree, and a calm Earlier section under it with every chat no open workspace
-/// shows (ended, closed or never opened here), newest first. Earlier lists one page at a time
+/// listed above the tree, a calm Earlier section under it, and Archived at the bottom. Archived
+/// is the same chat index with the archive trait applied, kept collapsed by default. Earlier lists one page at a time
 /// (`limit`); Show More asks for the next. Built from the index's metadata, so it stays cheap with
 /// thousands of chats: one pass over at most `limit` plus the live and pinned chats.
 public nonisolated struct SidebarChatHistoryState: Hashable, Sendable {
     public var pinned: [SidebarHistoryChat] = []
     /// The page of Earlier shown; empty while folded.
     public var earlier: [SidebarHistoryChat] = []
+    /// The archived page, hidden while its section is folded.
+    public var archived: [SidebarHistoryChat] = []
     /// Earlier has a chat to list (its header shows, folded or not).
     public var hasEarlier = false
     /// More chats wait past the shown page (the Show More row).
@@ -41,15 +43,21 @@ public nonisolated struct SidebarChatHistoryState: Hashable, Sendable {
     /// starting after a relaunch). Earlier then keeps its header and one Loading row, so a slow start never
     /// reads as every chat gone.
     public var loading = false
+    public var hasArchived = false
+    public var archivedFolded = true
 
     public init(pinned: [SidebarHistoryChat] = [], earlier: [SidebarHistoryChat] = [], hasEarlier: Bool = false,
-                hasMore: Bool = false, earlierFolded: Bool = false, loading: Bool = false) {
+                hasMore: Bool = false, earlierFolded: Bool = false, loading: Bool = false,
+                archived: [SidebarHistoryChat] = [], hasArchived: Bool = false, archivedFolded: Bool = true) {
         self.pinned = pinned
         self.earlier = earlier
         self.hasEarlier = hasEarlier || !earlier.isEmpty || loading
         self.hasMore = hasMore
         self.earlierFolded = earlierFolded
         self.loading = loading
+        self.archived = archived
+        self.hasArchived = hasArchived || !archived.isEmpty
+        self.archivedFolded = archivedFolded
     }
 
     /// Earlier shows its Loading row: still loading, unfolded, with no row of its own yet.
@@ -61,8 +69,9 @@ public nonisolated struct SidebarChatHistoryState: Hashable, Sendable {
     /// lists those). `pinned`: the pinned keys in pin order; `chat` finds a pinned chat outside the page.
     public static func make(newest: some Sequence<SidebarHistoryChat>, chat: (String) -> SidebarHistoryChat?,
                             live: Set<String>, pinned: [String], limit: Int, folded: Bool, more: Bool = false,
-                            loading: Bool = false) -> SidebarChatHistoryState {
-        var state = SidebarChatHistoryState(earlierFolded: folded, loading: loading)
+                            loading: Bool = false, archived: [SidebarHistoryChat] = [],
+                            archivedFolded: Bool = true, archivedMore: Bool = false) -> SidebarChatHistoryState {
+        var state = SidebarChatHistoryState(earlierFolded: folded, loading: loading, archivedFolded: archivedFolded)
         state.pinned = pinned.compactMap(chat)
         let skipped = live.union(pinned)
         let wanted = folded ? 0 : max(0, limit)
@@ -75,6 +84,12 @@ public nonisolated struct SidebarChatHistoryState: Hashable, Sendable {
         state.hasMore = more && !folded
         // Chats wait past the page even while the local skip leaves it empty: Earlier keeps its header.
         if state.hasMore { state.hasEarlier = true }
+        let archivedItems = Array(archived)
+        state.hasArchived = archivedMore || !archivedItems.isEmpty
+        if !archivedFolded {
+            state.archived = Array(archivedItems.prefix(max(0, limit)))
+            state.hasArchived = state.hasArchived || !state.archived.isEmpty
+        }
         return state
     }
 
@@ -92,6 +107,12 @@ public nonisolated struct SidebarChatHistoryState: Hashable, Sendable {
         let extraRow = hasMore || showsLoading ? 1 : 0
         return m.sectionHeaderHeight + CGFloat(earlier.count + extraRow) * (m.rowHeight + m.rowSpacing)
     }
+
+    public func archivedHeight(_ m: SidebarLayoutMetrics) -> CGFloat {
+        guard hasArchived else { return 0 }
+        guard !archivedFolded else { return m.sectionHeaderHeight }
+        return m.sectionHeaderHeight + CGFloat(archived.count) * (m.rowHeight + m.rowSpacing)
+    }
 }
 
 /// The session tree's chat history, live: nil while `sidebar.sessionTree` is off. The app's feed
@@ -105,6 +126,7 @@ public final class SidebarChatHistory {
     /// Pinned chat keys, in pin order (the first pinned lists first).
     public private(set) var pinned: [String]
     public private(set) var earlierFolded: Bool
+    public private(set) var archivedFolded: Bool
     /// How many Earlier chats show; Show More adds a page. Not kept: each launch starts calm.
     public private(set) var limit = SidebarChatHistory.pageSize
     /// Opens (resumes) a chat by key: the app's Open Chat path.
@@ -118,11 +140,13 @@ public final class SidebarChatHistory {
     public static let pageSize = 20
     static let pinnedKey = "cmux.next.sidebar.sessionTree.pinnedChats"
     static let foldedKey = "cmux.next.sidebar.sessionTree.earlierFolded"
+    static let archivedFoldedKey = "cmux.next.sidebar.sessionTree.archivedFolded"
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         pinned = defaults.stringArray(forKey: Self.pinnedKey) ?? []
         earlierFolded = defaults.bool(forKey: Self.foldedKey)
+        archivedFolded = defaults.object(forKey: Self.archivedFoldedKey) as? Bool ?? true
     }
 
     public func isPinned(_ key: String) -> Bool { pinned.contains(key) }
@@ -137,6 +161,11 @@ public final class SidebarChatHistory {
     public func toggleEarlier() {
         earlierFolded.toggle()
         defaults.set(earlierFolded, forKey: Self.foldedKey)
+    }
+
+    public func toggleArchived() {
+        archivedFolded.toggle()
+        defaults.set(archivedFolded, forKey: Self.archivedFoldedKey)
     }
 
     /// Show More: the next page of Earlier.

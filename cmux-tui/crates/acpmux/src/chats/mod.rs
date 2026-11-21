@@ -187,13 +187,30 @@ impl ChatService {
     /// `list` and the sequence number of the last change the page contains
     /// (read under the same lock): a watcher applies only changes after it.
     pub fn list_at(&self, query: &ChatQuery) -> (Vec<Value>, Option<String>, u64) {
+        self.list_at_with(query, None)
+    }
+
+    /// Like `list_at`, with the activity-backed archive scope applied before paging.
+    pub fn list_at_with(
+        &self,
+        query: &ChatQuery,
+        activity: Option<&ChatActivity>,
+    ) -> (Vec<Value>, Option<String>, u64) {
         let state = lock(&self.state);
         let seq = state.seq;
         if !state.settings.enabled {
             return (Vec::new(), None, seq);
         }
-        let matching: Vec<&IndexedChat> =
-            state.index.newest_first().filter(|chat| query.matches(chat)).collect();
+        let matching: Vec<&IndexedChat> = state
+            .index
+            .newest_first()
+            .filter(|chat| query.matches(chat))
+            .filter(|chat| {
+                activity.is_none_or(|activity| {
+                    activity.is_archived(&key_text(&chat.entry.key())) == query.archived
+                })
+            })
+            .collect();
         let start = query.cursor.start(&matching);
         let held = matching.get(start..).unwrap_or_default();
         let held = &held[..held.len().min(query.limit)];

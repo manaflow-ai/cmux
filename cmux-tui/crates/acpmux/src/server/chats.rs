@@ -510,7 +510,7 @@ async fn page(
     };
     let activity = hub.chat_activity();
     blocking(move || {
-        let (mut chats, next, seq) = service.list_at(&query);
+        let (mut chats, next, seq) = service.list_at_with(&query, Some(&activity));
         for chat in &mut chats {
             activity.decorate(chat);
         }

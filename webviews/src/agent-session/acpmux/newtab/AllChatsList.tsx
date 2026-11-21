@@ -321,6 +321,7 @@ export function AllChatsList({
   onOpenActive,
   onOpenInTerminal,
   onViewOnly,
+  onArchive,
   onBring,
   now: fixedNow,
   scrollParent,
@@ -336,6 +337,8 @@ export function AllChatsList({
   /// View Only: a Claude Code or Codex chat in a tab that shows it and follows the app that runs
   /// it, without running it, until Take Over (`chats.watch`, the same opener as `cmux agent view`).
   onViewOnly?(key: string): void;
+  /// Archive a chat through the host. The row is refreshed after the host accepts the action.
+  onArchive?(key: string): unknown;
   /// Rows select, and the menu's Bring into Active Sessions opens the selection (cx-zlnl).
   onBring?(keys: string[]): unknown;
   now?: number;
@@ -421,6 +424,24 @@ export function AllChatsList({
   const chatMenu = useCallback((key: string) => {
     menuKey.current = key;
   }, []);
+  const archive = useCallback(
+    (key: string) => {
+      if (!onArchive) return;
+      let request: unknown;
+      try {
+        request = onArchive(key);
+      } catch {
+        return;
+      }
+      // The archive changes the daemon's list; read the current page again once it settles so the
+      // archived row leaves immediately even when the host has no list-push subscription.
+      void Promise.resolve(request).then(
+        () => fetchPage(state.query, undefined),
+        () => undefined,
+      );
+    },
+    [fetchPage, onArchive, state.query],
+  );
   const toggleProject = useCallback(
     (key: string, open: boolean) => {
       // A folded chat cannot stay selected: Enter or Bring would act on rows out of sight.
@@ -557,6 +578,16 @@ export function AllChatsList({
             label: nt("viewOnly"),
             disabled: !menuTarget || !watchable(menuTarget),
             onSelect: () => menuTarget && watchable(menuTarget) && onViewOnly(menuTarget),
+          },
+        ]
+      : []),
+    ...(onArchive
+      ? [
+          {
+            id: "archive",
+            label: t("chatMenu.archive"),
+            disabled: !menuTarget,
+            onSelect: () => menuTarget && archive(menuTarget),
           },
         ]
       : []),

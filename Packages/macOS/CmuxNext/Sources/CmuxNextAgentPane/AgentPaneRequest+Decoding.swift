@@ -507,6 +507,9 @@ extension AgentPaneRequest {
         case "chats.watch":
             if let key = params?["key"] as? String, key.contains(":"), key.count <= 512 { self = .watchChat(key) }
             else { self = .unsupported(method) }
+        case "chats.archive":
+            if let key = params?["key"] as? String, key.contains(":"), key.count <= 512 { self = .archiveChat(key) }
+            else { self = .unsupported(method) }
         case "chats.page": self = .chatsPage(AgentPaneChatsQuery(params: params))
         case "app.action":
             if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128 { self = .appAction(id) }

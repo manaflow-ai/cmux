@@ -69,10 +69,9 @@ final class ChatsOpenCoordinator {
     /// terminal running it (the lookup `cmux://agent` links use). False when no tab shows it.
     private func revealRunning(_ key: String, reveal: String? = nil) -> Bool {
         guard let services else { return false }
-        // The key is acpmux's `<harness>:<session id>`, all a running chat is found by.
-        let parts = key.split(separator: ":", maxSplits: 1).map(String.init)
+        let (name, session) = AcpmuxChatKey.split(key)
         // The index names Claude Code `claude-code`; tabs and terminals name it `claude`.
-        guard let harness = WindowRules().agentHarness(parts.first), let session = parts.count == 2 ? parts[1] : nil else { return false }
+        guard let harness = WindowRules().agentHarness(name), let session else { return false }
         return services.revealedAgentSessionTab(harness: harness, session: session).map { (shown) -> Void in
             if let reveal, shown.adopted { services.agentTabs.revealTurn(reveal, in: shown.tab) } } != nil
     }
@@ -83,10 +82,8 @@ final class ChatsOpenCoordinator {
         // acpmux answers the chat with its plan (`_acpmux/chat_open`); an older daemon's plan has
         // none, and the key still names its harness and session id (`harness:sessionId`).
         let chat = plan.chat
-        let title = chat?.title
-        let parts = key.split(separator: ":", maxSplits: 1).map(String.init)
-        let subject = ChatOpenSubject(title: title, harness: chat?.harness ?? parts.first,
-                                      sessionID: chat?.sessionID ?? (parts.count == 2 ? parts[1] : nil), cwd: chat?.cwd, key: key)
+        let (harness, session) = AcpmuxChatKey.split(key)
+        let subject = ChatOpenSubject(title: chat?.title, harness: chat?.harness ?? harness, sessionID: chat?.sessionID ?? session, cwd: chat?.cwd, key: key)
         switch ChatOpenRoute.route(plan, chat: subject, inTerminal: inTerminal, watch: watch, reveal: reveal,
                                    openTab: { services.agentTabs.tab(resuming: $0) }) {
         case .needsFolder(let reason):
@@ -94,7 +91,7 @@ final class ChatsOpenCoordinator {
             // Folder there (cx-nn3e.1), never a bare Open panel.
             let seed = AgentPaneSeed(folderNeeded: AgentPaneFolderNeeded(chat: key, reason: reason), pastChat: key, revealTurn: reveal)
             if let page, replace(page, with: seed) { return }
-            createWorkspace(WorkspaceSpawn(name: title), seed: seed)
+            createWorkspace(WorkspaceSpawn(name: subject.title), seed: seed)
         case .reveal(let tab):
             if services.revealTab(tab), let reveal { services.agentTabs.revealTurn(reveal, in: tab) }
         case .newWorkspace(let name, let cwd, let seed, let command, let env):

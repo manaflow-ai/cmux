@@ -281,6 +281,9 @@ pub fn rows(
             .iter()
             .filter_map(|text| {
                 let chat = index.get(&parse_key(text)?)?;
+                if activity.is_archived(text) != spec.filter.archived {
+                    return None;
+                }
                 Some((text.clone(), decorated(chat)))
             })
             .collect();
@@ -292,6 +295,9 @@ pub fn rows(
     let mut window = WindowRows::default();
     // The index's kept order: a window that stops at its page reads the page, not every chat.
     for chat in index.newest_first() {
+        if activity.is_archived(&key_text(&chat.entry.key())) != spec.filter.archived {
+            continue;
+        }
         if !spec.filter.matches(chat) {
             continue;
         }
@@ -341,6 +347,9 @@ fn ranked_rows(
     let mut entries = Vec::new();
     let mut folded = HashSet::new();
     for chat in index.newest_first() {
+        if activity.is_archived(&key_text(&chat.entry.key())) != spec.filter.archived {
+            continue;
+        }
         if !spec.filter.matches(chat) {
             continue;
         }

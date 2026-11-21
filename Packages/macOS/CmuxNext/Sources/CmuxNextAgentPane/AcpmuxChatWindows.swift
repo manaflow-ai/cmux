@@ -40,10 +40,12 @@ public final class AcpmuxChatWindows {
         /// A query also finds chats by what was said in them, after those its ranker found: each
         /// such row carries ``AcpmuxChat/said``.
         public var content: Bool
+        /// Selects chats carrying the archive trait instead of active chats.
+        public var archived: Bool
 
         public init(window: String, limit: Int, topLevel: Bool = true, exclude: [String] = [], keys: [String]? = nil,
                     query: String? = nil, untitled: String? = nil, history: String? = nil, count: Bool = false,
-                    content: Bool = false) {
+                    content: Bool = false, archived: Bool = false) {
             self.content = content
             self.untitled = untitled
             self.history = history
@@ -54,6 +56,7 @@ public final class AcpmuxChatWindows {
             self.exclude = exclude
             self.keys = keys
             self.query = query
+            self.archived = archived
         }
 
         /// The New Tab cards' window over acpmux's index: its newest top-level chats, no more than the cards show.
@@ -69,6 +72,7 @@ public final class AcpmuxChatWindows {
             if let history { params["history"] = history }
             if count { params["count"] = true }
             if content { params["content"] = true }
+            if archived { params["archived"] = true }
             return params
         }
     }

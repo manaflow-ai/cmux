@@ -14043,6 +14043,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               load={(params) => callNative<AllChatsPage | undefined>("chats.page", params)}
               onOpen={(key) => callNative("chats.open", { key })}
               onOpenInTerminal={(key) => void callNative("chats.openInTerminal", { key }).catch(() => undefined)}
+              onArchive={(key) => callNative("chats.archive", { key })}
               onViewOnly={(key) => void callNative("chats.watch", { key }).catch(() => undefined)}
               // Waiting on you and Costs read this Mac's acpmux, which answers them to its own app only
               // (an older acpmux that names no origin says on the tab that it keeps neither yet).

@@ -3,7 +3,7 @@
 use cmux_chat_index::{AdapterKind, IndexedChat};
 use serde_json::Value;
 
-/// `{query, harness, folder, account, limit, cursor}`; every field optional.
+/// `{query, harness, folder, account, archived, limit, cursor}`; every field optional.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ChatQuery {
     /// Case-insensitive text in the title or the folder.
@@ -12,6 +12,8 @@ pub struct ChatQuery {
     /// The folder or a folder inside it.
     pub folder: Option<String>,
     pub account: Option<String>,
+    /// The archive trait scope: false (the default) is active chats, true is archived chats.
+    pub archived: bool,
     pub limit: usize,
     /// Where the page starts (the `nextCursor` of the last page).
     pub cursor: ChatCursor,
@@ -96,6 +98,7 @@ impl Default for ChatQuery {
             harness: None,
             folder: None,
             account: None,
+            archived: false,
             limit: Self::DEFAULT_LIMIT,
             cursor: ChatCursor::Start,
         }
@@ -135,11 +138,17 @@ impl ChatQuery {
                 ChatCursor::parse(&c).ok_or_else(|| format!("cursor {c:?} is not a cursor"))?
             }
         };
+        let archived = match params.get("archived") {
+            None | Some(Value::Null) => false,
+            Some(Value::Bool(value)) => *value,
+            Some(_) => return Err("archived must be true or false".to_owned()),
+        };
         Ok(Self {
             text: text_of("query")?.map(|q| q.to_lowercase()),
             harness,
             folder: text_of("folder")?.map(|f| f.trim_end_matches('/').to_owned()),
             account: text_of("account")?,
+            archived,
             limit,
             cursor,
         })

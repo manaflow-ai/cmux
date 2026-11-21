@@ -42,6 +42,7 @@ export function HistoryScreen({
   onOpen(key: string): unknown;
   onOpenInTerminal?(key: string): void;
   onViewOnly?(key: string): void;
+  onArchive?(key: string): unknown;
   now?: number;
   /// Waiting on you's reads and answers; no tab without them.
   queue?: ComponentProps<typeof QueueScreen>;
@@ -102,6 +103,7 @@ export function HistoryScreen({
           onBring={(keys) => Promise.all(keys.map((key) => Promise.resolve(onOpen(key)))).then(() => undefined)}
           {...(onOpenInTerminal ? { onOpenInTerminal } : {})}
           {...(onViewOnly ? { onViewOnly } : {})}
+          {...(onArchive ? { onArchive } : {})}
           {...(now !== undefined ? { now } : {})}
         />
       )}

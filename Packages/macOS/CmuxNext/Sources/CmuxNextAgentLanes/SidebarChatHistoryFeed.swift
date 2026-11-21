@@ -26,6 +26,8 @@ public final class SidebarChatHistoryFeed {
     public nonisolated static let earlierWindow = "sidebar.history.earlier"
     /// Pinned's window: the pinned chats, in pin order.
     public nonisolated static let pinnedWindow = "sidebar.history.pinned"
+    /// Archived's window: the same index with the archive trait selected.
+    public nonisolated static let archivedWindow = "sidebar.history.archived"
 
     private var task: Task<Void, Never>?
     /// Follows the live tab list (which tabs, never their fields) while the history shows.
@@ -64,6 +66,7 @@ public final class SidebarChatHistoryFeed {
         history.onOpen = open
         let earlier = windows.window(Self.earlierWindow)
         let pinned = windows.window(Self.pinnedWindow)
+        let archived = windows.window(Self.archivedWindow)
         let joined = joined
         observed = ObservedItems(item: { tab in LiveChat(chat: Self.liveChat(tab, lanes: lanes, localHost: localHost)) },
                                  same: { $0 == $1 }, changedItem: { [weak self] change in self?.itemChanged(change) })
@@ -90,16 +93,20 @@ public final class SidebarChatHistoryFeed {
         task = Task {
             for await shown in ObservationStream({ () -> Shown? in
                 guard DesignSettings.shared.sidebarSections.sessionTree, let live = joined.live else { return nil }
-                let inputs = Inputs(live: live, pinned: history.pinned, limit: history.limit, folded: history.earlierFolded)
+                let inputs = Inputs(live: live, pinned: history.pinned, limit: history.limit, folded: history.earlierFolded,
+                                    archivedFolded: history.archivedFolded)
                 return Shown(inputs: inputs, state: Self.state(earlier: earlier.rows, more: earlier.hasMore, pinned: pinned.rows,
+                                                               archived: archived.rows, archivedMore: archived.hasMore,
                                                                inputs: inputs, loading: !earlier.hasAnswered))
             }) {
                 if let shown {
                     windows.open(shown.inputs.earlierSpec)
                     windows.open(shown.inputs.pinnedSpec)
+                    windows.open(shown.inputs.archivedSpec)
                 } else {
                     windows.close(Self.earlierWindow)
                     windows.close(Self.pinnedWindow)
+                    windows.close(Self.archivedWindow)
                 }
                 if history.state != shown?.state { history.state = shown?.state }
             }

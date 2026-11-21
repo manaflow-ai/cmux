@@ -228,6 +228,7 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onOpenChat: ((String) -> Void)? // `chats.open`: the app's shared Open Chat path
     @ObservationIgnored public var onOpenChatInTerminal: ((String) -> Void)? // `chats.openInTerminal`: a row's right-click menu
     @ObservationIgnored public var onWatchChat: ((String) -> Void)? // `chats.watch`: View Only from a row's right-click menu
+    @ObservationIgnored public var onArchiveChat: ((String) async throws -> Void)? // `chats.archive`: an All chats row's menu
     @ObservationIgnored public var onChatsPage: ((AgentPaneChatsQuery) async -> AgentPaneChatsPage?)? // `chats.page` (cx-n0i9)
     /// The chat's own right-click menu on empty space: detached items the App renders from its placements.
     @ObservationIgnored public var chatMenuItems: (@MainActor () -> [NSMenuItem])?
@@ -741,6 +742,10 @@ public final class AgentPaneModel {
         case .resumeChat(let ref): return AgentPaneReply.success(["status": await resumeChat(ref).rawValue])
         case .openChatInTerminal(let key): if let onOpenChatInTerminal { onOpenChatInTerminal(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.openInTerminal") }
         case .watchChat(let key): if let onWatchChat { onWatchChat(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.watch") }
+        case .archiveChat(let key):
+            guard let onArchiveChat else { return Self.unsupported("chats.archive") }
+            do { try await onArchiveChat(key); return AgentPaneReply.success() }
+            catch { return AgentPaneReply.failure(code: "chats.archiveFailed", message: "chats.archiveFailed") }
         case .chatsPage(let query): return await respondToChatsPage(query)
         case .environment(let request): return await request.reply(store: startFolders.environments, newTabPage: newTab != nil && sessionId == nil)
         // A new chat's send elsewhere spends Cloud time: the Send's own gesture (``AgentPaneHandOff``).

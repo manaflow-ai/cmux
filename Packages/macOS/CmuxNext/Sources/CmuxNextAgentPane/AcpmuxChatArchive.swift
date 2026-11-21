@@ -12,4 +12,18 @@ public nonisolated struct AcpmuxChatArchive: Sendable {
         _ = try await AcpmuxStatusClient.call(socketPath: socketPath, method: "_acpmux/archive",
                                               params: ["sessionId": sessionId, "archived": true], deadline: AcpmuxEnvironment.answerDeadline)
     }
+
+    /// Archives the chat an index key names (`<harness>:<session id>`); a key with no session id is a no-op.
+    public func archive(chatKey: String) async throws {
+        guard let session = AcpmuxChatKey.split(chatKey).session else { return }
+        try await archive(sessionId: session)
+    }
+}
+
+/// acpmux's chat index key, `<harness>:<session id>`: all a running chat is found by.
+public nonisolated enum AcpmuxChatKey {
+    public static func split(_ key: String) -> (harness: String?, session: String?) {
+        let parts = key.split(separator: ":", maxSplits: 1).map(String.init)
+        return (parts.first, parts.count == 2 && !parts[1].isEmpty ? parts[1] : nil)
+    }
 }

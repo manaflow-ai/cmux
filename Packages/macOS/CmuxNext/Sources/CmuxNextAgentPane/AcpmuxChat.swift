@@ -24,6 +24,8 @@ public nonisolated struct AcpmuxChat: Hashable, Sendable, Identifiable {
     /// The chat whose agent started this one (acpmux `parent`): it folds under that chat and is
     /// never listed on its own (Leo 2026-10-13).
     public var parent: String?
+    /// The user-facing archive trait. Active lists omit these rows; an archive scope includes them.
+    public var archived: Bool
     /// What a query window found in the chat's prompts and answers (acpmux `match`, `chats/text.rs`);
     /// nil for a chat found by its title or listed without a query.
     public var said: Said?
@@ -69,6 +71,7 @@ public nonisolated struct AcpmuxChat: Hashable, Sendable, Identifiable {
         self.attention = attention
         self.preview = preview
         self.parent = parent
+        self.archived = false
         self.said = said
     }
 
@@ -90,6 +93,7 @@ public nonisolated struct AcpmuxChat: Hashable, Sendable, Identifiable {
                   attention: json["attention"] as? String, preview: json["preview"] as? String,
                   parent: (json["parent"] as? String).flatMap { $0.isEmpty ? nil : $0 },
                   said: Said(json: json["match"] as? [String: Any]))
+        self.archived = json["archived"] as? Bool ?? false
     }
 
     private static func milliseconds(_ value: Any?) -> Double? {

@@ -1,5 +1,6 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-21 (lane/chat-archive-trait, ask-c6abe108de): Sidebar-Look: no visual change yet. Leo, 2026-10-22: "archives kinda feel like a trait, a special tag/filter". `SidebarChatHistoryState` gains an `archived` page, `hasArchived` and `archivedFolded` (default true), read from the chat index with the acpmux archive trait (`_acpmux/archive` tag) applied; no sidebar view draws it yet. The planned look, a collapsed Archived section at the bottom of the history, comes with its own entry and gallery variants.
 - 2026-11-19 (lane/needs-you-glow): Sidebar-Look: Leo, 2026-11-19, on eight new features: "all of them" and "some of
   them maybe just as customizations lol if it affects default looks". "Needs you" as motion, off by default: with
   `notifications.attention.mark` `glow` (default `badge`, no change), a workspace row that waits for the person (an

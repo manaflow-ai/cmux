@@ -179,6 +179,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case openChatInTerminal(String)
     /// `chats.watch {key}`: View Only from an All chats row's right-click menu.
     case watchChat(String)
+    /// `chats.archive {key}`: apply the archive trait to an All chats row.
+    case archiveChat(String)
     /// `chats.page {query?, cursor?, limit?}`: one page of the New Tab page's All chats list.
     case chatsPage(AgentPaneChatsQuery)
     /// `environment.list|save|remove`: the New Tab page's saved environments (``AgentPaneEnvironmentRequest``).

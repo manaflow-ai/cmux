@@ -14,7 +14,7 @@ use cmux_chat_index::{AdapterKind, ChatKey};
 use serde_json::{Value, json};
 
 use super::{SeqChange, key_text};
-use crate::hub::{Hub, Session};
+use crate::hub::{Hub, Session, live_tags};
 use crate::store::SessionStatus;
 use cmux_json::JsonSet as _;
 
@@ -95,13 +95,14 @@ pub fn attention(session: &Session) -> Option<&'static str> {
 
 /// The `attention` and `preview` fields of a session's chat.
 pub fn activity_fields(session: &Session) -> Value {
-    let preview = session.read_meta(|meta| {
-        meta.preview.as_deref().filter(|p| !p.trim().is_empty()).map(|p| {
+    let (preview, archived) = session.read_meta(|meta| {
+        let preview = meta.preview.as_deref().filter(|p| !p.trim().is_empty()).map(|p| {
             let line = p.split_whitespace().collect::<Vec<_>>().join(" ");
             line.chars().take(PREVIEW_CHARS).collect::<String>()
-        })
+        });
+        (preview, live_tags(meta).get("archived").is_some())
     });
-    json!({"attention": attention(session), "preview": preview})
+    json!({"attention": attention(session), "preview": preview, "archived": archived})
 }
 
 /// The `_acpmux/chat_changed` params of a session's chat activity, when the
@@ -151,6 +152,14 @@ impl ChatActivity {
         self.fields(key).is_some_and(|fields| !fields.get("parent").is_none_or(Value::is_null))
     }
 
+    /// Whether the chat carries the user-facing archive trait. Missing activity is active.
+    pub fn is_archived(&self, key: &str) -> bool {
+        self.fields(key)
+            .and_then(|fields| fields.get("archived"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+    }
+
     /// Adds `attention`, `preview` and `parent` to a chat value (`chat_value`); a chat
     /// no session continues gets nulls, so a client clears what it had.
     pub fn decorate(&self, chat: &mut Value) {
@@ -159,7 +168,9 @@ impl ChatActivity {
             .and_then(Value::as_str)
             .and_then(|key| self.fields(key))
             .cloned()
-            .unwrap_or_else(|| json!({"attention": null, "preview": null, "parent": null}));
+            .unwrap_or_else(
+                || json!({"attention": null, "preview": null, "parent": null, "archived": false}),
+            );
         if let (Some(chat), Value::Object(fields)) = (chat.as_object_mut(), fields) {
             chat.extend(fields);
         }

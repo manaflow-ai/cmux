@@ -9,20 +9,24 @@ public nonisolated struct AgentPaneChatsQuery: Hashable, Sendable {
     /// The daemon's `nextCursor` of the previous page; nil for the first page.
     public var cursor: String?
     public var limit: Int
+    /// False for active chats, true for the archive trait scope.
+    public var archived: Bool
 
     public static let maximumLimit = 200
 
-    public init(text: String?, cursor: String?, limit: Int) {
+    public init(text: String?, cursor: String?, limit: Int, archived: Bool = false) {
         self.text = text
         self.cursor = cursor
         self.limit = min(max(limit, 1), Self.maximumLimit)
+        self.archived = archived
     }
 
     init(params: [String: Any]?) {
         let text = (params?["query"] as? String).map { String($0.prefix(512)) }
         let cursor = (params?["cursor"] as? String).map { String($0.prefix(32)) }
         self.init(text: text?.isEmpty == true ? nil : text, cursor: cursor,
-                  limit: (params?["limit"] as? NSNumber)?.intValue ?? 50)
+                  limit: (params?["limit"] as? NSNumber)?.intValue ?? 50,
+                  archived: (params?["archived"] as? NSNumber)?.boolValue ?? false)
     }
 }
 
@@ -63,6 +67,7 @@ public nonisolated struct AgentPaneChatsPage: Sendable {
                                           "updatedAt": (chat.updatedAt.timeIntervalSince1970 * 1000).rounded()]
                 if let title = chat.title { row["title"] = title }
                 if let cwd = chat.cwd { row["cwd"] = cwd }
+                if chat.archived { row["archived"] = true }
                 return row
             },
         ]
@@ -79,6 +84,7 @@ extension AcpmuxStatusClient {
         var params: [String: any Sendable] = ["limit": query.limit]
         if let text = query.text { params["query"] = text }
         if let cursor = query.cursor { params["cursor"] = cursor }
+        if query.archived { params["archived"] = true }
         let result = try await call(socketPath: socketPath, method: "_acpmux/chats", params: params, deadline: deadline)
         return AgentPaneChatsPage(result: result)
     }

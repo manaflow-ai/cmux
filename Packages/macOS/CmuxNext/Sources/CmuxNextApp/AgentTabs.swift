@@ -702,6 +702,7 @@ final class AgentTabStore {
         }
         model.onOpenChatInTerminal = { [weak self] key in self?.pageChats.openInTerminal?(key) }
         model.onWatchChat = { [weak self] key in self?.pageChats.watch?(key) }
+        model.onArchiveChat = { [weak self] key in try await self?.pageChats.archive?(key) }
         model.onChatsPage = { [weak self] query in
             let answer = await self?.pageChats.page?(query)
             // A New Tab page on screen gives the frame of the list it draws now.

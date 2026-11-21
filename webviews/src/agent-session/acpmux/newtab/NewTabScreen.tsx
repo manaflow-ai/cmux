@@ -195,6 +195,8 @@ export type NewTabScreenActions = NewTabCommandActions & {
   onOpenChat?(key: string): void | Promise<unknown>;
   /// Open in terminal from an All chats row's right-click menu.
   onOpenChatInTerminal?(key: string): void;
+  /// Archive a chat in the indexed chat list through the host.
+  onArchive?(key: string): unknown;
   /// A chat card's Compress Chat or Decompress Chat: acpmux's cold archive (`_acpmux/cold_archive`) of
   /// that session. It rejects with acpmux's refusal (a chat under way), which the page shows.
   onColdArchive?(sessionId: string, archived: boolean): Promise<unknown>;
@@ -2203,6 +2205,7 @@ export function NewTabScreen(props: Props) {
           onOpenActive={openCard}
           {...(props.onOpenChatInTerminal ? { onOpenInTerminal: props.onOpenChatInTerminal } : {})}
           {...(props.onViewChat ? { onViewOnly: props.onViewChat } : {})}
+          {...(props.onArchive ? { onArchive: props.onArchive } : {})}
           {...(now !== undefined ? { now } : {})}
         />
       )}
