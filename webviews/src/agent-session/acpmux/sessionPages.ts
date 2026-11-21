@@ -213,6 +213,12 @@ export class SessionPager<S extends Summary> {
     this.key = key;
   }
 
+  /** Whether a watch turned off now can catch up later by following from the cursor (`first`): this
+   *  acpmux follows, and a list is held to a cursor with no read out. */
+  get followable(): boolean {
+    return this.follows && this.cursor !== undefined && !this.loading;
+  }
+
   /** Whether the rows held are the whole list: no later page waits to be read (`later`). */
   get holdsAll(): boolean {
     return this.more === undefined;

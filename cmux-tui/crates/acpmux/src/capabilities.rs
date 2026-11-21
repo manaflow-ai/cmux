@@ -123,6 +123,13 @@ pub const CAPABILITIES: &[Capability] = &[
         id: crate::hub::row_log::CAPABILITY,
         wire: &[method::MUX_WATCH, method::MUX_SESSION_CHANGED],
     },
+    // `_acpmux/watch {enabled: false, attachedRows: true}`: the watch off, answered `{}` with no
+    // list, while the rows of the chats the connection attached still come as `session_changed`
+    // (a hidden page parks its watch). Older daemons answer the list and send no rows.
+    Capability {
+        id: "watch-attached-rows-v1",
+        wire: &[method::MUX_WATCH, method::MUX_SESSION_CHANGED],
+    },
     Capability { id: "machine.join.stdin.v1", wire: &[] },
     // `acpmux machine vault pull|status|forget` (crate::vault): the CLI, which
     // asks the daemon to pull or forget when the values live only in its memory.

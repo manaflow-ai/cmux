@@ -278,6 +278,9 @@ function subagentOwns(event: EventRecord, id: string): boolean {
   );
 }
 
+/// The mock daemon's one list epoch (a real acpmux names its run).
+const MOCK_LIST_EPOCH = "mock";
+
 /// An in-page acpmux daemon behind the WebSocket interface the client uses.
 export class MockAcpmuxSocket {
   /// The mock daemon the page connected to last, for `debug.agent_pane load_seed` (loadDebug.ts).
@@ -326,7 +329,7 @@ export class MockAcpmuxSocket {
     (id) => {
       const session = this.sessions.find((s) => s.sessionId === id);
       this.sessions = this.sessions.filter((s) => s.sessionId !== id);
-      this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { kind: "purged", session } });
+      this.tellChanged({ kind: "purged", session });
     },
   );
   private events: EventRecord[] = [];
@@ -441,7 +444,7 @@ export class MockAcpmuxSocket {
     // bounded window, and one 100k-event whole response never becomes a usable page.
     if (light && turns < 10_000) this.openWhole.add(id);
     this.sessions.push(created);
-    this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { kind: "created", session: created } });
+    this.tellChanged({ kind: "created", session: created });
     return id;
   }
 
@@ -695,7 +698,7 @@ export class MockAcpmuxSocket {
           typeof params.model === "string" ? params.model : undefined,
         );
       case "_acpmux/watch":
-        return { sessions: this.sessions };
+        return this.watch(params);
       // A session this daemon lists (mockFixture.ts `mockResolvable`), by link, id or HOST/NAME.
       case "_acpmux/resolve": {
         const query = String(params.query ?? "").trim();
@@ -1219,7 +1222,7 @@ export class MockAcpmuxSocket {
       updatedAt: Date.now(),
     };
     this.sessions.push(created);
-    this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { kind: "created", session: created } });
+    this.tellChanged({ kind: "created", session: created });
     return { sessionId };
   }
 
@@ -1296,7 +1299,7 @@ export class MockAcpmuxSocket {
     if (index < 0) return;
     const changed = { ...this.sessions[index], ...fields, ...(moved ? { updatedAt: Date.now() } : {}) };
     this.sessions[index] = changed;
-    this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { kind: "updated", session: changed } });
+    this.tellChanged({ kind: "updated", session: changed });
   }
 
   /// `{availableCommands}`: the newest command list `target`'s agent sent, as acpmux keeps it.
@@ -1400,6 +1403,47 @@ export class MockAcpmuxSocket {
 
   private emit(target: string, step: Step, at?: number): void {
     this.deliver({ jsonrpc: "2.0", method: "_acpmux/event", params: this.record(target, step, at) });
+  }
+
+  /// The list as acpmux's row log (hub/row_log.rs), told to a connection whose watch is on: each change
+  /// takes the next `listSeq`, and a watch from `afterSeq` answers only the rows changed since.
+  private listSeq = 0;
+  private rowSeq = new Map<string, number>();
+  private goneRows: { sessionId: string; at: number }[] = [];
+  private watching = true;
+  /// The watch off with `attachedRows`: the attached chat's row still comes (`watch-attached-rows-v1`).
+  private watchingAttached = false;
+  /// `session_changed` notices told the page (bench/session-scale-scroll.bench.ts reads it).
+  told = 0;
+
+  private tellChanged(params: { kind: string; session?: Record<string, any> }): void {
+    const sessionId = params.session?.sessionId;
+    if (typeof sessionId !== "string") return;
+    this.listSeq += 1;
+    if (params.kind === "purged") this.goneRows.push({ sessionId, at: this.listSeq });
+    else this.rowSeq.set(sessionId, this.listSeq);
+    if (this.watching || (this.watchingAttached && sessionId === this.attached)) {
+      this.told += 1;
+      this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { ...params, listSeq: this.listSeq } });
+    }
+  }
+
+  /// `_acpmux/watch`: `enabled: false` stops the notices (`attachedRows`: but the attached chat's);
+  /// on, the list (or with a cursor, the rows changed after it) current to `listSeq`.
+  private watch(params: Record<string, any>): Record<string, unknown> {
+    this.watching = params.enabled !== false;
+    this.watchingAttached = !this.watching && params.attachedRows === true;
+    if (!this.watching) return this.watchingAttached ? {} : { sessions: this.sessions };
+    const at = { listSeq: this.listSeq, listEpoch: MOCK_LIST_EPOCH };
+    const after = params.afterSeq;
+    if (params.listEpoch === MOCK_LIST_EPOCH && typeof after === "number")
+      return {
+        ...at,
+        follow: true,
+        sessions: this.sessions.filter((session) => (this.rowSeq.get(session.sessionId) ?? 0) > after),
+        gone: this.goneRows.filter((row) => row.at > after).map((row) => ({ sessionId: row.sessionId })),
+      };
+    return { ...at, sessions: this.sessions };
   }
 
   private deliver(message: unknown): void {

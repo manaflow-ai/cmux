@@ -21,8 +21,18 @@
 //   long_tasks                         tasks of 50 ms or more in the scrolled page, and the longest
 //   hidden_renders                     committed React renders in the hidden pages over the scroll, all
 //                                      components (`cmuxAcpmuxDebug.renders`); a hidden page should draw none
+//   renderer_cpu_pct                   the renderer process's CPU over the window (CDP SystemInfo.getProcessInfo),
+//                                      % of one core: what `ps` read on Leo's Mac
 //   bun bench/session-scale-scroll.bench.ts [--sizes 100,10000] [--pages 4] [--newtabs 2] [--rate 4]
 //     [--pad 17000] [--cpu 1] [--turns 30] [--long 2000] [--seconds 6] [--hidden both|hidden|visible] [--profile]
+//     [--idle] [--rate-per-session R] [--no-park]
+//
+// `--idle`: nobody scrolls; the window only measures what the change stream costs the renderer (Leo's Mac,
+// 2026-11-20, about 600 sessions: the renderer at 168% of a core averaged over 5 minutes, "My Mac is at load
+// 272 on 15 cores"). `--rate-per-session R`: each listed session changes R times a second, so the daemon's
+// change rate grows with the list, as a real one's does (it overrides `--rate`). The constant-cost row:
+//   bun bench/session-scale-scroll.bench.ts --idle --sizes 10,100,600 --pages 8 --newtabs 2 \
+//     --rate-per-session 0.05 --pad 7000 --hidden hidden --seconds 10
 /// <reference types="bun" />
 import path from "node:path";
 import { chromium } from "./browsers";
@@ -39,14 +49,22 @@ const flag = (name: string) => {
 const SIZES = (flag("--sizes") ?? "100,10000").split(",").map(Number);
 const PAGES = Number(flag("--pages") ?? 4);
 const NEWTABS = Number(flag("--newtabs") ?? 2);
-const RATE = Number(flag("--rate") ?? 4);
+const FIXED_RATE = Number(flag("--rate") ?? 4);
+const PER_SESSION = flag("--rate-per-session");
+/// Changes a second the daemon sends at `size` listed sessions.
+const rateFor = (size: number) => (PER_SESSION === undefined ? FIXED_RATE : Number(PER_SESSION) * size);
+const IDLE = argv.includes("--idle");
+/// `--no-park`: the mock daemon names no `watch-attached-rows-v1`, as an acpmux before it, so hidden pages keep
+/// their watch on (the before arm of one A/B, same code and harness).
+const PARK = !argv.includes("--no-park");
 const PAD = Number(flag("--pad") ?? 17_000);
 /// The scrolled chat: a short one, a few screens tall.
 const TURNS = Number(flag("--turns") ?? 30);
 /// The hidden chat's turns (two rows each): a long coordinator chat.
 const LONG = Number(flag("--long") ?? 2000);
 const SECONDS = Number(flag("--seconds") ?? 6);
-const SETTLE_MS = Number(flag("--settle") ?? 3000);
+/// Past a hidden page's watch park (direct.ts `WATCH_PARK_AFTER_MS`, 5 s), so the window reads the steady state.
+const SETTLE_MS = Number(flag("--settle") ?? 8000);
 /// The renderer's CPU slowed this many times (CDP `Emulation.setCPUThrottlingRate`): a fleet core has more
 /// headroom than a busy laptop's, so 1 reads a laptop's margin as larger than it is.
 const CPU = Number(flag("--cpu") ?? 1);
@@ -62,7 +80,8 @@ const TURN_EVERY = 25;
 if (
   SIZES.some((size) => !Number.isInteger(size) || size < 0) ||
   !(PAGES >= 1) ||
-  !(RATE >= 0) ||
+  !(FIXED_RATE >= 0) ||
+  (PER_SESSION !== undefined && !(Number(PER_SESSION) >= 0)) ||
   !(SECONDS > 0) ||
   MODES.some((mode) => mode !== "hidden" && mode !== "visible")
 ) {
@@ -137,18 +156,26 @@ async function installDriver({ size, rate, pad }: { size: number; rate: number; 
       timer = undefined;
       return round;
     },
+    /// `session_changed` notices this page's daemon sent it so far (a parked watch hears its own chat's only).
+    told: () => daemon.told,
   };
 }
 
 async function openPage(page: Page, port: number, size: number, kind: "chat" | "long" | "newtab") {
   await page.addInitScript(
-    ({ count, newTab }) => {
-      const mock = globalThis as { cmuxAcpmuxMockListSize?: number; __cmuxNewTabContext?: unknown };
+    ({ count, newTab, park }) => {
+      const mock = globalThis as {
+        cmuxAcpmuxMockListSize?: number;
+        cmuxAcpmuxMockCapabilities?: string[];
+        __cmuxNewTabContext?: unknown;
+      };
       mock.cmuxAcpmuxMockListSize = count;
+      // As acpmux does: a list follows from a cursor, and a watch may park keeping its chat's row.
+      mock.cmuxAcpmuxMockCapabilities = ["session-list-follow-v1", ...(park ? ["watch-attached-rows-v1"] : [])];
       // A New Tab page as the app opens one: the host injects its context before the first render.
       if (newTab) mock.__cmuxNewTabContext = {};
     },
-    { count: size, newTab: kind === "newtab" },
+    { count: size, newTab: kind === "newtab", park: PARK },
   );
   await page.addInitScript(visibility);
   await page.addInitScript(probe);
@@ -166,12 +193,20 @@ async function openPage(page: Page, port: number, size: number, kind: "chat" | "
     if (seeded.error) throw new Error(`loadSeed: ${seeded.error}`);
     await page.locator(".acpmux-scroll").first().waitFor({ timeout: 60_000 });
   }
-  await page.evaluate(installDriver, { size, rate: RATE, pad: PAD });
+  await page.evaluate(installDriver, { size, rate: rateFor(size), pad: PAD });
 }
 
 const taskMs = async (cdp: CDPSession) => {
   const { metrics } = (await cdp.send("Performance.getMetrics")) as { metrics: { name: string; value: number }[] };
   return metrics.find((metric) => metric.name === "TaskDuration")!.value * 1000;
+};
+/// CPU time every renderer process has used so far, ms (one with `--renderer-process-limit=1`): every thread
+/// of it, as `ps` counts it, not only the main thread's tasks.
+const rendererCpuMs = async (cdp: CDPSession) => {
+  const { processInfo } = (await cdp.send("SystemInfo.getProcessInfo")) as {
+    processInfo: { type: string; cpuTime: number }[];
+  };
+  return processInfo.filter((each) => each.type === "renderer").reduce((sum, each) => sum + each.cpuTime * 1000, 0);
 };
 const round1 = (value: number) => Math.round(value * 10) / 10;
 const renderCount = (counts: Record<string, number>) => Object.values(counts).reduce((sum, value) => sum + value, 0);
@@ -231,6 +266,7 @@ try {
         const scrolled = pages[0]!;
         await scrolled.bringToFront();
         const cdp = await context.newCDPSession(scrolled);
+        const browserCdp = await browser.newBrowserCDPSession();
         await cdp.send("Performance.enable");
         if (CPU > 1) await cdp.send("Emulation.setCPUThrottlingRate", { rate: CPU });
         const box = (await scrolled.locator(".acpmux-scroll").first().boundingBox())!;
@@ -249,10 +285,16 @@ try {
         }
         const started = await scrolled.evaluate(() => (window as any).cmuxAcpmuxDebug.tickWatch());
         if ((started as Record<string, unknown>).error) throw new Error(`tickWatch: ${JSON.stringify(started)}`);
+        const toldAt = () =>
+          Promise.all(pages.map((page) => page.evaluate(() => (window as any).__scale.told() as number)));
+        const toldBefore = await toldAt();
+        const rendererBefore = await rendererCpuMs(browserCdp);
         const wallBefore = performance.now();
+        // fixed-wait: --idle measures a window of the change stream alone, with nobody at the page.
+        if (IDLE) await scrolled.waitForTimeout(SECONDS * 1000);
         // The short chat opens at its bottom: the first notches go up.
         let notch = 0;
-        while (performance.now() - wallBefore < SECONDS * 1000) {
+        while (!IDLE && performance.now() - wallBefore < SECONDS * 1000) {
           const up = Math.floor(notch / TURN_EVERY) % 2 === 0;
           await scrolled.mouse.wheel(0, up ? -WHEEL_PX : WHEEL_PX);
           notch += 1;
@@ -263,7 +305,9 @@ try {
           NOMINAL_MS,
         )) as Record<string, any>;
         const wall = performance.now() - wallBefore;
+        const rendererMs = (await rendererCpuMs(browserCdp)) - rendererBefore;
         const busy = (await taskMs(cdp)) - busyBefore;
+        const told = (await toldAt()).map((count, index) => count - toldBefore[index]!);
         if (PROFILE)
           printProfile(((await cdp.send("Profiler.stop")) as { profile: Profile }).profile, `n=${size} ${mode}`, wall);
         const until = await scrolled.evaluate(() => performance.now());
@@ -282,7 +326,7 @@ try {
           hidden: mode,
           pages: PAGES,
           newtabs: NEWTABS,
-          rate: RATE,
+          rate: rateFor(size),
           cpu: CPU,
           turns: TURNS,
           frames: frames.frames,
@@ -293,22 +337,28 @@ try {
           frame_max: frames.max_ms,
           dropped: frames.dropped_frames,
           busy_pct: round1((busy / wall) * 100),
+          renderer_cpu_pct: round1((rendererMs / wall) * 100),
+          idle: IDLE,
+          park: PARK,
           long_tasks: long.length,
           longest_task_ms: round1(Math.max(0, ...long.map((task) => task.ms))),
           shown_renders: renderCount(renders[0] ?? {}),
           hidden_renders: renders.slice(1).map(renderCount),
           hidden_pane_renders: renders.slice(1).map((counts) => counts.pane ?? 0),
+          shown_told: told[0],
+          hidden_told: told.slice(1),
           changes: changes.reduce((sum, value) => sum + value, 0),
         };
         results.push(row);
         console.log(
-          `n=${size} hidden pages report ${mode}, pages=${PAGES} (${NEWTABS} new tab) rate=${RATE}/s cpu=${CPU}x:` +
+          `n=${size} hidden pages report ${mode}, pages=${PAGES} (${NEWTABS} new tab) rate=${rateFor(size)}/s cpu=${CPU}x:` +
             `frames ${row.frames} p50 ${row.frame_p50} p95 ${row.frame_p95} max ${row.frame_max} ms, dropped ${row.dropped}, ` +
-            `main thread busy ${row.busy_pct} %, long tasks ${row.long_tasks} (longest ${row.longest_task_ms} ms), ` +
-            `hidden pages' renders ${JSON.stringify(row.hidden_renders)} (pane ${JSON.stringify(row.hidden_pane_renders)})`,
+            `main thread busy ${row.busy_pct} %, renderer CPU ${row.renderer_cpu_pct} % of a core${IDLE ? " (idle)" : ""}${PARK ? "" : " (no park)"}, long tasks ${row.long_tasks} (longest ${row.longest_task_ms} ms), ` +
+            `hidden pages' renders ${JSON.stringify(row.hidden_renders)} (pane ${JSON.stringify(row.hidden_pane_renders)}), ` +
+            `notices heard: shown ${row.shown_told}, hidden ${JSON.stringify(row.hidden_told)}`,
         );
         perfRow({
-          name: `session_scale_scroll.frame.n${size}.${mode}`,
+          name: `session_scale_${IDLE ? "idle" : "scroll"}${PARK ? "" : "_nopark"}.frame.n${size}.${mode}`,
           p50: Number(row.frame_p50 ?? 0),
           p95: Number(row.frame_p95 ?? 0),
           target: TARGET_MS.frameWork,
