@@ -31,7 +31,7 @@ mod linux {
     use cmux_projection::manifest::{Item, Kind, Manifest};
     use cmux_projection::mount::Options;
     use cmux_projection::overlay::Overlay;
-    use cmux_projection::wire::{self, Part};
+    use cmux_projection::wire::{self, Identity, Part};
 
     struct Served {
         path: PathBuf,
@@ -39,11 +39,12 @@ mod linux {
         mtime_ns: i64,
     }
 
-    /// The stand-in Mac: serves each file's bytes, refusing a file changed since the manifest.
+    /// The stand-in Mac: serves each file's bytes, and a file changed since the manifest as it is
+    /// now (as the Mac does, RFD 0007 hard case 7).
     struct Folder(Vec<Option<Served>>);
 
-    impl Source for Folder {
-        fn read(&self, entry: u32, offset: u64, len: u32) -> Part {
+    impl Folder {
+        fn part(&self, entry: u32, offset: u64, len: u32, whole: bool) -> Part {
             let Some(Some(served)) = self.0.get(entry as usize) else {
                 return Part::status(wire::REFUSED);
             };
@@ -51,22 +52,36 @@ mod linux {
                 return Part::status(wire::FAILED);
             };
             let Ok(meta) = file.metadata() else { return Part::status(wire::FAILED) };
-            if meta.len() != served.size || mtime_ns(&meta) != served.mtime_ns {
-                return Part::status(wire::CHANGED);
-            }
-            let want = u64::from(len).min(served.size.saturating_sub(offset));
+            let same = meta.len() == served.size && mtime_ns(&meta) == served.mtime_ns;
+            let len = match (same, whole) {
+                (true, true) => served.size,
+                (false, true) if meta.len() <= served.size => meta.len(),
+                (false, true) => 0,
+                (_, false) => u64::from(len),
+            };
+            let want = len.min(meta.len().saturating_sub(offset));
             let mut bytes = vec![0u8; usize::try_from(want).unwrap_or(0)];
-            match file.read_exact_at(&mut bytes, offset) {
-                Ok(()) => Part::ok(bytes),
-                Err(_) => Part::status(wire::FAILED),
+            if file.read_exact_at(&mut bytes, offset).is_err() {
+                return Part::status(wire::FAILED);
             }
+            if same {
+                return Part::ok(bytes);
+            }
+            let mode = meta.mode() & 0o7777;
+            Part::changed(Identity { size: meta.len(), mtime_ns: mtime_ns(&meta), mode }, bytes)
+        }
+    }
+
+    impl Source for Folder {
+        fn read(&self, entry: u32, offset: u64, len: u32) -> Part {
+            self.part(entry, offset, len, false)
         }
 
         fn whole(&self, entry: u32) -> Part {
             let size =
                 self.0.get(entry as usize).and_then(Option::as_ref).map_or(0, |served| served.size);
             match u32::try_from(size) {
-                Ok(len) if len <= wire::MAX_READ => self.read(entry, 0, len),
+                Ok(len) if len <= wire::MAX_READ => self.part(entry, 0, len, true),
                 _ => Part::status(wire::FAILED),
             }
         }

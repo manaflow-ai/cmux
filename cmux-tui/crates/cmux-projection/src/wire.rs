@@ -5,7 +5,10 @@
 //! - ask:    `op u8, ask u32`, then for [`OP_READ`] `entry u32, offset u64, len u32`; for
 //!   [`OP_BATCH`] `count u32, entry u32 * count` (whole files, answered in that order); for
 //!   [`OP_PING`] nothing.
-//! - answer: `ask u32, count u32`, then `count` times `status u8, len u32, bytes`.
+//! - answer: `ask u32, count u32`, then `count` times `status u8, len u32, bytes`. A [`CHANGED`]
+//!   part's bytes may start with the file as it is now (`size u64, mtime_ns i64, mode u32`,
+//!   [`Identity`]), then hold the bytes asked for, read from it ([`Part::changed`]). An empty
+//!   [`CHANGED`] part (an older Mac) says only that the file changed.
 //!
 //! Asks carry their own number, so several are in flight at once and answers may come in any
 //! order.
@@ -125,7 +128,49 @@ impl Part {
     pub fn status(status: u8) -> Self {
         Self { status, bytes: Vec::new() }
     }
+
+    /// The file changed since the manifest: it is `now`, and `bytes` are the ones asked for, read
+    /// from it as it is now.
+    #[must_use]
+    pub fn changed(now: Identity, bytes: Vec<u8>) -> Self {
+        let mut out = Vec::with_capacity(IDENTITY_LEN + bytes.len());
+        out.extend_from_slice(&now.size.to_le_bytes());
+        out.extend_from_slice(&now.mtime_ns.to_le_bytes());
+        out.extend_from_slice(&now.mode.to_le_bytes());
+        out.extend_from_slice(&bytes);
+        Self { status: CHANGED, bytes: out }
+    }
+
+    /// What a [`CHANGED`] part says the file is now, and its bytes; `None` for any other part and
+    /// for a bare [`CHANGED`] (an older Mac's).
+    #[must_use]
+    pub fn changed_to(&self) -> Option<(Identity, &[u8])> {
+        if self.status != CHANGED {
+            return None;
+        }
+        let head = self.bytes.get(..IDENTITY_LEN)?;
+        let (size, rest) = head.split_at(8);
+        let (mtime, mode) = rest.split_at(8);
+        let now = Identity {
+            size: u64::from_le_bytes(size.try_into().ok()?),
+            mtime_ns: i64::from_le_bytes(mtime.try_into().ok()?),
+            mode: u32::from_le_bytes(mode.try_into().ok()?),
+        };
+        Some((now, self.bytes.get(IDENTITY_LEN..).unwrap_or_default()))
+    }
 }
+
+/// A file as it is now on the Mac: what a [`CHANGED`] part names (RFD 0007 hard case 7).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Identity {
+    pub size: u64,
+    pub mtime_ns: i64,
+    /// The permission bits, as the manifest's are.
+    pub mode: u32,
+}
+
+/// The bytes an [`Identity`] takes at the start of a [`CHANGED`] part.
+pub const IDENTITY_LEN: usize = 20;
 
 /// Writes the answer to ask `ask`.
 pub fn write_answer(out: &mut impl Write, ask: u32, parts: &[Part]) -> io::Result<()> {
@@ -216,6 +261,19 @@ mod tests {
         let mut input = bytes.as_slice();
         assert_eq!(read_answer(&mut input).unwrap(), Some((7, parts)));
         assert_eq!(read_answer(&mut input).unwrap(), None);
+    }
+
+    #[test]
+    fn a_changed_part_carries_the_file_as_it_is_now() {
+        let now = Identity { size: 9, mtime_ns: -5, mode: 0o755 };
+        let part = Part::changed(now, b"new".to_vec());
+        let mut bytes = Vec::new();
+        write_answer(&mut bytes, 1, std::slice::from_ref(&part)).unwrap();
+        let (_, parts) = read_answer(&mut bytes.as_slice()).unwrap().unwrap();
+        assert_eq!(parts[0].changed_to(), Some((now, b"new".as_slice())));
+        // An older Mac's bare CHANGED, and any other part, name nothing.
+        assert_eq!(Part::status(CHANGED).changed_to(), None);
+        assert_eq!(Part::ok(vec![0; 40]).changed_to(), None);
     }
 
     #[test]

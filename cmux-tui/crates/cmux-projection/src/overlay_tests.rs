@@ -17,6 +17,25 @@ pub(crate) struct Fake {
     pub calls: AtomicUsize,
     pub batches: Mutex<Vec<Vec<u32>>>,
     pub away: bool,
+    /// Entries changed on the Mac since the manifest: as they are now and their bytes, or `None`
+    /// for an older Mac's bare "changed".
+    pub changed: Mutex<HashMap<u32, Option<(Identity, Vec<u8>)>>>,
+}
+
+impl Fake {
+    /// Entry `entry` as the Mac would answer it, `None` when it is unchanged.
+    fn changed_answer(
+        &self,
+        entry: u32,
+        offset: u64,
+        len: u64,
+    ) -> Option<Result<Fresh, FetchError>> {
+        let changed = self.changed.lock().unwrap().get(&entry).cloned()?;
+        let Some((now, bytes)) = changed else { return Some(Err(FetchError::Changed)) };
+        let start = (offset as usize).min(bytes.len());
+        let end = (start + len as usize).min(bytes.len());
+        Some(Ok(Fresh { bytes: bytes[start..end].to_vec(), now: Some(now) }))
+    }
 }
 
 impl Fetch for Fake {
@@ -45,6 +64,44 @@ impl Fetch for Fake {
             })
             .collect()
     }
+
+    fn read_fresh(&self, entry: u32, offset: u64, len: u32) -> Result<Fresh, FetchError> {
+        if let Some(answer) = self.changed_answer(entry, offset, u64::from(len)) {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            return answer;
+        }
+        self.read(entry, offset, len).map(Fresh::same)
+    }
+
+    fn batch_fresh(&self, entries: &[u32]) -> Vec<Result<Fresh, FetchError>> {
+        let same = self.batch(entries);
+        entries
+            .iter()
+            .zip(same)
+            .map(|(entry, same)| {
+                // As the Mac does: a whole file that grew past its listed size sends no bytes.
+                let listed = self.bytes.get(entry).map_or(0, Vec::len) as u64;
+                let answer = self.changed_answer(*entry, 0, u64::MAX).map(|answer| {
+                    answer.map(|mut fresh| {
+                        if fresh.now.is_some_and(|now| now.size > listed) {
+                            fresh.bytes.clear();
+                        }
+                        fresh
+                    })
+                });
+                answer.unwrap_or_else(|| same.map(Fresh::same))
+            })
+            .collect()
+    }
+}
+
+/// Changes `path` on the stand-in Mac to `bytes` with `mode`, a second after the manifest's time.
+fn change(fake: &Fake, manifest: &Manifest, path: &str, bytes: &[u8], mode: u32) -> Identity {
+    let index = manifest.resolve(path).unwrap();
+    let mtime_ns = manifest.entry(index).unwrap().mtime_ns + 1_000_000_000;
+    let now = Identity { size: bytes.len() as u64, mtime_ns, mode };
+    fake.changed.lock().unwrap().insert(index, Some((now, bytes.to_vec())));
+    now
 }
 
 const BIG: u64 = 9 * 1024 * 1024;
@@ -443,4 +500,78 @@ fn reads_leave_access_times_alone_as_the_mount_says_noatime() {
     let root_atime = overlay.getattr(overlay.root()).unwrap().atime_ns;
     overlay.readdir(overlay.root()).unwrap();
     assert_eq!(overlay.getattr(overlay.root()).unwrap().atime_ns, root_atime);
+}
+
+#[test]
+fn a_file_changed_on_the_mac_reads_as_it_is_now() {
+    // RFD 0007 hard case 7. The base answers ESTALE: the Mac only said "changed".
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let told = Arc::new(Mutex::new(Vec::new()));
+    let sink = told.clone();
+    overlay.on_change(Arc::new(move |ino| sink.lock().unwrap().push(ino)));
+    let a = path_ino(&overlay, "src/a.rs");
+    assert_eq!(overlay.getattr(a).unwrap().size, 9);
+
+    let new = b"fn a() { changed(); }";
+    let now = change(&fake, &manifest, "src/a.rs", new, 0o755);
+    assert_eq!(overlay.read(a, 0, 100).unwrap(), new);
+    let attr = overlay.getattr(a).unwrap();
+    assert_eq!((attr.size, attr.mtime_ns, attr.mode), (now.size, now.mtime_ns, 0o755));
+    assert_eq!(
+        *told.lock().unwrap(),
+        [a],
+        "the kernel is told to drop the file's attributes and pages"
+    );
+    // Its siblings in the same batch are unchanged.
+    assert_eq!(overlay.read(path_ino(&overlay, "src/b.rs"), 0, 100).unwrap(), b"fn b() {}");
+
+    // The new bytes are cached: no second fetch.
+    let calls = fake.calls.load(Ordering::Relaxed);
+    assert_eq!(overlay.read(a, 3, 5).unwrap(), b"a() {");
+    assert_eq!(fake.calls.load(Ordering::Relaxed), calls);
+
+    // Kept across a restart, and a copy-up takes the new file, mode and time.
+    drop(overlay);
+    let overlay = open(state.path(), &manifest, &fake);
+    assert_eq!(overlay.getattr(a).unwrap().size, now.size);
+    assert_eq!(overlay.read(a, 0, 100).unwrap(), new);
+    let handle = overlay.open_handle(a, libc::O_RDWR).unwrap();
+    overlay.release(handle);
+    let upper = overlay.upper_dir().join("src/a.rs");
+    assert_eq!(fs::read(&upper).unwrap(), new);
+    let meta = fs::metadata(&upper).unwrap();
+    assert_eq!(meta.permissions().mode() & 0o777, 0o755);
+    assert_eq!(overlay.getattr(a).unwrap().mtime_ns, now.mtime_ns);
+}
+
+#[test]
+fn a_big_file_changed_between_chunks_is_read_as_it_is_now() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let big = path_ino(&overlay, "big.bin");
+    assert_eq!(overlay.read(big, 0, 4).unwrap(), big_bytes()[..4]);
+
+    let mut new = big_bytes();
+    new.reverse();
+    new.truncate(new.len() - 100);
+    change(&fake, &manifest, "big.bin", &new, 0o644);
+    let at = (CHUNK + 10) as usize;
+    assert_eq!(overlay.read(big, at as u64, 8).unwrap(), new[at..at + 8]);
+    // Chunk 0, cached before the change, is the new file's too.
+    assert_eq!(overlay.read(big, 0, 4).unwrap(), new[..4]);
+    assert_eq!(overlay.getattr(big).unwrap().size, new.len() as u64);
+    let end = new.len() as u64;
+    assert_eq!(overlay.read(big, end - 4, 100).unwrap(), new[new.len() - 4..]);
+}
+
+#[test]
+fn an_older_macs_bare_changed_still_answers_estale() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let index = manifest.resolve("big.bin").unwrap();
+    fake.changed.lock().unwrap().insert(index, None);
+    let big = path_ino(&overlay, "big.bin");
+    assert_eq!(overlay.read(big, 0, 4), Err(FetchError::Changed.errno()));
+    assert_eq!(overlay.getattr(big).unwrap().size, BIG);
 }

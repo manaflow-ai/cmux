@@ -11,7 +11,7 @@ use std::sync::{Condvar, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use crate::wire::{self, Ask, Part};
-use crate::{Fetch, FetchError};
+use crate::{Fetch, FetchError, Fresh};
 
 /// How long an ask waits for the Mac to come back by default (RFD 0007: a reconnect usually lands
 /// inside it).
@@ -203,6 +203,15 @@ fn part_result(part: Option<Part>) -> Result<Vec<u8>, FetchError> {
     }
 }
 
+/// A part as [`Fresh`] bytes: a [`wire::CHANGED`] part that says what the file is now carries the
+/// new file's bytes; a bare one (an older Mac's) is [`FetchError::Changed`].
+fn part_fresh(part: Option<Part>) -> Result<Fresh, FetchError> {
+    if let Some((now, bytes)) = part.as_ref().and_then(Part::changed_to) {
+        return Ok(Fresh { bytes: bytes.to_vec(), now: Some(now) });
+    }
+    part_result(part).map(Fresh::same)
+}
+
 impl Fetch for Link {
     fn read(&self, entry: u32, offset: u64, len: u32) -> Result<Vec<u8>, FetchError> {
         let parts = self.ask(&|ask| Ask::Read { ask, entry, offset, len })?;
@@ -214,6 +223,21 @@ impl Fetch for Link {
             Ok(parts) => {
                 let mut parts = parts.into_iter();
                 entries.iter().map(|_| part_result(parts.next())).collect()
+            }
+            Err(error) => entries.iter().map(|_| Err(error)).collect(),
+        }
+    }
+
+    fn read_fresh(&self, entry: u32, offset: u64, len: u32) -> Result<Fresh, FetchError> {
+        let parts = self.ask(&|ask| Ask::Read { ask, entry, offset, len })?;
+        part_fresh(parts.into_iter().next())
+    }
+
+    fn batch_fresh(&self, entries: &[u32]) -> Vec<Result<Fresh, FetchError>> {
+        match self.ask(&|ask| Ask::Batch { ask, entries: entries.to_vec() }) {
+            Ok(parts) => {
+                let mut parts = parts.into_iter();
+                entries.iter().map(|_| part_fresh(parts.next())).collect()
             }
             Err(error) => entries.iter().map(|_| Err(error)).collect(),
         }
