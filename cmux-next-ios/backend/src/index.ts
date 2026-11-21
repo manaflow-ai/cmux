@@ -84,8 +84,6 @@ const WG_KEY = /^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$/
 const MACHINE_ID = /^[0-9a-f]{32}$/
 /** `{machineId}` when the Mac has one, else nothing: a Mac that never sent one keeps its older wire shape. */
 const machineOf = (d: { machineId: string | null }) => (d.machineId ? { machineId: d.machineId } : {})
-/** A Mac's `quietMs` from its hub (PROTOCOL.md "Mac freshness"): only for an online Mac; an older hub sends none. */
-const quietOf = (p: { online: boolean; quietMs?: number } | undefined) => (p?.online && p.quietMs !== undefined ? { quietMs: p.quietMs } : {})
 /** Other builds' device ids one registration may name (`siblingDeviceIds`). */
 const MAX_SIBLINGS = 16
 const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,255}$/
@@ -722,7 +720,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       macs: rows.flatMap((d) => {
         if (!reachable.has(d.teamId)) return []
         const p = presence.get(d.deviceId)
-        return [{ deviceId: d.deviceId, name: d.name, teamId: d.teamId, online: p?.online ?? false, lastSeenAt: later(d.lastSeenAt, p?.lastSeenAt ?? null), ownerUserId: caller.userId, ...machineOf(d), ...quietOf(p) }]
+        return [{ deviceId: d.deviceId, name: d.name, teamId: d.teamId, online: p?.online ?? false, lastSeenAt: later(d.lastSeenAt, p?.lastSeenAt ?? null), ownerUserId: caller.userId, ...machineOf(d) }]
       })
     })
   }
@@ -796,7 +794,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       macs: rows.flatMap((d) => {
         if (d.teamId !== teamId || d.ownerUserId !== me) return []
         const p = byId.get(d.deviceId)
-        return [{ deviceId: d.deviceId, name: d.name, online: p?.online ?? false, lastSeenAt: later(d.lastSeenAt, p?.lastSeenAt ?? null), ownerUserId: caller.userId, ...machineOf(d), ...quietOf(p) }]
+        return [{ deviceId: d.deviceId, name: d.name, online: p?.online ?? false, lastSeenAt: later(d.lastSeenAt, p?.lastSeenAt ?? null), ownerUserId: caller.userId, ...machineOf(d) }]
       })
     })
   }

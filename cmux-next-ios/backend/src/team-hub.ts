@@ -74,20 +74,7 @@ export interface MacPresence {
   ownerUserId: string
   /** Which computer the Mac runs on (PROTOCOL.md "Devices"); null when it never said. */
   machineId: string | null
-  /**
-   * How long ago (ms) the hub last heard the Mac's open socket: its connect or its last application ping
-   * (PROTOCOL.md "Mac freshness"). Only while `online`. A Mac that pings every 15 s is under FRESH_MS; a
-   * Mac that slept keeps its socket half open, so it stays `online` while this grows.
-   */
-  quietMs?: number
 }
-
-/**
- * A Mac heard within this is awake (PROTOCOL.md "Mac freshness"): one 15 s ping interval plus room for a slow
- * round trip, as the link's own FRESH_WITHIN (cmux-mobile-link `signaling.rs`). The phone decides; the hub
- * only reports `quietMs`.
- */
-export const FRESH_MS = 18_000
 
 /** A device registration as the Worker hands it to the hub (POST /v1/devices). */
 export interface HubDevice {
@@ -847,41 +834,21 @@ export class TeamHub extends DurableObject<Env> {
   private presence(deviceId: string): MacPresence | undefined {
     const r = this.macRow(deviceId)
     if (!r) return undefined
-    const ws = this.open(deviceId)
-    const quietMs = ws ? this.quietMs(ws, Date.now()) : undefined
     return {
       deviceId,
       name: r.name,
       teamId: r.team_id ?? "",
-      online: !!ws,
+      online: !!this.open(deviceId),
       lastSeenAt: r.last_seen_at ? new Date(r.last_seen_at).toISOString() : null,
       ownerUserId: r.owner_user_id,
-      machineId: r.machine_id ?? null,
-      ...(quietMs !== undefined ? { quietMs } : {})
+      machineId: r.machine_id ?? null
     }
   }
 
-  /**
-   * Ms since the hub last heard this open socket: its connect or its last application ping (answered by the
-   * runtime without waking the hub, which keeps its time). Undefined when it knows neither (a socket accepted
-   * before `connectedAt` existed that never pinged).
-   */
-  private quietMs(ws: WebSocket, now: number): number | undefined {
-    const heard = Math.max(this.attach(ws).connectedAt ?? 0, this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? 0)
-    return heard > 0 ? Math.max(0, now - heard) : undefined
-  }
-
-  /** The presence frame body: PROTOCOL.md `{deviceId, name, online, lastSeenAt, machineId, quietMs}`. */
+  /** The presence frame body: PROTOCOL.md `{deviceId, name, online, lastSeenAt, machineId}`. */
   private presenceOf(deviceId: string) {
     const p = this.presence(deviceId)!
-    return {
-      deviceId: p.deviceId,
-      name: p.name,
-      online: p.online,
-      lastSeenAt: p.lastSeenAt,
-      ...(p.machineId ? { machineId: p.machineId } : {}),
-      ...(p.quietMs !== undefined ? { quietMs: p.quietMs } : {})
-    }
+    return { deviceId: p.deviceId, name: p.name, online: p.online, lastSeenAt: p.lastSeenAt, ...(p.machineId ? { machineId: p.machineId } : {}) }
   }
 
   /** To the sockets opened for `teamId` (the only team whose Macs they list). */
