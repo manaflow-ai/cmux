@@ -21,6 +21,12 @@ describe("/customize", () => {
       "cmux customize save compact-night 'small and dark'",
     );
     expect(customizeVerb("use compact-night")).toBe("cmux customize use compact-night");
+    expect(customizeVerb("try")).toBe("cmux customize try");
+    expect(customizeVerb("try night")).toBe("cmux customize try night");
+    expect(customizeVerb("try night 5")).toBe("cmux customize try night --minutes 5");
+    expect(customizeVerb("try a darker theme")).toBeUndefined();
+    expect(customizeVerb("keep")).toBe("cmux customize keep");
+    expect(customizeVerb("revert")).toBe("cmux customize revert");
     expect(customizePrompt("apply")).toBe("Run `cmux customize apply` and tell me what it says, in a sentence or two.");
   });
 

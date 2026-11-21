@@ -236,6 +236,8 @@ export function repoRecoveryView(
             ]
           : []),
         { id: "requestAccess", label: text("cloudRepository.requestAccess") },
+        // Access granted on GitHub (installed there, or the owner said yes): the same Add repository again, here.
+        ...(canVerify ? [{ id: "retry" as const, label: text("cloudRepository.tryAgain") }] : []),
       ],
     };
   if (recovery.code === "repo.ambiguous" && recovery.choices?.length)

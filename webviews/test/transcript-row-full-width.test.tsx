@@ -66,9 +66,10 @@ test("a group's command rows draw the whole command, without the setup before it
   expect(lines).toEqual([CP, CP]);
 });
 
-test("a row still marks the steps it leaves out", async () => {
+// A multi-step line reads whole, with no appended " …" (2026-11-14 change).
+test("a row draws every step of a multi-step line, with no ellipsis after it", async () => {
   await render([shell("t1", `${CP} && ls`), shell("t2", "ls")]);
-  expect(host.querySelector(".cv-command__line")?.textContent).toBe(`${CP} …`);
+  expect(host.querySelector(".cv-command__line")?.textContent).toBe(`${CP} && ls`);
 });
 
 test("toolLabel never cuts a command by length", async () => {

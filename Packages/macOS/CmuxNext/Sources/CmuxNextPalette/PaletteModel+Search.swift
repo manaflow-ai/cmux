@@ -15,12 +15,15 @@ extension PaletteModel {
         // provider reads its source after the first frame (Cmd-Shift-P with thousands of tabs).
         let defersHidden = page.filtersByQuery && state.query.allSatisfy(\.isWhitespace)
         var deferred: [any PaletteProvider] = []
+        state.providerTokens = []
         for provider in page.providers {
             if defersHidden, !provider.showsItemsForEmptyQuery, !reading.contains(provider.id) {
                 state.providerItems[provider.id] = deferredStandIn(provider.id, page: page.id, state: state)
                 deferred.append(provider)
                 continue
             }
+            // Followed from the read on: a change after it reads the rows again.
+            follow(provider, of: state)
             // Read once: most providers build their rows in `immediateItems` (the command page's
             // registry builds a row per catalog action, Go to Workspace one per workspace).
             let immediate = provider.immediateItems
@@ -69,6 +72,23 @@ extension PaletteModel {
         }
     }
 
+    /// Keeps `provider`'s rows on `state` current while the page is open (a workspace created while Cmd-P shows):
+    /// on each change of its source, its rows are read again, and the shown query is searched again with them.
+    private func follow(_ provider: any PaletteProvider, of state: PageState) {
+        let providerID = provider.id
+        guard let token = provider.followChanges({ [weak self, weak state, weak provider] in
+            guard let self, let state, let provider, self.pages[state.levelID] === state,
+                  !self.deferredLoads.contains(where: { $0.state === state }) else { return }
+            if let items = provider.immediateItems {
+                self.apply(items, of: providerID, to: state)
+            } else {
+                state.pendingProviders.insert(providerID)
+                state.tasks.append(self.loadTask(provider, into: state))
+            }
+        }) else { return }
+        state.providerTokens.append(token)
+    }
+
     private func apply(_ items: [PaletteItem], of providerID: String, to state: PageState) {
         state.providerItems[providerID] = items
         state.pendingProviders.remove(providerID)
@@ -88,6 +108,7 @@ extension PaletteModel {
         for load in loads where pages[load.state.levelID] === load.state {
             let state = load.state
             for provider in load.providers {
+                follow(provider, of: state)
                 if let items = provider.immediateItems {
                     state.providerItems[provider.id] = items
                     if !provider.refreshesOnOpen { continue }

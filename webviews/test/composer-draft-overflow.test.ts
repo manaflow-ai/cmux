@@ -21,6 +21,7 @@ import { chromium, webkit, type Browser, type BrowserType, type Page } from "pla
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { COMPOSER_MD, COMPOSER_MD_FIELD } from "../src/agent-session/acpmux/composerSelectors";
 
 type Geometry = {
   text: string;
@@ -60,8 +61,8 @@ await requireBrowserLane("composer-draft-overflow.test.ts", async () => {
     return;
   }
 
-  const FIELD = ".acpmux-composer-box .acpmux-md";
-  const SCROLLER = ".acpmux-composer-box .acpmux-md-field";
+  const FIELD = COMPOSER_MD;
+  const SCROLLER = COMPOSER_MD_FIELD;
 
   /** Runs in the page: the prompt's geometry. */
   function measure([fieldSelector, scrollerSelector]: [string, string]): Geometry {

@@ -82,6 +82,40 @@ struct PaletteRootMenuTests {
         print("Palette root: \(scope.filter { !$0.hidesWhenQueryEmpty }.count) -> \(root.filter { !$0.hidesWhenQueryEmpty }.count); searchable actions: \(root.compactMap(\.actionID).count)")
     }
 
+    /// The idle app kept the command rows three times over (CMUX-571, `heap` of the app 60 s after launch): the root
+    /// list in a buffer twice its size (1,170 rows in 4 MB; the first family row's append copied it), and the
+    /// arrangement it was made from (1,162 rows, 2 MB), which every family row's command held to list its page.
+    @Test func theRootListIsBufferedAtItsOwnSize() throws {
+        let palette = catalogPalette()
+        let root = try items(in: palette.commandsPage())
+        #expect(root.count > 500)
+        #expect(root.capacity <= root.count + root.count / 50, "the root's \(root.count) rows sit in a buffer for \(root.capacity)")
+    }
+
+    /// A state an action's `isEnabled` reads.
+    private final class Flag { var on = true }
+
+    /// A family page lists the rows the palette keeps now, not a copy its row's command made when it was built: a
+    /// row from an earlier open shows the newest state of its members.
+    @Test func aFamilyPageReadsTheKeptRowsNotItsOwnCopy() throws {
+        let registry = ActionRegistry.standard()
+        let canOpen = Flag()
+        for descriptor in registry.descriptors {
+            registry.context.formUnion(descriptor.requires)
+            if descriptor.id != "newWindow" { registry.bindEffect(descriptor.id) { _ in .done } }
+        }
+        try #require(registry.bind("newWindow") {})
+        ActionTargetTitles.setPaletteTitle("newWindow", in: registry) { canOpen.on ? "New Window" : "New Window Again" }
+        let palette = PaletteController(registry: registry, sources: PaletteSources(), frecencyPersistence: nil)
+        let first = try items(in: palette.commandsPage())
+        let window = try #require(first.first { $0.id == "rootFamily:window" })
+        #expect(try members(of: window).first { $0.actionID == "newWindow" }?.title == "New Window")
+        canOpen.on = false
+        _ = try items(in: palette.commandsPage())
+        let row = try #require(try members(of: window).first { $0.actionID == "newWindow" }, "New Window left its family page")
+        #expect(row.title == "New Window Again", "the family page lists the rows as its row's first open built them")
+    }
+
     @Test func rootExcludesUnboundDebugAndNewLongTailActionsButIncludesOverrides() throws {
         var debug = try #require(ActionRegistry.standard().descriptor(for: "newTab"))
         debug.isDebugOnly = true

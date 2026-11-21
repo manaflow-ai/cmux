@@ -27,9 +27,9 @@ use windows_sys::Win32::Security::Authorization::{
     SDDL_REVISION_1, SE_FILE_OBJECT, SetSecurityInfo,
 };
 use windows_sys::Win32::Security::{
-    ACE_HEADER, ACL, DACL_SECURITY_INFORMATION, GetAce, GetSecurityDescriptorDacl,
-    OWNER_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
-    SECURITY_ATTRIBUTES,
+    ACE_HEADER, ACL, DACL_SECURITY_INFORMATION, GetAce, GetSecurityDescriptorControl,
+    GetSecurityDescriptorDacl, OWNER_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION,
+    PSECURITY_DESCRIPTOR, PSID, SE_DACL_PROTECTED, SECURITY_ATTRIBUTES,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     BY_HANDLE_FILE_INFORMATION, CREATE_NEW, CreateDirectoryW, CreateFileW,
@@ -494,6 +494,36 @@ pub(crate) fn changer_other_than_us(path: &Path) -> io::Result<Option<String>> {
 pub(crate) fn only_owner_reads(path: &Path) -> io::Result<bool> {
     let opened = open_for_security(path, false)?;
     only_owner_reads_opened(&opened)
+}
+
+/// True when `path` has an explicit DACL that does not inherit entries from
+/// its parent. Effective owner-only access alone is insufficient here because
+/// a private directory can make an unprotected child appear owner-only.
+pub(crate) fn dacl_is_protected(path: &Path) -> io::Result<bool> {
+    let opened = open_for_security(path, false)?;
+    let mut sd: PSECURITY_DESCRIPTOR = null_mut();
+    let status = unsafe {
+        GetSecurityInfo(
+            opened.as_raw_handle(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            null_mut(),
+            null_mut(),
+            null_mut(),
+            null_mut(),
+            &mut sd,
+        )
+    };
+    if status != ERROR_SUCCESS {
+        return Err(io::Error::from_raw_os_error(status as i32));
+    }
+    let _free = Local(sd);
+    let mut control = 0u16;
+    let mut _revision = 0u32;
+    if unsafe { GetSecurityDescriptorControl(sd, &mut control, &mut _revision) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(control & SE_DACL_PROTECTED != 0)
 }
 
 fn only_owner_reads_opened(opened: &File) -> io::Result<bool> {

@@ -40,14 +40,28 @@ pub const TAG_HANDSHAKE_1: u8 = 0xD0;
 pub const TAG_HANDSHAKE_2: u8 = 0xD1;
 pub const TAG_HANDSHAKE_3: u8 = 0xD2;
 pub const TAG_SEALED: u8 = 0xD3;
+/// A responder's hole punch: one byte, sent to each of the initiator's routes
+/// until the handshake finishes, so the responder's own NAT or firewall lets
+/// the initiator's message 1 in (a responder behind address-dependent
+/// filtering that only listens never hears it). Every side drops it unread;
+/// an older initiator does too, as an unknown tag.
+pub const TAG_PUNCH: u8 = 0xD4;
 /// Bytes a sealed packet adds to its payload: tag, nonce, inner kind, AEAD tag.
 pub const SEAL_OVERHEAD: usize = 1 + 8 + 1 + 16;
 /// Largest handshake message (two keys, payloads and tags fit well inside).
 const MAX_HANDSHAKE: usize = 256;
 /// Resend the last handshake message this often until the peer answers.
 pub const HANDSHAKE_RETRY_US: u64 = 250_000;
-/// Give up on a handshake after this long.
+/// Give up on a handshake after this long from first contact: the
+/// initiator's start (it dials at once), or the moment a responder first
+/// has the peer (a route from signaling, or a valid message 1).
 pub const HANDSHAKE_TIMEOUT_US: u64 = 10_000_000;
+/// The longest a responder waits for that first contact. A responder starts
+/// its link before signaling has carried its answer to the peer (its key and
+/// candidates are in that answer), so the peer's time to get the answer and
+/// start is no part of the handshake's own [`HANDSHAKE_TIMEOUT_US`]. It
+/// matches the host's 30 s wait for a viewer (`cmux-rd serve`).
+pub const RESPONDER_WAIT_US: u64 = 30_000_000;
 
 /// Inner kinds (first plaintext byte of a sealed packet).
 mod inner {
@@ -57,6 +71,10 @@ mod inner {
     pub const PROBE: u8 = 3;
     pub const PROBE_REPLY: u8 = 4;
     pub const CLOSE: u8 = 5;
+    /// Nothing to deliver: the packet only keeps the radios on the path awake
+    /// ([`crate::endpoint::KEEP_AWAKE_US`]). A peer that predates it drops it as
+    /// an unknown kind, so it needs no version or cap.
+    pub const KEEP_AWAKE: u8 = 6;
 }
 
 /// Which side opens the handshake. The viewer initiates; the host responds.
@@ -95,7 +113,8 @@ pub enum LinkError {
     Noise(snow::Error),
     /// The peer authenticated with a static key the hub did not vouch for.
     WrongPeer,
-    /// The handshake did not finish in [`HANDSHAKE_TIMEOUT_US`].
+    /// The handshake did not finish in [`HANDSHAKE_TIMEOUT_US`] from first
+    /// contact, or a responder heard of no peer in [`RESPONDER_WAIT_US`].
     HandshakeTimeout,
     /// A sealed packet or control record before the handshake finished.
     NotReady,
@@ -151,6 +170,9 @@ pub struct Link {
     state: State,
     expected_remote: [u8; 32],
     started_us: u64,
+    /// When the handshake's own clock started: the initiator's start, a
+    /// responder's first contact with the peer (`None` until then).
+    contact_us: Option<u64>,
     /// The last handshake message this side sent, resent until answered.
     last_handshake: Option<(Vec<u8>, u64)>,
     send_nonce: u64,
@@ -188,6 +210,7 @@ impl Link {
             state: State::Handshake(Box::new(handshake)),
             expected_remote,
             started_us: now_us,
+            contact_us: (role == Role::Initiator).then_some(now_us),
             last_handshake: None,
             send_nonce: 0,
             replay: ReplayWindow::default(),
@@ -204,6 +227,15 @@ impl Link {
 
     pub fn role(&self) -> Role {
         self.role
+    }
+
+    /// A responder has the peer now (signaling gave a route to it): the
+    /// handshake's [`HANDSHAKE_TIMEOUT_US`] runs from here, not from this
+    /// link's start. The first contact counts; later ones change nothing.
+    pub fn peer_contact(&mut self, now_us: u64) {
+        if matches!(self.state, State::Handshake(_)) && self.contact_us.is_none() {
+            self.contact_us = Some(now_us);
+        }
     }
 
     pub fn is_established(&self) -> bool {
@@ -261,6 +293,7 @@ impl Link {
             {
                 let mut scratch = [0u8; MAX_HANDSHAKE];
                 if handshake.read_message(body, &mut scratch).is_ok() {
+                    self.peer_contact(now_us);
                     self.write_handshake(TAG_HANDSHAKE_2, now_us)?;
                 }
             }
@@ -348,6 +381,8 @@ impl Link {
                 self.state = State::Failed;
                 events.push(Event::Closed);
             }
+            // Its only job, waking this side's radio, is done by arriving.
+            inner::KEEP_AWAKE => {}
             _ => {}
         }
         Ok(())
@@ -394,6 +429,11 @@ impl Link {
         self.seal(inner::PROBE, &id.to_le_bytes())
     }
 
+    /// A keep-awake packet (no payload, never answered), sealed, for the current path.
+    pub fn keep_awake(&mut self) -> Result<Vec<u8>, LinkError> {
+        self.seal(inner::KEEP_AWAKE, &[])
+    }
+
     /// Tells the peer the link ends.
     pub fn close(&mut self) -> Result<Vec<u8>, LinkError> {
         let packet = self.seal(inner::CLOSE, &[])?;
@@ -404,16 +444,9 @@ impl Link {
     /// Packets to send now, on the current path: handshake messages and their
     /// retries, control records and their retransmissions, acks and probe replies.
     pub fn poll_transmit(&mut self, now_us: u64) -> Result<Vec<Vec<u8>>, LinkError> {
-        if let State::Handshake(_) = self.state
-            && now_us.saturating_sub(self.started_us) > HANDSHAKE_TIMEOUT_US
+        if self.poll_handshake_timers(now_us)?
+            && let Some((packet, _)) = &self.last_handshake
         {
-            self.state = State::Failed;
-            return Err(LinkError::HandshakeTimeout);
-        }
-        if let Some((packet, sent)) = &mut self.last_handshake
-            && now_us.saturating_sub(*sent) >= HANDSHAKE_RETRY_US
-        {
-            *sent = now_us;
             self.out.push_back(packet.clone());
         }
         if self.is_established() {
@@ -423,6 +456,30 @@ impl Link {
             }
         }
         Ok(self.out.drain(..).collect())
+    }
+
+    /// Advances handshake timers without creating another packet.  Endpoints
+    /// use this while signaling has not supplied a route, so the queued first
+    /// message stays available without a retry storm or a lost timeout.
+    pub(crate) fn poll_handshake_timers(&mut self, now_us: u64) -> Result<bool, LinkError> {
+        let expired = match self.contact_us {
+            Some(at) => now_us.saturating_sub(at) > HANDSHAKE_TIMEOUT_US,
+            None => now_us.saturating_sub(self.started_us) > RESPONDER_WAIT_US,
+        };
+        if let State::Handshake(_) = self.state
+            && expired
+        {
+            self.state = State::Failed;
+            return Err(LinkError::HandshakeTimeout);
+        }
+        let mut retry = false;
+        if let Some((_, sent)) = &mut self.last_handshake
+            && now_us.saturating_sub(*sent) >= HANDSHAKE_RETRY_US
+        {
+            *sent = now_us;
+            retry = true;
+        }
+        Ok(retry)
     }
 
     /// When the caller should call [`Link::poll_transmit`] next without input.

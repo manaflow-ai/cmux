@@ -55,6 +55,36 @@ import Testing
         #expect(Self.winner(Shortcut("p", modifiers: Self.hyper), Self.terminal, registry: registry)?.command == "space.previous")
     }
 
+    /// New Space is Ctrl-Opt-Cmd-N, in the space keys' Ctrl-Opt-Cmd family (Lawrence, Nov 15: "sidebar needs
+    /// keyboard shortcuts for making new spaces"). It holds Cmd, which a terminal never sends to its program, so
+    /// tmux, vim, emacs and readline cannot lose it; no cmux, Ghostty, macOS or Chrome default holds it. It wins
+    /// in a terminal, a page and an agent chat, and menus, the palette and Settings show it.
+    @Test(arguments: [terminal, page, agent])
+    func ctrlOptCmdNMakesASpace(context: [String: KeyContextValue]) {
+        #expect(Self.winner(Shortcut("n", modifiers: Self.hyper), context)?.command == "space.new")
+    }
+
+    @Test func theShownNewSpaceKeyIsCtrlOptCmdN() {
+        #expect(Self.registry().effectiveShortcut(for: "space.new") == Shortcut("n", modifiers: [.control, .option, .command]))
+    }
+
+    /// The step and create keys hold Cmd, so no terminal program's key is taken from it.
+    @Test func theSpaceStepAndCreateKeysHoldCmd() {
+        let registry = Self.registry()
+        for id in ["space.new", "space.next", "space.previous"] as [ActionID] {
+            let key = registry.effectiveShortcut(for: id)
+            #expect(key?.modifiers.contains(.command) == true, "\(id): \(String(describing: key))")
+        }
+    }
+
+    /// Rebinding New Space drops Ctrl-Opt-Cmd-N.
+    @Test func aRebindDropsCtrlOptCmdN() {
+        let registry = Self.registry()
+        registry.setShortcutOverride(Shortcut("y", modifiers: [.control, .option, .command]), for: "space.new")
+        #expect(Self.winner(Shortcut("n", modifiers: Self.hyper), Self.terminal, registry: registry)?.command != "space.new")
+        #expect(Self.winner(Shortcut("y", modifiers: Self.hyper), Self.terminal, registry: registry)?.command == "space.new")
+    }
+
     @Test(arguments: [terminal, page, agent])
     func ctrlOptCmdDigitsPickASpace(context: [String: KeyContextValue]) {
         for digit in 1...9 {

@@ -24,16 +24,22 @@
 //!   delivered `machine.env`; the vault; the daemon's own environment; the
 //!   login shell's. Remote-origin launches never get them.
 //!
+//! Keys an agent made itself are kept on the machine, with no sign-in or
+//! click, and given out the same way (`acpmux machine vault keep`, `kept.rs`).
+//!
 //! The vault never carries a Claude or ChatGPT/Codex subscription login:
 //! `machine vault status` only says whether each harness is signed in here,
 //! so the person runs that harness's own sign-in on this machine.
 
 pub mod egress;
+pub mod kept;
 pub mod plan;
 pub mod pull;
 pub mod store;
 pub mod wire;
 
+#[cfg(test)]
+mod kept_tests;
 #[cfg(test)]
 mod tests;
 
@@ -294,11 +300,26 @@ pub(crate) fn entries_now() -> Vec<Given> {
     if !ACTIVE.load(Ordering::SeqCst) {
         return Vec::new();
     }
-    // Before the store check has run (a machine not joined never runs it,
-    // and a launch never waits on it), there is nothing to give.
-    let Some(store) = store::for_daemon_known() else { return Vec::new() };
     let home = crate::config::home();
-    let deliver = || deliver_at(&home, &*store, &pull::current_credential, Instant::now());
+    let deliver = || {
+        // Before the store check has run (a machine not joined never runs
+        // it, and a launch never waits on it), no pulled entry is given.
+        let mut given = match store::for_daemon_known() {
+            Some(store) => deliver_at(&home, &*store, &pull::current_credential, Instant::now()),
+            None => Vec::new(),
+        };
+        // Kept keys live only in the OS store (`kept.rs`), read once the
+        // store check found it usable (started here when nothing else has).
+        // A pulled entry of the same name wins, and so does a value the
+        // launch already inherits: no agent's key replaces another's.
+        if kept::path(&home).exists() && kept_store_usable() {
+            let taken: Vec<String> = given.iter().map(|g| g.name.clone()).collect();
+            let at = Instant::now();
+            let kept = kept::given_at(&home, &store::OsStore, &taken, at, at + LOAD_BUDGET);
+            given.extend(kept.into_iter().filter(|g| egress::inherited(&g.name).is_none()));
+        }
+        given
+    };
     // A reload runs store commands (bounded by `LOAD_BUDGET`): on a Tokio
     // worker, the runtime moves its other tasks off this thread first.
     match tokio::runtime::Handle::try_current() {
@@ -307,6 +328,25 @@ pub(crate) fn entries_now() -> Vec<Given> {
         }
         _ => deliver(),
     }
+}
+
+/// Whether kept keys can be read: the OS store check said usable. Until it
+/// has run, this starts it once on its own thread (a machine that is not
+/// joined never runs it) and gives no kept key, so no launch waits on it.
+fn kept_store_usable() -> bool {
+    static STARTED: AtomicBool = AtomicBool::new(false);
+    static SCOPE: std::sync::OnceLock<cmux_scope::Scope> = std::sync::OnceLock::new();
+    if let Some(usable) = store::os_usable_known() {
+        return usable;
+    }
+    // Outside a runtime nothing starts it: the next spawn in one does.
+    if tokio::runtime::Handle::try_current().is_ok() && !STARTED.swap(true, Ordering::SeqCst) {
+        let scope = SCOPE.get_or_init(|| cmux_scope::Scope::new("vault kept store check"));
+        scope.spawn_named("vault-kept-store-check", async {
+            let _ = tokio::task::spawn_blocking(store::os_usable).await;
+        });
+    }
+    false
 }
 
 /// One entry a spawn gets: its value, and `Some(allowed hosts)` when agents
@@ -388,12 +428,26 @@ fn given(loaded: &Loaded, current: Option<(String, bool)>) -> Vec<Given> {
 /// What the vault env a spawn gets depends on, as metadata (never a value):
 /// the state file's identity, the hold, and a digest of the machine
 /// credential and its revoked flag. `None` outside a daemon. The agent pool
-/// keys on it (`login_env::machine_stamp`).
+/// keys on it ([`machine_stamp`]).
 pub fn stamp() -> Option<String> {
     if !ACTIVE.load(Ordering::SeqCst) {
         return None;
     }
     Some(stamp_in(&crate::config::home(), pull::current_credential()))
+}
+
+/// The machine files' metadata stamp (never a value), for keys that must
+/// change when a delivery or revocation does (the agent pool's). It covers
+/// the vault too (`vault::stamp`): a pooled agent started before a vault pull,
+/// a hold or a credential change is discarded at its claim.
+pub fn machine_stamp() -> Option<String> {
+    let vault = stamp();
+    match (crate::login_env::machine_files_stamp(), vault) {
+        (None, None) => None,
+        (files, vault) => {
+            Some(format!("{}|vault:{}", files.unwrap_or_default(), vault.unwrap_or_default()))
+        }
+    }
 }
 
 pub(crate) fn stamp_in(home: &std::path::Path, credential: Option<(String, bool)>) -> String {
@@ -405,7 +459,18 @@ pub(crate) fn stamp_in(home: &std::path::Path, credential: Option<(String, bool)
         h.update([u8::from(*revoked)]);
     }
     let credential: String = h.finalize().iter().take(8).map(|b| format!("{b:02x}")).collect();
-    let file = match file {
+    let file = stamp_text(file);
+    let kept = stamp_text(stamp_of(&kept::path(home)));
+    format!(
+        "{file};held={};cred={credential};kept={kept};egress={}",
+        pull::held(home),
+        egress::stamp()
+    )
+}
+
+/// A file's identity as text: its length, modified time and inode.
+fn stamp_text(file: Option<Stamp>) -> String {
+    match file {
         None => "none".to_owned(),
         Some(s) => {
             #[cfg(unix)]
@@ -418,8 +483,7 @@ pub(crate) fn stamp_in(home: &std::path::Path, credential: Option<(String, bool)
                 .map_or(0, |d| d.as_nanos());
             format!("{}:{at}:{ino}", s.len)
         }
-    };
-    format!("{file};held={};cred={credential};egress={}", pull::held(home), egress::stamp())
+    }
 }
 
 /// The longest the first agent spawn waits for the first pull of a joined
@@ -453,7 +517,8 @@ pub async fn start_worker() {
     // the async workers, and within `INITIAL_WAIT` with the first pull. Past
     // it, launches give no vault env until the check is done (the loop's
     // first round waits for it).
-    let usable = if joined {
+    // A machine with kept keys checks too, so its first spawn gets them.
+    let usable = if joined || kept::path(&crate::config::home()).exists() {
         match bounded(INITIAL_WAIT, tokio::task::spawn_blocking(store::os_usable)).await {
             Some(Ok(usable)) => Some(usable),
             _ => {

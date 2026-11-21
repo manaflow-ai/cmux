@@ -16,7 +16,12 @@ import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { measureComposerAlignment, type Center, type ComposerAlignment } from "./support/composerAlignment";
+import {
+  ALIGNMENT_SELECTORS,
+  measureComposerAlignment,
+  type Center,
+  type ComposerAlignment,
+} from "./support/composerAlignment";
 import { gridLength } from "../src/agent-session/acpmux/transcriptGrid";
 
 await requireBrowserLane("composer-alignment-centers.test.ts", async () => {
@@ -67,7 +72,7 @@ await requireBrowserLane("composer-alignment-centers.test.ts", async () => {
     await page.locator(".acpmux-composer-foot .acpmux-model .acpmux-picker-button").first().waitFor();
     await page.evaluate(() => document.fonts.ready);
     await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
-    const result = await page.evaluate(measureComposerAlignment);
+    const result = await page.evaluate(measureComposerAlignment, ALIGNMENT_SELECTORS);
     await page.close();
     return result;
   };
