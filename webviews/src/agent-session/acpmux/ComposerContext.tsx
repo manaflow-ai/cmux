@@ -1137,7 +1137,9 @@ export function ComposerContext({
                   label={t(CONTEXT_LABELS.environment)}
                   menu="Computer"
                   value={
-                    sandboxPicked || cloudPicked ? t(sandboxPicked ? "composer.sandboxed" : "composer.cloud") : placeName
+                    sandboxPicked || cloudPicked
+                      ? t(sandboxPicked ? "composer.sandboxed" : "composer.cloud")
+                      : placeName
                   }
                   face={
                     // Sandboxed (hq#3367) or Cloud picked: the control names it where the machine was.
