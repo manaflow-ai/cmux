@@ -2,8 +2,8 @@
 // control carries `aria-label`, the tooltip is the sighted hint. It opens on hover and on keyboard
 // focus, and Escape closes it. It looks like the native tooltip and the title tooltip
 // (pages/shared/desktop.css): the liquid glass (`.ui-glass`, ui/glass/glass.css; Leo 2026-10-21:
-// "WHERE IS THE GLASS EVERYWHERE, all these hover tooltips and hover previews"), primary ink, an
-// optional shortcut hint. Every tooltip and hover card here is glass, never the solid popup surface
+// "WHERE IS THE GLASS EVERYWHERE, all these hover tooltips and hover previews"), regular text in the
+// primary ink, an optional shortcut on a keycap. Every tooltip and hover card here is glass, never the solid popup surface
 // (webviews/scripts/check-glass-never-opaque.ts fails one that is not).
 import {
   useCallback,
@@ -50,9 +50,9 @@ export interface TooltipProps {
   detail?: ReactNode;
   /** The control it describes (its `render` target). */
   children: ReactElement;
-  /** Tooltips sit above their control when there is room, like the reference surfaces. */
+  /** Tooltips sit below their control, flipping above at the edge, as the native tooltip does. */
   side?: "top" | "bottom";
-  /** A keyboard shortcut shown after the label in the secondary ink (`⌘T`), as on native tooltips. */
+  /** A keyboard shortcut shown after the label on a keycap (`⌘T`), as on native tooltips. */
   shortcut?: string;
   /** Extra classes on the popup (a hover card's own look, as `ui-card`). */
   className?: string;
@@ -70,7 +70,7 @@ export function Tooltip({
   label,
   detail,
   children,
-  side = "top",
+  side = "bottom",
   shortcut,
   className,
   anchor,

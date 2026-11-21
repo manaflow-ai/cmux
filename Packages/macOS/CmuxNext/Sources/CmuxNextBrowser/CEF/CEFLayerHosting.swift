@@ -301,6 +301,7 @@ final class CEFLayerHosting {
         }
         guard view?.window != nil else { return }
         syncDeadline()
+        placementChanged()
     }
 
     /// The page window's tabs changed (`CEFPaneHost.removed`): when the recorded
@@ -455,6 +456,39 @@ final class CEFLayerHosting {
         }
     }
 
+    // MARK: Parked away from its window (window shares)
+
+    /// The view lies wholly outside its window: a page parked 100,000 points off the window content to draw before a
+    /// pane takes it (`PageOffscreenParking`: a New Tab spare, a retired chat, a page held away until it drew). Its
+    /// hosted page is detached there (``setDetached(_:)``): it keeps drawing into its hosted context, and no page
+    /// window is ordered in as a child of the window out there. ScreenCaptureKit captures a window with its child
+    /// windows and gives no frame for one with a child that far off, so a window share (Zoom, Meet, macOS) showed
+    /// only black while any page was parked (David Beyer's Zoom call, 2026-11-20). Read again at each geometry post,
+    /// page visibility sync and window change (``placementChanged()``); every attach checks it afresh.
+    private(set) var isParkedAway = false
+
+    /// The view may have moved wholly out of its window or back into it (``isParkedAway``): a parked hosted page is
+    /// detached, and one whose view came back attaches at its new place, unless a motion or a first-frame hold owns
+    /// the attach (its end attaches it).
+    func placementChanged() { // perf-hot: 1us cef-geometry (each geometry post, each parked page's update)
+        let away = Self.liesOutsideWindow(view)
+        guard away != isParkedAway else { return }
+        isParkedAway = away
+        if away {
+            setDetached(true)
+        } else if isDetached, !inResizeMotion, firstFrameHold == .none {
+            attach()
+        }
+    }
+
+    /// Whether `view` is laid out wholly outside its window's frame; a view in no window, or not laid out yet, is not.
+    static func liesOutsideWindow(_ view: NSView?) -> Bool {
+        guard let view, let window = view.window else { return false }
+        let rect = view.convert(view.bounds, to: nil)
+        let shown = CGRect(origin: .zero, size: window.frame.size)
+        return !rect.isEmpty && !shown.isEmpty && !rect.intersects(shown)
+    }
+
     // MARK: The frame a page shows in (SWITCH STALL 5)
 
     /// A hosted page shows in this turn (`CEFPaneHost.present`: Cmd-N's page built before the key, a workspace or pane
@@ -554,11 +588,17 @@ final class CEFLayerHosting {
     }
 
     /// Detaches the hosted page's window or attaches it again; the fork's attach places it at the view's rect then,
-    /// the one geometry update of the landing. False when no page is hosted, below fork API 30, or the fork refused;
-    /// the state is unchanged then.
+    /// the one geometry update of the landing. False when no page is hosted, below fork API 30, the fork refused, or
+    /// (an attach) the view lies outside its window (``isParkedAway``); the detached state is unchanged then.
     @discardableResult
     private func setDetached(_ on: Bool) -> Bool {
         guard on != isDetached else { return true }
+        if !on {
+            // A page parked away stays detached (``isParkedAway``), whatever ends: read afresh, as the view may have
+            // come back with no post yet.
+            isParkedAway = Self.liesOutsideWindow(view)
+            guard !isParkedAway else { return false }
+        }
         guard page != nil, let browser, let call = fork?.setDetachedHosting else { return false }
         forkCalls += 1
         guard call(browser, on) else { return false }
@@ -609,6 +649,9 @@ final class CEFLayerHosting {
             if page.host(contextID: id) {
                 // The page's frame at a new size commits with the pane's only while hosted.
                 syncDeadline()
+                // A page made while parked away (a spare drawn in its parking) is detached at once.
+                isParkedAway = false
+                placementChanged()
                 return
             }
             // No CALayerHost to show the context: the page window would stay
@@ -658,6 +701,7 @@ final class CEFLayerHosting {
         // The fork ends detached hosting when hosting goes off or the page window goes.
         isDetached = false
         attachOwed = false
+        isParkedAway = false
         firstFrameHold = .none
         afterFirstFrame = nil
         owedGrant = nil
