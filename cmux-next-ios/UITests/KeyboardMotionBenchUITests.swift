@@ -48,10 +48,10 @@ final class KeyboardMotionBenchUITests: XCTestCase {
         var types = true
     }
 
-    // -cmux-mobile-hitch-trace: ios-input-responsiveness's DEBUG main-thread hitch tracer
-    // (Documents/hitch-trace.jsonl, stacks for run-loop iterations over 4 and 8 ms); a build
-    // without it ignores the argument.
-    private static let base = ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-kbd-pin-trace", "-cmux-mobile-hitch-trace"]
+    // -cmux-mobile-input-latency: ios-input-responsiveness's DEBUG main-thread tracer (cmux#49398),
+    // writing Documents/input-latency.jsonl ("hitch" rows: iterations of 8 ms or more, with stacks;
+    // "window" rows per keyboard show/hide). A build without it ignores the argument.
+    private static let base = ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-kbd-pin-trace", "-cmux-mobile-input-latency"]
 
     @MainActor
     func testTerminalShell() throws {
