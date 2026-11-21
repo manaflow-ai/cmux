@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Behavioral checks for the fail-closed observer orchestration."""
+import ast
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import time
@@ -10,10 +12,29 @@ import unittest
 
 
 LIVE = Path(__file__).with_name("live.py")
+MAC_SCREEN = Path(__file__).resolve().parents[3] / "Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen"
+
+
+def produced_transports():
+    """The `transport` values the production pane emits, read from the Swift producer:
+    `MacScreenDebug.row` emits `session.transportCarrier`, which `MacScreenSession` sets."""
+    debug = (MAC_SCREEN / "MacScreenDebug.swift").read_text()
+    session = (MAC_SCREEN / "MacScreenSession.swift").read_text()
+    if not re.search(r'row\["transport"\]\s*=\s*session\.transportCarrier\b', debug):
+        return set()
+    return set(re.findall(r'\btransportCarrier\s*=\s*"([^"]+)"', session))
+
+
+def accepted_transports():
+    tree = ast.parse(LIVE.read_text())
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(getattr(t, "id", None) == "VALID_TRANSPORTS" for t in node.targets):
+            return set(ast.literal_eval(node.value.args[0]))
+    return set()
 
 
 class ObserverRigTests(unittest.TestCase):
-    def run_rig(self, *, receipt=None, trigger="OK workspace", motion="/bin/echo"):
+    def run_rig(self, *, receipt=None, trigger="OK workspace", motion="/bin/echo", transport=None):
         with tempfile.TemporaryDirectory(prefix="mac-screen-rig-test-") as tmp:
             root = Path(tmp)
             fake_ssh = root / "ssh"
@@ -62,7 +83,8 @@ if 'python3 ~/rd-hub-rig/mini.py' in cmd:
                 'primary_screen_frame_points':{'x':0,'y':0,'width':100,'height':100},
                 'window_on_primary_display':True,'geometry_origin':'bottom-left',
                 'host_device':'host','hub_session':'session','session_scope':'full',
-                'phase':'connected','has_frame':True,'transport':'rd_wg'}]}))
+                'phase':'connected','has_frame':True,'path':'Direct',
+                **json.loads(os.environ['PANE_TRANSPORT'])}]}))
         else: print('{"ok":true}')
     else: print('{}')
     raise SystemExit
@@ -80,7 +102,10 @@ raise SystemExit
                                               "marker_origin": "1,1", "cell_size": 8}))
             out = root / "out"
             env = {**os.environ, "PATH": f"{root}:{os.environ['PATH']}", "COMMANDS": str(commands),
-                   "STATE": str(state), "RECEIPT": json.dumps(receipt), "TRIGGER": trigger}
+                   "STATE": str(state), "RECEIPT": json.dumps(receipt), "TRIGGER": trigger,
+                   # The pane row carries what the Swift producer emits, never an invented carrier.
+                   "PANE_TRANSPORT": json.dumps({} if transport is False else
+                                                {"transport": transport or sorted(produced_transports())[0]})}
             argv = ["python3", str(LIVE), "--tag", "test", "--host", "host", "--viewer", "viewer",
                     "--out", str(out), "--source-readiness", str(readiness), "--seconds", "0"]
             if motion:
@@ -97,6 +122,18 @@ raise SystemExit
         self.assertIn("CMUX_SOURCE_NONCE=00112233445566778899aabbccddeeff", commands)
         self.assertIn("--command 'sh -c", commands)
         self.assertIn("kill", commands)
+
+    def test_producer_emits_a_transport_the_rig_accepts(self):
+        produced = produced_transports()
+        self.assertTrue(produced, "MacScreenDebug.row must emit session.transportCarrier as `transport`")
+        self.assertLessEqual(produced, accepted_transports())
+
+    def test_pane_without_transport_stays_unready(self):
+        # A row with only the diagnostic `path` (no carrier) never passes the attestation.
+        proc, result, commands = self.run_rig(transport=False)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertFalse(result["comparison_ready"])
+        self.assertNotIn("OBSERVER_READY", commands)
 
     def test_bad_geometry_stays_unready(self):
         receipt = {"schema": "cmux.presented-marker-series/2", "complete": True,

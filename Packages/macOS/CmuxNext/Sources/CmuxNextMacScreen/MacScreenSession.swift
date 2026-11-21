@@ -42,6 +42,10 @@ public final class MacScreenSession {
     public private(set) var frameSize: CGSize = .zero
     /// `Direct`, `Tailnet` or `Relayed`, from the link's measured path.
     public private(set) var streamPath = "-"
+    /// The carrier the rd/1 stream rides, for `debug.mac_screen`'s benchmark attestation:
+    /// `link` once the link bridge's socket carries it (the only carrier this session has),
+    /// nil before that and after it ends. `streamPath` is a display label, never a carrier.
+    @ObservationIgnored public private(set) var transportCarrier: String?
     /// A frame stopped arriving while connected (the picture is frozen).
     public private(set) var isStalled = false
     /// This approach never reconnects on its own: Try Again asks the hub again.
@@ -119,6 +123,7 @@ public final class MacScreenSession {
         tasks.removeAll()
         transport?.stop()
         transport = nil
+        transportCarrier = nil
         process?.stop()
         process = nil
         if let socketDirectory {
@@ -278,6 +283,7 @@ public final class MacScreenSession {
             return
         }
         self.transport = transport
+        transportCarrier = "link"
         onTransport?(transport)
         let statuses = transport.statusUpdates()
         tasks.append(Task { [weak self] in

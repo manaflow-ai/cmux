@@ -167,11 +167,16 @@ def source_readiness():
             "marker_origin": proof.get("marker_origin"), "cell_size": proof.get("cell_size")}
 
 
+# Carriers a production pane may report as `transport` (test_live.py checks the Swift producer).
+VALID_TRANSPORTS = frozenset({"rd_wg", "link", "webrtc"})
+
+
 def pane_attestation(row, host_id):
     """Bind the observer to the approved production pane and an explicit transport marker.
 
-    `path` is a diagnostic label only. The transport marker is emitted by the session's
-    DEBUG getter, so this adapter never turns a generic path into an rd/1 claim.
+    `path` is a diagnostic label only. The transport marker is `MacScreenSession.transportCarrier`,
+    which `MacScreenDebug.row` emits as `transport` (`link` while the link bridge carries the
+    stream, null otherwise), so this adapter never turns a generic path into an rd/1 claim.
     """
     errors = []
     window_pid = row.get("window_pid")
@@ -189,7 +194,7 @@ def pane_attestation(row, host_id):
         errors.append("selected pane is not the approved full-control scope")
     if row.get("phase") != "connected" or row.get("has_frame") is not True:
         errors.append("selected pane is not connected with a frame")
-    if row.get("transport") not in {"rd_wg", "link", "webrtc"}:
+    if row.get("transport") not in VALID_TRANSPORTS:
         errors.append("selected validated transport carrier is missing or invalid")
     if row.get("window_on_primary_display") is not True:
         errors.append("selected pane is not proven to be on the primary display")
