@@ -66,7 +66,6 @@ on:
   # side by side, about 30 minutes), so a change that breaks it is red before
   # it merges.
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "cmux-next-ios/**"
       # The local packages the app links (scripts/ci/ios_app_package_paths.py --check keeps this list exact).
@@ -169,7 +168,9 @@ concurrency:
 
 jobs:
   plan:
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
+    # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
+    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     outputs:
@@ -265,9 +266,11 @@ jobs:
           retention-days: 3
 
   lint:
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
     needs: plan
     name: Guideline lint (${{ needs.plan.outputs.lane }})
+    # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
+    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
     permissions:
@@ -348,9 +351,11 @@ jobs:
           retention-days: 3
 
   reviewer-path:
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
     needs: plan
     name: Reviewer path (${{ needs.plan.outputs.lane }}, ${{ matrix.family }})
+    # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
+    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
     # One job per device, side by side: each builds the app (about 6
     # minutes) and walks one device (about 20), where one job walking all
     # three in a row took about 45 minutes. A family with no simulator on
@@ -593,11 +598,9 @@ jobs:
     # environment, which serves only main.
     needs: plan
     if: >-
-      ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (
       github.event_name != 'pull_request'
       && needs.plan.outputs.lane == 'appstore'
       && github.ref == 'refs/heads/main'
-      ) }}
     environment: release
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 20
@@ -678,7 +681,7 @@ jobs:
   # job alone (tests/test_ci_pull_request_caches_are_read_only.py).
   seed-link-ffi:
     needs: reviewer-path
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (!cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') }}
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
     # A seed that fails never turns the push run red; the report does not need it.
     continue-on-error: true
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
@@ -734,7 +737,7 @@ jobs:
 
   report:
     needs: [plan, lint, reviewer-path, asc-validate]
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (!cancelled() && needs.plan.result == 'success') }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     outputs:

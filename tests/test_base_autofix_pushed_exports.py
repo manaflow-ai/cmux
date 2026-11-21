@@ -981,6 +981,18 @@ class PrAutofixTakesTheGeneratedFilesPack(unittest.TestCase):
         self.assertIn("within the wait", str(caught.exception))
         self.assertLessEqual(api.now, 600)
 
+    def test_a_zero_wait_looks_once_takes_a_pack_already_there_and_never_sleeps(self):
+        # The PR autofix passes --wait 0: the producer takes 20-39 minutes and starts with this run.
+        api = self.done_api(pack_zip(MERGE_TREE, 5, MERGE))
+        api.deadline = 0.0
+        self.assertEqual(self.lookup(api)["hit"], "true")
+        for jobs in ([generated_job("queued")], []):
+            api = FakePrApi(runs=[pr_run(5)], jobs={5: jobs}, wait=0)
+            with self.assertRaises(px.Miss) as caught:
+                self.lookup(api, grace=180)
+            self.assertIn("within the wait", str(caught.exception))
+            self.assertEqual(api.now, 0.0)
+
     def test_only_the_wanted_exports_that_differ_from_the_merge_commit_reach_the_artifact(self):
         repo = Path(self.tmp.name) / "repo"
         for rel in NAMES:
@@ -1042,6 +1054,8 @@ class PrAutofixTakesTheGeneratedFilesPack(unittest.TestCase):
         lookup = next(s for s in job["steps"] if s.get("id") == "lookup")
         self.assertEqual(lookup["env"]["GH_TOKEN"], "${{ steps.read-token.outputs.token }}")
         self.assertIn("pr-lookup", lookup["run"])
+        # One look, no wait: a 10-minute wait hit 1 of 224 lookups (2026-11-20 21:30Z to 11-21 19:40Z).
+        self.assertIn("--wait 0 ", lookup["run"])
         self.assertLess(int(lookup["timeout-minutes"]), int(job["timeout-minutes"]))
         for step in job["steps"]:
             self.assertTrue(step.get("continue-on-error"), step.get("name") or step.get("uses"))
