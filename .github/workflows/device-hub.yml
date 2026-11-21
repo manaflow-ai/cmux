@@ -26,6 +26,8 @@ on:
     paths:
       - .github/workflows/device-hub.yml
       - workers/device-hub/**
+      # The shared signing vectors its tests load (docs/protocols/README.md); a push does not deploy for them.
+      - schemas/device-hub/**
   push:
     branches: [feat-cmux-next]
     paths:

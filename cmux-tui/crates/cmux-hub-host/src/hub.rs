@@ -54,8 +54,12 @@ impl std::fmt::Display for HubError {
 impl std::error::Error for HubError {}
 
 /// The string a device signs: `"<METHOD>\n<path+query>\n<ts>\n<hex sha256 of body or empty>"`.
+/// The method is upper-cased and an empty body signs as no body, as the hub and the apps do
+/// (schemas/device-hub/request-signing-vectors.json).
 pub fn signing_string(method: &str, target: &str, ts: u64, body: Option<&[u8]>) -> String {
+    let method = method.to_ascii_uppercase();
     let digest = body
+        .filter(|b| !b.is_empty())
         .map(|b| crate::hex(ring::digest::digest(&ring::digest::SHA256, b).as_ref()))
         .unwrap_or_default();
     format!("{method}\n{target}\n{ts}\n{digest}")
@@ -366,6 +370,31 @@ mod tests {
             signing_string("POST", "/v1/devices", 7, Some(b"{}")),
             "POST\n/v1/devices\n7\n44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
         );
+    }
+
+    /// The shared vectors the hub (workers/device-hub) and the apps (CmuxDeviceHub) test too.
+    #[test]
+    fn request_signing_vectors() {
+        let vectors: Value = serde_json::from_str(include_str!(
+            "../../../../schemas/device-hub/request-signing-vectors.json"
+        ))
+        .unwrap();
+        for case in vectors["canonical"].as_array().unwrap() {
+            let got = signing_string(
+                case["method"].as_str().unwrap(),
+                case["pathAndQuery"].as_str().unwrap(),
+                case["ts"].as_u64().unwrap(),
+                case["body"].as_str().map(str::as_bytes),
+            );
+            assert_eq!(got, case["canonical"].as_str().unwrap(), "{}", case["name"]);
+        }
+        let key = vectors["signatures"]["publicKey"].as_str().unwrap();
+        for case in vectors["signatures"]["cases"].as_array().unwrap() {
+            let sig = b64::decode(case["signature"].as_str().unwrap()).unwrap();
+            let message = case["message"].as_str().unwrap().as_bytes();
+            let verdict = case["verifies"].as_bool().unwrap();
+            assert_eq!(verify(key, message, &sig), verdict, "{}", case["name"]);
+        }
     }
 
     #[test]
