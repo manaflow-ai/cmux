@@ -77,6 +77,7 @@ impl FolderGate {
                 record: home.join("trust.json"),
                 agent_home: trust::agent_home_root(),
                 cmux_worktrees: trust::cmux_worktrees_root(),
+                peer_scratch: Some(trust::peer_scratch_root()),
             },
         })
     }

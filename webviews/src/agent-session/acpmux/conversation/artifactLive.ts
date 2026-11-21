@@ -3,7 +3,7 @@
 import { type Artifact } from "./artifactPreview";
 import { rowUpdates, type RowUpdates } from "../rowUpdates";
 import type { AcpmuxRow } from "../model";
-import { artifactForIdentity, artifactVersions, type ArtifactSourceRow } from "./artifactVersions";
+import { artifactForIdentity, artifactVersions, replyDocuments, type ArtifactSourceRow } from "./artifactVersions";
 import { latestWrittenArtifacts, type LatestWrite } from "./writtenArtifactsModel";
 
 const VERSION_LIMIT = 64;
@@ -25,7 +25,7 @@ export class ArtifactLiveSource {
     this.index = rows.findIndex((row) => row.id === this.rowId);
     this.length = rows.length;
     this.versions = artifactVersions(
-      rows.flatMap((row) => (row.kind === "assistant" && row.text ? [row.text] : [])),
+      rows.flatMap((row) => (row.kind === "assistant" && row.text ? replyDocuments(row) : [])),
       opened,
     ).slice(-VERSION_LIMIT);
     this.liveIndex = this.versions.findIndex((version) => version.code === opened.code);

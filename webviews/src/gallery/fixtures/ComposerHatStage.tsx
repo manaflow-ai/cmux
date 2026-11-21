@@ -14,6 +14,11 @@ import "./composerHatArms.css";
  *  tray, 22 px in from the card's sides, composerLook.css). */
 export type ComposerHatSurface = "card" | "queue" | "codex-strip";
 
+/** Where the pill sits on the card's line, for comparing (composerHatArms.css): as shipped, 2px over
+ *  it (`none`), centred on it (`seated`), standing on it (`perched`), or as before Leo's 2026-11-11
+ *  ask, with its 8px stubs beside it (`before`). */
+export type ComposerHatBridge = "none" | "seated" | "perched" | "before";
+
 export function ComposerHatStage({
   start = 0,
   waits = false,
@@ -22,6 +27,7 @@ export function ComposerHatStage({
   surface = "card",
   narrow = false,
   tucked = true,
+  bridge = "none",
 }: {
   start?: number;
   waits?: boolean;
@@ -36,6 +42,7 @@ export function ComposerHatStage({
   narrow?: boolean;
   /** Whether the hat starts tucked (the pull tab shown); the Tuck button tucks it while work runs. */
   tucked?: boolean;
+  bridge?: ComposerHatBridge;
 }) {
   const [running, setRunning] = useState(start);
   const [waiting, setWaiting] = useState(waits ? 1 : 0);
@@ -86,6 +93,7 @@ export function ComposerHatStage({
           <div style={{ flex: 1 }} />
           <div
             className="acpmux-dock"
+            data-stage-bridge={bridge === "none" ? undefined : bridge}
             style={{ "--cv-inset": "16px", ...(narrow ? { width: 300 } : {}) } as CSSProperties}
           >
             {isTucked && (

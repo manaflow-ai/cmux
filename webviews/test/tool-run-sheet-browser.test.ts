@@ -76,11 +76,15 @@ await requireBrowserLane("tool-run-sheet-browser.test.ts", async () => {
           await fixture.getByRole("button", { name: "Find the retry handler" }).click();
           // An opened call is its arguments as labeled fields and its output (ToolDetail), never one JSON block.
           expect(await fixture.locator(".cv-tool-detail__key").allTextContents()).toContain("pattern");
+          // Closed, the capture's screenshot is the small image at its row's edge; opened, the image
+          // shows under the row (ToolImages) and the small one steps aside (Lucas, 2026-11-11).
+          const edge = fixture.getByRole("img", { name: "Capture the repaired screen" });
+          await edge.waitFor();
           await fixture.getByRole("button", { name: "Capture the repaired screen", exact: false }).click();
-          await fixture.getByRole("img", { name: "Capture the repaired screen" }).waitFor();
-          await fixture
-            .getByRole("img", { name: "Capture the repaired screen" })
-            .evaluate((image) => (image as HTMLImageElement).decode());
+          const shot = fixture.locator(".cv-tool-images img").first();
+          await shot.waitFor();
+          await shot.evaluate((image) => (image as HTMLImageElement).decode());
+          expect(await edge.count()).toBe(0);
           expect(await fixture.textContent()).not.toContain("Waiting…");
           expect(await fixture.textContent()).not.toContain('"pattern"');
         }

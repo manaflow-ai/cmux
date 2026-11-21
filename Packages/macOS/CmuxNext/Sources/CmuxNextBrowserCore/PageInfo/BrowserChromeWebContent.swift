@@ -19,7 +19,6 @@ public protocol BrowserChromeWebContent: AnyObject {
 
 /// The surfaces the browser chrome draws in React.
 public enum BrowserChromeWebPage: String, Sendable {
-    case pageInfo = "page-info"
     /// Page Info's Site settings window (one origin's usage and permissions).
     case siteSettings = "site-settings"
     /// Page Info's On-device site data window.

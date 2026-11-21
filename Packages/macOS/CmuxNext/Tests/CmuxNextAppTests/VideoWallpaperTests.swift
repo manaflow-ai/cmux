@@ -24,7 +24,7 @@ import CmuxNextWakeupsTestSupport
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-video-wallpaper-source-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let url = folder.appendingPathComponent("clip").appendingPathExtension(pathExtension)
-        try await TestVideoClip.writeVideo(to: url, width: 64, height: 36, frames: frames)
+        try await HomeFixtureMedia.writeVideo(to: url, width: 64, height: 36, frames: frames)
         encoded[key] = url
         return url
     }

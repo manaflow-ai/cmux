@@ -130,19 +130,6 @@ describe("receipts", () => {
     expect(receipts[0]!.kind === "receipt" && receipts[0]!.at).toBe(T0 + 5000);
   });
 
-  it("reads the others' cursors the owner put on the conversation (Read, no time)", () => {
-    seq = 0;
-    const messages = [msg("me", T0), msg("me", T0 + 1000)];
-    const shown = { ...conversation("direct"), readCursors: { me: { seq: 2 }, ana: { seq: 1 } } };
-    const rows = transcriptRows({ me: "me", conversation: shown, messages }, T0);
-    const receipts = rows.filter((row) => row.kind === "receipt");
-    expect(receipts.map((row) => [row.key, row.kind === "receipt" && row.receipt])).toEqual([
-      ["receipt:id1", "read"],
-      ["receipt:id2", "delivered"],
-    ]);
-    expect(receipts[0]!.kind === "receipt" && receipts[0]!.at).toBeUndefined();
-  });
-
   it("shows only Read when my newest message is read, and none for my own cursor", () => {
     seq = 0;
     const messages = [msg("me", T0), msg("me", T0 + 1000)];

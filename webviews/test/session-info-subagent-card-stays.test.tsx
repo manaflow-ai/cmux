@@ -9,6 +9,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { PopupHost, PopupModel } from "../src/ui/popupHost";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -78,13 +79,9 @@ const host: PopupHost = {
 
 const container = dom.window.document.getElementById("root")!;
 const root = createRoot(container);
-afterAll(() => {
+afterAll(async () => {
   act(() => root.unmount());
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 /// Yields until `ready` holds (the tooltip's open delay passes on the real clock), or gives up.

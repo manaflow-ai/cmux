@@ -86,6 +86,16 @@ public final class ScreenModel: Identifiable {
     public internal(set) var pinned: Bool
     /// The screen group this screen belongs to (`screen-groups-v1`).
     public internal(set) var group: ScreenGroupID?
+    /// Splits whose divider draws no line (`split-divider-visibility-v1`); they still drag.
+    public internal(set) var hiddenDividers: Set<SplitID>
+    /// The panes shown above the tiled layout, back to front (`floating-panes-v1`), as the daemon sent it; not
+    /// checked against the layout, the range or repeats. The daemon keeps each one a leaf of ``layout``.
+    public internal(set) var floating: [FloatingPaneSnapshot]
+
+    /// Shows or hides `split`'s divider line here (a Hide / Show Divider intent, until the daemon's layout says it).
+    func setDivider(_ split: SplitID, visible: Bool) {
+        if visible { hiddenDividers.remove(split) } else { hiddenDividers.insert(split) }
+    }
     /// Color, icon, pin, and group come from the daemon's state resources
     /// (`DaemonStore.session`), which the raw tree does not carry.
     @ObservationIgnored var metadataFromState = false
@@ -106,6 +116,8 @@ public final class ScreenModel: Identifiable {
         icon = s.icon
         pinned = s.pinned
         group = s.group
+        hiddenDividers = s.hiddenDividers
+        floating = s.floating
         adoptUnread()
     }
 
@@ -142,6 +154,8 @@ public final class ScreenModel: Identifiable {
         if viewportBaseWidth != (s.viewportBaseWidth ?? 1) { viewportBaseWidth = s.viewportBaseWidth ?? 1 }
         if zoomedPane != s.zoomedPane { zoomedPane = s.zoomedPane }
         if defaultPane != s.activePane { defaultPane = s.activePane }
+        if hiddenDividers != s.hiddenDividers { hiddenDividers = s.hiddenDividers }
+        if floating != s.floating { floating = s.floating }
         if isActive != s.active { isActive = s.active }
         if !metadataFromState {
             if color != s.color { color = s.color }
@@ -162,6 +176,8 @@ public final class ScreenModel: Identifiable {
         if viewportBaseWidth != (d.viewportBaseWidth ?? 1) { viewportBaseWidth = d.viewportBaseWidth ?? 1 }
         if zoomedPane != d.zoomedPane { zoomedPane = d.zoomedPane }
         if defaultPane != d.activePane { defaultPane = d.activePane }
+        if hiddenDividers != d.hiddenDividers { hiddenDividers = d.hiddenDividers }
+        if floating != d.floating { floating = d.floating }
     }
 
     /// Lays the daemon's screen state over the record.

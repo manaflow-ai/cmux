@@ -11,6 +11,7 @@ import type { AcpmuxActivity } from "../src/agent-session/acpmux/model";
 import { resetLinkStore, seedLinkStore } from "../src/agent-session/acpmux/chips/linkStore";
 import { setChipHost } from "../src/agent-session/acpmux/chips/host";
 import { fetchedPage, webSources } from "../src/agent-session/acpmux/conversation/webSourceList";
+import { teardownDom } from "./support/domTeardown";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 const scope = globalThis as Record<string, unknown>;
@@ -44,12 +45,9 @@ afterEach(() => {
   resetLinkStore();
 });
 
-afterAll(() => {
+afterAll(async () => {
   setChipHost(undefined);
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const SEARCH = [

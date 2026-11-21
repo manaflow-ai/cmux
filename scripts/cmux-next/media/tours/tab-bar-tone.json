@@ -1,0 +1,248 @@
+{
+ "title": "Tab bar tone: the title area contrast (appearance.titleAreaContrast) from the shipped subtle tone to one colour, with the divider taking over as the tone drops",
+ "settings": {
+  "appearance": {
+   "background": "hokusai-great-wave",
+   "titleAreaTone": "subtleTone"
+  }
+ },
+ "steps": [
+  {
+   "title": "Launch over art",
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "Workspace Glass",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Glass"
+   ],
+   "shot": false
+  },
+  {
+   "title": "Show it",
+   "cmux": [
+    "workspace",
+    "name:Glass",
+    "focus"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Quiet prompt",
+   "cmux": [
+    "workspace",
+    "name:Glass",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "current",
+    "terminal",
+    "current",
+    "write",
+    "--text",
+    "export PS1='$ ' PROMPT='$ '; printf '\\033[2J\\033[3J\\033[H'\n"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Name the first tab",
+   "cmux": [
+    "workspace",
+    "name:Glass",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "current",
+    "rename",
+    "shell"
+   ],
+   "shot": false,
+   "optional": "a name only for the focus step"
+  },
+  {
+   "title": "Browser tab Docs",
+   "cmux": [
+    "tab",
+    "create",
+    "browser",
+    "--url",
+    "https://example.com",
+    "--name",
+    "Docs",
+    "--workspace",
+    "name:Glass"
+   ],
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "Browser tab Notes",
+   "cmux": [
+    "tab",
+    "create",
+    "browser",
+    "--url",
+    "https://example.net",
+    "--name",
+    "Notes",
+    "--workspace",
+    "name:Glass"
+   ],
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "Select the middle tab",
+   "cmux": [
+    "workspace",
+    "name:Glass",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "name:Docs",
+    "focus"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Over art, contrast 1 (shipped): subtle tone, no divider",
+   "wait": 2
+  },
+  {
+   "title": "Over art, contrast 0.5 (variant a): a small step plus a half-strength divider",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.titleAreaContrast",
+    "0.5"
+   ],
+   "wait": 3
+  },
+  {
+   "title": "Over art, contrast 0.25: a smaller step, a stronger divider",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.titleAreaContrast",
+    "0.25"
+   ],
+   "wait": 3
+  },
+  {
+   "title": "Over art, contrast 0 (variant b): one colour, the divider and the selected tab's pill",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.titleAreaContrast",
+    "0"
+   ],
+   "wait": 3
+  },
+  {
+   "title": "Plain window",
+   "cmux": [
+    "settings",
+    "unset",
+    "appearance.background"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Plain, contrast 0 (variant b)",
+   "wait": 2
+  },
+  {
+   "title": "Plain, contrast 0.25",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.titleAreaContrast",
+    "0.25"
+   ],
+   "wait": 3
+  },
+  {
+   "title": "Plain, contrast 0.5 (variant a)",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.titleAreaContrast",
+    "0.5"
+   ],
+   "wait": 3
+  },
+  {
+   "title": "Plain, contrast 1 (shipped)",
+   "cmux": [
+    "settings",
+    "unset",
+    "appearance.titleAreaContrast"
+   ],
+   "wait": 3
+  },
+  {
+   "title": "Toggle to One Color, live",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.titleAreaTone",
+    "oneColor"
+   ],
+   "wait": 2
+  },
+  {
+   "title": "Toggle back to Subtle Tone, live (the contrast stays 1)",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.titleAreaTone",
+    "subtleTone"
+   ],
+   "wait": 2
+  },
+  {
+   "title": "One Color again over art",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.background",
+    "hokusai-great-wave"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Over art, One Color",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.titleAreaTone",
+    "oneColor"
+   ],
+   "wait": 2
+  },
+  {
+   "title": "Over art, back to Subtle Tone",
+   "cmux": [
+    "settings",
+    "unset",
+    "appearance.titleAreaTone"
+   ],
+   "wait": 2
+  }
+ ]
+}

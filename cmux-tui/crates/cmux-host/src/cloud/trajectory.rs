@@ -31,6 +31,10 @@ use std::fs;
 use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Component, Path, PathBuf};
 
+use base64::Engine;
+use base64::alphabet;
+use base64::engine::DecodePaddingMode;
+use base64::engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig, STANDARD};
 use serde_json::{Value, json};
 
 use super::sender::{Answer, Backoff};
@@ -896,41 +900,18 @@ fn read_range(file: &Path, from: u64, to: u64) -> io::Result<Vec<u8>> {
     Ok(out)
 }
 
-const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
 /// Standard base64 with padding (the server's `atob`/`btoa`).
 pub fn encode_base64(data: &[u8]) -> String {
-    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
-    for chunk in data.chunks(3) {
-        let b = [0, 1, 2].map(|i| chunk.get(i).copied().unwrap_or(0));
-        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
-        for i in 0..4 {
-            if i <= chunk.len() {
-                out.push(char::from(
-                    B64.get((n >> (18 - 6 * i)) as usize & 63).copied().unwrap_or(b'='),
-                ));
-            } else {
-                out.push('=');
-            }
-        }
-    }
-    out
+    STANDARD.encode(data)
 }
 
+/// Standard base64, padded or not.
 pub fn decode_base64(text: &str) -> Option<Vec<u8>> {
-    let text = text.trim_end_matches('=');
-    let mut out = Vec::with_capacity(text.len() * 3 / 4);
-    let mut acc = 0_u32;
-    let mut bits = 0;
-    for c in text.bytes() {
-        let v = B64.iter().position(|b| *b == c)? as u32;
-        acc = (acc << 6) | v;
-        bits += 6;
-        if bits >= 8 {
-            bits -= 8;
-            out.push((acc >> bits) as u8);
-            acc &= (1 << bits) - 1;
-        }
-    }
-    Some(out)
+    const UNPADDED_OK: GeneralPurpose = GeneralPurpose::new(
+        &alphabet::STANDARD,
+        GeneralPurposeConfig::new()
+            .with_decode_padding_mode(DecodePaddingMode::Indifferent)
+            .with_decode_allow_trailing_bits(true),
+    );
+    UNPADDED_OK.decode(text).ok()
 }

@@ -65,3 +65,40 @@ test("fix-from-link carries the selected harness and model", async () => {
     model: "gpt-6-astra",
   });
 });
+
+test("every pick from the field opens in the page's tab, never a split; Option-Return opens beside", () => {
+  const opens: Record<string, unknown>[] = [];
+  let left = 0;
+  const actions = newTabScreenActions({
+    callNative: async (method, params) => {
+      if (method === "tab.open") opens.push(params!);
+      return undefined;
+    },
+    cwd: "/tmp/widget",
+    leave: () => void left++,
+    selectSession: () => {},
+    showAllChats: () => {},
+    runShell: () => {},
+  });
+  actions.onShell("git status");
+  // The page stays until the host closes it under the new tab: a refused open keeps the text.
+  expect(left).toBe(0);
+  actions.onOpen("https://example.com/");
+  actions.onSearch("cmux docs");
+  actions.onOpenInProfile?.("https://example.com/", "work");
+  actions.onOpenInNewProfile?.("https://example.com/", "Work");
+  expect(opens).toEqual([
+    { kind: "terminal", text: "git status", run: true, inPlace: true, cwd: "/tmp/widget" },
+    { kind: "browser", text: "https://example.com/", inPlace: true },
+    { kind: "browser", text: "cmux docs", search: true, inPlace: true },
+    { kind: "browser", text: "https://example.com/", profile: "work", inPlace: true },
+    { kind: "browser", text: "https://example.com/", newProfile: true, inPlace: true, profileName: "Work" },
+  ]);
+  opens.length = 0;
+  actions.onOpen("https://example.com/", { beside: true });
+  actions.onSearch("cmux docs", { beside: true });
+  expect(opens).toEqual([
+    { kind: "browser", text: "https://example.com/", beside: true },
+    { kind: "browser", text: "cmux docs", search: true, beside: true },
+  ]);
+});

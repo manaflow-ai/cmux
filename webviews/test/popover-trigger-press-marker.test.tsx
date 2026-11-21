@@ -3,6 +3,7 @@
 // trigger carries `data-press-active` from the mouse press until the press ends, however it ends.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -26,12 +27,8 @@ const { act, useState } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { usePopoverTrigger } = await import("../src/ui/popoverTrigger");
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 function Trigger() {

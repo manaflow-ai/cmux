@@ -9,24 +9,11 @@ name: Cloud VM image lock
 # 2026-10-04). Not a merge gate. The lock test imports smoke.ts, which reaches
 # web/scripts/cmux-vm-image/guest.ts, which imports the freestyle package, so
 # the job installs web's locked dependencies first.
+#
+# A pull request runs it as the cloud-vm-image-lock step of ci/steps.toml (pr-pipeline.yml); this workflow
+# stays for workflow_dispatch.
 
 on:
-  pull_request:
-    paths:
-      - images/cmux-vm/**
-      - web/scripts/cmux-vm-image/**
-      - web/tests/vm-image-cmux-vm-lock.test.ts
-      - web/tests/vm-image-cmux-vm-sshd.test.ts
-      - web/tests/vm-image-cmux-vm-bake-workflow.test.ts
-      - web/tests/vm-image-cmux-vm-dev-tree.test.ts
-      - web/tests/vm-image-cmux-vm-dns.test.ts
-      - web/tests/vm-image-cmux-vm-machine-health.test.ts
-      - web/tests/vm-image-cmux-vm-promote-workflow.test.ts
-      - web/tests/vm-image-cmux-vm-github-auth.test.ts
-      - web/services/vms/hygiene/cmux-machine-hygiene
-      - .github/workflows/cloud-vm-image-lock.yml
-      - .github/workflows/cloud-vm-image-bake.yml
-      - .github/workflows/cloud-vm-image-promote.yml
   workflow_dispatch:
 
 permissions:
@@ -54,5 +41,6 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - run: bun install --frozen-lockfile
       - run: bun test tests/vm-image-cmux-vm-lock.test.ts tests/vm-image-cmux-vm-sshd.test.ts tests/vm-image-cmux-vm-bake-workflow.test.ts tests/vm-image-cmux-vm-dev-tree.test.ts tests/vm-image-cmux-vm-dns.test.ts tests/vm-image-cmux-vm-machine-health.test.ts tests/vm-image-cmux-vm-promote-workflow.test.ts tests/vm-image-cmux-vm-github-auth.test.ts

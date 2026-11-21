@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 import { useScrollEdges } from "./ui/scrollEdges";
 import "./ui/popupSurface.css";
 import type { DiffItem } from "./diff-stream";
+import { diffStatParts } from "./file-tree-stats";
 import { Icon, type IconName } from "./icons";
 import type { DiffViewerLabelResolver } from "./labels";
 import {
@@ -48,7 +49,12 @@ function useAnchoredPopover(open: boolean, anchorRef: React.RefObject<HTMLElemen
       const fitted = Math.min(width, window.innerWidth - VIEWPORT_MARGIN * 2);
       const left = Math.max(VIEWPORT_MARGIN, Math.min(rect.left, window.innerWidth - fitted - VIEWPORT_MARGIN));
       const top = rect.bottom + POPOVER_GAP;
-      setStyle({ top, left, width: fitted, maxHeight: Math.max(120, window.innerHeight - top - VIEWPORT_MARGIN) });
+      setStyle({
+        top,
+        left,
+        width: fitted,
+        maxHeight: Math.max(120, window.innerHeight - top - VIEWPORT_MARGIN),
+      });
     };
     reposition();
     window.addEventListener("resize", reposition);
@@ -126,13 +132,7 @@ export function SourceMenu({
   const [open, setOpen] = useState(false);
   const [committedOpen, setCommittedOpen] = useState(false);
   const submenuEdges = useScrollEdges();
-  const submenuRef = useCallback(
-    (node: HTMLElement | null) => {
-      submenuEdges(node);
-      focusFirstMenuItem(node);
-    },
-    [submenuEdges],
-  );
+  const submenuRef = useCallback((node: HTMLElement | null) => focusFirstMenuItem(node), []);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const menuId = useId();
@@ -150,6 +150,7 @@ export function SourceMenu({
     if (!entry.checked) onSelect(entry.target);
   };
   const selectedText = model.selected ? entryText(model.selected) : label("diffTarget");
+  const stats = additions == null || deletions == null ? null : diffStatParts({ added: additions, deleted: deletions });
   return (
     <div id="source-menu" className="source-pill">
       <button
@@ -177,12 +178,13 @@ export function SourceMenu({
           <span className="source-pill-additions">+0</span>
           <span className="source-pill-deletions">-0</span>
         </span>
-      ) : (
+      ) : stats ? (
+        // Only the counts that are not zero, as the file headers and the files list show them.
         <span className="source-pill-stats" aria-label={label("diffStats")}>
-          <span className="source-pill-additions">+{additions}</span>
-          <span className="source-pill-deletions">-{deletions}</span>
+          {stats.added ? <span className="source-pill-additions">{stats.added}</span> : null}
+          {stats.deleted ? <span className="source-pill-deletions">{stats.deleted}</span> : null}
         </span>
-      )}
+      ) : null}
       {open && style
         ? createPortal(
             <div
@@ -233,7 +235,8 @@ export function SourceMenu({
                         {committedOpen ? (
                           <div
                             ref={submenuRef}
-                            className="toolbar-menu ui-popup ui-glass toolbar-submenu ui-scroll-edge-fade"
+                            // The rows fade inside; the glass, rim and shadow stay whole (popupSurface.css).
+                            className="toolbar-menu ui-popup ui-glass toolbar-submenu ui-popup-scroll-shell"
                             role="menu"
                             tabIndex={-1}
                             aria-label={entryText(entry)}
@@ -249,26 +252,28 @@ export function SourceMenu({
                               event.stopPropagation();
                             }}
                           >
-                            {entry.children.length === 0 ? (
-                              <div
-                                className="menu-item toolbar-menu-item"
-                                role="menuitem"
-                                aria-disabled="true"
-                                tabIndex={-1}
-                              >
-                                <span className="menu-label">{label("sourceNoCommits")}</span>
-                              </div>
-                            ) : (
-                              entry.children.map((child) => (
-                                <SourceMenuRow
-                                  key={child.id}
-                                  entry={child}
-                                  label={label}
-                                  text={entryText(child)}
-                                  onChoose={() => choose(child)}
-                                />
-                              ))
-                            )}
+                            <div ref={submenuEdges} className="ui-popup-scroll ui-scroll-edge-fade">
+                              {entry.children.length === 0 ? (
+                                <div
+                                  className="menu-item toolbar-menu-item"
+                                  role="menuitem"
+                                  aria-disabled="true"
+                                  tabIndex={-1}
+                                >
+                                  <span className="menu-label">{label("sourceNoCommits")}</span>
+                                </div>
+                              ) : (
+                                entry.children.map((child) => (
+                                  <SourceMenuRow
+                                    key={child.id}
+                                    entry={child}
+                                    label={label}
+                                    text={entryText(child)}
+                                    onChoose={() => choose(child)}
+                                  />
+                                ))
+                              )}
+                            </div>
                           </div>
                         ) : null}
                       </div>
@@ -380,7 +385,7 @@ export function JumpToFilePalette({
           setOpen(true);
         }}
       >
-        <Icon name="chevronDown" />
+        <Icon name="files" />
       </button>
       {open && style
         ? createPortal(

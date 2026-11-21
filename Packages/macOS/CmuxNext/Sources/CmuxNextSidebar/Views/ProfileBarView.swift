@@ -138,7 +138,22 @@ final class ProfileBarView: NSView {
         super.layout()
         marks.frame = bounds
         placeIndicator(animated: false)
+        // Slots that moved with no setter call and no new size move the regions too (the sidebar's `render` asks for
+        // this layout when a token of the switcher changes).
+        if slotRects() != regionSlots { relayout() }
     }
+
+    /// The slots follow the bar's size (`strip`, `slotRects`): a new size draws the marks and makes the tooltips and
+    /// the accessibility elements for the new slots, as a new inset does. A move alone changes nothing in the bar,
+    /// so a window resize step that only moves it costs no draw and no rebuild.
+    override func setFrameSize(_ newSize: NSSize) {
+        let old = frame.size
+        super.setFrameSize(newSize)
+        if frame.size != old { relayout() }
+    }
+
+    /// The slots the tooltips and the accessibility elements were last made for.
+    private var regionSlots: [NSRect] = []
 
     // MARK: Drawing
 
@@ -242,6 +257,7 @@ final class ProfileBarView: NSView {
 
     private func rebuildToolTips() {
         let rects = slotRects()
+        regionSlots = rects
         var regions: [(rect: NSRect, text: String)] = drawnDotIndices.map { offset in
             let profile = model.profiles[offset]
             let name = profile.iconIsEmoji ? [profile.icon, profile.name].compactMap(\.self).joined(separator: " ") : profile.name

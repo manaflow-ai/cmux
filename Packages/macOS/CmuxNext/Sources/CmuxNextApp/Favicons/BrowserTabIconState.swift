@@ -40,7 +40,7 @@ enum BrowserTabIconState: Equatable {
         if url?.isBookmarkPage == true { return .bookmarkManager }
         if AgentActivityPageAddress.matches(url) { return .agentActivity }
         if ScreenshotsPageAddress.matches(url) { return .sitePermissionImages }
-        if url?.scheme?.lowercased() == RemoteViewTabRecord.scheme, url?.host()?.lowercased() == RemoteViewTabRecord.urlHost { return .machineRemote }
+        if url?.scheme?.lowercased() == RemoteViewTabRecord.scheme, url?.host()?.lowercased() == RemoteViewTabRecord.urlHost { return RemoteViewTabRecord(url: url)?.cloudDesktop == true ? .cloud : .machineRemote }
         if TabContentCache.isRemoteBrowserPage(url) { return .machineRemote }
         return nil
     }

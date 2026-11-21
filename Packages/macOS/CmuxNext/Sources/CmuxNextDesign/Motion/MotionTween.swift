@@ -1,3 +1,4 @@
+public import AppKit
 import CCmuxMotionFFI
 public import CoreGraphics
 public import Foundation
@@ -40,25 +41,33 @@ nonisolated extension MotionPolicy {
             case .off: 2
             }
         }
-        return CmuxMotionPolicy(speed: speedIndex, reduce_motion: reduceMotion || liveResize, bounce: 0,
-                                pane_animations: false, new_tab: enabledKinds.contains(.newTab),
-                                new_workspace: enabledKinds.contains(.newWorkspace))
+        // Field by field from the zero value, never the memberwise initializer: this source then
+        // compiles against every pinned CCmuxAppFFI header (ABI 5 had one more field, `bounce`, and
+        // zero was "none"), so a C ABI field can go before the app FFI re-pin.
+        var policy = CmuxMotionPolicy()
+        policy.speed = speedIndex
+        policy.reduce_motion = reduceMotion || liveResize
+        policy.new_tab = enabledKinds.contains(.newTab)
+        policy.new_workspace = enabledKinds.contains(.newWorkspace)
+        return policy
     }
 
     /// Seconds of `token`; 0 applies at once: speed off, Reduce Motion (Chrome's strip is 0 ms
-    /// under it), a live resize, or tabOpen with `ui.animations.newTab` off.
+    /// under it), a policy made for a window in a live resize (``MotionGate/duration(_:in:)``; the
+    /// window-free policy never has one), or tabOpen with `ui.animations.newTab` off.
     public func duration(_ token: MotionTween) -> TimeInterval {
         cmux_motion_tween_seconds(token.rawValue, ffi)
     }
 }
 
 extension MotionGate {
-    /// Seconds of tween `token` in this gate's category; 0 applies at once.
-    public func duration(_ token: MotionTween) -> TimeInterval { policy.duration(token) }
+    /// Seconds of tween `token` in this gate's category for a motion that `window` shows; 0 applies
+    /// at once (a live resize of `window` too).
+    public func duration(_ token: MotionTween, in window: NSWindow?) -> TimeInterval { policy(in: window).duration(token) }
 }
 
 /// One scalar on a tween (cmux-motion `TweenValue`, stepped through the app
-/// FFI). Pure: the caller passes the duration (`Motion.tabs.duration(token)`).
+/// FFI). Pure: the caller passes the duration (`Motion.tabs.duration(token, in: window)`).
 public nonisolated struct TweenValue: Equatable, Sendable {
     public private(set) var value: CGFloat
     public private(set) var target: CGFloat

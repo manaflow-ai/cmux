@@ -4,7 +4,7 @@
 // how ive gradually pushed for more andd more of that a la deeplinks and communicating in acpmux)
 // and display the actual code in the raw or something"). acpmux names the task's call (`cause.origin`);
 // the page finds that call, or the shell's own background update when the call is a helper's.
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { BackgroundTurnLine } from "../src/agent-session/acpmux/conversation/BackgroundTurnLine";
@@ -13,6 +13,15 @@ import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { SubagentNavContext } from "../src/agent-session/acpmux/subagents/subagentGroupModel";
 import { connect, fakeDaemon, record, type Step } from "./support/agentPairDaemon";
+
+// These pin the line look (backgroundTurnLook.experiment.ts `line`): the default draws a background
+// turn's calls inline, with no line (backgroundTurnInline.test.ts).
+beforeAll(() => {
+  globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "background-turn-look": "line" };
+});
+afterAll(() => {
+  globalThis.cmuxExperiments = undefined;
+});
 
 const update = (update: Record<string, unknown>) => ({ method: "session/update", params: { update } });
 const say = (text: string): Step => [

@@ -26,12 +26,21 @@ public struct LinkMachine: Sendable {
     public enum Phase: Equatable, Sendable {
         /// No Mac selected.
         case idle
-        /// The selected Mac's presence is offline; no dial until it returns.
+        /// The selected Mac's presence is offline, or a dial made while it said
+        /// so failed; no dial until presence brings it back or a surface of
+        /// the Mac opens (``Event/open``).
         case macOffline
         case connecting(TransportKind, attempt: Int)
         case connected(TransportKind, LinkPathKind, rttMillis: UInt32?)
         /// The last dial or link failed; the next dial is scheduled.
         case waiting(TransportKind, attempt: Int, reason: String, retryIn: Duration)
+        /// The account's session was revoked: the cmux service refused even a
+        /// freshly minted token. Nothing redials (a retry cannot succeed); the
+        /// person is asked to sign in again. Nothing leaves it, an untarget
+        /// (an idle link closed) and a retarget included: sign-out ends this
+        /// machine's controller (`LiveCoordinator.stop` closes every session),
+        /// and the next sign-in starts new ones.
+        case signedOut
     }
 
     public enum Event: Equatable, Sendable {
@@ -51,6 +60,12 @@ public struct LinkMachine: Sendable {
         case retryDue(generation: Int)
         /// The app came to the foreground (or the network came back).
         case foreground
+        /// A surface of this Mac opened on screen (a terminal tab, a browser
+        /// tab): try the link now, whatever presence last said. A cached or
+        /// stale "offline" is never shown without a dial behind it (Leo,
+        /// 2026-11-21: "it just says like, you know, cosmic gray is offline
+        /// or something. But like clearly it wasn't").
+        case open
         /// The scene actually entered the background; links may go stale
         /// while iOS suspends the process. Inactive scenes do not count.
         case background
@@ -67,6 +82,9 @@ public struct LinkMachine: Sendable {
         /// one, as for `macSignaled`. A live link roams in place (the dialer's
         /// `networkChanged`), so it is left alone.
         case networkChanged
+        /// The dial of `generation` failed because the account's session was
+        /// revoked (``Phase/signedOut``).
+        case signedOut(generation: Int)
     }
 
     public enum Effect: Equatable, Sendable {
@@ -103,7 +121,17 @@ public struct LinkMachine: Sendable {
     }
 
     public mutating func handle(_ event: Event) -> [Effect] {
+        if case .signedOut = phase {
+            // Terminal: no dial, probe or retry. A target change (`applyLinks`
+            // closing an idle link, then opening it again) is recorded, never
+            // dialed: the same refused session cannot connect.
+            if case .target(let next) = event { target = next }
+            return []
+        }
         switch event {
+        case .signedOut(let gen):
+            guard gen == generation else { return [] }
+            return reset(to: .signedOut)
         case .background:
             isBackgrounded = true
             return []
@@ -124,6 +152,9 @@ public struct LinkMachine: Sendable {
                 // for a moment while the link is fine. Keep it and probe it;
                 // a dead one fails the probe (termfix-r13 D2a, T-LIFE-17).
                 if sameMac, case .connected = phase { return [.quickProbe(generation: generation)] }
+                // A dial a surface asked for (``Event/open``) is left to finish:
+                // its own failure says whether the Mac is offline.
+                if sameMac, case .connecting = phase { return [] }
                 return reset(to: .macOffline)
             }
             if sameMac, isActive { return [] }
@@ -150,6 +181,14 @@ public struct LinkMachine: Sendable {
             return []
         case .dialFailed(let gen, let reason):
             guard gen == generation, case .connecting(_, let attempt) = phase else { return [] }
+            // Presence said offline and a dial (``Event/open``) confirmed it:
+            // offline now, no retry loop until presence brings the Mac back.
+            if target?.isOnline == false {
+                generation += 1
+                media = .off
+                phase = .macOffline
+                return []
+            }
             // The first failure retries at once and says nothing: most are a
             // signaling socket the service just reset (a deploy resets them
             // all) or a stale warm socket, and the next dial opens a new one.
@@ -194,6 +233,12 @@ public struct LinkMachine: Sendable {
         case .retryDue(let gen):
             guard gen == generation, case .waiting(_, let attempt, _, _) = phase else { return [] }
             return dial(attempt: attempt + 1, closing: false)
+        case .open:
+            switch phase {
+            case .macOffline: return dial(attempt: 1, closing: false)
+            case .waiting(_, let attempt, _, _): return dial(attempt: attempt + 1, closing: false)
+            default: return []
+            }
         case .foreground:
             switch phase {
             case .waiting(_, let attempt, _, _): return dial(attempt: attempt + 1, closing: false)
@@ -206,7 +251,7 @@ public struct LinkMachine: Sendable {
     private var isActive: Bool {
         switch phase {
         case .connecting, .connected, .waiting: true
-        case .idle, .macOffline: false
+        case .idle, .macOffline, .signedOut: false
         }
     }
 
@@ -249,7 +294,7 @@ extension LinkMachine.Phase {
     public func showsTerminalsOffline(notConnectedFor down: Duration) -> Bool {
         switch self {
         case .idle, .connected: false
-        case .macOffline: true
+        case .macOffline, .signedOut: true
         case .waiting(_, _, let reason, _) where reason == LinkController.reason(LinkError(code: "offline", message: "")): true
         // A first dial gets longer (a slow connect is not a dead Mac), but
         // never unbounded: one after a lost link can wait out its whole dial
@@ -266,6 +311,7 @@ extension LinkMachine.Phase {
         switch self {
         case .idle: nil
         case .macOffline: "Offline"
+        case .signedOut: "Signed out"
         case .connecting: "Reconnecting…"
         case .connected: "Connected"
         case .waiting(_, _, let reason, _):
@@ -280,6 +326,7 @@ extension LinkMachine.Phase {
         switch self {
         case .idle: nil
         case .macOffline: "\(macName) is offline"
+        case .signedOut: "This device was signed out (the cmux service refused a fresh token)"
         case .connecting(let transport, let attempt):
             "\(transport.displayName) connecting · attempt \(attempt)"
         case .connected(let transport, let path, let rtt):

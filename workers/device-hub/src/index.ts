@@ -1,6 +1,8 @@
 import { openString, sealString, signEs256, verifyEs256Jws } from "./crypto";
 import { HOST_RELAY_HEADER, ORIGIN_HEADER, SCOPE_HEADER, SESSION_DEVICE_HEADER, STACK_TOKEN_HEADER, STACK_TOKEN_SEAL_INFO, USER_HEADER, type Env } from "./env";
 import { ApiError, badRequest, errorResponse, json, notFound, unauthorized } from "./errors";
+import { DEVICE_ID } from "./deviceAuth";
+import { hubUserFor, recordPlatformAlias, verifyMachineCredential } from "./machine";
 import { STACK_API, allowedStackProjects, verifyStackAccessToken } from "./stack";
 
 // The main module may export only handlers and Durable Object classes.
@@ -45,7 +47,40 @@ async function authStack(request: Request, env: Env): Promise<Response> {
   // derived from SESSION_KEY): the cmux relay check asks cmux billing with it.
   const stk = await sealString(env.SESSION_KEY, STACK_TOKEN_SEAL_INFO, body.token);
   const session = await signEs256(env.SESSION_KEY, { iss: SESSION_ISSUER, sub: userId, iat, exp, stk });
+  // So a machine this person joins can sign in as them later (machine.ts). A failure only
+  // delays that: the next sign-in records it.
+  await recordPlatformAlias(env, projectId, sub).catch(() => undefined);
   return json({ session, userId, stackUserId: sub, projectId, expiresAt: exp * 1000 });
+}
+
+/**
+ * Machine sign-in (PROTOCOL.md, Machine sign-in): a machine the person joined
+ * to cmux signs in with its cmux-platform machine credential, `POST
+ * /v1/auth/machine {credential, deviceId}`. The hub asks cmux-platform whose
+ * it is (machine.ts) and answers a `machine` session for that one device: it
+ * may register it and turn its sharing on or off, and otherwise only what a
+ * host session may. It ends with the credential, at most in an hour, and
+ * carries no Stack token, so it gets no cmux relay. It never anchors, so the
+ * machine renews only by signing in again: cmux-platform is asked each time,
+ * and a revoked credential's last session ends within the hour.
+ */
+async function authMachine(request: Request, env: Env): Promise<Response> {
+  const body = await readJson(request);
+  if (typeof body.credential !== "string" || !body.credential) throw badRequest("credential is required");
+  if (typeof body.deviceId !== "string" || !DEVICE_ID.test(body.deviceId)) throw badRequest("deviceId is required");
+  const now = Date.now();
+  const machine = await verifyMachineCredential(body.credential, env, now);
+  const userId = await hubUserFor(env, machine.projectId, machine.platformUserId);
+  if (!userId) {
+    throw new ApiError(403, "account_not_on_hub", "the person who joined this machine has not signed in to cmux screen sharing yet; sign in once in cmux on a Mac or iPhone, then join again");
+  }
+  const iat = Math.floor(now / 1000);
+  const exp = Math.min(iat + SESSION_TTL_S, Math.floor(machine.expiresAt / 1000));
+  if (exp <= iat) throw unauthorized("machine credential expired");
+  const session = await signEs256(env.SESSION_KEY, { iss: SESSION_ISSUER, sub: userId, iat, exp, scp: "machine", did: body.deviceId, mid: machine.machineId, tid: machine.teamId });
+  // The owner is the person who joined it (`ownerKind: "user"`): same-account is decided from
+  // that authenticated owner, as for any of their devices.
+  return json({ session, userId, scope: "machine", ownerKind: "user", machineId: machine.machineId, teamId: machine.teamId, expiresAt: exp * 1000 });
 }
 
 /** The user ids /v1/auth/stack mints: `<projectId>:<sub>`. */
@@ -85,8 +120,8 @@ async function authDevice(request: Request, env: Env): Promise<Response> {
 interface SessionClaims {
   userId: string;
   stackToken: string | null;
-  /** `host` for a device-key renewal, else `full`. */
-  scope: "full" | "host";
+  /** `host` for a device-key renewal, `machine` for a machine sign-in, else `full`. */
+  scope: "full" | "host" | "machine";
   device: string | null;
   hostRelay: boolean;
 }
@@ -102,6 +137,10 @@ async function requireSession(request: Request, env: Env): Promise<SessionClaims
   if (payload.scp === "host") {
     if (typeof payload.did !== "string" || !payload.did) throw unauthorized("bad session");
     return { userId: payload.sub, stackToken: null, scope: "host", device: payload.did, hostRelay: payload.rel === 1 };
+  }
+  if (payload.scp === "machine") {
+    if (typeof payload.did !== "string" || !payload.did) throw unauthorized("bad session");
+    return { userId: payload.sub, stackToken: null, scope: "machine", device: payload.did, hostRelay: false };
   }
   // Sessions from before the relay check carry no Stack token. They still work
   // (the app's socket would otherwise stay refused until the session ends),
@@ -126,6 +165,10 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (path === "/v1/auth/device") {
     if (request.method !== "POST") throw new ApiError(405, "bad_request", "method not allowed");
     return authDevice(request, env);
+  }
+  if (path === "/v1/auth/machine") {
+    if (request.method !== "POST") throw new ApiError(405, "bad_request", "method not allowed");
+    return authMachine(request, env);
   }
   const ws = SESSION_WS.exec(path);
   if (ws) {

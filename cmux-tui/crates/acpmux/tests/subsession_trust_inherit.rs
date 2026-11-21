@@ -223,6 +223,7 @@ async fn a_full_access_chat_lends_its_folder_trust_to_sub_sessions_under_it() {
         record: root.join("home/trust.json"),
         agent_home: None,
         cmux_worktrees: None,
+        peer_scratch: None,
     };
     hub.set_trust_gate(Some(paths.clone()));
     let decide = |dir: &str, level: &str| {

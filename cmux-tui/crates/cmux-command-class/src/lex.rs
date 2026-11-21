@@ -83,9 +83,9 @@ fn substitutions_in(text: &str) -> Result<Vec<String>, LexError> {
     let mut subs = Vec::new();
     while let Some(c) = lexer.peek() {
         match c {
-            '\\' => lexer.pos += 2,
+            '\\' => lexer.advance(2),
             '$' if lexer.peek_at(1) == Some('(') => {
-                lexer.pos += 2;
+                lexer.advance(2);
                 let inner = lexer.balanced('(', ')')?;
                 // `$((...))` is arithmetic, which runs nothing itself.
                 match arithmetic_body(&inner) {
@@ -94,10 +94,10 @@ fn substitutions_in(text: &str) -> Result<Vec<String>, LexError> {
                 }
             }
             '`' => {
-                lexer.pos += 1;
+                lexer.advance(1);
                 subs.push(lexer.backtick()?);
             }
-            _ => lexer.pos += 1,
+            _ => lexer.advance(1),
         }
     }
     Ok(subs)
@@ -112,11 +112,13 @@ fn arithmetic_body(inner: &str) -> Option<&str> {
     let mut depth = 1usize;
     for (at, c) in body.char_indices() {
         match c {
-            '(' => depth += 1,
+            '(' => depth = depth.saturating_add(1),
             ')' => {
-                depth -= 1;
+                depth = depth.saturating_sub(1);
                 if depth == 0 {
-                    return (at + 1 == body.len()).then(|| body.get(..at)).flatten();
+                    return (at.checked_add(1) == Some(body.len()))
+                        .then(|| body.get(..at))
+                        .flatten();
                 }
             }
             '\'' | '"' | '`' | '\\' => return None,
@@ -154,13 +156,18 @@ impl Lexer {
     }
 
     fn peek_at(&self, offset: usize) -> Option<char> {
-        self.chars.get(self.pos + offset).copied()
+        self.pos.checked_add(offset).and_then(|at| self.chars.get(at)).copied()
     }
 
     fn bump(&mut self) -> Option<char> {
         let c = self.peek()?;
-        self.pos += 1;
+        self.advance(1);
         Some(c)
+    }
+
+    /// Moves `pos` on by `n` chars. It may pass the end, where `peek` sees nothing.
+    fn advance(&mut self, n: usize) {
+        self.pos = self.pos.saturating_add(n);
     }
 
     fn saw_case(&self) -> bool {
@@ -172,49 +179,49 @@ impl Lexer {
     fn run(&mut self) -> Result<(), LexError> {
         while let Some(c) = self.peek() {
             match c {
-                ' ' | '\t' | '\r' => self.pos += 1,
+                ' ' | '\t' | '\r' => self.advance(1),
                 '\n' => {
-                    self.pos += 1;
+                    self.advance(1);
                     self.tokens.push(Token::Separator);
                     self.read_heredocs()?;
                 }
                 '#' => {
                     while self.peek().is_some_and(|c| c != '\n') {
-                        self.pos += 1;
+                        self.advance(1);
                     }
                 }
                 ';' => {
-                    self.pos += 1;
+                    self.advance(1);
                     if matches!(self.peek(), Some(';' | '&')) {
-                        self.pos += 1;
+                        self.advance(1);
                     }
                     self.tokens.push(Token::Separator);
                 }
                 '&' => match self.peek_at(1) {
                     Some('&') => {
-                        self.pos += 2;
+                        self.advance(2);
                         self.tokens.push(Token::Separator);
                     }
                     Some('>') => self.redirect()?,
                     _ => {
-                        self.pos += 1;
+                        self.advance(1);
                         self.tokens.push(Token::Background);
                     }
                 },
                 '|' => {
-                    self.pos += 1;
+                    self.advance(1);
                     if matches!(self.peek(), Some('|' | '&')) {
-                        self.pos += 1;
+                        self.advance(1);
                     }
                     self.tokens.push(Token::Separator);
                 }
                 '(' => {
-                    self.pos += 1;
-                    self.parens += 1;
+                    self.advance(1);
+                    self.parens = self.parens.saturating_add(1);
                     self.tokens.push(Token::Separator);
                 }
                 ')' => {
-                    self.pos += 1;
+                    self.advance(1);
                     match self.parens.checked_sub(1) {
                         Some(open) => self.parens = open,
                         // A case pattern (`a)`) closes nothing; the caller
@@ -254,9 +261,9 @@ impl Lexer {
             .copied()
             .find(|(op, _)| op.chars().enumerate().all(|(i, c)| self.peek_at(i) == Some(c)))
             .ok_or(LexError)?;
-        self.pos += op.chars().count();
+        self.advance(op.chars().count());
         while matches!(self.peek(), Some(' ' | '\t')) {
-            self.pos += 1;
+            self.advance(1);
         }
         if self.peek().is_none_or(is_word_end) {
             return Err(LexError);
@@ -282,11 +289,11 @@ impl Lexer {
             while self.peek().is_some() {
                 let start = self.pos;
                 while self.peek().is_some_and(|c| c != '\n') {
-                    self.pos += 1;
+                    self.advance(1);
                 }
                 let line: String =
                     self.chars.get(start..self.pos).unwrap_or_default().iter().collect();
-                self.pos = (self.pos + 1).min(self.chars.len());
+                self.pos = self.pos.saturating_add(1).min(self.chars.len());
                 let check =
                     if heredoc.strip_tabs { line.trim_start_matches('\t') } else { line.as_str() };
                 if check == heredoc.delimiter {
@@ -311,13 +318,13 @@ impl Lexer {
         while let Some(c) = self.peek() {
             match c {
                 '<' | '>' if self.peek_at(1) == Some('(') => {
-                    self.pos += 2;
+                    self.advance(2);
                     word.subs.push(self.balanced('(', ')')?);
                     word.text.push_str("<(...)");
                 }
                 _ if is_word_end(c) => break,
                 '\'' => {
-                    self.pos += 1;
+                    self.advance(1);
                     word.quoted = true;
                     loop {
                         match self.bump().ok_or(LexError)? {
@@ -327,12 +334,12 @@ impl Lexer {
                     }
                 }
                 '"' => {
-                    self.pos += 1;
+                    self.advance(1);
                     word.quoted = true;
                     self.double_quoted(&mut word)?;
                 }
                 '\\' => {
-                    self.pos += 1;
+                    self.advance(1);
                     match self.bump() {
                         None | Some('\n') => {}
                         Some(ch) => {
@@ -343,12 +350,12 @@ impl Lexer {
                 }
                 '$' => self.dollar(&mut word, false)?,
                 '`' => {
-                    self.pos += 1;
+                    self.advance(1);
                     word.subs.push(self.backtick()?);
                     word.text.push_str("`...`");
                 }
                 _ => {
-                    self.pos += 1;
+                    self.advance(1);
                     word.text.push(c);
                 }
             }
@@ -361,11 +368,11 @@ impl Lexer {
         loop {
             match self.peek().ok_or(LexError)? {
                 '"' => {
-                    self.pos += 1;
+                    self.advance(1);
                     return Ok(());
                 }
                 '\\' => {
-                    self.pos += 1;
+                    self.advance(1);
                     match self.bump().ok_or(LexError)? {
                         '\n' => {}
                         ch @ ('$' | '`' | '"' | '\\') => word.text.push(ch),
@@ -377,12 +384,12 @@ impl Lexer {
                 }
                 '$' => self.dollar(word, true)?,
                 '`' => {
-                    self.pos += 1;
+                    self.advance(1);
                     word.subs.push(self.backtick()?);
                     word.text.push_str("`...`");
                 }
                 ch => {
-                    self.pos += 1;
+                    self.advance(1);
                     word.text.push(ch);
                 }
             }
@@ -393,7 +400,7 @@ impl Lexer {
     fn dollar(&mut self, word: &mut Word, in_double_quotes: bool) -> Result<(), LexError> {
         match self.peek_at(1) {
             Some('(') => {
-                self.pos += 2;
+                self.advance(2);
                 let inner = self.balanced('(', ')')?;
                 match arithmetic_body(&inner) {
                     // `$((...))` is arithmetic; only a substitution inside it runs.
@@ -403,7 +410,7 @@ impl Lexer {
                 word.text.push_str("$(...)");
             }
             Some('{') => {
-                self.pos += 2;
+                self.advance(2);
                 let inner = self.balanced('{', '}')?;
                 word.subs.extend(substitutions_in(&inner)?);
                 word.text.push_str("${");
@@ -412,7 +419,7 @@ impl Lexer {
             }
             Some('\'') if !in_double_quotes => {
                 // `$'...'`: a quoted string with C escapes.
-                self.pos += 2;
+                self.advance(2);
                 word.quoted = true;
                 loop {
                     match self.bump().ok_or(LexError)? {
@@ -427,12 +434,12 @@ impl Lexer {
             }
             Some('"') if !in_double_quotes => {
                 // `$"..."`: a translatable double-quoted string.
-                self.pos += 2;
+                self.advance(2);
                 word.quoted = true;
                 self.double_quoted(word)?;
             }
             _ => {
-                self.pos += 1;
+                self.advance(1);
                 word.text.push('$');
             }
         }
@@ -461,7 +468,7 @@ impl Lexer {
                     inner.push('`');
                 }
                 '<' if self.peek() == Some('<') && self.peek_at(1) != Some('<') => {
-                    self.pos += 1;
+                    self.advance(1);
                     inner.push_str("<<");
                     heredocs.push(self.copy_heredoc_delimiter(&mut inner)?);
                 }
@@ -472,14 +479,14 @@ impl Lexer {
                     }
                 }
                 _ if c == close => {
-                    depth -= 1;
+                    depth = depth.saturating_sub(1);
                     if depth == 0 {
                         return Ok(inner);
                     }
                     inner.push(c);
                 }
                 _ if c == open => {
-                    depth += 1;
+                    depth = depth.saturating_add(1);
                     inner.push(c);
                 }
                 _ => inner.push(c),
@@ -518,16 +525,16 @@ impl Lexer {
     fn copy_heredoc_delimiter(&mut self, inner: &mut String) -> Result<(String, bool), LexError> {
         let strip_tabs = self.peek() == Some('-');
         if strip_tabs {
-            self.pos += 1;
+            self.advance(1);
             inner.push('-');
         }
         while let Some(c @ (' ' | '\t')) = self.peek() {
-            self.pos += 1;
+            self.advance(1);
             inner.push(c);
         }
         let mut delimiter = String::new();
         while let Some(c) = self.peek().filter(|&c| !is_word_end(c)) {
-            self.pos += 1;
+            self.advance(1);
             inner.push(c);
             match c {
                 '\'' | '"' => loop {
@@ -561,7 +568,7 @@ impl Lexer {
         loop {
             let start = self.pos;
             while self.peek().is_some_and(|c| c != '\n') {
-                self.pos += 1;
+                self.advance(1);
             }
             let line: String = self.chars.get(start..self.pos).unwrap_or_default().iter().collect();
             inner.push_str(&line);

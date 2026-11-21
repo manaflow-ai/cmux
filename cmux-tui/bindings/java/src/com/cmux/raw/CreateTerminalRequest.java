@@ -15,6 +15,8 @@ public final class CreateTerminalRequest implements WireValue {
     private final Field<List<String>> argv;
     private final Field<Integer> cols;
     private final Field<String> command;
+    /** Make the workspace first when no workspace has key: a workspace and its first terminal in one request. Needs key and mutation_id, and takes no workspace. */
+    private final Field<Boolean> createWorkspace;
     private final Field<String> cwd;
     private final Field<Boolean> detached;
     private final Field<Map<String, String>> env;
@@ -29,11 +31,14 @@ public final class CreateTerminalRequest implements WireValue {
     private final Field<List<String>> shellArgs;
     private final Field<String> terminalId;
     private final Field<UInt64> workspace;
+    /** The name of the workspace create_workspace makes. */
+    private final Field<String> workspaceName;
 
     private CreateTerminalRequest(Builder builder) {
         this.argv = builder.argv.map(value -> List.copyOf(value));
         this.cols = builder.cols;
         this.command = builder.command;
+        this.createWorkspace = builder.createWorkspace;
         this.cwd = builder.cwd;
         this.detached = builder.detached;
         this.env = builder.env.map(value -> Collections.unmodifiableMap(new LinkedHashMap<>(value)));
@@ -48,6 +53,7 @@ public final class CreateTerminalRequest implements WireValue {
         this.shellArgs = builder.shellArgs.map(value -> List.copyOf(value));
         this.terminalId = builder.terminalId;
         this.workspace = builder.workspace;
+        this.workspaceName = builder.workspaceName;
     }
 
     public static Builder builder() { return new Builder(); }
@@ -55,6 +61,7 @@ public final class CreateTerminalRequest implements WireValue {
     public Field<List<String>> argv() { return argv; }
     public Field<Integer> cols() { return cols; }
     public Field<String> command() { return command; }
+    public Field<Boolean> createWorkspace() { return createWorkspace; }
     public Field<String> cwd() { return cwd; }
     public Field<Boolean> detached() { return detached; }
     public Field<Map<String, String>> env() { return env; }
@@ -69,6 +76,7 @@ public final class CreateTerminalRequest implements WireValue {
     public Field<List<String>> shellArgs() { return shellArgs; }
     public Field<String> terminalId() { return terminalId; }
     public Field<UInt64> workspace() { return workspace; }
+    public Field<String> workspaceName() { return workspaceName; }
 
     public static CreateTerminalRequest fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "CreateTerminalRequest");
@@ -84,6 +92,10 @@ public final class CreateTerminalRequest implements WireValue {
         Object rawCommand = Wire.optional(object, "command");
         if (!Wire.isMissing(rawCommand)) {
             builder.command(rawCommand == null ? null : Wire.string(rawCommand, "CreateTerminalRequest.command"));
+        }
+        Object rawCreateWorkspace = Wire.optional(object, "create_workspace");
+        if (!Wire.isMissing(rawCreateWorkspace)) {
+            builder.createWorkspace(Wire.bool(rawCreateWorkspace, "CreateTerminalRequest.create_workspace"));
         }
         Object rawCwd = Wire.optional(object, "cwd");
         if (!Wire.isMissing(rawCwd)) {
@@ -141,6 +153,10 @@ public final class CreateTerminalRequest implements WireValue {
         if (!Wire.isMissing(rawWorkspace)) {
             builder.workspace(rawWorkspace == null ? null : Wire.uint64(rawWorkspace, "CreateTerminalRequest.workspace"));
         }
+        Object rawWorkspaceName = Wire.optional(object, "workspace_name");
+        if (!Wire.isMissing(rawWorkspaceName)) {
+            builder.workspaceName(rawWorkspaceName == null ? null : Wire.string(rawWorkspaceName, "CreateTerminalRequest.workspace_name"));
+        }
         return builder.build();
     }
 
@@ -150,6 +166,7 @@ public final class CreateTerminalRequest implements WireValue {
         Wire.put(object, "argv", argv);
         Wire.put(object, "cols", cols);
         Wire.put(object, "command", command);
+        Wire.put(object, "create_workspace", createWorkspace);
         Wire.put(object, "cwd", cwd);
         Wire.put(object, "detached", detached);
         Wire.put(object, "env", env);
@@ -164,17 +181,18 @@ public final class CreateTerminalRequest implements WireValue {
         Wire.put(object, "shell_args", shellArgs);
         Wire.put(object, "terminal_id", terminalId);
         Wire.put(object, "workspace", workspace);
+        Wire.put(object, "workspace_name", workspaceName);
         return Collections.unmodifiableMap(object);
     }
 
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof CreateTerminalRequest that)) return false;
-        return Objects.equals(argv, that.argv) && Objects.equals(cols, that.cols) && Objects.equals(command, that.command) && Objects.equals(cwd, that.cwd) && Objects.equals(detached, that.detached) && Objects.equals(env, that.env) && Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedRevision, that.expectedRevision) && Objects.equals(keep, that.keep) && Objects.equals(key, that.key) && Objects.equals(mutationId, that.mutationId) && Objects.equals(name, that.name) && Objects.equals(origin, that.origin) && Objects.equals(rows, that.rows) && Objects.equals(shellArgs, that.shellArgs) && Objects.equals(terminalId, that.terminalId) && Objects.equals(workspace, that.workspace);
+        return Objects.equals(argv, that.argv) && Objects.equals(cols, that.cols) && Objects.equals(command, that.command) && Objects.equals(createWorkspace, that.createWorkspace) && Objects.equals(cwd, that.cwd) && Objects.equals(detached, that.detached) && Objects.equals(env, that.env) && Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedRevision, that.expectedRevision) && Objects.equals(keep, that.keep) && Objects.equals(key, that.key) && Objects.equals(mutationId, that.mutationId) && Objects.equals(name, that.name) && Objects.equals(origin, that.origin) && Objects.equals(rows, that.rows) && Objects.equals(shellArgs, that.shellArgs) && Objects.equals(terminalId, that.terminalId) && Objects.equals(workspace, that.workspace) && Objects.equals(workspaceName, that.workspaceName);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(argv, cols, command, cwd, detached, env, expectedGeneration, expectedRevision, keep, key, mutationId, name, origin, rows, shellArgs, terminalId, workspace); }
+    public int hashCode() { return Objects.hash(argv, cols, command, createWorkspace, cwd, detached, env, expectedGeneration, expectedRevision, keep, key, mutationId, name, origin, rows, shellArgs, terminalId, workspace, workspaceName); }
 
     @Override
     public String toString() { return "CreateTerminalRequest" + toWire(); }
@@ -183,6 +201,7 @@ public final class CreateTerminalRequest implements WireValue {
         private Field<List<String>> argv = Field.omitted();
         private Field<Integer> cols = Field.omitted();
         private Field<String> command = Field.omitted();
+        private Field<Boolean> createWorkspace = Field.omitted();
         private Field<String> cwd = Field.omitted();
         private Field<Boolean> detached = Field.omitted();
         private Field<Map<String, String>> env = Field.omitted();
@@ -197,6 +216,7 @@ public final class CreateTerminalRequest implements WireValue {
         private Field<List<String>> shellArgs = Field.omitted();
         private Field<String> terminalId = Field.omitted();
         private Field<UInt64> workspace = Field.omitted();
+        private Field<String> workspaceName = Field.omitted();
 
         public Builder argv(List<String> value) {
             this.argv = Field.ofNullable(value);
@@ -208,6 +228,10 @@ public final class CreateTerminalRequest implements WireValue {
         }
         public Builder command(String value) {
             this.command = Field.ofNullable(value);
+            return this;
+        }
+        public Builder createWorkspace(Boolean value) {
+            this.createWorkspace = Field.of(value);
             return this;
         }
         public Builder cwd(String value) {
@@ -264,6 +288,10 @@ public final class CreateTerminalRequest implements WireValue {
         }
         public Builder workspace(UInt64 value) {
             this.workspace = Field.ofNullable(value);
+            return this;
+        }
+        public Builder workspaceName(String value) {
+            this.workspaceName = Field.ofNullable(value);
             return this;
         }
         public CreateTerminalRequest build() { return new CreateTerminalRequest(this); }

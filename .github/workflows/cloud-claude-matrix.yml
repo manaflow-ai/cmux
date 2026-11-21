@@ -50,6 +50,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Cloud chat matrix (Claude, production)
         timeout-minutes: 70
         env:
@@ -72,4 +73,4 @@ jobs:
           name: cloud-claude-matrix
           path: ${{ runner.temp }}/cloud-claude-matrix
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 3

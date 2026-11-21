@@ -182,10 +182,10 @@ impl State {
         if let Some(pg) =
             self.pgid.filter(|_| self.leader_alive.load(std::sync::atomic::Ordering::SeqCst))
         {
-            self.under = blocking_or_inline(TREE_READ_WAIT, || {
-                super::super::tree::descendants(&[std::process::id()])
-            })
-            .await;
+            let roots = self.under_roots();
+            self.under =
+                blocking_or_inline(TREE_READ_WAIT, move || super::super::tree::descendants(&roots))
+                    .await;
             // SAFETY: the harness leads this process group.
             unsafe { libc::killpg(pg, libc::SIGTERM) };
             let alive = self.leader_alive.clone();
@@ -342,7 +342,7 @@ impl State {
                 let (events, generation) = (events.clone(), self.orphan.generation);
                 // task-owner: one census, bounded by its own budget (`hub/idle_census.rs`).
                 tokio::spawn(async move {
-                    let clear = crate::hub::host_census(pid, exit, given).await;
+                    let clear = crate::sidecar_census::host_census(pid, exit, given).await;
                     let _ = events.send(Event::Orphan(generation, Some(clear))).await;
                 });
             }

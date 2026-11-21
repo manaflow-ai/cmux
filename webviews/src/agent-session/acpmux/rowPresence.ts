@@ -8,10 +8,11 @@
 // search typed) is no data change: its rows replace the old ones at once, as filtering always did.
 import { useEffect, useState } from "react";
 import { isAgentMotionOff } from "../shared/motion";
+import { MOTION_MS } from "../../motion/scale.generated";
 
 /// How long a leaving row stays in the list: the menu row motion's length (`--agent-motion-move`,
 /// cmux-motion standard), read from the page when it can be.
-const LEAVE_FALLBACK_MS = 180;
+const LEAVE_FALLBACK_MS = MOTION_MS.standard;
 
 /// `swap`: the row stays and only its words change (Cloud to Sign in for Cloud); they fade in.
 export type RowMotion = "enter" | "leave" | "swap";

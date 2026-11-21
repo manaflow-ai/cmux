@@ -3,12 +3,9 @@ import CmuxNextDaemon
 import CmuxNextWorkspaceRepair
 import Foundation
 
-/// Creates a workspace and its first terminal with two daemon requests
-/// (create-workspace, then create-terminal), and never leaves a
-/// half-created workspace: when a step fails (a timed-out create may still
-/// commit later, cx-tzlqb; not a refused one), the key is closed. The
-/// daemon's single atomic `workspace.create` cannot take a caller key, cwd,
-/// env, terminal id or keep yet (plans: the workspace.create extension).
+/// Creates a workspace and its first terminal: one request (`create-terminal-workspace-v1`), or two on an older daemon
+/// (create-workspace, then create-terminal). It never leaves a half-created workspace: when a step fails (a timed-out
+/// create may still commit later, cx-tzlqb; not a refused one), the key is closed.
 enum WorkspaceCreation {
     /// Closes a workspace whose first terminal failed; when the close fails
     /// too, `repair` releases it (it stays, empty, with the terminal error).
@@ -31,15 +28,15 @@ enum WorkspaceCreation {
         _ key: WorkspaceKey,
         name: String?,
         on connection: DaemonConnection,
-        repair: EmptyWorkspaceRepair,
+        repair: EmptyWorkspaceRepair, terminalFirst: Bool = true, // false: `terminal` needs the workspace before its terminal
         terminal: (WorkspaceKey) async throws -> T
     ) async throws -> T {
-        // A workspace with a terminal is a new terminal (Cmd-N, R3): its create waits through late replies under its
-        // mutation id, so only the daemon's answer or the connection's end can take it back, never a clock. The first
-        // terminal is the caller's (`createTerminalWaitingForStart`); a later step of `terminal` is the caller's own work.
-        try await repair.populating(key) {
+        // A workspace with a terminal is a new terminal (Cmd-N, R3): its create waits through late replies under its mutation id, so only the daemon's answer or the
+        // connection's end can take it back, never a clock. The first terminal is the caller's (`createTerminalWaitingForStart`); a later step of `terminal` is the caller's own work.
+        let one = terminalFirst ? await connection.makesWorkspace(with: NewTerminalWorkspace(key: key, name: name)) : false // one request
+        return try await repair.populating(key) {
             try await repair.withTerminal(
-                key, createWorkspace: { _ = try await connection.createWorkspaceWaitingForReply(name: name, key: key) },
+                key, createWorkspace: { if !one { _ = try await connection.createWorkspaceWaitingForReply(name: name, key: key) } },
                 createTerminal: terminal,
                 closeWorkspace: { try await closeHalfCreated($0, on: connection, repair: repair) }
             )

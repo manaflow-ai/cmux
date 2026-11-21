@@ -98,6 +98,7 @@ pub(crate) fn project_layout_columns(columns: &mut Vec<LayoutColumn>) -> ColumnP
             ratio,
             a: Box::new(root),
             b: Box::new(column.root.clone()),
+            divider_hidden: false,
         };
         viewport_splits.insert(column.id, column.width);
         width_before += column.width;
@@ -357,6 +358,11 @@ pub(crate) enum LayoutMutationKey {
     /// `set-column-dock` changes with one connection's transaction. Kept
     /// apart from resizes so a reused transaction id never merges the two.
     ColumnDock {
+        owner: LayoutResizeOwner,
+        transaction: u64,
+    },
+    /// `float-pane` changes with one connection's transaction: the frames of one drag are one undo entry.
+    FloatingPane {
         owner: LayoutResizeOwner,
         transaction: u64,
     },

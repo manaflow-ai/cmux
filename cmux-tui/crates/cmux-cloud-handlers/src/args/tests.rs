@@ -207,12 +207,12 @@ fn a_machine_workspace_flag_needs_its_id() {
 #[test]
 fn an_id_argument_names_what_is_missing() {
     assert_eq!(
-        id_argument(&args(json!({"path": " net-1 "})), "networkIDRequired"),
-        Ok("net-1".into())
+        id_argument(&args(json!({"path": " pub-1 "})), "publicationRequired"),
+        Ok("pub-1".into())
     );
     assert_eq!(
-        id_argument(&args(json!({"path": ""})), "ruleIDRequired"),
-        Err(Said::key("ruleIDRequired"))
+        id_argument(&args(json!({"path": ""})), "publicationRequired"),
+        Err(Said::key("publicationRequired"))
     );
 }
 
@@ -282,26 +282,6 @@ fn provision_api_takes_a_port_and_an_optional_key_name() {
         Ok(ProvisionAPI { port: 8080, name: Some("ci".into()) })
     );
     assert_eq!(provision_api(&args(json!({}))), Err(Said::key("invalidPort")));
-}
-
-#[test]
-fn a_firewall_rule_is_a_json_object() {
-    let rule = firewall_rule(&args(
-        json!({"path": r#"{"source":{"cidr":"10.0.0.0/8"},"description":"lan"}"#}),
-    ))
-    .unwrap();
-    assert_eq!(rule.source, json!({"cidr": "10.0.0.0/8"}));
-    assert_eq!(rule.destination, json!({}));
-    assert_eq!(rule.description.as_deref(), Some("lan"));
-    for bad in [
-        json!("[1]"),
-        json!("not json"),
-        json!(true),
-        json!(r#"{"source":"bad"}"#),
-        json!(r#"{"destination":[1]}"#),
-    ] {
-        assert_eq!(firewall_rule(&args(json!({"path": bad}))), Err(Said::key("ruleJSONRequired")));
-    }
 }
 
 #[test]

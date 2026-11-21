@@ -68,6 +68,27 @@ import Testing
         #expect(items.last?.value == "gemini" && items.last?.title == "Gemini CLI")
     }
 
+    @MainActor @Test func theNewChiefSheetHandsTheChosenBackendToItsCreate() async throws {
+        let sheet = HomeNewChiefSheet()
+        _ = sheet.view
+        #expect(sheet.chosenBackend == .claude)
+        #expect(sheet.backendHint.isHidden)
+        let (asked, ask) = AsyncStream<(String, ChiefBackend)>.makeStream()
+        sheet.onCreate = { name, backend in
+            ask.yield((name, backend))
+            return .offline
+        }
+        sheet.name.stringValue = "  Scout "
+        let index = try #require(sheet.backend.itemArray.firstIndex { $0.representedObject as? String == "unii" })
+        sheet.backend.selectItem(at: index)
+        #expect(sheet.chosenBackend == .unii)
+        sheet.submit()
+        var iterator = asked.makeAsyncIterator()
+        let request = try #require(await iterator.next())
+        #expect(request.0 == "Scout")
+        #expect(request.1 == .unii)
+    }
+
     @Test func aUniiChatChiefIsMadeOnTheLocalOwnerWithHarnessUnii() async throws {
         let calls = Calls()
         let me = ConversationParticipant(id: "user_local", kind: .human, displayName: "Me")

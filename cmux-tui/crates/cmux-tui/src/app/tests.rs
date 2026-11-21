@@ -10,6 +10,7 @@ mod deferred_input;
 mod docked_workspaces;
 mod graphics_pointer;
 mod host_input;
+mod idle_wait;
 mod machine_sidebar;
 mod menus_browser;
 mod mux_recovery;
@@ -24,6 +25,7 @@ mod session_notices;
 mod shortcuts_menus;
 mod sidebar_agent_status;
 mod surface_attach;
+mod synchronized_output_draw;
 mod tab_close_selection;
 mod tab_titles;
 mod viewport_history;
@@ -606,6 +608,7 @@ fn test_app_with_events(session: Session) -> (App, Receiver<AppEvent>) {
         tree: TreeView::default(),
         tab_locations: HashMap::new(),
         render_states: HashMap::<u64, RenderState>::new(),
+        synchronized_output: Default::default(),
         chrome_row_scratch: crate::ui::ReusableRowBuffer::default(),
         sidebar_kind_scratch: Vec::new(),
         rendered_terminal_sizes: HashMap::new(),

@@ -12,6 +12,8 @@
 
 pub mod automation_input;
 pub mod cdp;
+#[cfg(unix)]
+pub mod cli;
 pub mod cookie_backups;
 pub mod driver;
 mod egress_devtools;
@@ -33,6 +35,8 @@ pub mod headless_configure;
 pub mod headless_linger;
 #[cfg(unix)]
 mod headless_policy;
+#[cfg(unix)]
+mod headless_relaunch;
 #[cfg(unix)]
 pub mod headless_routes;
 #[cfg(unix)]
