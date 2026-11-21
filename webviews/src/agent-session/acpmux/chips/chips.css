@@ -376,6 +376,21 @@
   max-width: 100%;
   max-height: 100%;
 }
+/* A video whose size the host already read (VideoViewer `size`): its final box from the first frame,
+ * the size it would take once its metadata loads (its own size, shrunk to fit the stage), instead of
+ * WebKit's 300 × 150 until then. The stage is its own size container, so the fit needs no measuring. */
+.cv-media-stage[data-sized] {
+  container-type: size;
+}
+.cv-media-stage[data-sized] video {
+  width: min(
+    calc(var(--cv-media-w) * 1px),
+    100cqw,
+    calc(100cqh * var(--cv-media-w) / var(--cv-media-h))
+  );
+  height: auto;
+  aspect-ratio: var(--cv-media-w) / var(--cv-media-h);
+}
 /* Web media before it loads (RemoteMedia): its site and Load, like a web image's placeholder. */
 .cv-media.is-remote {
   flex-direction: row;

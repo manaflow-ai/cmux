@@ -531,6 +531,49 @@ impl Hub {
             && self.start_level(agent).await.0 == DefaultMode::FullAccess
     }
 
+    /// Whether a plain new chat of Claude Code profile `agent` (no folder profile, a profile that
+    /// does not pin its mode) may start in `mode` without the person because it is Claude Code's own
+    /// mode (`claude_stdio::OWN_MODE`, Auto) and the person's start level covers it: full access or
+    /// the harness's own (`standard`), as `may_move_without_person` lets a running chat move to it.
+    /// Auto asks less than Manual and more than full access. The start gate grants a request that
+    /// names it (`start_gate.rs` `names_start_level`; a Cloud start the person picked Auto for,
+    /// Lawrence 2026-11-20: "we need to support auto mode for cloud mode for claude harness"); the
+    /// started session is checked again with `may_move_without_person`.
+    pub(super) async fn plain_own_start_is(
+        &self,
+        agent: &str,
+        profile: &HarnessProfile,
+        folder: bool,
+        mode: &str,
+    ) -> bool {
+        if folder || profile_sets_mode(profile) || mode != crate::claude_stdio::OWN_MODE {
+            return false;
+        }
+        let ids: Vec<String> =
+            self.known_modes(agent, profile).into_iter().map(|(id, _)| id).collect();
+        let claude = crate::config::derive_family(agent, profile) == "claude"
+            || crate::claude_stdio::MODES.iter().all(|(id, ..)| ids.iter().any(|m| m == id));
+        claude
+            && ids.iter().any(|m| m == mode)
+            && matches!(
+                self.start_level(agent).await.0,
+                DefaultMode::FullAccess | DefaultMode::Standard
+            )
+    }
+
+    /// `plain_own_start_is` for a chat that started: Claude Code's own mode, which the chat may
+    /// move to without the person (`may_move_without_person`), and the argv it started with does
+    /// not pin its mode.
+    pub(super) async fn plain_own_session_is(
+        &self,
+        meta: &crate::store::SessionMeta,
+        mode: &str,
+    ) -> bool {
+        mode == crate::claude_stdio::OWN_MODE
+            && !argv_sets_mode(&meta.harness_argv)
+            && self.may_move_without_person(meta, mode).await
+    }
+
     /// `plain_start_is` for a chat that started: the mode is the full-access one it offers and
     /// its profile's chats start in (`is_start_full_access`), and the argv it started with does
     /// not pin its mode.

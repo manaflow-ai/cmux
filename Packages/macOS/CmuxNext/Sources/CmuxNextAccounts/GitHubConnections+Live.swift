@@ -42,7 +42,10 @@ extension GitHubConnections {
         model.completionLink = CloudGitHubCompletion.link(scheme: auth.configuration.callbackScheme)
         // The app finished an install GitHub handed back to it: the card reads its connections again.
         model.changes = Task { [weak model] in
-            for await _ in ObservationStream({ auth.gitHubChanges.count }).dropFirst() { await model?.perform("githubRefresh") }
+            for await _ in ObservationStream({ auth.gitHubChanges.count }).dropFirst() {
+                model?.linkRefusal = auth.gitHubChanges.refusal.map { GitHubConnections.refusalWords(reason: $0.reason) }
+                await model?.perform("githubRefresh")
+            }
         }
         model.reconfigurePage = { bound in
             // The status route names the connected installation's settings page for the scope's team (the personal
