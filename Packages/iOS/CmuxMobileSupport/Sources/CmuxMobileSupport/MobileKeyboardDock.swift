@@ -79,7 +79,7 @@ public final class MobileKeyboardDock: NSObject {
         keyboard.subscribe(self) { [weak self] _, change in
             guard let self else { return }
             switch change {
-            case .willChangeFrame: self.follow()
+            case .willChangeFrame, .reconciledHidden: self.follow()
             case .didChangeFrame: self.keyboardDidChangeFrame()
             }
         }
