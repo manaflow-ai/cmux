@@ -28,7 +28,7 @@
   ],
   "workflows": {
     ".github/workflows/cmux-tui-spec.yml": {
-      "inputs": [".github/workflows/cmux-tui-spec.yml"],
+      "inputs": [".github/workflows/cmux-tui-spec.yml", ".github/actions/tree-result/"],
       "jobs": {
         "acpmux-tests": {
           "name": "acpmux tests (lib, hub_integration)",
@@ -63,7 +63,7 @@
       }
     },
     ".github/workflows/cmux-tui-windows-check.yml": {
-      "inputs": [".github/workflows/cmux-tui-windows-check.yml"],
+      "inputs": [".github/workflows/cmux-tui-windows-check.yml", ".github/actions/tree-result/"],
       "jobs": {
         "windows-gnu-check": {
           "name": "cargo check (x86_64-pc-windows-gnu)",
@@ -77,7 +77,7 @@
       }
     },
     ".github/workflows/cmux-tui-sdks.yml": {
-      "inputs": [".github/workflows/cmux-tui-sdks.yml"],
+      "inputs": [".github/workflows/cmux-tui-sdks.yml", ".github/actions/tree-result/"],
       "jobs": {
         "conformance": {
           "name": "seven-language live conformance",
