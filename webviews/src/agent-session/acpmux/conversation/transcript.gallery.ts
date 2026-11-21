@@ -3329,8 +3329,7 @@ export default agentPaneEntry({
         summary(5.5, { status: "completed" }),
         user("Why does the dashboard look like this on the staging build?", 1, {
           failed: true,
-          error:
-            "Not sent: this message is too large to send at once. Take out dashboard-recording.png with Edit, or send it in a message of its own.",
+          error: "Not sent: too large. Remove dashboard-recording.png with Edit, or send it separately.",
           delivery: {
             state: "failed",
             promptId: "p1",
