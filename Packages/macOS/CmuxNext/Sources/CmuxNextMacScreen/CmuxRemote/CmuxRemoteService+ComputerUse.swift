@@ -118,7 +118,8 @@ public struct CmuxRemoteComputerUsePolicy: Equatable, Sendable {
 
     /// The `computer-use-config` object: the PolicyConfig plus `cursorMotion` (the engine ignores
     /// keys it does not know; cmux Remote's worker reads it for the cursor).
-    var config: CmuxNextDaemon.JSONValue? {
+    /// Decoded off the main actor.
+    @concurrent nonisolated static func config(policy: Data, cursorAnimates: Bool, cursorSpeed: Double) async -> CmuxNextDaemon.JSONValue? {
         guard let object = try? JSONDecoder().decode(CmuxNextDaemon.JSONValue.self, from: policy),
               case .object(var fields) = object else { return nil }
         fields["cursorMotion"] = .object(["enabled": .bool(cursorAnimates), "speed": .number(cursorSpeed)])
@@ -131,11 +132,12 @@ extension CmuxRemoteService {
     /// Returns whether the daemon took it.
     @discardableResult
     public func applyComputerUse(_ policy: CmuxRemoteComputerUsePolicy) async -> Bool {
-        guard let config = policy.config else { return false }
+        guard let config = await CmuxRemoteComputerUsePolicy.config(policy: policy.policy, cursorAnimates: policy.cursorAnimates,
+                                                                    cursorSpeed: policy.cursorSpeed) else { return false }
         do {
             // The daemon checks the policy and hands it to cmux Remote (the verified app's only).
             let answer = try await daemonRequest(ComputerUseConfigRequest(config: config))
-            computerUse.take(host: Self.object(answer))
+            computerUse.take(host: await Self.object(answer))
             return true
         } catch {
             computerUseLogger.notice("cmux Remote Computer Use config refused: \(String(describing: error), privacy: .public)")
@@ -168,7 +170,7 @@ extension CmuxRemoteService {
     /// cmux Remote's fresh host status (`refresh`: a new probe of its grants), or nil.
     public func computerUseStatus() async -> [String: Any]? {
         guard started, let answer = try? await call("refresh") else { return nil }
-        let host = Self.object(answer)
+        let host = await Self.object(answer)
         computerUse.take(host: host)
         if computerUse.workerState == "ready" { await refreshComputerUseApprovals() }
         return host
@@ -183,7 +185,7 @@ extension CmuxRemoteService {
     /// Reads the saved approvals into ``computerUse`` (nothing when the worker does not run).
     public func refreshComputerUseApprovals() async {
         guard started, let answer = try? await daemonRequest(ComputerUseApprovalsRequest(action: "list")) else { return }
-        computerUse.take(approvals: Self.object(answer))
+        computerUse.take(approvals: await Self.object(answer))
     }
 
     /// Forgets `appID`'s saved answer, or saves `decision` ("always" or "never") for it, then reads the list again.
@@ -215,7 +217,7 @@ extension CmuxRemoteService {
     public func computerUseSession(_ action: ComputerUseSessionAction, session: String, label: String? = nil) async throws -> [String: Any] {
         var params: [String: CmuxNextDaemon.JSONValue] = ["action": .string(action.rawValue), "session": .string(session)]
         if let label { params["label"] = .string(label) }
-        let answer = Self.object(try await call("computer_use.session", .object(params))) ?? [:]
+        let answer = await Self.object(try await call("computer_use.session", .object(params))) ?? [:]
         switch action {
         case .stop: computerUse.mark(session, stopped: true)
         case .resume: computerUse.mark(session, stopped: false)
@@ -241,7 +243,8 @@ extension CmuxRemoteService {
         _ = try? await call("request", .object(["permission": .string(permission)]))
     }
 
-    static func object(_ value: CmuxNextDaemon.JSONValue) -> [String: Any]? {
+    /// A daemon answer as Foundation objects, converted off the main actor.
+    @concurrent nonisolated static func object(_ value: CmuxNextDaemon.JSONValue) async -> sending [String: Any]? {
         guard let data = try? JSONEncoder().encode(value) else { return nil }
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }
