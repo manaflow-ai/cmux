@@ -70,9 +70,9 @@ import {
 } from "../../../../services/billing/teamBillingAccess";
 import { teamPortalSession } from "../../../../services/billing/teamPortal";
 import {
-  NEXT_MAX_PLAN_ID,
   isNextPlanId,
   nextPlanPriceId,
+  nextPlanRank,
   type NextPlanId,
 } from "../../../../services/billing/nextPlans";
 import { activeNextPlanForUser } from "../../../../services/billing/nextPlanBilling";
@@ -476,7 +476,7 @@ async function stripeNextPlanCheckout(
     captureCheckoutAuthenticated(request, user.id, plan, attribution);
 
     const activeNextPlan = await activeNextPlanForUser(cloudDb(), stackUserId);
-    if (activeNextPlan === plan || activeNextPlan === NEXT_MAX_PLAN_ID) {
+    if (activeNextPlan && nextPlanRank(activeNextPlan) >= nextPlanRank(plan)) {
       captureCheckoutDecision(user.id, plan, activeNextPlan, "already_active", attribution, interval);
       return NextResponse.redirect(new URL("/dashboard/billing?welcome=active", requestOrigin(request)));
     }
