@@ -136,6 +136,8 @@ mod successor_harness;
 mod surfaces;
 #[path = "hub_integration/tags_rules.rs"]
 mod tags_rules;
+#[path = "hub_integration/task_list.rs"]
+mod task_list;
 #[path = "hub_integration/tasks.rs"]
 mod tasks;
 #[path = "hub_integration/xai_requests.rs"]
@@ -900,6 +902,22 @@ async fn session_search_finds_prompts_and_replies_newest_first() {
         .unwrap();
     assert_eq!(r["hits"][0]["snippet"], "a QUOTA for the broker again", "{r}");
     assert_eq!(r["hits"].as_array().unwrap().len(), 1, "{r}");
+    let all = c
+        .request(
+            method::MUX_SESSION_SEARCH,
+            json!({
+                "allSessions": true, "query": "quota broker", "limit": 2
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(all["incomplete"], json!([]));
+    assert_eq!(all["hits"].as_array().unwrap().len(), 2);
+    assert_eq!(all["hits"][0]["session"], "finder");
+    assert_eq!(all["hits"][0]["sessionId"], id);
+    assert!(all["hits"][0]["host"].as_str().is_some_and(|host| !host.is_empty()));
+    assert!(all["hits"][0]["turnTime"].as_str().is_some_and(|time| time.ends_with('Z')));
+    assert_eq!(all["hits"][0]["turnTime"], all["hits"][1]["turnTime"]);
     for params in
         [json!({"sessionId": id, "query": " "}), json!({"sessionId": "nobody", "query": "x"})]
     {

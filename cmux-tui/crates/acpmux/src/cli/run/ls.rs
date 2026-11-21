@@ -26,7 +26,7 @@ use crate::rpc::method;
 /// `acpmux ls`'s flags (`cli/command.rs` `Command::Ls`).
 #[derive(clap::Args, Debug, Clone)]
 pub struct LsArgs {
-    /// Only sessions whose name matches one of these (a glob: `*`, `?`; `host/glob` for one
+    /// Only sessions whose handle, ID, or name matches (a name glob: `*`, `?`; `host/glob` for one
     /// peer's), or with this session id (bare, or a peer's `host/id`).
     #[arg(value_name = "PATTERN")]
     patterns: Vec<String>,
@@ -519,7 +519,10 @@ pub(crate) fn scope_line(rows: &[Value]) -> Option<String> {
 fn outbox_line(status: &Value) -> Option<String> {
     let n = status.get("outboxPending").and_then(Value::as_u64).filter(|n| *n > 0)?;
     let s = if n == 1 { "" } else { "s" };
-    Some(format!("{n} message{s} queued here, not delivered yet (acpmux send --status)"))
+    Some(format!(
+        "{n} message{s} queued here, not delivered yet ({} send --status)",
+        crate::cli::entry::program()
+    ))
 }
 
 #[cfg(test)]
