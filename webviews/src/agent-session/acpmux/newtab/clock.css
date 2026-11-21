@@ -10,6 +10,8 @@
   gap: 0;
   padding-bottom: var(--ds-space-4);
   color: var(--agent-text);
+  /* The em base of the time's display size (.nt-clock-time): the heading token, so it follows the type scale. */
+  font-size: var(--text-heading);
   user-select: none;
   -webkit-user-select: none;
   font-variant-numeric: tabular-nums;
@@ -22,7 +24,8 @@
   opacity: 0.86;
 }
 .nt-clock-time {
-  font-size: calc(clamp(56px, 13cqi, 112px) * var(--cmux-interface-scale, 1));
+  /* 2.8em-5.6em of the heading token (56-112px at scale 1), 13% of the pane between. */
+  font-size: clamp(2.8em, calc(13cqi * var(--cmux-interface-scale, 1)), 5.6em);
   line-height: 1;
   letter-spacing: -0.02em;
   font-weight: var(--nt-clock-weight, 600);
