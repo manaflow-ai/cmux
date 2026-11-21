@@ -1,0 +1,16 @@
+{
+  "caption": "Hold Option over a part of the window to see what changes it: the sidebar, a tab, the tab bar.",
+  "frameInterval": 0.25,
+  "settings": {"customize": {"fromTheApp": true}},
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "New workspace app", "cmux": ["workspace", "new", "--name", "app"], "wait": 1.5},
+    {"title": "Open app", "cmux": ["workspace", "name:app", "focus"], "wait": 1.5},
+    {"title": "Hold Option", "rpc": {"method": "debug.shortcut_hints", "params": {"modifier": "opt"}}, "wait": 0.6, "optional": "debug.shortcut_hints is DEBUG only"},
+    {"title": "Option over the sidebar", "rpc": {"method": "debug.mouse", "params": {"action": "move", "x": 80, "y": 260, "modifiers": ["option"]}}, "wait": 1.2, "clip": true, "optional": "debug.mouse is DEBUG only"},
+    {"title": "Option over a tab", "rpc": {"method": "debug.mouse", "params": {"action": "move", "x": 330, "y": 52, "modifiers": ["option"]}}, "wait": 1.2, "clip": true, "optional": "debug.mouse is DEBUG only"},
+    {"title": "Option over the tab bar", "rpc": {"method": "debug.mouse", "params": {"action": "move", "x": 900, "y": 52, "modifiers": ["option"]}}, "wait": 1.2, "clip": true, "optional": "debug.mouse is DEBUG only"},
+    {"title": "End", "wait": 0.3}
+  ],
+  "crop": [0, 0, 0.75, 0.6]
+}

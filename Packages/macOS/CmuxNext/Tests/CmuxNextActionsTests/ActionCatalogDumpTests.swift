@@ -139,6 +139,10 @@ import Testing
             "legacy_aliases": encode(catalog.legacyAliases),
             "categories": categories,
             "menu_folders": folders,
+            "customize_elements": catalog.customizeElements.map { element in
+                ["id": element.id, "title": element.title, "surface": element.surface, "menus": element.menus,
+                 "settings": element.settings, "tokens": element.tokens] as [String: Any]
+            },
             "key_binding_defaults": bindings,
             "palette": palette,
         ]

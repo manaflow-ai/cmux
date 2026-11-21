@@ -29,9 +29,7 @@ final class TitlebarToolbarBand: NSView {
         }
     }
     /// Where the icon choice is read (tests pass their own store).
-    var iconStore: TunableStore = .shared {
-        didSet { followIcon() }
-    }
+    var iconStore: TunableStore = .shared { didSet { followIcon() } }
     /// The sidebar state the toggle's glyph shows.
     private(set) var showsSidebarHidden = false
     /// Where the sliding glyph's bar is (`SidebarToggleIcon.slides`): 0 at its sidebar-shown form, 1 at its hidden form.
@@ -55,6 +53,7 @@ final class TitlebarToolbarBand: NSView {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
+        identifier = CustomizeElementHit.identifier("titlebar") // the Customize Inspector's title bar
         sidebarToggle.customImage = SidebarToggleIcon.image(named:pointSize:) // its candidate glyphs
         TitlebarBandButton.styleTopRow(toggle: sidebarToggle, back: backButton, forward: forwardButton) // one glyph height
         sidebarToggle.target = self

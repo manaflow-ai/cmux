@@ -1,0 +1,86 @@
+<!doctype html>
+<!-- The Customize Inspector: hold Option over the window, see what customizes the part under the pointer.
+     Leo, 2026-11-14: "the ergonomics need to be real good like just ultra braindead".
+     References (cmux-design-references ntapp-refs): an embedded browser's design mode (outlined elements
+     with a small request box beside them), an editor's inspection popover (help appears next to the
+     object, no move to chat), a sidebar row's hover card. Spec: design/customize-inspector.md.
+     Open in a browser; each card is one window with the pointer over its tab bar. -->
+<html lang="en">
+<meta charset="utf-8">
+<title>Customize Inspector</title>
+<style>
+  :root { --bg:#1e1e20; --side:#232326; --strip:#29292c; --line:#3a3a3e; --raised:#2c2c30; --text:#e6e6e8; --sec:#9a9aa0; --accent:#d9822b; }
+  body { margin:24px; background:#111; color:var(--text); font:13px -apple-system, system-ui, sans-serif; }
+  h1 { font-size:16px; font-weight:600; }
+  .grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:24px; }
+  figure { margin:0; }
+  figcaption { color:var(--sec); margin-top:8px; line-height:1.4; }
+  figcaption b { color:var(--text); }
+  .win { height:300px; border-radius:10px; overflow:hidden; position:relative; background:var(--bg); border:1px solid var(--line); display:grid; grid-template-columns:120px 1fr; }
+  .side { background:var(--side); border-right:1px solid var(--line); padding:34px 8px 8px; }
+  .side div { height:22px; border-radius:5px; margin-bottom:4px; background:#ffffff08; }
+  .main { position:relative; }
+  .strip { height:30px; background:var(--strip); border-bottom:1px solid var(--line); display:flex; gap:4px; padding:4px 8px; box-sizing:border-box; }
+  .tab { width:90px; border-radius:6px; background:#ffffff10; font-size:11px; line-height:22px; padding-left:8px; color:var(--sec); }
+  .tab.on { background:#ffffff1c; color:var(--text); }
+  .outline { position:absolute; left:0; right:0; top:0; height:30px; outline:2px solid var(--accent); outline-offset:-2px; background:#d9822b14; border-radius:6px; }
+  .card { position:absolute; background:var(--raised); border:1px solid var(--line); border-radius:10px; padding:10px 12px; width:200px; box-shadow:0 8px 24px #0008; }
+  .card b { display:block; font-size:13px; margin-bottom:6px; }
+  .card .k { font:11px ui-monospace, Menlo, monospace; color:var(--sec); line-height:16px; }
+  .card .t { font-size:11px; color:var(--sec); margin-top:6px; }
+  .sw { display:inline-block; width:10px; height:10px; border-radius:3px; vertical-align:-1px; margin-right:3px; border:1px solid #ffffff30; }
+  .btns { display:flex; gap:6px; margin-top:10px; justify-content:flex-end; }
+  .btn { border:1px solid var(--line); border-radius:6px; padding:3px 10px; font-size:12px; }
+  .btn.primary { background:var(--accent); border-color:var(--accent); color:#1b1b1b; font-weight:600; }
+  .chip { position:absolute; left:6px; top:-11px; background:var(--accent); color:#1b1b1b; font:600 11px -apple-system, system-ui, sans-serif; padding:1px 7px; border-radius:999px; }
+  .dock { position:absolute; right:8px; bottom:8px; }
+  .pick { outline:2px solid var(--accent); outline-offset:6px; border-radius:10px; }
+</style>
+<h1>Customize Inspector: three variants (A picked)</h1>
+<div class="grid">
+
+<figure>
+  <div class="win pick">
+    <div class="side"><div></div><div></div><div></div><div></div></div>
+    <div class="main">
+      <div class="strip"><div class="tab on">Terminal</div><div class="tab">Chat</div></div>
+      <div class="outline"></div>
+      <div class="card" style="left:40px; top:40px">
+        <b>Tab Bar</b>
+        <div class="k">tabs.barPosition<br>tabs.barOrder<br>tabs.verticalTabs<br>tabs.overflow<br>+5</div>
+        <div class="t"><span class="sw" style="background:#29292c"></span>stripBackground · <span class="sw" style="background:#3a3a3e"></span>separator</div>
+        <div class="btns"><span class="btn">Reset</span><span class="btn primary">Change This…</span></div>
+      </div>
+    </div>
+  </div>
+  <figcaption><b>A. Outline and a card beside it.</b> The part is outlined, the card opens next to it with its name, its settings and colors, and the two buttons. Like the design-mode and inspection-popover references: the help sits by the object. Picked: one look tells what the part is and what changes it, and Change This… is one click away.</figcaption>
+</figure>
+
+<figure>
+  <div class="win">
+    <div class="side"><div></div><div></div><div></div><div></div></div>
+    <div class="main">
+      <div class="strip"><div class="tab on">Terminal</div><div class="tab">Chat</div></div>
+      <div class="outline"><span class="chip">Tab Bar</span></div>
+    </div>
+  </div>
+  <figcaption><b>B. Outline and a name chip only.</b> Quietest: only the part's name rides on the outline; the card waits for a click on the chip. Reads fast while sweeping the window, but the settings and the buttons cost a second step.</figcaption>
+</figure>
+
+<figure>
+  <div class="win">
+    <div class="side"><div></div><div></div><div></div><div></div></div>
+    <div class="main">
+      <div class="strip"><div class="tab on">Terminal</div><div class="tab">Chat</div></div>
+      <div class="outline"></div>
+      <div class="card dock">
+        <b>Tab Bar</b>
+        <div class="k">tabs.barPosition · tabs.barOrder · +7</div>
+        <div class="btns"><span class="btn">Reset</span><span class="btn primary">Change This…</span></div>
+      </div>
+    </div>
+  </div>
+  <figcaption><b>C. A card docked in the corner.</b> Like a developer-tools inspector panel: the card stays in one place while the outline moves. Never covers the part, but the eye has to travel from the outline to the corner each time.</figcaption>
+</figure>
+
+</div>

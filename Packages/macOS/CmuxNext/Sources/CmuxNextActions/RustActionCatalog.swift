@@ -26,6 +26,8 @@ nonisolated struct RustActionCatalog: Sendable {
     let paletteDuplicates: [ActionID: ActionID]
     let categories: [ActionCategory: (title: String, titleKey: String, titleTable: String)]
     let folders: [MenuFolder: (title: String, symbol: String, group: MenuGroup)]
+    /// The Customize… element map (cmux-action-catalog `customize_elements`).
+    let customizeElements: [CustomizeElement]
     /// Each catalog request row's request (`ActionCatalogRequest`), by id. Kept beside the
     /// descriptors, which the catalog dump compares field for field with the Swift catalog's.
     let requests: [ActionID: ActionCatalogRequest]
@@ -119,6 +121,7 @@ nonisolated struct RustActionCatalog: Sendable {
             folders[folder] = (row["title"] as? String ?? id, row["symbol"] as? String ?? "folder", group)
         }
         self.folders = folders
+        customizeElements = (root["customize_elements"] as? [[String: Any]] ?? []).compactMap(CustomizeElement.init(row:))
     }
 
     /// The rows' `request` members and their arguments' `suggestions.list` members (the app form
