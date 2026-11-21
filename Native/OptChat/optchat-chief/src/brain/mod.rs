@@ -1171,6 +1171,9 @@ pub struct Brain {
     /// false): its work may have run, so the try that ends the row is never
     /// treated as one that did not start.
     cut_ran: bool,
+    /// Refused turns in a row (`TurnOutcome::refused`): each refused reply says how many, so no two
+    /// in a row post the same text (first-run findings row 8). Any other ended turn resets it.
+    refused_in_row: u32,
     /// While set, an adopted turn session still runs and no turn starts; at
     /// this time it is folded and ended anyway (`children::adopt_orphans`).
     orphan_wait: Option<Instant>,
@@ -1353,6 +1356,7 @@ impl Brain {
 
             cuts: 0,
             cut_ran: false,
+            refused_in_row: 0,
             resume_at: None,
             orphan_wait: None,
             upstream_backoff: turns::UPSTREAM_RESUME_BACKOFF.to_vec(),

@@ -16,7 +16,7 @@ name: cmux-next tab switch (advisory)
 # (report); a pull request flips it, not a setting.
 #
 # Advisory for now (coordinator, 2026-11-15): GATE_MODE is report and the workflow name ends "(advisory)", so
-# merge_hold's ADVISORY_WORKFLOW does not hold a pull request while the display run waits in the exclusive queue.
+# land-judge's ADVISORY_WORKFLOW does not hold a pull request while the display run waits in the exclusive queue.
 # Once the remount fix's pull request passes it, a pull request sets GATE_MODE: enforce, drops the suffix, and the
 # ruleset adds the verdict job's context.
 #
