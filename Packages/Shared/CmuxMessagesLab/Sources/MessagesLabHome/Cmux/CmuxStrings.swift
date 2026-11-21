@@ -242,6 +242,37 @@ enum CmuxStrings {
     }
 
     /// A table card's menu item that opens a picture of a cell full size (`alt`: its description).
+    // MARK: A message's preview (HomeQuotePreview, HomeMarkdownPreview): its words, never its Markdown
+
+    /// A table named by its column titles: "Table: Before / After".
+    static func previewTable(_ columns: String) -> String {
+        String(format: String(localized: "home.preview.table", defaultValue: "Table: %@", table: "CmuxHome", bundle: .module), columns)
+    }
+    /// A table whose columns have no titles.
+    static var previewTableUntitled: String {
+        String(localized: "home.preview.tableUntitled", defaultValue: "Table", table: "CmuxHome", bundle: .module)
+    }
+    /// One picture with no words.
+    static var previewImage: String {
+        String(localized: "home.preview.image", defaultValue: "Image", table: "CmuxHome", bundle: .module)
+    }
+    /// Several pictures with no words: "2 images".
+    static func previewImages(_ n: Int) -> String {
+        String(format: String(localized: "home.preview.images", defaultValue: "%lld images", table: "CmuxHome", bundle: .module), n)
+    }
+    /// A table card's one body row.
+    static var previewOneRow: String {
+        String(localized: "home.preview.oneRow", defaultValue: "1 row", table: "CmuxHome", bundle: .module)
+    }
+    /// A table card's body rows: "3 rows".
+    static func previewRows(_ n: Int) -> String {
+        String(format: String(localized: "home.preview.rows", defaultValue: "%lld rows", table: "CmuxHome", bundle: .module), n)
+    }
+    /// A quoted diagram.
+    static var previewDiagram: String {
+        String(localized: "home.preview.diagram", defaultValue: "Diagram", table: "CmuxHome", bundle: .module)
+    }
+
     static func tableOpenPicture(_ alt: String) -> String {
         let name = alt.isEmpty ? String(localized: "home.table.picture", defaultValue: "Picture", table: "CmuxHome", bundle: .module) : alt
         return String(format: String(localized: "home.table.openPicture", defaultValue: "Open Picture: %@", table: "CmuxHome", bundle: .module), name)

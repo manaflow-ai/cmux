@@ -140,6 +140,11 @@ pub(super) struct Request {
     pub until: Option<Instant>,
     /// `--allow-large`: copy `from_folder` even past the copy's limits (link/sync_cli/size_cap.rs).
     pub allow_large: bool,
+    /// `--no-focus` (the CLI's word for it: `workspace create`, `agent start`, `app open`): every app
+    /// step runs with `focus: false`, so the start never shows its workspace, selects its tab, raises a
+    /// window or moves focus in the person's app; the steps and their timings are the same. An agent's
+    /// or a probe's start passes it (Leo: "you guys kept fighting focus"). Without it nothing changes.
+    pub no_focus: bool,
 }
 
 // One `Parsed` is made per command line and taken apart at once, so the size gap between `Help`
@@ -241,6 +246,7 @@ pub(super) fn send_existing(
         make_room: false,
         until: None,
         allow_large: false,
+        no_focus: false,
     };
     let mut runner = SelfRunner::new(global);
     report(&send_to(&mut runner, &request, machine_id, session), global.output)
@@ -344,6 +350,7 @@ pub(super) fn wait_on(
         account: None,
         until: None,
         allow_large: false,
+        no_focus: false,
     };
     let answer = json!({
         "machine_id": machine_id,
@@ -484,6 +491,7 @@ pub(super) fn parse(
     let mut wait = false;
     let mut make_room = false;
     let mut allow_large = false;
+    let mut no_focus = false;
     let mut timeout = DEFAULT_TIMEOUT;
     let (mut effort, mut mode, mut no_folder) = (None, None, false);
     // The prompt came after `--`: text, so `-- -` is "-", not stdin.
@@ -525,6 +533,7 @@ pub(super) fn parse(
             "--wait" => wait = true,
             "--make-room" => make_room = true,
             "--allow-large" => allow_large = true,
+            "--no-focus" => no_focus = true,
             "--no-wait" => wait = false,
             // `-- TEXT`: the prompt, read as text even when it starts with `-`.
             "--" if inline.is_none() => match words.get(index.saturating_add(1)..) {
@@ -624,6 +633,7 @@ pub(super) fn parse(
         make_room,
         until: None,
         allow_large,
+        no_focus,
     })))
 }
 
@@ -944,6 +954,9 @@ pub(super) fn again_command(request: &Request, machine: &Machine) -> String {
     }
     if request.wait {
         words.push("--wait".to_owned());
+    }
+    if request.no_focus {
+        words.push("--no-focus".to_owned());
     }
     words.push("--json".to_owned());
     words.join(" ")
@@ -1633,6 +1646,9 @@ fn steps(
     if let Some(folder) = &request.from_folder {
         start.extend(["--from-folder".to_owned(), folder.clone()]);
     }
+    if request.no_focus {
+        start.push("--no-focus".to_owned());
+    }
     start.push("--json".to_owned());
     // On a machine this run makes for itself, the start is bounded and a stuck machine is given up (fresh.rs); a
     // `--from-folder` start's copy runs inside the step, so only the app's own stuck answer counts there.
@@ -1651,7 +1667,13 @@ fn steps(
     }
     let started = match step_result(&ran) {
         Ok(started) => started,
-        Err(error) => return start_refused(error, &listed, request),
+        Err(error) => {
+            let error = match &fresh {
+                Some(name) => unmade_fresh_retry(runner, error, name, request),
+                None => error,
+            };
+            return start_refused(error, &listed, request);
+        }
     };
     if at(&started, "pending").as_bool() == Some(true) {
         return start_pending(runner, request, &machine, &started, &listed, deadline);
@@ -2676,6 +2698,9 @@ fn new_machine(
     if let Some(environment) = environment {
         args.extend(["--environment".to_owned(), environment.to_owned()]);
     }
+    if request.no_focus {
+        args.push("--no-focus".to_owned());
+    }
     args.push("--json".to_owned());
     progress.machine = Some(Machine::Named(name.clone()));
     let made =
@@ -2751,14 +2776,7 @@ fn unused_name(runner: &mut dyn Runner, listed: &Value) -> Result<String, Outcom
         ));
     }
     let name = runner.fresh_name();
-    let has = |key: &str, field: &str| {
-        at(listed, key)
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(|row| at(row, field).as_str() == Some(name.as_str()))
-    };
-    if has("machines", "title") || has("creating", "name") {
+    if lists_name(listed, &name) {
         return Err(failed(
             "cloud.name_taken",
             format!(
@@ -2770,6 +2788,65 @@ fn unused_name(runner: &mut dyn Runner, listed: &Value) -> Result<String, Outcom
         ));
     }
     Ok(name)
+}
+
+/// Whether `listed` (`cloud list-machines`) has a machine titled `name` or a create of that name on its way.
+fn lists_name(listed: &Value, name: &str) -> bool {
+    let has = |key: &str, field: &str| {
+        at(listed, key)
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|row| at(row, field).as_str() == Some(name))
+    };
+    has("machines", "title") || has("creating", "name")
+}
+
+/// The app's refusal of the start on this run's fresh name `name`, with no machine of that name made: the app's retry
+/// command (`cloud start-session --name NAME`, its `Request.command`) names a machine that does not exist and that the
+/// person never asked for, so it becomes this run's own again command, which names no machine. Leo's account,
+/// 2026-11-21: `cmux chat --on vm:new --harness claude --no-folder --wait` was refused before any machine (no Cloud
+/// connection serves claude), and said "then run cmux vm start-session --name chat-7626761eda3c4404 --agent claude
+/// again", a machine `cmux vm ls` never listed. A list that cannot be read, or that has the name, keeps the app's words.
+fn unmade_fresh_retry(
+    runner: &mut dyn Runner,
+    mut error: Value,
+    name: &str,
+    request: &Request,
+) -> Value {
+    let Some((start, end)) =
+        at(&error, "message").as_str().and_then(|text| fresh_start_command(text, name))
+    else {
+        return error;
+    };
+    let Ok(now) = step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"]))) else {
+        return error;
+    };
+    if at(&now, "loaded").as_bool() == Some(false) || lists_name(&now, name) {
+        return error;
+    }
+    let text = at(&error, "message").as_str().unwrap_or_default();
+    let (Some(before), Some(after)) = (text.get(..start), text.get(end..)) else {
+        return error;
+    };
+    let message = format!("{before}`{}`{after}", again_command(request, &Machine::New));
+    error.set("message", json!(message));
+    error
+}
+
+/// Where `message` names the start-session command on the machine `name` (`cmux cloud start-session --name NAME
+/// ...`, or its `cmux vm` spelling), backticks included: the byte range, end exclusive.
+fn fresh_start_command(message: &str, name: &str) -> Option<(usize, usize)> {
+    ["cloud", "vm"].iter().find_map(|scope| {
+        let opening = format!("`cmux {scope} start-session --name {name}");
+        let start = message.find(&opening)?;
+        let after = start.checked_add(opening.len())?;
+        let rest = message.get(after..)?;
+        if !matches!(rest.chars().next(), Some(' ' | '`')) {
+            return None;
+        }
+        Some((start, after.checked_add(rest.find('`')?)?.checked_add(1)?))
+    })
 }
 
 /// The commands that go on with this chat.
