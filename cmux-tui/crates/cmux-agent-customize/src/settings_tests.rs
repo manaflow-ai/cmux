@@ -114,7 +114,7 @@ fn claude_set_and_unset_round_trip_byte_for_byte_elsewhere() {
     let written = apply(&f.ctx, Agent::Claude, "model", Some("haiku"), None).unwrap();
     assert_eq!(written.path, path);
     assert_eq!(
-        fs::read_to_string(f.ctx.homes.store().backup_path(&fs::canonicalize(&path).unwrap()))
+        fs::read_to_string(f.ctx.homes.edits.backup_path(&fs::canonicalize(&path).unwrap()))
             .unwrap(),
         USER_SETTINGS
     );

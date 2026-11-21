@@ -35,30 +35,7 @@ use serde_json::{Value, json};
 use crate::paths::{Homes, project_dirs};
 use crate::write;
 
-/// The two agents whose settings cmux shows.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Agent {
-    Claude,
-    Codex,
-}
-
-impl Agent {
-    /// `claude` or `codex` (also `claude-code`).
-    pub fn parse(text: &str) -> Option<Self> {
-        match text {
-            "claude" | "claude-code" => Some(Self::Claude),
-            "codex" => Some(Self::Codex),
-            _ => None,
-        }
-    }
-
-    pub fn id(self) -> &'static str {
-        match self {
-            Self::Claude => "claude",
-            Self::Codex => "codex",
-        }
-    }
-}
+pub use crate::Agent;
 
 /// Where one read or write resolves: the homes, the folder a project scope starts from, and the
 /// managed files (fixed system paths; tests point them into a temporary folder).
@@ -852,7 +829,7 @@ pub fn apply(
         }
     }
     let path = scope_path(ctx, agent, scope)?;
-    let store = ctx.homes.store();
+    let store = ctx.homes.edits.clone();
     // Held across the read, edit, backup and rename, so a Settings save and a CLI edit of the
     // same file never both start from the same original and drop each other's change.
     let _lock = store.lock(&path).map_err(|e| io_error(&path, e))?;
