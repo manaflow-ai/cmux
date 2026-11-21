@@ -1010,7 +1010,7 @@ jobs:
         if: ${{ steps.tree.outputs.hit != 'true' }}
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+          sudo apt-get install -y clang libclang-dev pkg-config cmake
 
       - name: Set up Python
         if: ${{ steps.tree.outputs.hit != 'true' }}
