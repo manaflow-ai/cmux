@@ -53,6 +53,23 @@ public final class OwnerPanicForwarder: Sendable {
         stateRoot.appending(path: "owner-panics-\(session).jsonl")
     }
 
+    /// A forwarder of `log` whose read offset is `<stateDirectory>/<stateName>`, already started.
+    /// - Parameters:
+    ///   - log: The panic log to read.
+    ///   - stateDirectory: The app's run-marker directory.
+    ///   - stateName: The offset file's name (one per log).
+    ///   - sends: The user's telemetry choice.
+    ///   - source: Which process wrote `log`.
+    /// - Returns: The started forwarder; keep it for the app's lifetime.
+    public static func started(log: URL, stateDirectory: URL, stateName: String, sends: Bool,
+                               source: RustPanicSource = .owner) -> OwnerPanicForwarder {
+        let forwarder = OwnerPanicForwarder(
+            log: log, stateFile: stateDirectory.appending(path: stateName, directoryHint: .notDirectory),
+            sends: sends, source: source)
+        forwarder.start()
+        return forwarder
+    }
+
     /// Reads now and each time the state root changes, off the main thread.
     public func start() {
         queue.async { [self] in
@@ -98,8 +115,10 @@ public final class OwnerPanicForwarder: Sendable {
     /// that is not a panic record.
     static func event(fromLine line: Data, source: RustPanicSource = .owner) -> Event? {
         guard let record = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
-              let message = record["message"] as? String,
+              let raw = record["message"] as? String,
               record["test"] as? Bool != true else { return nil }
+        // A source whose panic text may quote chat text sends only where it panicked.
+        let message = source.sendsMessage ? raw : "message withheld"
         let location = record["location"] as? String ?? ""
         let event = Event(level: .error)
         let exception = Exception(value: message, type: "RustPanic")

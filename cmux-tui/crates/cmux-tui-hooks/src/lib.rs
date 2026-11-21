@@ -67,6 +67,46 @@ use message_hooks::hook_command_with;
 use message_hooks::{delivers_messages, hook_command, journal_hook_command};
 use status_conflict::{conflict_row, ensure_replaceable_target};
 
+/// Codex's `hooks.state` event label for `event` (`PreToolUse` ->
+/// `pre_tool_use`), for tools that list and edit Codex hooks
+/// (cmux-agent-customize).
+pub fn codex_hook_state_label(event: &str) -> anyhow::Result<&'static str> {
+    codex_event_state_label(event)
+}
+
+/// Codex's trust hash for one command handler as written in hooks.json:
+/// Codex runs the handler only while its `trusted_hash` equals this.
+pub fn codex_hook_trust_hash(
+    state_label: &str,
+    matcher: Option<&str>,
+    command: &str,
+    timeout: Option<u64>,
+    asynchronous: bool,
+    status_message: Option<&str>,
+    additional_context_limit: Option<u64>,
+) -> String {
+    codex_trust::codex_identity_trust_hash(
+        state_label,
+        matcher,
+        command,
+        timeout,
+        asynchronous,
+        status_message,
+        additional_context_limit,
+    )
+}
+
+/// `hooks_path` as Codex writes it into `hooks.state` keys (canonicalized
+/// when `CODEX_HOME` came from the environment).
+pub fn codex_hook_state_key_path(hooks_path: &Path, from_env_override: bool) -> PathBuf {
+    codex_state_key_hooks_path(hooks_path, from_env_override)
+}
+
+/// Whether a hook command is one this installer wrote (a journal hook).
+pub fn is_owned_hook_command(command: &str) -> bool {
+    is_owned_command(command)
+}
+
 const COMMAND_MARKER: &str = "cmux-tui-journal-hook";
 const PLUGIN_MARKER: &str = "cmux-tui-journal-plugin";
 const ACTIVATION_NOTE: &str = "Providers load hooks at process start; launch or restart agents inside a cmux-tui terminal so CMUX_TUI_SOCKET and CMUX_TUI_HOOK are inherited.";
@@ -2290,8 +2330,50 @@ pub fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
+/// The durable syncs [`atomic_write`] makes, counted per thread for tests.
+mod durable_syncs {
+    use std::cell::Cell;
+    use std::fs::File;
+    use std::io;
+
+    thread_local! {
+        /// Durable syncs made on this thread (a file or its folder each).
+        static SYNCS: Cell<u64> = const { Cell::new(0) };
+    }
+
+    pub(super) fn on_this_thread() -> u64 {
+        SYNCS.with(Cell::get)
+    }
+
+    pub(super) fn sync(file: &File) -> io::Result<()> {
+        SYNCS.with(|syncs| syncs.set(syncs.get() + 1));
+        file.sync_all()
+    }
+}
+
+/// The durable syncs [`atomic_write`] made on this thread so far: a test reads it around a
+/// write path to tell a durable write from a replaceable one.
+#[doc(hidden)]
+pub fn durable_syncs_on_this_thread() -> u64 {
+    durable_syncs::on_this_thread()
+}
+
 /// Replaces `path` through a synced temporary file and rename, with an optional Unix mode.
 pub fn atomic_write(path: &Path, bytes: &[u8], mode: Option<u32>) -> anyhow::Result<()> {
+    replace_file(path, bytes, mode, true)
+}
+
+/// [`atomic_write`] for a file its writer checks and rewrites when it differs (a build's
+/// launchers, shims and plugin, written at every start): replaced through a rename, so a
+/// reader sees the old or the new file, but not synced. A crash can leave it empty or old,
+/// and the next start rewrites it. A durable sync is a full fsync of the drive on macOS,
+/// which waits for every other write the drive has queued: one took 2.2 s of a 2.3 s
+/// first start on a fleet Mac (2026-11-09).
+pub fn replace_rewritable_file(path: &Path, bytes: &[u8], mode: Option<u32>) -> anyhow::Result<()> {
+    replace_file(path, bytes, mode, false)
+}
+
+fn replace_file(path: &Path, bytes: &[u8], mode: Option<u32>, durable: bool) -> anyhow::Result<()> {
     ensure_replaceable_target(path)?;
     let parent = path.parent().context("installation path has no parent")?;
     fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
@@ -2311,7 +2393,9 @@ pub fn atomic_write(path: &Path, bytes: &[u8], mode: Option<u32>) -> anyhow::Res
         let mut file =
             options.open(&temporary).with_context(|| format!("create {}", temporary.display()))?;
         file.write_all(bytes)?;
-        file.sync_all()?;
+        if durable {
+            durable_syncs::sync(&file)?;
+        }
         drop(file);
         #[cfg(unix)]
         if let Some(mode) = mode {
@@ -2319,9 +2403,11 @@ pub fn atomic_write(path: &Path, bytes: &[u8], mode: Option<u32>) -> anyhow::Res
             fs::set_permissions(&temporary, fs::Permissions::from_mode(mode))?;
         }
         fs::rename(&temporary, path).with_context(|| format!("replace {}", path.display()))?;
-        fs::File::open(parent)
-            .and_then(|directory| directory.sync_all())
-            .with_context(|| format!("sync {}", parent.display()))?;
+        if durable {
+            fs::File::open(parent)
+                .and_then(|directory| durable_syncs::sync(&directory))
+                .with_context(|| format!("sync {}", parent.display()))?;
+        }
         Ok(())
     })();
     if result.is_err() {

@@ -10,7 +10,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { LedgerScreen } from "../src/agent-session/acpmux/ledger/LedgerScreen";
+import { UNKNOWN } from "../src/agent-session/acpmux/usageStats";
 import { LEDGER_EXPORT_LIMIT, type LedgerExportKind } from "../src/agent-session/acpmux/ledger/ledgerModel";
+import { settleReact } from "./support/domTeardown";
 
 const NOW = 1_800_000_000_000;
 let dom: JSDOM | undefined;
@@ -53,6 +55,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;
@@ -175,4 +178,34 @@ test("the table's cache columns are the ones a narrow page drops; the five it al
   );
   // The warning tone is the pane's own token, which the agent pane defines.
   expect(css).not.toMatch(/var\(--warning/);
+});
+
+test("a row with no input says its share from cache is unknown, in every look", async () => {
+  const unknown = translate("ledger.row.fromCache", { share: UNKNOWN });
+  for (const look of ["bars", "stacked", "table"] as const) {
+    const container = installDom();
+    // The rows are virtualized: give the list a viewport, which JSDOM lays out at 0 by 0.
+    for (const [name, size] of [
+      ["offsetHeight", 600],
+      ["offsetWidth", 800],
+    ] as const) {
+      Object.defineProperty(dom!.window.HTMLElement.prototype, name, { configurable: true, get: () => size });
+    }
+    root = createRoot(container);
+    // ledger(1)'s one session reported no input tokens: no share to show, but the row says so.
+    await act(async () => {
+      root!.render(<LedgerScreen load={ledger(1)} openSession={() => {}} look={look} now={NOW} />);
+    });
+    await act(async () => undefined);
+    if (look === "table") {
+      const title = container.querySelector<HTMLElement>(".cst-label")?.title ?? "";
+      expect(title).toEndWith(` · ${unknown}`);
+    } else {
+      const detail = container.querySelector(".cst-detail")?.textContent ?? "";
+      expect(detail).toEndWith(` · ${unknown}`);
+    }
+    await act(async () => root!.unmount());
+    root = undefined;
+    dom?.window.close();
+  }
 });

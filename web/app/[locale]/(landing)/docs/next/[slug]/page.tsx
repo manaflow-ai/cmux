@@ -1,6 +1,5 @@
 import { notFound } from "next/navigation";
 import { NextDocView, nextDocMetadata } from "../next-doc-view";
-import { baseDocsLocales } from "@/app/[locale]/components/docs-nav-items";
 import { nextDocPage, nextDocPages } from "@/data/next-docs/pages";
 
 type Params = Promise<{ locale: string; slug: string }>;
@@ -16,9 +15,10 @@ export async function generateMetadata({ params }: { params: Params }) {
   return nextDocMetadata(page, locale);
 }
 
+/** Every locale serves the English page (NextDocView says why). */
 export default async function NextDocPageRoute({ params }: { params: Params }) {
-  const { locale, slug } = await params;
+  const { slug } = await params;
   const page = nextDocPage(slug);
-  if (!page || !baseDocsLocales.includes(locale as (typeof baseDocsLocales)[number])) notFound();
+  if (!page) notFound();
   return <NextDocView page={page} />;
 }

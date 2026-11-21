@@ -99,7 +99,9 @@ fn w5o_guarded_terminal_close_ends_only_an_unplaced_unkept_unattached_terminal()
 
 /// The CLI picks the plain close only on this answer, which a daemon older
 /// than `if_unplaced` gives to it: an unknown parameter is refused before
-/// the request is keyed (`validation.invalid`, "unknown parameters").
+/// the request is keyed (`validation.invalid`, "unknown parameters"). A
+/// valid close with the same key then runs: had the refusal stored the key,
+/// its different fingerprint would answer `idempotency.conflict`.
 #[test]
 fn w5o_an_unknown_terminal_close_field_is_refused_before_it_is_keyed() {
     let mux = test_mux();
@@ -107,12 +109,13 @@ fn w5o_an_unknown_terminal_close_field_is_refused_before_it_is_keyed() {
     let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
     let scheduler =
         Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
-    let send = |id: &str, operation: &str, params: Value| {
-        let message = resource_request(id, operation, params, Some(id));
+    let send = |id: &str, key: &str, operation: &str, params: Value| {
+        let message = resource_request(id, operation, params, Some(key));
         assert!(handle_connection_message(&mux, client, &message, &writer, &scheduler));
         pop_json(&outbound)
     };
     let created = send(
+        "w5o-unknown-create",
         "w5o-unknown-create",
         "workspace.create",
         json!({"machine":"current","session":"current","initial_content":"terminal"}),
@@ -120,6 +123,7 @@ fn w5o_an_unknown_terminal_close_field_is_refused_before_it_is_keyed() {
     let terminal = created["result"]["value"]["terminal_id"].as_str().unwrap().to_owned();
     let refused = send(
         "w5o-unknown-close",
+        "w5o-unknown-close-key",
         "terminal.close",
         json!({"machine":"current","session":"current","terminal":terminal,"if_unplaced_v0":true}),
     );
@@ -127,5 +131,14 @@ fn w5o_an_unknown_terminal_close_field_is_refused_before_it_is_keyed() {
     let message = refused["error"]["message"].as_str().unwrap_or_default();
     assert!(message.contains("unknown parameters"), "{refused}");
     assert!(running(&mux, &terminal));
+
+    let closed = send(
+        "w5o-unknown-close-again",
+        "w5o-unknown-close-key",
+        "terminal.close",
+        json!({"machine":"current","session":"current","terminal":terminal}),
+    );
+    assert_eq!(closed["ok"], true, "the refusal kept the key: {closed}");
+    assert!(!running(&mux, &terminal), "the plain close left the terminal running");
     disconnect_client(&mux, client, false);
 }

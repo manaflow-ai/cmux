@@ -18,6 +18,9 @@ public nonisolated enum TerminalLinkStatus: Hashable, Sendable {
     /// A restored view has not shown its terminal yet: its first attach, or
     /// a retry after that attach failed (cx-wwtam).
     case restoring
+    /// The view's terminal is not confirmed by the daemon yet (a new split or tab): its attach
+    /// waits, or retries, and nothing was ever shown.
+    case starting
     /// The last screen stays; `reconnecting` while one re-attach runs.
     case disconnected(TerminalDisconnectReason, reconnecting: Bool)
     /// The terminal's process ended; the view never re-attaches.

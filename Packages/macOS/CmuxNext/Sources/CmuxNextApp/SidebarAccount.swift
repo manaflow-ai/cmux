@@ -14,7 +14,7 @@ struct SidebarAccount: Hashable {
     var name: String
     var email: String?
     var imageData: Data?
-    /// The selected cmux team's name; its row opens the team picker.
+    /// The selected cmux team's name; the menu bar's team row opens the team picker.
     var team: String?
 
     /// Nil without a name or email to show.
@@ -31,19 +31,18 @@ struct SidebarAccount: Hashable {
     @MainActor init?(_ auth: CloudAuth?) {
         guard let auth, auth.isSignedIn, let user = auth.user else { return nil }
         let picture = user.profileImageURL.flatMap { AccountAvatarImages.shared.data[$0] }
-        let team = auth.teams.first { $0.id == auth.teamID }?.displayName
-        self.init(name: user.displayName, email: user.primaryEmail, imageData: picture, team: team)
+        self.init(name: user.displayName, email: user.primaryEmail, imageData: picture, team: auth.activeTeam.activeRow?.title)
     }
 
     var avatar: SidebarAvatar { .account(name: name, email: email, imageData: imageData) }
 
-    /// The menu bar menu's account rows: the name, then the email, then the team.
-    var menuBarAccount: MenuBarMenuState.Account { MenuBarMenuState.Account(lines: [name, email].compactMap(\.self), team: team) }
+    /// The menu bar menu's account rows: the name, then the email, then the team with its icon (`TeamRowText.symbol`).
+    func menuBarAccount(teamSymbol: String) -> MenuBarMenuState.Account { MenuBarMenuState.Account(lines: [name, email].compactMap(\.self), team: team, teamSymbol: teamSymbol) }
 
     /// Adds the account rows to the profile menu (`ProfileMenuBuilder.addAccountRows`).
     @MainActor static func addRows(to menu: NSMenu, account: SidebarAccount?, registry: ActionRegistry) {
         ProfileMenuBuilder(registry: registry)
-            .addAccountRows(to: menu, who: account.map { [$0.name, $0.email].compactMap(\.self) }, team: account?.team,
+            .addAccountRows(to: menu, who: account.map { [$0.name, $0.email].compactMap(\.self) },
                             avatar: account?.avatar.image(diameter: Double(Metrics.smallIconSize)))
     }
 }

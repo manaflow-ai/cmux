@@ -16,7 +16,13 @@ use crate::workspace_registry::{
 use cmux_json::JsonSet as _;
 use std::ops::Deref;
 
+mod decoration_walks;
 mod frontend_browser_history;
+#[cfg(test)]
+mod git_head_probe;
+mod git_heads;
+use decoration_walks::surface_directories_in_state;
+pub(super) use git_heads::GitHeadCache;
 
 /// Per-snapshot data the tree serializer adds to the live [`State`]:
 /// unread notification markers and the shared presentation metadata.
@@ -81,11 +87,6 @@ pub(crate) struct GitHead {
     detached: bool,
 }
 
-/// A cached HEAD lookup is reused for this long, which bounds both the
-/// filesystem work of a tree snapshot and the staleness of a branch switch
-/// made without changing directory.
-const GIT_HEAD_TTL: Duration = Duration::from_secs(2);
-const GIT_HEAD_CACHE_LIMIT: usize = 4096;
 const GIT_METADATA_MAX_BYTES: u64 = 4096;
 
 fn read_small_file(path: &Path) -> Option<String> {
@@ -111,6 +112,8 @@ fn read_git_head_file(git_dir: &Path) -> Option<GitHead> {
 /// Find the repository containing `directory` and read its HEAD without
 /// running git. A `.git` file (worktrees, submodules) names the git dir.
 pub(crate) fn read_git_head(directory: &Path) -> Option<GitHead> {
+    #[cfg(test)]
+    git_head_probe::on_read(directory);
     let mut current = Some(directory);
     while let Some(candidate) = current {
         let dot_git = candidate.join(".git");
@@ -170,17 +173,6 @@ pub struct TabPinChange {
     pub index: usize,
 }
 
-fn surface_directories_in_state(state: &State) -> Vec<(SurfaceId, String)> {
-    state
-        .surfaces
-        .iter()
-        .filter(|(surface, _)| state.pane_of(**surface).is_some())
-        .filter_map(|(surface, runtime)| {
-            runtime.presented_directory().map(|directory| (*surface, directory))
-        })
-        .collect()
-}
-
 fn tab_is_pinned(state: &State, presentation: &PresentationSnapshot, surface: SurfaceId) -> bool {
     state
         .resource_indexes
@@ -218,6 +210,7 @@ pub(crate) fn tab_delta(
         entity,
         workspace_revision: None,
         transaction: None,
+        mutation: None,
     })
 }
 
@@ -244,12 +237,13 @@ impl Mux {
     }
 
     /// Notifications, presentation, and tab directories for serializing the
-    /// whole tree. Git HEAD lookups run after the state lock is released.
+    /// whole tree. Git HEADs come from the cache (git_heads.rs); a directory
+    /// with no cached value is read after the state lock is released.
     #[track_caller]
     pub fn tree_decorations(&self) -> TreeDecorations {
         let presentation = self.presentation_snapshot();
         let (notifications, directories) = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             (self.surface_notifications_in_state(&state), surface_directories_in_state(&state))
         };
         let directories = self.resolve_tab_directories(directories, true);
@@ -263,6 +257,106 @@ impl Mux {
             terminal_ends,
             terminal_loss_causes: self.terminal_loss_causes_snapshot(),
         }
+    }
+
+    /// [`Self::tree_decorations`] holding only what the tab entities of
+    /// `surfaces` read: their notification markers and directories, and the
+    /// pending state, end and loss cause of the terminals they show. A tab
+    /// delta (one per lost terminal at a restart) built the whole session's
+    /// maps and copied every ended terminal's end: O(session) per delta, so
+    /// a restart that ended n terminals cost O(n^2).
+    #[track_caller]
+    pub(crate) fn tab_tree_decorations(&self, surfaces: &[SurfaceId]) -> TreeDecorations {
+        let (mut decorations, directories) = {
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            self.tab_tree_decorations_parts(&state, surfaces)
+        };
+        decorations.directories = self.resolve_tab_directories(directories, true);
+        decorations
+    }
+
+    /// [`Self::tab_tree_decorations`] for a caller that already holds the
+    /// state lock: git HEADs come from the cache only, as
+    /// [`Self::tree_decorations_in_state`].
+    pub(crate) fn tab_tree_decorations_in_state(
+        &self,
+        state: &State,
+        surfaces: &[SurfaceId],
+    ) -> TreeDecorations {
+        let (mut decorations, directories) = self.tab_tree_decorations_parts(state, surfaces);
+        decorations.directories = self.resolve_tab_directories(directories, false);
+        decorations
+    }
+
+    /// The decorations of `surfaces` but their directories, which come back
+    /// unresolved (the caller resolves their git HEADs).
+    fn tab_tree_decorations_parts(
+        &self,
+        state: &State,
+        surfaces: &[SurfaceId],
+    ) -> (TreeDecorations, Vec<(SurfaceId, String)>) {
+        let mut notifications = HashMap::new();
+        let mut directories = Vec::new();
+        let mut terminals = Vec::new();
+        {
+            let placement_notifications =
+                self.placement_notifications.lock().unwrap_or_else(PoisonError::into_inner);
+            let terminal_notifications =
+                self.terminal_notifications.lock().unwrap_or_else(PoisonError::into_inner);
+            for surface_id in surfaces {
+                let content_terminal = match state.resource_indexes.content_ids.get(surface_id) {
+                    Some(ContentPublicId::Terminal(terminal)) => Some(terminal),
+                    _ => None,
+                };
+                // As surface_notifications_in_state and surface_directories_in_state.
+                let notification = match state.surfaces.get(surface_id) {
+                    Some(surface) => {
+                        if state.pane_of(*surface_id).is_some()
+                            && let Some(directory) = surface.presented_directory()
+                        {
+                            directories.push((*surface_id, directory));
+                        }
+                        match surface.terminal_public_id() {
+                            Some(terminal) => terminal_notifications.get(terminal),
+                            None => placement_notifications.get(surface_id),
+                        }
+                    }
+                    None => {
+                        content_terminal.and_then(|terminal| terminal_notifications.get(terminal))
+                    }
+                };
+                if let Some(notification) = notification {
+                    notifications.insert(*surface_id, *notification);
+                }
+                if let Some(terminal) = content_terminal {
+                    terminals.push(terminal.as_str().to_string());
+                }
+            }
+        }
+        let pending_terminals = {
+            let pending = self.pending_terminals.lock().unwrap_or_else(PoisonError::into_inner);
+            terminals
+                .iter()
+                .filter_map(|id| Some((id.clone(), pending.get(id)?.1.clone())))
+                .collect()
+        };
+        let terminal_ends = {
+            let ends = self.terminal_ends.lock().unwrap_or_else(PoisonError::into_inner);
+            terminals.iter().filter_map(|id| Some((id.clone(), ends.get(id)?.clone()))).collect()
+        };
+        let terminal_loss_causes = {
+            let causes = self.terminal_loss_causes.lock().unwrap_or_else(PoisonError::into_inner);
+            terminals.iter().filter_map(|id| Some((id.clone(), causes.get(id)?.clone()))).collect()
+        };
+        let decorations = TreeDecorations {
+            notifications,
+            presentation: self.presentation_snapshot(),
+            directories: HashMap::new(),
+            pending_terminals,
+            terminal_ends,
+            terminal_loss_causes,
+        };
+        (decorations, directories)
     }
 
     /// [`Self::tree_decorations`] for a create that places `placing` in the
@@ -338,28 +432,10 @@ impl Mux {
                 },
             );
         }
+        if refresh {
+            self.start_git_head_refresh();
+        }
         result
-    }
-
-    fn git_head(&self, cwd: &str, now: Instant, refresh: bool) -> Option<GitHead> {
-        {
-            let cache = self.git_heads.lock().unwrap();
-            if let Some((checked, head)) = cache.get(cwd)
-                && (!refresh || now.saturating_duration_since(*checked) < GIT_HEAD_TTL)
-            {
-                return head.clone();
-            }
-        }
-        if !refresh {
-            return None;
-        }
-        let head = read_git_head(Path::new(cwd));
-        let mut cache = self.git_heads.lock().unwrap();
-        if cache.len() >= GIT_HEAD_CACHE_LIMIT {
-            cache.clear();
-        }
-        cache.insert(cwd.to_string(), (now, head.clone()));
-        head
     }
 
     /// Tell subscribers that one tab's metadata (pin, directory, git HEAD,
@@ -374,7 +450,7 @@ impl Mux {
     /// tab added to an existing pane carries the transaction on its own
     /// `tab-added` instead and never gets this second one.
     pub(crate) fn emit_tab_added_for_transaction(&self, surface: SurfaceId, transaction: Arc<str>) {
-        let decorations = self.tree_decorations();
+        let decorations = self.tab_tree_decorations(&[surface]);
         let delta = {
             let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             tab_delta(&state, &decorations, TreeDeltaKind::TabAdded, surface)
@@ -394,7 +470,7 @@ impl Mux {
         if placements.is_empty() {
             return;
         }
-        let decorations = self.tree_decorations();
+        let decorations = self.tab_tree_decorations(&placements);
         let deltas = {
             let state = self.state.lock().unwrap();
             placements
@@ -701,6 +777,7 @@ impl Mux {
                     entity,
                     workspace_revision: Some(commit.revision),
                     transaction: None,
+                    mutation: None,
                 },
                 workspace_mutation_result(&commit)?,
             )
@@ -820,6 +897,7 @@ impl Mux {
                     entity,
                     workspace_revision: Some(commit.revision),
                     transaction: None,
+                    mutation: None,
                 },
                 workspace_mutation_result(&commit)?,
             )
@@ -901,6 +979,22 @@ impl Mux {
         self.new_frontend_browser_tab_with(record, |browser_id, url| {
             let fields = frontend_browser_fields(browser_id, FrontendTabPlacement::default());
             self.split_tab_pane_with_fields_as(actor, split, url, fields, size)
+        })
+    }
+
+    /// `new-frontend-browser-tab {workspace}` (`frontend-browser-tab-workspace-v1`):
+    /// the tab goes in `workspace`'s active pane, or is the first tab of an
+    /// empty workspace.
+    pub(crate) fn new_frontend_browser_tab_in_workspace_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        workspace: WorkspaceId,
+        record: FrontendBrowserRecord,
+        placement: FrontendTabPlacement,
+    ) -> anyhow::Result<Arc<Surface>> {
+        self.new_frontend_browser_tab_with(record, |browser_id, url| {
+            let fields = frontend_browser_fields(browser_id, placement);
+            self.new_browser_tab_in_workspace_with_fields_as(actor, url, workspace, fields)
         })
     }
 

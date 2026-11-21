@@ -1,3 +1,4 @@
+public import CmuxNextDaemon
 public import CmuxNextWakeups
 
 /// This Mac's install ids (``CloudDeviceID``): the build's own (`cloud-next/device-id`), which names this Mac in
@@ -47,6 +48,19 @@ public final class CloudInstallIDs {
             guard let self else { return }
             if others == nil { others = ids }
             loaded(others ?? ids)
+        }
+    }
+
+    /// ``preload(loaded:)``, then names this Mac's former hosts to `store`, this Mac's own daemon's
+    /// (``DaemonStore/formerLocalHosts``): a tab its tree saved under one is this Mac's at every check.
+    public func preload(localStore store: DaemonStore) {
+        preload { [weak self, weak store] former in
+            // task-owner: CloudInstallIDs; awaits the id read Cloud start began, once.
+            Task { [weak self, weak store] in
+                guard let current = try? await self?.machine.load(), let store else { return }
+                let host = AgentSessionRef.host(installID: current)
+                store.formerLocalHosts = Dictionary(uniqueKeysWithValues: former.subtracting([current]).map { (AgentSessionRef.host(installID: $0), host) })
+            }
         }
     }
 

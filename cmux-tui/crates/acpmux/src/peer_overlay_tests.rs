@@ -2,7 +2,9 @@
 
 use super::*;
 use crate::peer_last_good::{Endpoints, LastGood};
-use crate::peer_paths::{Carrier, Paths};
+#[cfg(target_os = "linux")]
+use crate::peer_paths::Carrier;
+use crate::peer_paths::Paths;
 use serde_json::json;
 use std::path::Path;
 use std::time::Duration;

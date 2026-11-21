@@ -9,9 +9,6 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case select(WorkspaceID)
     /// Show one of a workspace's tabs (a row of its hover card).
     case selectTab(workspace: WorkspaceID, tab: TabID)
-    /// Stop what the agent in `tab` drives (the row's drive indicator menu): its Computer Use session
-    /// (`drive` `.screen`), or its chat's turn (`.browser`). No local change.
-    case stopAgentDrive(workspace: WorkspaceID, tab: TabID, drive: SidebarDriveKind)
     /// Close one of a workspace's tabs (a row's ✕ on its hover card); the card stays open.
     case closeTab(workspace: WorkspaceID, tab: TabID)
     /// Move workspaces, in tree order, to a position. Covers reorder, moving
@@ -61,6 +58,10 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     /// New workspace on a machine (nil = the machine of the active workspace,
     /// else local), optionally inside a group.
     case newWorkspace(machine: MachineID?, group: GroupID?)
+    /// View a connected Cloud or Mac machine's screen from its visible header.
+    case viewScreen(MachineID)
+    /// Share This Mac's screen from the visible local machine header.
+    case shareScreen(MachineID)
     /// Show another profile in this window (dot click, swipe).
     case switchProfile(ProfileKey)
     /// Create a profile (the bar's "+").

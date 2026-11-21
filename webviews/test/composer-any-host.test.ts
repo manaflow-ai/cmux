@@ -5,7 +5,8 @@
 // The same chat state on this Mac, on a peer of this Mac's acpmux, over the app's remote wire and on
 // Cloud (gallery agent-pane.composer-any-host) must give the composer card the same classes and
 // attributes and the same computed outline: its box-shadow (hairline ring, glass material rim and
-// depth), fill, frost and corners, at rest and focused, in a dark and a light theme. The suggested
+// depth), fill, frost and corners, at rest and focused (by a real Tab: the stage's code focus lifts no
+// ring, FOCUS-RING, src/ui/focusModality.ts), in a dark and a light theme. The suggested
 // next prompt shows on every host exactly when the agent sent one, and never when it did not.
 //
 // Real Chromium from Playwright on the real gallery frame; CI fails the file when it cannot launch
@@ -13,6 +14,7 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { focusByKey } from "./support/focusByKey";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
@@ -20,6 +22,7 @@ await requireBrowserLane("composer-any-host.test.ts", async () => {
   setDefaultTimeout(840_000);
   const ENTRY = "agent-pane.composer-any-host";
   const HOSTS = ["this-mac", "peer", "remote", "cloud"] as const;
+  const PROMPT = ".acpmux-composer > .acpmux-composer-box [contenteditable='true']";
   const SUGGESTION = "Add a test for the retry backoff";
   const webviews = path.resolve(import.meta.dir, "..");
   const { createServer } = await import("vite");
@@ -56,6 +59,8 @@ await requireBrowserLane("composer-any-host.test.ts", async () => {
       await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
         timeout: 120_000,
       });
+      // The stage focuses the prompt from code, which earns no ring; a key's focus lifts the rim.
+      if (variant.endsWith("-focused")) await focusByKey(page, PROMPT);
       return await page.evaluate(() => {
         const form = document.querySelector<HTMLElement>(".acpmux-composer")!;
         const box = form.querySelector<HTMLElement>(":scope > .acpmux-composer-box")!;

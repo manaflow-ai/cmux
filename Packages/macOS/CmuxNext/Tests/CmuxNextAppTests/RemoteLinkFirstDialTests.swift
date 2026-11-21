@@ -178,6 +178,13 @@ import Testing
         try #require(condition(), "\(what)")
     }
 
+    /// Whether a second link process started within `window`. The app has no timer here to fake (that is
+    /// what these tests check), so a restart it should not make shows only as a spawn: this polls for
+    /// that spawn and ends the instant one comes; only a pass waits out the whole window.
+    private static func respawns(_ fixture: Fixture, within window: Duration) async -> Bool {
+        await RapidWorkspaceCreateTests.wait(within: window) { fixture.spawns > 1 }
+    }
+
     /// Cold open with the machine unreachable, then reachable: the link starts at once, the machine says
     /// why it is not up from the link's own state, the app makes no timed attempt, and the link alone
     /// brings it up when the network comes back.
@@ -189,8 +196,8 @@ import Testing
             if case .unreachable(let text) = fixture.session.linkStatus { text.contains("Connection refused") } else { false }
         }
         #expect(fixture.lines("admin.log").contains(#"{"method": "link-state"}"#), "the status came from the link's state")
-        try await Task.sleep(for: .milliseconds(1500))
-        #expect(fixture.spawns == 1, "the app restarted a link that redials by itself (\(fixture.spawns) spawns)")
+        let restarted = await Self.respawns(fixture, within: .milliseconds(1500))
+        #expect(!restarted, "the app restarted a link that redials by itself (\(fixture.spawns) spawns)")
         #expect(!fixture.connected)
         fixture.mark("reachable")
         try await Self.waitUntil("the link brought the machine up") { fixture.connected }
@@ -267,8 +274,8 @@ import Testing
         defer { fixture.close() }
         await fixture.open()
         try await Self.waitUntil("the refusal shows") { fixture.session.linkStatus == .needsInstall(.refused(.protocolOlder)) }
-        try await Task.sleep(for: .milliseconds(1500))
-        #expect(fixture.spawns == 1, "the app retried a refused link (\(fixture.spawns) spawns)")
+        let retried = await Self.respawns(fixture, within: .milliseconds(1500))
+        #expect(!retried, "the app retried a refused link (\(fixture.spawns) spawns)")
         #expect(fixture.session.linkStatus == .needsInstall(.refused(.protocolOlder)))
     }
 

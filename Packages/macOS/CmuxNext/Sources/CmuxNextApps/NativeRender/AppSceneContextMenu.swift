@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 
 /// A node's `menu` prop as an `NSMenu`: entries `{title, destructive?, disabled?, symbol?, children?}`
-/// or `{divider: true}`; a pick reports its index path, as the SwiftUI renderer's menu does. The
+/// or `{divider: true}`; a pick reports its index path. The
 /// caller keeps this object alive while the menu shows: its items target it weakly.
 @MainActor
 final class AppSceneContextMenu: NSObject {

@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { join } from "node:path"
-import { FakeHost } from "../../../cmux-tui/crates/cmux-app-host/js/test/fake-host.ts"
-import { pack } from "../../../cmux-tui/crates/cmux-app-host/tools/pack.ts"
+import { FakeHost, pack } from "cmux-extension-sdk/testing"
 import { hintsFor, platformOf } from "../src/model/providers.ts"
 import type { Machine } from "../src/model/entries.ts"
 

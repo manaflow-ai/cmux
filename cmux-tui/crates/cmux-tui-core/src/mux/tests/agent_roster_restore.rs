@@ -207,6 +207,374 @@ fn an_agent_with_events_in_a_skipped_range_is_not_reported_working() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+/// A replay from zero takes minutes on a large registry, and a daemon can be
+/// stopped partway (a 30-minute restore.snapshot was killed and restarted).
+/// The restore saves the roster and its cursor every few pages, so the next
+/// start resumes there and ends with the same roster as one whole replay.
+#[test]
+fn a_stopped_roster_replay_resumes_from_its_last_save() {
+    use crate::journal_reducers::{AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION};
+    use crate::mux::agent_roster_restore::{
+        RosterFoldLimits, restore_agent_roster, restore_agent_roster_with,
+    };
+    let store = sealed_roster_store("roster-replay-resume");
+    let registry = WorkspaceRegistry::open(&store.root, store.session).unwrap();
+    let head = registry.session_journal_head().unwrap();
+    let drop_snapshot = || {
+        // A snapshot that does not restore: the start replays from zero (a
+        // version bump migrates instead).
+        registry
+            .put_journal_reducer_state(AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, 0, "")
+            .unwrap();
+    };
+
+    drop_snapshot();
+    let whole = restore_agent_roster(&registry).unwrap();
+    assert!(whole.diagnostic.is_none(), "{:?}", whole.diagnostic);
+    assert_eq!(whole.host.cursor, head);
+    let whole_snapshot = whole.host.roster.snapshot().to_string();
+
+    drop_snapshot();
+    let limits = RosterFoldLimits { page: 1, save_every_pages: 2, stop_after_pages: Some(3) };
+    let stopped = restore_agent_roster_with(&registry, limits).unwrap();
+    let (version, saved, _) =
+        registry.journal_reducer_state(AGENT_ROSTER_REDUCER_ID).unwrap().unwrap();
+    assert_eq!(version, AGENT_ROSTER_REDUCER_VERSION, "the stopped replay saved its progress");
+    assert!(saved > 0 && saved < head, "saved cursor {saved} of head {head}");
+    assert!(saved <= stopped.host.cursor);
+
+    let resumed = restore_agent_roster(&registry).unwrap();
+    assert_eq!(resumed.host.cursor, head);
+    assert_eq!(resumed.host.roster.snapshot().to_string(), whole_snapshot);
+    drop(registry);
+    let _ = std::fs::remove_dir_all(&store.root);
+}
+
+/// A replay from zero (a snapshot that does not restore) that the start's
+/// budget does not finish goes on in the roster's owner after the daemon serves: the
+/// start returns at once, and the roster ends complete, with the same entries
+/// as a start that replayed it all.
+#[test]
+fn a_replay_the_start_budget_leaves_finishes_in_the_background() {
+    use crate::mux::agent_roster_restore::STARTUP_BUDGET_FOR_TEST;
+    let store = sealed_roster_store("roster-replay-background");
+    let registry = WorkspaceRegistry::open(&store.root, store.session).unwrap();
+    registry
+        .put_journal_reducer_state(
+            crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+            crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+            0,
+            "",
+        )
+        .unwrap();
+    drop(registry);
+    STARTUP_BUDGET_FOR_TEST.with(|budget| budget.set(Some(Duration::ZERO)));
+    let reopened = open_persistent_test_mux(store.session, &store.root);
+    STARTUP_BUDGET_FOR_TEST.with(|budget| budget.set(None));
+    for _ in 0..100 {
+        if !reopened.agent_roster_replaying() {
+            break;
+        }
+        assert!(reopened.settle_agent_roster_for_test());
+    }
+    assert!(!reopened.agent_roster_replaying(), "the background replay did not finish");
+    for (step, terminal_id) in store.terminals.iter().enumerate() {
+        assert_eq!(
+            roster_agent_state(&reopened, terminal_id).as_deref(),
+            Some("idle"),
+            "roster entry of step {step} after the background replay"
+        );
+    }
+    let registry_head = reopened.session_journal_head().unwrap();
+    let (version, saved, _) = reopened
+        .workspace_registry
+        .lock()
+        .unwrap()
+        .journal_reducer_state(crate::journal_reducers::AGENT_ROSTER_REDUCER_ID)
+        .unwrap()
+        .unwrap();
+    assert_eq!(version, crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION);
+    assert!(saved <= registry_head && saved > 0, "saved {saved} of head {registry_head}");
+    reopened.shutdown();
+    drop(reopened);
+    let _ = std::fs::remove_dir_all(&store.root);
+}
+
+/// router-review on #39096 at b9e8947 (F2): a background replay slice whose
+/// read failed left the replay running with no pass scheduled, so the roster
+/// stayed behind (and `expect_agent` sends refused) until an unrelated
+/// request or tick woke the owner. It is now retried after a backoff, as the
+/// rebuild's reads are.
+#[test]
+fn a_replay_read_failure_is_retried_without_another_request() {
+    use crate::mux::agent_roster_fold::rebuild_faults;
+    use crate::mux::agent_roster_restore::STARTUP_BUDGET_FOR_TEST;
+    let session = "roster-replay-retry";
+    let store = sealed_roster_store(session);
+    let registry = WorkspaceRegistry::open(&store.root, store.session).unwrap();
+    registry
+        .put_journal_reducer_state(
+            crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+            crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+            0,
+            "",
+        )
+        .unwrap();
+    drop(registry);
+    rebuild_faults::fail_replay_reads(session, 1);
+    STARTUP_BUDGET_FOR_TEST.with(|budget| budget.set(Some(Duration::ZERO)));
+    let reopened = open_persistent_test_mux(store.session, &store.root);
+    STARTUP_BUDGET_FOR_TEST.with(|budget| budget.set(None));
+    reopened.stop_journal_maintenance();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while reopened.agent_roster_settling() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let settled = !reopened.agent_roster_settling();
+    rebuild_faults::fail_replay_reads(session, 0);
+    assert!(settled, "the replay stopped at its failed read");
+    for terminal_id in &store.terminals {
+        assert_eq!(roster_agent_state(&reopened, terminal_id).as_deref(), Some("idle"));
+    }
+    reopened.shutdown();
+    drop(reopened);
+    let _ = std::fs::remove_dir_all(&store.root);
+}
+
+/// A kind map an older build left partly filled, as app-wedge-recover's
+/// premigration repro has it (#39503): the sealed segments' agent kinds are
+/// gone from `journal_segment_kinds`, each segment names only
+/// `personal.session.put`, and the backfill marker is an older build's `0`.
+/// Drops the roster snapshot (an unreadable one at the current version), so
+/// the next restore folds from zero through the kind read.
+fn hide_agent_kinds_from_the_kind_map(store: &SealedRosterStore) {
+    let registry = WorkspaceRegistry::open(&store.root, store.session).unwrap();
+    registry
+        .put_journal_reducer_state(
+            crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+            crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+            0,
+            "",
+        )
+        .unwrap();
+    let database = registry.session_journal_database_path().unwrap();
+    drop(registry);
+    rusqlite::Connection::open(&database)
+        .unwrap()
+        .execute_batch(
+            "DELETE FROM journal_segment_kinds WHERE kind LIKE 'agent.%' OR kind LIKE 'plugin.%';
+             INSERT OR IGNORE INTO journal_segment_kinds(segment_id, kind)
+               SELECT segment_id, 'personal.session.put' FROM journal_segments;
+             DELETE FROM meta WHERE key LIKE 'journal_segment_kinds_backfill%';
+             INSERT INTO meta(key, value) VALUES
+               ('journal_segment_kinds_backfill', '0'),
+               ('journal_segment_kinds_backfill_through', '0');",
+        )
+        .unwrap();
+}
+
+/// The owner-side mirror of #39503's
+/// `a_partial_kind_map_does_not_hide_an_agent_event_from_the_premigration`,
+/// on the start's writable connection: with a backfill slice of one segment
+/// a call, the restore's kind reads meet segments the backfill has not
+/// rescanned, whose maps it must not trust.
+#[test]
+fn a_partial_kind_map_does_not_hide_an_agent_event_from_the_start_fold() {
+    use crate::workspace_registry::session_journal::BACKFILL_SLICE_FOR_TEST;
+    let store = sealed_roster_store("roster-partial-kind-map");
+    hide_agent_kinds_from_the_kind_map(&store);
+    let registry = WorkspaceRegistry::open(&store.root, store.session).unwrap();
+    BACKFILL_SLICE_FOR_TEST.with(|slice| slice.set(Some(Duration::ZERO)));
+    let restored = crate::mux::agent_roster_restore::restore_agent_roster(&registry);
+    BACKFILL_SLICE_FOR_TEST.with(|slice| slice.set(None));
+    let restored = restored.unwrap();
+    assert!(restored.replay.is_none());
+    for (step, terminal_id) in store.terminals.iter().enumerate() {
+        assert_eq!(
+            restored
+                .host
+                .roster
+                .entries
+                .get(terminal_id.as_str())
+                .map(|entry| entry.state.as_str()),
+            Some("idle"),
+            "roster entry of step {step}"
+        );
+    }
+    drop(registry);
+    let _ = std::fs::remove_dir_all(&store.root);
+}
+
+/// The same through the roster owner's read-only reader, where the backfill
+/// cannot run at all: the start leaves the whole fold to the background
+/// replay (a zero budget).
+#[test]
+fn a_partial_kind_map_does_not_hide_an_agent_event_from_the_background_replay() {
+    use crate::mux::agent_roster_restore::STARTUP_BUDGET_FOR_TEST;
+    let store = sealed_roster_store("roster-partial-kind-map-replay");
+    hide_agent_kinds_from_the_kind_map(&store);
+    STARTUP_BUDGET_FOR_TEST.with(|budget| budget.set(Some(Duration::ZERO)));
+    let reopened = open_persistent_test_mux(store.session, &store.root);
+    STARTUP_BUDGET_FOR_TEST.with(|budget| budget.set(None));
+    for _ in 0..100 {
+        if !reopened.agent_roster_replaying() {
+            break;
+        }
+        assert!(reopened.settle_agent_roster_for_test());
+    }
+    assert!(!reopened.agent_roster_replaying(), "the background replay did not finish");
+    for (step, terminal_id) in store.terminals.iter().enumerate() {
+        assert_eq!(
+            roster_agent_state(&reopened, terminal_id).as_deref(),
+            Some("idle"),
+            "roster entry of step {step} after the background replay"
+        );
+    }
+    reopened.shutdown();
+    drop(reopened);
+    let _ = std::fs::remove_dir_all(&store.root);
+}
+
+/// The start's roster cost stays flat as the journal grows: a replay from
+/// zero over 6 and over 60 output-heavy sealed segments (10x the output and
+/// the records). Prints the time with no budget (the whole replay on the
+/// start, as before) and with the start's budget; the numbers in the PR come
+/// from this test.
+#[test]
+fn the_start_roster_cost_stays_flat_as_the_journal_grows() {
+    use crate::mux::agent_roster_restore::{
+        RosterFoldLimits, STARTUP_BUDGET, restore_agent_roster_within,
+    };
+    use crate::workspace_registry::session_journal::tests::output_heavy_sealed_registry;
+    let limits = RosterFoldLimits { page: 512, save_every_pages: 64, stop_after_pages: None };
+    for segments in [6_u64, 60] {
+        let (registry, _) = output_heavy_sealed_registry(segments, 4096);
+        let started = Instant::now();
+        let whole = restore_agent_roster_within(&registry, limits, None).unwrap();
+        let unbudgeted = started.elapsed();
+        assert!(whole.replay.is_none());
+        let head = registry.session_journal_head().unwrap();
+        assert_eq!(whole.host.cursor, head);
+        registry
+            .put_journal_reducer_state(
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+                0,
+                "",
+            )
+            .unwrap();
+        let started = Instant::now();
+        let mut start =
+            restore_agent_roster_within(&registry, limits, Some(STARTUP_BUDGET)).unwrap();
+        let with_budget = started.elapsed();
+        eprintln!(
+            "roster start bench: {segments} segments, head {head}: whole replay {} ms, \
+             with the start budget {} ms (cursor {})",
+            unbudgeted.as_millis(),
+            with_budget.as_millis(),
+            start.host.cursor
+        );
+        // One page past the budget at most.
+        assert!(with_budget < STARTUP_BUDGET + Duration::from_secs(2), "{with_budget:?}");
+        if let Some(replay) = start.replay.as_mut() {
+            let mut host = &mut start.host;
+            let done = replay.fold(&registry, &mut host, None).unwrap();
+            assert!(matches!(done, crate::mux::agent_roster_restore::ReplayProgress::Done { .. }));
+        }
+        assert_eq!(start.host.cursor, head);
+        assert_eq!(
+            start.host.roster.snapshot().to_string(),
+            whole.host.roster.snapshot().to_string()
+        );
+    }
+}
+
+/// #39096 review (salvage bound): the replay's salvaging read (the fallback when the
+/// kind-scoped read fails) reads the journal as it is now, past the start's
+/// head. Its records apply no deltas, so one committed after the start (a
+/// plugin's exit) must be left for the live fold, which applies its delta:
+/// the replay applies and moves its cursor through `through` only.
+#[test]
+fn the_replays_salvaging_read_stops_at_the_starts_head() {
+    use crate::mux::agent_roster_restore::{
+        AgentRosterReplay, ReplayProgress, RosterFoldLimits, RosterJournal, RosterSave,
+    };
+    use crate::workspace_registry::SessionJournalRecord;
+    use crate::workspace_registry::session_journal::salvage::{
+        SalvagedJournalPage, SkippedJournalRange,
+    };
+    use crate::workspace_registry::session_journal::{
+        JournalClass, JournalProducer, JournalReplayPolicy, JournalSensitivity, SessionJournalPage,
+    };
+    /// A journal whose kind-scoped read always fails and whose salvaging
+    /// read returns the whole journal as one page.
+    struct Salvaging(Vec<SessionJournalRecord>, bool);
+    impl RosterJournal for Salvaging {
+        fn kinds_after(
+            &self,
+            _: u64,
+            _: u64,
+            _: usize,
+        ) -> anyhow::Result<(Vec<SessionJournalRecord>, u64)> {
+            anyhow::bail!("the kind-scoped read fails")
+        }
+        fn after_salvaging(&self, cursor: u64, _: usize) -> anyhow::Result<SalvagedJournalPage> {
+            if self.1 {
+                return Ok(SalvagedJournalPage::Skipped(SkippedJournalRange {
+                    start_sequence: cursor + 1,
+                    end_sequence: self.0.last().map_or(0, |record| record.sequence),
+                    segment_id: None,
+                    reason: "test",
+                }));
+            }
+            Ok(SalvagedJournalPage::Page(SessionJournalPage {
+                head_sequence: self.0.last().map_or(0, |record| record.sequence),
+                records: self.0.iter().filter(|r| r.sequence > cursor).cloned().collect(),
+            }))
+        }
+        fn subject_ids_in_range(&self, _: &str, _: u64, _: u64) -> anyhow::Result<Vec<String>> {
+            Ok(Vec::new())
+        }
+        fn save(&self, _: RosterSave, _: u64, _: &str) -> anyhow::Result<()> {
+            Ok(())
+        }
+    }
+    let records = (1..=10)
+        .map(|sequence| SessionJournalRecord {
+            sequence,
+            event_id: format!("event_{sequence}"),
+            schema_version: 1,
+            kind: "workspace.focus".into(),
+            class: JournalClass::Observation,
+            replay: JournalReplayPolicy::Advisory,
+            occurred_at_ms: sequence,
+            committed_at_ms: sequence,
+            producer: JournalProducer { kind: "test".into(), id: "test".into() },
+            authority: None,
+            causation_id: None,
+            correlation_id: None,
+            causation_depth: 0,
+            subjects: Vec::new(),
+            sensitivity: JournalSensitivity::Metadata,
+            payload: serde_json::json!({}),
+            resource_revision: None,
+            previous_resource_revision: None,
+            terminal_output: None,
+        })
+        .collect::<Vec<_>>();
+    let limits = RosterFoldLimits { page: 512, save_every_pages: 64, stop_after_pages: None };
+    // A page that decodes, then a range that does not: both end at the
+    // start's head.
+    for skipped in [false, true] {
+        let mut replay = AgentRosterReplay::for_test(6, limits);
+        let mut host = AgentRosterHost::default();
+        let journal = Salvaging(records.clone(), skipped);
+        let done = replay.fold(&journal, &mut &mut host, None).unwrap();
+        assert!(matches!(done, ReplayProgress::Done { .. }));
+        assert_eq!(host.cursor, 6, "skipped {skipped}: the replay stops at the start's head");
+    }
+}
+
 /// A journal with one agent working, and its roster snapshot saved as
 /// `previous_version` after `edit` changed it. Returns the terminal and the
 /// snapshot's cursor.

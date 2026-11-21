@@ -320,26 +320,7 @@ fn w5q_tui_types_an_unbound_alt_right_bracket_into_the_pane() {
 /// line of `cases` in one write (so the client reads it in one read) and
 /// checks that the pane shows each line as given.
 fn assert_typed_lines_reach_cat(fixture: &Fixture, cases: &[(&[u8], &str)]) {
-    fixture.server("ensure", &[]);
-    let mut client = Client::start(fixture);
-    wait_for("the client to take the terminal", &client, || client.printed(INPUT_MODES_ENABLED));
-    wait_for("the client to attach", &client, || fixture.has_tui_client());
-    let mut surface = None;
-    wait_for("the first pane", &client, || {
-        surface = fixture.first_surface();
-        surface.is_some()
-    });
-    let surface = surface.unwrap_or_default();
-    // No echo: a raw `ESC ]` echoed to the pane's screen would start an OSC
-    // there. `cat -v` prints each line it reads with `^[` for ESC.
-    // `cat-ready` shows only once `stty -echo` ran (the echoed line has `cat%s`).
-    client.host_writes(b"stty -echo; printf 'cat%s\\n' -ready; exec cat -v\r");
-    wait_showing(
-        "cat -v to run",
-        &client,
-        || fixture.screen(surface).contains("cat-ready"),
-        || fixture.screen(surface),
-    );
+    let (mut client, surface) = start_reader(fixture, "-echo", "cat -v");
     for (typed, _) in cases {
         client.host_writes(typed);
     }
@@ -357,6 +338,54 @@ fn assert_typed_lines_reach_cat(fixture: &Fixture, cases: &[(&[u8], &str)]) {
             "{typed:?} did not reach the pane as {shown:?}:\n{screen}"
         );
     }
+}
+
+/// Attaches the client and runs `reader` in the first pane after
+/// `stty {stty}`; the client and the pane's surface.
+fn start_reader(fixture: &Fixture, stty: &str, reader: &str) -> (Client, u64) {
+    fixture.server("ensure", &[]);
+    let mut client = Client::start(fixture);
+    wait_for("the client to take the terminal", &client, || client.printed(INPUT_MODES_ENABLED));
+    wait_for("the client to attach", &client, || fixture.has_tui_client());
+    let mut surface = None;
+    wait_for("the first pane", &client, || {
+        surface = fixture.first_surface();
+        surface.is_some()
+    });
+    let surface = surface.unwrap_or_default();
+    // No echo: a raw `ESC ]` echoed to the pane's screen would start an OSC
+    // there. `cat -v` prints each line it reads with `^[` for ESC.
+    // `cat-ready` shows only once `stty` ran (the echoed line has `cat%s`).
+    client
+        .host_writes(format!("stty {stty}; printf 'cat%s\\n' -ready; exec {reader}\r").as_bytes());
+    wait_showing(
+        "the reader to run",
+        &client,
+        || fixture.screen(surface).contains("cat-ready"),
+        || fixture.screen(surface),
+    );
+    (client, surface)
+}
+
+/// W5-Q follow-up (PR B review): Alt+] and a digit, with no key after them
+/// (`ESC ] 1` may start a host color reply), reach the pane after a short
+/// quiet time. The client once held them until the next key. The pane's
+/// `dd bs=1` writes each byte it reads at once (`-icanon`: no line wait, and
+/// no stdio buffer), so the pane shows the digit with no Enter. Alt+] is the
+/// default `next-screen` key, so the client takes it and the pane gets the
+/// digit.
+#[test]
+fn w5q_tui_types_a_held_alt_right_bracket_digit_after_a_quiet_time() {
+    let fixture = Fixture::new("alt-right-bracket-quiet");
+    let (mut client, surface) =
+        start_reader(&fixture, "-echo -icanon min 1", "dd bs=1 2>/dev/null");
+    client.host_writes(b"q1:\x1b]1");
+    wait_showing(
+        "the digit after Alt+] to reach the pane with no key after it",
+        &client,
+        || fixture.screen(surface).lines().any(|line| line.trim_end() == "q1:1"),
+        || fixture.screen(surface),
+    );
 }
 
 /// A close-on-exec pty pair of 100x30 cells: the client gets the slave, the

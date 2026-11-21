@@ -8,7 +8,7 @@ readonly REPAIR_URL="https://github.com/manaflow-ai/cmuxterm-hq/blob/main/REPAIR
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 readonly PACKAGE_PATH="$REPO_ROOT/Packages/macOS/CmuxNext"
-readonly TEST_FILTER="ActionCatalogTests/browserHistoryOwnsCmdYAndRightSidebarHasNoDigitDefaults"
+readonly TEST_FILTER="ActionCatalogTests/browserHistoryOwnsCmdY"
 
 on_failure() {
     local status=$? line=${1:-unknown} command=${2:-unknown}

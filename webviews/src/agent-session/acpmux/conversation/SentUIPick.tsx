@@ -3,6 +3,8 @@
 // with Collapse to fold it back (sentUIPickModel.ts). The text around each pick draws as `typed` does
 // (PromptText.tsx PromptTyped). Its own file, so the bubble's renderer changes by one line.
 import { createContext, Fragment, useContext, useLayoutEffect, type ReactNode } from "react";
+import { BrowserPickChip } from "../composer/BrowserPickChip";
+import { isBrowserPick } from "../composer/browserPickModel";
 import { UIPickChip } from "../composer/UIPickChip";
 import { FindReveal, foldFind } from "./chatFind";
 import type { SentPromptSegment } from "./sentUIPickModel";
@@ -31,8 +33,10 @@ export function SentUIPickChip({ slot, name, text }: { slot: string; name: strin
     reveal?.repaint();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new match opens, not a new callback
   }, [hit, reveal]);
+  // A browser pick draws as the composer drew it: its number and comment (BrowserPickChip.tsx).
+  const Chip = isBrowserPick({ text }) ? BrowserPickChip : UIPickChip;
   return (
-    <UIPickChip
+    <Chip
       host="sent"
       name={name}
       text={text}
@@ -51,7 +55,8 @@ export function SentUIPicks({
   slot,
 }: {
   segments: SentPromptSegment[];
-  typed: (text: string) => ReactNode;
+  /// `index`: the segment's place in `segments`.
+  typed: (text: string, index: number) => ReactNode;
   /// Where the segments are in the prompt (its typed part), keying each pick's disclosure.
   slot: string;
 }) {
@@ -60,7 +65,7 @@ export function SentUIPicks({
       {segments.map((segment, index) => (
         <Fragment key={index}>
           {segment.kind === "text" ? (
-            typed(segment.text)
+            typed(segment.text, index)
           ) : (
             <SentUIPickChip slot={`${slot}:pick:${index}`} name={segment.name} text={segment.text} />
           )}

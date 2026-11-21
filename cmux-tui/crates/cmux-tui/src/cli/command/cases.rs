@@ -344,6 +344,7 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
             ],
             "pane.swap",
         ),
+        (vec!["pane", PANE, "move", "--to-pane", PANE, "--split", "right"], "pane.move"),
         (vec!["pane", PANE, "zoom", "--enabled", "true"], "pane.zoom"),
         (
             vec![

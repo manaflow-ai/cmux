@@ -103,6 +103,10 @@ export function withSessionIds(
 /// harness and the harness's own session id.
 export const agentLinkKey = (harness: string, agentSessionId: string) => `${harness}/${agentSessionId}`;
 
+/// Whether two id maps say the same thing.
+const sameEntries = (a: ReadonlyMap<string, string>, b: ReadonlyMap<string, string>) =>
+  a.size === b.size && [...a].every(([key, value]) => b.get(key) === value);
+
 export class SessionHoverStore {
   private infos = new Map<string, SessionHoverInfo>();
   private keys = new Map<string, string>();
@@ -121,6 +125,12 @@ export class SessionHoverStore {
   /// The list the last `set` was given: a list made from it in place (sessionIndex.ts `noteReplaced`)
   /// is patched at the replaced entries only, with no lookup per listed chat.
   private last: readonly AcpmuxSessionEntry[] | undefined;
+  /// The entries in the last list, a session listed twice counted twice: with ``from``'s size it
+  /// shows a list that held a duplicate, which the patch path cannot read.
+  private count = -1;
+  /// The last list's ids in order: the agent-link indexes take the first chat that matches, so a
+  /// reordered list rebuilds them.
+  private order: string[] = [];
   private readonly listeners = new Set<() => void>();
 
   /// Replaces the cards with `sessions`'; a card whose content did not change keeps its object.
@@ -159,12 +169,17 @@ export class SessionHoverStore {
     }
     // A page can list a session twice: the count that matters is of ids, not of entries.
     if (infos.size !== this.infos.size) changed = true;
+    // A reorder can move which chat an agent link opens with no card changing: a link reads these.
+    if (!changed && (!sameEntries(agents, this.agents) || !sameEntries(agentSessions, this.agentSessions)))
+      changed = true;
     this.infos = infos;
     this.keys = keys;
     this.agents = agents;
     this.agentSessions = agentSessions;
     this.hosts = hosts;
     this.from = from;
+    this.count = sessions.length;
+    this.order = sessions.map((entry) => entry.sessionId);
     if (changed) for (const listener of this.listeners) listener();
   }
 
@@ -172,11 +187,13 @@ export class SessionHoverStore {
   /// again, in place. False (nothing done) when a session came or went, a page lists one twice, or a
   /// change moved what the link indexes read (its agent link, its machine): `set` rebuilds them.
   private patch(sessions: readonly AcpmuxSessionEntry[], replaced?: readonly number[]): boolean {
-    if (sessions.length !== this.from.size) return false;
+    if (sessions.length !== this.from.size || sessions.length !== this.count) return false;
     const changed: AcpmuxSessionEntry[] = [];
     // A recorded in-place change keeps every id where it was, so only the replaced entries are read.
     const seen = new Set<string>();
-    for (const entry of replaced ? replaced.map((at) => sessions[at]!) : sessions) {
+    for (const at of replaced ?? sessions.keys()) {
+      const entry = sessions[at]!;
+      if (!replaced && entry.sessionId !== this.order[at]) return false;
       const before = this.from.get(entry.sessionId);
       // Equal length with every id known can still hide one listed twice in place of another.
       if (!before || seen.has(entry.sessionId)) return false;

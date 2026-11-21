@@ -26,9 +26,11 @@
 //! A subagent that calls acpmux through MCP tools (`mcp__acpmux__send`, cmux's
 //! `acpmux_bg_start`, a `cmux_exec` script) and not through Bash is named by its call's tool use
 //! id (`crate::subagent_call`). The end of a background task such a call started (`bg_start`,
-//! `run_wait`) takes the same rule as a report (`bg_notify.rs`). Not covered: a cmux workflow
-//! script's calls (they carry no tool use id) and a send the MCP server hands to the send relay;
-//! their reports and task ends go to the lead. A subagent that makes no Bash or acpmux MCP call
+//! `run_wait`) takes the same rule as a report (`bg_notify.rs`). A cmux workflow a subagent
+//! starts (`cmux_workflow`, in a `cmux_exec` script or on its own) runs as that subagent: the
+//! daemon reads the start call's tool use id (`RunRecord::caller_subagent`), and the workflow's
+//! commands and its script's acpmux calls carry the subagent's mark (`hub/workflow_runs.rs`).
+//! Not covered: a send the MCP server hands to the send relay; its report goes to the lead. A subagent that makes no Bash or acpmux MCP call
 //! after its report came keeps it until it ends.
 //! A subagent that ends with no `SubagentStop` keeps its reports until no subagent of the lead
 //! runs. A message steered into a running turn, or one that joined another message's turn

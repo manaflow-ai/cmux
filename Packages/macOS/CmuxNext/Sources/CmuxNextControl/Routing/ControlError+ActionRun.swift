@@ -36,8 +36,9 @@ extension ControlError {
     /// code; anything else is a `daemon_error`.
     static func actionWork(_ failure: ActionWorkFailure, action: String, method: String) -> ControlError {
         if let code = failure.code {
-            return ControlError(code: code, message: failure.message,
-                                data: ["action": .string(action), "reason": .string(failure.message)])
+            var data: [String: JSONValue] = ["action": .string(action), "reason": .string(failure.message)]
+            for (key, value) in failure.details where data[key] == nil { data[key] = .string(value) }
+            return ControlError(code: code, message: failure.message, data: .object(data))
         }
         if let refusal = failure.refusal {
             let outcome: ControlActionOutcome = switch refusal {
@@ -67,10 +68,21 @@ extension ControlError {
 
     /// This refusal with `data.not_run`: the action never ran, so nothing applied and the CLI
     /// prints no "may still apply" note. Refusals from an action's work never carry it.
+    ///
+    /// It also says who refused, in `data.state`. `rejected`: the app decided (a pane that cannot
+    /// split, a person-only action, an unknown action, a reused key, a window that is not ready).
+    /// The same request gets the same answer, so a caller reports it at once; the text says when
+    /// a new request can pass. `not_run` is only for a request the app did not get
+    /// to, which a caller sends again until its deadline: the read barrier on a daemon that is
+    /// not connected (``ControlRouter/syncBarrierNotRun(cause:)``), and a `busy` or an early
+    /// `timeout` (``annotated(progress:)`` gives those their state). A refusal marked `not_run`
+    /// with no state looked the same to the CLI: `cmux action run splitDown` on the agent chat
+    /// asked for 45 s before it printed "The agent chat can't be split.".
     func notRun() -> ControlError {
         var error = self
         var members = data?.objectValue ?? [:]
         members["not_run"] = true
+        if members["state"] == nil, code != "busy", code != "timeout" { members["state"] = "rejected" }
         error.data = .object(members)
         return error
     }

@@ -34,6 +34,15 @@ import Testing
         return DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w1", screens: [screen])])
     }
 
+    /// A split screen whose pane `id` holds `tabs[id]` tabs (one by default), for other suites.
+    static func splitTree(_ layout: LayoutNode, tabs: [UInt64: Int] = [:]) -> DaemonTree {
+        let panes = layout.paneIDs.map { id in
+            PaneSnapshot(id: id, tabs: (0..<(tabs[id.rawValue] ?? 1)).map { TabSnapshot(surface: SurfaceID(rawValue: id.rawValue * 100 + UInt64($0)), title: "~") })
+        }
+        let screen = ScreenSnapshot(id: 1, layout: layout, panes: panes)
+        return DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w1", screens: [screen])])
+    }
+
     private static func connected() throws -> DaemonIdentity {
         let json = #"{"app":"cmux-tui","protocol":1,"session":"pane-close-controller-test","generation":"g1"}"#
         return try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8))

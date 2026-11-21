@@ -22,6 +22,7 @@ import { EnvironmentSection } from "../src/agent-session/acpmux/session-info/Env
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { environmentSection } from "../src/agent-session/acpmux/session-info/native/environment";
 import { NativeInfoActions } from "../src/agent-session/acpmux/session-info/native/model";
+import { settleReact } from "./support/domTeardown";
 
 const SESSION = "menubar-chats-menu";
 const THIS_MAC = "cosmic-gray";
@@ -50,7 +51,8 @@ beforeAll(() => {
   Object.assign(scope, replacements);
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;

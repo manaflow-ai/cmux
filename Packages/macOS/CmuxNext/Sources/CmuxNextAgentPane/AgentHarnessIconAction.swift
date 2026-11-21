@@ -12,16 +12,16 @@ public struct AgentHarnessIconAction {
 
     private let setIcon: @MainActor (String, AgentHarnessIconChange) async throws -> Void
     private let state: @MainActor () -> JSONValue
-    private let refresh: @MainActor () -> Void
+    private let refresh: @MainActor () async -> Void
     private let failure: @MainActor (any Error) -> String
 
     /// - Parameters:
     ///   - setIcon: Sends the change for a harness id and reads the list again.
     ///   - state: What Settings > Agents draws (`status` and `harnesses` rows).
-    ///   - refresh: Reads the harness list again; it answers on its own.
+    ///   - refresh: Reads the harness list again; returns once `state` holds the answer.
     ///   - failure: The text a failed change shows.
     public init(setIcon: @escaping @MainActor (String, AgentHarnessIconChange) async throws -> Void,
-                state: @escaping @MainActor () -> JSONValue, refresh: @escaping @MainActor () -> Void,
+                state: @escaping @MainActor () -> JSONValue, refresh: @escaping @MainActor () async -> Void,
                 failure: @escaping @MainActor (any Error) -> String) {
         self.setIcon = setIcon
         self.state = state
@@ -48,14 +48,22 @@ public struct AgentHarnessIconAction {
                 }
             }
         })
-        // The pick: a list not read yet (or read while the daemon was down) is read again; a typed id still runs.
+        // The pick: the list Settings read. One not read yet (or read while the daemon was down) is read
+        // again first, under the palette's loading state, so the step never opens empty and stays so.
         let (state, refresh) = (state, refresh)
         let previous = registry.argumentSuggestions
         registry.argumentSuggestions = { source in
             guard source == ActionSuggestions.agentHarnessProfiles else { return previous?(source) ?? [] }
-            let current = state()
-            if current["status"]?.stringValue != "ready" { refresh() }
-            return Self.profileChoices(current)
+            return Self.profileChoices(state())
+        }
+        let previousLoad = registry.argumentSuggestionsLoad
+        registry.argumentSuggestionsLoad = { source in
+            guard source == ActionSuggestions.agentHarnessProfiles else { return previousLoad?(source) }
+            guard state()["status"]?.stringValue != "ready" else { return nil }
+            return {
+                await refresh()
+                return Self.profileChoices(state())
+            }
         }
     }
 

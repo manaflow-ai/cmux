@@ -72,7 +72,9 @@ pub(super) const SEND_EXPECT_FOREGROUND_CAPABILITY: &str = "send-expect-foregrou
 
 /// `send-expect-agent-v1`: `send` takes `expect_agent` and `submit`, so a reply typed from
 /// somewhere that cannot see the screen (the phone's Feed) reaches only the agent that waits at
-/// its prompt, and is submitted with no gap between the text and Return.
+/// its prompt, and is submitted by a Return of its own. The PTY writer gives it its own read once
+/// the program read the text (`paste_pacing`): sent right behind a paste, an agent TUI took it as
+/// part of the paste.
 pub(super) const SEND_EXPECT_AGENT_CAPABILITY: &str = "send-expect-agent-v1";
 
 /// `send` `expect_agent`: the terminal's agent must wait at its prompt (`idle`, never `working`,
@@ -149,13 +151,15 @@ pub(super) fn input_surface(
         }
         return Ok((surface, InputReply::Written));
     }
-    if let Some((surface, can_type)) = mux.control_clients.attached_input_surface(client, id) {
+    if let Some((surface, can_type)) =
+        mux.control_clients.attached_input_surface(client, id, &mux.route_generations)
+    {
         if can_type {
             writer.input_lane.mark_person_input();
         }
         return Ok((surface, InputReply::Written));
     }
-    let generation = crate::route_table::route_generation(id);
+    let generation = mux.route_generations.of(id);
     let surface = get_surface(mux, id)?;
     if mux.control_clients.remember_attached_input(client, id, &surface, generation) {
         writer.input_lane.mark_person_input();
@@ -215,6 +219,16 @@ pub(super) fn send(
         }
     }
     if let Some(expected) = expect_agent {
+        // While the start's roster replay runs in the background, the roster holds older states
+        // (an `idle` from before the agent's last prompt) next to the current session id, so the
+        // check below could pass for an agent that works or asks. Refused until the replay and its
+        // reconcile are done: nothing was written, and the same send succeeds then.
+        if mux.agent_roster_settling() {
+            return Err(DeliveryClassifiedError::known_not_delivered(anyhow::anyhow!(
+                "agent roster replay in progress: agent states are still being restored; retry \
+                 the send shortly"
+            )));
+        }
         // Only this surface's own terminal's record: a surface with no terminal id fails closed
         // (an unfiltered roster would name another terminal's agent).
         let agent = surface.terminal_public_id().cloned().and_then(|terminal| {
@@ -264,7 +278,8 @@ pub(super) fn send(
     }
     if submit {
         // Return as its own key: a full-screen agent editor reads a pasted newline as a line
-        // break, not a submit.
+        // break, not a submit. The PTY writer holds it until the program read the paste
+        // (`paste_pacing`).
         // The text is already in: a failed Return must not read as "nothing was written".
         surface.write_bytes_replying(b"\r", reply).map_err(|error| {
             anyhow::anyhow!("submit failed after the text was written: {error}")

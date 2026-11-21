@@ -282,18 +282,25 @@ fn segment_needs_reducer_records(
     Ok(mapped.iter().any(|kind| kept_for_reducers(kind) && !kept.contains(kind)))
 }
 
-/// The output cleanup's done marker (`output_cleanup::DONE_META_KEY`), which
-/// every build's swap rewrites with its time: the cursor keeps the one it was
-/// made under, so a cleanup since then shows.
+/// The output cleanup's done markers, which every build's swap rewrites
+/// with its time: the cursor keeps the ones it was made under, so a cleanup
+/// since then shows. A build before `DONE_META_KEY` swaps under
+/// `V1_DONE_META_KEY`, so a downgrade's cleanup shows too; a registry with
+/// no version 2 marker keeps the version 1 value alone, as those builds
+/// wrote it.
 fn cleanup_marker(connection: &Connection) -> anyhow::Result<Value> {
-    let marker = connection
-        .query_row(
-            "SELECT value FROM meta WHERE key = ?1",
-            [output_cleanup::DONE_META_KEY],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?;
-    Ok(marker.map_or(Value::Null, Value::String))
+    let marker = |key: &str| {
+        connection
+            .query_row("SELECT value FROM meta WHERE key = ?1", [key], |row| {
+                row.get::<_, String>(0)
+            })
+            .optional()
+    };
+    let v1 = marker(output_cleanup::V1_DONE_META_KEY)?;
+    Ok(match marker(output_cleanup::DONE_META_KEY)? {
+        Some(v2) => json!([v1, v2]),
+        None => v1.map_or(Value::Null, Value::String),
+    })
 }
 
 /// The end sequence of the last segment the backfill finished. 0 (start

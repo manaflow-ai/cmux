@@ -60,6 +60,11 @@ enum HomeText {
 
     static var offlineTitle: String { String(localized: "home.offline.title", defaultValue: "Offline", bundle: .module) }
     static var offlineBody: String { String(localized: "home.offline.body", defaultValue: "You can read saved messages. Sending, invites and new Chiefs come back when cmux reconnects.", bundle: .module) }
+    static var chiefOffTitle: String { String(localized: "home.chiefOff.title", defaultValue: "Chief Is Off", bundle: .module) }
+    static var chiefOffBody: String { String(localized: "home.chiefOff.body", defaultValue: "It doesn't answer messages until you turn it on.", bundle: .module) }
+    static var chiefOffFailedBody: String { String(localized: "home.chiefOff.failedBody", defaultValue: "It couldn't be turned on. Check your connection and try again.", bundle: .module) }
+    static var chiefOffUnavailableBody: String { String(localized: "home.chiefOff.unavailableBody", defaultValue: "Chief isn't available on this account.", bundle: .module) }
+    static var chiefTurnOn: String { String(localized: "home.chiefOff.turnOn", defaultValue: "Turn On", bundle: .module) }
     static var updateRequiredTitle: String { String(localized: "home.updateRequired.title", defaultValue: "Update Required", bundle: .module) }
     static var updateRequiredBodyNoVersion: String { String(localized: "home.updateRequired.bodyNoVersion", defaultValue: "Your team requires a newer version of cmux. Update cmux to keep notifications and replies working.", bundle: .module) }
     static var rejectionNotAuthorized: String { String(localized: "home.rejection.notAuthorized", defaultValue: "You don't have permission to do that here.", bundle: .module) }

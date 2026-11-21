@@ -1,15 +1,21 @@
-//! The hub's startup: hold spawns until the login environment and the
-//! catalog are ready, check launchers, then let agents start (moved from
-//! `hub/mod.rs` unchanged).
+//! The hub's startup: hold spawns until the login environment, the catalog,
+//! the launcher checks and the vault are ready (`prepare_spawns`), apart from the
+//! chats' logs and adoption, then finish the rest (`finish_startup`).
+//!
+//! Leo, 2026-11-12: "it took well over 90 seconds to start anything... everything waits on
+//! everything". A new chat waited for every agent host's adoption and every hosted chat's log;
+//! now it waits for what an agent start needs, and a chat's own start for its own adoption
+//! (cmuxterm-hq `docs/design/acpmux-per-chat-startup.md`).
 
 use super::Hub;
 use crate::config::Config;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-/// How long a new session waits for the daemon's startup ([`Hub::wait_startup_within`]). Long
-/// enough for a loaded machine's adoption (each host's first hello is bounded, eight at once) and
-/// its login shell; a startup still not done by then is stuck, and the caller hears where.
+/// How long a new session waits for an agent start to be ready ([`Hub::wait_spawn_ready_within`]):
+/// the login shell (at most two `login_env::TIMEOUT` reads, only with no cache), the launcher
+/// checks (at most 20 s each, at once) and a first vault pull. Not adoption, which no new session
+/// waits for; a preparation still not done by then is stuck, and the caller hears where.
 // timeout: a create must answer; a wedged startup otherwise held every new session forever.
 pub(crate) const NEW_SESSION_STARTUP_WAIT: std::time::Duration =
     std::time::Duration::from_secs(180);
@@ -47,7 +53,9 @@ impl Hub {
     pub fn begin_startup(&self, login_env: bool) {
         self.login_env_requested.store(login_env, Ordering::SeqCst);
         self.startup_ready.send_replace(false);
+        self.spawn_ready.send_replace(false);
         self.catalog_ready.send_replace(false);
+        self.model_caches_ready.send_replace(false);
     }
 
     /// The daemon's work once startup is done: chats start (after the login env import: it names
@@ -65,24 +73,19 @@ impl Hub {
         crate::artifacts_sync::run_background(self.clone()).await;
     }
 
-    /// Background startup: import the login environment (when requested),
-    /// reload the catalog so PATH discovery sees it, check launchers, then
-    /// let spawns through and probe models.
-    pub async fn finish_startup(self: &Arc<Self>) {
-        // deny-all or review as the default policy in config.json, a lockdown (`policy_mode.rs`):
-        // every chat without a policy of its own follows it. A stopped chat's saved mode is
-        // written now; an adopted agent is reached once startup is done (`child_for` waits for it).
-        if matches!(
-            self.config.read().await.permission_policy,
-            crate::config::PermissionPolicy::DenyAll | crate::config::PermissionPolicy::Review
-        ) {
-            let hub = self.clone();
-            tokio::spawn(async move { hub.follow_default_policy().await });
+    /// What an agent start needs, run beside the chats' logs and adoption (`daemon.rs`): the
+    /// last model lists, the login environment (when requested), the catalog reloaded so PATH
+    /// discovery sees it, the launcher checks and the vault. Then agents may start
+    /// (`spawn_ready`). Returns whether the catalog was reloaded (its probes already started).
+    pub async fn prepare_spawns(self: &Arc<Self>) -> bool {
+        let gauges = crate::gauges::global();
+        // The last live model lists and the ACP agents' last probed lists (OpenCode, Gemini),
+        // before anything slow; `_acpmux/models` waits for them.
+        {
+            let _phase = gauges.phase("model caches");
+            self.load_model_caches().await;
         }
-        // Prompts queued under the previous daemon, after any adopted turn (`queue.rs`).
-        self.resume_queues();
-        // The last live model lists, before anything slow.
-        self.load_live_cache().await;
+        let login_phase = gauges.phase("login environment");
         let login_env = self.login_env_requested.load(Ordering::SeqCst);
         let mut reloaded = false;
         if login_env {
@@ -111,12 +114,51 @@ impl Hub {
                 });
             }
         }
+        drop(login_phase);
         self.catalog_ready.send_replace(true);
-        self.verify_launchers().await;
+        {
+            let _phase = gauges.phase("verify launchers");
+            self.verify_launchers().await;
+        }
         // The person's vault (`crate::vault`): a joined machine with no vault
         // state pulls it before the first agent spawns (at most a few seconds),
         // then every 15 minutes; its env goes to every local agent.
-        crate::vault::start_worker().await;
+        {
+            let _phase = gauges.phase("vault");
+            crate::vault::start_worker().await;
+        }
+        self.spawn_ready.send_replace(true);
+        gauges.mark("agents may spawn");
+        tracing::info!("agents may start");
+        reloaded
+    }
+
+    /// The rest of startup, once the chats' logs, adoption and policy holds are done and
+    /// [`Self::prepare_spawns`] returned `reloaded`: queues resume, startup is marked done, the
+    /// warm pool and model probes start.
+    pub async fn finish_startup(self: &Arc<Self>) {
+        let reloaded = self.prepare_spawns().await;
+        self.finish_startup_after_prepare(reloaded).await;
+    }
+
+    /// Completes startup after the independent spawn preparation has finished. The daemon uses
+    /// this form so agent starts can proceed while chat logs and remote adoption continue.
+    pub async fn finish_startup_after_prepare(self: &Arc<Self>, reloaded: bool) {
+        // deny-all or review as the default policy in config.json, a lockdown (`policy_mode.rs`):
+        // every chat without a policy of its own follows it. A stopped chat's saved mode is
+        // written now; an adopted agent is reached once startup is done (`child_for` waits for it).
+        if matches!(
+            self.config.read().await.permission_policy,
+            crate::config::PermissionPolicy::DenyAll | crate::config::PermissionPolicy::Review
+        ) {
+            let hub = self.clone();
+            tokio::spawn(async move { hub.follow_default_policy().await });
+        }
+        // Prompts queued under the previous daemon, after any adopted turn (`queue.rs`).
+        {
+            let _phase = crate::gauges::global().phase("resume queues");
+            self.resume_queues();
+        }
         self.startup_ready.send_replace(true);
         self.care_worker();
         // A spare for each harness this machine used (`pool/spare.rs`).
@@ -124,7 +166,7 @@ impl Hub {
             let hub = self.clone();
             tokio::spawn(async move { hub.restore_spares().await });
         }
-        tracing::info!("startup complete; agents may spawn");
+        tracing::info!("startup complete");
         // Probes and one-shots of earlier runs left files behind: remove them.
         let _ = tokio::task::spawn_blocking(|| {
             crate::qos::background(crate::probe_cleanup::at_daemon_start)
@@ -159,15 +201,20 @@ impl Hub {
         let _ = rx.wait_for(|ready| *ready).await;
     }
 
-    /// [`Hub::wait_startup`] for a request that must answer: past `wait` it fails with a
-    /// retryable `deadline_exceeded` that names the startup phase it waited on
-    /// (`loading_status`). A startup that never ends (one agent host that never answers its
-    /// adoption hello) otherwise left every `session/new` with no reply at all.
-    pub(crate) async fn wait_startup_within(
+    /// Wait until an agent may start ([`Self::prepare_spawns`]; immediate outside a daemon). A
+    /// chat's own start waits for its own adoption too (`wait_adopted`), not for this.
+    pub(crate) async fn wait_spawn_ready(&self) {
+        let mut rx = self.spawn_ready.subscribe();
+        let _ = rx.wait_for(|ready| *ready).await;
+    }
+
+    /// [`Hub::wait_spawn_ready`] for a request that must answer: past `wait` it fails with a
+    /// retryable `deadline_exceeded` that names the startup phase it waited on.
+    pub(crate) async fn wait_spawn_ready_within(
         &self,
         wait: std::time::Duration,
     ) -> Result<(), crate::rpc::RpcError> {
-        if tokio::time::timeout(wait, self.wait_startup()).await.is_ok() {
+        if tokio::time::timeout(wait, self.wait_spawn_ready()).await.is_ok() {
             return Ok(());
         }
         let phase = self.loading_status()["phase"].as_str().unwrap_or("unknown").to_owned();

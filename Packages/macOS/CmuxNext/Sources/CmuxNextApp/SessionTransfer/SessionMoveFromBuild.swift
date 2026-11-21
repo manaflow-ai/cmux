@@ -28,7 +28,7 @@ struct SessionMoveFromBuild {
             peers = try await transfer.discover()
         } catch {
             Self.toast(SessionTransferService.message(for: error), in: window)
-            return ActionWorkFailure("move-sessions: \(error)")
+            return ActionWorkFailure(log: "move-sessions: \(error)", shown: true) // the toast said it: one notice
         }
         let selection = SessionMoveSelection(peers: peers)
         guard !selection.isEmpty else {

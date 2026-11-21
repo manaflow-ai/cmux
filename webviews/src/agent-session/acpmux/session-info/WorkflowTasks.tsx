@@ -18,7 +18,7 @@ import { Fragment, useId, useLayoutEffect, useRef, useState } from "react";
 import { compactTokens } from "../conversation/compactionNoteModel";
 import { Spinner } from "../conversation/icons";
 import { Markdown } from "../conversation/Markdown";
-import { formatDuration } from "../conversation/turns";
+import { formatDuration, spanDuration } from "../conversation/turns";
 import { useT, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
@@ -404,7 +404,7 @@ function CommandList({
             : running
               ? formatDuration(Math.max(0, now - command.startedAt))
               : command.endedAt !== undefined
-                ? formatDuration(Math.max(0, command.endedAt - command.startedAt))
+                ? spanDuration(t, command.endedAt - command.startedAt)
                 : undefined;
         const label = sendLabel(t, command) ?? commandLabel(command);
         return (

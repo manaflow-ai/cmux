@@ -36,7 +36,7 @@ fn hub() -> Arc<Hub> {
             "fake": {"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}},
             "kin": {"argv": ["python3", FAKE], "family": "kin", "env": {"FAKE_FULL_ACCESS": "1"}},
             // A family whose adapter reports no modes, so none that asks.
-            "bare": {"argv": ["python3", FAKE], "family": "bare", "env": {"FAKE_NO_MODES": "1", "FAKE_NO_ASK_CLAIM": "1"}},
+            "bare": {"argv": ["python3", FAKE], "family": "bare", "env": {"FAKE_NO_MODES": "1", "FAKE_ASK_CLAIM": "0"}},
             // A family whose default policy is wider than an asking starter's.
             "lax": {"argv": ["python3", FAKE], "family": "lax", "env": {"FAKE_FULL_ACCESS": "1"}},
             // The starter's family, with a session/new that takes a while.

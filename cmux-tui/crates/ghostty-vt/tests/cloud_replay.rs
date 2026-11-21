@@ -41,7 +41,9 @@ fn assert_cells_match(source: &mut Terminal, restored: &mut Terminal, history: u
         actual.styled_rows().iter().zip(expected.styled_rows()).enumerate()
     {
         assert_eq!(actual_row.len(), expected_row.len(), "history={history} row={y}");
-        for (x, (actual_cell, expected_cell)) in actual_row.iter().zip(expected_row).enumerate() {
+        for (x, (actual_cell, expected_cell)) in
+            actual_row.iter().zip(expected_row.iter()).enumerate()
+        {
             let mut actual_cell = actual_cell.clone();
             let mut expected_cell = expected_cell.clone();
             // A replay can represent an erased blank as a literal space.

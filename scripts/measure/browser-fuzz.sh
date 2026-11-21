@@ -5,7 +5,7 @@
 # panes, workspaces and windows, DevTools open and close, downloads and renderer crashes in Chromium tabs, with its
 # oracles after every op (the app lives, a dead renderer shows the crashed-page view, no main-thread stall over 100 ms,
 # unsafe schemes refused). It launches an app and kills that app's own renderers, so it runs alone:
-#   cmux-ci run --class exclusive --label measure --label gui-session-v1 --pool perf-lead \
+#   cmux-ci run --class exclusive --label measure --label gui-session-v1 \
 #     --script scripts/measure/browser-fuzz.sh --ref <sha> --artifact artifacts/browser-fuzz/findings.tar.gz \
 #     [--arg=--minutes=20] [--arg=--seed=N] [--arg=--config=bench]
 # Default configuration: Debug (the crashed-page and external-open oracles read DEBUG-only methods). --config=bench

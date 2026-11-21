@@ -1,0 +1,99 @@
+name: fixture
+on: push
+jobs:
+  daemon-test:
+    name: cmux-next daemon tests
+    runs-on: fixture
+    steps:
+      - name: "Give this job its own acpmux home"
+        run: "home=\"$RUNNER_TEMP/acpmux-home\""
+      - name: "Clear stale git locks (self-hosted reused workspace)"
+        run: "ws=\"${GITHUB_WORKSPACE:-$PWD}\""
+      - name: "Checkout"
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        continue-on-error: true
+      - name: "Discard the workspace repository after a failed checkout"
+        run: "rm -rf \"$GITHUB_WORKSPACE/.git\""
+      - name: "Retry checkout after transient network failure"
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - name: "Drop stale submodule checkouts (self-hosted reused workspace)"
+        run: "scripts/ci/reset-stale-submodules.sh"
+      - name: "Require the GUI session on a mini"
+        run: "echo \"CMUX_TEST_REQUIRE_GUI=1\" >> \"$GITHUB_ENV\""
+      - name: "Select Xcode"
+        run: "./scripts/select-ci-xcode.sh"
+      - name: "Keep Swift package builds on this owned Mac"
+        run: "python3 scripts/ci/owned_spm_scratch.py link \"$GITHUB_WORKSPACE\""
+        continue-on-error: true
+      - name: "Compute the fast-tier seed keys"
+        run: "scripts/cmux-next/fast-tier-cache-key.sh >> \"$GITHUB_OUTPUT\""
+        continue-on-error: true
+      - name: "Restore the CmuxNext build the base seeded"
+        uses: ./.github/actions/cache-restore
+        continue-on-error: true
+      - name: "Replay the seed's input times"
+        run: "python3 scripts/ci/owned_spm_scratch.py drop-bundles Packages/macOS/CmuxNext/.build"
+        continue-on-error: true
+      - name: "Set up pinned cmux-tui Rust (sidebar layout reducer)"
+        uses: ./.github/actions/setup-cmux-tui-rust
+      - name: "Setup Bun"
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+      - name: "Give this job its own bun"
+        run: "scripts/cmux-next/private-bun.sh"
+      - name: "Setup Node"
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+      - name: "Source key of the web bundles"
+        run: "echo \"key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)\" >> \"$GITHUB_OUTPUT\""
+      - name: "Restore the web bundles from R2"
+        uses: ./.github/actions/cache-restore
+      - name: "Restore the web bundles built for this source key"
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
+      - name: "Download the web bundles this run's bundle job built"
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        continue-on-error: true
+      - name: "Install the restored web bundles"
+        run: "scripts/cmux-next/build-web-bundles.sh --from web-bundles-out"
+      - name: "Build the web bundles"
+        run: "scripts/cmux-next/build-web-bundles.sh"
+      - name: "Build package and tests"
+        run: "python3 ../../../scripts/ci/swiftpm_build_metrics.py --role daemon-test --output-dir \"$RUNNER_TEMP/cmux-next-build-metrics\" -- swift build --build-tests"
+      - name: "Upload the test build measurement and log"
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        continue-on-error: true
+      - name: "Check generated action catalog, surfaces and inventory"
+        run: "../../../scripts/cmux-next/judge-action-exports.sh \"$PWD\""
+        continue-on-error: true
+      - name: "Check the settings exports"
+        run: "scripts/cmux-next/check-settings-exports.sh"
+        continue-on-error: true
+      - name: "Pack the exports for the base autofix"
+        run: "set -euo pipefail"
+        continue-on-error: true
+      - name: "Upload the exports for the base autofix"
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        continue-on-error: true
+      - name: "Compile string catalogs into the resource bundles"
+        run: "../../../scripts/cmux-next/compile-string-catalogs.sh"
+      - name: "Clean generated layout-reducer FFI lockfile"
+        run: "lock=cmux-tui/crates/cmux-layout-reducer-ffi/Cargo.lock"
+      - name: "Fetch the same-tree cmux-tui"
+        run: "scripts/cmux-next/pin-cmux-tui.sh fetch"
+      - name: "Check the same-tree cmux-tui serves the app's daemon capabilities"
+        run: "scripts/cmux-next/check-daemon-capabilities.sh"
+      - name: "Run the live-daemon suites"
+        run: "../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter '^(CmuxNextDaemonTests|CmuxNextMobileTests)\\.|FirstLaunchTests|MarkdownPageFindTests|FileSourceSwitchTests|ClassicImportTests|ClassicMigrationTests|ClassicUpgradeSimulationTests' --skip BranchStateResourcesTests"
+      - name: "Run state-resource regressions"
+        run: "../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter BranchStateResourcesTests"
+      - name: "Regenerate stale files"
+        run: "set -euo pipefail"
+      - name: "Upload the regenerated files"
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      - name: "Give the generated files verdict"
+        run: "if [[ \"$ACTIONS\" == failure && \"$CATALOG\" == failure ]]; then"
+      - name: "Stop this job's acpmux daemons and remove its home"
+        run: "home=\"$RUNNER_TEMP/acpmux-home\""
+        continue-on-error: true
+      - name: "Upload the test helper's crash reports"
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      - name: "Report the same-tree result on the tested commit"
+        run: "set -euo pipefail"

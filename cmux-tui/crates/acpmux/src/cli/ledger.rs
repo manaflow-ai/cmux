@@ -78,6 +78,7 @@ const CSV_FIELDS: &[&str] = &[
     "outputTokens",
     "cacheReadTokens",
     "cacheWriteTokens",
+    "cacheWrite1hTokens",
     "cacheSavedUsd",
     "turns",
     "toolCalls",
@@ -163,7 +164,8 @@ mod tests {
     fn csv_has_a_header_and_every_group_spreadsheet_safe() {
         let args = LedgerArgs { since: None, by: "account".into(), limit: 1, csv: true };
         let answer = json!({"rollups": {"account": [
-            {"key": "team, api key", "costUsd": 2.5, "cacheSavedUsd": 1.25, "turns": 3, "sessions": 1},
+            {"key": "team, api key", "costUsd": 2.5, "cacheWriteTokens": 400,
+             "cacheWrite1hTokens": 300, "cacheSavedUsd": 1.25, "turns": 3, "sessions": 1},
             {"key": "=HYPERLINK(\"x\")", "costUsd": 0.5, "turns": 1, "sessions": 1}
         ]}});
         let out = csv(&args, &answer);
@@ -172,6 +174,10 @@ mod tests {
         assert!(lines[0].starts_with("account,label,costUsd,"), "{out}");
         assert!(lines[1].starts_with("\"team, api key\",\"team, api key\",2.5,"), "{out}");
         assert!(lines[1].contains(",1.25,3,"), "{out}");
+        // The hour-long writes have their own column, after the writes they are part of.
+        assert!(lines[0].contains(",cacheWriteTokens,cacheWrite1hTokens,cacheSavedUsd,"), "{out}");
+        assert!(lines[1].contains(",400,300,1.25,"), "{out}");
+        assert!(lines[2].contains(",0,0,0,1,"), "a group without it reads 0: {out}");
         assert!(lines[2].starts_with("\"'=HYPERLINK(\"\"x\"\")\""), "{out}");
         // A tab or line break would split the cell on paste and leave `=1+1` a cell of its own.
         assert_eq!(csv_field("audit\t=1+1\nend"), "audit =1+1 end");

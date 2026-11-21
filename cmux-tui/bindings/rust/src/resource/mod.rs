@@ -43,8 +43,8 @@ pub use journal_plugin::{
 pub use model::{
     AgentSnapshot, AgentSnapshotSource, BrowserSnapshot, BrowserSource, BrowserStatus,
     BrowserViewerResizeResult, CellPixelsResult, ClientSnapshot, ClientTerminalSize,
-    ClientTransport, ConfirmationRequiredDetails, ConnectedClientSnapshot, Created, CreatedPath,
-    CreationRecovery, CreationResolution, CreationState, Cursor, Document,
+    ClientTransport, ColumnRole, ConfirmationRequiredDetails, ConnectedClientSnapshot, Created,
+    CreatedPath, CreationRecovery, CreationResolution, CreationState, Cursor, Document,
     FrontendProjectionSnapshot, LayoutColumn, LayoutColumnDock, LayoutDirection, LayoutDocument,
     LayoutLeaf, LayoutNode, LayoutRow, LayoutSplit, LayoutStack, LayoutViewport, MachineOrigin,
     MachinePlatform, MachineSnapshot, MachineStatus, MutationReceipt, MutationResult,

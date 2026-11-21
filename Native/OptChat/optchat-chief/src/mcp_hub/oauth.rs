@@ -68,6 +68,7 @@ fn random() -> [u8; 32] {
 fn discover(
     server_url: &str,
     www_authenticate: &str,
+    registry_scopes: &[String],
 ) -> Result<(String, AuthServer, Vec<String>), String> {
     let prm_url = discovery::resource_metadata_url(www_authenticate)
         .map(Ok)
@@ -115,37 +116,80 @@ fn discover(
         })?;
     let auth = AuthServer::parse(&meta.to_string()).map_err(|e| e.to_string())?;
     auth.check(&issuer).map_err(|e| e.to_string())?;
-    let scopes = discovery::choose_scopes(&[], &challenge, &supported);
+    let scopes = discovery::choose_scopes(registry_scopes, &challenge, &supported);
     Ok((resource, auth, scopes))
+}
+
+/// What the registry knows about signing in to a server: a public client
+/// registered ahead (servers with no dynamic registration, like Slack), and
+/// the scopes to ask.
+#[derive(Clone, Debug, Default)]
+pub struct Known {
+    pub client_id: Option<String>,
+    pub redirect_port: Option<u16>,
+    pub scopes: Vec<String>,
+    pub scope_delimiter: Option<String>,
+}
+
+impl Known {
+    /// The registry's entry for exactly this server URL.
+    pub fn for_url(url: &str) -> Self {
+        let registry = cmux_mcp_connect::registry::Registry::builtin();
+        registry
+            .by_url(url)
+            .map(|e| Self {
+                client_id: e.client_id.clone().filter(|c| !c.is_empty()),
+                redirect_port: e.redirect_port,
+                scopes: e.scopes.clone(),
+                scope_delimiter: e.scope_delimiter.clone(),
+            })
+            .unwrap_or_default()
+    }
 }
 
 /// Starts a sign-in for the server at `server_url` that answered 401 with
 /// `www_authenticate`.
-pub fn start(server_url: &str, www_authenticate: &str) -> Result<Started, String> {
-    let (resource, auth, scopes) = discover(server_url, www_authenticate)?;
-    let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
-    let port = listener.local_addr().map_err(|e| e.to_string())?.port();
-    let redirect_uri = format!("http://127.0.0.1:{port}/callback");
-    let Some(registration) = auth.registration_endpoint.clone() else {
-        return Err(
-            "the server's sign-in takes no new apps (no dynamic client registration); add it with a key in headers instead"
-                .into(),
-        );
+pub fn start(server_url: &str, www_authenticate: &str, known: &Known) -> Result<Started, String> {
+    let (resource, auth, scopes) = discover(server_url, www_authenticate, &known.scopes)?;
+    let (client_id, listener, redirect_uri) = match (&known.client_id, known.redirect_port) {
+        // A client registered ahead: its redirect is fixed, so is the port.
+        (Some(client_id), Some(port)) => {
+            let listener = TcpListener::bind(("127.0.0.1", port)).map_err(|e| {
+                format!("the sign-in needs port {port} on this machine and it is taken ({e}); close what holds it and try again")
+            })?;
+            (
+                client_id.clone(),
+                listener,
+                format!("http://localhost:{port}/callback"),
+            )
+        }
+        _ => {
+            let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
+            let port = listener.local_addr().map_err(|e| e.to_string())?.port();
+            let redirect_uri = format!("http://127.0.0.1:{port}/callback");
+            let Some(registration) = auth.registration_endpoint.clone() else {
+                return Err(
+                    "the server's sign-in takes no new apps (no dynamic client registration) and cmux has no app registered with it; add it with a key in headers instead"
+                        .into(),
+                );
+            };
+            let mut body = discovery::registration(&redirect_uri);
+            body["client_name"] = "cmux Chief".into();
+            body["application_type"] = "native".into();
+            let reg: Value = agent()
+                .post(&registration)
+                .set("Accept", "application/json")
+                .send_json(body)
+                .map_err(|e| format!("client registration: {e}"))?
+                .into_json()
+                .map_err(|e| format!("client registration: {e}"))?;
+            let client_id = reg["client_id"]
+                .as_str()
+                .ok_or("client registration: no client_id")?
+                .to_owned();
+            (client_id, listener, redirect_uri)
+        }
     };
-    let mut body = discovery::registration(&redirect_uri);
-    body["client_name"] = "cmux Chief".into();
-    body["application_type"] = "native".into();
-    let reg: Value = agent()
-        .post(&registration)
-        .set("Accept", "application/json")
-        .send_json(body)
-        .map_err(|e| format!("client registration: {e}"))?
-        .into_json()
-        .map_err(|e| format!("client registration: {e}"))?;
-    let client_id = reg["client_id"]
-        .as_str()
-        .ok_or("client registration: no client_id")?
-        .to_owned();
     let verifier = pkce::verifier(&random());
     let state = pkce::state(&random());
     let authorize_url = auth
@@ -158,6 +202,10 @@ pub fn start(server_url: &str, www_authenticate: &str) -> Result<Started, String
             scopes: &scopes,
         })
         .map_err(|e| e.to_string())?;
+    let authorize_url = match known.scope_delimiter.as_deref() {
+        Some(d) if d != " " => with_scope_delimiter(&authorize_url, d),
+        _ => authorize_url,
+    };
     Ok(Started {
         authorize_url,
         listener,
@@ -170,6 +218,26 @@ pub fn start(server_url: &str, www_authenticate: &str) -> Result<Started, String
             resource,
         },
     })
+}
+
+/// `url` with its `scope` parameter joined by `delimiter` instead of spaces.
+pub fn with_scope_delimiter(url: &str, delimiter: &str) -> String {
+    let Ok(mut u) = url::Url::parse(url) else {
+        return url.to_owned();
+    };
+    let pairs: Vec<(String, String)> = u
+        .query_pairs()
+        .map(|(k, v)| {
+            let v = if k == "scope" {
+                v.split(' ').collect::<Vec<_>>().join(delimiter)
+            } else {
+                v.into_owned()
+            };
+            (k.into_owned(), v)
+        })
+        .collect();
+    u.query_pairs_mut().clear().extend_pairs(pairs);
+    u.to_string()
 }
 
 const DONE_PAGE: &str = "<!doctype html><meta charset=utf-8><title>Signed in</title><body style=\"font:15px -apple-system,system-ui;margin:3em\"><h2>Signed in</h2><p>cmux Chief is connecting the server. You can close this tab.</p>";
@@ -268,8 +336,16 @@ fn token(
         })?
         .into_json()
         .map_err(|e| e.to_string())?;
+    // Slack answers HTTP 200 with `{"ok": false, "error": ...}`.
+    if v["ok"] == Value::Bool(false) {
+        return Err(format!(
+            "the token request was refused: {}",
+            v["error"].as_str().unwrap_or("no reason given")
+        ));
+    }
     let access = v["access_token"]
         .as_str()
+        .or_else(|| v["authed_user"]["access_token"].as_str())
         .ok_or("the token answer has no access_token")?;
     Ok(OAuthTokens {
         access_token: access.to_owned(),
@@ -305,4 +381,40 @@ pub fn refresh(old: &OAuthTokens) -> Result<OAuthTokens, String> {
         &old.resource,
         Some(r),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slack_scopes_are_joined_with_commas() {
+        let url = "https://slack.com/oauth/v2_user/authorize?client_id=c&scope=chat%3Awrite+users%3Aread&state=s";
+        let out = with_scope_delimiter(url, ",");
+        let u = url::Url::parse(&out).unwrap();
+        let scope: Vec<String> = u
+            .query_pairs()
+            .filter(|(k, _)| k == "scope")
+            .map(|(_, v)| v.into_owned())
+            .collect();
+        assert_eq!(scope, vec!["chat:write,users:read".to_owned()]);
+        assert!(
+            out.contains("client_id=c") && out.contains("state=s"),
+            "{out}"
+        );
+    }
+
+    #[test]
+    fn slack_is_a_known_client_with_a_fixed_redirect() {
+        let k = Known::for_url("https://mcp.slack.com/mcp");
+        assert!(
+            k.client_id.is_some(),
+            "Slack takes no dynamic registration: cmux's app id must be in the registry"
+        );
+        assert!(k.redirect_port.is_some());
+        assert_eq!(k.scope_delimiter.as_deref(), Some(","));
+        // Linear registers a client per sign-in (DCR), any port.
+        let l = Known::for_url("https://mcp.linear.app/mcp");
+        assert!(l.client_id.is_none() && l.redirect_port.is_none());
+    }
 }

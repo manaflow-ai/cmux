@@ -7,7 +7,7 @@
 // Pure: no DOM, no state.
 import { areaOf, type AreaKey } from "./areas";
 import { changeItems, localized, readableChanges } from "./model";
-import { changeArea, readableChange, shortTitle, tidyTitle } from "./readableChange";
+import { changeArea, plainChange, readableChange, shortTitle, tidyTitle } from "./readableChange";
 import type { ReleaseNotes, WhatsNewCategory, WhatsNewEntry } from "./types";
 import type { UpdateHighlights } from "./updateHighlights";
 
@@ -58,7 +58,16 @@ function category(group: string): WhatsNewCategory {
 function summarize(changes: Change[], language: string, unlisted = 0): UpdateSummary {
   const english = language === "en" || language.startsWith("en-");
   const buckets = new Map<string, { row: SummaryRow; changes: Change[]; first: number }>();
-  changes.forEach((change, index) => {
+  // The card says each change as the popover beside it does (readableChange.ts plainChange): a line
+  // only a builder reads never leads the card; it still counts in "+N more" (Leo 2026-11-14).
+  const plain = changes.flatMap((change) => {
+    const said = plainChange(change.title, undefined, language, false);
+    if (!said) return [];
+    if (said.title === change.title) return [change];
+    const { raw: _raw, ...rest } = change;
+    return [{ ...rest, title: said.title }];
+  });
+  plain.forEach((change, index) => {
     const key = change.area ?? `category:${change.category}`;
     const bucket = buckets.get(key) ?? {
       row: change.area ? { area: change.area, phrases: [] } : { category: change.category, phrases: [] },

@@ -22,6 +22,11 @@ Findings, in tracked Swift files under Packages/macOS:
      gone and the added entries). An entry for a file that already imported
      SwiftUI at REF adds no SwiftUI: it is printed as a note, not a finding
      (it acknowledges a base red; the review sees the list grow).
+     A restored file is not a new screen either: a row `<path>\t<git blob id>\t<why>`
+     in scripts/cmux-next/no-swiftui-restored.tsv lets its entry come back while the
+     file is byte for byte that blob (code an earlier commit deleted, brought back as it
+     was; the review checks the blob id against that commit). Once the file changes, the
+     row vouches for nothing. It is printed as a note.
   4. With --base REF: an allowlisted file that imports SwiftUI now, whose
      entry REF already had (or that entry under a moved path, as above),
      while the file did not import SwiftUI at REF. A stale entry on the base
@@ -55,6 +60,7 @@ import sys
 
 SCOPE = "Packages/macOS"
 ALLOWLIST = "scripts/cmux-next/no-swiftui-allowlist.txt"
+RESTORED = "scripts/cmux-next/no-swiftui-restored.tsv"
 
 IMPORT = re.compile(
     r"^[ \t]*(?:@[\w]+(?:\([^)]*\))?[ \t]+)*"
@@ -128,6 +134,26 @@ def imported_at(root: pathlib.Path, ref: str, path: str, _hops: int = 0) -> bool
     return IMPORT.search(re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)) is not None
 
 
+def restored_blobs(root: pathlib.Path) -> dict[str, str]:
+    """Path -> the git blob id its RESTORED row names (`#` lines and blank lines are skipped)."""
+    try:
+        lines = (root / RESTORED).read_text().splitlines()
+    except OSError:
+        return {}
+    rows = (line.split("\t") for line in lines if line.strip() and not line.startswith("#"))
+    return {row[0]: row[1] for row in rows if len(row) >= 3 and row[2].strip()}
+
+
+def is_blob(root: pathlib.Path, path: str, blob: str) -> bool:
+    """Whether the work tree file at `path` is byte for byte the git blob `blob`."""
+    try:
+        out = subprocess.run(["git", "-C", str(root), "hash-object", "--no-filters", "--", path],
+                             check=True, capture_output=True, text=True).stdout.strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+    return bool(out) and out == blob
+
+
 def by_name(paths) -> dict[str, list[str]]:
     """File name -> the paths with that name."""
     names: dict[str, list[str]] = {}
@@ -195,6 +221,7 @@ def main() -> int:
         else:
             old_allowed = old_set
             added = sorted(allowed_set - old_allowed)
+            restored = restored_blobs(root)
             # A move that also rewrote the file: pair one gone entry with one added entry of the
             # same file name, only when the name is unique on both sides.
             # A git rename's source is that rename's origin already: it pairs with nothing else.
@@ -210,6 +237,11 @@ def main() -> int:
                     # entry acknowledges). Shown, so the review sees the list grow.
                     print(f"note: {f} is new in {ALLOWLIST} but already imported SwiftUI at {args.base}",
                           file=sys.stderr)
+                    continue
+                if f in restored and is_blob(root, f, restored[f]):
+                    # Not a new screen: deleted code brought back unchanged (its RESTORED row names the blob).
+                    print(f"note: {f} is new in {ALLOWLIST} since {args.base}: restored as blob {restored[f][:12]} "
+                          f"({RESTORED})", file=sys.stderr)
                     continue
                 findings.append(f"{ALLOWLIST}: {f} is new since {args.base}; the allowlist only shrinks")
             # Finding 4: an entry the base had stale, filled with SwiftUI by this change.

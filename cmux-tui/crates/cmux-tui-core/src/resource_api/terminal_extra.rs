@@ -36,6 +36,9 @@ pub(super) fn extra(surface: Option<&crate::Surface>, running: bool) -> Map<Stri
     if running && let Some(at) = surface.and_then(crate::Surface::terminal_last_output) {
         extra.insert("last_output".into(), crate::terminal_activity::last_output_json(at));
     }
+    if running && let Some(at) = surface.and_then(crate::Surface::terminal_last_input) {
+        extra.insert("last_input".into(), crate::terminal_activity::last_input_json(at));
+    }
     // `agent_start`: the stored spawn argv is the `cmux agent start` launch
     // (agent_start_launch.rs); the CLI evens only such panes. No OS read.
     if surface

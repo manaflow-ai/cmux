@@ -34,7 +34,7 @@ struct TornOffWorkspaceNameTests {
         WorkspaceAutoNameReader(
             enabled: { true }, isNewTabPage: { newTabPages.contains($0.id) }, livePage: { _ in nil },
             incognitoTitle: { _ in nil },
-            terminal: { NewWorkspaceName.Tab(kind: .terminal, userName: $0.name, title: $0.title, pageTitle: nil, url: $0.url, cwd: $0.cwd) },
+            terminal: { NewWorkspaceName.Tab(kind: .terminal, userName: $0.name, title: $0.titleText, pageTitle: nil, url: $0.url, cwd: $0.cwd) },
             turns: turns, hold: WorkspaceAutoNameHold())
     }
 

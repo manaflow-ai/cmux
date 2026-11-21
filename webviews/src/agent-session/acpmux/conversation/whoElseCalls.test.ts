@@ -7,6 +7,7 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxActivity } from "../model";
 import { whoElseCall } from "./whoElseCalls";
 import fixture from "./whoElseCalls.fixture.json";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -20,7 +21,8 @@ beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const key of ["window", "document"] as const)
     if (saved[key]) scope[key] = saved.values[key];
     else delete scope[key];

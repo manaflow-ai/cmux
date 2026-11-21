@@ -1,3 +1,4 @@
+import CmuxNextControl
 import CmuxNextCrashReporting
 import Foundation
 
