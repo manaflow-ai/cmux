@@ -70,6 +70,8 @@ const LS_FIELDS: &[&str] =
 pub(crate) mod artifacts;
 #[path = "acpmux_mcp_bg.rs"]
 pub(crate) mod bg;
+#[path = "acpmux_mcp_bg_list.rs"]
+mod bg_list;
 #[path = "acpmux_mcp_bridge.rs"]
 pub(crate) mod bridge;
 #[path = "acpmux_mcp_goal.rs"]
@@ -91,7 +93,7 @@ mod wrap_up;
 /// The most facts a wrap-up offers, and the longest one (`memory_inbox.rs`).
 pub(crate) use wrap_up::{MAX_FACT as WRAP_UP_MAX_FACT, MAX_LEARNED as WRAP_UP_MAX_LEARNED};
 
-fn tools() -> Value {
+pub(crate) fn tools() -> Value {
     let mut all = base_tools();
     if let Some(list) = all.as_array_mut() {
         list.extend(bg::tools());
