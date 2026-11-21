@@ -30,6 +30,10 @@ def plan(path):
 
 
 def timed(stamp, cwd, label, argv, n):
+    # A -### plan names the driver's temporary folders, which only a real run makes.
+    for arg in argv[1:]:
+        if os.path.isabs(arg) and not os.path.exists(os.path.dirname(arg)):
+            os.makedirs(os.path.dirname(arg), exist_ok=True)
     log = os.path.join(cwd, f"{label}.stamps")
     if os.path.exists(log):
         os.remove(log)
