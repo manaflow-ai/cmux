@@ -100,7 +100,7 @@ function CuratedRow({
               {row.choices.length > 0 && (
                 <datalist id={listId}>
                   {row.choices.map((choice) => (
-                    <option key={choice} value={choice} />
+                    <option key={choice} value={choice} aria-label={choice} />
                   ))}
                 </datalist>
               )}
