@@ -2825,12 +2825,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const titleCwd = snapshot.summary?.cwd;
   const titleWorktree = snapshot.summary?.worktree;
   const titleBranch = snapshot.summary?.branch;
+  const titleOnCloud = snapshot.summary?.hostKind === "cloud";
   const titleTrail = useMemo(
     () =>
       headerBreadcrumbOn
-        ? headerBreadcrumb({ cwd: titleCwd, worktree: titleWorktree, branch: titleBranch })
+        ? headerBreadcrumb({ cwd: titleCwd, worktree: titleWorktree, branch: titleBranch, cloud: titleOnCloud })
         : undefined,
-    [headerBreadcrumbOn, titleCwd, titleWorktree, titleBranch],
+    [headerBreadcrumbOn, titleCwd, titleWorktree, titleBranch, titleOnCloud],
   );
   // Running subagents sit in the tray above the composer, and one that ended leaves a line where it
   // ended (subagents/runningTray.ts); Debug Settings agentPane.debug.subagentTray off keeps the

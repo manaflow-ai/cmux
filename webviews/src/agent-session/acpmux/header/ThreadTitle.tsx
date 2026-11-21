@@ -20,12 +20,14 @@ export function ThreadTitle({
   onRename?: () => void;
   trail?: readonly string[];
 }) {
-  const name = (
-    <span className="acpmux-thread-title" title={title} onDoubleClick={onRename}>
+  // With a trail the title segment carries no tooltip of its own: the path's full-path tooltip shows
+  // over it too.
+  const name = (tooltip: string | undefined) => (
+    <span className="acpmux-thread-title" title={tooltip} onDoubleClick={onRename}>
       {title}
     </span>
   );
-  if (!trail?.length) return name;
+  if (!trail?.length) return name(title);
   return (
     <span className="acpmux-thread-crumbs" title={[...trail, title].join(" / ")}>
       {trail.map((part, index) => (
@@ -36,7 +38,7 @@ export function ThreadTitle({
           </span>
         </Fragment>
       ))}
-      {name}
+      {name(undefined)}
     </span>
   );
 }

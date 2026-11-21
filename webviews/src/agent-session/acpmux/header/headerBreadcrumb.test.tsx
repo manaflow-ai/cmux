@@ -61,6 +61,14 @@ test("a plain folder is named by itself; no folder means no path", () => {
   expect(headerBreadcrumb({ cwd: "/", branch: "  " })).toEqual([]);
 });
 
+test("a chat's private folder is no path: the header draws the plain title (router-review F1 at 78eba1cf)", () => {
+  const agentHome = "/Users/me/Library/Application Support/cmux/agent-home/ws-4f2a/chat-91";
+  expect(headerBreadcrumb({ cwd: agentHome, branch: "main" })).toEqual([]);
+  expect(headerBreadcrumb({ cwd: "/home/cmux/chats/c-3e9b1d", cloud: true })).toEqual([]);
+  // Off a Cloud machine, `~/chats/api` is a project of the person's.
+  expect(headerBreadcrumb({ cwd: "/home/me/chats/api" })).toEqual(["api"]);
+});
+
 test("off (no trail), the title draws exactly as before", () => {
   const plain = renderToStaticMarkup(<ThreadTitle title="A chat" />);
   expect(renderToStaticMarkup(<ThreadTitle title="A chat" trail={[]} />)).toBe(plain);
@@ -85,6 +93,8 @@ test("on, the header reads as one slash path and the title segment still renames
   expect(container.querySelectorAll(".acpmux-thread-crumb-sep[aria-hidden='true']").length).toBe(2);
   const title = container.querySelector<HTMLElement>(".acpmux-thread-title")!;
   expect(title.textContent).toBe("Fix login");
+  // The title segment shows the full-path tooltip, not a title-only one of its own (router-review F2).
+  expect(title.hasAttribute("title")).toBe(false);
   // A double-click on a leading part does not rename; one on the title does.
   await act(async () => {
     container
