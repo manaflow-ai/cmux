@@ -2795,7 +2795,7 @@ export default agentPaneEntry({
     // composer/extensionCommands.ts reads its answer, and they sit in the same menu as the agent's,
     // labelled with the extension's name. Picking one writes its text over the typed /word.
     "slash-menu-extension-command": {
-      note: "Play: type /st in a chat with an installed extension that adds /standup; the row is labelled Standup, and picking it writes the extension's text in the prompt.",
+      note: "Play: type /st in a chat with an installed extension that adds /standup; the row is labelled Standup beside other sources, and picking it writes the extension's text in the prompt.",
       snapshot: chat(finished, {
         commands: [
           { name: "compact", description: "Clear conversation history but keep a summary in context" },
@@ -2807,9 +2807,12 @@ export default agentPaneEntry({
         const prompt = { selector: "[contenteditable='true']" } as const;
         await ctx.click(prompt);
         await ctx.type("/st");
+        // The tag shows when the list holds more than one source (cmux's own /status matches too).
         await ctx.waitFor(() =>
-          [...ctx.document.querySelectorAll("#acpmux-slash-menu .acpmux-slash-source")].some(
-            (label) => label.textContent?.trim() === "Standup",
+          [...ctx.document.querySelectorAll("#acpmux-slash-menu [role='option']")].some(
+            (option) =>
+              option.querySelector(".acpmux-slash-name")?.textContent === "/standup" &&
+              ["Standup", undefined].includes(option.querySelector(".acpmux-slash-source")?.textContent?.trim()),
           ),
         );
       },

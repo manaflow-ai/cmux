@@ -17,11 +17,12 @@ import {
 /**
  * The composer's `/` list, the one New Tab's box and the agent chat's composer both open: one line
  * per command: its name (its typed letters bold) and, dim at its end, where it comes from (cmux, a
- * skill, a prompt, an extension). The highlighted row also shows its arguments and what it does;
- * every other row says what it does to a screen reader only.
- * At most 8 rows show before it scrolls (styles.css, slashViewport.ts). Its layer (backdropLayer.tsx ComposerListLayer) stands it beside
- * the box on the side with room, in the box's corners; in the host's native panel past the window's
- * edge, where a pane is too short for a few rows, a row reads "/name <args> — what it does".
+ * skill, a prompt, an extension) when the list holds more than one source. The highlighted row also
+ * shows its arguments and what it does; every other row says what it does to a screen reader only.
+ * At most 8 rows show before it scrolls (styles.css, slashViewport.ts). Its layer (backdropLayer.tsx
+ * ComposerListLayer) stands it beside the box on the side with room, in the box's corners; in the
+ * host's native panel past the window's edge, where a pane is too short for a few rows, a row reads
+ * "/name <args> — what it does".
  */
 export function SlashMenu({
   matches,
@@ -102,6 +103,20 @@ export function SlashMenu({
         ? t(match.command.descriptionKey)
         : match.command.description;
 
+  // Where a command comes from, one word; none for the agent's own commands.
+  const sourceTag = ({ command }: SlashMatch) =>
+    !command.source || command.source === "agent"
+      ? ""
+      : command.source === "skill"
+        ? t("composer.slashSkill")
+        : command.source === "prompt"
+          ? t("composer.slashPrompt")
+          : command.source === "extension"
+            ? (command.extension ?? "cmux")
+            : "cmux";
+  // A tag every row shares tells no row apart: the tags show only for a list of more than one source.
+  const tagged = new Set(matches.map(sourceTag)).size > 1;
+
   // A native select or datalist cannot hold the matched-name bolding and descriptions.
   return (
     <Listbox
@@ -169,15 +184,9 @@ export function SlashMenu({
                 <span className="acpmux-slash-hint">{match.command.hint}</span>
               </>
             )}
-            {match.command.source && match.command.source !== "agent" && (
+            {tagged && sourceTag(match) && (
               <span className="acpmux-slash-source" data-popup-skip>
-                {match.command.source === "skill"
-                  ? t("composer.slashSkill")
-                  : match.command.source === "prompt"
-                    ? t("composer.slashPrompt")
-                    : match.command.source === "extension"
-                      ? (match.command.extension ?? "cmux")
-                      : "cmux"}
+                {sourceTag(match)}
               </span>
             )}
             {highlighted && (
