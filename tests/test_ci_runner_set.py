@@ -43,7 +43,7 @@ POOL_READ = re.compile(r"fromJSON\(\s*vars\.RUNNER_POOLS\s*\)\.([A-Za-z0-9_]+)")
 
 # workflow file -> (why it is not on a pool yet, its jobs that still name only literals)
 PINNED: dict[str, tuple[str, set[str]]] = {
-    'fast-checks.yml': ('the hosted admission picker is a light read-only job; checks use its live fleet output',
+    'fast-checks.yml': ('the admission picker is a light read-only job on Blacksmith 2 vCPU; checks use its live fleet output',
      {'admit'}),
     'auto-resume-nightly-notarization.yml': ('nightly signing and notarization: an ephemeral label the signing rule checks literally',
      {'poll', 'wait-and-staple', 'poll-outer', 'staple-outer', 'poll-stapled', 'staple-stapled', 'verify-stapled', 'publish', 'generate-deltas', 'republish-deltas'}),
@@ -58,6 +58,9 @@ PINNED: dict[str, tuple[str, set[str]]] = {
     'ci-queue-janitor.yml': ('the queue repair job must not depend on the pools it repairs: GitHub-hosted ubuntu-24.04, '
                              'or cmux-fleet-linux-x64 when CI_QUEUE_JANITOR_ON_FLEET=1 (check_queue_janitor_runs_off_the_pools_it_judges)',
      {'sweep'}),
+    'ci-queue-janitor-watchdog.yml': ("watches the sweep's label from off it: cmux-fleet-linux-x64 while the sweep is on "
+                                      'ubuntu-24.04, ubuntu-24.04 when CI_QUEUE_JANITOR_ON_FLEET=1 (test_ci_janitor_watchdog_route)',
+     {'watch'}),
     'cmux-next-cua-helper-dev-sign.yml': ('DEV Computer Use helper signing: an ephemeral label the signing rule checks literally',
      {'sign'}),
     'cmux-next-dev-daily.yml': ('DEV signing and publish: an ephemeral label the signing rule checks literally',
