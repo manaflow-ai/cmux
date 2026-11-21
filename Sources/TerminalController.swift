@@ -4365,7 +4365,11 @@ class TerminalController {
         // (the Task inherits it), so the server answers before either gives up.
         let task = Task {
             do {
-                result = .success(try await CloudRequestBudget.live.withBudget(seconds: timeoutSeconds) { try await work() })
+                // The work can outlive this connection; it must not watch a
+                // descriptor that may be closed and reused by then.
+                result = .success(try await SocketCommandTaskPolicy.$clientSocket.withValue(nil) {
+                    try await CloudRequestBudget.live.withBudget(seconds: timeoutSeconds) { try await work() }
+                })
             } catch {
                 result = .failure(error)
             }

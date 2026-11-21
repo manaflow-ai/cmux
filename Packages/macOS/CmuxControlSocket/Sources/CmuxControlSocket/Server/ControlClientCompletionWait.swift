@@ -1,5 +1,5 @@
 internal import Darwin
-internal import Foundation
+internal import Dispatch
 
 /// A blocking wait, on a socket worker thread, for the first of three events:
 /// the command's work completing, its time limit, or the socket client
@@ -18,6 +18,10 @@ internal import Foundation
 /// side, which a full close does and a half-close (`shutdown(SHUT_WR)` after
 /// sending the request) or a pipelined request does not, so a client still
 /// waiting for its reply is never mistaken for one that left.
+///
+/// When the kqueue cannot be created or read (the process is out of
+/// descriptors, say), the wait falls back to a plain semaphore: completion or
+/// the limit, exactly the behavior before the client watch existed.
 public final class ControlClientCompletionWait: @unchecked Sendable {
     /// Why ``wait(timeoutSeconds:)`` returned.
     public enum Outcome: Sendable, Equatable {
@@ -32,20 +36,26 @@ public final class ControlClientCompletionWait: @unchecked Sendable {
     private static let completionIdent: UInt = 1
     private let queue: Int32
     private let watchesClient: Bool
+    /// Signalled by ``complete()`` alongside the kqueue trigger; the fallback.
+    private let fallback = DispatchSemaphore(value: 0)
 
     /// - Parameter clientSocket: The connection's descriptor, owned by the
     ///   caller and open for the life of this wait; `nil` for an in-process
     ///   call, which waits only for completion or the limit.
     public init(clientSocket: Int32?) {
-        queue = kqueue()
+        let candidate = kqueue()
         var changes = [Self.event(ident: Self.completionIdent, filter: Int16(EVFILT_USER), flags: UInt16(EV_ADD | EV_CLEAR))]
         if let clientSocket, clientSocket >= 0 {
             changes.append(Self.event(ident: UInt(clientSocket), filter: Int16(EVFILT_WRITE), flags: UInt16(EV_ADD | EV_CLEAR)))
         }
         var registered = false
-        if queue >= 0 {
-            registered = kevent(queue, changes, Int32(changes.count), nil, 0, nil) == 0
+        if candidate >= 0 {
+            registered = kevent(candidate, changes, Int32(changes.count), nil, 0, nil) == 0
+            if !registered {
+                close(candidate)
+            }
         }
+        queue = registered ? candidate : -1
         watchesClient = registered && changes.count > 1
     }
 
@@ -56,6 +66,7 @@ public final class ControlClientCompletionWait: @unchecked Sendable {
     /// Ends the wait with ``Outcome/completed``. Safe from any thread, before
     /// or during the wait.
     public func complete() {
+        fallback.signal()
         guard queue >= 0 else { return }
         var trigger = Self.event(ident: Self.completionIdent, filter: Int16(EVFILT_USER), flags: 0)
         trigger.fflags = UInt32(NOTE_TRIGGER)
@@ -65,10 +76,10 @@ public final class ControlClientCompletionWait: @unchecked Sendable {
     /// Blocks until completion, the limit, or the client closing.
     ///
     /// - Parameter timeoutSeconds: The limit, or `nil` to wait without one.
-    public func wait(timeoutSeconds: TimeInterval?) -> Outcome {
-        guard queue >= 0 else { return .timedOut }
+    public func wait(timeoutSeconds: Double?) -> Outcome {
         let deadline = timeoutSeconds.map { DispatchTime.now().uptimeNanoseconds &+ UInt64(max(0, $0) * 1_000_000_000) }
-        var events = [kevent](repeating: kevent(), count: 2)
+        guard queue >= 0 else { return waitWithoutClientWatch(until: deadline) }
+        var events = Array(repeating: Darwin.kevent(), count: 2)
         while true {
             var timeout = timespec()
             if let deadline {
@@ -83,7 +94,7 @@ public final class ControlClientCompletionWait: @unchecked Sendable {
             }
             if count < 0 {
                 if errno == EINTR { continue }
-                return .timedOut
+                return waitWithoutClientWatch(until: deadline)
             }
             if count == 0 { return .timedOut }
             var clientClosed = false
@@ -96,6 +107,15 @@ public final class ControlClientCompletionWait: @unchecked Sendable {
             if clientClosed { return .clientClosed }
             // A writable edge with the peer still reading: keep waiting.
         }
+    }
+
+    private func waitWithoutClientWatch(until deadline: UInt64?) -> Outcome {
+        guard let deadline else {
+            fallback.wait()
+            return .completed
+        }
+        let result = fallback.wait(timeout: DispatchTime(uptimeNanoseconds: deadline))
+        return result == .success ? .completed : .timedOut
     }
 
     private static func event(ident: UInt, filter: Int16, flags: UInt16) -> kevent {
