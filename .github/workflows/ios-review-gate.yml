@@ -235,6 +235,7 @@ jobs:
             .github/ios-review-gate-devices.json
             .github/scripts/ios_review_gate_devices.py
             scripts/ci/xcode-pins.txt
+            cmux-next-ios/project.yml
           sparse-checkout-cone-mode: false
       - name: Which device legs take a Mac
         id: devices
@@ -242,13 +243,45 @@ jobs:
           # The list describes manaflow-ai's macOS 26 pool; another
           # repository's image walks every family, as before.
           TRUST: ${{ github.repository_owner == 'manaflow-ai' }}
+          EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
           code=0
           python3 -I gate/.github/scripts/ios_review_gate_devices.py plan \
             --devices gate/.github/ios-review-gate-devices.json --pins gate/scripts/ci/xcode-pins.txt \
             --trust "$TRUST" --out-dir "$RUNNER_TEMP/planned" \
-            >> "$GITHUB_OUTPUT" 2> "$RUNNER_TEMP/devices.txt" || code=$?
+            > "$RUNNER_TEMP/plan.out" 2> "$RUNNER_TEMP/devices.txt" || code=$?
+          # A pull request does not walk the iPad leg while the app is iPhone-only (every
+          # TARGETED_DEVICE_FAMILY in cmux-next-ios/project.yml is "1"). On iPad such an app runs
+          # in compatibility mode: the iPhone layout in a phone-sized window, the same screens the
+          # iPhone leg walks. Leo, 2026-11-21: "for connection and ci, we can simply
+          # move. and go." The leg took a second Mac for 24 min (p50) on every app pull request.
+          # feat-cmux-next pushes, dispatches and the production pipeline's call still walk it,
+          # so an iPad-only break still shows before an upload. The report reads the skip
+          # marker written here (--expect-device-or-skipped ipad on a pull request).
+          # The device decision (`devices`) is unchanged, so every leg's image check is too.
+          if [ "$code" = 0 ] && [ "$EVENT" = pull_request ] && grep -qE '^\s*TARGETED_DEVICE_FAMILY:' gate/cmux-next-ios/project.yml \
+            && ! grep -E '^\s*TARGETED_DEVICE_FAMILY:' gate/cmux-next-ios/project.yml | grep -q 2; then
+            reason="pull request: the app is iPhone-only (TARGETED_DEVICE_FAMILY 1); feat-cmux-next pushes and the production pipeline walk the iPad leg"
+            python3 -I -c '
+          import json, sys
+          path, reason, marker = sys.argv[1], sys.argv[2], sys.argv[3]
+          lines = open(path).read().splitlines()
+          out = []
+          for line in lines:
+              key, _, value = line.partition("=")
+              if key in ("families", "skipped"):
+                  items = json.loads(value)
+                  items = [f for f in items if f != "ipad"] if key == "families" else sorted(set(items) | {"ipad"})
+                  line = f"{key}={json.dumps(items)}"
+              out.append(line)
+          open(path, "w").write("\n".join(out) + "\n")
+          with open(marker, "w") as f:
+              f.write(json.dumps({"family": "ipad", "skipped": True, "planned": True, "reason": reason}) + "\n")
+          ' "$RUNNER_TEMP/plan.out" "$reason" "$RUNNER_TEMP/planned/ipad.skipped.json"
+            echo "- ipad: not walked on this pull request ($reason)" >> "$RUNNER_TEMP/devices.txt"
+          fi
+          cat "$RUNNER_TEMP/plan.out" >> "$GITHUB_OUTPUT"
           tee -a "$GITHUB_STEP_SUMMARY" < "$RUNNER_TEMP/devices.txt"
           exit "$code"
       - name: Upload the planned skips
@@ -760,6 +793,7 @@ jobs:
         id: report
         env:
           ASC_RESULT: ${{ needs.asc-validate.result }}
+          EVENT: ${{ github.event_name }}
           JUDGED_SHA: ${{ needs.plan.outputs.sha }}
           # A direct push or pull_request run fails on a new blocker only:
           # the ones in known-blockers.json were there before it. A
@@ -776,7 +810,10 @@ jobs:
           # its skip marker (no Duo simulator on the image).
           # download-artifact puts a lone artifact straight into in/, not
           # in/<name>/, so find the files by name wherever they landed.
-          args+=(--expect-lint --expect-device iphone --expect-device ipad --expect-device-or-skipped duo)
+          args+=(--expect-lint --expect-device iphone --expect-device-or-skipped duo)
+          # A pull request on the iPhone-only app leaves the plan's iPad skip marker instead
+          # (see "Which device legs take a Mac"); every other run must have the iPad result.
+          if [ "$EVENT" = pull_request ]; then args+=(--expect-device-or-skipped ipad); else args+=(--expect-device ipad); fi
           while IFS= read -r f; do args+=(--skipped "$f"); done < <(find in -name '*.skipped.json' -type f | sort)
           while IFS= read -r f; do args+=(--lint "$f"); done < <(find in -name 'lint-*.json' -type f | sort)
           for fam in iphone ipad duo; do
