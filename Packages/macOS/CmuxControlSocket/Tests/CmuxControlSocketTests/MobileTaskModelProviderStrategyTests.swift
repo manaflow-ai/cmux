@@ -10,6 +10,9 @@ private actor MobileTaskModelStrategyProbe {
     var files: [String: Data] = [:]
 
     func run(_ command: String, timeout: Duration) -> String? {
+        if command.hasPrefix("exec /bin/sh -c") {
+            return "\0/usr/local/bin/codex\0/Users/tester/.codex"
+        }
         commands.append((command, timeout))
         if let minimumCommandTimeout, timeout < minimumCommandTimeout {
             return nil
@@ -145,7 +148,9 @@ struct MobileTaskModelProviderStrategyTests {
                 defaultEffortID: "low"
             )
         ))
-        #expect(await probe.commands.map(\.0) == ["exec codex debug models"])
+        #expect(await probe.commands.map(\.0) == [
+            #"exec /usr/bin/env 'CODEX_HOME=/Users/tester/.codex' /bin/sh -c 'exec "$0" debug models' '/usr/local/bin/codex'"#,
+        ])
         #expect(await probe.commands.map(\.1) == [.seconds(5)])
         #expect(await probe.readPaths == ["/Users/tester/.codex/config.toml"])
     }
@@ -165,7 +170,9 @@ struct MobileTaskModelProviderStrategyTests {
             ],
             source: .discovered
         ))
-        #expect(await probe.commands.map(\.0) == ["exec codex debug models"])
+        #expect(await probe.commands.map(\.0) == [
+            #"exec /usr/bin/env 'CODEX_HOME=/Users/tester/.codex' /bin/sh -c 'exec "$0" debug models' '/usr/local/bin/codex'"#,
+        ])
         #expect(await probe.readPaths == [
             "/Users/tester/.codex/models_cache.json",
             "/Users/tester/.codex/config.toml",
