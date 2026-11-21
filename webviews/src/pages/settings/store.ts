@@ -37,6 +37,7 @@ import {
 } from "./queries";
 import { rowsByKey } from "./schema";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, resolveHarnessPlacement } from "../../ui/harnessPlacement";
+import { isBackdropRefusal, linkRefusal } from "./backdropRefusal";
 import { t } from "./strings";
 import { pageTransport, TransportError, type SettingsTransport } from "./transport";
 import { readRecipe, readSetupReply, type ResolvedWorktreeRecipe, type WorktreeRecipe } from "../../worktreeRecipe";
@@ -491,7 +492,14 @@ export class SettingsStore {
   async chooseBackdropImage(): Promise<void> {
     await this.trackAppearance([BACKGROUND], async () => {
       const reply = await this.request("cmux.settings.backdrop.choose_image", {});
-      if (!reply.ok) this.setError(BACKGROUND, rowError(reply.error));
+      // A file that is no picture or movie says so, as a link does, not "Invalid value".
+      if (!reply.ok)
+        this.setError(
+          BACKGROUND,
+          isBackdropRefusal(reply.error.code)
+            ? { ...rowError(reply.error), message: linkRefusal(reply.error.code) }
+            : rowError(reply.error),
+        );
       else await Promise.all([this.refresh(), this.refreshHost()]);
     });
   }
