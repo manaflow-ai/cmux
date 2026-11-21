@@ -32,10 +32,10 @@ struct NewTabPageHandler {
     var browseProject: () async -> String? = { nil }
     /// Returns recent projects, optionally filtered by the picker's query.
     var listProjects: (String?) async -> [String] = { _ in [] }
-    /// Runs a host-owned action advertised by the omnibar.
-    var action: (String) -> Void = { _ in }
-    /// `(page tab)`: the bar's lists of now, for a view that is made after its tab's key; nil keeps the page's own.
-    var places: (String) -> NewTabPlaces.Lists? = { _ in nil }
+    /// `(id, shown title)`: runs a host-owned action advertised by the omnibar, when the palette still lists it under the title the page's list has.
+    var action: (String, String) -> Void = { _, _ in }
+    /// `(page tab)`: asked at the make of the page's view, after its tab's key: it asks for the palette's actions (a page with no view takes no kept list) and gives the bar's lists of now; nil keeps the page's own.
+    var listsAtViewMake: (String) -> NewTabPlaces.Lists? = { _ in nil }
 }
 
 enum NewTabPage {
@@ -56,14 +56,13 @@ enum NewTabPage {
     /// and recent pages, newest first.
     static func omnibar(_ services: AppServices, excluding selectedID: String?, paletteActions: Bool = true) -> AgentPaneOmnibar {
         let (tabs, workspaces, folders) = places(services, excluding: selectedID)
-        let history = services.cache.history(for: .default).entries.prefix(AgentPaneOmnibar.maximumEntries).map {
-            AgentPaneOmnibar.Page(url: $0.url.absoluteString, title: $0.title, icon: AppServices.dataURL(services.siteFavicon($0.url, profile: .default)))
-        }
+        let history = services.cache.history(for: .default).entries.prefix(AgentPaneOmnibar.maximumEntries).map { AgentPaneOmnibar.Page(url: $0.url.absoluteString, title: $0.title, icon: AppServices.dataURL(services.siteFavicon($0.url, profile: .default))) }
+        let bookmarks = services.bookmarks.tree(BrowserProfileRecord.defaultID).bookmarks.prefix(AgentPaneOmnibar.maximumEntries).compactMap { b in b.url.map { AgentPaneOmnibar.Page(url: $0.absoluteString, title: b.displayTitle, icon: AppServices.dataURL(services.bookmarks.favicon(of: b, profile: BrowserProfileRecord.defaultID, fetching: true))) } }
         let commands = services.history.commands.entries().prefix(AgentPaneOmnibar.maximumEntries).compactMap(\.title)
         // Every Commands palette (Cmd-Shift-P) action, from the palette's own rows (one source).
         let actions = paletteActions ? Self.paletteActions(services) : []
         return AgentPaneOmnibar(
-            tabs: tabs, workspaces: workspaces, folders: folders, projects: folders, actions: actions, commands: Array(commands), history: Array(history),
+            tabs: tabs, workspaces: workspaces, folders: folders, projects: folders, actions: actions, commands: Array(commands), history: Array(history), bookmarks: Array(bookmarks),
             uses: pickHistory(services),
             profiles: services.browserProfiles.ordered.map { .init(id: $0.id, name: $0.name, color: $0.color) }
         )
@@ -174,12 +173,14 @@ enum NewTabPage {
                     RecentProjectScan.live().complete(query: query ?? "", hints: hints, limit: AgentPaneOmnibar.maximumEntries)
                 }.value
             },
-            action: { [weak services] id in
-                // As the palette runs its row: an action that needs arguments asks for them there.
-                services?.palette.runCommand(ActionID(rawValue: id), relativeTo: services?.windows.active?.window)
+            // As the palette runs its row: an action that needs arguments asks for them there. A row it refuses now (it cannot run, or its title changed) leaves the bar's list or changes in it: the actions are read again.
+            action: { [weak services] id, shown in
+                if let services, !services.palette.runCommand(ActionID(rawValue: id), shown: shown, relativeTo: services.windows.active?.window) { fillPaletteActions(services, again: true) }
             },
-            places: { [weak services] key in
-                guard let services, services.newTabPlaces.rows != nil else { return nil }
+            listsAtViewMake: { [weak services] key in
+                guard let services else { return nil }
+                fillPaletteActions(services)
+                guard services.newTabPlaces.rows != nil else { return nil }
                 return NewTabPage.places(services, excluding: key, current: services.workspaceID(ofTab: key))
             }
         )

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/customize",
+  "name": "My views",
+  "version": "1.0.0",
+  "description": "A console-style New Tab page of your own: a monospaced > prompt that starts an agent chat, every chat as a list, and a way into Recently Closed.",
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "runtime": {
+    "main": "main.js"
+  },
+  "implements": {
+    "cmux.newtab/1": {
+      "export": "renderNewTab",
+      "title": "Console",
+      "symbol": "terminal"
+    }
+  },
+  "scopes": {
+    "agent_chat:read": "Read your agent chats (title, state, folder, agent) to list them.",
+    "workspace:write": "Show a chat's workspace when you click its row.",
+    "actions:run": "Start a chat from the prompt, open a chat with no workspace, and open Recently Closed."
+  }
+}

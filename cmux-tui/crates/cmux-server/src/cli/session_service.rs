@@ -143,10 +143,9 @@ fn digest(path: &Path) -> Result<[u8; 32]> {
     let mut buf = vec![0u8; 256 * 1024];
     loop {
         let n = file.read(&mut buf).map_err(|e| Error::io(path.display(), e))?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
+        // `read` never returns more than the buffer holds.
+        let Some(chunk) = buf.get(..n).filter(|chunk| !chunk.is_empty()) else { break };
+        hasher.update(chunk);
     }
     Ok(hasher.finalize().into())
 }

@@ -246,7 +246,8 @@ impl Manifest {
     fn check(&self) -> anyhow::Result<()> {
         anyhow::ensure!(!self.entries.is_empty(), "the manifest has no folder");
         anyhow::ensure!(self.entries.len() <= MAX_ENTRIES, "more than {MAX_ENTRIES} paths");
-        let root = self.entries.first().ok_or_else(|| anyhow::anyhow!("the manifest has no folder"))?;
+        let root =
+            self.entries.first().ok_or_else(|| anyhow::anyhow!("the manifest has no folder"))?;
         anyhow::ensure!(
             root.kind == Kind::Dir && root.name.is_empty(),
             "entry 0 is not the folder"
@@ -282,7 +283,10 @@ impl Manifest {
                 *seen = true;
                 anyhow::ensure!(node.parent as usize == index, "entry {child}'s folder disagrees");
                 if let Some(before) = before {
-                    anyhow::ensure!(before.name < node.name, "entry {index}'s children are not sorted");
+                    anyhow::ensure!(
+                        before.name < node.name,
+                        "entry {index}'s children are not sorted"
+                    );
                 }
                 before = Some(node);
             }
