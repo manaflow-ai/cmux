@@ -74,6 +74,13 @@ struct PaletteAccessibilityTests {
         for title in titles {
             #expect(rows.contains { $0.spoken.contains(title) }, "no row reads \(title):\n\(dump)")
         }
+        // An agent driving the app finds each row by its item's id (`palette.row.<id>`), and that
+        // row reads the item's title.
+        for row in palette.model.rows.prefix(3) {
+            let id = PaletteTableRowView.accessibilityID(row.id)
+            #expect(rows.contains { $0.identifier == id && $0.spoken.contains(row.item.title) },
+                    "no row is identified \(id):\n\(dump)")
+        }
         // The selected row says so.
         let chosen = rows.filter(\.selected)
         #expect(chosen.count == 1 && chosen.first?.spoken.contains(selected.title) == true,
