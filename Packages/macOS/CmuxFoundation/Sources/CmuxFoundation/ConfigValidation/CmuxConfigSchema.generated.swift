@@ -2803,6 +2803,43 @@ enum CmuxEmbeddedConfigSchema {
             "$ref": "#/$defs/shortcutBindingNullable"
           }
         },
+        "keybindings": {
+          "type": "array",
+          "default": [],
+          "description": "General shortcut bindings. Each entry maps a key or chord to an action and may provide its own VS Code-style when clause. For an action named here, these entries replace its shortcuts.bindings value and built-in shortcut.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["key", "action"],
+            "properties": {
+              "key": {
+                "oneOf": [
+                  { "$ref": "#/$defs/shortcutFirstStroke" },
+                  {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "prefixItems": [
+                      { "$ref": "#/$defs/shortcutFirstStroke" },
+                      { "$ref": "#/$defs/shortcutStroke" }
+                    ],
+                    "items": false
+                  }
+                ],
+                "description": "A single shortcut string or a two-stroke chord."
+              },
+              "action": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The cmux action id."
+              },
+              "when": {
+                "type": "string",
+                "description": "Optional context predicate. Omit it to use the action's built-in context."
+              }
+            }
+          }
+        },
         "when": {
           "type": "object",
           "default": {},

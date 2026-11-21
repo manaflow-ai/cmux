@@ -8,6 +8,11 @@ extension KeyboardShortcutSettings {
         shortcutLookupObserver?(action)
         #endif
 
+        if let configuredBindings = settingsFileStore.configuredBindings(for: action),
+           let firstBinding = configuredBindings.first {
+            return firstBinding.shortcut.isUnbound ? nil : firstBinding.shortcut
+        }
+
         let managedBySettingsFile = settingsFileStore.isManagedByFile(action)
         let configuredShortcut = explicitlyConfiguredShortcut(for: action)
         let resolvedShortcut = effectivePersistedShortcut(
@@ -59,6 +64,22 @@ extension KeyboardShortcutSettings {
 
     static func shortcut(for action: Action) -> StoredShortcut {
         shortcutIfBound(for: action) ?? .unbound
+    }
+
+    /// Returns every active binding for an action, including each binding's
+    /// resolved context predicate. Legacy settings produce one binding.
+    static func shortcutBindings(for action: Action) -> [ConfiguredShortcutBinding] {
+        if let configuredBindings = settingsFileStore.configuredBindings(for: action) {
+            return configuredBindings.filter { !$0.shortcut.isUnbound }
+        }
+        guard let shortcut = shortcutIfBound(for: action), !shortcut.isUnbound else {
+            return []
+        }
+        return [ConfiguredShortcutBinding(
+            shortcut: shortcut,
+            whenClause: settingsFileStore.whenClause(for: action)
+                ?? action.shortcutContext.defaultWhenClause
+        )]
     }
 
     private static func explicitlyConfiguredShortcut(for action: Action) -> StoredShortcut? {
@@ -118,11 +139,22 @@ extension KeyboardShortcutSettings {
     /// ``ShortcutWhenClause``. Drives both runtime availability and conflict
     /// detection so the same keystroke can be context-routed.
     static func effectiveWhenClause(for action: Action) -> ShortcutWhenClause {
-        settingsFileStore.whenClause(for: action) ?? action.shortcutContext.defaultWhenClause
+        // Read the parsed file state directly. Resolving a legacy shortcut
+        // calls into conflict detection, which asks for this clause again;
+        // going through `shortcutBindings(for:)` here would recurse while
+        // resolving default shortcuts during app startup.
+        settingsFileStore.configuredBindings(for: action)?.first?.whenClause
+            ?? settingsFileStore.whenClause(for: action)
+            ?? action.shortcutContext.defaultWhenClause
     }
 
     /// Whether `action` has an explicit `shortcuts.when` override that restricts focus.
     static func hasRestrictingConfiguredWhenClause(for action: Action) -> Bool {
+        if let configuredBindings = settingsFileStore.configuredBindings(for: action) {
+            return configuredBindings.contains {
+                $0.hasExplicitWhenClause && $0.whenClause != .always
+            }
+        }
         guard let clause = settingsFileStore.whenClause(for: action) else {
             return false
         }

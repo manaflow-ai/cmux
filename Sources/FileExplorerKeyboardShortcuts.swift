@@ -85,8 +85,9 @@ extension NSEvent {
 
     func isFileExplorerOpenSelectionShortcut(in context: ShortcutContext) -> Bool {
         KeyboardShortcutSettings.Action.fileExplorerOpenSelectionActions.contains { action in
-            KeyboardShortcutSettings.shortcut(for: action).matches(event: self) &&
-                KeyboardShortcutSettings.effectiveWhenClause(for: action).evaluate(context)
+            KeyboardShortcutSettings.shortcutBindings(for: action).contains { binding in
+                binding.shortcut.matches(event: self) && binding.whenClause.evaluate(context)
+            }
         }
     }
 }

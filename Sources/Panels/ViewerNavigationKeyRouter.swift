@@ -1,9 +1,10 @@
 import AppKit
+import CmuxSettings
 
 @MainActor
 final class ViewerNavigationKeyRouter {
     private let actions: [KeyboardShortcutSettings.Action]
-    private var bindings: [(action: KeyboardShortcutSettings.Action, shortcut: StoredShortcut)] = []
+    private var bindings: [(action: KeyboardShortcutSettings.Action, binding: ConfiguredShortcutBinding)] = []
     private var settingsObserver: NSObjectProtocol?
     private var pendingChord: (prefix: ShortcutStroke, expiresAt: TimeInterval)?
     private static let chordTimeout: TimeInterval = 0.7
@@ -35,24 +36,27 @@ final class ViewerNavigationKeyRouter {
     func handle(
         _ event: NSEvent,
         isAllowed: (KeyboardShortcutSettings.Action, NSEvent) -> Bool,
+        bindingIsAllowed: ((KeyboardShortcutSettings.Action, ShortcutWhenClause, NSEvent) -> Bool)? = nil,
         perform: (KeyboardShortcutSettings.Action) -> Void
     ) -> Bool {
         if let pendingChord {
             self.pendingChord = nil
             if event.timestamp <= pendingChord.expiresAt {
-                for (action, shortcut) in bindings {
+                for (action, binding) in bindings {
+                    let shortcut = binding.shortcut
                     guard shortcut.firstStroke == pendingChord.prefix,
                           let secondStroke = shortcut.secondStroke,
                           secondStroke.matches(event: event),
-                          isAllowed(action, event) else { continue }
+                          (bindingIsAllowed?(action, binding.whenClause, event) ?? isAllowed(action, event)) else { continue }
                     perform(action)
                     return true
                 }
             }
         }
 
-        for (action, shortcut) in bindings where !shortcut.isUnbound {
-            guard isAllowed(action, event) else { continue }
+        for (action, binding) in bindings where !binding.shortcut.isUnbound {
+            let shortcut = binding.shortcut
+            guard bindingIsAllowed?(action, binding.whenClause, event) ?? isAllowed(action, event) else { continue }
             if shortcut.secondStroke != nil {
                 if shortcut.firstStroke.matches(event: event) {
                     pendingChord = (
@@ -70,8 +74,8 @@ final class ViewerNavigationKeyRouter {
     }
 
     private func reloadBindings() {
-        bindings = actions.map { action in
-            (action, KeyboardShortcutSettings.shortcut(for: action))
+        bindings = actions.flatMap { action in
+            KeyboardShortcutSettings.shortcutBindings(for: action).map { (action, $0) }
         }
         reset()
     }

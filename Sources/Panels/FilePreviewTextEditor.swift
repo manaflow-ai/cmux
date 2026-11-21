@@ -613,33 +613,38 @@ final class SavingTextView: NSTextView {
         (shortcut: StoredShortcut, isAllowed: (NSEvent) -> Bool, perform: () -> Void)
     ] {
         var candidates: [(shortcut: StoredShortcut, isAllowed: (NSEvent) -> Bool, perform: () -> Void)] = []
-        let saveShortcut = KeyboardShortcutSettings.shortcut(for: .saveFilePreview)
-        if !saveShortcut.isUnbound {
-            candidates.append((saveShortcut, { _ in true }, { [weak self] in self?.panel?.saveTextContent() }))
+        for binding in KeyboardShortcutSettings.shortcutBindings(for: .saveFilePreview) where !binding.shortcut.isUnbound {
+            candidates.append((binding.shortcut, { _ in true }, { [weak self] in self?.panel?.saveTextContent() }))
         }
         for action in Self.previewFontZoomShortcutActions {
-            let shortcut = KeyboardShortcutSettings.shortcut(for: action)
-            guard !shortcut.isUnbound else { continue }
-            candidates.append((
-                shortcut,
-                { [weak self] event in
-                    self?.previewFontZoomShortcutWhenClauseAllows(action: action, event: event) ?? false
-                },
-                { [weak self] in self?.performPreviewFontZoomShortcutAction(action) }
-            ))
+            for binding in KeyboardShortcutSettings.shortcutBindings(for: action) where !binding.shortcut.isUnbound {
+                candidates.append((
+                    binding.shortcut,
+                    { [weak self] event in
+                        self?.previewFontZoomShortcutWhenClauseAllows(
+                            action: action,
+                            clause: binding.whenClause,
+                            event: event
+                        ) ?? false
+                    },
+                    { [weak self] in self?.performPreviewFontZoomShortcutAction(action) }
+                ))
+            }
         }
         return candidates + filePreviewWordWrapShortcutCandidates()
     }
 
     private func previewFontZoomShortcutWhenClauseAllows(
         action: KeyboardShortcutSettings.Action,
+        clause: ShortcutWhenClause,
         event: NSEvent
     ) -> Bool {
         if window != nil, let appDelegate = AppDelegate.shared {
-            return appDelegate.shortcutWhenClauseAllows(action: action, event: event)
+            return clause.evaluate(
+                appDelegate.shortcutWhenClauseContext(for: action, clause: clause, event: event)
+            )
         }
-        return KeyboardShortcutSettings.effectiveWhenClause(for: action)
-            .evaluate(Self.filePreviewTextEditorShortcutContext)
+        return clause.evaluate(Self.filePreviewTextEditorShortcutContext)
     }
 
     /// Focus snapshot used by an editor that has not been attached to a window.
