@@ -134,10 +134,10 @@ async function press(field: HTMLElement, key: string) {
 }
 
 // The `/` list reads as a list of names (a1315, Lawrence 2026-11-21: "drastically simplify all
-// parts of the UI"): one line per command, its name only. The highlighted row also says what it
-// does (its argument, its description, where it comes from); a row the pointer or the arrows have
-// not reached says it to a screen reader only. A row whose name another row also has keeps where it
-// comes from, the one thing that tells the two apart.
+// parts of the UI"): one line per command, its name and the one-word tag of where it comes from.
+// The highlighted row also says what it does (its argument and its description); a row the pointer
+// or the arrows have not reached says it to a screen reader only. Two rows of one name keep the
+// tag, the one thing that tells them apart.
 test("only the highlighted row shows what a command does; the others show their name only", async () => {
   await composer(chat(), "/");
   const all = rows();

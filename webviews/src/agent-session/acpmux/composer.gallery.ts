@@ -3119,18 +3119,17 @@ export default agentPaneEntry({
             (option) => option.querySelector(".acpmux-slash-name")?.textContent === `/${name}`,
           );
         await ctx.waitFor(() => !!row("import") && !!row("fork") && !!row("side"));
-        if (
-          row("import")?.querySelector(".acpmux-slash-description")?.textContent !==
-          "Start a new chat with this transcript as its first prompt"
-        )
+        // The highlighted row shows what it does; the others say it to a screen reader only.
+        const said = (name: string) =>
+          row(name)?.querySelector(".acpmux-slash-description")?.textContent ??
+          row(name)?.getAttribute("aria-description");
+        if (said("import") !== "Start a new chat with this transcript as its first prompt")
           throw new Error("/import description does not explain the transcript's first prompt");
-        if (
-          row("fork")?.querySelector(".acpmux-slash-description")?.textContent !== "Fork this turn into a new chat tab"
-        )
+        if (said("fork") !== "Fork this turn into a new chat tab")
           throw new Error("/fork description does not describe its new chat");
         // /side reads as /fork does (#43977): the same wording, and no dim argument hint between
         // its name and its description.
-        if (row("side")?.querySelector(".acpmux-slash-description")?.textContent !== "Fork this turn into a side chat")
+        if (said("side") !== "Fork this turn into a side chat")
           throw new Error("/side description does not match /fork's wording");
         for (const name of ["fork", "side"])
           if (row(name)?.querySelector(".acpmux-slash-hint"))
