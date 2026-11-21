@@ -143,6 +143,8 @@ import { openHarnessesPage } from "../harnesses/harnessesPage";
 import type { SuggestionOrder } from "./suggestionOrder";
 import { newTabComposerTrailingGapArm } from "./composerGap.experiment";
 import { newTabIconColumnArm } from "./iconColumn.experiment";
+import { newTabDepthArm } from "./depthBackground.experiment";
+import { DepthBackground } from "./DepthBackground";
 import { elementBox, reportToastAvoidance } from "../toastAvoidance";
 import { githubIssueLink } from "../../../githubReferences";
 import { reportInputReadyWhenFocused } from "./inputReady";
@@ -1165,6 +1167,9 @@ export function NewTabScreen(props: Props) {
   const split = chatBox;
   const trailingGap = newTabComposerTrailingGapArm();
   const iconColumn = newTabIconColumnArm();
+  // The depth layer behind the page (experiment new-tab-depth; off ships, DepthBackground.tsx).
+  const depth = newTabDepthArm();
+  const depthHost = useRef<HTMLDivElement>(null);
   // Footer look and template can change while this screen stays mounted.
   useRowFit(foot, `${split}:${plainFooter}`);
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
@@ -2761,7 +2766,16 @@ export function NewTabScreen(props: Props) {
         }
       }
     >
-      <OnNewTab.Provider value={true}>{page}</OnNewTab.Provider>
+      <OnNewTab.Provider value={true}>
+        {depth === "off" ? (
+          page
+        ) : (
+          <div ref={depthHost} className="nt-depth-host" data-depth={depth}>
+            <DepthBackground arm={depth} host={depthHost} />
+            {page}
+          </div>
+        )}
+      </OnNewTab.Provider>
     </SignInContext.Provider>
   );
 }
