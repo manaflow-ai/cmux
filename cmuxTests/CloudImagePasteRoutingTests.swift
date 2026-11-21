@@ -114,6 +114,20 @@ struct CloudImagePasteRoutingTests {
         #expect(panel.surface.resolvedImageTransferTarget(mode: mode, in: workspace) == .remote(.workspaceRemote))
     }
 
+    @Test("A preserved-ended remote PTY uploads pasted images", arguments: [TerminalImageTransferMode.paste, .drop])
+    @MainActor
+    func preservedEndedRemotePTYUsesRemoteFileUpload(mode: TerminalImageTransferMode) throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(workspace.terminalPanel(for: panelID))
+        defer { workspace.teardownAllPanels() }
+
+        workspace.endedPersistentRemotePTYAttachSurfaceIds.insert(panelID)
+        #expect(!workspace.isRemoteTerminalSurface(panelID))
+        #expect(workspace.isPreservedEndedRemoteTerminalSurface(panelID))
+        #expect(panel.surface.resolvedImageTransferTarget(mode: mode, in: workspace) == .remote(.workspaceRemote))
+    }
+
     /// A local workspace has no stored remote configuration: the drop decides
     /// local from memory and never reaches the remote upload machinery.
     @Test("A local workspace drop never touches the remote path", arguments: [TerminalImageTransferMode.paste, .drop])
