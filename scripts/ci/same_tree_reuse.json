@@ -164,7 +164,6 @@
    "rust-notices-tree": "reads pull request metadata or the base (github.event.before, github.event.pull_request.base.sha), not only the tree",
    "own-change-checks": "needed by pr-red-checks: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.before), not only the tree",
    "pr-red-checks": "calls a reusable workflow: no step here can record its pass; writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.pull_request.base.ref), not only the tree; judges other jobs (if: always() or failure())",
-   "hot-route": "its outputs feed later jobs; a skipped run leaves them empty; needed by tooling-tests: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.pull_request.labels), not only the tree",
    "tooling-tests": "reads pull request metadata or the base (github.event.pull_request.labels), not only the tree",
    "release-notary": "publish, release, deploy, live or cloud work (by its name)"
   },
