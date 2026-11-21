@@ -231,4 +231,3 @@ import CmuxNextWakeupsTestSupport
         #expect(presenter.shown?.text == "Back", "the pointer over Back showed \(presenter.shown?.text ?? "nothing")")
     }
 }
-
