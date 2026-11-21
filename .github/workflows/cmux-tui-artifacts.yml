@@ -114,7 +114,8 @@ concurrency:
   # One group per feat-cmux-next or nightly-next push (cx-73f2), per other
   # pushed branch, and per commit for a manual dispatch. Pin refs are refused before preflight.
   # cancel-in-progress stays false: a started run is never cancelled, so no
-  # publish of immutable objects stops mid-upload.
+  # publish of immutable objects stops mid-upload. Only the build job of a
+  # branch push cancels an older push's build (BRANCH_BUILD_SUPERSEDED, build).
   # feat-cmux-next pushes do not share a workflow group (the group cannot read
   # the tree key, which a job computes): GitHub replaces the pending run of a
   # group with the newer one, and that dropped every intermediate merge train
@@ -422,6 +423,13 @@ jobs:
         id: inspect
         env:
           EVENT_NAME: ${{ github.event_name }}
+          # A no-input dispatch on feat-cmux-next (request-nightly-next.sh's
+          # backfill, publish-bot-head-tree.sh) publishes the branch tree like a
+          # push: it takes the key's claim and the ready-tree skip. Two backfills
+          # at successive tips with one key built it twice (eca1745577,
+          # 2026-11-21, runs 44911031500 and 44911765041). A dispatch with
+          # macos_runner or include_windows still builds what it asked for.
+          BRANCH_DISPATCH: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next' && inputs.macos_runner == '' && !inputs.include_windows }}
           REF: ${{ github.ref }}
           SHA: ${{ github.sha }}
           SOURCE_COMMIT: ${{ github.sha }}
@@ -576,7 +584,8 @@ jobs:
           claimed=false
           elect=true
           [[ "${STALE:-}" == true ]] && elect=false
-          if [[ "$elect" == true && "$tree_ready" != true && "$EVENT_NAME" == push && "$REF" != refs/heads/main ]]; then
+          if [[ "$elect" == true && "$tree_ready" != true && ( "$EVENT_NAME" == push || "${BRANCH_DISPATCH:-}" == true ) &&
+                "$REF" != refs/heads/main ]]; then
             if claim="$(scripts/ci/cmux-tui-tree-claim.sh "$key")"; then
               claimed=true
               claim_owner="${claim#owner=}"; claim_owner="${claim_owner%% *}"
@@ -792,7 +801,7 @@ jobs:
           # tree's bytes (the tree key covers every cmux-tui input) and
           # attests it as this commit's. #42574 rebuilt such a tip on macOS.
           if [[ "$tree_ready" == true && "$REF" != refs/heads/main &&
-                "$EVENT_NAME" != workflow_dispatch &&
+                ( "$EVENT_NAME" != workflow_dispatch || "${BRANCH_DISPATCH:-}" == true ) &&
                 ( "$REF" != refs/heads/cmux-tui-pin-* || "$pin_duplicate" == true ) ]]; then
             run_macos=false
             if [[ "$EVENT_NAME" == push && "$REF" != refs/heads/cmux-tui-pin-* && "$commit_manifest_ready" != true ]]; then
@@ -1529,9 +1538,22 @@ jobs:
     # 38126360971, whose daemon tests failed, was kept. A replaced build is a
     # lost publish. Same-key dedupe is the owner election (tree-preflight,
     # tree-owner-wait).
+    #
+    # BRANCH_BUILD_SUPERSEDED: a push to any other branch (the push-gate's
+    # branches: not main, feat-cmux-next, nightly-next, release-next,
+    # feat-cmux-next-*, next-batch/*, rc/* or a pin) shares one build group per
+    # branch, and a newer push's build cancels the older push's running build.
+    # Only the build: it writes nothing to R2 (publish and publish-tree, which
+    # write the write-once prefixes, keep their per-run groups, so no upload
+    # stops halfway), and the cancelled run's notify-unpublished-tree hands the
+    # key to a run that deferred to it. A newer push with the same tree key
+    # defers to the older run in tree-owner-wait and never reaches this group,
+    # so that build keeps running. On 2026-11-13..19 the builds of these
+    # branches ran 622 min/day after their branch had a newer push. Undo: set
+    # cancel-in-progress back to false.
     concurrency:
-      group: cmux-tui-build-${{ needs.tree-preflight.outputs.key }}-${{ github.run_id }}
-      cancel-in-progress: false
+      group: cmux-tui-build-${{ (github.event_name == 'push' && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat-cmux-next' && github.ref != 'refs/heads/nightly-next' && github.ref != 'refs/heads/release-next' && !startsWith(github.ref, 'refs/heads/feat-cmux-next-') && !startsWith(github.ref, 'refs/heads/next-batch/') && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && format('ref-{0}', github.ref) || format('{0}-{1}', needs.tree-preflight.outputs.key, github.run_id) }}
+      cancel-in-progress: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat-cmux-next' && github.ref != 'refs/heads/nightly-next' && github.ref != 'refs/heads/release-next' && !startsWith(github.ref, 'refs/heads/feat-cmux-next-') && !startsWith(github.ref, 'refs/heads/next-batch/') && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') }}
     permissions:
       contents: read
       # The reusable package workflow declares an optional attestation job.
@@ -1680,6 +1702,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       actions: read # this run's artifacts
+      contents: read # a branch push's current head (BRANCH_BUILD_SUPERSEDED)
     outputs:
       target_set: ${{ steps.plan.outputs.target_set }}
       recovered: ${{ steps.plan.outputs.recovered }}
@@ -1695,8 +1718,21 @@ jobs:
           RUN_ID: ${{ github.run_id }}
           BUILD_RESULT: ${{ needs.build.result }}
           FIRST_ON_MAC: ${{ needs.tree-preflight.outputs.darwin_mac_runner != '' }}
+          # BRANCH_BUILD_SUPERSEDED (build): on a branch push a cancelled build may be one a newer
+          # push's build cancelled, not a timeout. A head the branch has moved past needs no fallback.
+          BRANCH_PUSH: ${{ (github.event_name == 'push' && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat-cmux-next' && github.ref != 'refs/heads/nightly-next' && github.ref != 'refs/heads/release-next' && !startsWith(github.ref, 'refs/heads/feat-cmux-next-') && !startsWith(github.ref, 'refs/heads/next-batch/') && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && '1' || '' }}
         run: |
           set -euo pipefail
+          if [[ "$BUILD_RESULT" == cancelled && -n "${BRANCH_PUSH:-}" ]]; then
+            # A failed read keeps the fallback (as the superseded check: any lookup failure keeps the run).
+            head="$(gh api "repos/$REPOSITORY/git/ref/heads/${GITHUB_REF#refs/heads/}" --jq .object.sha 2>/dev/null || true)"
+            if [[ "$head" =~ ^[0-9a-f]{40}$ && "$head" != "$GITHUB_SHA" ]]; then
+              echo "::notice title=no macOS fallback::the build was cancelled and ${GITHUB_REF#refs/heads/} has moved to ${head:0:12}; that push builds its own tree"
+              echo "target_set=" >> "$GITHUB_OUTPUT"
+              echo "recovered=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
           names="$(gh api --paginate "repos/$REPOSITORY/actions/runs/$RUN_ID/artifacts?per_page=100" --jq '.artifacts[].name')"
           # A target is built when all three of its artifacts are there. The Linux
           # ones are build's (fat); build-linux's are named machine-channel-*.

@@ -132,6 +132,10 @@ jobs:
       # The owned gui label while one of its runners is idle now, else empty (the Mac job then
       # takes Blacksmith macOS).
       mac_runner: ${{ steps.mac-runner.outputs.runs_on }}
+      # CI v2 scheduler grants (scripts/ci/mac_grants.py, scripts/ci/mac-grants.json from the base): action-exports
+      # takes grant_runner when the switch names it.
+      grant_runner: ${{ steps.grant.outputs.grant_runner }}
+      grant_jobs: ${{ steps.grant.outputs.grant_jobs }}
     steps:
       # Only the merge commit and scripts/cmux-next (the fallback copies of the
       # two scripts below); the next step fetches the history it needs. A
@@ -272,6 +276,17 @@ jobs:
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
         run: python3 "$RUNNER_TEMP/placement/scripts/ci/cmux_next_media_runner.py" --same-repo true --idle-now --gui-only
 
+      # A base without the script grants nothing.
+      - name: Scheduler grant for the Mac exports
+        id: grant
+        if: steps.placement.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+        run: if [ -f "$RUNNER_TEMP/placement/scripts/ci/mac_grants.py" ]; then python3 "$RUNNER_TEMP/placement/scripts/ci/mac_grants.py"; fi
+
   # The exports from this merge commit's cmux-next generated-files job (see the header), or a miss
   # (hit=false) and action-exports regenerates them. Every step is continue-on-error and the wait is
   # under the job's limit, so this job always succeeds. The pack is data: it is checked file by file
@@ -381,7 +396,7 @@ jobs:
     # --gui-only), never the session label (cmux#24295). With none idle, or the runners unread,
     # they take Blacksmith macOS at once: the owned-pool rescue never cancels an active pull
     # request run, so a job queued on a dark gui label (the office minis, 2026-11-10) waited there.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.generated-exports.outputs.stale_pick != 'true' && needs.action-areas.outputs.mac_runner || vars.CI_PR_POOL_OWNED == '1' && (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26) || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || contains(needs.action-areas.outputs.grant_jobs, ' action-exports ') && fromJSON(needs.action-areas.outputs.grant_runner) || vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.generated-exports.outputs.stale_pick != 'true' && needs.action-areas.outputs.mac_runner || vars.CI_PR_POOL_OWNED == '1' && (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26) || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     timeout-minutes: 40
     permissions:
       contents: read
