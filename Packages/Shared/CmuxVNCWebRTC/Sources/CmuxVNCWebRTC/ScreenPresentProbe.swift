@@ -374,8 +374,9 @@ private final class PresentHook: NSObject {
         }
         // Watched twice: the hook already there (kept by the probe) stays.
         guard !(delegate is PresentHook) else { return }
+        // crash-allow: responds(to:) only asks; it never raises for an unknown selector.
         guard video.responds(to: NSSelectorFromString("videoFrame")),
-              video.responds(to: NSSelectorFromString("lastFrameTimeNs")) else {
+              video.responds(to: NSSelectorFromString("lastFrameTimeNs")) else {  // crash-allow: responds(to:) never raises
             probe.hookFailed("RTCMTLVideoView answers no videoFrame/lastFrameTimeNs")
             return
         }
@@ -391,12 +392,14 @@ private final class PresentHook: NSObject {
     /// Race: the decode thread can swap `videoFrame` between this read and the renderer's own, so
     /// the frame is credited from `lastFrameTimeNs` after the draw, the one the renderer drew.
     func drawsNewFrame() -> Bool {
+        // crash-allow: init installs the hook only when the view answers videoFrame.
         guard let video, let frame = video.value(forKey: "videoFrame") as? RTCVideoFrame,
               frame.width > 0, frame.height > 0 else { return false }
         return frame.timeStampNs != lastDrawn()
     }
 
     func lastDrawn() -> Int64? {
+        // crash-allow: init installs the hook only when the view answers lastFrameTimeNs.
         (video?.value(forKey: "lastFrameTimeNs") as? NSNumber)?.int64Value
     }
 }
