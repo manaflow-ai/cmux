@@ -60,7 +60,6 @@ extension CmuxConfigSnapshot {
         take(HomeChiefPetSetting.parseMascot(root), \.homeChiefPetMascot)
         take(ChiefDockSetting.parseEdge(root), \.chiefDockEdge)
         take(ChiefDockSetting.parseStyle(root), \.chiefPanelStyle)
-        take(Self.parseLabsToggle(root, path: ChiefDockSetting.seesScreenPath, fallback: ChiefDockSetting.seesScreenDefault), \.chiefPanelSeesScreen)
         take(Self.parseLabsToggle(root, path: ChiefDockSetting.openBesidePath, fallback: ChiefDockSetting.openBesideDefault), \.chiefDockOpenBeside)
         take(HomeServerSetting.parse(root), \.homeServer)
         take(ChiefReactionSettings.parse(root), \.chiefReactions)

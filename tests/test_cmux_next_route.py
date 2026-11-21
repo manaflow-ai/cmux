@@ -48,6 +48,17 @@ PR_17470 = [
 ]
 
 
+# A shell `case` arm whose body is empty (`images/*|art/*) ;;`): the paths it lists are named to be ignored.
+EMPTY_CASE_ARM = re.compile(r"^[ \t]*[^\n#()]+\)[ \t]*;;[^\n]*$", re.MULTILINE)
+
+
+def names_path(text: str, pattern: str) -> bool:
+    """Whether TEXT names a NO_APP_INPUT PATTERN's path anywhere but an empty `case` arm."""
+    prefix = pattern.removesuffix("*")
+    named = re.compile(r"(^|[^A-Za-z0-9_.-])" + re.escape(prefix) + ("" if prefix.endswith("/") else r"\b"))
+    return named.search(EMPTY_CASE_ARM.sub("", text)) is not None
+
+
 def call_arguments(text: str, index: int) -> str:
     """The top-level arguments of the call open at INDEX (just inside its parenthesis), up to the parenthesis
     that closes it. String literals ("...", \"\"\"...\"\"\", raw #"..."#) are kept whole at the top level;
@@ -478,11 +489,19 @@ class PullRequestTiers(unittest.TestCase):
         inputs += [p for p in ROOT.glob("Packages/macOS/CmuxNext/**/*.sh") if ".build" not in p.parts]
         self.assertGreater(len(inputs), 50)
         for pattern in route_module.NO_APP_INPUT:
-            prefix = pattern.removesuffix("*")
-            named = re.compile(r"(^|[^A-Za-z0-9_.-])" + re.escape(prefix) + ("" if prefix.endswith("/") else r"\b"))
             for path in inputs:
                 with self.subTest(pattern=pattern, input=str(path.relative_to(ROOT))):
-                    self.assertIsNone(named.search(path.read_text(encoding="utf-8", errors="replace")))
+                    self.assertFalse(names_path(path.read_text(encoding="utf-8", errors="replace"), pattern))
+
+    def test_a_path_only_an_empty_case_arm_names_is_not_read(self):
+        """swap-binary.sh (#46110) lists paths a swap ignores as empty `case` arms (`images/*) ;;`): naming a path to
+        do nothing with it is not reading it. A non-empty arm, or any other mention, still is."""
+        ignored = 'case "$p" in\n  .agents/*|tests_v2/*) ;;\n  art/*|images/*) ;;       # not in the app\nesac\n'
+        self.assertFalse(names_path(ignored, "images/*"))
+        self.assertFalse(names_path(ignored, ".agents/*"))
+        self.assertTrue(names_path('case "$p" in\n  images/*) cp -R "$p" "$out" ;;\nesac\n', "images/*"))
+        self.assertTrue(names_path("cp -R images/ \"$out\"\n", "images/*"))
+        self.assertTrue(names_path('"images/*"\n', "images/*"))
 
     def test_cmux_tui_a_dev_build_still_bundles_it(self):
         result = tiers(["cmux-tui/crates/acpmux/src/peer.rs"], labels=frozenset({"dev-build"}))
@@ -499,7 +518,9 @@ class PullRequestTiers(unittest.TestCase):
                 result = tiers([path])
                 self.assertEqual(result["native"], "true")
                 self.assertEqual(result["scheme"], "true")
-                self.assertEqual(result["daemon"], "true")
+                # The daemon tier runs the published binaries, which build none of the FFI-only crates; the
+                # toolchain builds them all (scripts/ci/affected-jobs.json daemon-test).
+                self.assertEqual(result["daemon"], "true" if path.endswith("rust-toolchain.toml") else "false")
 
     def test_app_ffi_inputs_match_the_pin_check(self):
         """The router's CCmuxAppFFI crates are the ones check-app-ffi-pin.sh derives."""
@@ -2038,10 +2059,10 @@ class HotAwareWorkflows(unittest.TestCase):
                           if "=" in line) if output.exists() else {}
             return done, values, summary.read_text(encoding="utf-8") if summary.exists() else ""
 
-    # cmux-next-guards.yml: hot-route, then tooling-tests' runs-on.
+    # cmux-next-guards.yml: portable-placement's hot-only route step, then tooling-tests' runs-on.
 
     def guards_route(self, changed: list[str], labels: str = "") -> dict:
-        step = workflow_step("cmux-next-guards.yml", "hot-route", "Route the pull request (cmux_next_route.py --hot-only)")
+        step = workflow_step("cmux-next-guards.yml", "portable-placement", "Route the pull request (cmux_next_route.py --hot-only)")
         done, values, _ = self.run_step(step["run"], ROOT, changed, labels)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         return values
@@ -2056,20 +2077,34 @@ class HotAwareWorkflows(unittest.TestCase):
         import yaml
         guards = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text(encoding="utf-8"))
         job = guards["jobs"]["tooling-tests"]
-        self.assertIn("hot-route", job["needs"])
-        self.assertEqual(job["if"], "${{ !cancelled() }}")  # a skipped or failed hot-route still runs the tests
+        # The 30-minute window gate (#48652) holds a push's guards; a pull request skips it (its output is
+        # empty, never 'false'), and a skipped or failed placement still runs the tests.
+        self.assertEqual(job["needs"], ["coalesce", "portable-placement"])
+        self.assertEqual(job["if"], "${{ !cancelled() && needs.coalesce.outputs.run != 'false' }}")
         legs = job["runs-on"].split(" || ")
         mini = [leg for leg in legs if "outputs.mini_runner" in leg]
         linux = [leg for leg in legs if "outputs.linux_runner" in leg]
         self.assertEqual(len(mini), 1, legs)
-        self.assertTrue(mini[0].startswith("needs.hot-route.outputs.hot_only != 'true' && "), mini[0])
+        self.assertTrue(mini[0].startswith("needs.portable-placement.outputs.hot_only != 'true' && "), mini[0])
         # Fleet Linux and the Blacksmith fallbacks stay for a hot-only pull request.
         self.assertEqual(len(linux), 1, legs)
         self.assertNotIn("hot_only", linux[0])
         self.assertTrue(legs[-1].strip().startswith("fromJSON(vars.RUNNER_POOLS)"), legs[-1])
-        route = guards["jobs"]["hot-route"]
-        self.assertIn("github.event_name == 'pull_request'", route["if"])
-        self.assertNotIn("macos", route["runs-on"])
+        # The route is a step of portable-placement since 2026-11-21 (cmuxterm-hq#16094), not a job of its own.
+        self.assertNotIn("hot-route", guards["jobs"])
+        place = guards["jobs"]["portable-placement"]
+        self.assertNotIn("macos", place["runs-on"])
+        self.assertEqual(place["outputs"]["hot_only"], "${{ steps.hot-route.outputs.hot_only }}")
+        steps = {step.get("name"): step for step in place["steps"]}
+        route = steps["Route the pull request (cmux_next_route.py --hot-only)"]
+        checkout = steps["Check out the merge commit and its base (hot-only route)"]
+        for step in (route, checkout):
+            self.assertIn("github.event_name == 'pull_request'", step["if"])
+            self.assertIs(step.get("continue-on-error"), True)  # a failed route never fails the placement
+        self.assertEqual(route["working-directory"], checkout["with"]["path"])
+        self.assertEqual(checkout["with"]["fetch-depth"], 2)
+        # The placement stays the last step.
+        self.assertEqual(place["steps"][-1]["id"], "place")
 
     # fleet-test-compile.yml: the plan step.
 

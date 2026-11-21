@@ -53,7 +53,10 @@ class AffectedTests(unittest.TestCase):
         # step goes with every change and picks the crates itself.
         result = plan(["plans/cmux-next/STATUS.md"])
         self.assertFalse(result["all"])
-        self.assertEqual(names(result), ["guards", "rust"])
+        self.assertEqual(names(result)[:2], ["guards", "rust"])
+        # Plus the Cargo workspaces rust-workspaces.yml plans for it (they use that crate by path).
+        self.assertEqual({u["why"] for u in result["units"][2:]},
+                         {f"{w}/Cargo.toml" for w in affected_tests.rust_workspaces(ROOT, ["plans/cmux-next/STATUS.md"])})
 
     def test_nothing_changed_runs_nothing(self):
         self.assertEqual(plan([])["units"], [])
@@ -63,15 +66,23 @@ class AffectedTests(unittest.TestCase):
         argv = [a for u in plan(["plans/cmux-next/rust-panic-free.md"])["units"] for a in u["argv"]]
         self.assertIn("tests/test_base_red_excuse.py", argv)
 
-    def test_every_code_change_runs_the_whole_tree_guards(self):
-        # Guards such as the short-timeout ratchet read every file, so no path map can skip them.
+    def test_every_code_change_runs_the_guards_it_reaches(self):
+        # Guards such as the short-timeout ratchet read every file and always run; the rest run when the
+        # change reaches their inputs (run_ci_guards.py --affected from the plan's base).
         for path in ("cmux-tui/crates/cmux-config/src/lib.rs", "webviews/src/agent-session/acpmux/App.tsx"):
             with self.subTest(path=path):
                 guards = [u for u in plan([path])["units"] if u["kind"] == "guards"]
                 self.assertEqual(len(guards), 1)
-                self.assertIn(affected_tests.GUARDS_SCRIPT, guards[0]["argv"])
-                self.assertIn("--all", guards[0]["argv"])
+                argv = guards[0]["argv"]
+                self.assertIn(affected_tests.GUARDS_SCRIPT, argv)
+                self.assertIn("--all", argv)
+                self.assertEqual(argv[argv.index("--affected") + 1], BASE)
         self.assertTrue(affected_tests.guard_tests(ROOT))
+
+    def test_an_everything_plan_runs_every_guard_step(self):
+        guards = [u for u in plan(["scripts/ci/guards-local.sh"])["units"] if u["kind"] == "guards"]
+        self.assertEqual(len(guards), 1)
+        self.assertNotIn("--affected", guards[0]["argv"])
 
     def test_webviews_source_change_runs_every_web_test_with_the_browser_lane(self):
         # Browser and gallery tests load the whole app through vite, not through imports.
@@ -104,8 +115,8 @@ class AffectedTests(unittest.TestCase):
         self.assertIn("rust", names(plan(["scripts/ci/macos_stubs.py"])))
 
     def test_a_skill_a_crate_embeds_sends_the_rust_step(self):
-        # acpmux include_str!s skills/cmux-cua/SKILL.md.
-        self.assertIn("rust", names(plan(["skills/cmux-cua/SKILL.md"])))
+        # acpmux include_str!s skills/cmux-computer-use/SKILL.md.
+        self.assertIn("rust", names(plan(["skills/cmux-computer-use/SKILL.md"])))
 
     def test_a_file_outside_cmux_tui_a_crate_reads_sends_the_rust_step(self):
         # cmux-tui crates read these by "../" path; the planner used to skip Rust for every path
@@ -135,7 +146,8 @@ class AffectedTests(unittest.TestCase):
                 result = plan(files, everything=not files)
                 self.assertEqual(len(names(result)), len(set(names(result))))
         result = plan(["webviews/src/agent-session/acpmux/App.tsx"])
-        argv = [a for u in result["units"] for a in u["argv"]]
+        # A Cargo workspace root (scripts/journeys/tui-kit/rust) runs through rust-workspaces.py, as its workflow does.
+        argv = [a for u in result["units"] if affected_tests.RUST_WORKSPACES not in u["argv"] for a in u["argv"]]
         listed = [n["what"] for n in result["not_run"]]
         for test in affected_tests.web_workflow_python_tests(ROOT):
             self.assertTrue(test in argv or test in listed, test)  # on the lane, or left to the web workflow
@@ -175,6 +187,41 @@ class AffectedTests(unittest.TestCase):
         listed = {t for u in cmux_next for t in u["argv"][-1].removeprefix("--arg=").split(",")}
         self.assertEqual(listed, set(affected_tests.swift_test_targets(ROOT, "Packages/macOS/CmuxNext")))
 
+    def test_the_every_suite_plan_runs_every_cargo_workspace_beside_cmux_tui(self):
+        # It once listed no native unit at all (an absolute path never starts with "Native/") and
+        # never the rust-workspaces.yml workspaces (cmux-next-ios/rust, the cloud server, ...).
+        result = plan([], everything=True)
+        whys = {u["why"] for u in result["units"] if u["kind"] == "native"}
+        self.assertIn("Native/OptChat/optchat-chief/Cargo.toml", whys)
+        self.assertIn("cmux-next-ios/rust/Cargo.toml", whys)
+        self.assertIn("native-optchat-chief", names(result))  # its macOS step mode, not a plain cargo test
+
+    def test_a_cmux_tui_crate_runs_the_workspaces_that_use_it_by_path(self):
+        # optchat-chief depends on cmux-tui/crates/cmux-chief by path: a change there can break it.
+        manifest = (ROOT / "Native/OptChat/optchat-chief/Cargo.toml").read_text()
+        self.assertIn("cmux-tui/crates/cmux-chief", manifest)
+        result = plan(["cmux-tui/crates/cmux-chief/src/lib.rs"])
+        self.assertFalse(result["all"])
+        self.assertIn("rust", names(result))
+        self.assertIn("native-optchat-chief", names(result))
+
+    def test_a_file_in_a_cargo_workspace_runs_that_workspace_not_every_suite(self):
+        result = plan(["cmux-next-ios/rust/crates/cmux-mobile-host/src/activity.rs"])
+        self.assertFalse(result["all"], result["reasons"])
+        unit = next(u for u in result["units"] if u["name"] == "workspace-cmux-next-ios-rust")
+        self.assertEqual(unit["argv"][-3:], [affected_tests.RUST_WORKSPACES, "run", "cmux-next-ios/rust"])
+
+    def test_web_app_tests_run_on_a_web_change_and_on_a_path_they_read(self):
+        # A replay of base reds (tap history since 2026-10-25) found 10 of 10 web/ reds in no plan:
+        # next-docs.test.ts and docs-shortcuts.test.ts read the action catalog outside web/.
+        self.assertIn("web-app-1of4", names(plan(["web/app/page.tsx"])))
+        self.assertIn("web-app-1of4", names(plan(["plans/cmux-next/action-surfaces.json"])))
+        catalog = "Packages/macOS/CmuxNext/Sources/CmuxNextActions/NewTabActions.xcstrings"
+        self.assertTrue(any(n.startswith("web-app") for n in names(plan([catalog]))))
+        self.assertIn("web-app-4of4", names(plan([], everything=True)))
+        # acpmux is no negative: vm-cmux-tui.test.ts reads its cli/hosts.rs.
+        self.assertFalse(any(n.startswith("web-app") for n in names(plan(["cmux-tui/crates/ghostty-vt/src/alternate_replay_tests.rs"]))))
+
     def test_too_many_paths_runs_everything(self):
         files = [f"cmux-tui/AGENTS-{i}.md" for i in range(affected_tests.MAX_FILES + 1)]
         self.assertTrue(plan(files)["all"])
@@ -196,7 +243,8 @@ class AffectedTests(unittest.TestCase):
         self.assertIn(mac[0], [n["what"] for n in result["not_run"]])
 
     def test_webviews_source_runs_the_tests_that_import_it(self):
-        tests = affected_tests.web_tests(ROOT)
+        # A file the controller can list (scripts/**.test.mjs sorts first and runs only in the whole lane).
+        tests = [t for t in affected_tests.web_tests(ROOT) if affected_tests.WEB_FILE_OK.match(t)]
         self.assertTrue(tests)
         target = "webviews/" + tests[0]
         result = plan([target])
@@ -226,6 +274,28 @@ class AffectedTests(unittest.TestCase):
                              check=True, capture_output=True, text=True).stdout.split()
         self.assertEqual(out, ["100000", "100000"])
 
+    def test_a_script_selects_the_tests_that_import_it_by_module_name(self):
+        # Tests reach scripts/ci modules through sys.path and `import gh_expressions`, naming no
+        # path; before the import edge a gh_expressions.py change selected 3 tests of 55.
+        import focused_tests
+        picked = {p["path"] for p in focused_tests.plan(ROOT, ["scripts/ci/gh_expressions.py"])["python"]}
+        direct = "tests/test_ci_fork_runner_routing.py"  # `import gh_expressions`
+        self.assertNotIn("gh_expressions.py", (ROOT / direct).read_text())
+        self.assertIn(direct, picked)
+        # Transitively: test_cmux_next_route imports cmux_next_route, which imports gh_expressions.
+        self.assertIn("gh_expressions", focused_tests.python_imports((ROOT / "scripts/ci/cmux_next_route.py").read_text()))
+        self.assertIn("tests/test_cmux_next_route.py", picked)
+        # A tests/ helper module the same way: `import blacksmith_linux_sizes`.
+        helper = {p["path"] for p in focused_tests.plan(ROOT, ["tests/blacksmith_linux_sizes.py"])["python"]}
+        importer = "tests/test_ci_tui_routes_avoid_nightly_label.py"
+        self.assertNotIn("blacksmith_linux_sizes.py", (ROOT / importer).read_text())
+        self.assertIn(importer, helper)
+
+    def test_python_imports_reads_every_import_form(self):
+        import focused_tests
+        text = "import a.b, c as d\nfrom e import (f,\n    g)\nfrom h.i import j\n    import k\n"
+        self.assertTrue({"a", "b", "c", "e", "f", "h", "i", "j", "k"} <= focused_tests.python_imports(text))
+
     def test_a_changed_scripts_tests_test_is_listed_for_its_workflow(self):
         # scripts/tests holds tests the lane registry does not list: listed, never dropped silently.
         test = "scripts/tests/test_pr_scoped_webviews_checks.py"
@@ -243,7 +313,8 @@ class AffectedTests(unittest.TestCase):
     def test_the_everything_plan_runs_no_unregistered_test(self):
         # Their workflows set up what they need: tests_v2 a built CLI and a socket, the CUA bench Bun.
         result = plan([], everything=True)
-        argv = [a for u in result["units"] for a in u["argv"]]
+        # A Cargo workspace root (scripts/journeys/tui-kit/rust) runs through rust-workspaces.py, as its workflow does.
+        argv = [a for u in result["units"] if affected_tests.RUST_WORKSPACES not in u["argv"] for a in u["argv"]]
         self.assertFalse([a for a in argv if a.startswith(("tests_v2/", "scripts/journeys/", "tests/automation-bench/"))])
         self.assertTrue(any("outside the lane registry" in n["what"] for n in result["not_run"]), result["not_run"])
 
@@ -272,7 +343,8 @@ class AffectedTests(unittest.TestCase):
         out = subprocess.run([sys.executable, str(ROOT / "scripts/ci/affected_tests.py"), "--base", "HEAD", "--head", "HEAD",
                               "--files", "plans/cmux-next/STATUS.md"], cwd=ROOT, check=True, capture_output=True, text=True).stdout
         data = json.loads(out)
-        self.assertEqual([u["name"] for u in data["units"]], ["guards", "rust"])
+        self.assertEqual([u["name"] for u in data["units"]][:2], ["guards", "rust"])
+        self.assertEqual({u["kind"] for u in data["units"][2:]} - {"native"}, set())
         self.assertRegex(data["head"], r"^[0-9a-f]{40}$")
 
 
@@ -306,6 +378,49 @@ class Replay(unittest.TestCase):
         meta["workspace_members"].append("new 0.0.0")  # or before a crate was removed
         self.assertNotIn("new", graph)
         self.assertIn("new", self.replay.meta_graph(meta))
+
+    def test_a_rust_workspaces_job_is_judged_by_its_workspace_unit(self):
+        f = {"workflow": "rust-workspaces.yml", "job": "cmux-next-ios/rust", "kind": "rust", "test": "cmux-mobile-host"}
+        self.assertEqual(self.replay.rust_workspace_job(f), "cmux-next-ios/rust")
+        self.assertEqual(self.replay.rust_workspace_job({**f, "job": "rust workspaces"}), "")
+        self.assertEqual(self.replay.rust_workspace_job({**f, "workflow": "cmux-tui-spec.yml"}), "")
+        unit = {"kind": "native", "why": "cmux-next-ios/rust/Cargo.toml", "argv": []}
+        self.assertEqual(self.replay.selected({"all": True, "units": [unit]})["native"], {"cmux-next-ios/rust/Cargo.toml"})
+
+    def test_a_tap_regression_is_a_pass_then_two_fails_and_names_its_candidates(self):
+        order = ["c0", "c1", "c2", "c3", "c4", "c5"]
+        ev = lambda **o: {sha: {"outcome": out} for sha, out in o.items()}  # noqa: E731
+        rows = [
+            {"workflow": "w", "job": "j", "test": "red", "events": ev(c0="pass", c3="fail", c4="fail")},
+            {"workflow": "w", "job": "j", "test": "flake", "events": ev(c0="pass", c1="fail", c2="pass")},
+            {"workflow": "w", "job": "j", "test": "unconfirmed", "events": ev(c0="pass", c5="fail")},
+            {"workflow": "w", "job": "j", "test": "off-base", "events": ev(x="pass", c1="fail", c2="fail")},
+        ]
+        found = self.replay.tap_regressions(rows, order)
+        self.assertEqual([(r["test"], r["candidates"]) for r in found], [("red", ["c1", "c2", "c3"])])
+
+    def test_tap_rows_map_to_replay_kinds(self):
+        kind = self.replay.tap_kind
+        self.assertEqual(kind("cmux-next web", "react-apps-check", "test/a.test.ts > it works"), ("web", "test/a.test.ts"))
+        self.assertEqual(kind("cmux-next web", "Web tests", "tests/b.test.ts > x"), ("web-app", "web/tests/b.test.ts"))
+        self.assertEqual(kind("rust workspaces", "cmux-next-ios/rust", "t"), ("rust", "t"))
+        self.assertEqual(kind("cmux-next guards", "tooling-tests", "test_x (__main__.C.test_x)"), ("python-name", "test_x"))
+
+    def test_an_open_window_lists_runs_from_since(self):
+        # `created=SINCE..9999` (the --until default) made GitHub answer total_count 0 for every
+        # workflow; `>=SINCE` lists them (ci.yml: 0 vs 256 failed runs since 2026-11-17).
+        self.assertEqual(self.replay.created_range("2026-11-17T00:00:00Z", "9999"), ">=2026-11-17T00:00:00Z")
+        self.assertEqual(self.replay.created_range("2026-11-17T00:00:00Z", "2026-11-18T10:00:00Z"),
+                         "2026-11-17T00:00:00Z..2026-11-18T10:00:00Z")
+
+    def test_per_head_metadata_is_the_heads_own_graph_or_none(self):
+        from unittest import mock
+        with mock.patch.object(self.replay.shutil, "which", return_value=None):
+            self.assertIsNone(self.replay.head_metadata(ROOT))  # no cargo: the verdict stays unknown
+        if not self.replay.shutil.which("cargo"):
+            self.skipTest("no cargo here")
+        meta = self.replay.head_metadata(ROOT)
+        self.assertEqual(self.replay.meta_graph(meta), self.replay.head_graph("HEAD"))
 
     def test_guard_runner_summary_names_each_red_guard(self):
         log = "##[group]Run x\nfailed: workflow-guard-tests / ci: Validate A; workflow-guard-tests / ci: Validate B\n"

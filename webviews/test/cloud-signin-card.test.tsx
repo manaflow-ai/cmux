@@ -497,7 +497,7 @@ test("a team Cloud machine's sign-in failure names it and offers Switch model an
   );
   await flush();
   expect(host.querySelector(".cv-turn-error__cause")!.textContent).toContain(
-    "Claude Code on this team Cloud machine has no sign-in it can use. cmux doesn’t pass personal logins to shared team machines.",
+    "Claude Code has no sign-in on this team Cloud machine. Personal logins stay off shared machines.",
   );
   expect(labels().slice(0, 2)).toEqual(["Switch model", "Use an API key"]);
   expect(button("Switch model")!.classList.contains("cv-turn-error__primary")).toBe(true);
