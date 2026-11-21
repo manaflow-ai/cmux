@@ -331,7 +331,7 @@ fn notice_body(dir: &Path, record: &Record) -> (String, bool) {
     } else {
         body.push_str(&format!("\nLast {} lines of its output:\n", tail.len()));
         body.push_str(&tail.join("\n"));
-        body.push_str("\n(bg_output reads all of it.)");
+        body.push_str("\n(bg_output, or `acpmux bg output <id>` in a shell, reads all of it.)");
     }
     (body, !tail.is_empty())
 }

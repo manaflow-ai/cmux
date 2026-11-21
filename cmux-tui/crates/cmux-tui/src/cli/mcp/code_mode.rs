@@ -232,7 +232,7 @@ const BG_START: &str = "acpmux_bg_start";
 const BG_STEER: &str = " Long-running commands (a dev server, a watcher, a long build or \
     test run) go to `cmux.acpmux_bg_start({command, cwd})`, not a background shell or terminal \
     of your own: this chat's agent hibernates after 2 idle minutes and its own background shells \
-    end with it, while that task keeps running; `cmux.acpmux_bg_output({id, fromByte})` reads it.";
+    end with it, while that task keeps running; `cmux.acpmux_bg_output({id, fromByte})`, or `acpmux bg output <id>` in a shell, reads it.";
 
 /// acpmux's `github_status` behind this server (acpmux `github_status.rs`).
 const GITHUB_STATUS: &str = "acpmux_github_status";
