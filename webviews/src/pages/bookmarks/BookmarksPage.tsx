@@ -16,7 +16,8 @@ import {
 } from "react";
 import { Breadcrumbs } from "../../ui/Breadcrumbs";
 import { SplitEdge } from "../../ui/SplitEdge";
-import { useLasting } from "../../ui/lasting";
+import { ConnectionChip } from "../../ui/ConnectionChip";
+import { useConnectionQuiet } from "../../ui/lasting";
 import { Tree, type TreeLine } from "../../ui/Tree";
 import { VirtualList } from "../../ui/VirtualList";
 import { PageMenu, type PageMenuItem } from "../shared/PageMenu";
@@ -81,10 +82,10 @@ export function BookmarksPage({
     bar: snap.titles.bar || t("root.bar"),
     other: snap.titles.other || t("root.other"),
   };
-  // A lost host shows nothing until it lasts past the grace (a launch, a daemon restart: the store
-  // re-reads once the link is back); then the disconnected line.
+  // A lost host keeps the rows it had and says so only once it lasts (a launch, a daemon restart: the
+  // store re-reads once the link is back), as a corner mark that takes no room.
   const down = snap.connection === "disconnected";
-  const downLasting = useLasting(down);
+  const downLasting = useConnectionQuiet(down);
   const searching = snap.results !== null;
   const rows = snap.rows;
   const focusIndex = snap.focus === undefined ? -1 : rows.findIndex((row) => row.id === snap.focus);
@@ -322,12 +323,9 @@ export function BookmarksPage({
           {snap.notice.message}
         </p>
       ) : null}
-      {down && !downLasting ? null : down ? (
-        <output className="bm-empty">
-          <span className="bm-empty-title">{t("page.disconnected")}</span>
-        </output>
-      ) : empty ? (
-        snap.loading ? null : (
+      {downLasting ? <ConnectionChip text={t("page.disconnected")} /> : null}
+      {empty ? (
+        snap.loading || down ? null : (
           <div className="bm-empty">
             <span className="bm-empty-title">{t(searching ? "page.emptySearchTitle" : "page.emptyTitle")}</span>
             {searching ? null : <span className="bm-empty-hint">{t("page.emptyHint")}</span>}
@@ -397,7 +395,7 @@ export function BookmarksPage({
           aria-label={t("page.search")}
           aria-controls="bm-list"
           value={snap.text}
-          disabled={down && downLasting}
+          disabled={downLasting}
           ref={focusOnMount}
           onChange={(event) => store.setText(event.target.value)}
           onKeyDown={searchKeys}
