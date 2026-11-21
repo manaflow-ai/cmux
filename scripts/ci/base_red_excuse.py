@@ -5183,7 +5183,6 @@ _PUBLISH = "requests, publishes, attributes or comments: no test verdict of its 
 # Every job of these workflows is declared (GUARD_JOB_IDS) or excluded here with its reason.
 GUARD_WORKFLOWS = {
     "cmux-next-guards.yml": {
-        "coalesce": "the window gate (base-coalesce.yml): decides whether a push runs the guards, reads no tree",
         "pinned-asset-store": "reads the pinned asset store over the network, not the tree",
         "nightly-guards": "calls ci-guards.yml, whose jobs are classified there (GUARD_JOB_SUFFIXES)",
         "signing-runner-variables": "reads the repository's runner variables, not the tree",

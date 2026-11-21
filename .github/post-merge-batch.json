@@ -5,6 +5,20 @@
       "workflow": "post-merge-drill.yml",
       "paths": [".github/post-merge-drill-red"],
       "jobs": {"drill": "drill"}
+    },
+    "cmux-next-guards": {
+      "workflow": "cmux-next-guards.yml",
+      "paths": [],
+      "jobs": {
+        "pinned-asset-store": "pinned assets exist in store",
+        "release-notary": "release-notary guards at the tip",
+        "signing-runner-variables": "signing runner variables are ephemeral",
+        "ci-guard-group": "cmux-next CI guard group",
+        "static-checks": "cmux-next static checks (vt-link-graph, nightly static capabilities, defaults snapshot, page strings)",
+        "rust-notices-tree": "cmux-next Rust notices generate",
+        "own-change-checks": "cmux-next size cap, crash ratchet, localization debt ratchet, no new generated files",
+        "tooling-tests": "tooling-tests"
+      }
     }
   }
 }

@@ -63,13 +63,20 @@ def runs_ci_group(job: dict) -> bool:
 
 class FeatRunsTheCiGuardGroup(unittest.TestCase):
     def test_a_workflow_runs_the_ci_group_on_feat_pull_requests_and_pushes(self):
+        # The base's run: a push workflow, or a suite of the post-merge batch (.github/post-merge-batch.json), which
+        # runs on the feat-cmux-next tip about every two hours (cmux-next-guards.yml since 2026-11-21).
+        import json  # noqa: PLC0415
+
+        batch = {suite["workflow"] for suite in json.loads(
+            (ROOT / ".github/post-merge-batch.json").read_text(encoding="utf-8"))["suites"].values()}
         for event in ("pull_request", "push"):
             with self.subTest(event=event):
                 found = []
                 for path in sorted(WORKFLOWS.glob("*.yml")):
                     workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
                     on = triggers(workflow)
-                    if event not in on or not covers_feat(on[event]):
+                    in_batch = event == "push" and path.name in batch and "workflow_call" in on
+                    if not in_batch and (event not in on or not covers_feat(on[event])):
                         continue
                     found += [f"{path.name}:{name}" for name, job in (workflow.get("jobs") or {}).items()
                               if runs_ci_group(job)]
@@ -268,11 +275,11 @@ class TheGuardGroupRunsOnItsMeasuredSize(unittest.TestCase):
         measured = entry("cmux-next-guards.yml", "ci-guard-group")
         pool_route = (f"vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_{measured['failover']}"
                       f" || fromJSON(vars.RUNNER_POOLS).linux_{measured['size']}")
-        # The window gate (base-coalesce.yml) and the 2-vCPU path route (fast_check_route.py): a pull request that
-        # touches nothing a guard group reads skips it; an empty route (a push, a router failure) runs it.
-        self.assertEqual(self.job()["needs"], ["coalesce", "fast-check-route"])
+        # The 2-vCPU path route (fast_check_route.py): a pull request that touches nothing a guard group reads skips
+        # it; an empty route (a batch run, a router failure) runs it. A bisect probe of another job skips it.
+        self.assertEqual(self.job()["needs"], ["fast-check-route"])
         self.assertEqual(self.job()["if"],
-                         "${{ !cancelled() && needs.coalesce.outputs.run != 'false' && "
+                         "${{ !cancelled() && (inputs.only == '' || inputs.only == 'ci-guard-group') && "
                          "needs.fast-check-route.outputs.ci_guard_group != 'false' }}")
         self.assertEqual(
             workflow_jobs.single_runs_on(self.job()),

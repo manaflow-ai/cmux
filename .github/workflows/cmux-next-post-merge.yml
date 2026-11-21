@@ -81,6 +81,7 @@ jobs:
       suites: ${{ steps.plan.outputs.suites }}
       sha: ${{ steps.plan.outputs.sha }}
       only: ${{ steps.plan.outputs.only }}
+      base: ${{ steps.plan.outputs.base }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -127,8 +128,25 @@ jobs:
     permissions:
       contents: read
 
+  # Every guard on every batch run (no paths): it ran on every feat-cmux-next push before. The guards read repository
+  # secrets (the pinned asset store's key, the routing App's) and pr-red-checks' permissions, which a call must grant.
+  cmux-next-guards:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' cmux-next-guards ')
+    uses: ./.github/workflows/cmux-next-guards.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+      base: ${{ needs.plan.outputs.base }}
+    secrets: inherit
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+      pull-requests: write
+
   judge:
-    needs: [plan, drill]
+    needs: [plan, drill, cmux-next-guards]
     if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15

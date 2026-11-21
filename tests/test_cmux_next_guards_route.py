@@ -31,8 +31,9 @@ def callers():
 
 
 class CmuxNextGuardsRouteTests(unittest.TestCase):
-    def test_feat_cmux_next_runs_release_notary_on_pushes(self):
-        # A push runs every release-notary step in parallel, judged at the tip. The ci-guards.yml matrix leg ran them
+    def test_feat_cmux_next_runs_release_notary_in_the_post_merge_batch(self):
+        # The base's post-merge batch run (no push trigger since 2026-11-21) runs every release-notary step in
+        # parallel, judged at the tip. The ci-guards.yml matrix leg ran them
         # one after another (915 s on 4 vCPU) and ended cancelled at its 15 minutes, with no verdict, on every push.
         import contextlib  # noqa: PLC0415
         import io  # noqa: PLC0415
@@ -44,12 +45,14 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
 
         workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text())
         triggers = workflow.get(True) or workflow.get("on") or {}
-        push = triggers.get("push") or {}
-        self.assertIn("feat-cmux-next", push.get("branches") or [])
-        self.assertFalse(push.get("paths"))
+        self.assertNotIn("push", triggers)
+        self.assertEqual(set(triggers["workflow_call"]["inputs"]), {"sha", "only", "base"})
+        batch = json.loads((ROOT / ".github/post-merge-batch.json").read_text())["suites"]["cmux-next-guards"]
+        self.assertEqual(batch["workflow"], "cmux-next-guards.yml")
+        self.assertEqual(batch["paths"], [], "every batch run runs every guard, as every push did")
+        self.assertIn("release-notary", batch["jobs"])
         job = workflow["jobs"]["release-notary"]
-        # base-coalesce.yml: a push runs it once per 30-minute window on the tip (needs.coalesce.outputs.run).
-        self.assertEqual(job["if"], "${{ !cancelled() && needs.coalesce.outputs.run != 'false' && (github.event_name != 'pull_request') }}")
+        self.assertEqual(job["if"], "${{ !cancelled() && (inputs.only == '' || inputs.only == 'release-notary') && (github.event_name != 'pull_request') }}")
         self.assertEqual(job["timeout-minutes"], 15)
         script = next(step["run"] for step in job["steps"] if step.get("name") == "Run the release-notary guards")
         call = next(line for line in script.splitlines() if "scripts/ci/guards-local.sh" in line)
@@ -105,10 +108,10 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
         jobs = workflow["jobs"]
         # nightly-guards runs on every event (the submodule forward-only guard, Guard status), never with the
         # release-notary matrix leg: a push runs the group in parallel in the release-notary job.
-        self.assertEqual(jobs["nightly-guards"]["if"], "${{ !cancelled() && needs.coalesce.outputs.run != 'false' }}")
+        self.assertEqual(jobs["nightly-guards"]["if"], "${{ !cancelled() && inputs.only == '' }}")
         self.assertEqual(jobs["nightly-guards"]["with"]["linux_guard_tests"], "${{ 'false' }}")
         group = jobs["ci-guard-group"]
-        self.assertEqual(group["if"], "${{ !cancelled() && needs.coalesce.outputs.run != 'false' && "
+        self.assertEqual(group["if"], "${{ !cancelled() && (inputs.only == '' || inputs.only == 'ci-guard-group') && "
                          "needs.fast-check-route.outputs.ci_guard_group != 'false' }}")
         steps = {step.get("name"): step for step in group["steps"]}
         script = steps["Run the ci guard group and the routed groups"]["run"]
