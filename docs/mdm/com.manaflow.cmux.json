@@ -1724,8 +1724,8 @@
       "type" : "object"
     },
     "appearance.metrics.chromeFontSize" : {
-      "description" : "Text size of tabs, the sidebar and chat. Terminals have their own size.",
-      "maximum" : 16,
+      "description" : "Text size of the sidebar, tabs, menus and chat. Terminals have their own size.",
+      "maximum" : 20,
       "minimum" : 10,
       "title" : "Text Size",
       "type" : "number"
