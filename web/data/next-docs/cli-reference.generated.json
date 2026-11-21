@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 889,
-    "mcp": 807
+    "verbs": 890,
+    "mcp": 808
   },
   "nouns": [
     {
@@ -5677,6 +5677,13 @@
           "id": "workspace.archiveOthersInGroup",
           "mcp": true,
           "mcpTool": "app_workspace_archive_others_in_group"
+        },
+        {
+          "command": "cmux workspace archive-settled",
+          "title": "Archive Settled Chats",
+          "id": "workspace.archiveSettled",
+          "mcp": true,
+          "mcpTool": "app_workspace_archive_settled"
         },
         {
           "command": "cmux workspace archive-unarchive",

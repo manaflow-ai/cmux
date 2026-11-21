@@ -133,6 +133,7 @@ extension SidebarSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.sidebar.showSpaces", "Show Spaces"),
+                help: SettingsText.keyed("settings.sidebar.showSpaces.help", "Spaces show once you have more than one. New Space is in the command palette."),
                 kind: .toggle,
                 default: .bool(SidebarSectionsSetting.showSpacesDefault),
                 keywords: ["sidebar", "spaces", "dots", "profiles", "footer", "hide", "show"]
@@ -299,6 +300,16 @@ extension SidebarSettingsSchema {
                 keywords: ["sidebar", "timestamps", "time", "times", "age", "ago", "elapsed", "duration", "last activity", "clock", "rows"]
             ),
             SettingDescriptor(
+                SidebarSectionsSetting.relativeTimestampsPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.relativeTimestamps", "Relative Timestamps"),
+                help: SettingsText.keyed("settings.sidebar.relativeTimestamps.help", "With Show Timestamps on, a change today reads as its age, such as 5m or 2h, not its time."),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.relativeTimestampsDefault),
+                keywords: ["sidebar", "timestamps", "relative", "age", "ago", "elapsed", "minutes", "hours", "time", "rows"]
+            ),
+            SettingDescriptor(
                 SidebarSectionsSetting.settleFinishedPath,
                 section: .appearance,
                 group: group,
@@ -360,21 +371,6 @@ extension SidebarSettingsSchema {
                 kind: .toggle,
                 default: .bool(SidebarSectionsSetting.groupHeaderUnreadCountDefault),
                 keywords: ["sidebar", "group", "groups", "unread", "badge", "notifications", "count", "header"]
-            ),
-            SettingDescriptor(
-                SidebarSectionsSetting.groupHeaderBackgroundPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.groupHeader.background", "Group Background"),
-                help: SettingsText.keyed("settings.sidebar.groupHeader.background.help", "How a group's background draws. Sections shows plain headings instead."),
-                kind: .choice([
-                    SettingChoice(SidebarGroupBackgroundStyle.auto.rawValue, SettingsText.keyed("settings.choice.groupBackgroundAuto", "Automatic")),
-                    SettingChoice(SidebarGroupBackgroundStyle.glass.rawValue, SettingsText.keyed("settings.choice.groupBackgroundGlass", "Glass")),
-                    SettingChoice(SidebarGroupBackgroundStyle.solid.rawValue, SettingsText.keyed("settings.choice.groupBackgroundSolid", "Solid")),
-                    SettingChoice(SidebarGroupBackgroundStyle.sections.rawValue, SettingsText.keyed("settings.choice.groupBackgroundSections", "Sections")),
-                ]),
-                default: .string(SidebarSectionsSetting.groupHeaderBackgroundDefault.rawValue),
-                keywords: ["sidebar", "group", "groups", "background", "glass", "glassy", "solid", "opaque", "translucent", "fill", "header", "sections", "section", "heading", "plain"]
             ),
         ]
     }

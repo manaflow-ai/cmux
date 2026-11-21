@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 640,
+  "count": 644,
   "sections": [
     {
       "id": "general",
@@ -1505,10 +1505,6 @@
           "group": "Tabs",
           "values": [
             "minimal",
-            "cards",
-            "default",
-            "threads",
-            "console",
             "classic",
             "terminal"
           ]
@@ -2561,6 +2557,14 @@
           "group": "Window Background"
         },
         {
+          "key": "appearance.backgroundMemory",
+          "title": "Background Mode Memory",
+          "help": "The folder and picture each background mode last showed, so switching back restores them.",
+          "kind": "string_map",
+          "default": null,
+          "group": "Window Background"
+        },
+        {
           "key": "appearance.backgroundOpacity",
           "title": "Opacity",
           "help": "How much of the theme color covers the material behind the window.",
@@ -2887,13 +2891,13 @@
         {
           "key": "appearance.metrics.chromeFontSize",
           "title": "Text Size",
-          "help": "Text size of the sidebar, tabs, menus and chat. Terminals have their own size.",
+          "help": "Text size of tabs, the sidebar and chat. Terminals have their own size.",
           "kind": "number",
           "default": null,
           "group": "Density and Motion",
           "range": {
             "min": 10,
-            "max": 20,
+            "max": 16,
             "unit": "points"
           }
         },
@@ -4293,6 +4297,14 @@
           "group": "Sidebar"
         },
         {
+          "key": "sidebar.relativeTimestamps",
+          "title": "Relative Timestamps",
+          "help": "With Show Timestamps on, a change today reads as its age, such as 5m or 2h, not its time.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
           "key": "sidebar.sectionLook",
           "title": "Section Look",
           "help": "How the sections above and below the workspace list draw.",
@@ -4311,6 +4323,14 @@
           "key": "sidebar.sessionTree",
           "title": "Session Tree",
           "help": "Lists workspaces an agent started under the workspace that started them.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.settleFinished",
+          "title": "Settle Finished Chats",
+          "help": "A chat whose answer you have read folds into Settled at the end of its list until its next turn.",
           "kind": "toggle",
           "default": false,
           "group": "Sidebar"
@@ -4374,7 +4394,7 @@
         {
           "key": "sidebar.showSpaces",
           "title": "Show Spaces",
-          "help": "",
+          "help": "Spaces show once you have more than one. New Space is in the command palette.",
           "kind": "toggle",
           "default": false,
           "group": "Sidebar"
@@ -6006,7 +6026,7 @@
     },
     {
       "id": "home",
-      "title": "Home",
+      "title": "Chief",
       "rows": [
         {
           "key": "chief.autoRouteSubagents",
@@ -6947,6 +6967,14 @@
           "key": "labs.liveCode",
           "title": "Live Code",
           "help": "Swift changes you compile apply to the running app. Takes effect after cmux restarts.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Labs"
+        },
+        {
+          "key": "labs.liveTree",
+          "title": "Live Tree",
+          "help": "Show the shared live-tree path and compile lanes in the agent pane.",
           "kind": "toggle",
           "default": false,
           "group": "Labs"

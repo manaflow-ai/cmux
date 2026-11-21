@@ -84,6 +84,8 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     /// The usage rules the session breaks, one line each (acpmux `usageWarnings[].text`: no
     /// autocompact cap, a context or a subagent rate above its limit). Empty when it breaks none.
     public let usageWarnings: [String]
+    /// The git branch of the session's folder (acpmux `gitBranch`), when acpmux knows it.
+    public let branch: String?
     /// What is done and next across the chat's turns (the summary's `taskList`); nil without one.
     public let taskList: AgentTaskList?
 
@@ -94,8 +96,10 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
                 usageWarnings: [String] = [], sidebarRequiresOpen: Bool = false,
                 turnPrompt: String? = nil, turnActivity: String? = nil, turnPlanStep: String? = nil,
                 chiefChildren: String? = nil, chiefParticipant: String? = nil,
-                agentSession: String? = nil, shortName: String? = nil, taskList: AgentTaskList? = nil) {
+                agentSession: String? = nil, shortName: String? = nil, branch: String? = nil,
+                taskList: AgentTaskList? = nil) {
         self.id = id
+        self.branch = branch
         self.taskList = taskList
         self.agentSession = agentSession
         self.shortName = shortName
@@ -169,6 +173,7 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
                                  chiefChildren: nonEmpty((summary["tags"] as? [String: Any])?["mux.children"]),
                                  chiefParticipant: nonEmpty((summary["tags"] as? [String: Any])?["cmux.chief.participant"]),
                                  agentSession: nonEmpty(summary["agentSessionId"]), shortName: nonEmpty(summary["shortName"]),
+                                 branch: nonEmpty(summary["gitBranch"]),
                                  taskList: AgentTaskList.of(summary["taskList"]))
     }
 

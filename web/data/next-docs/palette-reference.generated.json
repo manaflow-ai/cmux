@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1472,
+    "entries": 1476,
     "shortcuts": 205
   },
   "sections": [
@@ -764,6 +764,12 @@
           "title": "Archive Other Workspaces in Group",
           "shortcut": null,
           "command": "cmux workspace archive-others-in-group"
+        },
+        {
+          "id": "workspace.archiveSettled",
+          "title": "Archive Settled Chats",
+          "shortcut": null,
+          "command": "cmux workspace archive-settled"
         },
         {
           "id": "workspace.archiveWorkspacesAbove",
@@ -6460,6 +6466,12 @@
           "command": null
         },
         {
+          "id": "computerUse.approval.set",
+          "title": "Change a Computer Use Approval",
+          "shortcut": null,
+          "command": "cmux agent set-computer-use-approval"
+        },
+        {
           "id": "agentChat.subagentLimit",
           "title": "Chat Subagent Limit…",
           "shortcut": null,
@@ -6650,6 +6662,12 @@
           "title": "Focus Computer Use",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "computerUse.approval.forget",
+          "title": "Forget a Computer Use Approval",
+          "shortcut": null,
+          "command": "cmux agent forget-computer-use-approval"
         },
         {
           "id": "palette.forkAgentConversation",
@@ -8082,6 +8100,12 @@
         {
           "id": "liveWeb.start",
           "title": "Edit cmux Live…",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "debug.envSecretsPlayground",
+          "title": "Environment Secrets Playground",
           "shortcut": null,
           "command": null
         },
