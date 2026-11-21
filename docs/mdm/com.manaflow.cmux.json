@@ -478,6 +478,20 @@
       "title" : "Only Above Context Used (%)",
       "type" : "number"
     },
+    "agents.chats.archiveInactive" : {
+      "default" : "never",
+      "description" : "Move inactive local chats to the archive. Pinned chats, nested chats and chats with work in progress stay in place.",
+      "enum" : [
+        "never",
+        "1d",
+        "2d",
+        "7d",
+        "14d",
+        "30d"
+      ],
+      "title" : "Archive Inactive Chats",
+      "type" : "string"
+    },
     "agents.chats.coldArchive" : {
       "default" : false,
       "description" : "Unused chats are compressed into one small file each and open as before.",
@@ -936,7 +950,25 @@
         "dore-paradise-lost-book-vi",
         "dore-moses-tables",
         "dore-empyrean",
-        "dore-raven"
+        "dore-raven",
+        "hokusai-red-fuji",
+        "hokusai-storm-below-fuji",
+        "hokusai-kajikazawa",
+        "hiroshige-sudden-shower",
+        "hiroshige-kanbara-snow",
+        "hiroshige-plum-garden",
+        "hiroshige-moon-pine",
+        "korin-irises",
+        "tohaku-pine-trees",
+        "jakuchu-mandarin-ducks",
+        "fan-kuan-travelers",
+        "guo-xi-early-spring",
+        "ma-yuan-clouds-green-sea",
+        "zhang-zeduan-qingming",
+        "wang-ximeng-thousand-li",
+        "jeong-seon-inwang",
+        "jeong-seon-geumgang",
+        "kim-hong-do-samgong"
       ],
       "title" : "Backdrop Art",
       "type" : "string"
@@ -1095,6 +1127,24 @@
         "dore-moses-tables",
         "dore-empyrean",
         "dore-raven",
+        "hokusai-red-fuji",
+        "hokusai-storm-below-fuji",
+        "hokusai-kajikazawa",
+        "hiroshige-sudden-shower",
+        "hiroshige-kanbara-snow",
+        "hiroshige-plum-garden",
+        "hiroshige-moon-pine",
+        "korin-irises",
+        "tohaku-pine-trees",
+        "jakuchu-mandarin-ducks",
+        "fan-kuan-travelers",
+        "guo-xi-early-spring",
+        "ma-yuan-clouds-green-sea",
+        "zhang-zeduan-qingming",
+        "wang-ximeng-thousand-li",
+        "jeong-seon-inwang",
+        "jeong-seon-geumgang",
+        "kim-hong-do-samgong",
         "desktop"
       ],
       "title" : "Background",
@@ -1260,6 +1310,24 @@
         "dore-moses-tables",
         "dore-empyrean",
         "dore-raven",
+        "hokusai-red-fuji",
+        "hokusai-storm-below-fuji",
+        "hokusai-kajikazawa",
+        "hiroshige-sudden-shower",
+        "hiroshige-kanbara-snow",
+        "hiroshige-plum-garden",
+        "hiroshige-moon-pine",
+        "korin-irises",
+        "tohaku-pine-trees",
+        "jakuchu-mandarin-ducks",
+        "fan-kuan-travelers",
+        "guo-xi-early-spring",
+        "ma-yuan-clouds-green-sea",
+        "zhang-zeduan-qingming",
+        "wang-ximeng-thousand-li",
+        "jeong-seon-inwang",
+        "jeong-seon-geumgang",
+        "kim-hong-do-samgong",
         "desktop"
       ],
       "title" : "Dark Picture",
@@ -1424,6 +1492,24 @@
         "dore-moses-tables",
         "dore-empyrean",
         "dore-raven",
+        "hokusai-red-fuji",
+        "hokusai-storm-below-fuji",
+        "hokusai-kajikazawa",
+        "hiroshige-sudden-shower",
+        "hiroshige-kanbara-snow",
+        "hiroshige-plum-garden",
+        "hiroshige-moon-pine",
+        "korin-irises",
+        "tohaku-pine-trees",
+        "jakuchu-mandarin-ducks",
+        "fan-kuan-travelers",
+        "guo-xi-early-spring",
+        "ma-yuan-clouds-green-sea",
+        "zhang-zeduan-qingming",
+        "wang-ximeng-thousand-li",
+        "jeong-seon-inwang",
+        "jeong-seon-geumgang",
+        "kim-hong-do-samgong",
         "desktop"
       ],
       "title" : "Light Picture",
@@ -1831,6 +1917,12 @@
       ],
       "title" : "Pane Backgrounds",
       "type" : "string"
+    },
+    "appearance.previousGlass" : {
+      "default" : false,
+      "description" : "Draws menus, popovers, the composer and cards with the glass from before November 2026.",
+      "title" : "Previous Glass Look",
+      "type" : "boolean"
     },
     "appearance.rotateFavoriteThemes" : {
       "default" : "off",
@@ -3387,6 +3479,12 @@
       "title" : "EnrollmentToken",
       "type" : "string"
     },
+    "experiments.composerV2" : {
+      "default" : false,
+      "description" : "A glass composer with mode chips, mention chips and a round send button. Still being shaped.",
+      "title" : "Composer Refresh",
+      "type" : "boolean"
+    },
     "experiments.glassToolbarGroups" : {
       "default" : false,
       "description" : "The chat header's buttons become round glass buttons, with related actions sharing one glass capsule, a search chip and shortcut keycaps.",
@@ -4885,7 +4983,7 @@
     },
     "sidebar.groupHeader.background" : {
       "default" : "auto",
-      "description" : "How a group's background draws. Sections shows plain headings instead.",
+      "description" : "How a group draws. Folders shows plain folders; Sections shows plain headings.",
       "enum" : [
         "auto",
         "glass",
@@ -5055,6 +5153,18 @@
       "description" : "When an agent waited for your input or finished its turn, in the card's history.",
       "title" : "Show Waits in Workspace Cards",
       "type" : "boolean"
+    },
+    "sidebar.look" : {
+      "default" : "cmux",
+      "description" : "Rows, headers and status marks like another app's sidebar. Your own sidebar settings still win.",
+      "enum" : [
+        "cmux",
+        "claude",
+        "codex",
+        "studio"
+      ],
+      "title" : "Sidebar Look",
+      "type" : "string"
     },
     "sidebar.minimal" : {
       "default" : false,
