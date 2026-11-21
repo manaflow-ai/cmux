@@ -31,7 +31,6 @@ pub enum Incoming {
 /// the session is using cmux-rd-link.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MediaQueueStats {
-    pub departure_overflows: u64,
     pub queue_frames: usize,
     pub queue_datagrams: usize,
     pub dropped_frames: u64,
@@ -48,7 +47,6 @@ pub struct MediaQueueStats {
 impl From<cmux_rd_link::net::NetStats> for MediaQueueStats {
     fn from(stats: cmux_rd_link::net::NetStats) -> Self {
         Self {
-            departure_overflows: stats.departure_overflows,
             queue_frames: stats.queue_frames,
             queue_datagrams: stats.queue_datagrams,
             dropped_frames: stats.dropped_frames,

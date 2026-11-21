@@ -648,21 +648,20 @@ impl Driver {
         for transmit in self.endpoint.send_datagram(datagram)? {
             if let Some((departed_us, wire_bytes)) =
                 self.send(transmit.route, &transmit.packet, now)
-            {
-                if let Some(header) = header.filter(|header| {
+                && let Some(header) = header.filter(|header| {
                     matches!(
                         header.kind,
                         cmux_rd_proto::DatagramKind::Video
                             | cmux_rd_proto::DatagramKind::Fec
                             | cmux_rd_proto::DatagramKind::UpMedia
                     )
-                }) {
-                    let receipt = DatagramDeparture { header, departed_us, wire_bytes };
-                    if self.departures.try_send(receipt).is_ok() {
-                        self.departure_wake = true;
-                    } else {
-                        self.departure_overflows.fetch_add(1, Ordering::Relaxed);
-                    }
+                })
+            {
+                let receipt = DatagramDeparture { header, departed_us, wire_bytes };
+                if self.departures.try_send(receipt).is_ok() {
+                    self.departure_wake = true;
+                } else {
+                    self.departure_overflows.fetch_add(1, Ordering::Relaxed);
                 }
             }
         }
