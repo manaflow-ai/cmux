@@ -149,7 +149,7 @@
     "cmux-tui-artifacts.yml: Find the macOS targets the build left without artifacts": "baseline 2026-11-04",
     "cmux-tui-artifacts.yml: Hand the key to a run that deferred to this one": "baseline 2026-11-04",
     "cmux-tui-artifacts.yml: Point the channel at this tree once it is daemon-tested": "baseline 2026-11-04",
-    "cmux-tui-artifacts.yml: Re-check the owner after leaving the marker": "polls (tests/test_ci_no_github_token_polling.py): only when this run deferred to a same-key owner whose hand-off job has started: one owner-run read every 15 s, at most 12 passes",
+    "cmux-tui-artifacts.yml: Re-check the owner after leaving the marker": "no poll: the CDN first, then at most one owner-run read, one jobs read and, when the owner's hand-off job has started, one more owner-run read 150 s later; the routing App token, the workflow token only when the mint failed",
     "cmux-tui-artifacts.yml: Report the unpublished tree to the cmux-next runs that wait for it": "baseline 2026-11-04",
     "cmux-tui-artifacts.yml: Request nightly-next promotion on main": "baseline 2026-11-04",
     "cmux-tui-artifacts.yml: Start the cmux-next tree jobs that waited for this tree": "baseline 2026-11-04",
