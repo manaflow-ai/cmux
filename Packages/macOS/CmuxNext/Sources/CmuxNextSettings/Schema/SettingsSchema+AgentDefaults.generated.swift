@@ -10,6 +10,9 @@ extension AgentDefaultsSettingsSchema {
     nonisolated static let promptCachePath = ["agents", "promptCache"]
     nonisolated static let promptCacheDefault = "1h"
     nonisolated static let promptCacheValues = ["1h", "5m"]
+    /// `agents.claudeCodeInboxRelay`: Off by default: acpmux never edits Claude Code's config unasked (desktop_link's rule). On, the first time acpmux delivers a message into a Claude Code chat that runs no inbox relay, it adds the tool-less cmux-inbox MCP server to Claude Code's user config (claude mcp add-json --scope user), so later chats write acpmux's deliveries themselves and Claude Code does not hold them (cmux-tui/crates/acpmux/src/desktop_link.rs ensure_inbox_relay_once, read at each delivery). acpmux desktop link adds the same relay by hand (Leo 2026-11-20, ask-4f683bf7d8).
+    nonisolated static let claudeCodeInboxRelayPath = ["agents", "claudeCodeInboxRelay"]
+    nonisolated static let claudeCodeInboxRelayDefault = false
     /// `agents.modelRouter.model`: The model the cmux model router profile (cmux) starts new chats on; acpmux reads it when it builds that profile (cmux-tui/crates/acpmux/src/config/discover.rs add_cmux_router). The choices are the router's DeepSeek models, default first (user 2026-10-28: DeepSeek only, the 10/17 build with images by default); CMUX_ROUTER_MODELS in acpmux and the backend allowlist (INFERENCE_MODEL_ALLOWLIST) hold the same list.
     nonisolated static let modelRouterModelPath = ["agents", "modelRouter", "model"]
     nonisolated static let modelRouterModelDefault = "deepseek/deepseek-v4.1-flash-1017"
@@ -55,6 +58,16 @@ nonisolated enum AgentDefaultsSettingsSchema {
                 ]),
                 default: .string(AgentDefaultsSettingsSchema.promptCacheDefault),
                 keywords: ["prompt cache", "cache", "ttl", "claude", "cost", "tokens", "1 hour", "5 minutes"]
+            ),
+            SettingDescriptor(
+                AgentDefaultsSettingsSchema.claudeCodeInboxRelayPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agents.claudeCodeInboxRelay", "Add Message Relay to Claude Code"),
+                help: SettingsText.keyed("settings.agents.claudeCodeInboxRelay.help", "Adds a small server to Claude Code's settings so messages from other agents arrive without being held. Applies to Claude Code chats started afterwards."),
+                kind: .toggle,
+                default: .bool(AgentDefaultsSettingsSchema.claudeCodeInboxRelayDefault),
+                keywords: ["inbox", "relay", "held message", "claude", "claude code", "messages", "verified", "mcp"]
             ),
             SettingDescriptor(
                 AgentDefaultsSettingsSchema.modelRouterModelPath,

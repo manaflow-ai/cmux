@@ -36,9 +36,10 @@
 //! Codex merges the two key by key, so that server always sends [`GUEST_ENV`] empty and cmux's
 //! `mcp serve` drops it before it starts a folded server. [`GUEST_ENV`] is also what makes an entry ours:
 //! unlink removes only an entry that carries it, and link never replaces one that does not.
-//! Nothing is linked unless a person runs `link` (or presses the Settings row). The one thing
-//! added unasked is Claude Code's tool-less inbox relay ([`ensure_inbox_relay`]), so messages
-//! acpmux delivers into a chat it did not start are not held.
+//! Nothing is linked unless a person runs `link` (or presses the Settings row). Claude Code's
+//! tool-less inbox relay ([`ensure_inbox_relay`]) is added by acpmux itself only when the person
+//! turned on [`RELAY_SETTING`] (off by default), so messages acpmux delivers into a chat it did
+//! not start are not held.
 
 use std::path::{Path, PathBuf};
 
@@ -933,12 +934,41 @@ pub fn ensure_inbox_relay(env: &Env) -> Result<RelaySetup> {
     Ok(RelaySetup::Added)
 }
 
+/// The settings key that lets acpmux add the inbox relay to Claude Code by itself. Off (the
+/// default): acpmux never edits Claude Code's config unasked, and a relay-less delivery logs
+/// once how to add it ([`RELAY_HINT`]).
+pub const RELAY_SETTING: &str = "agents.claudeCodeInboxRelay";
+/// What a relay-less delivery logs, once per daemon, while [`RELAY_SETTING`] is off.
+pub const RELAY_HINT: &str = "inbox relay: this Claude Code chat runs none, so Claude Code may hold acpmux's \
+     message; run `acpmux desktop link --app claude-code` or turn on agents.claudeCodeInboxRelay";
+
+/// Whether the settings text turns [`RELAY_SETTING`] on: only a literal `true` does.
+pub fn relay_setting_on(settings: &crate::user_settings::Settings) -> bool {
+    match settings {
+        crate::user_settings::Settings::Parsed(doc) => {
+            crate::user_settings::value(doc, RELAY_SETTING)
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+        }
+        crate::user_settings::Settings::Missing | crate::user_settings::Settings::Unreadable(_) => {
+            false
+        }
+    }
+}
+
 /// [`ensure_inbox_relay`] once per daemon, off the delivery's path: what
-/// `claude_peers::deliver` calls when a session it delivers to runs no relay. Only for the
-/// default acpmux home, so a test daemon (a home of its own) never edits a person's Claude config.
+/// `claude_peers::deliver` calls when a session it delivers to runs no relay. It edits Claude
+/// Code's config only when [`RELAY_SETTING`] is on (read at each such delivery until it is), and
+/// only for the default acpmux home, so a test daemon (a home of its own) never edits a person's
+/// Claude config. Off, it logs [`RELAY_HINT`] once.
 pub fn ensure_inbox_relay_once() {
     static ONCE: std::sync::Once = std::sync::Once::new();
-    if cfg!(test) || crate::config::home() != crate::config::default_home() {
+    static HINTED: std::sync::Once = std::sync::Once::new();
+    if cfg!(test) || ONCE.is_completed() || crate::config::home() != crate::config::default_home() {
+        return;
+    }
+    if !relay_setting_on(&crate::user_settings::read()) {
+        HINTED.call_once(|| tracing::info!("{RELAY_HINT}"));
         return;
     }
     ONCE.call_once(|| {

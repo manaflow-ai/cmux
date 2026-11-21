@@ -807,3 +807,39 @@ fn without_claude_code_the_inbox_relay_is_not_installed() {
     assert_eq!(ensure_inbox_relay(&env).unwrap(), RelaySetup::NotInstalled);
     assert!(!dir.path().join(".claude.json").exists());
 }
+
+#[test]
+fn the_inbox_relay_is_added_unasked_only_when_the_person_turned_it_on() {
+    use crate::user_settings::Settings;
+    let parsed = |text: &str| Settings::Parsed(serde_json::from_str(text).unwrap());
+    // Off by default: no file, a file that does not parse, no key, anything but `true`.
+    for off in [
+        Settings::Missing,
+        Settings::Unreadable("x".to_owned()),
+        parsed("{}"),
+        parsed(r#"{"agents": {"claudeCodeInboxRelay": false}}"#),
+        parsed(r#"{"agents.claudeCodeInboxRelay": "true"}"#),
+    ] {
+        assert!(!relay_setting_on(&off));
+    }
+    assert!(relay_setting_on(&parsed(r#"{"agents": {"claudeCodeInboxRelay": true}}"#)));
+    assert!(relay_setting_on(&parsed(r#"{"agents.claudeCodeInboxRelay": true}"#)));
+    assert!(
+        RELAY_HINT.contains("acpmux desktop link --app claude-code")
+            && RELAY_HINT.contains(RELAY_SETTING)
+    );
+    // The key is the settings row's (one row, default off), so Settings, the palette, the CLI
+    // and MCP all set what this reads.
+    let source: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../schemas/settings/source/agent-defaults.json"
+    ))
+    .unwrap();
+    let row = source["lists"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|list| list["rows"].as_array().unwrap())
+        .find(|row| row["key"] == RELAY_SETTING)
+        .expect("agents.claudeCodeInboxRelay row");
+    assert_eq!((row["kind"].as_str(), row["default"].as_bool()), (Some("toggle"), Some(false)));
+}
