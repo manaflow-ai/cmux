@@ -333,11 +333,15 @@ fn install_mcp(root: &Path, harness: &str, entry: &Entry) -> Result<PathBuf> {
             {
                 bail!("refusing to replace unmanaged MCP server {}", entry.id);
             }
-            marker["type"] = Value::String("local".to_owned());
-            marker["command"] = Value::Array(
-                std::iter::once(Value::String(command))
-                    .chain(entry.args.iter().cloned().map(Value::String))
-                    .collect(),
+            let fields = marker.as_object_mut().context("MCP marker is not an object")?;
+            fields.insert("type".to_owned(), Value::String("local".to_owned()));
+            fields.insert(
+                "command".to_owned(),
+                Value::Array(
+                    std::iter::once(Value::String(command))
+                        .chain(entry.args.iter().cloned().map(Value::String))
+                        .collect(),
+                ),
             );
             let servers = object.entry("mcp").or_insert_with(|| json!({}));
             servers
