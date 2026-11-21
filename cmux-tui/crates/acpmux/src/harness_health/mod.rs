@@ -178,7 +178,8 @@ pub(crate) fn builtin_login(family: &str) -> Option<&'static str> {
         // cards and `cmux harness login muse`.
         "muse" => "muse login",
         "opencode" => "opencode auth login",
-        "unii" => "unii login",
+        // The bundled CLI's own sign-in: a clean Mac has no `unii` (first-run finding 2).
+        "unii" => crate::uniichat_endpoint::LOGIN,
         "hermes" => "hermes model",
         "openclaw" => "openclaw onboard",
         _ => return None,
@@ -275,7 +276,7 @@ fn builtin_auth(s: &Subject, cwd: Option<&Path>) -> Option<(Auth, Option<String>
             found.signed_in().then(|| (Auth::SignedIn, Some(found.sources.join(", "))))
         }
         // UniiChat (the bundled `uniichat-agent`): the token `unii login`
-        // keeps for the server the harness env names (UNII_URL, UNII_HOME).
+        // (or `cmux harness login unii`) keeps for the server the harness env names (UNII_URL, UNII_HOME).
         "unii" => {
             use crate::uniichat_endpoint::{Endpoint, Options};
             let env = |key: &str| s.env.get(key).filter(|v| !v.is_empty()).cloned();
@@ -795,6 +796,13 @@ mod tests {
     #[test]
     fn muse_signs_in_with_the_official_cli() {
         assert_eq!(super::builtin_login("muse"), Some("muse login"));
+    }
+
+    /// UniiChat signs in through the CLI cmux bundles (first-run finding 2): a clean Mac has
+    /// no `unii`, and every Sign In (picker, Harnesses page, Settings) types this line.
+    #[test]
+    fn unii_signs_in_with_the_bundled_cli() {
+        assert_eq!(super::builtin_login("unii"), Some("cmux harness login unii"));
     }
 
     #[test]

@@ -248,6 +248,42 @@
       "title" : "Working Status Verbs",
       "type" : "string"
     },
+    "agentPane.display.thinking.jumpButton" : {
+      "default" : "arrow",
+      "description" : "What the Jump to latest button shows while the agent works.",
+      "enum" : [
+        "arrow",
+        "dots"
+      ],
+      "title" : "Jump to Latest While Working",
+      "type" : "string"
+    },
+    "agentPane.display.thinking.shimmer" : {
+      "default" : "cadenced",
+      "description" : "How the light band moves across the live status line.",
+      "enum" : [
+        "cadenced",
+        "continuous"
+      ],
+      "title" : "Thinking Shimmer",
+      "type" : "string"
+    },
+    "agentPane.display.thinking.shimmerBand" : {
+      "default" : 0,
+      "description" : "The width of the shimmer's light band. 0 uses half the line.",
+      "maximum" : 240,
+      "minimum" : 0,
+      "title" : "Shimmer Width",
+      "type" : "number"
+    },
+    "agentPane.display.thinking.shimmerPeriod" : {
+      "default" : 1250,
+      "description" : "How long one continuous pass of the shimmer takes.",
+      "maximum" : 4000,
+      "minimum" : 600,
+      "title" : "Shimmer Speed",
+      "type" : "number"
+    },
     "agentPane.display.transcriptView" : {
       "default" : "normal",
       "description" : "How much of each turn a chat shows. A chat's ··· menu sets its own.",
@@ -667,7 +703,7 @@
       "type" : "boolean"
     },
     "app.hideDockIconWithoutWindows" : {
-      "default" : true,
+      "default" : false,
       "description" : "cmux stays in the menu bar until a window opens.",
       "title" : "Hide Dock Icon When No Windows Are Open",
       "type" : "boolean"
@@ -737,6 +773,12 @@
       ],
       "title" : "Accent",
       "type" : "string"
+    },
+    "appearance.agentGlow" : {
+      "default" : false,
+      "description" : "Calm while agents are idle; a soft glow in the machine's color when an agent needs you.",
+      "title" : "React to Agents",
+      "type" : "boolean"
     },
     "appearance.appTheme" : {
       "default" : "followTerminal",
@@ -3630,6 +3672,12 @@
       "title" : "Connect iMessage",
       "type" : "boolean"
     },
+    "labs.agentCustomization" : {
+      "default" : false,
+      "description" : "Show and edit the MCP servers Claude Code and Codex use, in their own config files.",
+      "title" : "Claude Code and Codex Customization",
+      "type" : "boolean"
+    },
     "labs.liveCode" : {
       "default" : false,
       "description" : "Swift changes you compile apply to the running app. Takes effect after cmux restarts.",
@@ -4139,6 +4187,16 @@
       "description" : "notifications.attention.flashOnTyping",
       "title" : "Flash When Typing Reads It",
       "type" : "boolean"
+    },
+    "notifications.attention.mark" : {
+      "default" : "badge",
+      "description" : "How a tab and a sidebar row that wait for you show it: the badge, or a gentle glow until you look at them.",
+      "enum" : [
+        "badge",
+        "glow"
+      ],
+      "title" : "Needs You Look",
+      "type" : "string"
     },
     "notifications.attention.moveToTop" : {
       "default" : true,
@@ -6045,6 +6103,20 @@
       "title" : "Install Updates When Quitting",
       "type" : "boolean"
     },
+    "updates.installWhenIdle" : {
+      "default" : false,
+      "description" : "Installs a downloaded update after cmux has been idle for the time below, never while an agent is working or a message is unsent. Agents keep running.",
+      "title" : "Update When Idle",
+      "type" : "boolean"
+    },
+    "updates.installWhenIdleMinutes" : {
+      "default" : 15,
+      "description" : "How long cmux must be idle before Update When Idle installs.",
+      "maximum" : 240,
+      "minimum" : 1,
+      "title" : "Idle Time Before Updating",
+      "type" : "number"
+    },
     "updates.keepPreviousVersions" : {
       "default" : 1,
       "description" : "Earlier builds kept so you can roll back. Uses almost no disk until files change.",
@@ -6180,7 +6252,7 @@
       "type" : "boolean"
     },
     "workspaces.freeing.enabled" : {
-      "default" : false,
+      "default" : true,
       "description" : "Ends idle shells of long-unused workspaces; they restart in the same folder.",
       "title" : "Free Idle Terminals",
       "type" : "boolean"
