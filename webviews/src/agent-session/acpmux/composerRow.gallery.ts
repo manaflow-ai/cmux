@@ -62,6 +62,26 @@ function row(fields: Parameters<typeof chat>[1] = {}, extra: Partial<NonNullable
   } satisfies AcpmuxSnapshot;
 }
 
+/// Pastes a screenshot into the prompt, in the `view` attachment view, and waits for its preview.
+function pasteShot(view: "inline" | "strip"): Play {
+  return async (ctx) => {
+    const page = ctx.document.defaultView!;
+    page.cmuxAcpmuxComposer?.({ attachmentView: view });
+    const canvas = new page.OffscreenCanvas(320, 200);
+    const paint = canvas.getContext("2d")!;
+    paint.fillStyle = "#3a7bd5";
+    paint.fillRect(0, 0, 320, 200);
+    const data = new page.DataTransfer();
+    data.items.add(
+      new page.File([await canvas.convertToBlob({ type: "image/png" })], "screenshot.png", { type: "image/png" }),
+    );
+    const paste = new page.Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(paste, "clipboardData", { value: data });
+    ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
+    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img[src^='data:image/png']"));
+  };
+}
+
 /// Fast mode as Claude Code offers it (off/on).
 function speed(current: string) {
   return {
@@ -159,18 +179,44 @@ export default agentPaneEntry({
   variants: {
     "wrap-one-line": {
       composerLook: "claude",
-      note: "A short prompt keeps the leading and trailing controls on its first line.",
+      note: "A short prompt: the leading and trailing controls centered on its one line, at the box's bottom.",
       ready: { draft: "Check composer wrapping" },
       snapshot: row(),
     },
     "wrap-two-lines": {
       composerLook: "claude",
-      note: "A soft wrap keeps the first line at its fixed top inset and the controls in place.",
+      note: "A soft wrap keeps the first line at its fixed top inset and the controls at the box's bottom.",
       ready: {
         draft:
           "Check composer wrapping and keep the first line, caret and controls in place as the prompt grows downward.",
       },
       snapshot: row(),
+    },
+    // Leo, 2026-11-18: the buttons at the bottom, and a preview that does not bounce. +, the mic and
+    // Send sit at the box's bottom edge in each of these, at every width (narrow is 420 px).
+    // test/composer-buttons-bottom.test.ts measures every frame.
+    "buttons-bottom-empty": {
+      composerLook: "claude",
+      note: "An empty prompt: +, the mic and Send at the box's bottom, centered on the one line.",
+      snapshot: row(),
+    },
+    "buttons-bottom-eight-lines": {
+      composerLook: "claude",
+      note: "Eight lines: the box grew up from its bottom edge and the controls stayed at the bottom.",
+      ready: { draft: Array.from({ length: 8 }, (_, index) => `Line ${index + 1} of the prompt`).join("\n") },
+      snapshot: row(),
+    },
+    "buttons-bottom-preview": {
+      composerLook: "claude",
+      note: "A pasted screenshot's preview in the prompt: the controls kept the box's bottom while it came in.",
+      snapshot: row({}, { promptCapabilities: { image: true } }),
+      play: pasteShot("inline"),
+    },
+    "buttons-bottom-preview-strip": {
+      composerLook: "claude",
+      note: "The strip view's preview over the prompt: the controls kept the box's bottom, not the prompt's first line.",
+      snapshot: row({}, { promptCapabilities: { image: true } }),
+      play: pasteShot("strip"),
     },
     "claude-auto": {
       composerLook: "claude",
