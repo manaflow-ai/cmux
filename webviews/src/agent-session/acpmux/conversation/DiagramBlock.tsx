@@ -1,14 +1,22 @@
 // Charts and diagrams in replies: a finished ```vega-lite or ```vega fence with a JSON spec, or a
 // finished ```mermaid fence, draws as SVG with the markdown page's renderers
 // (pages/markdown/diagrams.ts) and the markdown viewer's bundled libraries, which the pane's scheme
-// handler serves as same-origin scripts (`__lib/vega.js`, `__lib/ondine.js`, `__lib/mermaid.js`).
+// handler and the page host (AgentPageResources) serve as same-origin scripts (`__lib/vega.js`,
+// `__lib/ondine.js`, `__lib/mermaid.js`).
 // Vega runs with its AST interpreter (no eval); Mermaid draws with Ondine (WebAssembly, no imports),
 // Mermaid 11 as fallback, and the SVG is cleaned before it is shown. The block draws once it nears the
-// viewport; Code shows the source. A source the renderer refuses shows the source and why. A ```chart
+// viewport; Code shows the source. A source the renderer refuses shows the source and why; a renderer
+// that did not load says so in plain words (never its internal name) above the source. A ```chart
 // fence (small JSON, chartSpec.ts) compiles to a Vega-Lite spec and draws the same way; Code shows what
 // the agent wrote.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { cancelDiagram, DiagramLibraries, renderMermaid, renderVega } from "../../../pages/markdown/diagrams";
+import {
+  cancelDiagram,
+  DiagramLibraries,
+  DiagramLoadError,
+  renderMermaid,
+  renderVega,
+} from "../../../pages/markdown/diagrams";
 import { useT } from "../i18n";
 import { useNearViewport } from "../useNearViewport";
 import { postNative } from "../native";
@@ -24,7 +32,8 @@ export function DiagramBlock({ lang, code, actions }: { lang: string; code: stri
   const near = useNearViewport(frame);
   const chart = useRef<HTMLDivElement>(null);
   const [showCode, setShowCode] = useState(false);
-  const [failure, setFailure] = useState<string>();
+  // Why the chart did not draw: the source's reason, or null when a renderer did not load.
+  const [failure, setFailure] = useState<{ reason: string | null }>();
   const [saved, setSaved] = useState(false);
   const [drawn, setDrawn] = useState(false);
   const language = lang.toLowerCase();
@@ -46,7 +55,10 @@ export function DiagramBlock({ lang, code, actions }: { lang: string; code: stri
         if (live) setDrawn(true);
       },
       (error: unknown) => {
-        if (live) setFailure(error instanceof Error ? error.message : String(error));
+        if (!live) return;
+        // A renderer that did not load is the app's fault, not the source's: plain words, no library name.
+        if (error instanceof DiagramLoadError) setFailure({ reason: null });
+        else setFailure({ reason: error instanceof Error ? error.message : String(error) });
       },
     );
     return () => {
@@ -95,7 +107,11 @@ export function DiagramBlock({ lang, code, actions }: { lang: string; code: stri
         </span>
         {actions}
       </div>
-      {failure && <div className="cv-diagram__error">{t("diagram.failed", { reason: failure })}</div>}
+      {failure && (
+        <div className="cv-diagram__error">
+          {failure.reason === null ? t("diagram.unavailable") : t("diagram.failed", { reason: failure.reason })}
+        </div>
+      )}
       <div ref={chart} className="cv-diagram__chart" hidden={showCode || Boolean(failure)} />
       {(showCode || failure) && <CodeBlock code={code} lang={mode === "mermaid" ? "mermaid" : "json"} />}
     </div>

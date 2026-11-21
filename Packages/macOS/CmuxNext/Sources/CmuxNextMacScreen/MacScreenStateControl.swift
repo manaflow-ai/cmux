@@ -66,6 +66,8 @@ extension MacScreenPages {
         let timings = session.timings
         row["connect_started_at"] = timings.startedAt.map { .string($0.formatted(.iso8601)) } ?? .null
         row["first_frame_ms"] = timings.firstFrameMs.map(JSONValue.number) ?? .null
+        // Connect start to the end of each stage passed (answer, link, frame), on a connected read too.
+        row["connect_stage_ms"] = .object(Dictionary(uniqueKeysWithValues: timings.stageMs.map { ($0.key.timingKey, JSONValue.number($0.value)) }))
         let stats = session.stats
         row["fps"] = .number((stats.fps * 10).rounded() / 10)
         row["target_fps"] = stats.targetFps.map { .number(Double($0)) } ?? .null
