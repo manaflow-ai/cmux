@@ -1,0 +1,59 @@
+diff --git a/webviews/src/agent-session/acpmux/afterNextPaint.ts b/webviews/src/agent-session/acpmux/afterNextPaint.ts
+new file mode 100644
+index 000000000000..e25353cdc3e5
+--- /dev/null
++++ b/webviews/src/agent-session/acpmux/afterNextPaint.ts
+@@ -0,0 +1,31 @@
++/** The longest a page whose frames stall holds work for its next paint. */
++export const AFTER_PAINT_CAP_MS = 100;
++
++/** Runs `run` in a task after the next animation frame, so the frame paints first; in a task at
++ * once when frames do not run (a hidden page, a test without `requestAnimationFrame`), and after
++ * `AFTER_PAINT_CAP_MS` at most when frames stall. Returns its cancel. */
++export function afterNextPaint(run: () => void): () => void {
++  const timers: ReturnType<typeof setTimeout>[] = [];
++  let frame: number | undefined;
++  let done = false;
++  const cancel = () => {
++    done = true;
++    if (frame !== undefined) cancelAnimationFrame(frame);
++    for (const timer of timers) clearTimeout(timer);
++  };
++  const finish = () => {
++    if (done) return;
++    cancel();
++    run();
++  };
++  const hidden = typeof document !== "undefined" && document.visibilityState === "hidden";
++  if (typeof requestAnimationFrame === "undefined" || hidden) timers.push(setTimeout(finish, 0));
++  else {
++    frame = requestAnimationFrame(() => {
++      frame = undefined;
++      timers.push(setTimeout(finish, 0));
++    });
++    timers.push(setTimeout(finish, AFTER_PAINT_CAP_MS));
++  }
++  return cancel;
++}
+diff --git a/webviews/src/agent-session/acpmux/direct.ts b/webviews/src/agent-session/acpmux/direct.ts
+index 4563bf4435ca..be500c97cf9c 100644
+--- a/webviews/src/agent-session/acpmux/direct.ts
++++ b/webviews/src/agent-session/acpmux/direct.ts
+@@ -256,6 +256,7 @@ import {
+ } from "./conversation/promptCoach";
+ import { promptCoachDismissed, rememberPromptCoachDismissed } from "./conversation/promptCoachDismissed";
+ import { promptCoachEnabled } from "./chatDisplay";
++import { afterNextPaint } from "./afterNextPaint";
+ import {
+   PRESET_APPROVAL,
+   PresetApprovalFold,
+@@ -7751,6 +7752,9 @@ export class AcpmuxDirectClient {
+       this.earlyAttach = undefined;
+     }
+     const result = await sent.attaching;
++    // A switch drew the chat's kept tail: its frame paints before the reply's page renders, which
++    // a local daemon's reply would otherwise beat. What came live meanwhile is held (`copyLive`).
++    if (keptThrough > 0) await new Promise<void>((resolve) => afterNextPaint(resolve));
+     this.syncView();
+     if (!current()) return [];
+     // The row changed while the attach was out to name another session than the reply's (another
