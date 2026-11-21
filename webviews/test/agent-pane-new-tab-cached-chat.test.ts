@@ -436,6 +436,36 @@ test("a tail drawn while connecting does not say the chat is working", async () 
   live.push(await tab.client);
 });
 
+/// The settled-page bench's restart.stream: a chat kept while running, over the last launch's copy (which drew it
+/// working, its live line at the bottom). Its early tail cannot say it is working, so the copy handed over to those
+/// rows at the handshake dropped the live line until the attach answered, and it came back a frame or two later.
+/// The copy stays while connecting, and the open draws the chat working; with no copy on screen the tail draws while
+/// connecting, as above.
+test("a running chat's tail drawn while connecting leaves the last launch's copy on screen until the attach", async () => {
+  const chat = new Fixture("slow-socket-copy");
+  chat.pages.set(chat.a, { events: [prompt("Look at the retry path"), reply(chat.a, "Retry added.")] });
+  chat.pages.set(chat.b, { events: [prompt("Docs"), reply(chat.b, "Docs updated.")] });
+  await chat.readInATab();
+  const kept = chat.host.tails.get(chat.a);
+  kept.summary = { ...kept.summary, status: "running" };
+  const globals = dom.window as unknown as Record<string, unknown>;
+  const copy = dom.window.document.createElement("cmux-chat-snapshot");
+  dom.window.document.body.append(copy);
+  globals.__cmuxChatSnapshotShown = { at: 1 };
+  try {
+    const tab = chat.tab(chat.a, { holdConnect: true });
+    await flush();
+    expect(tab.drawn.some((snapshot) => text(snapshot).includes("Retry added."))).toBe(false);
+    tab.daemon.connect();
+    live.push(await tab.client);
+    expect(text(tab.last())).toContain("Retry added.");
+    expect(tab.last()!.chatRead).toBe(true);
+  } finally {
+    copy.remove();
+    delete globals.__cmuxChatSnapshotShown;
+  }
+});
+
 /// A connect that fails before the attach while acpmux is only coming back (its socket refused, as
 /// while it restarts after an update) keeps the rows it drew: the page's retry draws the same ones
 /// while it connects, so the pane never goes blank between them (Leo, 2026-11-09: "the chat loading

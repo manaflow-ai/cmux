@@ -256,6 +256,7 @@ import {
 } from "./conversation/promptCoach";
 import { promptCoachDismissed, rememberPromptCoachDismissed } from "./conversation/promptCoachDismissed";
 import { promptCoachEnabled } from "./chatDisplay";
+import { showsChatSnapshot } from "./chatSnapshot/live";
 import {
   PRESET_APPROVAL,
   PresetApprovalFold,
@@ -5432,6 +5433,11 @@ export class AcpmuxDirectClient {
       this.peerCopy !== undefined
     )
       return;
+    // A chat kept while running, over the last launch's copy: the copy draws it working (its live line at the
+    // bottom), and these rows cannot yet. Drawn, they took the copy's place at the handshake and dropped the live line
+    // until the attach said the turn still runs, bringing it back a frame or two later (the settled-page bench's
+    // restart.stream). The copy stays; the open draws the kept tail once the list says what the chat is doing.
+    if (held.summary?.status === "running" && showsChatSnapshot()) return;
     const { status: _status, retry: _retry, queue: _queue, ...past } = held.summary ?? {};
     const through = this.drawKeptTail(sessionId, { ...held, summary: held.summary && past, queue: [] });
     if (through === 0) return;
