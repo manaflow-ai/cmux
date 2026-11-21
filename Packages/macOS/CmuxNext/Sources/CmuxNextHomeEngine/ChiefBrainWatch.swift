@@ -21,6 +21,8 @@ public final class ChiefBrainWatch {
     private let watching: Watching?
     /// Whether a pid runs an `optchat-chief`; the tests name a stand-in process instead.
     private let isChiefHost: (pid_t) -> Bool
+    /// Whether a pid runs the "cmux Files (dev)" launcher (``ChiefHostStop/isFilesHostLauncher(_:)``).
+    private let isFilesHostLauncher: (pid_t) -> Bool
     private var source: (any DispatchSourceProcess)?
     /// The kernel sources that look for a host's lock while none is watched (see ``armOnLock``).
     private var lockFileSource: (any DispatchSourceFileSystemObject)?
@@ -43,11 +45,26 @@ public final class ChiefBrainWatch {
     static let deathWindow: Duration = .seconds(60)
 
     public init(home: ChiefHome, restart: @escaping Restart, watching: Watching? = nil,
-                isChiefHost: @escaping (pid_t) -> Bool = ChiefHostStop.isChiefHost) {
+                isChiefHost: @escaping (pid_t) -> Bool = ChiefHostStop.isChiefHost,
+                isFilesHostLauncher: @escaping (pid_t) -> Bool = ChiefHostStop.isFilesHostLauncher) {
         self.home = home
         self.restart = restart
         self.watching = watching
         self.isChiefHost = isChiefHost
+        self.isFilesHostLauncher = isFilesHostLauncher
+    }
+
+    /// The host the lock names when it is the one `launched` stands for: itself, or any host when
+    /// `launched` is the "cmux Files (dev)" launcher, which only runs the host it started and exits
+    /// with it. Another host holding the lock makes the launched one exit at once (it cannot take
+    /// the lock), and the watch then follows the lock's host anyway (``exited(_:)``); nil else.
+    private func lockedHost(startedBy launched: pid_t, locked: pid_t?) -> pid_t? {
+        guard let locked, locked == launched || isFilesHostLauncher(launched) else { return nil }
+        return locked
+    }
+
+    private func lockedHost(startedBy launched: pid_t) -> pid_t? {
+        lockedHost(startedBy: launched, locked: ChiefHostStop.runningHostPID(home: home, isChiefHost: isChiefHost))
     }
 
     /// Watches `pid`, or the host that holds the lock now when `pid` is nil.
@@ -67,17 +84,26 @@ public final class ChiefBrainWatch {
         // and a reader of the brain's liveness reads the lock, not this process source. So the lock
         // watch stays armed until the lock names this host, and the write that names it tells the
         // reader again (``lockChanged(folder:)``).
+        //
+        // Under "cmux Files (dev)" the printed pid is the helper launcher's, and the lock names the
+        // host it started: the watch moves to that host, which is what stops and exits are about.
         if locked == pid {
             pendingLockPID = nil
             cancelLockSources()
+        } else if let host = lockedHost(startedBy: pid, locked: locked) {
+            watch(host)
+            return
         } else {
             // Arm before reading again, and read again: the host writes its pid a moment after the
             // launch printed it, and a write that lands between a read and the arming would raise
             // its event on a source that does not exist yet, with nothing left to read the lock.
             ensureLockSources()
-            if ChiefHostStop.runningHostPID(home: home, isChiefHost: isChiefHost) == pid {
-                pendingLockPID = nil
+            if let host = lockedHost(startedBy: pid) {
                 cancelLockSources()
+                guard host == pid else {
+                    watch(host)
+                    return
+                }
             } else {
                 pendingLockPID = pid
             }
@@ -167,10 +193,11 @@ public final class ChiefBrainWatch {
         // The arming comes first: a lock created empty is read as naming nobody, and the pid the
         // host writes a moment later would raise its event on a file source that did not exist yet.
         if folder { ensureLockSources() }
-        guard ChiefHostStop.runningHostPID(home: home, isChiefHost: isChiefHost) == pending else { return }
-        pendingLockPID = nil
+        guard let host = lockedHost(startedBy: pending) else { return }
         cancelLockSources()
-        watching?(pending)
+        // The launch's own pid: tell the reader directly. A host the helper's launcher started:
+        // watch it, which tells the reader through ``setWatched``.
+        if host == pending { watching?(pending) } else { watch(host) }
     }
 
     /// One `.write` source on `url`, or nil when it cannot be opened (no such file yet).
@@ -256,7 +283,7 @@ public final class ChiefBrainWatch {
             // host must not outlive it.
             // concurrency-allow: one small stat after a restart
             let shutdown = FileManager.default.fileExists(atPath: home.shutdownMarker.path)
-            if stopped || shutdown, let next, isChiefHost(next) {
+            if stopped || shutdown, let next, isChiefHost(next) || ChiefHostStop.isFilesHostLauncher(next) {
                 kill(next, SIGTERM)
                 return
             }
