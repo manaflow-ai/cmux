@@ -20,6 +20,11 @@ self-hosted-runner:
     - blacksmith-4vcpu-windows-2025
     - blacksmith-32vcpu-ubuntu-2404
     - cmux-fleet-linux-x64
+    # One-job JIT VMs that cmuxterm-hq gha-runners makes for CI repair jobs only
+    # (runner_pool.py REPAIR_JIT_LABEL, JIT_POOLS in its README); the other
+    # cmux-gcp-*-jit-x64 labels appear only inside expressions, which
+    # actionlint does not check.
+    - cmux-gcp-repair-jit-x64
     - warp-ubuntu-latest-x64-4x
     # GitHub-hosted, not self-hosted (1.7.12 knows this label; the entry stays
     # for older local actionlint builds). actionlint 1.7.7 shipped a fixed list of
