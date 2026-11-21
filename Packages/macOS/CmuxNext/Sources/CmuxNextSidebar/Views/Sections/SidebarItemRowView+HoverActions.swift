@@ -36,8 +36,8 @@ extension SidebarItemRowView {
         // Unpin shows beside the more button, read only while the controls show (a tile at rest asks nothing).
         let unpins = shown && hoverMore != nil && onUnpin != nil && isPinned?() == true
         if unpins, hoverUnpin == nil {
-            let button = SidebarIconButton(icon: .statePinned, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.unpinWorkspace)
-            button.iconStyle = .solid
+            // Unpin is an action, so it draws the struck-through pin, never the filled pinned mark (`applyPin`).
+            let button = SidebarIconButton(icon: .browserToolbarUnpin, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.unpinWorkspace)
             button.onPress = { [weak self] in self?.onUnpin?() }
             if let workspace = info.workspace { button.setAccessibilityIdentifier("cmux.sidebar.workspace.\(workspace.rawValue).pin") }
             addSubview(button)

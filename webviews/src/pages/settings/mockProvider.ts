@@ -47,12 +47,10 @@ import {
   type AgentToolsCardRun,
   type AgentToolsCardState,
   type IntegrationsState,
+  type AgentSkillsRun,
+  type AgentSkillsState,
   type McpServersRun,
   type McpServersState,
-  type AgentMcpRun,
-  type AgentMcpState,
-  type AgentHooksRun,
-  type AgentHooksState,
   type Diagnostic,
   type Domains,
   type ListRow,
@@ -68,6 +66,10 @@ import {
   type LibraryRun,
   type ModelsRun,
   type ModelsState,
+  type AgentMcpRun,
+  type AgentMcpState,
+  type AgentHooksRun,
+  type AgentHooksState,
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
@@ -723,6 +725,25 @@ export class MockSettingsProvider {
         };
         return {};
       },
+      "cmux.settings.agentSkills.state": () => this.agentSkills,
+      "cmux.settings.agentSkills.run": (params) => {
+        const run = params as AgentSkillsRun;
+        const shown = this.agentSkills;
+        if (run.action === "refresh" || !shown.enabled) return this.agentSkills;
+        const row = shown.skills.find((entry) => entry.path === run.path);
+        // Like the host: only a listed file.
+        if (!row) throw new ProtocolError("cmux.settings.invalid", "path must be a listed skill's file");
+        this.agentSkillRuns.push(run);
+        if (run.action === "on" || run.action === "off") {
+          this.agentSkills = {
+            ...shown,
+            skills: shown.skills.map((entry) =>
+              entry.path === run.path ? { ...entry, enabled: run.action === "on" } : entry,
+            ),
+          };
+        }
+        return this.agentSkills;
+      },
       "cmux.settings.agentMcp.state": () => (this.agentMcp.enabled ? this.agentMcp : { enabled: false, servers: [] }),
       "cmux.settings.agentMcp.run": (params) => {
         const run = params as AgentMcpRun;
@@ -899,6 +920,8 @@ export class MockSettingsProvider {
       "cmux.settings.agentTools.state",
       "cmux.settings.agentTools.run",
       "cmux.settings.mcp.state",
+      "cmux.settings.agentSkills.state",
+      "cmux.settings.agentSkills.run",
       "cmux.settings.mcp.run",
       "cmux.settings.agentMcp.state",
       "cmux.settings.agentMcp.run",
@@ -1578,6 +1601,10 @@ export class MockSettingsProvider {
   };
   /** MCP Servers gestures the page sent (sign in, remove). */
   readonly mcpServerRuns: McpServersRun[] = [];
+  /** Settings > Agents > Claude Code & Codex > Skills (`SettingsAgentSkills.state`); Labs off by default. */
+  agentSkills: AgentSkillsState = { enabled: false };
+  /** Skills gestures the page sent (open, reveal, on, off). */
+  readonly agentSkillRuns: AgentSkillsRun[] = [];
   /** Settings > MCP Servers, Claude Code and Codex: off (Labs) until a test or gallery turns it on. */
   agentMcp: AgentMcpState = {
     enabled: false,

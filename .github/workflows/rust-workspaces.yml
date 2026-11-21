@@ -28,6 +28,7 @@ on:
       - ".github/workflows/rust-workspaces.yml"
       - "Native/**"
       - "Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/**"
+      - "Packages/Shared/CmuxHomeCore/Tests/CmuxHomeCoreTests/MessagePreviewCases.json"
       - "Packages/macOS/CmuxNext/Sources/**"
       - "Packages/macOS/CmuxNext/Tests/CmuxNextActionsTests/MacOSSystemShortcutsTests.swift"
       - "Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json"
