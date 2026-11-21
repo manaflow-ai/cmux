@@ -959,9 +959,40 @@
   }
 
   .section-list {
+    --section-strip-fade-left: 0px;
+    --section-strip-fade-right: 0px;
     flex-direction: row;
     gap: var(--ds-space-1);
     overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  /* The side with categories past it fades them out (data-fade-left / data-fade-right,
+     scrollEdges.ts; sectionStrip.ts): with macOS's hidden scrollbars it is the strip's only sign
+     that it scrolls (first-run audit row 13). An alpha mask on the strip, so the pane shows through. */
+  .section-list[data-fade-left] {
+    --section-strip-fade-left: var(--ds-space-6);
+  }
+
+  .section-list[data-fade-right] {
+    --section-strip-fade-right: var(--ds-space-6);
+  }
+
+  .section-list:is([data-fade-left], [data-fade-right]) {
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 var(--section-strip-fade-left),
+      #000 calc(100% - var(--section-strip-fade-right)),
+      transparent
+    );
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 var(--section-strip-fade-left),
+      #000 calc(100% - var(--section-strip-fade-right)),
+      transparent
+    );
   }
 
   /* One scrolling row of categories: the sections' runs join it and their headers step aside. */

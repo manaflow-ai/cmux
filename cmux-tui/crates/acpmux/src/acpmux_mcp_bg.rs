@@ -72,7 +72,7 @@ pub(super) fn tools() -> Vec<Value> {
 /// What a Claude Code subagent's start (`callerSubagent`) adds to its answer: when its end comes.
 const SUBAGENT_END: &str = "You get its end after your next Bash or acpmux tool call; if you end first, it goes to your lead. bg_output reads it now.";
 
-pub(super) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: &Value) -> Value {
+pub(crate) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: &Value) -> Value {
     let by_subagent = args.get("callerSubagent").is_some_and(Value::is_object);
     let mut params = match args {
         Value::Object(_) => args.clone(),
@@ -344,6 +344,8 @@ esac
     /// With glaeda-gh on PATH the wait is its daemon's (one poller for every session, PR events where GitHub
     /// grants them), pinned to the head it read; a daemon that is down (exit 3) or a glaeda-gh too old for the
     /// arguments (64) falls back to the gh watch, so the wait never gets less reliable.
+    // Shell-script stand-ins for gh and glaeda-gh run through `sh`: unix only.
+    #[cfg(unix)]
     #[test]
     fn run_wait_waits_through_glaeda_gh_and_falls_back_to_gh() {
         let dir = cmux_unix_socket::short_test_dir("run-wait-glaeda");
@@ -504,7 +506,7 @@ impl RunWait {
             Target::Run(run) => {
                 let name = format!("Actions run {run} in {repo}");
                 lines.push(glaeda_wait(&format!("run {repo}/{run}")));
-                lines.push(format!("case $rc in 3|64) gh run watch {run} --repo {repo} --exit-status --interval 30 >/dev/null 2>&1; rc=$? ;; esac"));
+                lines.push(format!("case $rc in 3|64) gh run watch {run} --repo {repo} --exit-status --interval {GH_INTERVAL_S} >/dev/null 2>&1; rc=$? ;; esac"));
                 lines.push(format!("gh run view {run} --repo {repo} --json conclusion,url --jq '\"conclusion: \" + (.conclusion // \"none\") + \"  \" + .url'"));
                 lines.push(format!("failed=$(gh run view {run} --repo {repo} --json jobs --jq '[.jobs[] | select(.conclusion == \"failure\" or .conclusion == \"cancelled\" or .conclusion == \"timed_out\") | .name] | join(\", \")' 2>/dev/null)"));
                 lines.push("[ -n \"$failed\" ] && echo \"failed jobs: $failed\"".to_owned());
@@ -520,7 +522,7 @@ impl RunWait {
                 }
                 let pin = if sha.is_some() { " --sha \"$head\"" } else { "" };
                 lines.push(glaeda_wait(&format!("pr {repo}#{number}{pin}")));
-                lines.push(format!("case $rc in 3|64) gh pr checks {number} --repo {repo} --watch --fail-fast --interval 30 >/dev/null 2>&1; rc=$? ;; esac"));
+                lines.push(format!("case $rc in 3|64) gh pr checks {number} --repo {repo} --watch --fail-fast --interval {GH_INTERVAL_S} >/dev/null 2>&1; rc=$? ;; esac"));
                 lines.push(format!("failed=$(gh pr checks {number} --repo {repo} --json name,bucket --jq '[.[] | select(.bucket == \"fail\" or .bucket == \"cancel\") | .name] | join(\", \")' 2>/dev/null)"));
                 lines.push("[ -n \"$failed\" ] && echo \"failed checks: $failed\"".to_owned());
                 if let Some(sha) = sha {
@@ -534,6 +536,13 @@ impl RunWait {
         lines.join("\n")
     }
 }
+
+/// How often the gh fallback (no glaeda-gh, or one that refused) reads the run or the checks: each
+/// read spends the login's own REST quota (about 2 to 3 calls), so 120 s keeps one watcher near 60
+/// to 90 calls an hour, where 30 s spent about 240 to 360 (Leo, 2026-11-17, on the Claude desktop app
+/// showing a GitHub rate limit: "this is... interesting. so claude desktop shows rate limit on hover
+/// of the github links sometimes...").
+const GH_INTERVAL_S: u64 = 120;
 
 /// The wait itself, through glaeda-gh when it is installed: its daemon is the one poller for every session
 /// on the machine and waits on GitHub's pull request events (`gh event listen`) where the account has

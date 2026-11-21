@@ -73,10 +73,14 @@ fn the_remote_commands_are_fixed_words() {
     assert_eq!(status_command(), "\"$HOME/.local/bin/cmux-tui\" daemon status --session main");
     assert!(uninstall_command().contains("server uninstall"));
     assert_eq!(
-        connect_action(&ep("ana@build", None)),
+        connect_action(&ep("ana@build", None), None),
         ["action", "run", "remote.connect", "--destination", "ana@build"]
     );
-    assert_eq!(connect_action(&ep("b", Some(2200)))[4], "ssh://b:2200");
+    assert_eq!(connect_action(&ep("b", Some(2200)), None)[4], "ssh://b:2200");
+    assert_eq!(
+        connect_action(&ep("b", None), Some("studio box")),
+        ["action", "run", "remote.connect", "--destination", "b", "--name", "studio box"]
+    );
 }
 
 /// The options between `ssh` and `--`, as `-o` values.
@@ -120,10 +124,15 @@ fn remote_install_takes_user_and_channel() {
     let req = request(&words("install ssh://b --channel nightly")).unwrap().unwrap();
     assert!(req.nightly && !req.stable && !req.user);
     assert!(request(&words("uninstall ssh://b --user")).unwrap().unwrap().user);
+    let req = request(&words("install ssh://b --label studio")).unwrap().unwrap();
+    assert_eq!(req.label.as_deref(), Some("studio"));
+    assert_eq!(request(&words("install ssh://b")).unwrap().unwrap().label, None);
     for bad in [
         "install ssh://b --channel beta",
         "install ssh://b --channel stable --nightly",
         "install ssh://b --channel",
+        "install ssh://b --label",
+        "uninstall ssh://b --label studio",
     ] {
         assert!(request(&words(bad)).is_none_or(|r| r.is_err()), "{bad}");
     }
