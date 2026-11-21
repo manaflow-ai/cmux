@@ -1,6 +1,33 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.sidebarSection.more": {
+      "comment": "Settings window sidebar: the header of the last section, which starts closed and holds the pages a person opens less often (New Tab, Menus, Keys, Privacy, Advanced, ...). A click opens or closes it.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "More"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "المزيد"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Više"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Mere"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Mehr"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Más"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Plus"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Altro"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "その他"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ច្រើនទៀត"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "더 보기"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Mer"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Więcej"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Mais"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Ещё"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เพิ่มเติม"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Daha Fazla"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Більше"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Thêm"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "更多"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "更多"}}
+      }
+    },
     "settings.agentPane.display.thinking.shimmer": {
       "comment": "Settings > Chat > Transcript > Thinking Shimmer: title of the setting for how the agent chat's live status line shimmers",
       "extractionState": "manual",
@@ -29844,6 +29871,268 @@
         }
       }
     },
+    "settings.labs.liveTree": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الشجرة المباشرة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live stablo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live-træ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live-Baum"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live Tree"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Árbol en vivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbre en direct"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Albero live"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブツリー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មែកធាងបន្តផ្ទាល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "라이브 트리"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live-tre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drzewo na żywo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Árvore ao vivo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Живое дерево"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ต้นไม้แบบสด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canlı ağaç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Живе дерево"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cây trực tiếp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "实时树"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即時樹"
+          }
+        }
+      }
+    },
+    "settings.labs.liveTree.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار مسار الشجرة المباشرة المشترك وممرات الترجمة في جزء الوكيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži zajedničku putanju live stabla i trake kompajliranja u oknu agenta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis den delte sti til live-træet og compilerbanerne i agentruden."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den gemeinsamen Pfad des Live-Baums und die Compiler-Lanes im Agentenbereich anzeigen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the shared live-tree path and compile lanes in the agent pane."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar la ruta compartida del árbol en vivo y los carriles de compilación en el panel del agente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher le chemin partagé de l’arbre en direct et les voies de compilation dans le volet de l’agent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra il percorso condiviso dell’albero live e le corsie di compilazione nel riquadro dell’agente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントペインに共有ライブツリーのパスとコンパイルレーンを表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញផ្លូវមែកធាងបន្តផ្ទាល់ដែលបានចែករំលែក និងផ្លូវចងក្រងក្នុងផ្ទាំងភ្នាក់ងារ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 패널에 공유 라이브 트리 경로와 컴파일 레인을 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis den delte banen til live-treet og kompilatorfeltene i agentruten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż wspólną ścieżkę drzewa na żywo i tory kompilacji w panelu agenta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar o caminho compartilhado da árvore ao vivo e as faixas de compilação no painel do agente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать общий путь живого дерева и линии компиляции на панели агента."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงเส้นทางต้นไม้แบบสดที่แชร์และเลนการคอมไพล์ในบานหน้าต่างเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paylaşılan canlı ağaç yolunu ve derleme şeritlerini aracı bölmesinde göster."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати спільний шлях живого дерева та смуги компіляції в панелі агента."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiển thị đường dẫn cây trực tiếp dùng chung và các luồng biên dịch trong ngăn tác tử."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在智能体面板中显示共享实时树路径和编译通道。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在代理窗格中顯示共用即時樹路徑與編譯通道。"
+          }
+        }
+      }
+    },
     "settings.labs.voiceRoom": {
       "extractionState": "manual",
       "localizations": {
@@ -53613,127 +53902,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unfinished surfaces, such as the agent session's coverage label and Pull requests view."
+            "value": "Unfinished surfaces, such as the App Store and the agent session's coverage label and Pull requests view."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "واجهات غير مكتملة، مثل تسمية تغطية جلسة الوكيل وعرض طلبات السحب."
+            "value": "واجهات غير مكتملة، مثل App Store وتسمية تغطية جلسة الوكيل وعرض طلبات السحب."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nedovršeni dijelovi, poput oznake pokrivenosti sesije agenta i prikaza zahtjeva za povlačenje."
+            "value": "Nedovršeni dijelovi, poput App Storea, oznake pokrivenosti sesije agenta i prikaza zahtjeva za povlačenje."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ufærdige flader, f.eks. agentsessionens dækningsetiket og visningen af pull requests."
+            "value": "Ufærdige flader, f.eks. App Store, agentsessionens dækningsetiket og visningen af pull requests."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Unfertige Oberflächen, etwa die Abdeckungsangabe der Agent-Sitzung und die Pull-Request-Ansicht."
+            "value": "Unfertige Oberflächen, etwa der App Store, die Abdeckungsangabe der Agent-Sitzung und die Pull-Request-Ansicht."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Superficies sin terminar, como la etiqueta de cobertura de la sesión del agente y la vista de solicitudes de incorporación."
+            "value": "Superficies sin terminar, como la App Store, la etiqueta de cobertura de la sesión del agente y la vista de solicitudes de incorporación."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Surfaces inachevées, comme l'étiquette de couverture de la session de l'agent et la vue des pull requests."
+            "value": "Surfaces inachevées, comme l'App Store, l'étiquette de couverture de la session de l'agent et la vue des pull requests."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Superfici non finite, come l'etichetta di copertura della sessione dell'agente e la vista delle pull request."
+            "value": "Superfici non finite, come l'App Store, l'etichetta di copertura della sessione dell'agente e la vista delle pull request."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "エージェントセッションのカバレッジ表示やプルリクエスト表示など、未完成の画面。"
+            "value": "App Store、エージェントセッションのカバレッジ表示、プルリクエスト表示など、未完成の画面。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ផ្ទៃដែលមិនទាន់បញ្ចប់ ដូចជាស្លាកវិសាលភាពនៃវគ្គភ្នាក់ងារ និងទិដ្ឋភាពសំណើទាញ។"
+            "value": "ផ្ទៃដែលមិនទាន់បញ្ចប់ ដូចជា App Store ស្លាកវិសាលភាពនៃវគ្គភ្នាក់ងារ និងទិដ្ឋភាពសំណើទាញ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "에이전트 세션의 적용 범위 레이블과 풀 리퀘스트 보기처럼 아직 완성되지 않은 화면입니다."
+            "value": "App Store, 에이전트 세션의 적용 범위 레이블, 풀 리퀘스트 보기처럼 아직 완성되지 않은 화면입니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uferdige flater, for eksempel agentøktens dekningsetikett og visningen av pull-forespørsler."
+            "value": "Uferdige flater, for eksempel App Store, agentøktens dekningsetikett og visningen av pull-forespørsler."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Niedokończone elementy, takie jak etykieta pokrycia sesji agenta i widok pull requestów."
+            "value": "Niedokończone elementy, takie jak App Store, etykieta pokrycia sesji agenta i widok pull requestów."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Superfícies inacabadas, como o rótulo de cobertura da sessão do agente e a visualização de pull requests."
+            "value": "Superfícies inacabadas, como a App Store, o rótulo de cobertura da sessão do agente e a visualização de pull requests."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Незавершённые элементы, например метка покрытия сеанса агента и представление запросов на слияние."
+            "value": "Незавершённые элементы, например App Store, метка покрытия сеанса агента и представление запросов на слияние."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ส่วนที่ยังไม่เสร็จ เช่น ป้ายความครอบคลุมของเซสชันเอเจนต์และมุมมองคำขอดึง"
+            "value": "ส่วนที่ยังไม่เสร็จ เช่น App Store ป้ายความครอบคลุมของเซสชันเอเจนต์ และมุมมองคำขอดึง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ajan oturumunun kapsam etiketi ve çekme istekleri görünümü gibi bitmemiş yüzeyler."
+            "value": "App Store, ajan oturumunun kapsam etiketi ve çekme istekleri görünümü gibi bitmemiş yüzeyler."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Незавершені елементи, як-от позначка покриття сеансу агента та подання запитів на злиття."
+            "value": "Незавершені елементи, як-от App Store, позначка покриття сеансу агента та подання запитів на злиття."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Các phần chưa hoàn thiện, như nhãn phạm vi của phiên tác tử và chế độ xem yêu cầu kéo."
+            "value": "Các phần chưa hoàn thiện, như App Store, nhãn phạm vi của phiên tác tử và chế độ xem yêu cầu kéo."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "尚未完成的界面，例如智能体会话的覆盖范围标签和拉取请求视图。"
+            "value": "尚未完成的界面，例如 App Store、智能体会话的覆盖范围标签和拉取请求视图。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "尚未完成的介面，例如代理程式工作階段的涵蓋範圍標籤與提取要求檢視。"
+            "value": "尚未完成的介面，例如 App Store、代理程式工作階段的涵蓋範圍標籤與提取要求檢視。"
           }
         }
       }
@@ -79187,127 +79476,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Home"
+            "value": "Chief"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "الرئيسية"
+            "value": "Chief"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Početna"
+            "value": "Chief"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hjem"
+            "value": "Chief"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Home"
+            "value": "Chief"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Inicio"
+            "value": "Chief"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Accueil"
+            "value": "Chief"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Home"
+            "value": "Chief"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ホーム"
+            "value": "Chief"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ទំព័រដើម"
+            "value": "Chief"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "홈"
+            "value": "Chief"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hjem"
+            "value": "Chief"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Strona główna"
+            "value": "Chief"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Início"
+            "value": "Chief"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Главная"
+            "value": "Chief"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "หน้าแรก"
+            "value": "Chief"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ana Sayfa"
+            "value": "Chief"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Головна"
+            "value": "Chief"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Trang chủ"
+            "value": "Chief"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "主页"
+            "value": "Chief"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "主頁"
+            "value": "Chief"
           }
         }
       }
@@ -107622,6 +107911,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "顯示空間"
+          }
+        }
+      }
+    },
+    "settings.sidebar.showSpaces.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تظهر المساحات عندما يكون لديك أكثر من مساحة واحدة. «مساحة جديدة» موجودة في لوحة الأوامر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prostori se prikazuju kada ih imate više od jednog. „Novi prostor“ je u paleti naredbi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Områder vises, når du har mere end ét. „Nyt område“ findes i kommandopaletten."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spaces werden angezeigt, sobald du mehr als einen hast. „Neuer Space“ findest du in der Befehlspalette."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spaces show once you have more than one. New Space is in the command palette."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los espacios se muestran cuando tienes más de uno. «Nuevo espacio» está en la paleta de comandos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les espaces s’affichent dès que vous en avez plusieurs. « Nouvel espace » se trouve dans la palette de commandes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gli spazi compaiono quando ne hai più di uno. «Nuovo spazio» è nella palette dei comandi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "スペースは2つ以上になると表示されます。「新規スペース」はコマンドパレットにあります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លំហបង្ហាញនៅពេលអ្នកមានច្រើនជាងមួយ។ «លំហថ្មី» មាននៅក្នុងផ្ទាំងពាក្យបញ្ជា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "스페이스는 두 개 이상일 때 표시됩니다. ‘새 스페이스’는 명령 팔레트에 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Områder vises når du har mer enn ett. «Nytt område» finner du i kommandopaletten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obszary pojawiają się, gdy masz więcej niż jeden. „Nowy obszar” jest w palecie poleceń."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Os espaços aparecem quando você tem mais de um. “Novo Espaço” está na paleta de comandos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Области показываются, когда их больше одной. «Новая область» есть в палитре команд."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พื้นที่จะแสดงเมื่อคุณมีมากกว่าหนึ่ง “พื้นที่ใหม่” อยู่ในพาเลตคำสั่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alanlar birden fazla olduğunda görünür. “Yeni Alan” komut paletinde."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Простори з’являються, коли їх більше одного. «Новий простір» є в палітрі команд."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không gian hiện khi bạn có nhiều hơn một. “Không gian mới” có trong bảng lệnh."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "有多个空间时才会显示空间。“新建空间”在命令面板中。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "有多個空間時才會顯示空間。「新增空間」在命令面板中。"
           }
         }
       }
@@ -152221,6 +152641,268 @@
         }
       }
     },
+    "settings.sidebar.settleFinished": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settle Finished Chats"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طي المحادثات المنتهية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skloni završene razgovore"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Læg afsluttede chats væk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abgeschlossene Chats einklappen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recoger los chats terminados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ranger les discussions terminées"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riponi le chat concluse"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了したチャットをまとめる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រមូលការជជែកដែលបានបញ្ចប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끝난 채팅 정리"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Legg bort avsluttede chatter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odkładaj zakończone czaty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recolher conversas concluídas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Убирать завершённые чаты"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เก็บแชตที่เสร็จแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamamlanan sohbetleri topla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прибирати завершені чати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gom các cuộc trò chuyện đã xong"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "收起已完成的对话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "收合已完成的對話"
+          }
+        }
+      }
+    },
+    "settings.sidebar.settleFinished.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A chat whose answer you have read folds into Settled at the end of its list until its next turn."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المحادثة التي قرأت ردها تنتقل إلى «منتهية» في آخر قائمتها حتى دورها التالي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Razgovor čiji ste odgovor pročitali prelazi u Riješeno na kraju liste do svog sljedećeg kruga."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En chat, hvis svar du har læst, flyttes til Afsluttede nederst i listen indtil næste tur."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Chat, dessen Antwort du gelesen hast, wandert bis zu seinem nächsten Zug in „Abgeschlossen“ am Ende seiner Liste."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un chat cuya respuesta ya leíste pasa a Cerrados al final de su lista hasta su siguiente turno."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une discussion dont vous avez lu la réponse passe dans « Réglées » en bas de sa liste jusqu’à son prochain tour."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una chat di cui hai letto la risposta passa in Concluse in fondo alla lista fino al turno successivo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回答を読んだチャットは、次のターンまでリストの最後の「完了済み」にまとめられます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកដែលអ្នកបានអានចម្លើយ នឹងចូលទៅក្នុង បានបញ្ចប់ នៅចុងបញ្ជី រហូតដល់វេនបន្ទាប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "답변을 읽은 채팅은 다음 턴까지 목록 끝의 정리됨으로 들어갑니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En chat der du har lest svaret, flyttes til Avsluttet nederst i listen til neste tur."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czat, którego odpowiedź przeczytano, trafia do Zakończonych na końcu listy aż do następnej tury."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma conversa cuja resposta você leu vai para Concluídas no fim da lista até a próxima vez."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат, ответ в котором вы прочитали, уходит в «Завершённые» в конце списка до следующего хода."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชตที่คุณอ่านคำตอบแล้วจะย้ายไปที่ เสร็จแล้ว ท้ายรายการจนกว่าจะมีรอบถัดไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yanıtını okuduğunuz bir sohbet, sonraki turuna kadar listenin sonundaki Tamamlananlar bölümüne geçer."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат, відповідь у якому ви прочитали, переходить у «Завершені» в кінці списку до наступного ходу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện mà bạn đã đọc câu trả lời sẽ vào mục Đã xong ở cuối danh sách cho đến lượt tiếp theo."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已读完回复的对话会收进列表末尾的“已处理”，直到它的下一轮。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已讀完回覆的對話會收進列表末尾的「已處理」，直到它的下一輪。"
+          }
+        }
+      }
+    },
     "settings.sidebar.showTimestamps": {
       "extractionState": "manual",
       "localizations": {
@@ -158003,6 +158685,798 @@
           "stringUnit": {
             "state": "translated",
             "value": "與 Markdown 檢視器相同"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.uiFamily": {
+      "comment": "Settings > Agent Chat: a font family or stack for the whole chat (agentPane.display.font.uiFamily)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat Interface Font Family"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عائلة خط واجهة الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Porodica fonta sučelja chata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skrifttypefamilie for chatgrænseflade"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schriftfamilie der Chat-Oberfläche"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Familia de fuente de la interfaz del chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Famille de police de l’interface du chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Famiglia di font dell’interfaccia della chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットのインターフェイスフォントファミリー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្រួសារពុម្ពអក្សរចំណុចប្រទាក់ជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅 인터페이스 글꼴 패밀리"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skriftfamilie for chatgrensesnitt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rodzina czcionek interfejsu czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Família de fonte da interface do chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Семейство шрифтов интерфейса чата"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตระกูลแบบอักษรอินเทอร์เฟซแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbet Arayüzü Yazı Tipi Ailesi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Родина шрифтів інтерфейсу чату"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Họ phông chữ giao diện trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天界面字体系列"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天介面字體系列"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.uiFamily.help": {
+      "comment": "Settings > Agent Chat: help for the chat interface font family row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A font family or a comma list of them. When set, it replaces the Chat Interface Font."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عائلة خطوط أو قائمة منها مفصولة بفواصل. عند تعيينها، تحل محل خط واجهة الدردشة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Porodica fonta ili lista porodica odvojenih zarezom. Kada je postavljena, zamjenjuje font sučelja chata."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En skrifttypefamilie eller en kommasepareret liste af dem. Når den er angivet, erstatter den skrifttypen for chatgrænsefladen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine Schriftfamilie oder eine durch Kommas getrennte Liste. Wenn gesetzt, ersetzt sie die Schrift der Chat-Oberfläche."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una familia de fuentes o una lista separada por comas. Si se define, sustituye a la fuente de la interfaz del chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une famille de polices ou une liste séparée par des virgules. Si elle est définie, elle remplace la police de l’interface du chat."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una famiglia di font o un elenco separato da virgole. Se impostata, sostituisce il font dell’interfaccia della chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "フォントファミリー、またはそのカンマ区切りのリスト。設定すると、チャットのインターフェイスフォントの代わりに使われます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្រួសារពុម្ពអក្សរ ឬបញ្ជីរបស់វាដែលបំបែកដោយក្បៀស។ ពេលកំណត់ វាជំនួសពុម្ពអក្សរចំណុចប្រទាក់ជជែក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "글꼴 패밀리 또는 쉼표로 구분한 목록입니다. 설정하면 채팅 인터페이스 글꼴을 대체합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En skriftfamilie eller en kommaseparert liste med dem. Når den er angitt, erstatter den skriften for chatgrensesnittet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rodzina czcionek lub ich lista rozdzielona przecinkami. Po ustawieniu zastępuje czcionkę interfejsu czatu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma família de fontes ou uma lista separada por vírgulas. Quando definida, substitui a fonte da interface do chat."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Семейство шрифтов или их список через запятую. Если задано, заменяет шрифт интерфейса чата."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตระกูลแบบอักษรหรือรายการที่คั่นด้วยจุลภาค เมื่อตั้งค่าแล้วจะใช้แทนแบบอักษรอินเทอร์เฟซแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir yazı tipi ailesi veya virgülle ayrılmış bir listesi. Ayarlandığında Sohbet Arayüzü Yazı Tipinin yerini alır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Родина шрифтів або їх список через кому. Якщо задано, замінює шрифт інтерфейсу чату."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một họ phông chữ hoặc danh sách cách nhau bằng dấu phẩy. Khi được đặt, nó thay thế phông chữ giao diện trò chuyện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一个字体系列，或以逗号分隔的列表。设置后将取代聊天界面字体。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一個字體系列，或以逗號分隔的清單。設定後會取代聊天介面字體。"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.proseFamily": {
+      "comment": "Settings > Agent Chat: the font family of the agent's replies (agentPane.display.font.proseFamily)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat Reply Font Family"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عائلة خط ردود الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Porodica fonta odgovora u chatu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skrifttypefamilie for chatsvar"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schriftfamilie der Chat-Antworten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Familia de fuente de las respuestas del chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Famille de police des réponses du chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Famiglia di font delle risposte della chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットの返信フォントファミリー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្រួសារពុម្ពអក្សរចម្លើយជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅 답변 글꼴 패밀리"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skriftfamilie for chatsvar"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rodzina czcionek odpowiedzi czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Família de fonte das respostas do chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Семейство шрифтов ответов в чате"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตระกูลแบบอักษรคำตอบในแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbet Yanıtı Yazı Tipi Ailesi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Родина шрифтів відповідей у чаті"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Họ phông chữ câu trả lời trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天回复字体系列"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天回覆字體系列"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.proseFamily.help": {
+      "comment": "Settings > Agent Chat: help for the reply font family row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The font of the agent's replies. When set, it replaces the Chat Font."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خط ردود الوكيل. عند تعيينه، يحل محل خط الدردشة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Font odgovora agenta. Kada je postavljen, zamjenjuje font razgovora."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skrifttypen i agentens svar. Når den er angivet, erstatter den chattens skrifttype."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Schrift der Antworten des Agenten. Wenn gesetzt, ersetzt sie die Chat-Schrift."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La fuente de las respuestas del agente. Si se define, sustituye a la fuente del chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La police des réponses de l’agent. Si elle est définie, elle remplace la police du chat."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il font delle risposte dell’agente. Se impostato, sostituisce il font della chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントの返信のフォント。設定すると、チャットのフォントの代わりに使われます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពុម្ពអក្សរនៃចម្លើយរបស់ភ្នាក់ងារ។ ពេលកំណត់ វាជំនួសពុម្ពអក្សរជជែក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트 답변의 글꼴입니다. 설정하면 채팅 글꼴을 대체합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skriften i agentens svar. Når den er angitt, erstatter den skriften i chat."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Czcionka odpowiedzi agenta. Po ustawieniu zastępuje czcionkę czatu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A fonte das respostas do agente. Quando definida, substitui a fonte do chat."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шрифт ответов агента. Если задан, заменяет шрифт чата."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แบบอักษรของคำตอบจากเอเจนต์ เมื่อตั้งค่าแล้วจะใช้แทนแบบอักษรแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajanın yanıtlarının yazı tipi. Ayarlandığında Sohbet Yazı Tipinin yerini alır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шрифт відповідей агента. Якщо задано, замінює шрифт чату."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phông chữ cho câu trả lời của tác tử. Khi được đặt, nó thay thế phông chữ trò chuyện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理回复的字体。设置后将取代聊天字体。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理回覆的字體。設定後會取代聊天字體。"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.fontFaces": {
+      "comment": "Settings > Agent Chat: font files the chat loads, by family (agentPane.display.font.faces)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat Font Files"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ملفات خطوط الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Datoteke fontova chata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skrifttypefiler til chat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schriftdateien des Chats"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Archivos de fuentes del chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fichiers de police du chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "File di font della chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットのフォントファイル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឯកសារពុម្ពអក្សរជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅 글꼴 파일"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skriftfiler for chat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pliki czcionek czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arquivos de fonte do chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Файлы шрифтов чата"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไฟล์แบบอักษรแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbet Yazı Tipi Dosyaları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Файли шрифтів чату"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tệp phông chữ trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天字体文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天字體檔案"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.fontFaces.help": {
+      "comment": "Settings > Agent Chat: help for the chat font files row; keep the example verbatim",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A font file for each family, such as \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ملف خط لكل عائلة، مثل \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Datoteka fonta za svaku porodicu, npr. \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En skrifttypefil for hver familie, f.eks. \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine Schriftdatei je Familie, etwa \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un archivo de fuente por familia, como \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un fichier de police par famille, par exemple \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un file di font per ogni famiglia, ad esempio \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ファミリーごとのフォントファイル。例: \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឯកសារពុម្ពអក្សរសម្រាប់គ្រួសារនីមួយៗ ដូចជា \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "패밀리마다 하나의 글꼴 파일입니다. 예: \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En skriftfil for hver familie, for eksempel \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Plik czcionki dla każdej rodziny, np. \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um arquivo de fonte para cada família, como \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Файл шрифта для каждого семейства, например \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไฟล์แบบอักษรสำหรับแต่ละตระกูล เช่น \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\""
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Her aile için bir yazı tipi dosyası, örneğin \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Файл шрифту для кожної родини, наприклад \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một tệp phông chữ cho mỗi họ, chẳng hạn \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "每个字体系列一个字体文件，例如 \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "每個字體系列一個字體檔案，例如 \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"。"
           }
         }
       }
@@ -186408,6 +187882,270 @@
         }
       }
     },
+    "settings.appearance.previousGlass": {
+      "comment": "Settings row title: web glass draws the numbers from before the one glass system (menus, popovers, the composer, cards).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous Glass Look"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مظهر الزجاج السابق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prethodni izgled stakla"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tidligere glasudseende"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bisheriges Glas"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aspecto de cristal anterior"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ancien aspect du verre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aspetto vetro precedente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前のガラスの外観"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រូបរាងកញ្ចក់ពីមុន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이전 유리 모양"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tidligere glassutseende"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poprzedni wygląd szkła"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aparência de vidro anterior"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прежний вид стекла"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รูปลักษณ์กระจกแบบเดิม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Önceki cam görünümü"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Попередній вигляд скла"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giao diện kính trước đây"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前的玻璃外观"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先前的玻璃外觀"
+          }
+        }
+      }
+    },
+    "settings.appearance.previousGlass.help": {
+      "comment": "Settings row help for Previous Glass Look.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Draws menus, popovers, the composer and cards with the glass from before November 2026."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يرسم القوائم والنوافذ المنبثقة ومربع الكتابة والبطاقات بالزجاج الذي كان قبل نوفمبر 2026."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crta menije, iskačuće prozore, polje za pisanje i kartice sa staklom od prije novembra 2026."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tegner menuer, popovers, skrivefeltet og kort med glasset fra før november 2026."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeichnet Menüs, Popover, das Eingabefeld und Karten mit dem Glas von vor November 2026."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dibuja los menús, las ventanas emergentes, el redactor y las tarjetas con el cristal de antes de noviembre de 2026."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche les menus, les fenêtres contextuelles, la zone de saisie et les cartes avec le verre d’avant novembre 2026."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disegna menu, popover, il compositore e le schede con il vetro di prima di novembre 2026."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メニュー、ポップオーバー、入力欄、カードを 2026 年 11 月より前のガラスで表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គូរម៉ឺនុយ ផ្ទាំងលេចឡើង ប្រអប់សរសេរ និងកាត ជាមួយកញ្ចក់ពីមុនខែវិច្ឆិកា ឆ្នាំ 2026។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메뉴, 팝오버, 입력창, 카드를 2026년 11월 이전의 유리로 그립니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tegner menyer, popovere, skrivefeltet og kort med glasset fra før november 2026."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rysuje menu, okna podręczne, pole tworzenia wiadomości i karty ze szkłem sprzed listopada 2026."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desenha menus, popovers, o compositor e os cartões com o vidro de antes de novembro de 2026."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рисует меню, всплывающие окна, поле ввода и карточки со стеклом, как до ноября 2026 года."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงเมนู ป๊อปโอเวอร์ ช่องเขียนข้อความ และการ์ด ด้วยกระจกแบบก่อนเดือนพฤศจิกายน 2026"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menüleri, açılır pencereleri, yazma alanını ve kartları Kasım 2026 öncesindeki camla çizer."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Малює меню, спливні вікна, поле введення й картки зі склом, як до листопада 2026 року."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vẽ menu, cửa sổ bật lên, ô soạn thảo và thẻ bằng kính trước tháng 11 năm 2026."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用 2026 年 11 月之前的玻璃绘制菜单、弹出框、输入框和卡片。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用 2026 年 11 月之前的玻璃繪製選單、彈出式視窗、輸入框和卡片。"
+          }
+        }
+      }
+    },
     "settings.appearance.agentGlow": {
       "comment": "Settings row title: the window background glows in the machine's color when an agent needs you.",
       "extractionState": "manual",
@@ -204670,137 +206408,6 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "%@，有代理程式正在使用 Computer Use"}}
       }
     },
-    "settings.category.personalization": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "التخصيص"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Personalizacija"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Personalisering"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Personalisierung"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Personalization"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Personalización"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Personnalisation"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Personalizzazione"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "パーソナライズ"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ការកំណត់ផ្ទាល់ខ្លួន"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "개인화"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Personalisering"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Personalizacja"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Personalização"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Персонализация"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "การปรับแต่งส่วนตัว"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kişiselleştirme"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Персоналізація"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cá nhân hóa"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "个性化"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "個人化"
-          }
-        }
-      }
-    },
     "settings.choice.groupPalettePictorial": {
       "comment": "Group Colors choice: colors from the desktop picture by place",
       "extractionState": "manual",
@@ -205853,165 +207460,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "群組顏色設為「漸層」時使用的漸層。"
-          }
-        }
-      }
-    },
-    "settings.home.chiefPanelSeesScreen": {
-      "comment": "Settings > Chief > Chief Dock: the floating Chief gets one look at the screen when it opens.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Chief Sees Your Screen When It Opens"}},
-        "ar": {"stringUnit": {"state": "needs_review", "value": "يرى Chief شاشتك عند فتحه"}},
-        "bs": {"stringUnit": {"state": "needs_review", "value": "Chief vidi tvoj ekran kad se otvori"}},
-        "da": {"stringUnit": {"state": "needs_review", "value": "Chief ser din skærm, når den åbnes"}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Chief sieht deinen Bildschirm beim Öffnen"}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "Chief ve tu pantalla al abrirse"}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "Chief voit votre écran à l’ouverture"}},
-        "it": {"stringUnit": {"state": "needs_review", "value": "Chief vede lo schermo quando si apre"}},
-        "ja": {"stringUnit": {"state": "needs_review", "value": "開いたときに Chief が画面を見る"}},
-        "km": {"stringUnit": {"state": "needs_review", "value": "Chief មើលអេក្រង់របស់អ្នក ពេលបើក"}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "열릴 때 Chief가 화면 보기"}},
-        "nb": {"stringUnit": {"state": "needs_review", "value": "Chief ser skjermen din når den åpnes"}},
-        "pl": {"stringUnit": {"state": "needs_review", "value": "Chief widzi Twój ekran po otwarciu"}},
-        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "O Chief vê sua tela ao abrir"}},
-        "ru": {"stringUnit": {"state": "needs_review", "value": "Chief видит ваш экран при открытии"}},
-        "th": {"stringUnit": {"state": "needs_review", "value": "Chief เห็นหน้าจอของคุณเมื่อเปิด"}},
-        "tr": {"stringUnit": {"state": "needs_review", "value": "Chief açıldığında ekranınızı görsün"}},
-        "uk": {"stringUnit": {"state": "needs_review", "value": "Chief бачить ваш екран під час відкриття"}},
-        "vi": {"stringUnit": {"state": "needs_review", "value": "Chief thấy màn hình của bạn khi mở"}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "打开时 Chief 查看屏幕"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "開啟時 Chief 查看螢幕"}}
-      }
-    },
-    "settings.home.chiefPanelSeesScreen.help": {
-      "comment": "Settings > Chief > Chief Dock: help for the floating Chief's look at the screen.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The floating Chief takes one look at your screen when it opens. The eye turns it off."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يلقي Chief العائم نظرة واحدة على شاشتك عند فتحه. تطفئه العين."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Plutajući Chief jednom pogleda tvoj ekran kad se otvori. Oko to isključuje."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Den svævende Chief kigger én gang på din skærm, når den åbnes. Øjet slår det fra."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Der schwebende Chief wirft beim Öffnen einen Blick auf deinen Bildschirm. Das Auge schaltet es aus."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief flotante echa un vistazo a tu pantalla al abrirse. El ojo lo desactiva."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief flottant jette un coup d’œil à votre écran à l’ouverture. L’œil le désactive."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief mobile dà un’occhiata allo schermo quando si apre. L’occhio lo disattiva."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "フローティング Chief を開くと、画面を一度見ます。目のボタンでオフにできます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief អណ្ដែតមើលអេក្រង់របស់អ្នកម្ដង ពេលវាបើក។ ភ្នែកបិទវា។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "떠 있는 Chief가 열릴 때 화면을 한 번 봅니다. 눈 버튼으로 끕니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Den svevende Chief tar ett blikk på skjermen din når den åpnes. Øyet slår det av."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pływający Chief raz patrzy na Twój ekran po otwarciu. Oko to wyłącza."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O Chief flutuante dá uma olhada na sua tela ao abrir. O olho desliga isso."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Плавающий Chief один раз смотрит на ваш экран при открытии. Глаз это выключает."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief แบบลอยจะดูหน้าจอของคุณหนึ่งครั้งเมื่อเปิด ปุ่มรูปตาใช้ปิด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Serbest Chief açıldığında ekranınıza bir kez bakar. Göz bunu kapatır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Плаваючий Chief один раз дивиться на ваш екран під час відкриття. Око це вимикає."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chief nổi xem màn hình của bạn một lần khi mở. Biểu tượng mắt tắt tính năng này."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "浮动 Chief 打开时会看一眼你的屏幕。眼睛按钮可关闭此功能。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "浮動 Chief 開啟時會看一眼你的螢幕。眼睛按鈕可關閉此功能。"
           }
         }
       }
@@ -210297,6 +211745,270 @@
         }
       }
     },
+    "settings.home.chiefDockSidePanel": {
+      "comment": "Settings > Chief > Chief Dock: every window keeps the Chief docked as a side panel.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief in Side Panel"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief في اللوحة الجانبية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief u bočnom panelu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief i sidepanelet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief in der Seitenleiste"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief en el panel lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief dans le panneau latéral"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief nel pannello laterale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief をサイドパネルに表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief នៅក្នុងផ្ទាំងចំហៀង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드 패널에 Chief 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief i sidepanelet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief w panelu bocznym"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief no painel lateral"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief на боковой панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief ในแผงด้านข้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yan panelde Chief"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief на бічній панелі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief trong bảng bên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在侧边面板中显示 Chief"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在側邊面板中顯示 Chief"
+          }
+        }
+      }
+    },
+    "settings.home.chiefDockSidePanel.help": {
+      "comment": "Settings > Chief > Chief Dock: help for Chief in Side Panel.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keeps the Chief docked beside every workspace. Cmd-I hides or shows it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يبقي Chief مثبتًا بجانب كل مساحة عمل. يخفيه Cmd-I أو يُظهره."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drži Chief usidrenog pored svakog radnog prostora. Cmd-I ga skriva ili prikazuje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Holder Chief fastgjort ved siden af hvert arbejdsområde. Cmd-I skjuler eller viser den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hält den Chief neben jedem Workspace angedockt. Cmd-I blendet ihn aus oder ein."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantiene a Chief acoplado junto a cada espacio de trabajo. Cmd-I lo oculta o lo muestra."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Garde Chief ancré à côté de chaque espace de travail. Cmd-I le masque ou l’affiche."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiene Chief agganciato accanto a ogni workspace. Cmd-I lo nasconde o lo mostra."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのワークスペースの横に Chief をドッキングしたままにします。Cmd-I で表示/非表示を切り替えます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រក្សា Chief ឱ្យភ្ជាប់នៅក្បែរកន្លែងធ្វើការនីមួយៗ។ Cmd-I លាក់ ឬបង្ហាញវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 워크스페이스 옆에 Chief를 도킹해 둡니다. Cmd-I로 숨기거나 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Holder Chief forankret ved siden av hvert arbeidsområde. Cmd-I skjuler eller viser den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utrzymuje Chief zadokowanego obok każdego obszaru roboczego. Cmd-I ukrywa go lub pokazuje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantém o Chief encaixado ao lado de cada espaço de trabalho. Cmd-I o oculta ou mostra."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Держит Chief закреплённым рядом с каждым рабочим пространством. Cmd-I скрывает или показывает его."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ให้ Chief ปักหมุดอยู่ข้างทุกพื้นที่ทำงาน Cmd-I ซ่อนหรือแสดง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief’i her çalışma alanının yanında sabit tutar. Cmd-I onu gizler veya gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тримає Chief закріпленим поруч із кожним робочим простором. Cmd-I приховує або показує його."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giữ Chief được neo bên cạnh mọi không gian làm việc. Cmd-I ẩn hoặc hiện nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "让 Chief 停靠在每个工作区旁边。按 Cmd-I 隐藏或显示。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讓 Chief 停靠在每個工作區旁邊。按 Cmd-I 隱藏或顯示。"
+          }
+        }
+      }
+    },
     "settings.home.chiefDockOpenBeside": {
       "comment": "Settings > Chief > Chief Dock: links clicked in the Chief open beside the docked Chief.",
       "extractionState": "manual",
@@ -210700,127 +212412,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "How a group's background draws. Sections shows plain headings instead."
+            "value": "How a group draws. Folders shows plain folders; Sections shows plain headings."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "طريقة رسم خلفية المجموعة. أما الأقسام فتعرض عناوين بسيطة بدلًا من ذلك."
+            "value": "طريقة رسم المجموعة. تعرض المجلدات مجلدات بسيطة، وتعرض الأقسام عناوين بسيطة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kako se crta pozadina grupe. Odjeljci umjesto toga prikazuju obične naslove."
+            "value": "Kako se grupa crta. Mape prikazuju obične mape; Odjeljci prikazuju obične naslove."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hvordan en gruppes baggrund tegnes. Sektioner viser i stedet enkle overskrifter."
+            "value": "Hvordan en gruppe tegnes. Mapper viser enkle mapper; Sektioner viser enkle overskrifter."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wie der Hintergrund einer Gruppe gezeichnet wird. Abschnitte zeigt stattdessen schlichte Überschriften."
+            "value": "Wie eine Gruppe gezeichnet wird. Ordner zeigt schlichte Ordner, Abschnitte zeigt schlichte Überschriften."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cómo se dibuja el fondo de un grupo. Secciones muestra simples encabezados en su lugar."
+            "value": "Cómo se dibuja un grupo. Carpetas muestra carpetas simples; Secciones muestra encabezados simples."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Façon dont l’arrière-plan d’un groupe s’affiche. Rubriques affiche plutôt de simples titres."
+            "value": "Façon dont un groupe s’affiche. Dossiers affiche de simples dossiers ; Rubriques affiche de simples titres."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Come viene disegnato lo sfondo di un gruppo. Sezioni mostra invece semplici intestazioni."
+            "value": "Come viene disegnato un gruppo. Cartelle mostra semplici cartelle; Sezioni mostra semplici intestazioni."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "グループの背景の描き方です。セクションは代わりにシンプルな見出しを表示します。"
+            "value": "グループの描き方です。フォルダはシンプルなフォルダを、セクションはシンプルな見出しを表示します。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "របៀបដែលផ្ទៃខាងក្រោយក្រុមត្រូវបានគូរ។ ផ្នែក បង្ហាញចំណងជើងធម្មតាជំនួសវិញ។"
+            "value": "របៀបដែលក្រុមត្រូវបានគូរ។ ថត បង្ហាញថតធម្មតា ហើយ ផ្នែក បង្ហាញចំណងជើងធម្មតា។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "그룹 배경을 그리는 방식입니다. 섹션은 대신 단순한 제목을 표시합니다."
+            "value": "그룹을 그리는 방식입니다. 폴더는 단순한 폴더를, 섹션은 단순한 제목을 표시합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hvordan bakgrunnen til en gruppe tegnes. Seksjoner viser enkle overskrifter i stedet."
+            "value": "Hvordan en gruppe tegnes. Mapper viser enkle mapper; Seksjoner viser enkle overskrifter."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sposób rysowania tła grupy. Sekcje pokazują zamiast tego zwykłe nagłówki."
+            "value": "Sposób rysowania grupy. Foldery pokazują zwykłe foldery, a Sekcje zwykłe nagłówki."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Como o fundo de um grupo é desenhado. Seções mostra simples títulos no lugar."
+            "value": "Como um grupo é desenhado. Pastas mostra pastas simples; Seções mostra títulos simples."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Как рисуется фон группы. «Разделы» вместо этого показывают простые заголовки."
+            "value": "Как рисуется группа. «Папки» показывают простые папки, «Разделы» — простые заголовки."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "วิธีวาดพื้นหลังของกลุ่ม ส่วน จะแสดงเป็นหัวข้อแบบเรียบง่ายแทน"
+            "value": "วิธีวาดกลุ่ม โฟลเดอร์ แสดงเป็นโฟลเดอร์แบบเรียบง่าย ส่วน แสดงเป็นหัวข้อแบบเรียบง่าย"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bir grubun arka planının nasıl çizildiği. Bölümler bunun yerine sade başlıklar gösterir."
+            "value": "Bir grubun nasıl çizildiği. Klasörler sade klasörler, Bölümler sade başlıklar gösterir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Як малюється тло групи. Розділи натомість показують прості заголовки."
+            "value": "Як малюється група. Теки показують прості теки, Розділи — прості заголовки."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cách vẽ nền của một nhóm. Mục thay vào đó hiển thị tiêu đề đơn giản."
+            "value": "Cách vẽ một nhóm. Thư mục hiển thị thư mục đơn giản; Mục hiển thị tiêu đề đơn giản."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "群组背景的绘制方式。“分区”则改为显示简单的标题。"
+            "value": "群组的绘制方式。“文件夹”显示简单的文件夹，“分区”显示简单的标题。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "群組背景的繪製方式。分區則改為顯示簡單的標題。"
+            "value": "群組的繪製方式。資料夾顯示簡單的資料夾，分區顯示簡單的標題。"
           }
         }
       }
@@ -214008,127 +215720,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Text size of tabs, the sidebar and chat. Terminals have their own size."
+            "value": "Text size of the sidebar, tabs, menus and chat. Terminals have their own size."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "حجم نص علامات التبويب والشريط الجانبي والدردشة. للطرفيات حجمها الخاص."
+            "value": "حجم نص الشريط الجانبي وعلامات التبويب والقوائم والدردشة. للطرفيات حجمها الخاص."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Veličina teksta kartica, bočne trake i chata. Terminali imaju vlastitu veličinu."
+            "value": "Veličina teksta bočne trake, kartica, menija i chata. Terminali imaju svoju veličinu."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tekststørrelse for faner, sidepanelet og chat. Terminaler har deres egen størrelse."
+            "value": "Tekststørrelse for sidepanel, faner, menuer og chat. Terminaler har deres egen størrelse."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Textgröße von Tabs, Seitenleiste und Chat. Terminals haben eine eigene Größe."
+            "value": "Textgröße von Seitenleiste, Tabs, Menüs und Chat. Terminals haben ihre eigene Größe."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tamaño del texto de las pestañas, la barra lateral y el chat. Las terminales tienen su propio tamaño."
+            "value": "Tamaño del texto de la barra lateral, las pestañas, los menús y el chat. Los terminales tienen su propio tamaño."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Taille du texte des onglets, de la barre latérale et du chat. Les terminaux ont leur propre taille."
+            "value": "Taille du texte de la barre latérale, des onglets, des menus et de la discussion. Les terminaux ont leur propre taille."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dimensione del testo di schede, barra laterale e chat. I terminali hanno una dimensione propria."
+            "value": "Dimensione del testo di barra laterale, schede, menu e chat. I terminali hanno la loro dimensione."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "タブ、サイドバー、チャットの文字サイズです。ターミナルの文字サイズは別に設定します。"
+            "value": "サイドバー、タブ、メニュー、チャットの文字サイズ。ターミナルは独自のサイズを使います。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ទំហំអក្សររបស់ផ្ទាំង របារចំហៀង និងការជជែក។ ទែមីណាល់មានទំហំផ្ទាល់ខ្លួន។"
+            "value": "ទំហំអក្សររបស់របារចំហៀង ផ្ទាំង ម៉ឺនុយ និងការជជែក។ ទែមីណាល់មានទំហំផ្ទាល់ខ្លួន។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "탭, 사이드바, 채팅의 텍스트 크기입니다. 터미널 크기는 따로 설정합니다."
+            "value": "사이드바, 탭, 메뉴, 채팅의 텍스트 크기입니다. 터미널은 자체 크기를 씁니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tekststørrelse for faner, sidepanelet og chat. Terminaler har sin egen størrelse."
+            "value": "Tekststørrelse for sidefelt, faner, menyer og chat. Terminaler har sin egen størrelse."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Rozmiar tekstu kart, paska bocznego i czatu. Terminale mają własny rozmiar."
+            "value": "Rozmiar tekstu paska bocznego, kart, menu i czatu. Terminale mają własny rozmiar."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tamanho do texto das abas, da barra lateral e do chat. Os terminais têm tamanho próprio."
+            "value": "Tamanho do texto da barra lateral, abas, menus e chat. Os terminais têm tamanho próprio."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Размер текста вкладок, боковой панели и чата. У терминалов свой размер."
+            "value": "Размер текста боковой панели, вкладок, меню и чата. У терминалов свой размер."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ขนาดข้อความของแท็บ แถบด้านข้าง และแชท เทอร์มินัลมีขนาดของตัวเอง"
+            "value": "ขนาดข้อความของแถบด้านข้าง แท็บ เมนู และแชท เทอร์มินัลมีขนาดของตัวเอง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sekmelerin, kenar çubuğunun ve sohbetin metin boyutu. Terminallerin kendi boyutu vardır."
+            "value": "Kenar çubuğu, sekmeler, menüler ve sohbetin metin boyutu. Terminallerin kendi boyutu vardır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Розмір тексту вкладок, бічної панелі й чату. Термінали мають власний розмір."
+            "value": "Розмір тексту бічної панелі, вкладок, меню й чату. Термінали мають власний розмір."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cỡ chữ của tab, thanh bên và trò chuyện. Terminal có cỡ riêng."
+            "value": "Cỡ chữ của thanh bên, thẻ, menu và trò chuyện. Terminal có cỡ chữ riêng."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "标签页、边栏和聊天的文字大小。终端有自己的大小。"
+            "value": "侧边栏、标签页、菜单和聊天的文字大小。终端使用自己的大小。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "標籤頁、側邊欄和聊天的文字大小。終端機有自己的大小。"
+            "value": "側邊欄、標籤頁、選單和聊天的文字大小。終端機使用自己的大小。"
           }
         }
       }
@@ -219560,6 +221272,930 @@
         }
       }
     },
+    "settings.appearance.cornerFlush": {
+      "comment": "Title of the Appearance choice of how the selected tab meets the content below it (pill, flush or goo).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selected Tab Shape"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شكل علامة التبويب المحددة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oblik odabrane kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Form på valgt fane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Form des ausgewählten Tabs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forma de la pestaña seleccionada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forme de l’onglet sélectionné"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forma della scheda selezionata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択中のタブの形"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រាងផ្ទាំងដែលបានជ្រើស"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 탭 모양"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Form på valgt fane"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kształt wybranej karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Formato da aba selecionada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Форма выбранной вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รูปทรงแท็บที่เลือก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seçili sekme şekli"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Форма вибраної вкладки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hình dạng thẻ được chọn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所选标签页形状"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所選標籤頁形狀"
+          }
+        }
+      }
+    },
+    "settings.appearance.cornerFlush.help": {
+      "comment": "Help text of the Selected Tab Shape setting.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How the selected tab meets the content below it: a pill, flush with it, or flowing into it like a drop of water."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كيف تلتقي علامة التبويب المحددة بالمحتوى أسفلها: حبة، أو متصلة به، أو منسابة فيه كقطرة ماء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kako se odabrana kartica spaja sa sadržajem ispod: kao pilula, poravnata s njim ili se uliva u njega poput kapi vode."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvordan den valgte fane møder indholdet under den: en pille, flugter med det eller flyder ind i det som en vanddråbe."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie der ausgewählte Tab auf den Inhalt darunter trifft: als Pille, bündig damit oder wie ein Wassertropfen hineinfließend."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cómo se une la pestaña seleccionada al contenido de abajo: una píldora, al ras o fluyendo hacia él como una gota de agua."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comment l’onglet sélectionné rejoint le contenu en dessous : une pastille, aligné sur lui, ou s’y fondant comme une goutte d’eau."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Come la scheda selezionata incontra il contenuto sottostante: una pillola, a filo o fluendo in esso come una goccia d’acqua."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択中のタブと下のコンテンツのつながり方：ピル型、面一、または水滴のように溶け込む形。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របៀបដែលផ្ទាំងដែលបានជ្រើសជួបនឹងមាតិកាខាងក្រោម៖ រាងគ្រាប់ថ្នាំ ស្មើគ្នា ឬហូរចូលដូចតំណក់ទឹក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 탭이 아래 콘텐츠와 만나는 방식: 알약 모양, 나란히 붙음, 또는 물방울처럼 흘러들어감."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvordan den valgte fanen møter innholdet under: en pille, i flukt med det eller flytende inn i det som en vanndråpe."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jak wybrana karta łączy się z treścią pod nią: jako pigułka, równo z nią lub wpływając w nią jak kropla wody."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Como a aba selecionada encontra o conteúdo abaixo: uma pílula, alinhada a ele ou fluindo nele como uma gota d’água."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Как выбранная вкладка соединяется с содержимым под ней: таблетка, вровень с ним или перетекая в него, как капля воды."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วิธีที่แท็บที่เลือกเชื่อมกับเนื้อหาด้านล่าง: ทรงเม็ดยา ชิดเสมอกัน หรือไหลเข้าหากันเหมือนหยดน้ำ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seçili sekmenin altındaki içerikle buluşma biçimi: hap şeklinde, onunla hizalı ya da bir su damlası gibi içine akan."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Як вибрана вкладка з’єднується із вмістом під нею: пігулка, урівень із ним або перетікаючи в нього, як крапля води."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cách thẻ được chọn gặp nội dung bên dưới: dạng viên thuốc, liền mạch, hoặc chảy vào như một giọt nước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所选标签页与下方内容的衔接方式：药丸形、齐平，或像水滴一样融入其中。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所選標籤頁與下方內容的銜接方式：藥丸形、齊平，或像水滴一樣融入其中。"
+          }
+        }
+      }
+    },
+    "settings.appearance.cornerFlush.summary": {
+      "comment": "Summary of the Selected Tab Shape setting in search and the palette.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pill, flush or goo for the selected tab"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حبة أو متصلة أو منسابة لعلامة التبويب المحددة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pilula, poravnato ili tečno za odabranu karticu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pille, flugtende eller flydende for den valgte fane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pille, bündig oder fließend für den ausgewählten Tab"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Píldora, al ras o fluida para la pestaña seleccionada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pastille, alignée ou fluide pour l’onglet sélectionné"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pillola, a filo o fluida per la scheda selezionata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択中のタブをピル型、面一、または溶け込む形に"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រាងគ្រាប់ថ្នាំ ស្មើ ឬហូរ សម្រាប់ផ្ទាំងដែលបានជ្រើស"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 탭을 알약, 나란히 또는 흐르는 모양으로"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pille, i flukt eller flytende for den valgte fanen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pigułka, równo lub płynnie dla wybranej karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pílula, alinhada ou fluida para a aba selecionada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Таблетка, вровень или перетекание для выбранной вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทรงเม็ดยา ชิดเสมอ หรือไหลรวม สำหรับแท็บที่เลือก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seçili sekme için hap, hizalı ya da akışkan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пігулка, урівень або перетікання для вибраної вкладки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viên thuốc, liền mạch hoặc chảy cho thẻ được chọn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所选标签页的药丸形、齐平或融合样式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所選標籤頁的藥丸形、齊平或融合樣式"
+          }
+        }
+      }
+    },
+    "settings.choice.cornerFlush.off": {
+      "comment": "Selected Tab Shape choice: the selected tab is a gray pill on the frame.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pill"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حبة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pilula"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pille"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pille"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Píldora"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pastille"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pillola"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ピル型"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រាងគ្រាប់ថ្នាំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알약"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pille"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pigułka"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pílula"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Таблетка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทรงเม็ดยา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hap"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пігулка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viên thuốc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "药丸形"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "藥丸形"
+          }
+        }
+      }
+    },
+    "settings.choice.cornerFlush.flush": {
+      "comment": "Selected Tab Shape choice: the selected tab runs straight into the content card.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flush"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متصلة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poravnato"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flugtende"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bündig"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Al ras"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alignée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A filo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "面一"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្មើគ្នា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "나란히"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I flukt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Równo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alinhada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вровень"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ชิดเสมอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hizalı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Урівень"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liền mạch"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "齐平"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "齊平"
+          }
+        }
+      }
+    },
+    "settings.choice.cornerFlush.tight": {
+      "comment": "Selected Tab Shape choice: flush, with no gap between the content card and the sidebar.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flush, Tight to the Sidebar"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متصلة، ملاصقة للشريط الجانبي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poravnato, uz bočnu traku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flugtende, tæt på sidepanelet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bündig, direkt an der Seitenleiste"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Al ras, pegada a la barra lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alignée, collée à la barre latérale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A filo, aderente alla barra laterale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "面一、サイドバーに密着"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្មើគ្នា ជាប់នឹងរបារចំហៀង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "나란히, 사이드바에 밀착"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I flukt, tett inntil sidefeltet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Równo, przy pasku bocznym"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alinhada, junto à barra lateral"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вровень, вплотную к боковой панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ชิดเสมอ ติดแถบด้านข้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hizalı, kenar çubuğuna bitişik"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Урівень, впритул до бічної панелі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liền mạch, sát thanh bên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "齐平，紧贴侧边栏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "齊平，緊貼側邊欄"
+          }
+        }
+      }
+    },
+    "settings.choice.cornerFlush.goo": {
+      "comment": "Selected Tab Shape choice: the selected tab flows into the content card through curved fillets, like two drops of water merging.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Goo"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "منسابة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tečno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flydende"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fließend"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fluida"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fluide"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fluida"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "溶け込み"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ហូរចូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "흐름"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flytende"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Płynnie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fluida"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перетекание"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไหลรวม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Akışkan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перетікання"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chảy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "融合"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "融合"
+          }
+        }
+      }
+    },
     "settings.choice.fontSmoothingAuto": {
       "comment": "Text Smoothing choice: no override; the Mac's own smoothing and each page's own style.",
       "extractionState": "manual",
@@ -220622,6 +223258,270 @@
         }
       }
     },
+    "settings.appearance.backgroundMemory": {
+      "comment": "Settings > Appearance > Window Background: title of the hidden setting that keeps what each background mode last showed (CLI and docs only)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Background Mode Memory"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ذاكرة أوضاع الخلفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memorija načina pozadine"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hukommelse for baggrundstilstande"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gedächtnis der Hintergrundmodi"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memoria de los modos de fondo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mémoire des modes d’arrière-plan"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memoria delle modalità di sfondo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景モードの記憶"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការចងចាំរបៀបផ្ទៃខាងក្រោយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "배경 모드 기억"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minne for bakgrunnsmoduser"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pamięć trybów tła"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memória dos modos de fundo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Память режимов фона"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หน่วยความจำโหมดพื้นหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arka Plan Modu Belleği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пам’ять режимів тла"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bộ nhớ chế độ nền"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景模式记忆"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景模式記憶"
+          }
+        }
+      }
+    },
+    "settings.appearance.backgroundMemory.help": {
+      "comment": "Settings > Appearance > Window Background: help of the hidden setting that keeps each background mode's last folder and picture",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The folder and picture each background mode last showed, so switching back restores them."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المجلد والصورة اللذان عرضهما كل وضع خلفية آخر مرة، لتستعيدهما عند الرجوع إليه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mapa i slika koje je svaki način pozadine posljednje prikazao, da ih povratak vrati."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den mappe og det billede hver baggrundstilstand sidst viste, så de vender tilbage, når du skifter tilbage."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordner und Bild, die jeder Hintergrundmodus zuletzt zeigte, damit sie beim Zurückwechseln wiederkommen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La carpeta y la imagen que mostró por última vez cada modo de fondo, para recuperarlas al volver."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le dossier et l’image que chaque mode d’arrière-plan a montrés en dernier, rétablis quand vous y revenez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La cartella e l’immagine mostrate per ultime da ogni modalità di sfondo, ripristinate quando ci torni."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各背景モードが最後に表示したフォルダと画像。モードを戻すと復元されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថតនិងរូបភាពដែលរបៀបផ្ទៃខាងក្រោយនីមួយៗបានបង្ហាញចុងក្រោយ ដើម្បីស្ដារវាវិញពេលប្ដូរត្រឡប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 배경 모드가 마지막으로 보여 준 폴더와 그림으로, 다시 전환하면 복원됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mappen og bildet hver bakgrunnsmodus sist viste, så de kommer tilbake når du bytter tilbake."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Folder i obraz, które każdy tryb tła pokazał ostatnio, aby powrót do trybu je przywracał."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A pasta e a imagem que cada modo de fundo mostrou por último, restauradas ao voltar a ele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Папка и изображение, которые каждый режим фона показывал последними, чтобы вернуть их при возврате."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โฟลเดอร์และรูปภาพที่แต่ละโหมดพื้นหลังแสดงล่าสุด เพื่อกู้คืนเมื่อสลับกลับ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her arka plan modunun en son gösterdiği klasör ve resim; moda geri dönünce geri gelir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тека та зображення, які кожен режим тла показував останніми, щоб повернути їх під час повернення."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thư mục và ảnh mà mỗi chế độ nền hiển thị lần cuối, để khôi phục khi chuyển lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每种背景模式上次显示的文件夹和图片，切换回来时会恢复。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每種背景模式上次顯示的資料夾和圖片，切換回來時會還原。"
+          }
+        }
+      }
+    },
     "settings.default.fromTimeZone": {
       "comment": "Settings default label: the sun location comes from the time zone.",
       "extractionState": "manual",
@@ -220777,6 +223677,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "分區"
+          }
+        }
+      }
+    },
+    "settings.choice.groupBackgroundFolder": {
+      "comment": "Group background choice: no background, each group a plain folder with its members indented under it.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Folders"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مجلدات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mape"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mapper"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ordner"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Carpetas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dossiers"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cartelle"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "フォルダ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ថត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "폴더"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mapper"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Foldery"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pastas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Папки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โฟลเดอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klasörler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Теки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thư mục"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "文件夹"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "資料夾"
           }
         }
       }
@@ -229285,8 +232317,665 @@
         }
       }
     },
+    "settings.group.experiments": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التجارب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eksperimenti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eksperimenter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Experimente"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Experiments"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Experimentos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expériences"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esperimenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実験"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការពិសោធន៍"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실험"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eksperimenter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eksperymenty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Experimentos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эксперименты"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การทดลอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deneyler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Експерименти"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thử nghiệm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "实验"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "實驗"
+          }
+        }
+      }
+    },
+    "settings.experiments.composerV2": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Composer Refresh"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحديث مربع الرسالة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Osvježeni okvir za poruke"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fornyet beskedfelt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neues Nachrichtenfeld"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Caja de mensaje renovada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zone de message repensée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Casella messaggio rinnovata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいメッセージ欄"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រអប់សារថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 메시지 상자"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fornyet meldingsfelt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odświeżone pole wiadomości"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Caixa de mensagem renovada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обновлённое поле сообщения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กล่องข้อความแบบใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yenilenen mesaj kutusu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оновлене поле повідомлення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ô soạn tin mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新版消息框"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新版訊息框"
+          }
+        }
+      }
+    },
+    "settings.experiments.composerV2.help": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A glass composer with mode chips, mention chips and a round send button. Still being shaped."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مربع رسالة زجاجي مع شرائح للأوضاع والإشارات وزر إرسال دائري. لا يزال قيد التطوير."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stakleni okvir za poruke s oznakama načina i spominjanja i okruglim dugmetom za slanje. Još se oblikuje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et beskedfelt af glas med tilstandschips, omtalechips og en rund send-knap. Stadig under udformning."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein gläsernes Nachrichtenfeld mit Modus- und Erwähnungs-Chips und einer runden Senden-Taste. Noch in Arbeit."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una caja de mensaje de cristal con fichas de modo y de mención y un botón de enviar redondo. Aún en desarrollo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une zone de message en verre avec des pastilles de mode et de mention et un bouton d'envoi rond. Encore en cours de mise au point."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una casella messaggio in vetro con chip di modalità e di menzione e un pulsante di invio rotondo. Ancora in lavorazione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モードとメンションのチップ、丸い送信ボタンを備えたガラス調のメッセージ欄。調整中です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រអប់សារកញ្ចក់ ដែលមានបន្ទះរបៀប បន្ទះការលើកឡើង និងប៊ូតុងផ្ញើរាងមូល។ នៅកំពុងរៀបចំ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모드 칩, 멘션 칩, 둥근 보내기 버튼이 있는 유리 느낌의 메시지 상자입니다. 아직 다듬는 중입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et meldingsfelt av glass med modusbrikker, omtalebrikker og en rund send-knapp. Fortsatt under utforming."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Szklane pole wiadomości z etykietami trybu i wzmianek oraz okrągłym przyciskiem wysyłania. Wciąż dopracowywane."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma caixa de mensagem de vidro com chips de modo e de menção e um botão de enviar redondo. Ainda em desenvolvimento."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стеклянное поле сообщения с метками режима и упоминаний и круглой кнопкой отправки. Ещё дорабатывается."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กล่องข้อความแบบกระจกพร้อมชิปโหมด ชิปการกล่าวถึง และปุ่มส่งทรงกลม ยังอยู่ระหว่างปรับแต่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mod ve bahsetme etiketleri ile yuvarlak bir gönder düğmesi olan cam görünümlü mesaj kutusu. Hâlâ geliştiriliyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скляне поле повідомлення з мітками режиму й згадок і круглою кнопкою надсилання. Ще доопрацьовується."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ô soạn tin dạng kính với nhãn chế độ, nhãn nhắc tên và nút gửi tròn. Vẫn đang hoàn thiện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "玻璃质感的消息框，带有模式标签、提及标签和圆形发送按钮。仍在打磨中。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "玻璃質感的訊息框，帶有模式標籤、提及標籤和圓形傳送按鈕。仍在打磨中。"
+          }
+        }
+      }
+    },
+    "settings.experiments.glassToolbarGroups": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مجموعات شريط الأدوات الزجاجية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Staklene grupe alatne trake"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glasgrupper i værktøjslinjen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glas-Symbolleistengruppen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glass Toolbar Groups"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grupos de barra de herramientas de cristal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Groupes de barre d'outils en verre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gruppi della barra degli strumenti in vetro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ガラスのツールバーグループ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ក្រុមរបារឧបករណ៍កញ្ចក់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "유리 도구 막대 그룹"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glassgrupper i verktøylinjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Szklane grupy paska narzędzi"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grupos de barra de ferramentas de vidro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стеклянные группы панели инструментов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กลุ่มแถบเครื่องมือกระจก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cam araç çubuğu grupları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скляні групи панелі інструментів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhóm thanh công cụ kính"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "玻璃工具栏分组"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "玻璃工具列分組"
+          }
+        }
+      }
+    },
+    "settings.experiments.glassToolbarGroups.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تصبح أزرار ترويسة المحادثة أزرارًا زجاجية مستديرة، وتتشارك الإجراءات المترابطة كبسولة زجاجية واحدة، مع شريحة بحث ومفاتيح اختصار."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dugmad u zaglavlju razgovora postaju okrugla staklena dugmad, povezane radnje dijele jednu staklenu kapsulu, uz čip za pretragu i tipke prečica."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Knapperne i chattens overskrift bliver runde glasknapper, hvor relaterede handlinger deler én glaskapsel, med en søgechip og genvejstaster."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Schaltflächen der Chat-Kopfzeile werden zu runden Glasschaltflächen; zusammengehörige Aktionen teilen sich eine Glaskapsel, dazu ein Suchfeld und Kurzbefehl-Tasten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The chat header's buttons become round glass buttons, with related actions sharing one glass capsule, a search chip and shortcut keycaps."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los botones del encabezado del chat se vuelven botones redondos de cristal; las acciones relacionadas comparten una cápsula de cristal, con un chip de búsqueda y teclas de atajo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les boutons de l'en-tête du chat deviennent des boutons ronds en verre ; les actions liées partagent une même capsule de verre, avec une puce de recherche et des touches de raccourci."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I pulsanti dell'intestazione della chat diventano pulsanti rotondi in vetro; le azioni correlate condividono una capsula di vetro, con un chip di ricerca e tasti di scelta rapida."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットのヘッダーのボタンが丸いガラスのボタンになり、関連する操作は1つのガラスのカプセルにまとまります。検索チップとショートカットのキーキャップも表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប៊ូតុងនៅក្បាលការជជែកក្លាយជាប៊ូតុងកញ្ចក់មូល ដោយសកម្មភាពពាក់ព័ន្ធចែករំលែកកន្សោមកញ្ចក់តែមួយ ជាមួយបន្ទះស្វែងរក និងគ្រាប់ចុចផ្លូវកាត់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 헤더의 버튼이 둥근 유리 버튼이 되고, 관련 동작은 하나의 유리 캡슐을 함께 쓰며, 검색 칩과 단축키 키캡이 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Knappene i chattens topptekst blir runde glassknapper, der relaterte handlinger deler én glasskapsel, med en søkebrikke og snarveistaster."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przyciski w nagłówku czatu stają się okrągłymi szklanymi przyciskami, powiązane działania dzielą jedną szklaną kapsułę, z polem wyszukiwania i klawiszami skrótów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os botões do cabeçalho do chat viram botões redondos de vidro; ações relacionadas compartilham uma cápsula de vidro, com um chip de busca e teclas de atalho."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кнопки в заголовке чата становятся круглыми стеклянными кнопками, связанные действия делят одну стеклянную капсулу, а также появляются поле поиска и клавиши сочетаний."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปุ่มในส่วนหัวของแชทจะเป็นปุ่มกระจกทรงกลม การทำงานที่เกี่ยวข้องจะอยู่ในแคปซูลกระจกเดียวกัน พร้อมชิปค้นหาและปุ่มลัด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet başlığının düğmeleri yuvarlak cam düğmelere dönüşür; ilgili eylemler tek bir cam kapsülü paylaşır, bir arama çipi ve kısayol tuşları eklenir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кнопки в заголовку чату стають круглими скляними кнопками, пов'язані дії ділять одну скляну капсулу, а також з'являються поле пошуку й клавіші скорочень."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các nút trên tiêu đề cuộc trò chuyện trở thành nút kính tròn, các thao tác liên quan dùng chung một viên nang kính, kèm ô tìm kiếm và phím tắt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天标题栏的按钮变为圆形玻璃按钮，相关操作共用一个玻璃胶囊，并显示搜索标签和快捷键键帽。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天標題列的按鈕變為圓形玻璃按鈕，相關操作共用一個玻璃膠囊，並顯示搜尋標籤和快速鍵鍵帽。"
+          }
+        }
+      }
+    },
     "settings.labs.agentCustomization": {
-      "comment": "Settings > Advanced > Labs: toggle that shows and edits Claude Code's and Codex's own MCP servers (product names, never translated)",
+      "comment": "Settings > Advanced > Labs: toggle that shows and edits Claude Code's and Codex's own MCP servers, skills and commands (product names, never translated)",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -229424,127 +233113,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show and edit the MCP servers Claude Code and Codex use, in their own config files."
+            "value": "Show and edit the MCP servers, skills and commands Claude Code and Codex use, in their own config files."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "اعرض خوادم MCP التي يستخدمها Claude Code وCodex وعدّلها، في ملفات إعدادهما."
+            "value": "اعرض خوادم MCP والمهارات والأوامر التي يستخدمها Claude Code وCodex وعدّلها، في ملفات إعدادهما."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Prikažite i uredite MCP servere koje Claude Code i Codex koriste, u njihovim konfiguracijskim datotekama."
+            "value": "Prikažite i uredite MCP servere, vještine i komande koje Claude Code i Codex koriste, u njihovim konfiguracijskim datotekama."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis og rediger de MCP-servere, Claude Code og Codex bruger, i deres egne konfigurationsfiler."
+            "value": "Vis og rediger de MCP-servere, skills og kommandoer, Claude Code og Codex bruger, i deres egne konfigurationsfiler."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "MCP-Server, die Claude Code und Codex nutzen, in deren eigenen Konfigurationsdateien anzeigen und bearbeiten."
+            "value": "MCP-Server, Skills und Befehle, die Claude Code und Codex nutzen, in deren eigenen Konfigurationsdateien anzeigen und bearbeiten."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Muestra y edita los servidores MCP que usan Claude Code y Codex, en sus propios archivos de configuración."
+            "value": "Muestra y edita los servidores MCP, las habilidades y los comandos que usan Claude Code y Codex, en sus propios archivos de configuración."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Affichez et modifiez les serveurs MCP qu'utilisent Claude Code et Codex, dans leurs propres fichiers de configuration."
+            "value": "Affichez et modifiez les serveurs MCP, compétences et commandes qu'utilisent Claude Code et Codex, dans leurs propres fichiers de configuration."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostra e modifica i server MCP usati da Claude Code e Codex, nei loro file di configurazione."
+            "value": "Mostra e modifica i server MCP, le skill e i comandi usati da Claude Code e Codex, nei loro file di configurazione."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude Code と Codex が使う MCP サーバーを、それぞれの設定ファイルで表示・編集します。"
+            "value": "Claude Code と Codex が使う MCP サーバー、スキル、コマンドを、それぞれの設定ファイルで表示・編集します。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បង្ហាញ និងកែម៉ាស៊ីនមេ MCP ដែល Claude Code និង Codex ប្រើ នៅក្នុងឯកសារកំណត់ផ្ទាល់ខ្លួនរបស់វា។"
+            "value": "បង្ហាញ និងកែម៉ាស៊ីនមេ MCP ជំនាញ និងពាក្យបញ្ជា ដែល Claude Code និង Codex ប្រើ នៅក្នុងឯកសារកំណត់ផ្ទាល់ខ្លួនរបស់វា។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude Code와 Codex가 쓰는 MCP 서버를 각자의 설정 파일에서 보고 편집합니다."
+            "value": "Claude Code와 Codex가 쓰는 MCP 서버, 스킬, 명령을 각자의 설정 파일에서 보고 편집합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis og rediger MCP-serverne Claude Code og Codex bruker, i deres egne konfigurasjonsfiler."
+            "value": "Vis og rediger MCP-serverne, ferdighetene og kommandoene Claude Code og Codex bruker, i deres egne konfigurasjonsfiler."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pokaż i edytuj serwery MCP używane przez Claude Code i Codex, w ich własnych plikach konfiguracji."
+            "value": "Pokaż i edytuj serwery MCP, umiejętności i polecenia używane przez Claude Code i Codex, w ich własnych plikach konfiguracji."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostre e edite os servidores MCP que o Claude Code e o Codex usam, nos próprios arquivos de configuração deles."
+            "value": "Mostre e edite os servidores MCP, as habilidades e os comandos que o Claude Code e o Codex usam, nos próprios arquivos de configuração deles."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Показывать и изменять серверы MCP, которые используют Claude Code и Codex, в их собственных файлах настроек."
+            "value": "Показывать и изменять серверы MCP, навыки и команды, которые используют Claude Code и Codex, в их собственных файлах настроек."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "แสดงและแก้ไขเซิร์ฟเวอร์ MCP ที่ Claude Code และ Codex ใช้ ในไฟล์ตั้งค่าของแต่ละตัว"
+            "value": "แสดงและแก้ไขเซิร์ฟเวอร์ MCP ทักษะ และคำสั่งที่ Claude Code และ Codex ใช้ ในไฟล์ตั้งค่าของแต่ละตัว"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude Code ve Codex'in kullandığı MCP sunucularını kendi yapılandırma dosyalarında gösterin ve düzenleyin."
+            "value": "Claude Code ve Codex'in kullandığı MCP sunucularını, becerileri ve komutları kendi yapılandırma dosyalarında gösterin ve düzenleyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Показувати й редагувати сервери MCP, які використовують Claude Code і Codex, у їхніх власних файлах налаштувань."
+            "value": "Показувати й редагувати сервери MCP, навички та команди, які використовують Claude Code і Codex, у їхніх власних файлах налаштувань."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hiện và sửa các máy chủ MCP mà Claude Code và Codex dùng, trong tệp cấu hình riêng của chúng."
+            "value": "Hiện và sửa các máy chủ MCP, kỹ năng và lệnh mà Claude Code và Codex dùng, trong tệp cấu hình riêng của chúng."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 Claude Code 和 Codex 各自的配置文件中查看和编辑它们使用的 MCP 服务器。"
+            "value": "在 Claude Code 和 Codex 各自的配置文件中查看和编辑它们使用的 MCP 服务器、技能和命令。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 Claude Code 與 Codex 各自的設定檔中檢視和編輯它們使用的 MCP 伺服器。"
+            "value": "在 Claude Code 與 Codex 各自的設定檔中檢視和編輯它們使用的 MCP 伺服器、技能和命令。"
           }
         }
       }
@@ -230069,6 +233758,798 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux 需閒置多久，「閒置時更新」才會安裝。"
+          }
+        }
+      }
+    },
+    "settings.sidebar.look": {
+      "comment": "Sidebar Look setting: draws the sidebar like the Claude app, the Codex app or a studio app, or cmux itself.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar Look"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーの見た目"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مظهر الشريط الجانبي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Izgled bočne trake"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidepanelets udseende"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aussehen der Seitenleiste"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aspecto de la barra lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apparence de la barre latérale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aspetto della barra laterale"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រូបរាងរបារចំហៀង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바 모양"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidepanelets utseende"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wygląd paska bocznego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aparência da barra lateral"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вид боковой панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รูปลักษณ์แถบด้านข้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kenar çubuğu görünümü"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вигляд бічної панелі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giao diện thanh bên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "边栏外观"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "側邊欄外觀"
+          }
+        }
+      }
+    },
+    "settings.sidebar.look.help": {
+      "comment": "Help under the Sidebar Look setting.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rows, headers and status marks like another app's sidebar. Your own sidebar settings still win."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行、見出し、ステータス表示を別のアプリのサイドバーのようにします。自分のサイドバー設定が引き続き優先されます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "صفوف وعناوين وعلامات حالة مثل الشريط الجانبي لتطبيق آخر. تبقى إعداداتك الخاصة للشريط الجانبي هي الغالبة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redovi, naslovi i oznake statusa kao u bočnoj traci druge aplikacije. Vaše postavke bočne trake i dalje imaju prednost."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rækker, overskrifter og statusmærker som i en anden apps sidepanel. Dine egne sidepanelindstillinger vinder stadig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeilen, Überschriften und Statusmarken wie in der Seitenleiste einer anderen App. Deine eigenen Seitenleisten-Einstellungen haben weiterhin Vorrang."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filas, encabezados y marcas de estado como en la barra lateral de otra app. Tus propios ajustes de la barra lateral siguen mandando."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lignes, en-têtes et marques d’état comme dans la barre latérale d’une autre app. Vos propres réglages de la barre latérale restent prioritaires."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Righe, intestazioni e indicatori di stato come nella barra laterale di un’altra app. Le tue impostazioni della barra laterale hanno sempre la precedenza."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជួរ ក្បាល និងសញ្ញាស្ថានភាពដូចរបារចំហៀងរបស់កម្មវិធីផ្សេង។ ការកំណត់របារចំហៀងផ្ទាល់ខ្លួនរបស់អ្នកនៅតែឈ្នះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 앱의 사이드바처럼 행, 머리글, 상태 표시를 보여 줍니다. 직접 정한 사이드바 설정이 계속 우선합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rader, overskrifter og statusmerker som i en annen apps sidepanel. Dine egne sidepanelinnstillinger gjelder fortsatt først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wiersze, nagłówki i znaczniki stanu jak w pasku bocznym innej aplikacji. Twoje własne ustawienia paska bocznego nadal mają pierwszeństwo."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linhas, cabeçalhos e marcas de status como na barra lateral de outro app. Seus próprios ajustes da barra lateral continuam valendo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Строки, заголовки и значки статуса как в боковой панели другого приложения. Ваши собственные настройки боковой панели по-прежнему главнее."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แถว หัวข้อ และเครื่องหมายสถานะแบบแถบด้านข้างของแอปอื่น การตั้งค่าแถบด้านข้างของคุณเองยังคงมีผลก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Satırlar, başlıklar ve durum işaretleri başka bir uygulamanın kenar çubuğu gibi. Kendi kenar çubuğu ayarlarınız yine önceliklidir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рядки, заголовки й позначки стану як у бічній панелі іншої програми. Ваші власні налаштування бічної панелі й надалі мають перевагу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hàng, tiêu đề và dấu trạng thái giống thanh bên của một ứng dụng khác. Cài đặt thanh bên của riêng bạn vẫn được ưu tiên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行、标题和状态标记如同另一款应用的边栏。你自己的边栏设置仍然优先。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列、標題和狀態標記如同另一款 App 的側邊欄。你自己的側邊欄設定仍然優先。"
+          }
+        }
+      }
+    },
+    "settings.choice.sidebarLookCmux": {
+      "comment": "Sidebar Look choice: cmux own sidebar (product name, not translated).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux"
+          }
+        }
+      }
+    },
+    "settings.choice.sidebarLookClaude": {
+      "comment": "Sidebar Look choice: like the Claude app (product name, not translated).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        }
+      }
+    },
+    "settings.choice.sidebarLookCodex": {
+      "comment": "Sidebar Look choice: like the Codex app (product name, not translated).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        }
+      }
+    },
+    "settings.choice.sidebarLookStudio": {
+      "comment": "Sidebar Look choice: like a coding studio app.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Studio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スタジオ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استوديو"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Studio"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Studie"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Studio"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estudio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Studio"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Studio"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្ទូឌីយោ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스튜디오"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Studio"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Studio"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estúdio"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Студия"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สตูดิโอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stüdyo"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Студія"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Studio"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作室"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作室"
           }
         }
       }

@@ -10,6 +10,9 @@
 //     wait for the same wake), then proxies;
 //   - a released stack: its entry stays (state reaped) until the next gc, and a request that still reaches the
 //     router (its Serve entry is gone, so only one already on its way) answers 404 with what to run.
+// A public authority (<svc>.<slot>.wdev.cmux.dev, which only the authenticating gateway reaches through the Cloudflare
+// Tunnel) also refuses a request whose build space names another tag (a phone that kept a released stack's origin
+// after its slot went to another tag), and serves GET /__wdev/jwks: the stack's public keys, for the gateway.
 // Each request counts as the stack's activity (its heartbeat file, at most every 30 s), which the reaper's idle
 // stop reads. Nothing here reads a credential or a request body.
 import { spawn } from "node:child_process"
@@ -130,6 +133,39 @@ function refuse(res, status, message) {
 const agent = new http.Agent({ keepAlive: true, maxSockets: 256 })
 
 /** A request with no body: safe to send again after a wake (its upstream never got anything else). */
+/** The tag a request's build space names (`X-Cmux-Build-Space: dev:<slug>`), or undefined. */
+export function spaceTag(headers) {
+  const v = (headers["x-cmux-build-space"] ?? "").trim()
+  return v.startsWith("dev:") ? v.slice(4) : undefined
+}
+
+/** Why a public request must not reach this stack, or undefined. */
+export function publicRefusal(route, headers) {
+  if (!route.public) return undefined
+  const tag = spaceTag(headers)
+  // Names neither tag: anyone on the internet can send this header to an open path.
+  return tag !== undefined && tag !== route.tag ? "this origin is another tag's stack (its slot changed hands); run the hand-off again" : undefined
+}
+
+/** A path the gateway lets through with no credential (gateway/index.js OPEN), on a public host. Anyone can send
+ * one, so it never counts as the stack's activity and never wakes it: a stopped stack answers 503 until a
+ * signed-in request wakes it. */
+export function publicOpenPath(route, req, host) {
+  if (!route.public || req.method !== "GET") return false
+  const path = (req.url ?? "").split("?")[0]
+  const svc = String(host ?? "").toLowerCase().split(".")[0]
+  return path === "/v1/health" || (svc === "api" && (path === "/v1/client-config" || path === "/.well-known/jwks.json"))
+}
+
+function serveJwks(opts, res, route) {
+  let body = '{"keys":[]}'
+  try {
+    body = readFileSync(join(opts.base, "stacks", route.tag, "public-jwks.json"), "utf8")
+  } catch {}
+  res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" })
+  res.end(body)
+}
+
 const bodyless = (req) =>
   ["GET", "HEAD", "OPTIONS"].includes(req.method) && !req.headers["content-length"] && !req.headers["transfer-encoding"]
 
@@ -230,6 +266,13 @@ export function createRouter(opts = {}) {
   const handleRequest = async (req, res) => {
     const route = routeFor(table(), req.headers.host)
     if (!route) return refuse(res, 421, `no tag stack answers on ${req.headers.host ?? "(no host)"}`)
+    const refused = publicRefusal(route, req.headers)
+    if (refused) return refuse(res, 421, refused)
+    if (route.public && req.method === "GET" && req.url === "/__wdev/jwks") return serveJwks(opts, res, route)
+    if (publicOpenPath(route, req, req.headers.host)) {
+      if (stackState(opts.base, route.tag) !== "running") return refuse(res, 503, "the stack is stopped; a signed-in request wakes it")
+      return proxy({ ...opts, wakeRun: async () => { throw new Error("not woken by an open path") } }, req, res, route)
+    }
     heartbeat(opts.base, route.tag)
     // A client that leaves while its stack wakes is not sent on: its request never reaches the stack.
     let gone = false
@@ -256,7 +299,7 @@ export function createRouter(opts = {}) {
   })
   const handleUpgrade = async (req, socket, head) => {
     const route = routeFor(table(), req.headers.host)
-    if (!route) return socket.end("HTTP/1.1 421 Misdirected Request\r\nconnection: close\r\n\r\n")
+    if (!route || publicRefusal(route, req.headers)) return socket.end("HTTP/1.1 421 Misdirected Request\r\nconnection: close\r\n\r\n")
     heartbeat(opts.base, route.tag)
     try {
       await ready(opts, route)

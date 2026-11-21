@@ -148,17 +148,17 @@ fn session_tail_stops_on_a_closed_pipe() {
 #[cfg(unix)]
 #[test]
 fn session_tail_sees_a_pipe_whose_reader_closed() {
-    let mut fds = [0 as libc::c_int; 2];
-    // SAFETY: a two-element array for pipe's out fds.
-    assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
-    let [read, write] = fds;
-    assert_eq!(fd_kind(write), Stdout::Read);
-    assert!(!fd_reader_gone(write, Duration::from_millis(50)), "an open pipe");
-    // SAFETY: our own fds.
-    unsafe { libc::close(read) };
-    assert!(fd_reader_gone(write, Duration::from_millis(50)), "a pipe with no reader");
-    // SAFETY: our own fd.
-    unsafe { libc::close(write) };
+    use std::os::fd::AsRawFd as _;
+    // `std::io::pipe` opens both ends close-on-exec: a child another test spawns meanwhile keeps
+    // no copy of the read end, which would leave the pipe a reader (a bare `libc::pipe` did, and
+    // the check below failed whenever the suite spawned a process in that window).
+    let (read, write) = std::io::pipe().unwrap();
+    let fd = write.as_raw_fd();
+    assert_eq!(fd_kind(fd), Stdout::Read);
+    assert!(!fd_reader_gone(fd, Duration::from_millis(50)), "an open pipe");
+    drop(read);
+    assert!(fd_reader_gone(fd, Duration::from_millis(50)), "a pipe with no reader");
+    drop(write);
     assert!(!parent_gone(crate::parent_watch::parent_pid()));
     let null = std::fs::OpenOptions::new().write(true).open("/dev/null").unwrap();
     assert_eq!(fd_kind(std::os::fd::AsRawFd::as_raw_fd(&null)), Stdout::Unread);
