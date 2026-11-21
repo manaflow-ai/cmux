@@ -217,10 +217,34 @@ function foldedRun(members: readonly AcpmuxRow[]): FoldedRun {
   };
 }
 
+/// When a running turn's message runs fold (gallery `agent-pane.message-run-fold-timing`,
+/// `<html data-message-run-fold>`): `run-end` (shipped), once prose or a card ends the run, the
+/// moment its calls fold into their run's line (turns.ts `codexRuns`); `turn-end`, only when the turn
+/// ends; `now`, as soon as the run carries a message and draws two lines, the run the agent is still
+/// in included, which it did before (Leo, 2026-11-21: "the messages and whatever collapsing and
+/// stuff, sometimes it does so too soon in the midst of a turn"). Read once per running turn's shape.
+export type MessageRunFoldLook = "run-end" | "turn-end" | "now";
+export function messageRunFoldLook(): MessageRunFoldLook {
+  const set = typeof document === "undefined" ? undefined : document.documentElement?.dataset.messageRunFold;
+  return set === "turn-end" || set === "now" ? set : "run-end";
+}
+
+/// Whether the agent is still in the run that ends at `rows[end - 1]`: no paragraph of its own
+/// comes after it yet. A message that comes in, the live line or the next call never ends a run;
+/// the agent's prose does, as it ends a run of calls (turns.ts `codexRuns`).
+function stillInRun(rows: readonly AcpmuxRow[], end: number): boolean {
+  for (let at = end; at < rows.length; at += 1) if (rows[at]!.kind === "assistant") return false;
+  return true;
+}
+
 /// `rows` with each run that carries a message and draws two or more lines folded under its line:
 /// the line alone while closed, the line and its rows while open (`expanded` holds the line's id).
-/// A run without a message, or of one line, is `rows` as they were.
-export function foldMessageRuns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRow[] {
+/// A run without a message, or of one line, is `rows` as they were. `live`: the rows are a running
+/// turn's, whose last run (after the agent's last paragraph) is still going and never folds: a
+/// message that comes in, or the next call, stays in sight until the run ends (`messageRunFoldLook`).
+export function foldMessageRuns(rows: AcpmuxRow[], expanded: Folds, live = false): AcpmuxRow[] {
+  const look = live ? messageRunFoldLook() : "now";
+  if (look === "turn-end") return rows;
   let out: AcpmuxRow[] | undefined;
   let index = 0;
   while (index < rows.length) {
@@ -229,6 +253,11 @@ export function foldMessageRuns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRow[]
     if (end === index) {
       out?.push(rows[index]!);
       index += 1;
+      continue;
+    }
+    if (look === "run-end" && stillInRun(rows, end)) {
+      out?.push(...rows.slice(index, end));
+      index = end;
       continue;
     }
     const first = rows[index]!;
