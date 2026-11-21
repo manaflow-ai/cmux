@@ -180,13 +180,11 @@ impl Hub {
         }
     }
 
-    /// At an unguarded finish: the chat's log through the import's last seq is what move
-    /// `transfer_id` shipped. The seq is the import's (`import_into` leaves it as the chat's
-    /// `transcript_seq`); one read later than that is refused by its digest, the source's record
-    /// at that seq being another.
-    pub(in crate::hub) fn note_received(&self, session: &Session, transfer_id: &Value) {
+    /// At an unguarded finish: the chat's log through `seq`, the bundle's last record (its meta's
+    /// `last_seq`, taken under the source's freeze), is what move `transfer_id` shipped. A seq
+    /// that is not is refused at a later stage by its digest: the source's record there differs.
+    pub(in crate::hub) fn note_received(&self, session: &Session, transfer_id: &Value, seq: u64) {
         let Some(note) = self.base_note(&session.id) else { return };
-        let seq = session.meta().transcript_seq;
         let (Some(transfer_id), Ok(stamp), Ok(Some(digest))) = (
             transfer_id.as_str(),
             self.store.log_stamp(&session.id),
@@ -699,25 +697,4 @@ fn adopt_index(file: &Path, dir: &Path) {
     let target = to.join("000000.ndjson");
     let _ = crate::home_fs::remove_file(&target);
     let _ = crate::home_fs::hard_link(&copy, &target);
-}
-
-// PCT-TEMP
-pub(crate) struct Pct(std::time::Instant, &'static str);
-impl Pct {
-    pub(crate) fn new(what: &'static str) -> Self {
-        Self(std::time::Instant::now(), what)
-    }
-    pub(crate) fn at(&mut self, label: &str) {
-        pct_log(format!("PCT {} {} {}", self.1, label, self.0.elapsed().as_micros()));
-        self.0 = std::time::Instant::now();
-    }
-}
-
-pub(crate) fn pct_log(line: String) {
-    if let Some(p) = std::env::var_os("ACPMUX_PCT") {
-        use std::io::Write;
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(p) {
-            let _ = writeln!(f, "{line}");
-        }
-    }
 }

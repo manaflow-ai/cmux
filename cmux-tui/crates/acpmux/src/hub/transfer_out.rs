@@ -270,7 +270,10 @@ impl Hub {
                 };
                 self.transfer_begin(&session, interrupt, socket, ssh, host, gates, precopy).await
             }
-            "prepare" => self.transfer_prepare(&self.resolve(text("sessionId"))?),
+            "prepare" => {
+                self.transfer_prepare(&self.resolve(text("sessionId"))?, params.get("base"))
+            }
+            "base" => self.transfer_base(params),
             "stage" => self.transfer_stage(params),
             "stage_finish" => self.transfer_stage_finish(params),
             "read" => {
@@ -421,7 +424,6 @@ impl Hub {
             drop(guard);
             return Err(unfreeze(transfer_error("busy", "a recovered turn is running"), carried));
         }
-        let mut pct = transfer_precopy::Pct::new("begin");
         // Nothing appends now: the prepared prefix is the log's head, or the move is refused.
         let prefix = match precopy.map(|(id, after)| self.check_prefix(session, id, after)) {
             Some(Err(error)) => {
@@ -431,7 +433,6 @@ impl Hub {
             Some(Ok(prefix)) => Some(prefix),
             None => None,
         };
-        pct.at("check_prefix");
         // Export before the ownership scan so a concurrent log-scan callback cannot remove a
         // held prompt before `held_prompts` captures the move's exact queue snapshot.
         if let Err(error) = crate::home_fs::create_dirs(&dir) {
@@ -457,7 +458,6 @@ impl Hub {
                     .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))?;
                 Ok((files, approved_waiting))
             });
-        pct.at("export+held");
         let (files, approved_waiting) = match made {
             Ok(made) => made,
             Err(error) => {
@@ -478,7 +478,6 @@ impl Hub {
                 carried,
             ));
         }
-        pct.at("restore_epoch");
         let epoch = session.bump_ownership_epoch();
         if let Err(error) = crate::home_fs::write(dir.join("epoch"), epoch.to_string()) {
             drop(guard);
@@ -502,7 +501,6 @@ impl Hub {
                 carried,
             ));
         }
-        pct.at("append_out");
         drop(guard);
         if let Some(socket) = to {
             let _ = crate::home_fs::write(dir.join("to"), socket);
@@ -558,7 +556,6 @@ impl Hub {
         {
             answer.set("harness", manifest.get("harness").cloned().unwrap_or(Value::Null));
         }
-        pct.at("answer");
         Ok(answer)
     }
 
@@ -652,7 +649,6 @@ impl Hub {
         if let Some(epoch) = transfer_epoch_marker(&dir)? {
             check_epoch(current, Some(epoch))?;
         }
-        let mut pct = transfer_precopy::Pct::new("commit");
         for q in session.queue() {
             self.remove_queued(session, &q.prompt_id);
         }
@@ -667,19 +663,16 @@ impl Hub {
         // mark must outlive a restart or the source could reopen and run it: `committed` is
         // answered only once it is on disk.
         self.save_meta_answered(session)?;
-        pct.at("dequeue+save");
         self.append(
             session,
             "mux",
             "transferred",
             json!({"transferId": transfer_id, "to": to, "epoch": session.ownership_epoch()}),
         );
-        pct.at("append_transferred");
         self.kill(session, false).await?;
-        pct.at("kill");
+        self.note_shipped(session, transfer_id);
         transfer_precopy::forget_prepared(&dir);
         let _ = crate::home_fs::remove_dir_all(transfers_dir().join(transfer_id));
-        pct.at("rm");
         Ok(json!({"sessionId": session.id, "transferId": transfer_id, "committed": true}))
     }
 

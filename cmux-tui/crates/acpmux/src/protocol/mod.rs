@@ -425,6 +425,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/chats_window_changed", Notification),
         // Moving a chat to another daemon (`transfer_out.rs`).
         untyped("_acpmux/transfer_abort", Request),
+        untyped("_acpmux/transfer_base", Request),
         untyped("_acpmux/transfer_begin", Request),
         untyped("_acpmux/transfer_commit", Request),
         untyped("_acpmux/transfer_finish", Request),

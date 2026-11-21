@@ -334,10 +334,12 @@ pub const CAPABILITIES: &[Capability] = &[
     // Pre-copy for a chat move (`hub/transfer_precopy.rs`): `transfer_prepare` exports the log
     // without a freeze, a target stages it (`transfer_stage`, `transfer_stage_finish`), and
     // `transfer_begin {prepareId, afterSeq}` freezes the chat for only what followed. A client
-    // pre-copies only between two daemons that both list it.
+    // pre-copies only between two daemons that both list it; `transfer_base` names the copy a
+    // target still holds from the chat's last move, for a prepare of only what came after.
     Capability {
         id: TRANSFER_PRECOPY,
         wire: &[
+            "_acpmux/transfer_base",
             "_acpmux/transfer_prepare",
             "_acpmux/transfer_stage",
             "_acpmux/transfer_stage_finish",

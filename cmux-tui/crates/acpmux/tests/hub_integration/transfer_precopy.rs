@@ -15,7 +15,18 @@ async fn two_local() -> ([std::path::PathBuf; 2], TestClient, TestClient) {
 
 /// Prepares `id` on `src` and stages its prefix on `dst`: `(prepare answer, stageId)`.
 async fn stage(src: &mut TestClient, dst: &mut TestClient, id: &str) -> (Value, String) {
-    let prepared = src.request("_acpmux/transfer_prepare", json!({"sessionId": id})).await.unwrap();
+    stage_from(src, dst, id, Value::Null).await
+}
+
+/// [`stage`] of a prepare from `base`, as `transfer_base` named it on `dst`.
+async fn stage_from(
+    src: &mut TestClient,
+    dst: &mut TestClient,
+    id: &str,
+    base: Value,
+) -> (Value, String) {
+    let params = json!({"sessionId": id, "base": base});
+    let prepared = src.request("_acpmux/transfer_prepare", params).await.unwrap();
     assert_eq!(prepared["schema"], "acpmux.transfer.prefix.v1", "{prepared}");
     let staged =
         dst.request("_acpmux/transfer_stage", json!({"manifest": prepared})).await.unwrap();
@@ -167,6 +178,60 @@ async fn a_precopied_move_keeps_history_queue_and_draft_and_each_queued_prompt_r
     assert_eq!(home[home.len() - 2..], ["there", "home"], "{home:?}");
     assert_eq!(home.len(), 8, "{home:?}");
     assert_whole_log(&mut src, &id).await;
+    for dir in dirs {
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
+/// The size of the prepare's prefix file.
+fn prefix_bytes(prepared: &Value) -> u64 {
+    prepared["files"].as_array().unwrap().iter().map(|f| f["size"].as_u64().unwrap()).sum()
+}
+
+#[tokio::test]
+async fn a_chat_that_comes_back_pre_copies_only_what_it_did_away() {
+    let (dirs, mut src, mut dst) = two_local().await;
+    let s =
+        src.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    src.request(method::SESSION_PROMPT, prompt(&id, "p-big", "chunks: 400")).await.unwrap();
+    let base = dst.request("_acpmux/transfer_base", json!({"sessionId": id})).await.unwrap();
+    assert_eq!(base["base"], Value::Null, "the target never held it: {base}");
+    let (prepared, stage_id) = stage(&mut src, &mut dst, &id).await;
+    let full = prefix_bytes(&prepared);
+    let begin = move_staged(&mut src, &mut dst, &id, &prepared, &stage_id, false).await;
+
+    // Back: the source holds the copy that move shipped, and the target has done one turn since.
+    dst.request(method::SESSION_PROMPT, prompt(&id, "p-there", "there")).await.unwrap();
+    let base = src.request("_acpmux/transfer_base", json!({"sessionId": id})).await.unwrap();
+    assert_eq!(base["base"]["transferId"], begin["transferId"], "{base}");
+    let (prepared, stage_id) = stage_from(&mut dst, &mut src, &id, base["base"].clone()).await;
+    assert_eq!(prepared["base"]["transferId"], begin["transferId"], "{prepared}");
+    let delta = prefix_bytes(&prepared);
+    assert!(delta * 4 < full, "only what it did away: {delta} of {full} bytes");
+    let begin = move_staged(&mut dst, &mut src, &id, &prepared, &stage_id, false).await;
+    src.request(method::SESSION_PROMPT, prompt(&id, "p-home", "home")).await.unwrap();
+    assert_eq!(texts(&mut src, &id, "user_message").await, ["chunks: 400", "there", "home"]);
+    let (records, _) = whole_log(&mut src, &id).await;
+
+    // And out again from that base; a base of another move is not taken, and a stage of a
+    // prefix from a base this daemon does not hold is refused.
+    let wrong = json!({"sessionId": id, "base": {"transferId": "other"}});
+    let full_again = src.request("_acpmux/transfer_prepare", wrong).await.unwrap();
+    assert_eq!(full_again["base"], Value::Null, "{full_again}");
+    let base = dst.request("_acpmux/transfer_base", json!({"sessionId": id})).await.unwrap();
+    assert_eq!(base["base"]["transferId"], begin["transferId"], "{base}");
+    let params = json!({"sessionId": id, "base": base["base"]});
+    let based = src.request("_acpmux/transfer_prepare", params).await.unwrap();
+    let mut forged = based.clone();
+    forged["base"]["digest"] = json!("0".repeat(64));
+    let refused = dst.request("_acpmux/transfer_stage", json!({"manifest": forged})).await;
+    assert!(refused.as_ref().is_err_and(|e| e.contains("transfer.unbased")), "{refused:?}");
+    let (prepared, stage_id) = stage_from(&mut src, &mut dst, &id, base["base"].clone()).await;
+    move_staged(&mut src, &mut dst, &id, &prepared, &stage_id, false).await;
+    let (moved, said) = whole_log(&mut dst, &id).await;
+    assert_eq!(said, ["chunks: 400", "there", "home"]);
+    assert!(moved > records, "the move's own records follow: {moved} after {records}");
     for dir in dirs {
         let _ = std::fs::remove_dir_all(dir);
     }

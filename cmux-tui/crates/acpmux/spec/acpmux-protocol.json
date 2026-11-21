@@ -1625,6 +1625,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/transfer_base",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/transfer_begin",
       "params": true,
       "result": true
