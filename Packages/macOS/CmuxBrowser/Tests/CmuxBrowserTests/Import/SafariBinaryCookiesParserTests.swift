@@ -444,6 +444,21 @@ private struct BinaryCookiesFixture {
         }
     }
 
+    /// Bounds the cookies decoded from repeated record offsets, which stay far under the byte limit.
+    @Test func boundsTheCookiesDecodedFromRepeatedRecordOffsets() throws {
+        let times = 200_000
+        let page = BinaryCookiesFixture.pageRepeatingOneRecord(sessionCookie, times: times)
+        let data = BinaryCookiesFixture.file(encodedPages: [page])
+        let recordSize = BinaryCookiesFixture.record(sessionCookie).count
+
+        // The byte limit alone does not stop this store.
+        #expect(recordSize * times < parser.maximumDecodedBytes)
+        // The result is discarded so a failure does not print every cookie.
+        #expect(throws: SafariBinaryCookiesParser.ParseError.self) {
+            _ = try parser.parse(data)
+        }
+    }
+
     /// Rejects a string offset inside the fixed header.
     @Test func rejectsAStringOffsetInsideTheFixedHeader() {
         var bytes = [UInt8](BinaryCookiesFixture.file(pages: [[sessionCookie]]))
