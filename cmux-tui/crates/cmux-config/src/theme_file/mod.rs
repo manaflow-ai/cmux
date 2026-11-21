@@ -50,9 +50,9 @@ pub const RESERVED_KEYS: [&str; 6] =
     ["name", "description", "$schema", "colors", "ghostty", "density"];
 /// Look keys that are no part of a look: the theme file itself, the star
 /// list and its rotation, per-machine and per-display maps, the sun location
-/// (where this Mac is), the saved
+/// (where this Mac is), what each background mode last showed, the saved
 /// custom densities, and the keys the person changed over the file.
-const EXCLUDED_KEYS: [&str; 9] = [
+const EXCLUDED_KEYS: [&str; 10] = [
     SETTING_KEY,
     "appearance.favoriteThemes",
     "appearance.rotateFavoriteThemes",
@@ -61,6 +61,7 @@ const EXCLUDED_KEYS: [&str; 9] = [
     "appearance.displayBackgroundRotations",
     "appearance.customDensities",
     "appearance.backgroundLocation",
+    "appearance.backgroundMemory",
     EXCEPTIONS_KEY,
 ];
 /// The look keys the person changed in Settings while the active theme
@@ -86,17 +87,18 @@ const LOOK_PREFIXES: [&str; 7] = [
     "app.uiScale",
 ];
 /// Look keys outside those prefixes: the terminal font; the sidebar's shape,
-/// edges, text, group headers and buttons; the tab strip's and titlebar's
-/// buttons and inactive tabs; pane corners; and the agent chat's text sizes,
-/// sender marks and Session Info. Keep in step with Swift
-/// `ThemeFileOverlay.lookKeys`.
-const LOOK_KEYS: [&str; 35] = [
+/// edges, text, group headers and buttons, and the sidebar look
+/// (`sidebar_look`); the tab strip's and titlebar's buttons and inactive tabs;
+/// pane corners; and the agent chat's text sizes, sender marks and Session
+/// Info. Keep in step with Swift `ThemeFileOverlay.lookKeys`.
+const LOOK_KEYS: [&str; 36] = [
     "terminal.fontFamily",
     "terminal.fontSize",
     "sidebar.style",
     "sidebar.border",
     "sidebar.borderWidth",
     "sidebar.sectionLook",
+    "sidebar.look",
     "sidebar.density",
     "sidebar.textSize",
     "sidebar.groupHeader.background",

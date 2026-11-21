@@ -55,13 +55,16 @@ public struct KeychainProviderKeyStore: ProviderKeyStoring {
 
     public func save(_ key: String, for provider: AIProvider) throws {
         let data = Data(key.utf8)
-        let status = SecItemUpdate(base(provider) as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        // No UI: a refused update throws below and never adds a second item.
+        let status = loginKeychain.withoutUI {
+            SecItemUpdate(base(provider) as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        }
         if status == errSecItemNotFound {
             var add = base(provider)
             add[kSecValueData as String] = data
             add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
             add[kSecAttrLabel as String] = "cmux \(provider.displayName) API key"
-            let added = SecItemAdd(add as CFDictionary, nil)
+            let added = loginKeychain.withoutUI { SecItemAdd(add as CFDictionary, nil) }
             guard added == errSecSuccess else { throw ProviderKeyStoreError(status: added) }
         } else if status != errSecSuccess {
             throw ProviderKeyStoreError(status: status)
@@ -81,7 +84,7 @@ public struct KeychainProviderKeyStore: ProviderKeyStoring {
     }
 
     public func delete(for provider: AIProvider) throws {
-        let status = SecItemDelete(base(provider) as CFDictionary)
+        let status = loginKeychain.withoutUI { SecItemDelete(base(provider) as CFDictionary) }
         guard status == errSecSuccess || status == errSecItemNotFound else { throw ProviderKeyStoreError(status: status) }
     }
 }

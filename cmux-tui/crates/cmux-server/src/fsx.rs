@@ -324,6 +324,67 @@ pub fn remove_tree(path: &Path) -> Result<()> {
     fs::remove_dir(path).ctx(path.display())
 }
 
+/// Removes the file at `path` only when, as it goes, it is still one
+/// `ours` accepts. Returns false when there is none.
+///
+/// The file is first renamed to a private name in its folder (rename moves
+/// the entry itself and never follows a symlink), then read through that
+/// name without following a symlink. So the file checked is the file
+/// removed: an edit or swap at any time before the rename is caught, and
+/// after it nothing else reaches the file by its name. A file `ours`
+/// refuses goes back to its name, never over a new file there (a hard link
+/// fails when the name is taken), and the call fails.
+pub fn remove_if_unchanged(path: &Path, ours: impl Fn(&[u8]) -> bool) -> Result<bool> {
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.subsec_nanos());
+    let claimed =
+        path.with_file_name(format!(".{name}.cmux-removing.{}.{nanos}", std::process::id()));
+    match fs::rename(path, &claimed) {
+        Ok(()) => {}
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(crate::error::Error::io(path.display(), e)),
+    }
+    if read_plain_file(&claimed).is_some_and(|bytes| ours(&bytes)) {
+        fs::remove_file(&claimed).ctx(claimed.display())?;
+        return Ok(true);
+    }
+    let back = fs::hard_link(&claimed, path).is_ok() && fs::remove_file(&claimed).is_ok();
+    Err(crate::error::Error::rejected(if back {
+        format!(
+            "{} changed while cmux uninstalled it and is no longer the file cmux wrote, so cmux left it in place; nothing else was removed",
+            path.display()
+        )
+    } else {
+        format!(
+            "{} changed while cmux uninstalled it and is no longer the file cmux wrote; a new file took its name, so cmux kept the changed one at {}",
+            path.display(),
+            claimed.display()
+        )
+    }))
+}
+
+/// The bytes of the plain file at `path` that this account owns, read
+/// through one descriptor opened without following a symlink (or blocking
+/// on a FIFO); None for anything else.
+fn read_plain_file(path: &Path) -> Option<Vec<u8>> {
+    use std::io::Read as _;
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let mut file = options.open(path).ok()?;
+    let meta = file.metadata().ok()?;
+    if !meta.is_file() || sys::owner_uid(&meta) != sys::euid() {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).ok()?;
+    Some(bytes)
+}
+
 /// True when `path` exists (without following a final symlink).
 pub fn exists_no_follow(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok()

@@ -79,13 +79,6 @@ ALLOWED = {
     # `superseded`); a cancel would read as a red run. The batch job is never
     # cancelled. See OWN_SUPERSESSION in test_ci_required_checks_are_bounded.py.
     "cmux-next-batch.yml": "debounce runs supersede themselves; the batch is never cancelled",
-    # Serialised per pull request so two signature events never write the CLA
-    # ledger from different snapshots (comment on the CLAAssistant job).
-    "cla.yml": "one ledger writer at a time per pull request",
-    # A required check that also runs on metadata edits; a cancelled run would
-    # leave a cancelled required verdict (test_cla_guard_metadata_routing.py
-    # asserts it has no concurrency).
-    "cla-policy-guard.yml": "metadata events must not cancel required verdicts",
     # The apply jobs migrate the staging and production databases; a cancel
     # could stop one between applying a migration and recording it.
     "backend-migrations.yml": "applies database migrations; never cancelled mid-apply",
@@ -508,8 +501,6 @@ DESCRIPTION_READS = ("pull_request.body", "pull_request.title", "changes.body", 
 # Workflows that run on every title or body edit although their own text never reads it, and why.
 READS_DESCRIPTION = {
     "risk-tier.yml": "scripts/ci/risk_tier.py reads the body's author footer and `Takes back #N` lines over the API",
-    "cla-policy-guard.yml": "`CLA policy guard` is required on main: it publishes a verdict on every edit (#13871); "
-    "pull_request_target into main only, so it runs main's copy",
 }
 
 

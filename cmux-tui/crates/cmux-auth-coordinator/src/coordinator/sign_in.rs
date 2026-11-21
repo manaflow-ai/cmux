@@ -56,9 +56,10 @@ impl Coordinator {
         fx.push(Effect::CheckOnline(flow));
     }
 
-    /// Whether `flow` is still registered: a finished or failed flow is not.
+    /// Whether `flow` is still registered exactly as it began: a finished or
+    /// failed flow is not, nor one whose fields differ from the registered one.
     pub(super) fn flow_is_active(&self, flow: SignInFlow) -> bool {
-        self.active_sign_in_flows.contains_key(&flow.attempt)
+        self.active_sign_in_flows.get(&flow.attempt) == Some(&flow)
     }
 
     /// Whether no sign-out or newer session has landed since `flow` began.
