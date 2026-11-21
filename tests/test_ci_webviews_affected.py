@@ -236,6 +236,28 @@ class SelectTest(unittest.TestCase):
         self.change("webviews/package.json")
         self.assertEqual(run().stdout, "")
 
+    def test_benchmark_drivers_do_not_force_the_complete_suite(self) -> None:
+        for path in ("webviews/bench/transcript-scroll-up-ab.sh",
+                     "webviews/bench/icon-picker/wk-bench.swift",
+                     "webviews/bench/fixture.json"):
+            self.assertEqual(self.change(path), ALWAYS)
+
+    def test_named_benchmark_inputs_still_select_their_readers(self) -> None:
+        path = "webviews/bench/transcript-scroll-up-ab.sh"
+        (self.root / "webviews/src/strings.ts").write_text(f'export const driver = "{path}";\n')
+        self.assertEqual(self.change(path), with_always("webviews/test/strings.test.ts"))
+
+    def test_every_tracked_webview_file_has_an_explicit_route(self) -> None:
+        missing = [p for p in wa.ft.tracked(ROOT, "webviews/") if wa.path_rule(p) is None]
+        self.assertEqual(missing, [], "add a route for each new kind of webview input")
+
+    def test_unknown_file_types_fail_the_route_audit(self) -> None:
+        self.change("webviews/new-input.unknown")
+        run = subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_affected.py"),
+                              "--check-routes", "--repo", str(self.root)], capture_output=True, text=True)
+        self.assertEqual(run.returncode, 1)
+        self.assertIn("webviews/new-input.unknown", run.stderr)
+
 
 
 class PullRequestShardsTest(unittest.TestCase):

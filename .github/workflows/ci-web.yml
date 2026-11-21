@@ -66,7 +66,9 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           WEB_SUBAREAS_BASE: ${{ inputs.push_base }}
-        run: python3 scripts/ci/web_subareas.py route
+        run: |
+          python3 scripts/ci/webviews_affected.py --check-routes
+          python3 scripts/ci/web_subareas.py route
 
       # The webview test shards split their files by recorded duration
       # (scripts/ci/webviews_test_shards.py). One copy of the manifest for the

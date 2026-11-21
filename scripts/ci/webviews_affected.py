@@ -25,7 +25,8 @@ it from missing a test:
   - a build or runner input (webviews/package.json, bun.lock, bunfig, tsconfig, vite configs,
     webviews/scripts/, the test support dir, the preload bunfig loads before every file and
     what it imports, the runner scripts, this file, ci-web.yml) selects everything, as does
-    any other file under webviews/ no rule maps.
+    any other file under webviews/ no rule maps. Benchmark drivers select their named
+    readers; runtime assets without a known reader keep the full-suite fallback.
 Docs (.md) no test imports and files no webviews source names select nothing.
 """
 from __future__ import annotations
@@ -43,7 +44,7 @@ import focused_tests as ft  # noqa: E402
 WEB = "webviews/"
 EVERYTHING = re.compile(
     r"^webviews/(package\.json|bun\.lock|bunfig\.toml|tsconfig[^/]*\.json|vite[^/]*\.(ts|mjs|js)|"
-    r"reactCompiler\.mjs|scripts/|test/support/|test/setup|test/preload)"
+    r"reactCompiler\.mjs|postcss\.config\.mjs|scripts/|test/support/|test/setup|test/preload)"
     r"|^scripts/ci/(run-webviews-tests\.sh|webviews-tests-new-reds\.sh|webviews_test_[^/]*\.py|webviews_affected\.py"
     r"|focused_tests\.py)$|^\.github/workflows/ci-web\.yml$|^config/vite-plus/")
 # What a module does that the import graph cannot follow: read files, import a computed path or
@@ -75,6 +76,28 @@ TEMPLATE_IMPORT = re.compile(r"import\(\s*`(\.{1,2}/[^`$?]+)")
 QUERY_IMPORT = re.compile(r"""(?:from\s+|import\(\s*)["'](\.{1,2}/[^"'?]+)\?[\w&=-]+["']""")
 PRELOAD = WEB + "test/preload.ts"
 NAME_MIN = 10
+# These are inputs consumed by a browser, generator, or fixture reader rather than a
+# JS import. Unknown future formats must be classified, not silently broaden every PR.
+ASSET_SUFFIXES = (".css", ".html", ".json", ".jsonl", ".ndjson", ".xcstrings",
+                  ".png", ".jpg", ".svg", ".webp", ".woff2", ".txt", ".mmd")
+BENCH_SUFFIXES = ft.EXTENSIONS + (".sh", ".swift", ".json", ".html")
+
+
+def path_rule(path: str) -> str | None:
+    """The explicit routing family for a tracked webview input (independent of existence)."""
+    if EVERYTHING.search(path):
+        return "build"
+    if path.endswith(".md") or path == WEB + ".gitignore":
+        return "documentation"
+    if path.startswith(WEB + "bench/") and path.endswith(BENCH_SUFFIXES):
+        return "benchmark"
+    if path.endswith(ft.EXTENSIONS):
+        return "imports"
+    if path.endswith(ASSET_SUFFIXES):
+        return "runtime-asset"
+    return None
+
+
 # This reader loads only the generated bundle's site table. A standalone test
 # file cannot change that table. Pin the reviewed reader: any edit restores the
 # unresolved fallback until its inputs have been reviewed again. Production
@@ -175,9 +198,15 @@ class Selector:
             named = self.named_by(f)
             if named is None:
                 return None, f"{f} is named by a webviews file outside the import graph"
-            if f.startswith(WEB) and not named and not f.endswith(ft.EXTENSIONS):
-                return None, f"no rule maps {f}"
             out |= named
+            # A benchmark driver is not loaded by the application. Its importers and
+            # named readers above still run, as do the existing dynamic-reader tests.
+            if path_rule(f) in ("benchmark", "documentation"):
+                continue
+            if f.startswith(WEB) and not named and not f.endswith(ft.EXTENSIONS):
+                if path_rule(f) == "runtime-asset":
+                    return None, f"{f} is a runtime asset with no known importer"
+                return None, f"no rule maps {f}"
         generated = self.generated if any(not self.isolated_test(f) for f in files) else set()
         return out | self.always | generated, ""
 
@@ -190,10 +219,22 @@ def changed(root: Path, base: str, head: str) -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--base", required=True)
+    ap.add_argument("--base")
+    ap.add_argument("--check-routes", action="store_true", help="reject tracked webview inputs with no routing rule")
     ap.add_argument("--head", default="HEAD")
     ap.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[2])
     args = ap.parse_args(argv)
+    if args.check_routes:
+        # Unlike ft.tracked's best-effort discovery, an audit cannot accept a failed
+        # git read as an empty, fully covered tree.
+        tracked = subprocess.run(["git", "-C", str(args.repo), "ls-files", "-z", "--", WEB],
+                                 capture_output=True, text=True, check=True).stdout.split("\0")
+        missing = sorted(p for p in tracked if p and path_rule(p) is None)
+        for path in missing:
+            print(f"webviews affected: no routing rule for {path}", file=sys.stderr)
+        return int(bool(missing))
+    if not args.base:
+        ap.error("--base is required unless --check-routes is used")
     try:
         files = changed(args.repo, args.base, args.head)
     except subprocess.CalledProcessError as err:
