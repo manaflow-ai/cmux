@@ -128,12 +128,14 @@ mod carried_launch;
 pub(crate) use carried_launch::CarriedLaunch;
 mod exit_with;
 mod install_key;
+mod owner_launcher;
 mod replace;
 pub(crate) use exit_with::{
     EXIT_WITH_PID_ARG, ExitWith, parse_owner_exit_with, resolve_exit_with_pid,
 };
 #[cfg(any(target_vendor = "apple", target_os = "linux"))]
 pub(crate) use exit_with::{exit_with, test_owner_exit_with};
+use owner_launcher::{OWNER_LAUNCHER_ENV, owner_launcher};
 mod identify;
 #[cfg(all(test, unix))]
 mod recovery_tests;
@@ -831,6 +833,28 @@ fn configure_detached_owner_environment(command: &mut Command) {
     }
 }
 
+/// The owner's command before its own arguments: `program`, or `launcher run -- program` when
+/// `launcher` is the helper embedded in the owner's own app (`owner_launcher.rs`).
+fn owner_command(program: &std::path::Path, launcher: Option<&std::ffi::OsStr>) -> Command {
+    owner_command_with(program, launcher, |path| path.is_file())
+}
+
+fn owner_command_with(
+    program: &std::path::Path,
+    launcher: Option<&std::ffi::OsStr>,
+    is_file: impl Fn(&std::path::Path) -> bool,
+) -> Command {
+    let launcher = owner_launcher(program, launcher, is_file);
+    let mut command =
+        Command::new(launcher.map_or(program.as_os_str(), |launcher| launcher.as_os_str()));
+    if launcher.is_some() {
+        command.arg("run").arg("--").arg(program);
+    }
+    // The owner, its shells and their programs never see it: only this `server ensure` uses it.
+    command.env_remove(OWNER_LAUNCHER_ENV);
+    command
+}
+
 impl SpawnedOwner {
     /// Whether the owner process has exited (and been reaped).
     fn exited(&self) -> bool {
@@ -883,7 +907,8 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
         Some(binary) => binary,
         None => platform::self_exe_for_spawn()?,
     };
-    let mut command = Command::new(program);
+    let launcher = std::env::var_os(OWNER_LAUNCHER_ENV);
+    let mut command = owner_command(&program, launcher.as_deref());
     command.arg("--headless");
     command.arg("--session").arg(&spec.session);
     command.arg("--socket").arg(&spec.socket);

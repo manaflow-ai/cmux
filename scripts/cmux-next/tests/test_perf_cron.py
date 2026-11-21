@@ -325,9 +325,13 @@ class FinishTests(OneRunRule):
         state = cron.empty_state(T0)
         self.measured(state, "a" * 40, {"t.e2e": row(5.0)}, 0)
         self.measured(state, "e" * 40, {"t.e2e": row(9.0)}, 1)
-        self.assertEqual(self.bisected(state, "c" * 40, {"t.e2e": row(5.2)}, 2), "narrowed")
+        # A commit is decided by BISECT_RUNS agreeing runs (test_perf_bisect.py tests the rule): the first two run again.
+        for i in range(cron.BISECT_RUNS - 1):
+            self.assertEqual(self.bisected(state, "c" * 40, {"t.e2e": row(5.2)}, 2 + i * 0.1), "skipped")
+        self.assertEqual(self.bisected(state, "c" * 40, {"t.e2e": row(5.2)}, 2.5), "narrowed")
         self.assertEqual(self.rng(state, "t.e2e"), ("c" * 40, "e" * 40))
-        self.bisected(state, "d" * 40, {"t.e2e": row(9.2)}, 3)
+        for i in range(cron.BISECT_RUNS):
+            self.bisected(state, "d" * 40, {"t.e2e": row(9.2)}, 3 + i * 0.1)
         self.assertEqual(self.rng(state, "t.e2e"), ("c" * 40, "d" * 40))
         self.assertEqual(state["last"]["sha"], "e" * 40, "a bisect step is not the last tip measurement")
 
@@ -968,6 +972,39 @@ class WebUiTests(unittest.TestCase):
                                         "webui.god_ratio.chat_open.compact.attach_to_latest"])
         per = rows["webui.chat_open.god.compact.attach_to_latest_per_calibration"]
         self.assertEqual((per["unit"], per["p95"], per["floor"], per["measure_version"]), ("x", 3.75, 0.375, 1))
+
+    def test_the_god_part_keeps_both_chats_paired_attach_rows_and_judges_only_their_dcl_ratio(self):
+        # chat-open-god PAIRED=1: each chat's chat_open_paired.<rail>.attach_to_latest (ms) and attach_per_dcl (x, the
+        # rounds' median of attach_to_latest over the load's own DOMContentLoaded), read by cmuxterm-hq's
+        # chat_attach_p95_ms. The small chat's paired rows stay with the god part, and no god_ratio duplicates
+        # god_ratio.chat_open.compact.attach_to_latest.
+        report = {"rows": [
+            {"name": "chat_open.compact.attach_to_latest", "p95": 30.0},
+            {"name": "chat_open.god.compact.attach_to_latest", "p95": 150.0},
+            {"name": "chat_open_paired.compact.attach_to_latest", "p95": 111.7, "version": 3},
+            {"name": "chat_open_paired.compact.attach_per_dcl", "p95": 6.35, "unit": "x"},
+            {"name": "chat_open_paired.god.compact.attach_to_latest", "p95": 89.1, "version": 3},
+            {"name": "chat_open_paired.god.compact.attach_per_dcl", "p95": 5.1, "unit": "x"},
+        ], "failed": []}
+        rows = cron.rows_of_part(cron.PART_BY_NAME["web-ui-god"], report, budgets_mod, {"rows": {}})
+        self.assertEqual(sorted(rows), ["webui.chat_open.god.compact.attach_to_latest",
+                                        "webui.chat_open_paired.compact.attach_per_dcl",
+                                        "webui.chat_open_paired.compact.attach_to_latest",
+                                        "webui.chat_open_paired.god.compact.attach_per_dcl",
+                                        "webui.chat_open_paired.god.compact.attach_to_latest",
+                                        "webui.god_ratio.chat_open.compact.attach_to_latest"])
+        self.assertEqual(cron.part_for_row("webui.chat_open_paired.compact.attach_per_dcl@linux"), "web-ui-god")
+        # The same code on a slower runner (goal chat-attach-p95, 2026-11-16: 111.7 then 184.5 ms, the ratio 6.35 then
+        # 6.23): the ms rows are shown, never judged, and the ratio is within its rule, so nothing regressed.
+        base = {"webui.chat_open_paired.compact.attach_to_latest": {"p95": 111.7, "unit": "ms"},
+                "webui.chat_open_paired.compact.attach_per_dcl": {"p95": 6.35, "unit": "x"}}
+        slow = {"webui.chat_open_paired.compact.attach_to_latest": {"p95": 184.5, "unit": "ms"},
+                "webui.chat_open_paired.compact.attach_per_dcl": {"p95": 6.23, "unit": "x"}}
+        self.assertEqual(cron.find_regressions(slow, base, 16.67, 16.67, budgets_mod), [])
+        # More work on the same runner moves the ratio: that is the regression.
+        worse = {**slow, "webui.chat_open_paired.compact.attach_per_dcl": {"p95": 7.6, "unit": "x"}}
+        self.assertEqual([r["name"] for r in cron.find_regressions(worse, base, 16.67, 16.67, budgets_mod)],
+                         ["webui.chat_open_paired.compact.attach_per_dcl"])
 
     @staticmethod
     def paired_round(thought, token=1.0, heap=1.0):
@@ -3504,12 +3541,17 @@ class ReplayControllerResultsTests(unittest.TestCase):
         def __exit__(self, *a):
             return False
 
-    def replay(self, d, results):
+    def replay(self, d, results, gone=()):
         path = os.path.join(d, "results.json")
         with open(path, "w") as f:
             json.dump({"results": results}, f)
         report = json.dumps(PartRowsStoredAtOnceTests.STRESS).encode()
-        with mock.patch.object(cron.urllib.request, "urlopen", lambda req, timeout=0: self.Answer(report)), \
+
+        def urlopen(req, timeout=0):
+            if req.full_url in gone:
+                raise OSError("artifact expired")
+            return self.Answer(report)
+        with mock.patch.object(cron.urllib.request, "urlopen", urlopen), \
                 mock.patch.object(cron, "now_utc", lambda: at(30)):
             cron.cmd_replay_results(argparse.Namespace(dir=d, url="", file=path))
         with open(os.path.join(d, "state.json")) as f:
@@ -3586,6 +3628,49 @@ class ReplayControllerResultsTests(unittest.TestCase):
                 self.assertEqual(json.load(f), state, "a non-list results is no result")
             state = self.replay(d, [self.result(step_id="bad", ended_at="2026-13-45T99:99:99.1Z"), self.result()])
             self.assertTrue(state.get("part_rows"), "the valid result after a bad one is stored")
+
+    def fresh(self, d, started_at=T0):
+        # Two parts, so the measurement stays in flight after stress is stored.
+        state = PartRowsStoredAtOnceTests().state_with(["stress", "motion"])
+        state["current"]["started_at"] = cron.iso(started_at)
+        with open(os.path.join(d, "state.json"), "w") as f:
+            json.dump(state, f)
+
+    def test_a_result_that_ended_before_the_measurement_started_is_not_stored(self):
+        # review of cmux#47673 at 79330ccf (F1): a new measurement of the same SHA took the old step's result.
+        with tempfile.TemporaryDirectory() as d:
+            self.fresh(d, started_at=at(3))
+            state = self.replay(d, [self.result()])
+            self.assertFalse(state.get("part_rows"), "the old step's rows are not the new measurement's")
+            self.assertEqual(state["current"]["parts_todo"], ["stress", "motion"], "the part is still to do")
+
+    def test_an_unreadable_artifact_leaves_the_part_pending(self):
+        # review of cmux#47673 at 79330ccf (F2): a download failure was stored as a failed part, so a later readable
+        # result of the same part was dropped.
+        with tempfile.TemporaryDirectory() as d:
+            self.fresh(d)
+            later = cron.iso(at(4)).replace("Z", ".5Z")
+            state = self.replay(d, [self.result(artifact_url="https://store.example/gone"),
+                                    self.result(step_id="s2", ended_at=later)], gone=("https://store.example/gone",))
+            self.assertEqual(state["current"]["parts"]["stress"]["step_id"], "s2", "the readable result is stored")
+            self.assertTrue(state.get("part_rows"))
+
+    def test_an_entry_with_a_wrong_field_type_stores_the_rest(self):
+        # review of cmux#47673 at 79330ccf (F3): "part": [] raised TypeError and aborted the entries after it.
+        with tempfile.TemporaryDirectory() as d:
+            self.fresh(d)
+            state = self.replay(d, [self.result(step_id="p", part=[]), self.result(step_id="s", state={}),
+                                    self.result(step_id=[]), self.result()])
+            self.assertEqual(state["current"]["parts"]["stress"]["step_id"], "s1", "the valid result is stored")
+
+    def test_results_go_in_the_order_their_steps_ended(self):
+        # review of cmux#47673 at 79330ccf (F4): ended_at sorted as text put .11Z (later) before .1Z.
+        with tempfile.TemporaryDirectory() as d:
+            self.fresh(d)
+            base = cron.iso(at(2))
+            state = self.replay(d, [self.result(step_id="later", ended_at=base.replace("Z", ".11Z")),
+                                    self.result(step_id="earlier", ended_at=base.replace("Z", ".1Z"))])
+            self.assertEqual(state["current"]["parts"]["stress"]["step_id"], "earlier", "the earlier step goes first")
 
 
 class StalePartFirstTests(unittest.TestCase):

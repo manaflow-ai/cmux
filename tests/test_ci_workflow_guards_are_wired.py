@@ -94,6 +94,12 @@ UNWIRED: set[str] = {
     # Kept manual under the 2026-10-23 no-new-CI rule (lifted 2026-11-18): #44697 added it with no step. It reads test-ios.yml only as data (a bot's re-run
     # on a cmux-next lane takes the picker's Blacksmith route); run it by hand when that route changes. Exit: as below.
     "tests/test_ci_ios_bot_rerun_route.py",
+    # lane = "manual": kept manual under the 2026-10-23 no-new-CI rule (lifted 2026-11-18). Both read the
+    # workflows only as data (the receipt jobs' verifier calls; each pull-request job's same-tree reuse or
+    # denial in scripts/ci/same_tree_reuse.json); run them by hand when ci_receipt.py, same_tree_reuse.py,
+    # its map or a covered workflow changes. Exit: as below.
+    "tests/test_ci_receipt.py",
+    "tests/test_same_tree_reuse.py",
     # Both are lane = "manual" in tests/test-execution.toml, kept manual under the 2026-10-23 no-new-CI rule
     # (lifted 2026-11-18). Each reads a workflow only as data (a fixture nightly.yml; cmux-next.yml for stamp
     # readers). Exit: wire it here when its toml entry moves to a CI lane.

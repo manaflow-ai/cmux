@@ -1798,7 +1798,7 @@ class RatchetTests(Repo):
 
     def test_the_audit_counts_an_orphaned_record_from_its_recording_commit(self):
         orphan, recording, landed = self.orphaned_record()
-        self.git("branch", "--force", "origin/feat-cmux-next", "upstream")
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", "upstream")
         result = ratchet.audit(self.repo)
         self.assertTrue(result["orphaned"])
         self.assertEqual(result["anchored_at"], recording)
