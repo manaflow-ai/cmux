@@ -41,7 +41,7 @@ function leoChat(): AcpmuxSnapshot {
     [
       user("Probe the Macs and report back.", 20, { id: "crs-prompt" }),
       assistant(
-        "I'm probing cosmic-gray, air-blue and cmux16, and sending the rows to the census lane when they finish.",
+        "I'm probing studio-mac, build-box and test-mini, and sending the rows to the census lane when they finish.",
         19,
         {
           id: "crs-reply-1",
@@ -55,13 +55,14 @@ function leoChat(): AcpmuxSnapshot {
       activity(
         [
           send(`${PEER}/mac-fleet-census`, "The iam.sh --apply run failed."),
-          run("Ran the probe", "o=$(echo cosmic-gray; uptime)"),
+          run("Ran the probe", "o=$(echo studio-mac; uptime)"),
           run("Read the rows", "cat rows.json"),
         ],
         17,
-        { id: "crs-work-1" },
+        { id: "crs-work-1", inBackground: "crs-bg-1" },
       ),
       received("#48016 handoff accepted. Pushed exact head dceafaa341a after rework.", 16, "crs-recv-1"),
+      activity([run("Ran the second probe", "uptime; df -h /")], 15.5, { id: "crs-work-1b", inBackground: "crs-bg-2" }),
       activity([send("goal-next-code-shrinks", "cmux#48016: don't wait for the required checks.")], 15, {
         id: "crs-work-2",
       }),
@@ -88,9 +89,39 @@ function leoChat(): AcpmuxSnapshot {
   return { ...snapshot, summary: { ...snapshot.summary!, family: "claude" } };
 }
 
+const LOOKS = {
+  before:
+    "Before: a background turn's first row stands the turn gap (32) under any line, so a blank band opens above an opened group's first child and between its children; \"Worked for\" stands flush under the line above it.",
+  tight: 'Candidate A: the lines flush on the 22 pitch, "Worked for" 8 over the line above it.',
+  shipped:
+    'The pick: the lines flush on the 22 pitch, "Worked for" the run gap (16) over the line above it, as the prose around a run stands.',
+  roomy: 'Candidate C: the lines flush on the 22 pitch, "Worked for" the block gap (24) over the line above it.',
+} as const;
+const openGroup = async (ctx: import("../../../gallery/play").PlayContext) => {
+  const head = { selector: ".acpmux-messageRun button" };
+  await ctx.click(head);
+  await ctx.waitFor(() => ctx.find(head).getAttribute("aria-expanded") === "true");
+};
+const variants: Record<string, Record<string, unknown>> = {};
+for (const [look, note] of Object.entries(LOOKS)) {
+  variants[`closed-${look}`] = { note, snapshot: leoChat(), documentAttributes: { "row-gap": look } };
+  variants[`open-${look}`] = {
+    note: `${note} The group opened.`,
+    snapshot: leoChat(),
+    documentAttributes: { "row-gap": look },
+    checks: {
+      layoutShiftMax: {
+        value: 0.5,
+        reason: "Opening the group intentionally reveals its rows below the clicked line.",
+      },
+    },
+    play: openGroup,
+  };
+}
+
 export default agentPaneEntry({
   id: "agent-pane.chat-row-spacing",
-  title: "Chat row spacing: every adjacent pair of one-line rows",
+  title: "Chat row spacing: one-line rows, a group opened, and Worked for",
   area: "Agent pane",
   height: 900,
   covers: [
@@ -98,10 +129,5 @@ export default agentPaneEntry({
     "agent-session/acpmux/model.ts",
     "agent-session/acpmux/conversation/conversation.css",
   ],
-  variants: {
-    closed: {
-      note: "Leo's 2026-11-21 capture: a status line, a closed group, a send, another agent's line, and the next turn's header, each pair's gap measured.",
-      snapshot: leoChat(),
-    },
-  },
+  variants: variants as never,
 });

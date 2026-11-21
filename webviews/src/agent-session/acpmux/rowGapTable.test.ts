@@ -76,13 +76,13 @@ prompt          32      32      32      32      32      32      32      32      
 reply           32      24       8      16      16      16      16      16      32      32      16
 footer          32      24      24      24      24      24       8      24      24      32       8
 worked          32       0       0       0       0       0       0       0       0       0       0
-run             32      16       8      16       0       0       0       0       0      16       0
-peer            32      16       8      16       0       0       0       0       0      16       0
-bgTask          32      16       8      16       0       0       0       0       0      16       0
-group           32      16       8      16       0       0       0       0       0      16       0
+run             32      16       8      16       0       0       0       0       0      32       0
+peer            32      16       8      16       0       0       0       0       0      32       0
+bgTask          32      16       8      16       0       0       0       0       0      32       0
+group           32      16       8      16       0       0       0       0       0      32       0
 bgRun           32      16       8      16       0       0       0       0       0      16       0
 bgReply         32      24       8      16      16      16      16      16      16      24      16
-bgLine          32      16       8      16       0       0       0       0       0      16       0`.trim();
+bgLine          32      16       8      16       0       0       0       0       0      32       0`.trim();
 
 // Leo's captures: "Sent to", another agent's line and "Worked for" ran together (run/peer -> worked was 0), and a
 // blank band stood between a closed or opened group and the background turn's rows under it (any line -> bgRun was

@@ -174,7 +174,8 @@ export function transcriptGap(previous: number, next: number): number {
     // Under a one-line row (a step, a status line, "Worked for", a group's head) the turn's first row is one more
     // line of the run: the turn gap there left a blank band inside an opened group, above its first child and between
     // children (Leo, 2026-11-21, on the video of a "Sent 3 messages, used a tool, ..." group opened: "spacing is off").
-    if (!isLineMark(previous)) return TRANSCRIPT_TURN_GAP;
+    // Prose opening a turn under a line keeps the turn gap; only a line under a line joins the run.
+    if (!isLineMark(previous) || !isLineMark(baseMark(next))) return TRANSCRIPT_TURN_GAP;
     const gap = rowGapLook().opensAfterLine;
     if (gap > 0) return gap;
     next = baseMark(next);
