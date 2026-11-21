@@ -58,6 +58,19 @@ struct TerminalLinkLocationAndDockTests {
         #expect(url.absoluteString == "http://\(raw)")
     }
 
+    /// Cmd-click on a link that mixes raw Unicode and `%2F` keeps the escape
+    /// instead of opening `%252F` (manaflow-ai/cmux#40300).
+    @Test("Links mixing raw Unicode and percent escapes keep the escapes")
+    func unicodeLinksKeepPercentEscapes() throws {
+        let target = try #require(
+            resolveTerminalOpenURLTarget("https://scrapbox.io/example-project/会議メモ_2026%2F11%2F5#section")
+        )
+        #expect(
+            target.url.absoluteString ==
+                "https://scrapbox.io/example-project/%E4%BC%9A%E8%AD%B0%E3%83%A1%E3%83%A2_2026%2F11%2F5#section"
+        )
+    }
+
     private func makeDefaults() -> UserDefaults {
         let suiteName = "terminal-link-location-tests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
