@@ -36,7 +36,7 @@ pub(super) async fn run(
     if json_out {
         print_json(&moved);
     } else {
-        println!("moved {} to {}", moved["name"].as_str().unwrap_or(&id), to.display());
+        println!("moved {} to {}", field(&moved, "name").as_str().unwrap_or(&id), to.display());
     }
     Ok(())
 }
@@ -110,7 +110,7 @@ async fn begin_move_after(
         begin_params.set("afterSeq", json!(staged.after_seq));
     }
     let begin = src.request("_acpmux/transfer_begin", begin_params).await?;
-    let transfer_id = begin["transferId"].as_str().unwrap_or_default().to_owned();
+    let transfer_id = field(&begin, "transferId").as_str().unwrap_or_default().to_owned();
     let epoch = match begin.get("epoch") {
         None => 0,
         Some(value) => value
@@ -210,9 +210,7 @@ async fn stage_prefix(src: &Client, dst: &Client, id: &str, base: Option<Value>)
     let stage = dst.request("_acpmux/transfer_stage", json!({"manifest": prepared})).await.ok()?;
     let stage_id = field(&stage, "stageId").as_str()?.to_owned();
     let receive_id = json!(stage_id);
-    page_files(src, dst, &prepared, &field(&prepared, "prepareId"), &receive_id, None)
-        .await
-        .ok()?;
+    page_files(src, dst, &prepared, field(&prepared, "prepareId"), &receive_id, None).await.ok()?;
     dst.request("_acpmux/transfer_stage_finish", json!({"stageId": stage_id})).await.ok()?;
     Some(Staged {
         prepare_id: field(&prepared, "prepareId").as_str()?.to_owned(),
@@ -317,11 +315,11 @@ async fn landed(dst: &Client, id: &str, transfer_id: &str) -> Option<bool> {
     let kinds = json!({"sessionId": id, "afterSeq": 0, "kinds": ["transferred_in"]});
     match dst.request(method::MUX_EVENTS, kinds).await {
         Ok(page) => Some(
-            page["events"]
+            field(&page, "events")
                 .as_array()
                 .into_iter()
                 .flatten()
-                .any(|e| e["msg"]["transferId"] == transfer_id),
+                .any(|e| *field(field(e, "msg"), "transferId") == transfer_id),
         ),
         Err(e) => {
             let m = e.to_string().to_lowercase();
@@ -369,8 +367,9 @@ async fn page_files(
             let page = src.request("_acpmux/transfer_read", stamped(&mut read, epoch)).await?;
             let mut write = json!({"receiveId": receive_id, "path": path, "offset": offset, "data": field(&page, "data")});
             dst.request("_acpmux/transfer_write", stamped(&mut write, epoch)).await?;
-            offset = page["next"].as_u64().ok_or_else(|| anyhow!("transfer_read: no next"))?;
-            if page["eof"] == true {
+            offset =
+                field(&page, "next").as_u64().ok_or_else(|| anyhow!("transfer_read: no next"))?;
+            if *field(&page, "eof") == true {
                 break;
             }
         }

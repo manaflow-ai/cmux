@@ -519,7 +519,7 @@ impl Hub {
         let file = dir.join("store").join(chat).join("events").join("000000.ndjson");
         let staged = read_json(&dir.join("prefix.json"));
         let Some(staged) = staged.filter(|s| {
-            *field(s, "token") == *field(field(&manifest, "prefix"), "token") && file.is_file()
+            *field(s, "token") == *field(field(manifest, "prefix"), "token") && file.is_file()
         }) else {
             return Err(transfer_error("unstaged", "the move's staged prefix is not here"));
         };
