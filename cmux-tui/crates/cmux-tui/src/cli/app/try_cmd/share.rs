@@ -72,7 +72,7 @@ pub(in super::super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
             "--app" => app = Some(PathBuf::from(iter.next().ok_or_else(usage)?)),
             "--store" => store = Some(iter.next().ok_or_else(usage)?.clone()),
             other if other.starts_with("--app=") => {
-                app = other.strip_prefix("--app=").map(PathBuf::from)
+                app = other.strip_prefix("--app=").map(PathBuf::from);
             }
             other if other.starts_with("--store=") => {
                 store = other.strip_prefix("--store=").map(str::to_owned);
@@ -94,7 +94,7 @@ pub(in super::super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
 
 /// A share link: `https://HOST/PREFIX/v1/tags/<tag>[?backend=<env>]`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct Link {
+pub(crate) struct Link {
     /// Everything before `/v1/tags/`.
     pub store: String,
     pub tag: String,
