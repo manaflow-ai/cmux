@@ -257,8 +257,14 @@ jobs:
           check "the app's source commit" '^::error title=nightly-next app commit::' \
             python3 -I scripts/ci/nightly_next_artifact_check.py commit --plist "$app/Contents/Info.plist" \
             --expected "$SOURCE_COMMIT" --expected-source "$SOURCE_COMMIT_FROM"
-          check "the app's notary ticket" "$stapled" xcrun stapler validate "$app"
           check "Gatekeeper" ': rejected' spctl -a -vv --type execute "$app"
+          # The app carries its own ticket (two notary rounds), or only the DMG does (one round,
+          # CMUX_STAPLE_APP_IN_DMG=false in nightly-next-one): then Gatekeeper must still call the app
+          # notarized, which for an app with no stapled ticket is Apple's online answer.
+          if ! xcrun stapler validate "$app"; then
+            check "the app's notarization" 'not notarized' bash -c \
+              'spctl -a -vv --type execute "$1" 2>&1 | grep -Fq "source=Notarized Developer ID" || { echo "not notarized: $1"; exit 1; }' _ "$app"
+          fi
           version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist")" || cannot "could not read CFBundleVersion"
           [ "$version" = "$BUILD" ] || invalid "the DMG holds build $version, the feed says $BUILD"
           echo "app=$app" >> "$GITHUB_OUTPUT"
