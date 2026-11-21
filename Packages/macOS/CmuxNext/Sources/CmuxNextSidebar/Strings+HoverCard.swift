@@ -33,11 +33,11 @@ extension Strings {
     static var hoverCardGroupPages: String { String(localized: "sidebar.hoverCard.tab.group.pages", defaultValue: "Pages", bundle: .module) }
     static var hoverCardGroupOther: String { String(localized: "sidebar.hoverCard.tab.group.other", defaultValue: "Other", bundle: .module) }
     /// An agent chat's next action under its rolling summary ("Next: Open the PR").
-    static func summaryNext(_ next: String) -> String {
+    nonisolated static func summaryNext(_ next: String) -> String {
         String(format: String(localized: "sidebar.hoverCard.summaryNext", defaultValue: "Next: %@", bundle: .module), next)
     }
     /// An expanded row's line: the rolling summary, then its next action.
-    static func summaryWithNext(_ summary: String, _ next: String) -> String {
+    nonisolated static func summaryWithNext(_ summary: String, _ next: String) -> String {
         String(format: String(localized: "sidebar.row.summaryWithNext", defaultValue: "%1$@ → %2$@", bundle: .module), summary, next)
     }
     /// The summary header's running count ("2 running").
