@@ -128,6 +128,8 @@ extension SettingsSchema {
         "agents.cmuxMcp": .userOnly,
         // How long Claude Code chats keep their prompt cache: it moves the person's model bill.
         "agents.promptCache": .userOnly,
+        // Whether acpmux edits Claude Code's own config to add its inbox relay: a person's agent config changes only when the person says so, and an agent must not decide which of its messages Claude Code runs.
+        "agents.claudeCodeInboxRelay": .userOnly,
         // Computer Use: what agents may do with the person's apps. An agent must never widen (or even change) its own access, so every computerUse.* key is the person's alone.
         "computerUse.mode": .userOnly, "computerUse.deniedApps": .userOnly, "computerUse.allowOwnMachines": .userOnly,
         "computerUse.pauseOnTakeover": .userOnly, "computerUse.allowForeground": .userOnly,

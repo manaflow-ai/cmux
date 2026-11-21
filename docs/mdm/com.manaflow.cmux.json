@@ -521,6 +521,12 @@
       "title" : "Session Recap",
       "type" : "boolean"
     },
+    "agents.claudeCodeInboxRelay" : {
+      "default" : false,
+      "description" : "Adds a small server to Claude Code's settings so messages from other agents arrive without being held. Applies to Claude Code chats started afterwards.",
+      "title" : "Add Message Relay to Claude Code",
+      "type" : "boolean"
+    },
     "agents.cmuxMcp" : {
       "default" : "ask",
       "description" : "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. Until you choose, they get nothing. cmux never changes your agents’ own settings.",
@@ -1831,6 +1837,12 @@
       ],
       "title" : "Pane Backgrounds",
       "type" : "string"
+    },
+    "appearance.previousGlass" : {
+      "default" : false,
+      "description" : "Draws menus, popovers, the composer and cards with the glass from before November 2026.",
+      "title" : "Previous Glass Look",
+      "type" : "boolean"
     },
     "appearance.rotateFavoriteThemes" : {
       "default" : "off",
@@ -4884,9 +4896,10 @@
       "type" : "string"
     },
     "sidebar.groupHeader.background" : {
-      "default" : "auto",
-      "description" : "How a group's background draws. Sections shows plain headings instead.",
+      "default" : "folder",
+      "description" : "How a group draws. Folders shows plain folders; Sections shows plain headings.",
       "enum" : [
+        "folder",
         "auto",
         "glass",
         "solid",

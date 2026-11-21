@@ -3386,6 +3386,18 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>Draws menus, popovers, the composer and cards with the glass from before November 2026.</string>
+			<key>pfm_name</key>
+			<string>appearance.previousGlass</string>
+			<key>pfm_title</key>
+			<string>Previous Glass Look</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>Applies Hue and Saturation to the window's tint. Off, they have no effect.</string>
 			<key>pfm_name</key>
 			<string>appearance.experimentalControls</string>
@@ -6482,13 +6494,14 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>auto</string>
+			<string>folder</string>
 			<key>pfm_description</key>
-			<string>How a group's background draws. Sections shows plain headings instead.</string>
+			<string>How a group draws. Folders shows plain folders; Sections shows plain headings.</string>
 			<key>pfm_name</key>
 			<string>sidebar.groupHeader.background</string>
 			<key>pfm_range_list</key>
 			<array>
+				<string>folder</string>
 				<string>auto</string>
 				<string>glass</string>
 				<string>solid</string>
@@ -10219,6 +10232,18 @@
 			<string>Prompt Cache</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Adds a small server to Claude Code's settings so messages from other agents arrive without being held. Applies to Claude Code chats started afterwards.</string>
+			<key>pfm_name</key>
+			<string>agents.claudeCodeInboxRelay</string>
+			<key>pfm_title</key>
+			<string>Add Message Relay to Claude Code</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
