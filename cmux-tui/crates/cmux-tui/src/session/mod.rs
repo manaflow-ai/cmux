@@ -13,6 +13,9 @@ mod creation;
 mod cursor_provenance;
 mod frontend_projection;
 mod remote;
+// The scroll probe rebuilds its mirror with the app's own anchor, never a copy of it.
+#[cfg(unix)]
+pub(crate) use remote::{ScrolledBackAnchor, restore_scrolled_back_anchor, scrolled_back_anchor};
 pub(crate) mod sidebar_doc;
 mod surface_handle;
 pub(crate) mod tree;
