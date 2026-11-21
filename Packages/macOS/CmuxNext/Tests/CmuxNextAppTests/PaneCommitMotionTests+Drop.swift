@@ -141,8 +141,8 @@ final class PaneDropRig {
     let content: WorkspaceContentController
     let frames = Frames()
     private var committed: [@MainActor () -> Void] = []
-    private var cleanup: [@MainActor () -> Void] = []
-    private(set) var movedKey = ""
+    private let cleanup: [@MainActor () -> Void]
+    let movedKey: String
     var root: LayoutRootView { content.layoutView }
     var store: DaemonStore { services.daemon.store }
 
@@ -150,21 +150,25 @@ final class PaneDropRig {
         _ = NSApplication.shared
         self.dropped = dropped
         self.kind = kind
-        services = AppServices(environment: AppEnvironment.current([:]))
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        self.services = services
         // The test steps the presentation's frames, before any pane is queued.
         services.presentation.frames = frames
         services.launchReveal.markAllReady()
         if dropped == .fileViewer { services.pages.register(FileViewer()) }
+        let store = services.daemon.store
         let identity = DaemonIdentity(capabilities: [DaemonCapability.dockColumns.rawValue], generation: DaemonGeneration(rawValue: "pane-drop"))
         store.noteHandshake(identity)
         store.connectionState = .connected(identity)
         store.apply(snapshot: Self.tree(kind, after: false, moved: Self.movedTab(dropped)))
         let workspace = try #require(store.workspaces.first)
-        movedKey = try #require(store.tab(surface: Self.movedSurface)?.id, "SETUP: the store has no dropped tab")
-        try seed(dropped)
+        let movedKey = try #require(store.tab(surface: Self.movedSurface)?.id, "SETUP: the store has no dropped tab")
+        self.movedKey = movedKey
+        cleanup = try Self.seed(dropped, key: movedKey, services: services)
         let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"pane-drop","workspace_key":"w1"}"#.utf8))
         // The controller holds its window state unowned: the rig keeps it alive, as its window does.
-        state = WindowState(record: record)
+        let state = WindowState(record: record)
+        self.state = state
         window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 1200, height: 700), styleMask: [.borderless],
                           backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -196,26 +200,27 @@ final class PaneDropRig {
 
     /// The view of the dropped tab, put where the app finds it: a Chromium page in the content cache, an agent chat in
     /// the chats' views. A terminal is made by the cache on its first show; a file viewer by its provider.
-    private func seed(_ dropped: Dropped) throws {
+    private static func seed(_ dropped: Dropped, key movedKey: String, services: AppServices) throws -> [@MainActor () -> Void] {
         switch dropped {
         case .terminal, .fileViewer:
-            break
+            return []
         case .chromiumPage:
             let page = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://drop.example/")))
             _ = services.cache.install(page, for: movedKey)
+            return []
         case .agentChat:
-            let directory = FileManager.default.temporaryDirectory.appending(path: "pane-drop-\(UUID().uuidString)")
+            let directory = FileManager.default.temporaryDirectory.appending(path: "pane-drop-\(UUID().uuidString)", directoryHint: .isDirectory)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            let file = directory.appending(path: "index.html")
+            let file = directory.appending(path: "index.html", directoryHint: .notDirectory)
             try Data("<html><body>Agent</body></html>".utf8).write(to: file)
             let chat = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file)))
             let chats = services.agentTabs, key = chats.tabKey(movedKey, machine: services.daemon.machineID)
             chats.views[key] = chat
-            cleanup.append {
+            return [{
                 chats.views[key] = nil
                 chat.close()
                 try? FileManager.default.removeItem(at: directory)
-            }
+            }]
         }
     }
 
