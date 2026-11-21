@@ -904,6 +904,31 @@ mod unix {
             self.resolve_after(frame, || {})
         }
 
+        /// Registers a blocking waiter for `kind` and returns its receiver.
+        #[cfg(test)]
+        pub(crate) fn wait_for_test(&self, request_id: u64, kind: MessageKind) -> Receiver<Frame> {
+            let (sender, receiver) = sync_channel(1);
+            self.waiters
+                .lock()
+                .unwrap()
+                .insert(request_id, ControlResponseWaiter::Blocking { kind, sender });
+            receiver
+        }
+
+        /// Whether a blocking waiter for a response kind `select` picks is
+        /// registered.
+        pub(crate) fn has_waiter_where(&self, select: impl Fn(MessageKind) -> bool) -> bool {
+            self.waiters.lock().unwrap().values().any(|waiter| match waiter {
+                ControlResponseWaiter::Blocking { kind, .. } => select(*kind),
+                ControlResponseWaiter::DeferredCellPixel { .. } => false,
+            })
+        }
+
+        /// Whether a waiter for `request_id` is registered.
+        pub(crate) fn has_waiter(&self, request_id: u64) -> bool {
+            self.waiters.lock().unwrap().contains_key(&request_id)
+        }
+
         pub(crate) fn resolve_after(&self, frame: &Frame, before_resolve: impl FnOnce()) -> bool {
             let waiter = self.waiters.lock().unwrap().remove(&frame.request_id);
             match waiter {
@@ -980,7 +1005,7 @@ mod unix {
             (pending.writes, pending.bytes)
         }
 
-        fn defer_cell_pixel(&self, request_id: u64, expected: (u16, u16)) -> bool {
+        pub(crate) fn defer_cell_pixel(&self, request_id: u64, expected: (u16, u16)) -> bool {
             let mut waiters = self.waiters.lock().unwrap();
             let Some(waiter) = waiters.get_mut(&request_id) else { return false };
             if !matches!(
@@ -994,15 +1019,36 @@ mod unix {
         }
 
         pub(crate) fn fail_all(&self) {
+            self.fail_all_except(|_| false);
+        }
+
+        /// Fail every waiter except waiters for a response kind that `keep`
+        /// selects (a deferred cell-pixel waiter counts as `CellPixelSizeAck`).
+        /// The surface reader keeps those when it abandons a stream: the
+        /// connection's frame reader still delivers them and fails them when the
+        /// stream ends.
+        pub(crate) fn fail_all_except(&self, keep: impl Fn(MessageKind) -> bool) {
             let deferred = {
                 let mut waiters = self.waiters.lock().unwrap();
-                waiters
-                    .drain()
-                    .filter_map(|(request_id, waiter)| match waiter {
-                        ControlResponseWaiter::DeferredCellPixel { expected } => {
+                let failed = waiters
+                    .iter()
+                    .filter(|(_, waiter)| match waiter {
+                        ControlResponseWaiter::Blocking { kind, .. } => !keep(*kind),
+                        // A deferred cell-pixel waiter still owns a CellPixelSizeAck
+                        // that is queued for the surface reader.
+                        ControlResponseWaiter::DeferredCellPixel { .. } => {
+                            !keep(MessageKind::CellPixelSizeAck)
+                        }
+                    })
+                    .map(|(request_id, _)| *request_id)
+                    .collect::<Vec<_>>();
+                failed
+                    .into_iter()
+                    .filter_map(|request_id| match waiters.remove(&request_id) {
+                        Some(ControlResponseWaiter::DeferredCellPixel { expected }) => {
                             Some((request_id, expected))
                         }
-                        ControlResponseWaiter::Blocking { .. } => None,
+                        _ => None,
                     })
                     .collect::<Vec<_>>()
             };
@@ -1535,9 +1581,11 @@ mod unix {
                             !remaining.is_zero(),
                             "terminal host did not apply Kitty graphics limits before adoption"
                         );
-                        reader
-                            .set_read_timeout(Some(remaining.max(Duration::from_millis(1))))
-                            .context("set terminal-host Kitty quota adoption timeout")?;
+                        set_link_read_timeout(
+                            reader,
+                            Some(remaining.max(Duration::from_millis(1))),
+                        )
+                        .context("set terminal-host Kitty quota adoption timeout")?;
                         let frame = read_frame(reader, MAX_FRAME_PAYLOAD)
                             .map_err(protocol_io_error)?
                             .ok_or_else(|| {
@@ -1569,8 +1617,7 @@ mod unix {
                         return Ok(());
                     }
                 })();
-                let restored = reader
-                    .set_read_timeout(previous_timeout)
+                let restored = set_link_read_timeout(reader, previous_timeout)
                     .context("restore terminal-host timeout after Kitty quota adoption");
                 response.and(restored)
             })();
@@ -8901,6 +8948,38 @@ mod unix {
             drop(attachment);
             drop(lease);
             let _ = fs::remove_dir_all(root);
+        }
+
+        #[test]
+        fn adoption_quota_reconfiguration_survives_a_host_that_closed_after_its_ack() {
+            let (mut attachment, mut host_writer_end) = input_ack_surface_fixture();
+            let limits = KittyGraphicsLimits {
+                image_bytes: 4_000,
+                inflight_bytes: 4_000,
+                images: 40,
+                placements: 80,
+            };
+            // The host's ack is already queued and the host has ended, so its side
+            // of the link is closed: macOS refuses SO_RCVTIMEO on the daemon's
+            // side with EINVAL. A separate pair keeps the request write deterministic.
+            let (reader, mut host_reader_end) = UnixStream::pair().unwrap();
+            let mut payload = Vec::new();
+            encode_kitty_graphics_limits(&mut payload, limits).unwrap();
+            let mut ack = Frame::new(MessageKind::KittyGraphicsLimitsAck, payload);
+            ack.version = PROTOCOL_VERSION;
+            ack.request_id = 2;
+            write_frame(&mut host_reader_end, &ack).unwrap();
+            drop(host_reader_end);
+            attachment.reader = Some(reader);
+
+            attachment
+                .reconfigure_kitty_graphics_for_adoption(limits)
+                .expect("an acknowledged adoption stands after the host closed its link");
+
+            let request =
+                read_required_frame(&mut host_writer_end, "Kitty limits request").unwrap();
+            assert_eq!(request.kind, MessageKind::SetKittyGraphicsLimits);
+            assert_eq!(request.request_id, 2);
         }
 
         #[test]

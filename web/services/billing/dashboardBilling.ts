@@ -16,6 +16,7 @@ import {
 } from "./pro";
 import { subscriptionPriceFromRaw, type SubscriptionPrice } from "./subscriptionPrice";
 import type { TeamBillingAccessUser, TeamBillingRole } from "./teamBillingAccess";
+import type { TeamEnterpriseDeal } from "./teamEnterprise";
 import {
   listBillingTeams,
   loadTeamBillingView,
@@ -25,6 +26,14 @@ import {
   type TeamBillingView,
 } from "./teamBillingView";
 import { billingTeamFromUnknown } from "./teamResolution";
+import {
+  NEXT_PLAN_METADATA_KEY,
+  higherNextPlanId,
+  nextPlanCheckoutAvailability,
+  nextGrantPlanIdFromMetadata,
+  nextPlanId,
+  type NextPlanId,
+} from "./nextPlans";
 
 /** The personal (Pro/Max) subscription the billing screen shows. */
 export type PersonalSubscriptionJson = {
@@ -78,6 +87,7 @@ export type ReadyTeamBillingViewJson = {
   readonly memberCount: number | null;
   readonly overSeat: boolean;
   readonly paymentPastDue: boolean;
+  readonly enterprise: TeamEnterpriseDeal | null;
 };
 
 /** `TeamBillingView` on the wire: dates are ISO strings. */
@@ -87,6 +97,15 @@ export type TeamBillingViewJson =
   | { readonly status: "not_found"; readonly teamId: string }
   | { readonly status: "unavailable"; readonly teamId: string };
 
+/** The account's cmux NEXT Cloud plan and which NEXT plans checkout can sell. */
+export type NextCloudBillingJson = {
+  readonly planId: NextPlanId | null;
+  /** `subscription` when billed, `grant` when an operator granted it. */
+  readonly source: "subscription" | "grant" | null;
+  /** False while the plan's Price env var is unset: shown as Coming soon. */
+  readonly checkoutAvailable: Readonly<Record<NextPlanId, boolean>>;
+};
+
 /** Wire shape of `GET /api/dashboard/billing`. */
 export type DashboardBillingResponse = {
   readonly selectedTeamId: string;
@@ -95,6 +114,11 @@ export type DashboardBillingResponse = {
   /** Set when the selected scope is a real team. */
   readonly team: TeamBillingViewJson | null;
   readonly teams: readonly BillingTeamSummary[];
+  /**
+   * The signed-in account's cmux NEXT Cloud plan, whichever scope is
+   * selected. Optional on the wire so an older server's answer still parses.
+   */
+  readonly next?: NextCloudBillingJson;
 };
 
 export type DashboardBillingUser = Parameters<typeof resolveProPlanStatus>[0] &
@@ -120,14 +144,39 @@ export async function loadDashboardBilling(
     stackSelectedTeamId: billingTeamFromUnknown(user.selectedTeam)?.id ?? null,
     requestedTeamId,
   });
+  const next = nextCloudBilling(user.clientReadOnlyMetadata);
   if (selectedTeamId === user.id) {
-    return { selectedTeamId, personal: await loadPersonalBilling(user), team: null, teams };
+    return { selectedTeamId, personal: await loadPersonalBilling(user), team: null, teams, next };
   }
   return {
     selectedTeamId,
     personal: null,
     team: teamBillingViewJson(await loadTeamBillingView(user, selectedTeamId)),
     teams,
+    next,
+  };
+}
+
+/**
+ * The cmux NEXT plan from the account's metadata: a subscription mirror
+ * (`cmuxNextPlan`, else a NEXT value in `cmuxPlan`) or an operator grant
+ * (`cmuxNextVmPlan`, else a legacy NEXT id in `cmuxVmPlan`); the higher one
+ * is the plan in force.
+ */
+export function nextCloudBilling(
+  metadata: unknown,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): NextCloudBillingJson {
+  const record = metadata && typeof metadata === "object" && !Array.isArray(metadata)
+    ? metadata as Record<string, unknown>
+    : {};
+  const subscribed = nextPlanId(record[NEXT_PLAN_METADATA_KEY]) ?? nextPlanId(record.cmuxPlan);
+  const granted = nextGrantPlanIdFromMetadata(record);
+  const planId = higherNextPlanId(subscribed, granted);
+  return {
+    planId,
+    source: planId === null ? null : planId === subscribed ? "subscription" : "grant",
+    checkoutAvailable: nextPlanCheckoutAvailability(env),
   };
 }
 

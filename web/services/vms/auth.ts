@@ -33,6 +33,11 @@ import {
   isDevelopmentProAccessEnabled,
   PRO_PLAN_ID,
 } from "../billing/pro";
+import {
+  teamEntitlementOverrideFromMetadata,
+  withEntitlementOverride,
+  type TeamEntitlementOverride,
+} from "./teamEntitlementOverride";
 
 export type AuthedUser = {
   id: string;
@@ -50,6 +55,8 @@ export type AuthedUser = {
   billingPlanId: string | null;
   /** Paid seats on the resolved billing team; null for user billing or unknown. */
   billingSeats: number | null;
+  /** The resolved billing team's custom Cloud VM deal (`cmuxEntitlementOverride`); absent means none. */
+  billingEntitlementOverride?: TeamEntitlementOverride | null;
 };
 
 export type AuthedTeam = {
@@ -57,6 +64,8 @@ export type AuthedTeam = {
   displayName: string | null;
   billingPlanId: string | null;
   billingSeats: number | null;
+  /** The team's custom Cloud VM deal (`cmuxEntitlementOverride`); absent means none. */
+  entitlementOverride?: TeamEntitlementOverride | null;
 };
 
 export class SubrouterAuthorizationConfigurationError extends Error {
@@ -938,7 +947,9 @@ async function authedUserFromStackUser(
       ? PRO_PLAN_ID
       : billingPlanIdFromMetadata(team.clientReadOnlyMetadata),
     billingSeats: billingSeatsFromMetadata(team.clientReadOnlyMetadata),
+    ...withEntitlementOverride("entitlementOverride", teamEntitlementOverrideFromMetadata(team.clientReadOnlyMetadata)),
   }));
+  const billingEntitlementOverride = teamEntitlementOverrideFromMetadata(billingTeam?.clientReadOnlyMetadata);
 
   return {
     user: {
@@ -955,6 +966,7 @@ async function authedUserFromStackUser(
       userBillingPlanId,
       billingPlanId,
       billingSeats,
+      ...withEntitlementOverride("billingEntitlementOverride", billingEntitlementOverride),
     },
     completeTeamList,
   };

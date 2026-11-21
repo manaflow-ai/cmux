@@ -2,7 +2,7 @@
 // Responses are JWS like everything else from Apple, so callers verify the
 // returned signedTransactionInfo and signedRenewalInfo with the verifier.
 
-import { AppStoreServerAPIClient, Environment } from "@apple/app-store-server-library";
+import { APIError, APIException, AppStoreServerAPIClient, Environment } from "@apple/app-store-server-library";
 
 import { appleServerApiCredentials, type SignedAppleEnvironment } from "./config";
 
@@ -16,6 +16,41 @@ export type AppleSubscriptionStatusSnapshot = {
   readonly signedRenewalInfo: string | null;
 };
 
+/** One page of App Store Server Notifications history. */
+export type AppleNotificationHistoryPage = {
+  /** Each notification's `signedPayload`, verified by the caller like a webhook body. */
+  readonly signedPayloads: readonly string[];
+  readonly hasMore: boolean;
+  readonly paginationToken: string | null;
+};
+
+/** Apple refused a saved pagination token (invalid, expired, or its window's start aged out); restart the window. */
+export class AppleHistoryPaginationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AppleHistoryPaginationError";
+  }
+}
+
+/**
+ * Apple answered HTTP 401 (bodyless) for this key in this environment. For
+ * Production alongside a working Sandbox it means the app has no App Store
+ * release yet (productionAccess.ts), not a bad key.
+ */
+export class AppleServerApiUnauthorizedError extends Error {
+  constructor(
+    readonly environment: SignedAppleEnvironment,
+    readonly bundleId: string,
+  ) {
+    super(`App Store Server API answered HTTP 401 for ${bundleId} in ${environment}`);
+    this.name = "AppleServerApiUnauthorizedError";
+  }
+}
+
+export function isAppleServerApiUnauthorized(error: unknown): error is AppleServerApiUnauthorizedError {
+  return error instanceof AppleServerApiUnauthorizedError;
+}
+
 export type AppleServerApi = {
   /**
    * The status entry for `originalTransactionId`, or null when Apple returns
@@ -26,7 +61,34 @@ export type AppleServerApi = {
     readonly bundleId: string;
     readonly environment: SignedAppleEnvironment;
   }): Promise<AppleSubscriptionStatusSnapshot | null>;
+  /**
+   * One page of Get Notification History for the window. Apple keeps 180
+   * days. Throws AppleHistoryPaginationError when Apple rejects the token.
+   */
+  notificationHistory(input: {
+    readonly bundleId: string;
+    readonly environment: SignedAppleEnvironment;
+    readonly startDate: Date;
+    readonly endDate: Date;
+    readonly paginationToken: string | null;
+  }): Promise<AppleNotificationHistoryPage>;
 };
+
+function isPaginationRejection(error: unknown): boolean {
+  return error instanceof APIException && (
+    error.apiError === APIError.INVALID_PAGINATION_TOKEN ||
+    error.apiError === APIError.PAGINATION_TOKEN_EXPIRED ||
+    // A resumed window whose start fell past Apple's 180 days: start a new one.
+    error.apiError === APIError.START_DATE_TOO_FAR_IN_PAST
+  );
+}
+
+/** Rethrows Apple's 401 as AppleServerApiUnauthorizedError; other errors unchanged. Exported for tests. */
+export function unauthorizedOr(error: unknown, environment: SignedAppleEnvironment, bundleId: string): unknown {
+  return error instanceof APIException && error.httpStatusCode === 401
+    ? new AppleServerApiUnauthorizedError(environment, bundleId)
+    : error;
+}
 
 /** The App Store Server API client, or null when this deployment has no key. */
 export function createAppleServerApi(env: Env = process.env): AppleServerApi | null {
@@ -50,7 +112,12 @@ export function createAppleServerApi(env: Env = process.env): AppleServerApi | n
   };
   return {
     async subscriptionStatus({ originalTransactionId, bundleId, environment }) {
-      const response = await clientFor(bundleId, environment).getAllSubscriptionStatuses(originalTransactionId);
+      let response;
+      try {
+        response = await clientFor(bundleId, environment).getAllSubscriptionStatuses(originalTransactionId);
+      } catch (error) {
+        throw unauthorizedOr(error, environment, bundleId);
+      }
       for (const group of response.data ?? []) {
         for (const item of group.lastTransactions ?? []) {
           if (item.originalTransactionId !== originalTransactionId || !item.signedTransactionInfo) continue;
@@ -62,6 +129,26 @@ export function createAppleServerApi(env: Env = process.env): AppleServerApi | n
         }
       }
       return null;
+    },
+    async notificationHistory({ bundleId, environment, startDate, endDate, paginationToken }) {
+      let response;
+      try {
+        response = await clientFor(bundleId, environment).getNotificationHistory(paginationToken, {
+          startDate: startDate.getTime(),
+          endDate: endDate.getTime(),
+        });
+      } catch (error) {
+        if (isPaginationRejection(error)) throw new AppleHistoryPaginationError("Apple rejected the notification history pagination token");
+        throw unauthorizedOr(error, environment, bundleId);
+      }
+      const signedPayloads = (response.notificationHistory ?? [])
+        .map((item) => item.signedPayload)
+        .filter((payload): payload is string => typeof payload === "string" && payload.length > 0);
+      return {
+        signedPayloads,
+        hasMore: response.hasMore === true,
+        paginationToken: response.paginationToken ?? null,
+      };
     },
   };
 }

@@ -42,6 +42,7 @@ import {
   type ProMetadataJson,
   type ProMetadataCustomer,
 } from "../../../services/billing/pro";
+import { detachAppleBillingForAccountDeletion } from "../../../services/billing/apple/accountDeletion";
 import { isAscConfigured } from "../../../services/asc/client";
 import {
   removeProTesterAccess,
@@ -1932,6 +1933,10 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
         isNotNull(stripeCustomers.stackTeamId),
         not(inArray(stripeCustomers.stackTeamId, deletionTeamIds)),
       ));
+    // Deleting the account does not cancel an App Store subscription; the
+    // app and dashboard warned about that before this request. Unlink it so
+    // Apple's later notifications for it are skipped, never re-granting.
+    await detachAppleBillingForAccountDeletion(tx, userId);
 
     await tx.delete(cloudVmBillingGrants).where(or(
       and(

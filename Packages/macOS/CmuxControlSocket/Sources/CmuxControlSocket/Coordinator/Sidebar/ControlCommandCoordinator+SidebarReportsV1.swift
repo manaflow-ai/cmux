@@ -11,8 +11,8 @@ internal import Foundation
 /// mutation bus with zero main hops, and each fallback path crosses to the
 /// main actor exactly once via
 /// ``ControlSidebarContext/controlSidebarOnMain(_:)`` for its synchronous
-/// resolution write. `sidebar_state` / `reset_sidebar` / `right_sidebar`
-/// stay on the main actor (unmigrated).
+/// resolution write. `sidebar_state` / `reset_sidebar` / `left_sidebar` /
+/// `right_sidebar` stay on the main actor (unmigrated).
 extension ControlCommandCoordinator {
     // MARK: - Git branch
 
@@ -492,6 +492,24 @@ extension ControlCommandCoordinator {
             return "ERROR: Tab not found"
         }
         return "OK"
+    }
+
+    /// `left_sidebar` — parse and apply a left-sidebar remote command
+    /// (parse + apply stay app-side; the state reply is encoded here like
+    /// `right_sidebar`'s, without `mode` because the left sidebar has none).
+    func sidebarLeftSidebar(_ args: String) -> String {
+        let resolution = sidebarContext?.controlSidebarApplyLeftSidebarRemoteCommand(tokens: sidebarTokenizeArgs(args))
+            ?? .failure(message: "ERROR: Left sidebar not available")
+        switch resolution {
+        case .ok:
+            return "OK"
+        case .state(let visible):
+            return ControlResponseEncoder().encode(.object([
+                "visible": .bool(visible),
+            ]))
+        case .failure(let message):
+            return message
+        }
     }
 
     /// `right_sidebar` — parse and apply a right-sidebar remote command

@@ -28,6 +28,7 @@
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+use super::agent_start::placement::Placeholder;
 use super::command::{CommandPlan, RequestPlan};
 use super::{GlobalArgs, UsageError, wire};
 
@@ -366,19 +367,6 @@ fn created_path(result: &Value) -> Value {
     result.get("value").cloned().unwrap_or_else(|| result.clone())
 }
 
-/// The shell tab a new pane started with, and its terminal.
-struct Placeholder {
-    tab: String,
-    terminal: Option<String>,
-}
-
-fn placeholder_of(path: &Value) -> Placeholder {
-    Placeholder {
-        tab: text(path, "tab_id"),
-        terminal: path.get("terminal_id").and_then(Value::as_str).map(str::to_owned),
-    }
-}
-
 /// Runs `pane <pane> move`; the result names the moved tabs, where they
 /// went, what was made and the pane that has the focus after.
 pub(super) fn move_pane<B: Daemon + ?Sized>(
@@ -436,7 +424,7 @@ pub(super) fn move_pane<B: Daemon + ?Sized>(
                         text(&path, "screen_id"),
                         text(&path, "pane_id"),
                         1,
-                        Some(placeholder_of(&path)),
+                        Some(Placeholder::from_path(&path)),
                         json!({"pane": text(&path, "pane_id")}),
                     )
                 }
@@ -491,7 +479,7 @@ pub(super) fn move_pane<B: Daemon + ?Sized>(
                 text(&path, "screen_id"),
                 text(&path, "pane_id"),
                 1,
-                Some(placeholder_of(&path)),
+                Some(Placeholder::from_path(&path)),
                 json!({"screen": text(&path, "screen_id"), "pane": text(&path, "pane_id")}),
             )
         }
@@ -523,14 +511,10 @@ pub(super) fn move_pane<B: Daemon + ?Sized>(
     }
     if let Some(placeholder) = &placeholder {
         // Ending the shell takes its tab; closing only the tab left the
-        // shell running with no tab until the session ended (W5-O). A result
-        // that names no terminal gets the tab close, which leaves the shell
-        // to the session's end (main's daemon has no reaper and always names
-        // the terminal).
-        let close = match &placeholder.terminal {
-            Some(terminal) => ["terminal", terminal.as_str(), "close"],
-            None => ["tab", placeholder.tab.as_str(), "close"],
-        };
+        // shell running with no tab (W5-O). A result that names no terminal
+        // gets the tab close, and an owner whose reaper runs ends the shell
+        // after its grace.
+        let close = placeholder.end_command();
         backend
             .request(plan(&close, Some(step_key(command_key, "close-shell")))?)
             .map_err(|error| step_failure(error, "close-shell", made(&moved)))?;

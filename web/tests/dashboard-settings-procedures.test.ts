@@ -26,6 +26,14 @@ mock.module("@/app/lib/stack", () => ({
   }),
 }));
 
+const deletionChecks: string[] = [];
+mock.module("@/services/billing/apple/accountDeletion", () => ({
+  accountDeletionCheckForUser: async (userId: string) => {
+    deletionChecks.push(userId);
+    return { appStoreSubscriptionRenews: true, manageSubscriptionsUrl: "https://apps.apple.com/account/subscriptions" };
+  },
+}));
+
 const { settingsRouter } = await import("../orpc/server/dashboard/settings");
 
 const context = { request: new Request("https://cmux.test/dashboard/settings"), serverPrefetch: true };
@@ -106,6 +114,15 @@ describe("dashboard.settings", () => {
       linked: [{ id: "p1", type: "github", email: null, allowSignIn: true, allowConnectedAccounts: false }],
       available: ["github", "google"],
     });
+  });
+
+  test("account deletion reports the session user's renewing App Store subscription", async () => {
+    stackUser = { ...stackUser, id: "user-1" };
+    expect(await call(settingsRouter.accountDeletion, undefined, { context })).toEqual({
+      appStoreSubscriptionRenews: true,
+      manageSubscriptionsUrl: "https://apps.apple.com/account/subscriptions",
+    });
+    expect(deletionChecks).toEqual(["user-1"]);
   });
 
   test("an anonymous or missing Stack user is a declared UNAUTHORIZED", async () => {

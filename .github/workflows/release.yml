@@ -915,6 +915,10 @@ jobs:
         if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
+          # A person installs and checks a dry run's DMGs, sometimes days after it ran (over a weekend), and
+          # nothing else reads them: 7 days, not the 90-day default it had before cmux#43201 or that PR's 3.
+          # About 14 dry runs at 332 MB each is under 5 GB held.
+          retention-days: 7
           name: cmux-release-dry-run
           path: |
             cmux-macos.dmg

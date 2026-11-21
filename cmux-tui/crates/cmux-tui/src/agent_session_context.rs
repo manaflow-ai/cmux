@@ -30,8 +30,12 @@ pub(crate) fn hook_command(executable: &Path) -> Option<String> {
 /// Prints the hook's one JSON object; always exits 0, so a failure never
 /// stops Claude Code from starting.
 pub(crate) fn run() -> i32 {
-    // Drain the payload so Claude Code's write never fails on a closed pipe.
-    let _ = std::io::stdin().lock().take(MAX_PAYLOAD_BYTES).read_to_end(&mut Vec::new());
+    // Read the whole payload so Claude Code's write never fails on a closed pipe.
+    let mut payload = Vec::new();
+    let _ = std::io::stdin().lock().take(MAX_PAYLOAD_BYTES).read_to_end(&mut payload);
+    let payload = serde_json::from_slice::<serde_json::Value>(&payload).ok();
+    let text = |key: &str| payload.as_ref()?.get(key)?.as_str().map(str::to_owned);
+    let (session, start_source) = (text("session_id"), text("source"));
     let env = |key: &str| std::env::var(key).ok().filter(|value| !value.trim().is_empty());
     // The plugin's copy of this hook (claude_plugin.rs) runs without the
     // wrapper, which is what otherwise honors the switch.
@@ -41,11 +45,26 @@ pub(crate) fn run() -> i32 {
     }
     let cli = std::env::current_exe().ok().map(|path| path.canonicalize().unwrap_or(path));
     match env("CMUX_TUI_SOCKET").or_else(|| env("CMUX_MUX_SOCKET")) {
-        Some(socket) => crate::hook_helper::session_context::print(
-            Some(&PathBuf::from(socket)),
-            env("CMUX_TUI_TERMINAL_ID").as_deref(),
-            cli.as_deref(),
-        ),
+        Some(socket) => {
+            let socket = PathBuf::from(socket);
+            let terminal = env("CMUX_TUI_TERMINAL_ID");
+            // A Claude that the terminal's agent started does not run in the
+            // terminal as its agent: it gets no context.
+            if crate::hook_helper::claude_is_nested(
+                &socket,
+                terminal.as_deref(),
+                session.as_deref(),
+                start_source.as_deref(),
+            ) {
+                println!("{{}}");
+            } else {
+                crate::hook_helper::session_context::print(
+                    Some(&socket),
+                    terminal.as_deref(),
+                    cli.as_deref(),
+                );
+            }
+        }
         None => crate::hook_helper::session_context::print(None, None, cli.as_deref()),
     }
     0

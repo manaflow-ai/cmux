@@ -84,6 +84,7 @@ export async function POST(
         teamIds: user.teamIds,
         billingPlanId: entitlements.planId,
         maxActiveVms: entitlements.maxActiveVms,
+        entitlementOverride: entitlements.entitlementOverride,
         providerVmId: id,
         name,
         idempotencyKey,
