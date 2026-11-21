@@ -27,7 +27,6 @@ use std::process::Command;
 use std::time::{Duration, SystemTime};
 
 use anyhow::Context as _;
-use cmux_tui_core::server::AgentStartHost;
 use serde_json::{Map, Value};
 use sha2::{Digest as _, Sha256};
 
@@ -174,8 +173,7 @@ fn prepare_hooks(args: &[OsString]) -> anyhow::Result<(Vec<OsString>, Option<Pat
     let cache = agent_hook_install::runtime_cmux_tui_data_home()
         .context("no data directory for Claude settings")?
         .join("claude-settings");
-    let host = (crate::agent_start_host::source())();
-    let user = user_cross_session_inbound(|name| std::env::var_os(name), host);
+    let user = user_cross_session_inbound(|name| std::env::var_os(name));
     let mut launch = args_with_hooks(args, hooks, user.as_ref(), &cache)?;
     // cmux Computer Use, with no setup (agent_computer_use.rs), unless the
     // person said no to cmux's tools in their agents (agent_mcp_choice.rs).
@@ -222,12 +220,9 @@ const CROSS_SESSION_INBOUND: &str = "crossSessionInbound";
 
 /// The person's own `crossSessionInbound`, from the settings file of the config directory the
 /// launch uses. Shared Cloud launches switch to the isolated team profile downstream in
-/// agent-auth.sh, after this wrapper runs. Read that profile before applying launch defaults.
-/// On personal hosts use `CLAUDE_CONFIG_DIR`, else `~/.claude`. The file is only read.
-fn user_cross_session_inbound(
-    getenv: impl Fn(&str) -> Option<OsString>,
-    host: AgentStartHost,
-) -> Option<Value> {
+/// agent-auth.sh, after this wrapper runs. Read both possible profiles before applying launch
+/// defaults, so that switch cannot hide a refusal. The files are only read.
+fn user_cross_session_inbound(getenv: impl Fn(&str) -> Option<OsString>) -> Option<Value> {
     let personal = getenv("CLAUDE_CONFIG_DIR")
         .filter(|dir| !dir.is_empty())
         .map(PathBuf::from)
@@ -238,22 +233,24 @@ fn user_cross_session_inbound(
         })
         .and_then(|config| read_settings_argument(config.join("settings.json").as_os_str()).ok())
         .and_then(|mut settings| settings.remove(CROSS_SESSION_INBOUND));
+    let shared = getenv("HOME")
+        .filter(|home| !home.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/root"))
+        .join(".config/cmux/claude-team")
+        .join("settings.json");
+    let shared = read_settings_argument(shared.as_os_str())
+        .ok()
+        .and_then(|mut settings| settings.remove(CROSS_SESSION_INBOUND));
     // A profile switch must not loosen a refusal the person already set in the
     // incoming config. The shared profile's refusal also wins below.
     if personal.as_ref().is_some_and(|value| value == "refuse") {
         return personal;
     }
-    let config = if matches!(host, AgentStartHost::TeamVm | AgentStartHost::UnknownCloud) {
-        PathBuf::from(
-            getenv("HOME").filter(|home| !home.is_empty()).unwrap_or_else(|| "/root".into()),
-        )
-        .join(".config/cmux/claude-team")
-    } else {
-        return personal;
-    };
-    read_settings_argument(config.join("settings.json").as_os_str())
-        .ok()?
-        .remove(CROSS_SESSION_INBOUND)
+    if shared.as_ref().is_some_and(|value| value == "refuse") {
+        return shared;
+    }
+    personal.or(shared)
 }
 
 /// Accept messages from the person's other sessions unless the launch or the person's own
@@ -871,14 +868,11 @@ mod tests {
         fs::write(config.join("settings.json"), body).unwrap();
         let env =
             |name: &str| (name == "CLAUDE_CONFIG_DIR").then(|| config.clone().into_os_string());
-        assert_eq!(
-            user_cross_session_inbound(env, AgentStartHost::Allowed),
-            Some(Value::from("refuse"))
-        );
+        assert_eq!(user_cross_session_inbound(env), Some(Value::from("refuse")));
         assert_eq!(fs::read_to_string(config.join("settings.json")).unwrap(), body);
         let home =
             |name: &str| (name == "HOME").then(|| root.path().join("nohome").into_os_string());
-        assert_eq!(user_cross_session_inbound(home, AgentStartHost::Allowed), None);
+        assert_eq!(user_cross_session_inbound(home), None);
     }
 
     #[test]
@@ -896,24 +890,16 @@ mod tests {
             "CLAUDE_CONFIG_DIR" => Some(personal.as_os_str().to_owned()),
             _ => None,
         };
-        for host in [AgentStartHost::TeamVm, AgentStartHost::UnknownCloud] {
-            let user = user_cross_session_inbound(env, host);
-            assert_eq!(user, Some(Value::from("refuse")));
-            let args = os(&[r#"--settings={"crossSessionInbound":"accept"}"#]);
-            let out = args_with_hooks(&args, Map::new(), user.as_ref(), &root.path().join("cache"))
-                .unwrap();
-            assert_eq!(read_json(Path::new(&out[1]))[CROSS_SESSION_INBOUND], "refuse");
-        }
-        for host in [AgentStartHost::Allowed, AgentStartHost::OwnerCloud] {
-            assert_eq!(user_cross_session_inbound(env, host), Some(Value::from("accept")));
-        }
+        let user = user_cross_session_inbound(env);
+        assert_eq!(user, Some(Value::from("refuse")));
+        let args = os(&[r#"--settings={"crossSessionInbound":"accept"}"#]);
+        let out =
+            args_with_hooks(&args, Map::new(), user.as_ref(), &root.path().join("cache")).unwrap();
+        assert_eq!(read_json(Path::new(&out[1]))[CROSS_SESSION_INBOUND], "refuse");
         assert_eq!(fs::read_to_string(team.join("settings.json")).unwrap(), body);
         fs::write(personal.join("settings.json"), body).unwrap();
         fs::write(team.join("settings.json"), r#"{"crossSessionInbound":"accept"}"#).unwrap();
-        assert_eq!(
-            user_cross_session_inbound(env, AgentStartHost::TeamVm),
-            Some(Value::from("refuse"))
-        );
+        assert_eq!(user_cross_session_inbound(env), Some(Value::from("refuse")));
     }
 
     /// Hook commands match `agent hook install`, or call `agent hook emit` without a helper.
