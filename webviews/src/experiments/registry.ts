@@ -58,6 +58,7 @@ import { questionPreviewLayout } from "../agent-session/acpmux/question/previewL
 import { trayPanelLook, trayRowLook, trayStopLook } from "../agent-session/acpmux/subagents/trayPanel.experiment";
 import { trayMotionLook } from "../agent-session/acpmux/subagents/trayMotion.experiment";
 import { composerHatLook } from "../agent-session/acpmux/subagents/composerHat.experiment";
+import { stickyPrompt } from "../agent-session/acpmux/stickyPrompt/stickyPrompt.experiment";
 import { hatQuestionsLook } from "../agent-session/acpmux/question/hatQuestions.experiment";
 import { hatChevronLook, hatDoneCheckPlace, hatDoneLook } from "../agent-session/acpmux/subagents/hatParts.experiment";
 import { hatTuckLook } from "../agent-session/acpmux/subagents/hatTuck.experiment";
@@ -205,6 +206,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   composerShellLook,
   composerFooterControls,
   composerEmptyHeight,
+  stickyPrompt,
 ];
 
 export function experimentById(id: string): Experiment | undefined {

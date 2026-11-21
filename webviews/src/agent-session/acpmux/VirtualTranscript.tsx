@@ -206,6 +206,8 @@ import "./jumpPair.css";
 import { jumpUpButton } from "./jumpUp.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import { jumpPairLook } from "./jumpPair.experiment";
+import { stickyPrompt } from "./stickyPrompt/stickyPrompt.experiment";
+import { StickyPromptMemo } from "./stickyPrompt/StickyPrompt";
 import { MOTION_MS, MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../motion/scale.generated";
 import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade, SHOWN_INK_PROPERTIES } from "../../scrollers";
 import { thumbMotion } from "./conversation/thumbMotion.experiment";
@@ -6383,6 +6385,21 @@ function TranscriptView({
       return (index >= 0 ? placed.geometry.topAt(index) + place.offset : top) - node.clientHeight / 3;
     });
   };
+  // PROTOTYPE (sticky-prompt experiment, default off): a prompt's row placed just under the top zone.
+  const [stickyArm] = useState(() => experimentArm(stickyPrompt));
+  const placeViewRef = useRef(placeView);
+  placeViewRef.current = placeView;
+  const jumpToPrompt = React.useCallback((index: number) => {
+    const node = ref.current;
+    const id = latestLayout.current.rows[index]?.id;
+    if (!node || id === undefined) return;
+    const hint = { current: index };
+    placeViewRef.current(() => {
+      const { layout: placed, rows: shown } = latestLayout.current;
+      const at = indexOfRow(shown, id, hint);
+      return at >= 0 ? placed.geometry.topAt(at) - 12 : node.scrollTop;
+    });
+  }, []);
   const pressUpRef = useRef(pressUp);
   pressUpRef.current = pressUp;
   // Esc goes back while Jump up holds a way back, unless something before it took the key (the
@@ -7345,6 +7362,17 @@ function TranscriptView({
               />
             </div>
           )}
+          <StickyPromptMemo
+            arm={stickyArm}
+            rows={rows}
+            geometry={layout.geometry}
+            totalHeight={layout.totalHeight}
+            viewTop={renderScroll.top - origin}
+            viewHeight={height - room}
+            zoneTop={topZoneOffset({ clearTop, pinnedBottom: undefined })}
+            lift={dockSpace}
+            onJump={jumpToPrompt}
+          />
           {jumpUp && <JumpUp shown={upShown} back={jumpBackHeld} onJump={() => pressUp()} lift={dockSpace} />}
           {jumpButton && (
             <JumpToLatestMemo
