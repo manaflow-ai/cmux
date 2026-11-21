@@ -94,3 +94,47 @@ test("a populated formatter cache preserves malformed-locale and nonfinite-age e
     expect(locales).toEqual([]);
   });
 });
+
+// A chat switch mounts every row's MessageTime, which writes an age and an exact time: each used to
+// build an Intl.DateTimeFormat per call (Date.toLocale*String), 2.6 ms of a 120-turn chat's switch.
+test("message dates and exact times reuse one date formatter per wording and write the same words", async () => {
+  const { exactTime, messageAge, replyTime } = await import("../src/agent-session/acpmux/conversation/relativeTime");
+  const OLD = Date.UTC(2026, 9, 18, 5, 41);
+  const LAST_YEAR = Date.UTC(2025, 9, 18, 5, 41);
+  const exact: Intl.DateTimeFormatOptions = { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" };
+  for (const locale of ["en-US", "de-DE"]) {
+    // Warm each wording for this language.
+    exactTime(OLD, locale);
+    messageAge(OLD, NOW, locale);
+    messageAge(LAST_YEAR, NOW, locale);
+    replyTime(OLD, NOW, locale);
+    const saved = Intl.DateTimeFormat;
+    const descriptor = Object.getOwnPropertyDescriptor(Intl, "DateTimeFormat")!;
+    let built = 0;
+    const counted = new Proxy(saved, {
+      construct(target, args, newTarget) {
+        built += 1;
+        return Reflect.construct(target, args, newTarget);
+      },
+    });
+    Object.defineProperty(Intl, "DateTimeFormat", { ...descriptor, value: counted });
+    const words: string[] = [];
+    try {
+      for (let row = 0; row < 40; row += 1) {
+        words.push(exactTime(OLD, locale), messageAge(OLD, NOW, locale), messageAge(LAST_YEAR, NOW, locale), replyTime(OLD, NOW, locale));
+      }
+    } finally {
+      Object.defineProperty(Intl, "DateTimeFormat", descriptor);
+    }
+    expect(built).toBe(0);
+    expect(words.slice(0, 4)).toEqual([
+      new Date(OLD).toLocaleString(locale, exact),
+      new Date(OLD).toLocaleDateString(locale, { month: "short", day: "numeric" }),
+      new Date(LAST_YEAR).toLocaleDateString(locale, { month: "short", day: "numeric", year: "numeric" }),
+      new Date(OLD).toLocaleString(locale, { ...exact, year: undefined }),
+    ]);
+  }
+  // A tag Intl refuses still writes the system's words, and a time that is no date its old text.
+  expect(exactTime(OLD, "not a tag!")).toBe(new Date(OLD).toLocaleString(undefined, exact));
+  expect(exactTime(Number.NaN, "en-US")).toBe("Invalid Date");
+});
