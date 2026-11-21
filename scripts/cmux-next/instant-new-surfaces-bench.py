@@ -103,6 +103,8 @@ parser.add_argument("--budget-key-ms", type=float, default=16.7)
 parser.add_argument("--hang-stacks", action="store_true",
                     help="as the every-action sweep: hang watchdog at 8 ms, the agent pane mock (Cmd-N opens its New Tab page), "
                          "and each run's longest main-thread stall with its whole stack (64 frames) in the row and the log")
+parser.add_argument("--sample-file", help="/usr/bin/sample the app (1 ms) over the idle phase's runs of the first command; "
+                    "the report goes here")
 parser.add_argument("--slow-wait", type=float, default=40, help="slow phase: seconds between marking WebKit slow and the first run")
 parser.add_argument("--native-new-tab", action="store_true", help="run with tabs.nativeNewTabPage on (Cmd-T opens the native New Tab page)")
 parser.add_argument("--page-engine", default="any", choices=bench_page_engine.WANTED,
@@ -485,6 +487,12 @@ def bench(phase, window):
     if not ensure_terminal():
         sys.exit("no focused terminal: " + json.dumps(panes())[:800])
     for command in COMMANDS:
+        sampler = None
+        if opts.sample_file and phase == "idle" and command == COMMANDS[0]:
+            seconds = max(5, int(opts.runs * 1.5) + 5)
+            sampler = subprocess.Popen(["/usr/bin/sample", str(app.pid), str(seconds), "1", "-mayDie", "-file", opts.sample_file],
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            time.sleep(0.5)  # test harness: sample attaches before the first press
         for index in range(opts.runs):
             if command not in ("new_workspace", "browser_workspace") and not ready(command):
                 sys.exit("no focused start pane: " + json.dumps(panes())[:800])
@@ -502,6 +510,9 @@ def bench(phase, window):
                     print("    " + frame, flush=True)
             undo(command, window, before)
             time.sleep(0.3)
+        if sampler:
+            sampler.wait(timeout=300)
+            print(f"sample: {opts.sample_file} written={os.path.exists(opts.sample_file)}", flush=True)
     return rows
 
 
