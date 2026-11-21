@@ -129,6 +129,11 @@ fn disconnect_client_with_notice(
     notice: Option<&Value>,
     detach: &DetachNotice,
 ) -> bool {
+    // A handoff it reserved and did not finish ends with it, and so does
+    // the idle-stop fence that handoff raised (server/stop_if_idle.rs):
+    // removing the record alone would drop the reservation but keep the
+    // fence, refusing every new terminal from then on.
+    mux.cancel_daemon_handoff(client);
     let record = {
         let _lifecycle = mux.lock_client_sizing_lifecycle();
         let Some(record) = mux.control_clients.remove(client) else { return false };

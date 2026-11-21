@@ -1085,6 +1085,28 @@ impl ClientRegistry {
         Ok(owner)
     }
 
+    /// Every connected client except `requesting_client` and this owner's
+    /// own journal plugin (the bundled screen detector, which connects back
+    /// at start and stays: no person uses the daemon through it, as
+    /// [`Self::user_client_count`] counts), oldest first (`shutdown-daemon`
+    /// with `if_idle`, stop_if_idle.rs).
+    pub(super) fn other_clients(
+        &self,
+        requesting_client: u64,
+    ) -> Vec<super::stop_if_idle::BusyClient> {
+        let state = self.state.lock().recover_poison();
+        state
+            .clients
+            .iter()
+            .filter(|(client, record)| **client != requesting_client && !record.owner_plugin)
+            .map(|(client, record)| super::stop_if_idle::BusyClient {
+                client: *client,
+                name: record.name.clone(),
+                kind: record.kind.clone(),
+            })
+            .collect()
+    }
+
     pub(crate) fn begin_daemon_handoff(
         &self,
         requesting_client: u64,
@@ -1132,12 +1154,16 @@ impl ClientRegistry {
         }
     }
 
-    pub(crate) fn cancel_daemon_handoff(&self, requesting_client: u64) {
+    /// Releases `requesting_client`'s pending reservation. True when it
+    /// held one.
+    pub(crate) fn cancel_daemon_handoff(&self, requesting_client: u64) -> bool {
         let mut state = self.state.lock().recover_poison();
         if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(requesting_client)) {
             state.daemon_handoff = None;
             state.daemon_handoff_restart = None;
+            return true;
         }
+        false
     }
 
     /// Records whether a replacement follows the handoff `requesting_client`

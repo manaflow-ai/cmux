@@ -371,8 +371,21 @@ impl Mux {
         self.control_clients.daemon_handoff_committed()
     }
 
+    /// Releases `requesting_client`'s pending handoff, and with it the
+    /// idle-stop fence an idle stop raised (server/stop_if_idle.rs). Never
+    /// called with the workspace registry locked.
     pub fn cancel_daemon_handoff(&self, requesting_client: u64) {
-        self.control_clients.cancel_daemon_handoff(requesting_client);
+        if self.control_clients.cancel_daemon_handoff(requesting_client)
+            && let Err(error) = self
+                .workspace_registry
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .set_idle_stop_fence(false)
+        {
+            eprintln!(
+                "cmux-tui: cannot lower the idle-stop fence, so new terminals stay refused: {error:#}"
+            );
+        }
     }
 
     /// Ask the owning frontend loop to leave through the normal daemon

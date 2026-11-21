@@ -903,6 +903,11 @@ pub struct WorkspaceRegistry {
     output_cleanup_swapped: bool,
 }
 
+/// What a terminal write gets while an idle stop's fence is raised
+/// ([`WorkspaceRegistry::set_idle_stop_fence`]). No quote: it sits in SQL.
+pub(crate) const IDLE_STOP_FENCE_ERROR: &str =
+    "the daemon is stopping because it was idle; no terminal may start until it stops";
+
 /// Prepared statements each registry connection keeps compiled
 /// (`Connection::prepare_cached`, least recently used out first). The journal
 /// append, hook and journal read paths run the same few dozen statements for
@@ -1036,6 +1041,36 @@ impl WorkspaceRegistry {
         validate_identifier("mutation origin", &mutation.origin)?;
         let fingerprint = canonical_json(fingerprint)?;
         terminal_replay(&self.connection.get(), mutation, &fingerprint)
+    }
+
+    /// Raises or lowers the idle-stop fence. An idle stop
+    /// (`shutdown-daemon` with `if_idle`, server/stop_if_idle.rs) raises it
+    /// under this registry's lock once it found no live terminal; cancelling
+    /// that stop's handoff lowers it. While raised, no terminal may become
+    /// launching, adopting or running, so none starts between the check and
+    /// the stop. It is two TEMP triggers on this registry's one connection
+    /// (every write to `terminal_hosts` goes through it): a creation,
+    /// adoption, respawn, restore or resource projection is refused at its
+    /// write, whatever path it takes.
+    pub(crate) fn set_idle_stop_fence(&self, raised: bool) -> anyhow::Result<()> {
+        const LIVE: &str = "('launching', 'adopting', 'running')";
+        let sql = if raised {
+            format!(
+                "CREATE TEMP TRIGGER IF NOT EXISTS cmux_idle_stop_fence_insert
+                   BEFORE INSERT ON terminal_hosts WHEN NEW.lifecycle IN {LIVE}
+                 BEGIN SELECT RAISE(ABORT, '{IDLE_STOP_FENCE_ERROR}'); END;
+                 CREATE TEMP TRIGGER IF NOT EXISTS cmux_idle_stop_fence_update
+                   BEFORE UPDATE OF lifecycle ON terminal_hosts
+                   WHEN NEW.lifecycle IN {LIVE} AND OLD.lifecycle NOT IN {LIVE}
+                 BEGIN SELECT RAISE(ABORT, '{IDLE_STOP_FENCE_ERROR}'); END;"
+            )
+        } else {
+            "DROP TRIGGER IF EXISTS temp.cmux_idle_stop_fence_insert;
+             DROP TRIGGER IF EXISTS temp.cmux_idle_stop_fence_update;"
+                .to_owned()
+        };
+        self.connection.get().execute_batch(&sql)?;
+        Ok(())
     }
 
     /// Commits one terminal state transition and its event in a single SQLite
