@@ -83,11 +83,13 @@ final class HomeMacDisconnectedUITests: XCTestCase {
         attach(app, "5-home-asleep-empty")
     }
 
-    /// Workspaces' connection toast: its words and Retry, above the rows (never over them).
+    /// Workspaces' connection toast: its words and Retry, above the rows (never over them). It
+    /// shows only once Home has not been live for `QuietStatusGate.threshold` (10 s), so the wait
+    /// covers that bound and the launch.
     @MainActor
     private func expectToast(_ app: XCUIApplication, saying text: String, above row: XCUIElement) throws {
         let toast = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", text)).firstMatch
-        XCTAssertTrue(toast.waitForExistence(timeout: 10), "the connection toast\n\(app.debugDescription)")
+        XCTAssertTrue(toast.waitForExistence(timeout: 25), "the connection toast\n\(app.debugDescription)")
         let retry = app.buttons["Retry"].firstMatch
         XCTAssertTrue(retry.exists, "Retry on the toast\n\(app.debugDescription)")
         XCTAssertLessThanOrEqual(toast.frame.maxY, row.frame.minY, "the toast covers no row")

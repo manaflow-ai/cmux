@@ -734,13 +734,16 @@ final class ShellModel {
         case "connected"?: return .connected
         case "reconnecting"?: return .reconnecting(to: "Mac Studio")
         case "offline"?: return .connectionFailed
+        case "no-network"?: return .offline
         case "pairing"?: return .waitingForPairing(on: "Mac Studio")
         case "pairing-reset"?: return .waitingForPairingAfterNewKeys(on: "Mac Studio")
         case "signed-out"?: return .signedOut
         default: break
         }
         #endif
-        if store.isOffline { return .offline }
+        // Live: once the network has been gone past the quiet wait (a Wi-Fi to cellular move
+        // says nothing). Mock and demo: at once.
+        if live?.networkOfflineShows ?? store.isOffline { return .offline }
         // Pairing (verify/phone-approvals.md): the Mac asks the user the first time.
         switch live?.pairingState {
         case .waiting(let mac)?: return .waitingForPairing(on: mac, identity: live?.focusedMacID)

@@ -947,11 +947,19 @@ extension LiveCoordinator {
         case .connecting:
             if store.macData[macID]?.source == .live { store.handleMacData(.disconnected(at: Date()), macID: macID) }
             store.handleMacData(.connecting, macID: macID)
-            if store.macConnection[macID] == nil || store.macConnection[macID] == .connected {
+            // Inside the quiet wait an earlier failure (from before the app went away) reads as
+            // connecting again: the wait started over on foreground (`restartQuiet`).
+            if store.macConnection[macID] == nil || store.macConnection[macID] == .connected || !session.outageShows {
                 store.macConnection[macID] = .connecting
             }
         case .connected:
             store.macConnection[macID] = .connected
+        case .waiting where !session.outageShows:
+            // Inside the quiet wait a failed redial still reads as connecting: no "Can't connect"
+            // on the Mac's fold, Home or its menus for a blip (`updateQuiet`).
+            if store.macData[macID]?.source == .live { store.handleMacData(.disconnected(at: Date()), macID: macID) }
+            store.handleMacData(.connecting, macID: macID)
+            store.macConnection[macID] = .connecting
         case .waiting:
             store.handleMacData(.failed("Offline"), macID: macID)
             store.macConnection[macID] = .failed("Offline")
@@ -1017,6 +1025,7 @@ extension LiveCoordinator {
     }
 
     func phaseChanged(_ session: MacSession) {
+        updateQuiet(session)
         updateDiagnostics(session)
         updateMacState(session)
         updateTerminalsOffline(session)
@@ -1027,38 +1036,80 @@ extension LiveCoordinator {
         guard session === focused else { return }
         let phase = session.link.phase
         bannerTask?.cancel()
+        bannerTask = nil
         let name = session.link.target?.name ?? "Mac"
         switch phase {
         case .idle:
             banner = nil
         case .macOffline:
-            banner = .macOffline(name, identity: session.macID)
+            showDownBanner(.macOffline(name, identity: session.macID), for: session)
         case .signedOut:
+            // The person must act (sign in): it speaks at once.
             banner = .signedOut
         case .connected:
-            if everConnected, banner != nil, banner != .connected {
-                banner = .connected
-                bannerTask = Task { [weak self, clock] in
-                    do { try await clock.sleep(for: .milliseconds(1500)) } catch { return }
-                    self?.banner = nil
-                }
-            } else {
-                banner = nil
-            }
+            // Back: the banner just goes. No "Connected" flash after a reconnect (audit 20,
+            // ceremony): the live rows say it, and a flapping link flashed it every time.
+            banner = nil
             everConnected = true
             if let macID = session.link.target?.macID { connectedMacIDs.insert(macID) }
         case .connecting(_, let attempt):
             if attempt == 1, !everConnected {
-                banner = .connecting(to: name, identity: session.macID)
+                showDownBanner(.connecting(to: name, identity: session.macID), for: session)
             } else {
-                banner = .reconnecting(to: name, identity: session.macID)
+                showDownBanner(.reconnecting(to: name, identity: session.macID), for: session)
             }
         case .waiting(let transport, let attempt, let reason, _):
-            banner = Self.waitingBanner(
+            showDownBanner(Self.waitingBanner(
                 macName: name, transport: transport, reason: reason, attempt: attempt,
                 wasConnected: session.link.target.map { connectedMacIDs.contains($0.macID) } ?? false,
-                relayAvailable: relayAvailable, identity: session.macID)
+                relayAvailable: relayAvailable, identity: session.macID), for: session)
         }
+    }
+
+    /// A link that is down says nothing until it has been down for ``bannerQuietFor``
+    /// (`outageShows`): the cached screen stays, the link retries on its own, and a blip (a cold
+    /// launch's first dial, a foreground redial, a Wi-Fi to cellular move) recovers with no
+    /// banner, no "Can't connect" on the Mac and so no "Connected" flash either. Leo,
+    /// 2026-11-14: "i also want all our connectivity stuff to shut the fuck up and load faster".
+    private func updateQuiet(_ session: MacSession) {
+        let phase = session.link.phase
+        if phase.isConnected || phase == .idle {
+            session.quietSince = nil
+            session.outageShows = false
+            session.quietTask?.cancel()
+            session.quietTask = nil
+            return
+        }
+        if session.quietSince == nil { session.quietSince = .now }
+        guard !session.outageShows, let since = session.quietSince else { return }
+        let down = ContinuousClock.now - since
+        guard down < bannerQuietFor else {
+            session.outageShows = true
+            return
+        }
+        guard session.quietTask == nil else { return }
+        let wait = bannerQuietFor - down
+        session.quietTask = Task { [weak self, weak session, clock] in
+            do { try await clock.sleep(for: wait) } catch { return }
+            guard let self, let session, !Task.isCancelled, session.quietSince == since else { return }
+            session.quietTask = nil
+            session.outageShows = true
+            self.phaseChanged(session)
+        }
+    }
+
+    /// Starts the quiet wait again (the app came back to the foreground).
+    func restartQuiet(_ session: MacSession) {
+        guard session.quietSince != nil else { return }
+        session.quietTask?.cancel()
+        session.quietTask = nil
+        session.quietSince = .now
+        session.outageShows = false
+        phaseChanged(session)
+    }
+
+    private func showDownBanner(_ state: ConnectionBannerState, for session: MacSession) {
+        banner = session.outageShows ? state : nil
     }
 
     /// Redial attempts after a lost link that still read "Reconnecting"

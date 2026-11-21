@@ -243,19 +243,19 @@ extension View {
 }
 
 /// The connection banner's slot: dismissible like every toast (`cmuxMobileDismissibleToast`); a
-/// dismissed state stays hidden until the state changes (to no banner, or to another one).
+/// dismissed state stays hidden through the link's flaps (`BannerDismissal`).
 private struct BannerHost: View {
     let state: ConnectionBannerState?
     let retry: (() -> Void)?
-    @State private var dismissed: ConnectionBannerState?
+    @State private var dismissal: BannerDismissal?
 
     var body: some View {
         ZStack {
-            if let state, state != dismissed {
+            if let state, state != dismissal?.state {
                 ConnectionBanner(state, retry: retry)
                     .cmuxMobileDismissibleToast(entry: .top, announcement: state.text,
                                                tapDismisses: !(state.offersRetry && retry != nil)) {
-                        withAnimation(theme.motion.snappy.animation.unlessReduceMotion) { dismissed = state }
+                        withAnimation(theme.motion.snappy.animation.unlessReduceMotion) { dismissal = BannerDismissal(state: state) }
                     }
                     .padding(.top, 8)
                     .padding(.bottom, 8)
@@ -264,15 +264,34 @@ private struct BannerHost: View {
         }
         .frame(maxWidth: .infinity)
         .animation(theme.motion.snappy.animation.unlessReduceMotion, value: state)
-        .onChange(of: state) { _, new in dismissed = BannerDismissal.remembered(dismissed, after: new) }
+        .onChange(of: state) { _, new in dismissal = BannerDismissal.remembered(dismissal, after: new, at: .now) }
     }
 }
 
-/// What a dismissed connection banner remembers: only the state it hid. Any other state, no banner
-/// included, ends the dismissal, so the next episode of the same state shows again.
-enum BannerDismissal {
-    static func remembered(_ dismissed: ConnectionBannerState?, after state: ConnectionBannerState?) -> ConnectionBannerState? {
-        state == dismissed ? dismissed : nil
+/// What a dismissed connection banner remembers: the state it hid, and since when there has been
+/// no banner. A link that flaps (back for a moment, down again) brings the same state back: it
+/// stays hidden (audit 20, ceremony: a dismissed "Reconnecting" came back on every flap). It shows
+/// again only for a real new drop: another state (Offline, Signed out), or the same one after the
+/// connection held for `flapWindow`.
+struct BannerDismissal: Equatable {
+    var state: ConnectionBannerState
+    /// When the banner went away (the link came back); nil while the dismissed state lasts.
+    var clearedAt: Date?
+
+    /// How long the connection must hold before the same banner counts as a new drop.
+    static let flapWindow: TimeInterval = 60
+
+    static func remembered(_ dismissal: BannerDismissal?, after state: ConnectionBannerState?, at now: Date) -> BannerDismissal? {
+        guard var dismissal else { return nil }
+        guard let state else {
+            // Back: remember when, so a flap right after keeps the banner hidden.
+            if dismissal.clearedAt == nil { dismissal.clearedAt = now }
+            return dismissal
+        }
+        guard state == dismissal.state else { return nil }
+        if let cleared = dismissal.clearedAt, now.timeIntervalSince(cleared) >= flapWindow { return nil }
+        dismissal.clearedAt = nil
+        return dismissal
     }
 }
 
