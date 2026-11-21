@@ -94,11 +94,23 @@ public final class ChromiumPageHostBridge: PageHostBridge {
     /// Runs ``setupCalls(handlers:documentScripts:)`` (with this bridge's ``fireAndForget``
     /// handlers) on the page, in order, before its first load: the Runtime domain is on after it.
     public func setUp(documentScripts: [String]) async throws {
+        try await startSetUp(documentScripts: documentScripts)()
+    }
+
+    /// ``setUp(documentScripts:)`` in two steps: sends every setup call now, in order, in this turn,
+    /// and returns what awaits their answers, so they come in about one round trip instead of one
+    /// each (one at a time, the chat page's setup took about 50 ms). Other calls sent in the same
+    /// turn go after them. Awaiting it throws the first failed call's error, as one at a time did.
+    public func startSetUp(documentScripts: [String]) throws -> @MainActor () async throws -> Void {
         guard let page else { throw PageError.unavailable("the Chromium page is gone") }
-        for (method, params) in Self.setupCalls(handlers: fireAndForget, documentScripts: documentScripts) {
-            _ = try await page.devTools(method, params: params)
+        // Sent in order now (the page keeps its call order), not raced as child tasks.
+        let answers = Self.setupCalls(handlers: fireAndForget, documentScripts: documentScripts).map { call in
+            page.startDevTools(call.0, params: call.1)
         }
-        runtimeEnabled = true
+        return {
+            for answer in answers { _ = try await answer() }
+            self.runtimeEnabled = true
+        }
     }
 
     nonisolated static let bindingCall: (String, [String: any Sendable]) = ("Runtime.addBinding", ["name": bindingName])
