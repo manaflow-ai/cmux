@@ -511,6 +511,23 @@ let keep = ["stub_main", "main_start", "main.warmup_started", "main.environment"
             // when it left the app for the PTY, and its echo back (LaunchTypeProbe, LaunchInputMarks).
             "first_terminal_content_applied", "first_terminal_frame", "launch.visible_terminals_drawn",
             "terminal.probe_key_typed", "terminal_input_accepted", "terminal_echo"]
+// The launch's startup stages (startup-tti), each ms from process start to the earliest of its marks that came: the
+// table the app's launch-times.jsonl rows use (LaunchStages, LaunchTimesFile.swift) and scripts/ci/launch_stages.py;
+// tests/test_launch_stages.py keeps the three equal.
+let launchStages: [(stage: String, marks: [String])] = [
+    ("premain", ["main_start"]),
+    ("did_finish_launching", ["did_finish_launching_start"]),
+    ("daemon_connected", ["daemon_connected"]),
+    ("first_window_shown", ["launch_snapshot_shown", "first_window_flushed", "dfl.windows"]),
+    ("first_frame", ["first_window_frame_committed"]),
+    ("webview_ready", ["cef.ready"]),
+    ("first_chat_paint", ["agent_pane.painted", "agent_pane.newtab_painted", "home.saved_page_shown", "home.first_page"]),
+    ("first_interaction", ["terminal_echo", "agent_pane.input_echoed", "window_usable"]),
+]
+var stages: [String: Double] = [:]
+for (stage, names) in launchStages {
+    if let first = names.compactMap({ marks[$0] }).filter({ $0.isFinite && $0 >= 0 }).min() { stages[stage] = first.rounded(toPlaces: 1) }
+}
 var row: [String: Any] = [
     "label": label, "pid": app?.processIdentifier ?? 0, "start_epoch_ms": start ?? NSNull(),
     "request_to_start": start.map { ($0 - requested).rounded(toPlaces: 1) } ?? NSNull(),
@@ -529,6 +546,7 @@ var row: [String: Any] = [
             || ["dfl.", "home.", "reveal.", "cloud_env.", "app.", "daemon.", "launch_snapshot", "terminal."].contains { mark.key.hasPrefix($0) }
     },
     "all_marks": marks.count,
+    "stages": stages,
     "shell_requested": rel(shellRequested),
     // The region the window showed first (home, pane, ...): the region a person saw, whichever it is.
     "first_reveal": marks.filter { $0.key.hasPrefix("reveal.") }.min { $0.value < $1.value }.map { String($0.key.dropFirst("reveal.".count)) } ?? NSNull(),

@@ -38,7 +38,10 @@ first_frame_ms (`first_window_frame_committed`), main_ms (`main_start`), input_m
 interaction), split at `main` into premain_ms (the system's part: a new copy's policy check, dyld) and ours_ms (main
 to the key taken), accepted_ms (terminal: the first key the app wrote toward the pty), and spawn_to_start_ms (the harness's
 exec to the process start; a Dock click's own delta is not measured here). Keys are paced KEY_EVERY_S apart, so
-a chat input_ms is late by at most that; the terminal's is the echo of the key that reached the pty, each key on its own clock. Each round prints `TTI-ROUND {json}`, the run prints `TTI {json}` with its verdict.
+a chat input_ms is late by at most that; the terminal's is the echo of the key that reached the pty, each key on its own clock. Each round also carries `stages`: the launch's startup stages from its marks
+(premain, did_finish_launching, daemon_connected, first_window_shown, first_frame, webview_ready, first_chat_paint,
+first_interaction; launch_stages.py), and the run's `stages` is each stage's median per front.
+Each round prints `TTI-ROUND {json}`, the run prints `TTI {json}` with its verdict.
 Exit 0 when every round measured its front.
 
 A NIGHTLY is a Release build: only release control methods and the bundled CLI are used. Posting keys needs the
@@ -63,6 +66,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import relaunch_restore_check as rr  # noqa: E402  (its probe set, seed and launch, shared with L5)
+import launch_stages  # noqa: E402  (the per-stage startup spans the app's launch-times.jsonl rows carry)
 
 KEY_EVERY_S = 0.04
 KEY_X = 7  # kVK_ANSI_X
@@ -424,6 +428,7 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
         row.update(term)
     row.update(split(row.get("input_ms"), row["main_ms"]))
     row["marks"] = {k: marks[k] for k in KEPT_MARKS if k in marks}
+    row["stages"] = launch_stages.spans(marks)
     if process.poll() is not None:
         failures.append(f"the app exited (status {process.poll()})")
     if not keys.access:
@@ -496,6 +501,9 @@ def check(args) -> int:
             got = [r["input_ms"] for r in result["rounds"] if r.get("kind") == kind and r.get("front") == which
                    and isinstance(r.get("input_ms"), (int, float))]
             summary[f"{kind}_{which}_ms"] = max(got) if got else None
+    # Each stage's median per front over the rounds (ms from process start; launch_stages.TABLE names the marks).
+    result["stages"] = {which: launch_stages.medians([r.get("stages") for r in result["rounds"] if r.get("front") == which])
+                        for which in FRONTS}
     # A chat round on a build without the input mark measured nothing about the app and fails nothing (`no_mark`).
     measured = [r for r in result["rounds"] if isinstance(r.get("input_ms"), (int, float)) or r.get("no_mark")]
     passed = status == 0 and len(result["rounds"]) == len(args.plan) and len(measured) == len(args.plan)
@@ -503,7 +511,7 @@ def check(args) -> int:
     if args.out:
         with open(Path(args.out) / "tti.json", "w") as handle:
             json.dump(result, handle, indent=2, default=str)
-    print("TTI " + json.dumps({k: result.get(k) for k in ("verdict", "post_access", "seed", "seed_error", *summary)}),
+    print("TTI " + json.dumps({k: result.get(k) for k in ("verdict", "post_access", "seed", "seed_error", "stages", *summary)}),
           flush=True)
     return 0 if passed else (status if status not in (0, None) else 1)
 
