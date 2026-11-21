@@ -31,15 +31,16 @@ extension AgentPaneView {
     }
 }
 
-/// One line above the composer while this pane's connection did not prove the person to its
-/// acpmux (`hub/person.rs`): the daemon would record what the person types here as an unverified
-/// sender's, and the agent would read it as not theirs (Leo, 2026-11-10: "Oh, it's turned me into
-/// an unverified sender."). The transport gets the key to the daemon again and reconnects
-/// (``AgentPaneTransport/recoverPersonProof``); the line goes when a connection proves the person.
+/// One compact line above the composer when this pane's connection could not prove the person
+/// to its acpmux (`hub/person.rs`) and the transport's recovery gave up
+/// (``AgentPaneTransport/personProofSettled``): allows from this pane are refused then. A proof the
+/// recovery is still fixing shows nothing (https://github.com/manaflow-ai/cmux/issues/48636: "Not verified as you. Reconnecting your
+/// identity…" stood over every chat of an app whose daemon could never take its key). The line
+/// goes when a connection proves the person, or reaches another install's daemon.
 extension AgentPaneView {
-    func showPersonProof(_ proven: Bool) {
-        guard proven == (personUnprovenNotice != nil) else { return }
-        personUnprovenNotice = proven ? nil : AgentPaneNotice(id: "personUnproven", title: Self.personUnprovenMessage)
+    func showPersonProofFailed(_ failed: Bool) {
+        guard failed != (personProofFailedNotice != nil) else { return }
+        personProofFailedNotice = failed ? AgentPaneNotice(id: "personProofFailed", title: Self.personProofFailedMessage) : nil
         pushPaneNotices()
     }
 

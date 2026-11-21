@@ -261,11 +261,11 @@ extension AgentPaneView {
                bundle: .module)
     }
 
-    /// Shown while the pane's connection did not prove the person to its acpmux: what the person
-    /// types would reach the agent as an unverified sender's until the identity reconnects.
-    static var personUnprovenMessage: String {
-        String(localized: "agentPane.personUnproven.message",
-               defaultValue: "Not verified as you. Reconnecting your identity to the agent service…",
+    /// Shown only when the pane's connection could not prove the person to its acpmux and the
+    /// silent recovery gave up: the chat's allows are refused (https://github.com/manaflow-ai/cmux/issues/48636).
+    static var personProofFailedMessage: String {
+        String(localized: "agentPane.personProofFailed.message",
+               defaultValue: "Couldn't verify you to the agent service. Approvals in this chat may not go through.",
                bundle: .module)
     }
 

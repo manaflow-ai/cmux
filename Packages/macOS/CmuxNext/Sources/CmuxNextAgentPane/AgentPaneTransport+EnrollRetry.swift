@@ -68,22 +68,40 @@ extension AgentPaneTransport {
 }
 
 /// The pane's own person proof (acpmux `hub/person.rs`): a connection that did not prove the
-/// person is told to the pane and recovered, never left to send the person's prompts as an
-/// unverified sender's (Leo, 2026-11-10: "Oh, it's turned me into an unverified sender."). The
-/// proof is the second request of a connection only, so recovery gets the key to the daemon
-/// (``recoverPersonProof``) and then reconnects, and the new connection proves.
+/// person is recovered without a word to the person. The proof is the second request of a
+/// connection only, so recovery gets the key to the daemon (``recoverPersonProof``) and then
+/// reconnects, and the new connection proves. It used to show "Not verified as you. Reconnecting
+/// your identity…" at the first refusal, while the recovery that usually fixes it had not even
+/// started, and kept it up for good when the daemon could never take the key (https://github.com/manaflow-ai/cmux/issues/48636). The pane
+/// hears of it (``onPersonProofFailed``) only once the recovery gave up.
 extension AgentPaneTransport {
+    /// A connection that runs no proof: any recovery stops, its budget resets, and the pane's
+    /// line goes.
+    func personProofNotNeeded() {
+        personRecovery?.cancel()
+        personRecovery = nil
+        personRecoveries = 0
+        onPersonProofFailed?(false)
+    }
+
+    /// The pane closed: a recovery still waiting must not look up or reconnect for it.
+    public func endPersonRecovery() {
+        personRecovery?.cancel()
+        personRecovery = nil
+    }
+
     func personProofSettled(_ proven: Bool, connection: Int) {
         guard connection == current else { return }
         personRecovery?.cancel()
         personRecovery = nil
-        onPersonProof?(proven)
         if proven {
             personRecoveries = 0
+            onPersonProofFailed?(false)
             return
         }
         guard let recover = recoverPersonProof, personRecoveries < Self.personRecoveryReconnects else {
-            Self.logger.error("agent pane transport: the person proof did not recover; prompts here stay unverified")
+            Self.logger.error("agent pane transport: the person proof did not recover; allows here stay refused")
+            onPersonProofFailed?(true)
             return
         }
         let delays = personRecoveryDelays
@@ -102,6 +120,10 @@ extension AgentPaneTransport {
                 self.close(connection: connection)
                 return
             }
+            // Every lookup failed: the key never reached the daemon again.
+            guard let self, !Task.isCancelled, connection == self.current else { return }
+            Self.logger.error("agent pane transport: the person key did not reach the daemon again; allows here stay refused")
+            self.onPersonProofFailed?(true)
         }
     }
 }
