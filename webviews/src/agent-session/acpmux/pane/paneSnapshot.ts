@@ -713,9 +713,10 @@ export function paneSnapshotEffect({
       const { text, replaces } = value as { text?: unknown; replaces?: unknown };
       if (typeof text !== "string") return;
       // The composer holds what the handshake's draft put there: the tab's text as it closed takes
-      // its place (composerDraft.ts `lateDraftText`). No composer yet: it is the draft it starts with.
-      if (composerHandle.current) composerHandle.current.lateDraft(text, typeof replaces === "string" ? replaces : "");
-      else setDraft(text);
+      // its place (composerDraft.ts `lateDraftText`). It is the chat's draft from here on too, so a
+      // composer made later (none yet, a remount) starts with it and not with the earlier text.
+      composerHandle.current?.lateDraft(text, typeof replaces === "string" ? replaces : "");
+      setDraft(text);
     },
     applyPreview(on) {
       // The environment picker, Cloud (Move to Cloud, the account's Cloud machines) and Sandboxed

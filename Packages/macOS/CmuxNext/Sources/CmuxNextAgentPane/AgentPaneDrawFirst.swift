@@ -9,7 +9,7 @@ import CmuxNextSettings
 /// its place. That chat's page drew out of sight first (``AgentPaneView/paintParked(in:size:within:)``), but only when
 /// its tab could make the page right then, and only for 8 s; otherwise it showed unpainted, which is the pane's loading
 /// cover (``AgentPaneLoadingView``): the page's background with the busy mark in the middle, no chat and no composer.
-/// ``draw(_:makeable:in:size:within:)`` waits for the page to be makeable, then for its first paint, both within one
+/// ``draw(_:makeable:in:size:seed:within:)`` waits for the page to be makeable, then for its first paint, both within one
 /// bound (``bound``), and the caller keeps what shows until it returns.
 public struct AgentPaneDrawFirst {
     public init() {}

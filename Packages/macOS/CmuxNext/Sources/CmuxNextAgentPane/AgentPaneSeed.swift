@@ -319,7 +319,8 @@ final class AgentPaneLateDraft {
 
     /// The hand-off: the text as typed now, or none (`handedOff` false: the start failed). The first call
     /// counts. When an ask was answered early with other text, returns the text now and the text it replaces,
-    /// for the page to take.
+    /// for the page to take. A start that failed after an early ask returns nothing: the page keeps the text
+    /// it took, and the tab that was not handed off keeps its own.
     func give(_ handedOff: Bool) -> (text: String, replaces: String)? {
         guard given == nil else { return nil }
         let text = handedOff ? now() : nil

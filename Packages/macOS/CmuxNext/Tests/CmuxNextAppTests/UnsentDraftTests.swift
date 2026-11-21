@@ -167,10 +167,11 @@ struct UnsentDraftTests {
 
         let (waiting, later) = AgentPaneSeedSource.handingOffDraft(seed) { text }
         waiting.addDraft = { text, replaces in added.append([text, replaces]) }
-        async let taken = waiting.take()
+        // The page asked before the draw said it may take the draft: its ask waits, and is answered then.
+        let taking = Task { await waiting.take() }
         for _ in 0..<5 { await Task.yield() }
         waiting.draftMayBeTaken()
-        #expect(await taken?.draft == "and the")
+        #expect(await taking.value?.draft == "and the")
         // Emptied before the tab closed: the page is told, so its composer is emptied too.
         text = nil
         later(true)
