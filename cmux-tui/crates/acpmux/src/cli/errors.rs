@@ -96,6 +96,20 @@ impl AppError {
         // A send's refusal names the machine it looked on (`hub/no_session.rs`): `no session
         // NAME on HOST; did you mean: a, b, c`.
         let field = |k: &str| data.and_then(|d| d.get(k)?.as_str()).filter(|v| !v.is_empty());
+        // The machine named is not one of the daemon's: it, not the session name, is the cause,
+        // and this rebuild must say the same as the daemon's own text (`hub/no_session.rs`).
+        if let (Some(host), Some(name)) = (field("host"), field("name"))
+            && data.and_then(|d| d.get("hostNotAPeer")?.as_bool()) == Some(true)
+        {
+            return Self::new(
+                Code::NoSession,
+                "no_session",
+                crate::hub::no_session::not_a_peer_text(host, name, &crate::cli::entry::program()),
+            )
+            .with_data(serde_json::json!({"reason": "no_session", "session": key,
+                "candidates": Vec::<String>::new(), "host": host, "name": name,
+                "hostNotAPeer": true}));
+        }
         if let (Some(host), Some(name)) = (field("host"), field("name")) {
             let tail = if candidates.is_empty() {
                 format!("run `{} ls` for its sessions", crate::cli::entry::program())
@@ -413,6 +427,32 @@ mod typed_error_tests {
             &daemon(RpcError::not_found("no session matches \"x\"")),
         );
         assert_eq!(plain.message, AppError::no_session("x").message);
+        assert!(crate::cli::send_relay::no_such_session(&app.into()));
+    }
+
+    /// A refusal for a machine the daemon does not have keeps saying so when the CLI rebuilds it
+    /// from the refusal's data: the machine first, no suggested names, and the next steps. Without
+    /// `hostNotAPeer` this rebuild would turn it back into "no session NAME on HOST".
+    #[test]
+    fn a_refusal_for_a_machine_the_daemon_lacks_survives_the_rebuild() {
+        let key = "gcp-agent-lane-8/efficiency-scout";
+        let refused =
+            daemon(RpcError::invalid_params(format!("no session: {key}")).with_data(
+                json!({"reason": "no_session", "session": key, "host": "gcp-agent-lane-8",
+                   "name": "efficiency-scout", "candidates": [], "hostNotAPeer": true}),
+            ));
+        let app = AppError::no_session_from(key, &refused);
+        assert_eq!((app.code, app.detail.as_str()), (Code::NoSession, "no_session"));
+        assert!(
+            app.message.starts_with("gcp-agent-lane-8 is not a machine of this daemon"),
+            "{}",
+            app.message
+        );
+        assert!(!app.message.contains("did you mean"), "{}", app.message);
+        assert!(app.message.contains("machine add ssh://gcp-agent-lane-8"), "{}", app.message);
+        assert_eq!(app.envelope()["error"]["data"]["hostNotAPeer"], json!(true));
+        assert_eq!(app.envelope()["error"]["data"]["candidates"], json!([]));
+        // The relay still reads it as no such session, so nothing downstream changes shape.
         assert!(crate::cli::send_relay::no_such_session(&app.into()));
     }
 
