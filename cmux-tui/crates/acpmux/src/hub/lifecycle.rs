@@ -1295,6 +1295,9 @@ impl Hub {
                 &mode,
                 Some(&model),
             );
+            // The translator starts in the mode the process runs in, also over a profile that
+            // pins its own: Claude Code reports it only with the first turn's `system/init`.
+            let run_mode = crate::claude_stdio::spawn_mode(profile, &mode).to_owned();
             // The chat's Sources (`additional_dirs.rs`), at every start.
             let mut plan = plan;
             plan.args.extend(super::additional_dirs::claude_args(&meta));
@@ -1306,7 +1309,7 @@ impl Hub {
             if self.agent_hosts_enabled() {
                 let translator = crate::agent_host::TranslatorSpec {
                     acp_session_id: session.id.clone(),
-                    mode: mode.clone(),
+                    mode: run_mode.clone(),
                     model: model.clone(),
                     effort: effort.clone(),
                     fast,
@@ -1326,7 +1329,7 @@ impl Hub {
             } else {
                 let tr = crate::claude_stdio::Translator::new(
                     session.id.clone(),
-                    &mode,
+                    &run_mode,
                     &model,
                     &effort,
                 );
