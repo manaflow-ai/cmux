@@ -371,7 +371,16 @@ pub fn mcp_list() -> Value {
 }
 
 /// The instructions an agent gets with the server (MCP `instructions`).
-pub const INSTRUCTIONS: &str = "cmux Computer Use is built into cmux: use these tools to see and use apps on this computer (and on your other machines with `machine`). There is nothing to install and no other computer-use driver is needed. When the task is about something on this computer, look before you answer: it usually means an app or document already open, so start with list_windows (or list_apps) and work in that window rather than replying in chat. Work in the background: list_windows, then screenshot or get_ui_tree a window, then act on element ids (best) or screenshot pixels. Element ids stay the same across looks. App menu commands are in the tree's menu bar: click a menu's id to list its items, then click the item to run it. Every action returns the window after acting: what changed since your last look (+ added, ~ changed, - removed, windows opened or closed) and a screenshot when it changed. Read it before you say a step worked: \"No change\" means the action did nothing visible, so try another way instead of reporting it done. For a fixed run of steps on one window (open a sheet, wait for it, fill it, save), batch does them in one call: each step reports its own outcome, wait_for waits for an element or value, target names an element by role and label, and require: \"confirmed\" stops at a step that did not read back. Work in the background first: it never takes the person's focus or pointer, a blue cmux cursor shows them where you act, and it works for nearly everything. Use delivery foreground only when the person allowed it (status says), and only for a system-wide shortcut (cmd+space for Spotlight) or when the person wants the app in front: when the task is to open or show them something, finish by bringing that window forward (a foreground click on its title bar raises it). Foreground takes their focus. If a call is refused, call status and tell the person which setting in Settings > Computer Use would allow it; never try to change Computer Use settings yourself.";
+pub const INSTRUCTIONS: &str = "cmux Computer Use is built in (nothing to install; `machine` \
+reaches your other machines). For a task about this computer, look before you answer: \
+list_windows (or list_apps), then screenshot or get_ui_tree a window, and act on element ids or \
+pixels. Menu commands are in the tree's menu bar: click the menu's id, then the item. Each action \
+returns what changed and a screenshot; \"No change\" means it did nothing, so try another way \
+before saying it worked. batch runs a fixed sequence of steps on one window in one call. Act in \
+the background; use delivery foreground only when status says the person allowed it, and only for \
+a system-wide shortcut or to bring a window to them. If a call is refused, call status and tell \
+the person which Settings > Computer Use setting would allow it; never change those settings \
+yourself.";
 
 #[cfg(test)]
 mod tests {

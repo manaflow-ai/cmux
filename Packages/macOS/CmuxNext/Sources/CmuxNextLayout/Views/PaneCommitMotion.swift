@@ -342,9 +342,17 @@ final class PaneCommitMotion {
         let held = Array(holds.values)
         holds = [:]
         for hold in held { endHold(hold.holder, of: hold.host) }
-        if !moved.isEmpty || !grounds.isEmpty || !under.isEmpty || lastFrame != nil || raised != nil {
+        // Between the begin of a close's pass and its panes' placement, what it took out shows.
+        let departs = passBegan ? nil : self.departs
+        if departs != nil { self.departs = nil }
+        if !moved.isEmpty || !grounds.isEmpty || !under.isEmpty || lastFrame != nil || raised != nil || departs != nil {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
+            // The panes taken out hide first, in this transaction: a pane put back at its own `zPosition` while it still
+            // shows is over the panes that took its room when it is stacked above them (the docked Home beside a zoomed
+            // page). The tick's first layer change opens this transaction, so its commit goes to the render server
+            // before the rest of the tick: a hide after it showed that pane over the others for a frame.
+            departs?()
             for (layer, key) in moved { layer.removeAnimation(forKey: key) }
             moved = []
             for ground in grounds.values { Self.strips(of: ground.layer).forEach { $0.removeFromSuperlayer() } }
@@ -355,9 +363,5 @@ final class PaneCommitMotion {
             lower()
             CATransaction.commit()
         }
-        // Between the begin of a close's pass and its panes' placement, what it took out shows.
-        guard !passBegan, let departs else { return }
-        self.departs = nil
-        departs()
     }
 }
