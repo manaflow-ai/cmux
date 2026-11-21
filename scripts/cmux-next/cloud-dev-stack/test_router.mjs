@@ -1,0 +1,163 @@
+// Tests for router.mjs (no VM, no wrangler): node --test scripts/cmux-next/cloud-dev-stack/test_router.mjs
+// A fake stack (an HTTP and WebSocket echo server) stands in for a tag's wrangler.
+import assert from "node:assert/strict"
+import { createHash } from "node:crypto"
+import { mkdirSync, mkdtempSync, writeFileSync, statSync } from "node:fs"
+import http from "node:http"
+import net from "node:net"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { test } from "node:test"
+import { createRouter, routeFor, wake } from "./router.mjs"
+
+/** Close servers and their kept-alive sockets (the router's upstream agent keeps them open). */
+const done = (...servers) => servers.forEach((s) => { s.closeAllConnections?.(); s.close() })
+
+const listen = (server) => new Promise((r) => server.listen(0, "127.0.0.1", () => r(server.address().port)))
+
+function fakeStack() {
+  const server = http.createServer((req, res) => {
+    let body = ""
+    req.on("data", (d) => (body += d))
+    req.on("end", () => res.end(JSON.stringify({ host: req.headers.host, path: req.url, method: req.method, body })))
+  })
+  server.on("upgrade", (req, socket) => {
+    const accept = createHash("sha1").update(req.headers["sec-websocket-key"] + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest("base64")
+    socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\nX-Seen-Host: ${req.headers.host}\r\n\r\n`)
+    socket.on("data", (d) => socket.write(d)) // raw echo is enough to see bytes cross both ways
+    socket.on("end", () => socket.destroy())
+    socket.on("error", () => {})
+  })
+  return server
+}
+
+function base(stacks) {
+  const dir = mkdtempSync(join(tmpdir(), "wdev-router-"))
+  mkdirSync(join(dir, "registry"))
+  const routes = {}
+  for (const s of stacks) {
+    mkdirSync(join(dir, "stacks", s.tag), { recursive: true })
+    writeFileSync(join(dir, "registry", `${s.tag}.json`), JSON.stringify({ tag: s.tag, state: s.state }))
+    for (const a of s.authorities) routes[a] = { tag: s.tag, port: s.port }
+  }
+  writeFileSync(join(dir, "routes.json"), JSON.stringify(routes))
+  return dir
+}
+
+const get = (port, host, path = "/v1/health", method = "GET", body) =>
+  new Promise((resolve, reject) => {
+    const req = http.request({ host: "127.0.0.1", port, path, method, headers: { host } }, (res) => {
+      let data = ""
+      res.on("data", (d) => (data += d))
+      res.on("end", () => resolve({ status: res.statusCode, body: data }))
+    })
+    req.on("error", reject)
+    req.end(body)
+  })
+
+test("routes by the Host the client used, port included, case-insensitive", () => {
+  const table = { "vm.tail.ts.net:4700": { tag: "a", port: 4700 } }
+  assert.equal(routeFor(table, "VM.tail.ts.net:4700").tag, "a")
+  assert.equal(routeFor(table, "vm.tail.ts.net:4701"), undefined)
+  assert.equal(routeFor(table, undefined), undefined)
+})
+
+test("a running stack is proxied with the client's Host; an unknown Host is refused", async () => {
+  const stack = fakeStack()
+  const sport = await listen(stack)
+  const dir = base([{ tag: "a", state: "running", port: sport, authorities: ["vm.tail.ts.net:4700", "vm.tail.ts.net:4701"] }])
+  const router = createRouter({ base: dir, wakeRun: async () => assert.fail("no wake for a running stack") })
+  const rport = await listen(router)
+  const r = await get(rport, "vm.tail.ts.net:4701", "/v1/me/macs?x=1")
+  assert.equal(r.status, 200)
+  assert.deepEqual(JSON.parse(r.body), { host: "vm.tail.ts.net:4701", path: "/v1/me/macs?x=1", method: "GET", body: "" })
+  const post = await get(rport, "vm.tail.ts.net:4700", "/v1/ops", "POST", '{"op":"x"}')
+  assert.equal(JSON.parse(post.body).body, '{"op":"x"}')
+  assert.equal((await get(rport, "other.tail.ts.net:4700")).status, 421)
+  assert.ok(statSync(join(dir, "stacks/a/heartbeat")).mtimeMs > 0, "a request is the stack's activity")
+  done(router, stack)
+})
+
+test("a stopped stack wakes once for every request that waits on it, then serves them all", async () => {
+  const stack = fakeStack()
+  const sport = await listen(stack)
+  const dir = base([{ tag: "s", state: "stopped", port: sport, authorities: ["vm.tail.ts.net:4710"] }])
+  let wakes = 0
+  const wakeRun = async (tag) => {
+    wakes++
+    await new Promise((r) => setTimeout(r, 200))
+    writeFileSync(join(dir, "registry", `${tag}.json`), JSON.stringify({ tag, state: "running" }))
+  }
+  const router = createRouter({ base: dir, wakeRun })
+  const rport = await listen(router)
+  const answers = await Promise.all([1, 2, 3].map(() => get(rport, "vm.tail.ts.net:4710")))
+  assert.deepEqual(answers.map((a) => a.status), [200, 200, 200])
+  assert.equal(wakes, 1)
+  done(router, stack)
+})
+
+test("a stack that is gone answers 404 with how to bring it back, and a failed wake 503", async () => {
+  const dir = base([
+    { tag: "gone", state: "reaped", port: 1, authorities: ["vm.tail.ts.net:4720"] },
+    { tag: "bad", state: "stopped", port: 1, authorities: ["vm.tail.ts.net:4730"] },
+  ])
+  const router = createRouter({ base: dir, wakeRun: async () => { throw new Error("no memory") } })
+  const rport = await listen(router)
+  const gone = await get(rport, "vm.tail.ts.net:4720")
+  assert.equal(gone.status, 404)
+  assert.match(gone.body, /cloud-dev-stack\.sh up --tag gone/)
+  const bad = await get(rport, "vm.tail.ts.net:4730")
+  assert.equal(bad.status, 503)
+  assert.match(bad.body, /no memory/)
+  done(router)
+})
+
+test("a running entry whose workerd is gone is woken and a GET is sent again", async () => {
+  const stack = fakeStack()
+  const dir = base([{ tag: "c", state: "running", port: 0, authorities: ["vm.tail.ts.net:4740"] }])
+  // Its port: free now (refused), listening once the wake ran.
+  const probe = net.createServer()
+  const port = await listen(probe)
+  await new Promise((r) => probe.close(r))
+  writeFileSync(join(dir, "routes.json"), JSON.stringify({ "vm.tail.ts.net:4740": { tag: "c", port } }))
+  let wakes = 0
+  const router = createRouter({ base: dir, wakeRun: async () => { wakes++; await new Promise((r) => stack.listen(port, "127.0.0.1", r)) } })
+  const rport = await listen(router)
+  const r = await get(rport, "vm.tail.ts.net:4740")
+  assert.equal(r.status, 200)
+  assert.equal(wakes, 1)
+  done(router, stack)
+})
+
+test("a WebSocket upgrade crosses the router both ways with the client's Host", async () => {
+  const stack = fakeStack()
+  const sport = await listen(stack)
+  const dir = base([{ tag: "w", state: "running", port: sport, authorities: ["vm.tail.ts.net:4750"] }])
+  const router = createRouter({ base: dir, wakeRun: async () => {} })
+  const rport = await listen(router)
+  const got = await new Promise((resolve, reject) => {
+    const sock = net.connect(rport, "127.0.0.1", () => {
+      sock.write("GET /v1/ws HTTP/1.1\r\nHost: vm.tail.ts.net:4750\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n")
+    })
+    let buf = ""
+    sock.on("data", (d) => {
+      buf += d
+      if (buf.includes("\r\n\r\n") && !buf.includes("ping")) sock.write("ping")
+      if (buf.includes("ping")) { sock.destroy(); resolve(buf) }
+    })
+    sock.on("error", reject)
+  })
+  assert.match(got, /^HTTP\/1\.1 101/)
+  assert.match(got, /X-Seen-Host: vm\.tail\.ts\.net:4750/)
+  assert.match(got, /ping$/)
+  done(router, stack)
+})
+
+test("wake() shares one run per tag and starts a new one after it settles", async () => {
+  let runs = 0
+  const run = () => new Promise((r) => setTimeout(() => { runs++; r() }, 50))
+  await Promise.all([wake("t", run), wake("t", run)])
+  assert.equal(runs, 1)
+  await wake("t", run)
+  assert.equal(runs, 2)
+})

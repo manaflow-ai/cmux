@@ -183,14 +183,17 @@ class RegistryTests(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.saved = (v.BASE, v.CLASSIC_BASE, v.unit_active, v.stop_stack)
+        self.saved = (v.BASE, v.CLASSIC_BASE, v.unit_active, v.stop_stack, v.systemctl)
         v.BASE = v.CLASSIC_BASE = Path(self.tmp.name)
         self.stopped = []
-        v.unit_active = lambda tag: True
+        self.units_stopped = []
+        self.active = True
+        v.unit_active = lambda tag: self.active
         v.stop_stack = lambda tag, keep_files, serve=True: self.stopped.append(tag) or ["stopped"]
+        v.systemctl = lambda *a, check=True: self.units_stopped.append(a) or types.SimpleNamespace(returncode=0, stdout="")
 
     def tearDown(self):
-        v.BASE, v.CLASSIC_BASE, v.unit_active, v.stop_stack = self.saved
+        v.BASE, v.CLASSIC_BASE, v.unit_active, v.stop_stack, v.systemctl = self.saved
         self.tmp.cleanup()
 
     def test_ports_held_counts_starting_and_failed_stacks(self):
@@ -208,12 +211,43 @@ class RegistryTests(unittest.TestCase):
         self.assertIsNone(v.reap_one("p", 1000 + 600))
         self.assertEqual(self.stopped, [])
 
-    def test_idle_running_entry_is_reaped_and_kept_for_gc(self):
-        v.write_entry({"tag": "r", "state": "running", "port": 4799, "last_up_at": 1000, "started_at": 1000, "last_request_at": 1000, "idle_secs": 60, "max_secs": 43200})
+    def running(self, tag, **kw):
+        v.write_entry({"tag": tag, "state": "running", "host": "vm.ts.net", "port": 4790, "ports": [4790, 4791, 4792],
+                       "last_up_at": 1000, "started_at": 1000, "last_request_at": 1000, "idle_secs": 60, **kw})
+
+    def test_an_idle_stack_stops_and_keeps_everything_for_its_wake(self):
+        self.running("r")
         out = v.reap_one("r", 1000 + 61)
-        self.assertEqual(out["action"], "reaped")
-        self.assertEqual(v.read_entry("r")["state"], "reaped")
-        self.assertEqual(self.stopped, ["r"])
+        self.assertEqual(out["action"], "stopped")
+        e = v.read_entry("r")
+        self.assertEqual(e["state"], "stopped")
+        self.assertEqual(e["ports"], [4790, 4791, 4792])  # same origins when it wakes
+        self.assertEqual(self.stopped, [], "files, data and Serve stay")
+        self.assertIn(("stop", v.unit("r")), self.units_stopped)
+        self.assertEqual(v.ports_held("x"), {4790, 4791, 4792})
+        self.assertEqual(set(v.routes_table(v.all_entries())), {"vm.ts.net:4790", "vm.ts.net:4791", "vm.ts.net:4792"})
+
+    def test_a_crashed_stack_stops_and_wakes_rather_than_being_released(self):
+        self.running("c", idle_secs=7200)
+        self.active = False
+        self.assertEqual(v.reap_one("c", 1100)["action"], "stopped")
+        self.assertEqual(self.stopped, [])
+
+    def test_a_used_stack_outlives_the_old_12_h_cap(self):
+        now = 10**6
+        self.running("u", idle_secs=7200, last_up_at=now - 13 * 3600, started_at=now - 13 * 3600, last_request_at=now - 60)
+        self.assertIsNone(v.reap_one("u", now), "13 h after its up, a stack in use keeps running")
+        self.assertEqual(v.read_entry("u")["state"], "running")
+
+    def test_retention_releases_a_stack_a_week_after_its_last_up(self):
+        self.running("old")
+        v.reap_one("old", 1000 + 61)  # stopped
+        self.assertIsNone(v.reap_one("old", 1000 + v.RETAIN_SECS - 1))
+        out = v.reap_one("old", 1000 + v.RETAIN_SECS + 1)
+        self.assertEqual(out["action"], "released")
+        self.assertEqual(v.read_entry("old")["state"], "reaped")  # the Mac's gc frees its credentials and branch
+        self.assertEqual(self.stopped, ["old"])
+        self.assertEqual(v.routes_table(v.all_entries()), {})
 
     def test_failed_entry_is_cleaned_once(self):
         v.write_entry({"tag": "f", "state": "failed", "port": 4799, "last_up_at": 1000})
@@ -225,22 +259,27 @@ class RegistryTests(unittest.TestCase):
 
 class IdleTests(unittest.TestCase):
     def entry(self, **kw):
-        return {"last_up_at": 1000, "started_at": 1000, "last_request_at": 1000, "idle_secs": 7200, "max_secs": 43200, **kw}
+        return {"last_up_at": 1000, "started_at": 1000, "last_request_at": 1000, "idle_secs": 7200, **kw}
 
     def test_fresh_request_keeps_it(self):
         self.assertIsNone(v.idle_verdict(self.entry(last_request_at=8000), 9000, None, True))
 
     def test_idle_past_limit_stops(self):
-        self.assertIn("idle", v.idle_verdict(self.entry(), 1000 + 7201, None, True))
+        action, why = v.idle_verdict(self.entry(), 1000 + 7201, None, True)
+        self.assertEqual(action, "stop")
+        self.assertIn("idle", why)
 
     def test_heartbeat_counts_as_activity(self):
         self.assertIsNone(v.idle_verdict(self.entry(), 1000 + 7201, 1000 + 7000, True))
 
-    def test_hard_cap(self):
-        self.assertIn("older", v.idle_verdict(self.entry(last_request_at=50000), 1000 + 43201, 50000, True))
+    def test_no_hard_cap_only_retention(self):
+        self.assertIsNone(v.idle_verdict(self.entry(last_request_at=50000), 1000 + 43201, 50000, True))
+        self.assertEqual(v.idle_verdict(self.entry(last_request_at=10**9), 1000 + v.RETAIN_SECS + 1, 10**9, True)[0], "release")
 
-    def test_dead_unit(self):
-        self.assertIn("not running", v.idle_verdict(self.entry(), 1001, None, False))
+    def test_dead_unit_stops(self):
+        action, why = v.idle_verdict(self.entry(), 1001, None, False)
+        self.assertEqual(action, "stop")
+        self.assertIn("not running", why)
 
     def test_request_line_pattern(self):
         self.assertTrue(v.REQUEST_LINE.search(b"[wrangler:info] GET /v1/health 200 OK (3ms)"))
@@ -254,7 +293,7 @@ class ReviewFixTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         names = ("BASE", "CLASSIC_BASE", "unit_active", "stop_stack", "mem_available_gib", "disk_free_gib", "serve_lock",
-                 "registry_lock", "serve_config", "classic_ports")
+                 "registry_lock", "serve_config", "classic_ports", "systemctl")
         self.saved = {n: getattr(v, n) for n in names}
         v.BASE = v.CLASSIC_BASE = Path(self.tmp.name)
         self.stopped = []
@@ -264,6 +303,7 @@ class ReviewFixTests(unittest.TestCase):
         self.mem, self.disk = 60.0, 300.0
         v.mem_available_gib = lambda: self.mem
         v.disk_free_gib = lambda path=None: self.disk
+        v.systemctl = lambda *a, check=True: types.SimpleNamespace(returncode=0, stdout="")
 
     def tearDown(self):
         for n, f in self.saved.items():
@@ -325,10 +365,11 @@ class ReviewFixTests(unittest.TestCase):
         iso = lambda t: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))
         entry = lambda exp, mode="shared": {"db": {"pg": {"mode": mode, "expires_at": iso(exp)}}}
         self.assertFalse(v.cred_fresh(entry(now + 3 * 3600), "pg", "shared", True, now))  # >2 h left was enough before
-        self.assertFalse(v.cred_fresh(entry(now + v.MAX_SECS), "pg", "shared", True, now))
-        self.assertTrue(v.cred_fresh(entry(now + 14 * 3600), "pg", "shared", True, now))
-        self.assertFalse(v.cred_fresh(entry(now + 14 * 3600), "pg", "shared", False, now))  # file gone (reaped)
-        self.assertFalse(v.cred_fresh(entry(now + 14 * 3600, "branch"), "pg", "shared", True, now))
+        self.assertFalse(v.cred_fresh(entry(now + 14 * 3600), "pg", "shared", True, now), "a 14 h credential would expire under a stopped stack")
+        self.assertFalse(v.cred_fresh(entry(now + v.RETAIN_SECS), "pg", "shared", True, now))
+        self.assertTrue(v.cred_fresh(entry(now + 192 * 3600), "pg", "shared", True, now))
+        self.assertFalse(v.cred_fresh(entry(now + 192 * 3600), "pg", "shared", False, now))  # file gone (released)
+        self.assertFalse(v.cred_fresh(entry(now + 192 * 3600, "branch"), "pg", "shared", True, now))
 
     def test_one_up_of_a_tag_at_a_time_and_up_done_ends_it(self):
         first = v.cmd_prepare(self.args(tag="t"))
@@ -362,14 +403,16 @@ class ReviewFixTests(unittest.TestCase):
         v.write_entry({"tag": "b", "state": "starting"})
         v.write_entry({"tag": "c", "state": "running"})
         self.mem = v.MIN_MEM_GIB + v.PENDING_MEM_GIB * 3 - 0.1  # floor + this + 2 pending, just short
-        with self.assertRaises(v.Refused):
+        with mock_sleep(), self.assertRaises(v.Refused):  # the running one stops for room; still short, so refused
             v.admit("new")
+        self.assertEqual(v.read_entry("c")["state"], "stopped")
+        self.assertEqual(v.read_entry("a")["state"], "preparing", "an up in progress is never stopped")
         self.mem += 0.2
         v.admit("new")
-        for i in range(v.MAX_STACKS - 3):
+        for i in range(v.MAX_STACKS - 2):
             v.write_entry({"tag": f"p{i}", "state": "preparing"})
         self.mem = 1000
-        with self.assertRaises(v.Refused):
+        with self.assertRaises(v.Refused):  # MAX_STACKS starting, none running to stop
             v.admit("new")
 
     # 6. the stack user owns its log; one stack's error does not end a reaper pass
@@ -429,6 +472,149 @@ class ReviewFixTests(unittest.TestCase):
     def test_unit_is_sandboxed(self):
         for line in ("ProtectSystem=strict", "ReadWritePaths={base}/stacks/%i", "PrivateTmp=yes", "NoNewPrivileges=yes"):
             self.assertIn(line, v.UNIT_TEMPLATE)
+
+    def test_no_runtime_cap_and_a_router_unit(self):
+        self.assertNotIn("RuntimeMaxSec", v.UNIT_TEMPLATE, "a stack in use is never killed at a fixed age")
+        self.assertIn("router.mjs", v.ROUTER_SERVICE)
+        self.assertIn("Restart=always", v.ROUTER_SERVICE)
+        self.assertIn("CRED_TTL=192h", (ROOT / "scripts/cmux-next/cloud-dev-stack.sh").read_text())
+        self.assertGreater(192 * 3600, v.RETAIN_SECS + v.CRED_MARGIN_SECS)
+
+
+class LifetimeTests(unittest.TestCase):
+    """Admission, LRU stop and release, and wake, against a temporary registry; systemd, Serve and the host's
+    memory and disk are stubbed."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        names = ("BASE", "CLASSIC_BASE", "unit_active", "stop_stack", "systemctl", "mem_available_gib", "disk_free_gib",
+                 "wait_healthy", "MAX_STACKS", "MAX_KEPT")
+        self.saved = {n: getattr(v, n) for n in names}
+        v.BASE = v.CLASSIC_BASE = Path(self.tmp.name)
+        self.mem, self.disk, self.active = 60.0, 300.0, {}
+        self.released, self.calls = [], []
+        v.mem_available_gib = lambda: self.mem
+        v.disk_free_gib = lambda path=None: self.disk
+        v.unit_active = lambda tag: self.active.get(tag, False)
+        v.stop_stack = lambda tag, keep_files, serve=True: self.released.append(tag) or ["released"]
+
+        def systemctl(*a, check=True):
+            self.calls.append(a)
+            if a[0] == "stop":
+                self.active[a[1].split("@")[1].removesuffix(".service")] = False
+                self.mem += 3
+            if a[0] == "start":
+                self.active[a[1].split("@")[1].removesuffix(".service")] = True
+            return types.SimpleNamespace(returncode=0, stdout="")
+        v.systemctl = systemctl
+        self.sleeps = []
+        self.saved_sleep = time.sleep
+
+    def tearDown(self):
+        for n, f in self.saved.items():
+            setattr(v, n, f)
+        self.tmp.cleanup()
+
+    def stack(self, tag, state, used, **kw):
+        d = v.stack_dir(tag)
+        (d / "logs").mkdir(parents=True, exist_ok=True)
+        (d / "run.sh").write_text("#!/bin/bash\n")
+        v.write_entry({"tag": tag, "state": state, "host": "vm.ts.net", "port": kw.pop("port", 4700), "last_up_at": used,
+                       "started_at": used, "last_request_at": used, **kw})
+        self.active[tag] = state == "running"
+
+    def test_a_full_vm_stops_the_least_recently_used_stack_instead_of_refusing(self):
+        v.MAX_STACKS = 2
+        self.stack("old", "running", 100)
+        self.stack("new", "running", 900)
+        with mock_sleep():
+            made = v.admit("third", now=1000)
+        self.assertEqual(made, ["stopped old"])
+        self.assertEqual(v.read_entry("old")["state"], "stopped")
+        self.assertEqual(v.read_entry("new")["state"], "running")
+
+    def test_memory_short_stops_lru_stacks_until_it_fits_and_refuses_with_none_left(self):
+        self.mem = v.MIN_MEM_GIB + v.PENDING_MEM_GIB - 4  # two stops (3 GiB each) make room
+        for i, t in enumerate(("a", "b", "c")):
+            self.stack(t, "running", 100 + i)
+        with mock_sleep():
+            self.assertEqual(v.admit("x", now=1000), ["stopped a", "stopped b"])
+        self.mem = 0
+        for t in ("a", "b", "c"):
+            e = v.read_entry(t); e["state"] = "stopped"; v.write_entry(e)
+        with mock_sleep(), self.assertRaises(v.Refused):
+            v.admit("x", now=1000)
+
+    def test_disk_short_releases_lru_stopped_stacks(self):
+        self.disk = v.MIN_DISK_GIB  # under floor + pending reservation
+        self.stack("s1", "stopped", 100)
+        self.stack("s2", "stopped", 200)
+        calls = iter([v.MIN_DISK_GIB, v.MIN_DISK_GIB + 50])
+        v.disk_free_gib = lambda path=None: next(calls)
+        with mock_sleep():
+            self.assertEqual(v.admit("x", now=1000), ["released s1"])
+        self.assertEqual(v.read_entry("s1")["state"], "reaped")
+        self.assertEqual(v.read_entry("s2")["state"], "stopped")
+
+    def test_more_than_max_kept_stopped_stacks_releases_the_oldest(self):
+        v.MAX_KEPT = 1
+        self.stack("s1", "stopped", 100)
+        self.stack("s2", "stopped", 200)
+        out = v.trim_kept(1000)
+        self.assertEqual([o["tag"] for o in out], ["s1"])
+        self.assertEqual(v.read_entry("s2")["state"], "stopped")
+
+    def test_wake_starts_the_same_unit_and_port_and_marks_it_running(self):
+        self.stack("w", "stopped", 100, port=4710, ports=[4710, 4711, 4712])
+        v.wait_healthy = lambda tag, port, host, timeout: (port == 4710 and host == "vm.ts.net", "")
+        out = v.cmd_wake(types.SimpleNamespace(tag="w", wait=5))
+        self.assertTrue(out["woke"])
+        e = v.read_entry("w")
+        self.assertEqual((e["state"], e["port"], e["ports"]), ("running", 4710, [4710, 4711, 4712]))
+        self.assertIn(("start", v.unit("w")), self.calls)
+        self.assertFalse(v.cmd_wake(types.SimpleNamespace(tag="w", wait=5))["woke"], "a running stack returns at once")
+
+    def test_a_failed_wake_stays_stopped_and_is_not_retried_at_once(self):
+        self.stack("f", "stopped", 100)
+        v.wait_healthy = lambda *a: (False, "mobile: connection refused")
+        with self.assertRaises(v.Refused):
+            v.cmd_wake(types.SimpleNamespace(tag="f", wait=1))
+        e = v.read_entry("f")
+        self.assertEqual(e["state"], "stopped")
+        self.assertIn("connection refused", e["wake_error"])
+        with self.assertRaises(v.Refused) as again:
+            v.cmd_wake(types.SimpleNamespace(tag="f", wait=1))
+        self.assertIn("retry in a minute", str(again.exception))
+
+    def test_a_released_stack_does_not_wake(self):
+        self.stack("gone", "reaped", 100)
+        with self.assertRaises(v.Refused) as r:
+            v.cmd_wake(types.SimpleNamespace(tag="gone", wait=1))
+        self.assertIn("up --tag gone", str(r.exception))
+
+    def test_serve_points_every_stack_port_at_the_router(self):
+        saved = (v.serve_lock, v.serve_config, v.classic_ports, subprocess.run)
+        served = []
+        try:
+            v.serve_lock = lambda: contextlib.nullcontext()
+            v.serve_config = lambda: {"TCP": {}, "Web": {"h:4700": {"Handlers": {"/": {"Proxy": "http://127.0.0.1:4700"}}}}}
+            v.classic_ports = lambda: set()
+            v.subprocess.run = lambda cmd, **kw: served.append(cmd) or types.SimpleNamespace(returncode=0, stdout="", stderr="")
+            self.assertTrue(v.publish([4700, 4701, 4702], 4700))
+        finally:
+            v.serve_lock, v.serve_config, v.classic_ports, v.subprocess.run = saved
+        self.assertEqual([c[-1] for c in served], [v.ROUTER_TARGET] * 3)
+        self.assertEqual([c[-2] for c in served], ["--https=4700", "--https=4701", "--https=4702"])
+
+
+@contextlib.contextmanager
+def mock_sleep():
+    saved = v.time.sleep
+    v.time.sleep = lambda s: None
+    try:
+        yield
+    finally:
+        v.time.sleep = saved
 
 
 class MacScriptTests(unittest.TestCase):
