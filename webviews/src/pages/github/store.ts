@@ -22,6 +22,7 @@ import {
   type RerunState,
 } from "./types";
 import { failedRuns } from "./checksModel";
+import { keepConversation, keepPullRequest } from "./keepUnchanged";
 
 export const WAIT_MS = 1_500;
 export const REFRESH_MS = 60_000;
@@ -115,7 +116,8 @@ export class GitHubStore {
     this.set({
       ...this.snapshot,
       // The host never sends a worse answer than it had; keep ours when it sends none.
-      pullRequest: pullRequest ?? this.snapshot.pullRequest,
+      // Its files and checks that did not change keep their objects, so their rows do not draw again.
+      pullRequest: pullRequest ? keepPullRequest(this.snapshot.pullRequest, pullRequest) : this.snapshot.pullRequest,
       fetchedAt: typeof reply?.fetchedAt === "number" ? reply.fetchedAt : this.snapshot.fetchedAt,
       reading: reply?.reading === true,
       answered: this.snapshot.answered || reply !== undefined,
@@ -205,6 +207,8 @@ export class GitHubStore {
       this.set({ ...this.snapshot, detailsFor: undefined });
       return;
     }
+    // The entries a new read did not change keep their objects, so their rows do not draw again.
+    details = { ...details, conversation: keepConversation(this.snapshot.details?.conversation, details.conversation) };
     // A new head (a push): the old head's checks go, and the new head's are asked for.
     const { checks: shown, ...rest } = this.snapshot;
     const moved = !!shown?.head && !!details.headCommit && shown.head !== details.headCommit;

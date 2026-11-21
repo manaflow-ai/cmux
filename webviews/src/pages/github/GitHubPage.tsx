@@ -12,9 +12,11 @@
 // linked issues. A narrow pane is one column in that order.
 import {
   lazy,
+  memo,
   Suspense,
   useCallback,
   useEffect,
+  useMemo,
   useState,
   useSyncExternalStore,
   type CSSProperties,
@@ -151,6 +153,13 @@ export function GitHubPage({
   const hasContent = pr !== undefined;
   // One callback for the page's life: GitHubMarkdown parses a body again only when its text changes.
   const open = useCallback((url: string) => store.openOnGitHub(url), [store]);
+  const more = useCallback(() => store.openOnGitHub(), [store]);
+  // Once per answer: a file toggled or a merge clicked keeps the dashboard's jobs as they were.
+  const rollup = pr?.checkList;
+  const checksShown = useMemo(
+    () => (snapshot.checks ? withRollup(snapshot.checks, rollup ?? []) : null),
+    [snapshot.checks, rollup],
+  );
   // Once the frame that draws this pull request (or its loading state) is on screen, the host hears of it.
   useEffect(() => {
     if (!target) return;
@@ -182,16 +191,16 @@ export function GitHubPage({
       strings={strings}
       now={now}
       open={open}
-      more={() => store.openOnGitHub()}
+      more={more}
       initialFilter={conversationFilter}
     />
   );
   // The dashboard once the host has the jobs; until then the cache's rollup, in the same place.
   const checks =
     pr &&
-    (snapshot.checks ? (
+    (checksShown ? (
       <ChecksDashboard
-        checks={withRollup(snapshot.checks, pr.checkList ?? [])}
+        checks={checksShown}
         rerun={snapshot.rerun}
         store={store}
         strings={strings}
@@ -210,7 +219,7 @@ export function GitHubPage({
         <ReadinessBlock
           pr={pr}
           details={details}
-          checks={snapshot.checks ? withRollup(snapshot.checks, pr.checkList ?? []) : null}
+          checks={checksShown}
           strings={strings}
           open={open}
           layout={readinessLayout}
@@ -436,7 +445,10 @@ function Description({
   );
 }
 
-function Conversation({
+/** The conversation: at most GitHubPullRequestDetails.maximumComments (50) comments and
+ *  maximumReviews (30) reviews, so every entry is drawn; each is a memoized Entry, and the whole
+ *  section draws again only when its details, filter or order change (not on a file's toggle). */
+const Conversation = memo(function Conversation({
   details,
   strings,
   now,
@@ -453,10 +465,15 @@ function Conversation({
 }) {
   const [filter, setFilter] = useState<ConversationFilter>(initialFilter);
   const [order, setOrder] = useState<ConversationOrder>("newest");
+  const conversation = details?.conversation;
+  const viewer = details?.viewer;
+  const counts = useMemo(() => filterCounts(conversation ?? [], viewer), [conversation, viewer]);
+  const entries = useMemo(
+    () => filterConversation(conversation ?? [], filter, order, viewer),
+    [conversation, filter, order, viewer],
+  );
   if (!details) return null;
   const { t } = strings;
-  const counts = filterCounts(details.conversation, details.viewer);
-  const entries = filterConversation(details.conversation, filter, order, details.viewer);
   const filters: [ConversationFilter, string][] = [
     ["all", "github.conversation.all"],
     ["unresolved", "github.conversation.unresolved"],
@@ -511,9 +528,10 @@ function Conversation({
       )}
     </Section>
   );
-}
+});
 
-function Entry({
+/** One comment or review; drawn again only when its entry changes (the store keeps unchanged ones). */
+const Entry = memo(function Entry({
   entry,
   strings,
   now,
@@ -556,26 +574,14 @@ function Entry({
       )}
     </li>
   );
-}
+});
 
 function Checks({ pr, strings, open }: { pr: LinkedPullRequest; strings: Strings; open: (url: string) => void }) {
   const [showPassed, setShowPassed] = useState(false);
   const list = pr.checkList ?? [];
   const { failed, pending, passed } = groupChecks(list);
   const total = list.length;
-  const row = (check: Check) => (
-    <li key={check.name} className="gh-row" data-check={check.state}>
-      <span className="gh-dot" aria-hidden="true" />
-      {check.url ? (
-        <button type="button" className="gh-row-link" title={check.name} onClick={() => open(check.url!)}>
-          {check.name}
-        </button>
-      ) : (
-        <span className="gh-row-name">{check.name}</span>
-      )}
-      {check.onBase && <span className="gh-muted gh-row-note">{strings.t("github.checks.onBase")}</span>}
-    </li>
-  );
+  const row = (check: Check) => <CheckRow key={check.name} check={check} strings={strings} open={open} />;
   return (
     <Section title={strings.t("github.checks")} detail={total ? `${passed.length}/${total}` : undefined}>
       {total === 0 ? (
@@ -619,6 +625,32 @@ function Checks({ pr, strings, open }: { pr: LinkedPullRequest; strings: Strings
     </Section>
   );
 }
+
+/** One check of the rollup, which reads at most 100 (AgentChatPullRequestReader `contexts(first: 100)`),
+ *  so every one is drawn; memoized, so the page's other changes do not draw it again. */
+const CheckRow = memo(function CheckRow({
+  check,
+  strings,
+  open,
+}: {
+  check: Check;
+  strings: Strings;
+  open: (url: string) => void;
+}) {
+  return (
+    <li className="gh-row" data-check={check.state}>
+      <span className="gh-dot" aria-hidden="true" />
+      {check.url ? (
+        <button type="button" className="gh-row-link" title={check.name} onClick={() => open(check.url!)}>
+          {check.name}
+        </button>
+      ) : (
+        <span className="gh-row-name">{check.name}</span>
+      )}
+      {check.onBase && <span className="gh-muted gh-row-note">{strings.t("github.checks.onBase")}</span>}
+    </li>
+  );
+});
 
 function CheckGroup({
   label,
@@ -668,33 +700,9 @@ function Files({
       }
     >
       <ul className="gh-files" style={{ "--gh-digits": `${digits + 1}ch` } as CSSProperties}>
-        {files.map((file) => {
-          const patch = snapshot.patches[file.path];
-          return (
-            <li key={file.path} className="gh-file" data-open={patch ? true : undefined}>
-              <button
-                type="button"
-                className="gh-file-row"
-                aria-expanded={patch !== undefined}
-                title={file.path}
-                onClick={() => store.toggleFile(file.path)}
-              >
-                <Chevron open={patch !== undefined} />
-                <span className="gh-path gh-file-path">
-                  <FilePath path={file.path} />
-                </span>
-                <span className="gh-num gh-add">+{file.additions}</span>
-                <span className="gh-num gh-del">−{file.deletions}</span>
-                <span className="gh-cells" aria-hidden="true">
-                  {fileCells(file.additions, file.deletions).map((cell, at) => (
-                    <span key={at} data-cell={cell} />
-                  ))}
-                </span>
-              </button>
-              {patch && <FileBody patch={patch} strings={strings} open={() => void store.openDiff(file.path)} />}
-            </li>
-          );
-        })}
+        {files.map((file) => (
+          <FileRow key={file.path} file={file} patch={snapshot.patches[file.path]} store={store} strings={strings} />
+        ))}
       </ul>
       {total > files.length && (
         <button type="button" className="gh-more" onClick={() => store.openOnGitHub(`${pr.url}/files`)}>
@@ -704,6 +712,48 @@ function Files({
     </Section>
   );
 }
+
+type PullRequestFile = NonNullable<LinkedPullRequest["files"]>[number];
+
+/** One changed file and, expanded, its diff. The pull request's read takes at most 100 files
+ *  (AgentChatPullRequestReader `files(first: 100)`; more open on GitHub), so every one is drawn;
+ *  memoized, so expanding one file draws only that one again. */
+const FileRow = memo(function FileRow({
+  file,
+  patch,
+  store,
+  strings,
+}: {
+  file: PullRequestFile;
+  patch: FilePatch | undefined;
+  store: GitHubStore;
+  strings: Strings;
+}) {
+  return (
+    <li className="gh-file" data-open={patch ? true : undefined}>
+      <button
+        type="button"
+        className="gh-file-row"
+        aria-expanded={patch !== undefined}
+        title={file.path}
+        onClick={() => store.toggleFile(file.path)}
+      >
+        <Chevron open={patch !== undefined} />
+        <span className="gh-path gh-file-path">
+          <FilePath path={file.path} />
+        </span>
+        <span className="gh-num gh-add">+{file.additions}</span>
+        <span className="gh-num gh-del">−{file.deletions}</span>
+        <span className="gh-cells" aria-hidden="true">
+          {fileCells(file.additions, file.deletions).map((cell, at) => (
+            <span key={at} data-cell={cell} />
+          ))}
+        </span>
+      </button>
+      {patch && <FileBody patch={patch} strings={strings} open={() => void store.openDiff(file.path)} />}
+    </li>
+  );
+});
 
 function FileBody({ patch, strings, open }: { patch: FilePatch; strings: Strings; open: () => void }) {
   const note =
