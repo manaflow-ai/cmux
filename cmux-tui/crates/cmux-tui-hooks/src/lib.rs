@@ -67,6 +67,46 @@ use message_hooks::hook_command_with;
 use message_hooks::{delivers_messages, hook_command, journal_hook_command};
 use status_conflict::{conflict_row, ensure_replaceable_target};
 
+/// Codex's `hooks.state` event label for `event` (`PreToolUse` ->
+/// `pre_tool_use`), for tools that list and edit Codex hooks
+/// (cmux-agent-customize).
+pub fn codex_hook_state_label(event: &str) -> anyhow::Result<&'static str> {
+    codex_event_state_label(event)
+}
+
+/// Codex's trust hash for one command handler as written in hooks.json:
+/// Codex runs the handler only while its `trusted_hash` equals this.
+pub fn codex_hook_trust_hash(
+    state_label: &str,
+    matcher: Option<&str>,
+    command: &str,
+    timeout: Option<u64>,
+    asynchronous: bool,
+    status_message: Option<&str>,
+    additional_context_limit: Option<u64>,
+) -> String {
+    codex_trust::codex_identity_trust_hash(
+        state_label,
+        matcher,
+        command,
+        timeout,
+        asynchronous,
+        status_message,
+        additional_context_limit,
+    )
+}
+
+/// `hooks_path` as Codex writes it into `hooks.state` keys (canonicalized
+/// when `CODEX_HOME` came from the environment).
+pub fn codex_hook_state_key_path(hooks_path: &Path, from_env_override: bool) -> PathBuf {
+    codex_state_key_hooks_path(hooks_path, from_env_override)
+}
+
+/// Whether a hook command is one this installer wrote (a journal hook).
+pub fn is_owned_hook_command(command: &str) -> bool {
+    is_owned_command(command)
+}
+
 const COMMAND_MARKER: &str = "cmux-tui-journal-hook";
 const PLUGIN_MARKER: &str = "cmux-tui-journal-plugin";
 const ACTIVATION_NOTE: &str = "Providers load hooks at process start; launch or restart agents inside a cmux-tui terminal so CMUX_TUI_SOCKET and CMUX_TUI_HOOK are inherited.";

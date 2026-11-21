@@ -66,15 +66,23 @@ class AffectedTests(unittest.TestCase):
         argv = [a for u in plan(["plans/cmux-next/rust-panic-free.md"])["units"] for a in u["argv"]]
         self.assertIn("tests/test_base_red_excuse.py", argv)
 
-    def test_every_code_change_runs_the_whole_tree_guards(self):
-        # Guards such as the short-timeout ratchet read every file, so no path map can skip them.
+    def test_every_code_change_runs_the_guards_it_reaches(self):
+        # Guards such as the short-timeout ratchet read every file and always run; the rest run when the
+        # change reaches their inputs (run_ci_guards.py --affected from the plan's base).
         for path in ("cmux-tui/crates/cmux-config/src/lib.rs", "webviews/src/agent-session/acpmux/App.tsx"):
             with self.subTest(path=path):
                 guards = [u for u in plan([path])["units"] if u["kind"] == "guards"]
                 self.assertEqual(len(guards), 1)
-                self.assertIn(affected_tests.GUARDS_SCRIPT, guards[0]["argv"])
-                self.assertIn("--all", guards[0]["argv"])
+                argv = guards[0]["argv"]
+                self.assertIn(affected_tests.GUARDS_SCRIPT, argv)
+                self.assertIn("--all", argv)
+                self.assertEqual(argv[argv.index("--affected") + 1], BASE)
         self.assertTrue(affected_tests.guard_tests(ROOT))
+
+    def test_an_everything_plan_runs_every_guard_step(self):
+        guards = [u for u in plan(["scripts/ci/guards-local.sh"])["units"] if u["kind"] == "guards"]
+        self.assertEqual(len(guards), 1)
+        self.assertNotIn("--affected", guards[0]["argv"])
 
     def test_webviews_source_change_runs_every_web_test_with_the_browser_lane(self):
         # Browser and gallery tests load the whole app through vite, not through imports.

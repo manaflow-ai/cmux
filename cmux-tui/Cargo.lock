@@ -22,6 +22,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "clap",
+ "cmux-agent-customize",
  "cmux-agent-pane-policy",
  "cmux-build-space",
  "cmux-chat-index",
@@ -35,6 +36,7 @@ dependencies = [
  "cmux-config",
  "cmux-device-kind",
  "cmux-embed",
+ "cmux-fault",
  "cmux-file-lock",
  "cmux-git",
  "cmux-host",
@@ -1279,6 +1281,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-agent-customize"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cmux-config",
+ "cmux-process",
+ "cmux-tui-hooks",
+ "cmux-tui-platform",
+ "indexmap",
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "toml_edit 0.22.27",
+ "yaml-rust",
+]
+
+[[package]]
 name = "cmux-agent-pane-policy"
 version = "0.1.0"
 dependencies = [
@@ -1658,6 +1679,7 @@ dependencies = [
 name = "cmux-conversation"
 version = "0.1.0"
 dependencies = [
+ "cmux-message-preview",
  "pulldown-cmark",
  "serde",
  "serde_json",
@@ -1737,6 +1759,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-deadline"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-device-kind"
 version = "0.1.0"
 dependencies = [
@@ -1782,6 +1812,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-fault"
+version = "0.1.0"
+dependencies = [
+ "cmux-scope",
+ "libc",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-feed-core"
 version = "0.1.0"
 dependencies = [
@@ -1801,6 +1840,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-files-host"
+version = "0.1.0"
+dependencies = [
+ "cmux-process",
+ "cmux-signed-bundle",
+ "libc",
+ "tempfile",
+]
+
+[[package]]
 name = "cmux-flow-trace"
 version = "0.1.0"
 dependencies = [
@@ -1814,6 +1863,14 @@ dependencies = [
  "serde",
  "serde_json",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "cmux-follow-cam"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1876,8 +1933,10 @@ dependencies = [
  "cmux-file-lock",
  "cmux-json",
  "cmux-link",
+ "cmux-process",
  "cmux-server",
  "cmux-server-core",
+ "cmux-signed-envelope",
  "cmux-supervise-core",
  "cmux-unix-socket",
  "flate2",
@@ -2020,6 +2079,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-message-preview"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-mobile-core"
 version = "0.1.0"
 dependencies = [
@@ -2122,9 +2189,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bincode",
+ "cmux-process",
  "fuser",
  "libc",
  "serde",
+ "sha1",
  "tempfile",
  "zstd",
 ]
@@ -2160,6 +2229,7 @@ name = "cmux-rd-host"
 version = "0.2.7"
 dependencies = [
  "cc",
+ "cmux-computer-use",
  "cmux-encode",
  "cmux-file-lock",
  "cmux-hub-host",
@@ -2225,6 +2295,8 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-build-identity",
+ "cmux-deadline",
+ "cmux-fault",
  "cmux-json",
  "cmux-link",
  "cmux-netwatch",
@@ -2372,6 +2444,17 @@ dependencies = [
  "cmux-process",
  "sha2 0.10.9",
  "tempfile",
+]
+
+[[package]]
+name = "cmux-signed-envelope"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -2523,6 +2606,7 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-action-catalog",
+ "cmux-agent-customize",
  "cmux-agent-pane-policy",
  "cmux-api-compat",
  "cmux-app-host",
@@ -2578,6 +2662,7 @@ dependencies = [
  "cmux-unix-socket",
  "cmux-usage-patterns",
  "cmux-vm",
+ "cmux-vm-pool",
  "cmux-vnc",
  "cmux-wg",
  "core-foundation 0.10.1",
@@ -2701,6 +2786,7 @@ dependencies = [
  "cmux-remote-protocol",
  "cmux-sdk",
  "cmux-signed-bundle",
+ "cmux-signed-envelope",
  "cmux-supervise-core",
  "cmux-tasks",
  "cmux-tasks-core",
@@ -2730,6 +2816,7 @@ dependencies = [
  "quick-xml",
  "regex",
  "reqwest",
+ "ring",
  "rusqlite",
  "rustls",
  "serde",
@@ -2925,6 +3012,18 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-vm-pool"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "reqwest",
+ "rustls",
+ "serde_json",
+ "tokio",
+ "url",
 ]
 
 [[package]]

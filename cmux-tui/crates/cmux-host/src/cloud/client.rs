@@ -201,7 +201,11 @@ pub fn ensure_wg_key(
 pub enum BindResult {
     /// No `bind.json`.
     None,
-    Bound(Box<Bound>),
+    /// Bound; with the machine's first relay Register ticket when the bind
+    /// answer carried one for its carrier slot (the reply line the session
+    /// host gets, [`super::carrier_ticket::bind_ticket`]). It is never written
+    /// to disk.
+    Bound(Box<Bound>, Option<Value>),
     /// A final 4xx answer: the token is spent or invalid; `bind.json` is gone.
     /// A 4xx after an unanswered try of the same token, while the token may
     /// still live, is a `Retry` instead (see [`bind_machine`]).
@@ -216,7 +220,10 @@ impl BindResult {
     pub fn describe(&self) -> String {
         match self {
             BindResult::None => "none".to_owned(),
-            BindResult::Bound(b) => format!("bound machine={} epoch={}", b.machine, b.epoch),
+            BindResult::Bound(b, ticket) => {
+                let with = if ticket.is_some() { " with a carrier ticket" } else { "" };
+                format!("bound machine={} epoch={}{with}", b.machine, b.epoch)
+            }
             BindResult::Refused(code) => format!("refused {code}"),
             BindResult::Invalid(why) => format!("invalid {why}"),
             BindResult::Retry(why) => format!("retry {why}"),
@@ -338,6 +345,10 @@ pub fn bind_machine(
         keyset: value.field("keyset").clone(),
         bound_at: now_wall_ms,
     };
+    let first_ticket = file
+        .carrier
+        .as_ref()
+        .and_then(|route| super::carrier_ticket::bind_ticket(value, &route.slot));
     // The carrier goes down before bound.json, so a bound machine never
     // lacks the route its bind sent; the session host respawns on it.
     if let Some(route) = file.carrier {
@@ -367,7 +378,7 @@ pub fn bind_machine(
     let _ = record_owner_kind(store);
     store.remove(BIND_FILE);
     store.remove(BIND_UNANSWERED_FILE);
-    BindResult::Bound(Box::new(bound))
+    BindResult::Bound(Box::new(bound), first_ticket)
 }
 
 /// How long a bind token can live: it expires 15 minutes after the machine

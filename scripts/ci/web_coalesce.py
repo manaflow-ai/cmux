@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Coalesce cmux-next-web.yml's feat-cmux-next push runs, and bisect a coalesced run's new webview reds.
 
-    web_coalesce.py wait --last LAST.json --sha SHA [--before SHA] [--hold-minutes 30] [--ref REF] [--off]
+    web_coalesce.py wait --last LAST.json --sha SHA [--before SHA] [--hold-minutes 120] [--ref REF] [--off]
                          --out OUT.json
         the coalesce job: sleep until HOLD minutes after the last push that ran the web checks, then name this push
         the newest covered one (OUT) and print `base=<the last covered sha>` and `run=true` to $GITHUB_OUTPUT, or,
@@ -17,8 +17,9 @@ those runs tested a commit a newer push already contained. So the web checks now
 minutes, on the newest push that waited; each run routes from the last run's commit (push_base), so it checks
 everything since. Three rules from the decision (claude-sr2-coord, 2026-11-03):
 
-1. A run starts at least every HOLD (30) minutes while pushes land, so a base red is at most about 30 minutes of
-   landings wide, the decision's bound. HOLD was 15 until 2026-11-04: at about 44 landings an hour nearly every
+1. A run starts at least every HOLD (120) minutes while pushes land, so a base red is at most about 120 minutes of
+   landings wide (30 until 2026-11-21: 46 runs and about 20,000 runner-minutes a day, every shard red; the CI time
+   map, cmuxterm-hq#16094, cut it to about 12 runs). HOLD was 15 until 2026-11-04: at about 44 landings an hour nearly every
    15-minute window held a webview input change, so a run went every window (about 96 a day, about $448); 30
    halves that (ask-23acd2a449).
 2. When such a run goes red, `bisect` re-runs only the failing test files, only on the commits the run covered, so
@@ -57,13 +58,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-HOLD_MINUTES = 30.0
+HOLD_MINUTES = 120.0
 EVERYTHING = "all"  # the push base that runs every web check (web_subareas.EVERY_SUBAREA)
 SHA = re.compile(r"[0-9a-f]{40}")
-# A coalesced run covers about 30 minutes of landings (about 22 commits at 44 an hour, about 40 at the busiest hour
+# A coalesced run covers about 120 minutes of landings (about 88 commits at 44 an hour, more at the busiest hours
 # of 2026-11-03); past this many
 # the range is not bisected (a force push, a long outage): its reds keep the run's range.
-MAX_COMMITS = 120
+MAX_COMMITS = 240
 MAX_PROBES = 6  # probe runs a bisect makes at most; a file still unresolved names its narrowest range
 SQUASH_PR = re.compile(r"\(#([1-9][0-9]*)\)\s*$")
 
