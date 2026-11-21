@@ -47,7 +47,7 @@ PINNED: dict[str, tuple[str, set[str]]] = {
     'cloud-journey-prod.yml': ('holds the production journey environment secrets: the fork-routing secret rule forbids a variable-movable runner',
      {'journey', 'preclaim'}),
     'billing-nightly.yml': ('holds the App Store In-App Purchase key and health token: the fork-routing secret rule forbids a variable-movable runner',
-     {'apple-delivery', 'apple-api', 'alert'}),
+     {'apple-delivery', 'apple-api', 'apple-post-release', 'alert'}),
     'cloud-claude-matrix.yml': ('holds the production journey environment secrets: the fork-routing secret rule forbids a variable-movable runner',
      {'matrix'}),
     'build-ghosttykit.yml': ('not yet on a pool; moves in its own PR',
