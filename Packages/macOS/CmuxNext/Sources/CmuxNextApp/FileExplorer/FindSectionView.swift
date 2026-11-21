@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextFilesUI
+import CmuxVisibleRows
 
 /// The right sidebar's Find section and the Find pane's view: a search field
 /// over the focused terminal's folder and one row per matching line. Return
@@ -16,7 +17,7 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
     private let status = NSTextField(labelWithString: "")
     let table = FindResultsTableView()
     private let scroll = OverlayScrollView()
-    private var results: [RipgrepMatch] = []
+    let results = TableRows<RipgrepMatch, RipgrepMatch.ID>(id: \.id)
     private var observation: Task<Void, Never>?
 
     /// - Parameters:
@@ -110,9 +111,8 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
         Task { await model.search(text) }
     }
 
-    private func render() {
-        results = model.results
-        table.reloadData()
+    func render() {
+        results.show(model.results, in: table)
         let root = model.root.map { ($0.path as NSString).abbreviatingWithTildeInPath } ?? FileExplorerStrings.noFolder
         switch model.state {
         case .idle: status.stringValue = root
@@ -163,7 +163,15 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let id = NSUserInterfaceItemIdentifier("find.row")
         let cell = tableView.makeView(withIdentifier: id, owner: nil) as? FindResultCell ?? FindResultCell(identifier: id)
-        cell.show(results[row])
+        cell.show(results.configure(row))
+        if cell.onLayout == nil { cell.onLayout = { [results] in results.laidOut() } }
         return cell
     }
+}
+
+/// The Find results under the visible-rows contract (`VisibleRowsContract`), counted as the Files tree's are.
+extension FindSectionView: VisibleRowsList {
+    var listWork: ListWorkMeter { results.listWork }
+    /// The table's row views, shown and kept for reuse.
+    var rowViewsAlive: Int { table.subviews.reduce(0) { $0 + ($1 is NSTableRowView ? 1 : 0) } }
 }

@@ -4,6 +4,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextFiles
 import CmuxNextFilesUI
+import CmuxVisibleRows
 
 /// The right sidebar's Files section (classic's file explorer): the focused
 /// terminal's folder as a tree. Click selects, double-click, Return and
@@ -26,7 +27,7 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
     private let showContents = NSButton(title: FileExplorerStrings.showProtectedContents, target: nil, action: nil)
     let table = FileExplorerTableView()
     private let scroll = OverlayScrollView()
-    private var rows: [FileExplorerRow] = []
+    let rows = TableRows<FileExplorerRow, URL>(id: \.url)
     private var observation: Task<Void, Never>?
     private var following: Task<Void, Never>?
 
@@ -149,12 +150,11 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
         ])
     }
 
-    private func render() {
+    func render() {
         header.stringValue = model.failure ?? model.root.map { ($0.path as NSString).abbreviatingWithTildeInPath } ?? FileExplorerStrings.noFolder
-        rows = model.rows
+        rows.show(model.rows, in: table)
         showContents.isHidden = !model.held
-        table.reloadData()
-        if let selection = model.selection, let index = rows.firstIndex(where: { $0.url == selection }) {
+        if let selection = model.selection, let index = rows.all.firstIndex(where: { $0.url == selection }) {
             table.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
         }
     }
@@ -207,7 +207,7 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
     func beginRename(_ item: URL) {
         let item = item.standardizedFileURL
         render()
-        guard let index = rows.firstIndex(where: { $0.url == item }) else { return }
+        guard let index = rows.all.firstIndex(where: { $0.url == item }) else { return }
         table.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
         table.scrollRowToVisible(index)
         guard let cell = table.view(atColumn: 0, row: index, makeIfNecessary: true) as? FileExplorerCell else { return }
@@ -235,7 +235,8 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let id = NSUserInterfaceItemIdentifier("fileExplorer.row")
         let cell = tableView.makeView(withIdentifier: id, owner: nil) as? FileExplorerCell ?? FileExplorerCell(identifier: id)
-        cell.show(rows[row])
+        cell.show(rows.configure(row))
+        if cell.onLayout == nil { cell.onLayout = { [rows] in rows.laidOut() } }
         return cell
     }
 
@@ -243,4 +244,12 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
         let index = table.selectedRow
         model.selection = index >= 0 && index < rows.count ? rows[index].url : nil
     }
+}
+
+/// The Files tree under the visible-rows contract (`VisibleRowsContract`): each row configure, each cell layout and
+/// the rows each update compares count on `listWork` (``TableRows``).
+extension FileExplorerSectionView: VisibleRowsList {
+    var listWork: ListWorkMeter { rows.listWork }
+    /// The table's row views, shown and kept for reuse.
+    var rowViewsAlive: Int { table.subviews.reduce(0) { $0 + ($1 is NSTableRowView ? 1 : 0) } }
 }

@@ -18,6 +18,13 @@ package nonisolated struct RipgrepMatch: Equatable, Sendable {
         self.column = column
         self.preview = preview
     }
+
+    /// The match's identity across searches: its file, line and column.
+    package struct ID: Hashable, Sendable {
+        let path: String, line: Int, column: Int
+    }
+
+    package var id: ID { ID(path: path, line: line, column: column) }
 }
 
 /// Find in Directory's search: `rg` over a local directory, run the way the

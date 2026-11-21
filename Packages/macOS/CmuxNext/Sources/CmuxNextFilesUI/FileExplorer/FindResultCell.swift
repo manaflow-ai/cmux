@@ -32,6 +32,14 @@ package final class FindResultCell: NSTableCellView {
     @available(*, unavailable)
     package required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    /// Runs after each layout pass of this cell (the list's work meter counts it).
+    package var onLayout: (@MainActor () -> Void)?
+
+    package override func layout() {
+        super.layout()
+        onLayout?()
+    }
+
     package func show(_ match: RipgrepMatch) {
         preview.stringValue = match.preview
         location.stringValue = "\(match.relativePath):\(match.line)"
