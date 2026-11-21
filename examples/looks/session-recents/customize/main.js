@@ -61,7 +61,8 @@ function renderRecents() {
   const chats = cmux.live("chat.list", { include_archived: true })
   const [view, setView] = signal("Sessions")
   const [archived, setArchived] = signal(false)
-  const [limit, setLimit] = signal(18)
+  const [recentPage, setRecentPage] = signal(0)
+  const [pinPage, setPinPage] = signal(0)
   const [busy, setBusy] = signal(false)
   const [error, setError] = signal("")
   const [order, setOrder] = signal([])
@@ -94,13 +95,33 @@ function renderRecents() {
     return [...groups].flatMap(([group, members]) => [{ group }, ...orderedTree(members)])
   })
 
+  // One row overlaps pinned pages so a drag can move a pin across a page boundary.
+  function pages(items, page, setPage, overlap = 0) {
+    const size = 18
+    const stride = size - overlap
+    const last = () => Math.max(0, Math.ceil((items().length - size) / stride))
+    const current = () => Math.min(page(), last())
+    const start = () => current() * stride
+    return {
+      visible: () => items().slice(start(), start() + size),
+      start,
+      controls: () => last() ? HStack([
+        Button("Previous", () => setPage(current() - 1)).disabled(() => current() === 0),
+        Spacer(),
+        Button("Next", () => setPage(current() + 1)).disabled(() => current() === last()),
+      ]) : null,
+    }
+  }
+  const recentPages = pages(rows, recentPage, setRecentPage)
+  const pinPages = pages(pins, pinPage, setPinPage, 1)
+
   function movePin(id, index) {
     if (!orderReady()) return
     const ids = pins().map(key)
     const from = ids.indexOf(id)
     if (from < 0 || !Number.isInteger(index)) return
     ids.splice(from, 1)
-    ids.splice(Math.max(0, Math.min(ids.length, index)), 0, id)
+    ids.splice(Math.max(0, Math.min(ids.length, pinPages.start() + index)), 0, id)
     setOrder(ids)
     writing = writing.then(() => cmux.storage.set("session-recents.pin-order", ids))
       .catch((e) => setError(problem(e)))
@@ -130,20 +151,20 @@ function renderRecents() {
       return cmux.actions.run("agent.openSessionTab", { session: chat.id, ...(chat.machine ? { host: chat.machine } : {}) })
         .catch((e) => setError(problem(e)))
     }
-    return Row({ title: () => title(getChat()) }).padding(() => ({ leading: 12 * Math.min(depth(), 5) }))
+    return Row({ title: () => title(getChat()), subtitle: () => getChat().machine || undefined }).padding(() => ({ leading: 12 * Math.min(depth(), 5) }))
       .onTap(open)
       .contextMenu(() => {
         const chat = getChat()
         const next = !chat.archived
-        const nested = branch(chat, children())
+        const nested = children().has(key(chat))
         const items = [
           Button("Open", open),
           Button(chat.pinned ? "Unpin" : "Pin", () => cmux.call("chat.pin", { ...target(chat), pinned: !chat.pinned })
             .catch((e) => setError(problem(e)))),
           Button(next ? "Archive" : "Restore", () => archive([chat], next)).disabled(busy),
         ]
-        if (nested.length > 1) items.push(Button(next ? "Archive with nested sessions" : "Restore with nested sessions",
-          () => archive(nested, next)).disabled(busy))
+        if (nested) items.push(Button(next ? "Archive with nested sessions" : "Restore with nested sessions",
+          () => archive(branch(chat, children()), next)).disabled(busy))
         return items
       })
   }
@@ -152,28 +173,32 @@ function renderRecents() {
     const cutoff = Date.now() - week
     return recent().filter((c) => lastActivity(c) > 0 && lastActivity(c) < cutoff)
   }
-  const switchView = (name) => { setView(name); setLimit(18) }
+  const switchView = (name) => {
+    setView(name)
+    setArchived(false)
+    setRecentPage(0)
+  }
   return VStack({ spacing: 2 }, [
     HStack([
       Menu(() => archived() ? "Archived" : view(), [
-        ...["Sessions", "Projects", "Agents"].map((name) => Button(name, () => { setArchived(false); switchView(name) })),
-        Button("Show archived", () => { setArchived(true); setLimit(18) }),
+        ...["Sessions", "Projects", "Agents"].map((name) => Button(name, () => switchView(name))),
       ]),
       Spacer(),
-      Menu("Archive", [
+      () => archived() ? Button("Back to recents", () => switchView(view())) : Menu("Archive", [
         Button("Archive all recent sessions", () => archive(recent(), true)).disabled(() => busy() || !recent().length),
         Button("Archive older than a week", () => archive(older(), true)).disabled(() => busy() || !recent().length),
-        Button("Show archived", () => { setArchived(true); setLimit(18) }),
+        Button("Show archived", () => { setArchived(true); setRecentPage(0) }),
       ]),
     ]),
     () => error() ? Text(error()) : null,
-    () => chats.status() === "error" ? Text(chats.error()?.message || "Could not load sessions") : null,
+    () => chats.error() ? Text(chats.error().message) : null,
     () => !archived() && pins().length ? Text("Pinned").secondary() : null,
-    ForEach({ items: () => archived() ? [] : pins(), key, onMove: movePin }, (c) => row(c, () => 0)),
-    ForEach({ items: () => rows().slice(0, limit()), key: (r) => r.group === undefined ? key(r.chat) : "group:" + r.group }, (r) =>
+    Reorderable({ items: () => archived() ? [] : pinPages.visible(), key, onMove: movePin }, (c) => row(c, () => 0)),
+    () => archived() ? null : pinPages.controls(),
+    ForEach({ items: recentPages.visible, key: (r) => r.group === undefined ? key(r.chat) : "group:" + r.group }, (r) =>
       r().group === undefined ? row(() => r().chat, () => r().depth) : Text(() => r().group).secondary()),
-    () => rows().length > limit() ? Button("Show more", () => setLimit(limit() + 18)) : null,
-    () => archived() && chats.status() === "fresh" && !rows().length ? Text("No archived sessions").secondary() : null,
+    recentPages.controls,
+    () => archived() && !chats.loading() && !chats.error() && !rows().length ? Text("No archived sessions").secondary() : null,
   ])
 }
 
