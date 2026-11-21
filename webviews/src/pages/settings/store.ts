@@ -37,6 +37,7 @@ import {
 } from "./queries";
 import { rowsByKey } from "./schema";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, resolveHarnessPlacement } from "../../ui/harnessPlacement";
+import { isBackdropRefusal, linkRefusal } from "./backdropRefusal";
 import { t } from "./strings";
 import { readLooksAnswer, type LooksOutcome } from "./looksGallery";
 import { pageTransport, TransportError, type SettingsTransport } from "./transport";
@@ -95,6 +96,8 @@ import {
   type AgentHooksState,
   type AgentSkillsRun,
   type AgentSkillsState,
+  type AgentConfigAnswer,
+  type AgentConfigRun,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -497,7 +500,14 @@ export class SettingsStore {
   async chooseBackdropImage(): Promise<void> {
     await this.trackAppearance([BACKGROUND], async () => {
       const reply = await this.request("cmux.settings.backdrop.choose_image", {});
-      if (!reply.ok) this.setError(BACKGROUND, rowError(reply.error));
+      // A file that is no picture or movie says so, as a link does, not "Invalid value".
+      if (!reply.ok)
+        this.setError(
+          BACKGROUND,
+          isBackdropRefusal(reply.error.code)
+            ? { ...rowError(reply.error), message: linkRefusal(reply.error.code) }
+            : rowError(reply.error),
+        );
       else await Promise.all([this.refresh(), this.refreshHost()]);
     });
   }
@@ -802,6 +812,18 @@ export class SettingsStore {
   async runMcpServers(run: McpServersRun): Promise<McpServersState | null> {
     await this.request("cmux.settings.mcp.run", run);
     return this.mcpServersState();
+  }
+
+  /** Settings > Agents > Claude Code & Codex: one `agent-config settings` verb. Answers the
+   * host's reply, or `{error}` in plain words when the call failed or the CLI refused (its own
+   * message, which never carries a secret value). */
+  async runAgentConfig(run: AgentConfigRun): Promise<AgentConfigAnswer | { error: string }> {
+    const reply = await this.request("cmux.settings.agentConfig", run);
+    if (!reply.ok) return { error: userMessage(reply.error, SETTINGS_SENTENCES) };
+    const answer = reply.value ?? { code: "agentConfig", message: "" };
+    if ("code" in answer && !("agent" in answer))
+      return { error: answer.message || t("settingsWindow.agentConfig.error.notChanged") };
+    return answer;
   }
 
   /** Settings > Agents > Claude Code & Codex > Skills; null when the host has none. */
