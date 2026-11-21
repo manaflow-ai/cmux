@@ -145,6 +145,7 @@ pub mod idempotency;
 mod job;
 mod joined_model_plane;
 pub mod launch_credential;
+pub mod launch_effort;
 pub mod launch_policy;
 pub mod left_on_mac;
 pub mod link_v2;
