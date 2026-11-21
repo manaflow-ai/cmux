@@ -80,6 +80,11 @@ type CpuProfile = {
 };
 /// PROFILE's report: the switch's first 150 ms of samples, the top functions by self time and by total time.
 function printProfile(label: string, profile: CpuProfile) {
+  const keep = process.env.FAST_CHECKS_OUT ?? process.env.PROFILE_OUT;
+  if (keep) fs.writeFileSync(path.join(keep, `${label}-${Date.now()}.cpuprofile`), JSON.stringify(profile));
+  console.log(
+    `  ${label} profile: ${profile.samples.length} samples over ${(profile.timeDeltas.reduce((x, y) => x + y, 0) / 1000).toFixed(0)} ms`,
+  );
   const byId = new Map(profile.nodes.map((node) => [node.id, node]));
   const parent = new Map<number, number>();
   for (const node of profile.nodes) for (const child of node.children ?? []) parent.set(child, node.id);
