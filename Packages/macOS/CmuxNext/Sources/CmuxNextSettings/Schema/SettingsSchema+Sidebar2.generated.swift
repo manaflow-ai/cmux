@@ -143,6 +143,7 @@ extension SidebarSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.sidebar.showSpaces", "Show Spaces"),
+                help: SettingsText.keyed("settings.sidebar.showSpaces.help", "Spaces show once you have more than one. New Space is in the command palette."),
                 kind: .toggle,
                 default: .bool(SidebarSectionsSetting.showSpacesDefault),
                 keywords: ["sidebar", "spaces", "dots", "profiles", "footer", "hide", "show"]
@@ -246,6 +247,21 @@ extension SidebarSettingsSchema {
                 kind: .toggle,
                 default: .bool(SidebarSectionsSetting.minimalDefault),
                 keywords: ["sidebar", "minimal", "compact", "dense", "rows", "simple", "clean"]
+            ),
+            SettingDescriptor(
+                SidebarLookPreset.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.look", "Sidebar Look"),
+                help: SettingsText.keyed("settings.sidebar.look.help", "Rows, headers and status marks like another app's sidebar. Your own sidebar settings still win."),
+                kind: .choice([
+                    SettingChoice("cmux", SettingsText.keyed("settings.choice.sidebarLookCmux", "cmux")),
+                    SettingChoice("claude", SettingsText.keyed("settings.choice.sidebarLookClaude", "Claude")),
+                    SettingChoice("codex", SettingsText.keyed("settings.choice.sidebarLookCodex", "Codex")),
+                    SettingChoice("studio", SettingsText.keyed("settings.choice.sidebarLookStudio", "Studio")),
+                ]),
+                default: .string(SidebarLookPreset.fallback),
+                keywords: ["sidebar", "look", "preset", "style", "claude", "codex", "studio", "like", "app"]
             ),
             SettingDescriptor(
                 SidebarSectionsSetting.stylePath,
@@ -360,16 +376,6 @@ extension SidebarSettingsSchema {
                 kind: .toggle,
                 default: .bool(SidebarSectionsSetting.groupHeaderMemberCountDefault),
                 keywords: ["sidebar", "group", "groups", "count", "members", "workspaces", "number", "header"]
-            ),
-            SettingDescriptor(
-                SidebarSectionsSetting.groupHeaderUnreadCountPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.groupHeader.unreadCount", "Show Group Unread Count"),
-                help: SettingsText.keyed("settings.sidebar.groupHeader.unreadCount.help", "A collapsed group shows its unread notification count."),
-                kind: .toggle,
-                default: .bool(SidebarSectionsSetting.groupHeaderUnreadCountDefault),
-                keywords: ["sidebar", "group", "groups", "unread", "badge", "notifications", "count", "header"]
             ),
         ]
     }
