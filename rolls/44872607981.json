@@ -1,0 +1,55 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44872607981",
+  "recorded_at": "2026-11-21T05:56:45Z",
+  "reason": "cmux-tui 08c6988c943e changes the image's cmux-tui (pinned dc6f7a40fec6)",
+  "dry_run": false,
+  "cmux_tui": "08c6988c943ec13ed84f09dc182fe84358aecbd8",
+  "fixes": [
+    {
+      "sha": "08c6988c943ec13ed84f09dc182fe84358aecbd8",
+      "mergedAt": "2026-11-21T05:16:52Z",
+      "subject": "cmux-process: spawned children die with their parent (ChildGroup, spawn_owned) (#40971)"
+    },
+    {
+      "sha": "94dd43d0fc017b89c6ecbb98357b23125131a928",
+      "mergedAt": "2026-11-20T21:04:26-08:00",
+      "subject": "acpmux: a resumed Codex chat runs on the provider codex is configured for now (cmux#48354) (#48524)"
+    },
+    {
+      "sha": "f02f3067fad110dd5689af2f2cb9358feafb0a65",
+      "mergedAt": "2026-11-20T20:55:47-08:00",
+      "subject": "safe-push train: merge 1cc8c18a331f (feat-cmux-next-oss-brains-land)"
+    },
+    {
+      "sha": "cc128ef8d8cd60202afafa857a9afbec03453635",
+      "mergedAt": "2026-11-20T20:41:15-08:00",
+      "subject": "cloud: Environment Secrets Playground, three directions of the env variables and secrets page (DEV only)"
+    },
+    {
+      "sha": "8d68fefabc9dece1af52aa6796fcf3e052532ef2",
+      "mergedAt": "2026-11-20T20:40:17-08:00",
+      "subject": "acpmux: one acpmux MCP process per chat (5 -> 1), the rest served by the daemon; a test holds the budget (#48374)"
+    },
+    {
+      "sha": "d19e222f2bde5cdf2dbdf1fa00f5e9250a1d44ba",
+      "mergedAt": "2026-11-20T20:40:05-08:00",
+      "subject": "fix(cmux-tui): an owner no client reached for a day stops, so its terminal hosts can end (#48370)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-21T05:56:45Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
