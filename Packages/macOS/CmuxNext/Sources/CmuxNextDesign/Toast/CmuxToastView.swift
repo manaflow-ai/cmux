@@ -78,7 +78,7 @@ public final class CmuxToastView: NSView {
     /// Whether the pointer is on the toast now (as of the last refresh).
     public var isHovered: Bool { pointerHover?.isHovering ?? false }
 
-    private let reduceTransparency: ReduceTransparency
+    let reduceTransparency: ReduceTransparency
     /// The look this toast was built with (Debug Settings > Toasts, else the defaults).
     public let tuning: CmuxToastTuning
 
@@ -217,11 +217,10 @@ public final class CmuxToastView: NSView {
             row.addArrangedSubview(button)
             if toast.action == nil { row.setCustomSpacing(Metrics.space5, after: text) }
         }
+        separateButtons(in: row, after: text)
         closeButton.target = self
         closeButton.action = #selector(close)
-        for button in [secondaryButton, actionButton, neverShowButton, closeButton].compactMap({ $0 }) {
-            button.concentricRadius = geometry.childRadius
-        }
+        for button in [secondaryButton, actionButton, neverShowButton, closeButton].compactMap({ $0 }) { button.concentricRadius = geometry.childRadius }
         row.addArrangedSubview(closeButton)
         // Hidden until the pointer is on the toast; still in the row, so VoiceOver and Full Keyboard Access reach it.
         if look.closeOnHover { closeButton.alphaValue = 0 }
