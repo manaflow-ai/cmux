@@ -414,7 +414,11 @@ async fn a_socket_path_past_the_unix_limit_still_serves() {
         panic!("the daemon exited without a readiness line: {:?}", child.wait());
     };
     let bound = PathBuf::from(ready["socket"].as_str().unwrap());
-    assert!(bound.as_os_str().len() <= 103, "bound past the limit: {}", bound.display());
+    assert!(
+        bound.as_os_str().len() <= cmux_unix_socket::PORTABLE_MAX_PATH_BYTES,
+        "bound past the limit: {}",
+        bound.display()
+    );
     // A client knows only the long path.
     let out = daemon_env::acpmux(&dir)
         .args(["daemon", "shutdown"])
