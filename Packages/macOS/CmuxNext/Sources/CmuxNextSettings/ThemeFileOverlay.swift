@@ -52,11 +52,13 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
     /// Keys a theme file reads that are not settings.
     static let reservedKeys: Set<String> = ["name", "description", "$schema", "colors", "ghostty", "density", "sounds"]
     /// Look keys that are no part of a look: the theme file itself, the star list and its rotation,
-    /// per-machine and per-display maps, the sun location (where this Mac is), and the saved custom densities.
+    /// per-machine and per-display maps, the sun location (where this Mac is), what each background mode
+    /// last showed, and the saved custom densities.
     static let excludedKeys: Set<String> = [
         ThemeFileSetting.configPath.joined(separator: "."), "appearance.favoriteThemes", "appearance.rotateFavoriteThemes",
         "appearance.machineColors", "appearance.displayBackgrounds", "appearance.displayBackgroundRotations",
-        "appearance.customDensities", "appearance.backgroundLocation", ThemeFileExceptionsSetting.configPath.joined(separator: "."),
+        "appearance.customDensities", "appearance.backgroundLocation", "appearance.backgroundMemory",
+        ThemeFileExceptionsSetting.configPath.joined(separator: "."),
     ]
     static let lookPrefixes = ["appearance.", "ui.animation", "ui.calm", "ui.paneAnimations", "ui.reducedBackgrounds",
                                "browser.omnibar.glass", "app.uiScale"]
