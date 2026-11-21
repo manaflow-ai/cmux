@@ -1582,9 +1582,8 @@ async fn dispatch_request_with_identity(
                         "credentials start an agent on this machine only, never on a peer",
                     ));
                 }
-                let peer = hub
-                    .peer_by_name(peer_name)
-                    .ok_or_else(|| RpcError::not_found(format!("no peer {peer_name:?}")))?;
+                let peer =
+                    hub.peer_by_name(peer_name).ok_or_else(|| RpcError::no_peer(peer_name))?;
                 if super::trust_gate::gated(conn.origin, &params) && !peer.supports_trust_gate() {
                     return Err(super::trust_gate::peer_unsupported(&peer.name));
                 }
