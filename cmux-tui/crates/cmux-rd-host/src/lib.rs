@@ -136,6 +136,11 @@ mod x264;
 
 pub type Res<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
+/// cmux Computer Use's screenshots through ScreenCaptureKit, for the helper's Computer Use worker
+/// mode to hand to the engine's macOS desktop (`src/mac/cu_host.rs`).
+#[cfg(target_os = "macos")]
+pub use mac::cu_host::computer_use_host_services;
+
 /// Runs one `cmux-rd` subcommand (`args[0]`) with its options. Returns the process exit
 /// code: 0 on success, 1 when the command failed, 2 for a usage error.
 /// Whether this start is LaunchServices opening the Screen Sharing helper app by itself (macOS's
