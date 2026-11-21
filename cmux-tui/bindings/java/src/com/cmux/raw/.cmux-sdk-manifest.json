@@ -787,8 +787,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "65a5eabffe67c033c1dd458c6fda48231de8bcff169315927d2335c07171f574",
-      "size": 85528
+      "sha256": "23bb7033921463214f0149a3033b95d7a688a883266c398a301f39253a905146",
+      "size": 85561
     },
     {
       "path": "ComputerUseApprovalsRequest.java",
@@ -2252,7 +2252,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "7d23bdc409cb66f17d4584f11fb6425e66f8440d64c7805f6ea08ef630573465",
+      "sha256": "463343783f40dc3efc4c26bf2aa11b8c34a38f705eaf21f484a7b425e26da7c0",
       "size": 8407
     },
     {
@@ -2672,8 +2672,8 @@
     },
     {
       "path": "SendRequest.java",
-      "sha256": "4affdc936915d23ca1afd4afb490093764de6bc1a8688308fc5c915de12166c2",
-      "size": 7122
+      "sha256": "78028a5d36d793ed571ad016d847035222322c78a9c66cb575ada4c1f92617ef",
+      "size": 7685
     },
     {
       "path": "SendResult.java",
@@ -3792,7 +3792,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "a4d1bf30ad0fb297c5ba58a91c9872d402042f265df8aecb787c51783adb8d25",
+  "ir_sha256": "c2d305b12cb27ffd20f76a0147e95213dd4b1b84870902ec22ec7126da8c7e75",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2
