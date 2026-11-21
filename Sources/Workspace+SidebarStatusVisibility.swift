@@ -36,7 +36,9 @@ extension Workspace {
 
     func setStatusEntry(_ entry: SidebarStatusEntry, key: String, panelId: UUID?) {
         statusEntries[key] = entry
-        if let panelId, panels[panelId] != nil {
+        // A mirrored remote tmux pane carries only program status (#22082).
+        if let panelId,
+           panels[panelId] != nil || (key == Self.programStatusKey && ownsProgramStatusSurface(panelId)) {
             agentStatusEntriesByPanelId[panelId, default: [:]][key] = entry
         }
     }
@@ -73,7 +75,8 @@ extension Workspace {
     /// workspace entry.
     func mostUrgentPanelStatusEntry(forKey key: String) -> SidebarStatusEntry? {
         var winner: (rank: Int, entry: SidebarStatusEntry)?
-        for (panelId, entries) in agentStatusEntriesByPanelId where panels[panelId] != nil {
+        for (panelId, entries) in agentStatusEntriesByPanelId
+        where panels[panelId] != nil || (key == Self.programStatusKey && ownsProgramStatusSurface(panelId)) {
             guard let entry = entries[key],
                   panelOwnsAgentStatus(key: key, panelId: panelId)
                     || key == Self.programStatusKey else { continue }
