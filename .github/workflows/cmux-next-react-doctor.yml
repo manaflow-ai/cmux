@@ -6,8 +6,9 @@ name: cmux-next React Doctor
 # fail; warnings are reported only. Local run: `bun run react-doctor`.
 #
 # Every pull request (no paths): feat-cmux-next requires `React Doctor (changed
-# React projects)`, and a required check must report. The gate scans only the
-# projects the change touches and exits green at once when it touches none.
+# React projects)`, and a required check must report. The `scope` job picks the
+# projects the change touches; the gate scans only those, and when there are
+# none the gate job is skipped, which passes the check without a 4 vCPU runner.
 # Pushes to feat-cmux-next scan every project, the whole tree as it now is: base
 # stays red for as long as any project is over its baseline, whatever the push
 # touched. A push run that scanned only what the push changed let one red push
@@ -33,23 +34,29 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  react-doctor:
-    name: React Doctor (changed React projects)
-    # Blacksmith, never GitHub-hosted; fork pull requests get a fixed Blacksmith label.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 30
-    env:
-      REACT_DOCTOR_NO_TELEMETRY: "1"
-      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+  # Which React projects the change touches, on the small Linux route the other
+  # routers take (cmux-tui-spec.yml's `changes`). A pull request that touches none
+  # skips the scan job below, and a skipped job passes the required check in
+  # seconds: the scan job's 4 vCPU route is never asked for. Before this, the
+  # scan job itself picked the projects, so a pull request with no React change
+  # still waited for a 4 vCPU runner; on 2026-11-19 nine such pull requests
+  # (#47060 among them) sat with only this check queued for hours.
+  scope:
+    name: React Doctor scope
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    timeout-minutes: 5
+    outputs:
+      base: ${{ steps.base.outputs.base }}
+      projects: ${{ steps.base.outputs.projects }}
     steps:
       # A pull request checks out its merge commit; HEAD^1 is the base it merges into.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 2
           persist-credentials: false
-
-      - name: Gate tests
-        run: python3 tests/test_react_doctor_gate.py
+          sparse-checkout: |
+            scripts/ci/react_doctor_gate.py
+          sparse-checkout-cone-mode: false
 
       # A pull request scans what it changes; a push or a dispatch scans every project (see the top).
       - name: Pick the base
@@ -69,6 +76,39 @@ jobs:
           fi
           echo "projects=$projects" >> "$GITHUB_OUTPUT"
           echo "projects: ${projects:-none}"
+          if [ -z "$projects" ]; then
+            echo "::notice title=React Doctor::no React project changed; the scan job is skipped"
+          fi
+
+  react-doctor:
+    name: React Doctor (changed React projects)
+    needs: scope
+    # A scope job that failed or was skipped never skips the scan (a skip passes a required check).
+    if: ${{ !cancelled() && (needs.scope.result != 'success' || needs.scope.outputs.projects != '') }}
+    # Blacksmith, never GitHub-hosted; fork pull requests get a fixed Blacksmith label. A required
+    # check reads only its measured pool (tests/test_ci_required_checks_keep_their_size.py): a
+    # stalled pool member moves through scripts/ci/runner_pools.py, not through this line.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 30
+    env:
+      REACT_DOCTOR_NO_TELEMETRY: "1"
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+    steps:
+      - name: The scope job decided
+        if: ${{ needs.scope.result != 'success' }}
+        env:
+          SCOPE_RESULT: ${{ needs.scope.result }}
+        run: |
+          echo "::error title=React Doctor::the scope job ended $SCOPE_RESULT, so there is no project list; re-run the run"
+          exit 1
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Gate tests
+        run: python3 tests/test_react_doctor_gate.py
 
       # Content-addressed result, in shadow (scripts/ci/receipt_input_key.py; cmuxterm-hq RFD 0016 "Borg without
       # Bazel"): the input key hashes what the scan reads for the selected projects. A green run records its
@@ -107,20 +147,20 @@ jobs:
           echo "ci-receipt shadow: react-doctor would_skip=$HIT pinned=$PINNED input_key=$INPUT_KEY" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Setup Bun
-        if: steps.base.outputs.projects != ''
+        if: needs.scope.outputs.projects != ''
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: Setup Node
-        if: steps.base.outputs.projects != ''
+        if: needs.scope.outputs.projects != ''
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
 
       - name: Cache Bun package cache
-        if: steps.base.outputs.projects != ''
+        if: needs.scope.outputs.projects != ''
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -129,7 +169,7 @@ jobs:
 
       - name: React Doctor gate
         env:
-          BASE: ${{ steps.base.outputs.base }}
+          BASE: ${{ needs.scope.outputs.base }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/react-doctor"
@@ -158,7 +198,7 @@ jobs:
           key: ci-receipt-v1-react-doctor-${{ steps.key.outputs.input_key }}
 
       - name: Upload reports
-        if: always() && steps.base.outputs.projects != ''
+        if: always() && needs.scope.outputs.projects != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: react-doctor-reports
