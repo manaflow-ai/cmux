@@ -82,7 +82,9 @@ import UIKit
         /// returns the rows' frames.
         func measure(_ state: ConnectionBannerState?, legacy: Bool = false) async -> Frames {
             let frames = Frames()
-            host.rootView = AnyView(Page(state: state, frames: frames, legacy: legacy))
+            // A fresh mount each time (a new identity), so every row reports its frame into this
+            // `Frames` rather than keeping the one it laid out in the last state.
+            host.rootView = AnyView(Page(state: state, frames: frames, legacy: legacy).id(UUID()))
             for _ in 0 ..< 30 {
                 try? await Task.sleep(for: .milliseconds(16)) // test: one display frame of layout
                 host.view.layoutIfNeeded()
@@ -92,9 +94,11 @@ import UIKit
     }
 
     /// Points each row moved from where it sits with no indicator; 0 everywhere is the rule.
+    /// A row with no frame in either reading is unmeasured, never 0: it reads as infinity.
     static func shift(_ frames: Frames, from base: Frames) -> CGFloat {
-        base.rows.reduce(0) { worst, entry in
-            guard let moved = frames.rows[entry.key] else { return worst }
+        guard !base.rows.isEmpty, frames.rows.count == base.rows.count else { return .infinity }
+        return base.rows.reduce(0) { worst, entry in
+            guard let moved = frames.rows[entry.key] else { return .infinity }
             return max(worst, abs(moved.minY - entry.value.minY), abs(moved.height - entry.value.height))
         }
     }
@@ -107,13 +111,14 @@ import UIKit
         for (name, state) in Self.states.dropFirst() {
             let shown = await harness.measure(state)
             let points = Self.shift(shown, from: base)
-            report.append("\(name): \(points) pt")
+            report.append("\(name): \(points) pt (\(shown.rows.count)/\(base.rows.count) rows)")
             #expect(points == 0, "\(name): the rows moved \(points) pt when it showed")
             // And back: the rows return to the same frames when it leaves.
             let back = await harness.measure(nil)
             #expect(Self.shift(back, from: base) == 0, "\(name): the rows moved when it left")
         }
         print("ConnectionStateLayoutShift after: " + report.joined(separator: ", "))
+        Attachment.record(report.joined(separator: "\n"), named: "layout-shift-after.txt") // the step exports it
     }
 
     /// The check catches the placement it replaced: a banner in a top safe-area inset pushes
@@ -125,10 +130,11 @@ import UIKit
         for (name, state) in Self.states.dropFirst() {
             let shown = await harness.measure(state, legacy: true)
             let points = Self.shift(shown, from: base)
-            report.append("\(name): \(points) pt")
-            #expect(points > 0, "\(name): the inset banner moved nothing, so the check would miss it")
+            report.append("\(name): \(points) pt (\(shown.rows.count)/\(base.rows.count) rows)")
+            #expect(points > 0 && points.isFinite, "\(name): the inset banner moved nothing, so the check would miss it")
         }
         print("ConnectionStateLayoutShift before: " + report.joined(separator: ", "))
+        Attachment.record(report.joined(separator: "\n"), named: "layout-shift-before.txt") // the step exports it
     }
 
     /// A link state is a chip a few words wide, never a sentence across the screen.
