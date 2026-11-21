@@ -29,8 +29,8 @@ fn le16(bytes: &[u8], at: usize) -> Option<u32> {
 }
 
 fn le24(bytes: &[u8], at: usize) -> Option<u32> {
-    let b = bytes.get(at..at + 3)?;
-    Some(u32::from(b[0]) | u32::from(b[1]) << 8 | u32::from(b[2]) << 16)
+    let [b0, b1, b2]: [u8; 3] = bytes.get(at..at + 3)?.try_into().ok()?;
+    Some(u32::from(b0) | u32::from(b1) << 8 | u32::from(b2) << 16)
 }
 
 /// The IHDR chunk is first: width and height at bytes 16..24.
