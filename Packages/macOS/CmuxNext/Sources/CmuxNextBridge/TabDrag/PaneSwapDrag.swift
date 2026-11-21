@@ -1,15 +1,13 @@
-import AppKit
-import CmuxNextActions
-import CmuxNextBridge
+public import AppKit
 import CmuxNextLayout
-import CmuxNextTabs
+public import CmuxNextTabs
 
 /// Drag a pane by its tab bar: onto another pane's center to swap them, onto an edge, a column gap or a dock band to move it there (cx-8bv1j, iTerm's pane drag). The
 /// press starts on empty strip space; tabs, chips and + keep their own presses. In the window's top
 /// row, where a plain press moves the window, Option-drag drags the pane. The pane under the pointer
 /// previews with the join fill a tab drop shows (drop-zones DESIGN.md), the drop swaps, and Escape cancels.
 @MainActor
-final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
+public final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
     private weak var strip: TabStripView?
     private let pane: LayoutPaneID
     private let layout: () -> LayoutRootView?
@@ -24,7 +22,7 @@ final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
     private var armed = false
     private var escapeMonitor: Any?
 
-    init(strip: TabStripView, pane: LayoutPaneID, layout: @escaping () -> LayoutRootView?,
+    public init(strip: TabStripView, pane: LayoutPaneID, layout: @escaping () -> LayoutRootView?,
          dragKey: @escaping () -> String? = { nil }, move: @escaping (DropTarget) -> Void = { _ in },
          swap: @escaping (LayoutPaneID, LayoutPaneID) -> Void) {
         self.dragKey = dragKey
@@ -43,21 +41,9 @@ final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
         strip.addGestureRecognizer(recognizer)
     }
 
-    /// A pane's drag: a drop runs Swap with Session with the pane under the pointer, the swap's one path (shown in the drop's turn).
-    convenience init(pane: PaneController) {
-        self.init(strip: pane.view.stripView, pane: pane.layoutPaneID, layout: { [weak pane] in pane?.workspace?.layoutView },
-                  dragKey: { [weak pane] in pane?.pane.tabs.first?.id },
-                  move: { [weak pane] target in if let pane { PaneMoves.move(pane, to: target) } },
-                  swap: { [weak pane] _, to in
-                      guard let pane, let other = pane.workspace?.panes[to] else { return }
-                      let swap = ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.paneKey), arguments: ["pane": .target(ActionTargetRef(kind: .pane, id: other.paneKey))])
-                      _ = pane.services.registry.perform("palette.swapWithSession", invocation: swap.onMachine(pane.daemon.machineID))
-                  })
-    }
-
     /// Whether `event`, a mouse-down on `strip`, drags its pane: on empty strip space, with no
     /// modifier but Option, and in the top row only with Option.
-    static func starts(_ event: NSEvent, on strip: TabStripView) -> Bool {
+    public static func starts(_ event: NSEvent, on strip: TabStripView) -> Bool {
         guard event.modifierFlags.intersection([.command, .control, .shift]).isEmpty else { return false }
         let point = event.locationInWindow
         guard strip.titlebarHit(at: strip.convert(point, from: nil)) == .empty else { return false }
@@ -65,7 +51,7 @@ final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
     }
 
     /// An Option-press in the top row that drags a pane: the window must not move for it.
-    static func claims(_ event: NSEvent, in window: NSWindow) -> Bool {
+    public static func claims(_ event: NSEvent, in window: NSWindow) -> Bool {
         guard event.modifierFlags.contains(.option), let frame = window.contentView?.superview else { return false }
         var view = frame.hitTest(frame.convert(event.locationInWindow, from: nil))
         while let current = view, !(current is TabStripView) { view = current.superview }
@@ -73,7 +59,7 @@ final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
         return starts(event, on: strip)
     }
 
-    func gestureRecognizer(_ recognizer: NSGestureRecognizer, shouldAttemptToRecognizeWith event: NSEvent) -> Bool {
+    public func gestureRecognizer(_ recognizer: NSGestureRecognizer, shouldAttemptToRecognizeWith event: NSEvent) -> Bool {
         // Only a press that drags the pane (empty strip space) is tried; a press on a tab, chip or +
         // is the strip's alone.
         guard event.type == .leftMouseDown else { return true }
@@ -81,7 +67,7 @@ final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
         return armed
     }
 
-    func gestureRecognizerShouldBegin(_ recognizer: NSGestureRecognizer) -> Bool { armed }
+    public func gestureRecognizerShouldBegin(_ recognizer: NSGestureRecognizer) -> Bool { armed }
 
     /// The target under the pointer, by a tab drag's own hit test with this pane as the one the drag empties: the same
     /// zones, previews and room rule as a tab (nil over the pane itself, where a drop leaves it in place).
