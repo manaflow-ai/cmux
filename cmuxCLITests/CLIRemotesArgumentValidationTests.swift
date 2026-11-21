@@ -1,6 +1,24 @@
 import Foundation
 import Testing
 
+@Suite("ET CLI argument validation")
+struct CLIETArgumentValidationTests {
+    @Test("a following flag is not consumed as an ET option value", arguments: [
+        "--et-port", "--et-terminal-path", "--et-tunnel", "--et-reversetunnel",
+    ])
+    func rejectsFlagAsOptionValue(option: String) throws {
+        let result = CLIHookProcessRunner.run(
+            executablePath: try BundledCLITestSupport.bundledCLIPath(),
+            arguments: ["ssh", "dev@example.com", "--transport", "et", option, "--no-focus"],
+            environment: ["CMUX_CLI_SENTRY_DISABLED": "1", "PATH": "/usr/bin:/bin"],
+            timeout: 10
+        )
+        #expect(!result.timedOut)
+        #expect(result.status == 1)
+        #expect(result.stderr.contains("\(option) requires a value"), Comment(rawValue: result.stderr))
+    }
+}
+
 @Suite
 struct CLIRemotesArgumentValidationTests {
     @Test func listAcceptsOnlyEmptyOrJsonArguments() throws {

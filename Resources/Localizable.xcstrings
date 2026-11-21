@@ -111579,121 +111579,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: يجب أن يتبع ‎--transport‎ الخيار 'ssh' أو 'mosh'"
+            "value": "ssh: يجب أن يتبع --transport الخيار 'ssh' أو 'mosh' أو 'et'"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: nakon --transport mora slijediti 'ssh' ili 'mosh'"
+            "value": "ssh: nakon --transport mora slijediti 'ssh', 'mosh' ili 'et'"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: --transport skal efterfølges af 'ssh' eller 'mosh'"
+            "value": "ssh: --transport skal efterfølges af 'ssh', 'mosh' eller 'et'"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: Auf --transport muss 'ssh' oder 'mosh' folgen"
+            "value": "ssh: Auf --transport muss 'ssh', 'mosh' oder 'et' folgen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: --transport must be followed by 'ssh' or 'mosh'"
+            "value": "ssh: --transport must be followed by 'ssh', 'mosh', or 'et'"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: --transport debe ir seguido de 'ssh' o 'mosh'"
+            "value": "ssh: --transport debe ir seguido de 'ssh', 'mosh' o 'et'"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh : --transport doit être suivi de 'ssh' ou 'mosh'"
+            "value": "ssh : --transport doit être suivi de 'ssh', 'mosh' ou 'et'"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: --transport deve essere seguito da 'ssh' o 'mosh'"
+            "value": "ssh: --transport deve essere seguito da 'ssh', 'mosh' o 'et'"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: --transport の後には 'ssh' または 'mosh' を指定してください"
+            "value": "ssh: --transport の後には 'ssh'、'mosh'、'et' のいずれかを指定してください"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh៖ --transport ត្រូវតែបន្តដោយ 'ssh' ឬ 'mosh'"
+            "value": "ssh៖ --transport ត្រូវតែបន្តដោយ 'ssh', 'mosh' ឬ 'et'"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: --transport 뒤에는 'ssh' 또는 'mosh'를 지정해야 합니다"
+            "value": "ssh: --transport 뒤에는 'ssh', 'mosh' 또는 'et'를 지정해야 합니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: --transport må etterfølges av 'ssh' eller 'mosh'"
+            "value": "ssh: --transport må etterfølges av 'ssh', 'mosh' eller 'et'"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: po --transport należy podać 'ssh' albo 'mosh'"
+            "value": "ssh: po --transport należy podać 'ssh', 'mosh' albo 'et'"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: --transport deve ser seguido por 'ssh' ou 'mosh'"
+            "value": "ssh: --transport deve ser seguido por 'ssh', 'mosh' ou 'et'"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: после --transport необходимо указать 'ssh' или 'mosh'"
+            "value": "ssh: после --transport необходимо указать 'ssh', 'mosh' или 'et'"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: --transport ต้องตามด้วย 'ssh' หรือ 'mosh'"
+            "value": "ssh: --transport ต้องตามด้วย 'ssh', 'mosh' หรือ 'et'"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: --transport seçeneğini 'ssh' veya 'mosh' izlemelidir"
+            "value": "ssh: --transport seçeneğini 'ssh', 'mosh' veya 'et' izlemelidir"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh: після --transport потрібно вказати 'ssh' або 'mosh'"
+            "value": "ssh: після --transport потрібно вказати 'ssh', 'mosh' або 'et'"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh：--transport 后必须指定 'ssh' 或 'mosh'"
+            "value": "ssh：--transport 后必须指定 'ssh'、'mosh' 或 'et'"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "ssh：--transport 後必須指定 'ssh' 或 'mosh'"
+            "value": "ssh：--transport 後必須指定 'ssh'、'mosh' 或 'et'"
           }
         }
       }
@@ -438791,121 +438791,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يجب أن يكون نقل الطرفية البعيدة SSH أو Mosh."
+            "value": "يجب أن يكون نقل الطرفية البعيدة SSH أو Mosh أو Eternal Terminal."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Transport udaljenog terminala mora biti SSH ili Mosh."
+            "value": "Transport udaljenog terminala mora biti SSH, Mosh ili Eternal Terminal."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fjernterminalens transport skal være SSH eller Mosh."
+            "value": "Fjernterminalens transport skal være SSH, Mosh eller Eternal Terminal."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der Transport des Remote-Terminals muss SSH oder Mosh sein."
+            "value": "Der Transport des Remote-Terminals muss SSH, Mosh oder Eternal Terminal sein."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The remote terminal transport must be SSH or Mosh."
+            "value": "The remote terminal transport must be SSH, Mosh, or Eternal Terminal."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El transporte del terminal remoto debe ser SSH o Mosh."
+            "value": "El transporte del terminal remoto debe ser SSH, Mosh o Eternal Terminal."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le transport du terminal distant doit être SSH ou Mosh."
+            "value": "Le transport du terminal distant doit être SSH, Mosh ou Eternal Terminal."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Il trasporto del terminale remoto deve essere SSH o Mosh."
+            "value": "Il trasporto del terminale remoto deve essere SSH, Mosh o Eternal Terminal."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "リモートターミナルのトランスポートは SSH または Mosh にする必要があります。"
+            "value": "リモートターミナルのトランスポートは SSH、Mosh、Eternal Terminal のいずれかにする必要があります。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មធ្យោបាយស្ថានីយពីចម្ងាយត្រូវតែជា SSH ឬ Mosh។"
+            "value": "មធ្យោបាយស្ថានីយពីចម្ងាយត្រូវតែជា SSH, Mosh ឬ Eternal Terminal។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "원격 터미널 전송 방식은 SSH 또는 Mosh여야 합니다."
+            "value": "원격 터미널 전송 방식은 SSH, Mosh 또는 Eternal Terminal이어야 합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fjernterminalens transport må være SSH eller Mosh."
+            "value": "Fjernterminalens transport må være SSH, Mosh eller Eternal Terminal."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Transport zdalnego terminala musi używać SSH albo Mosh."
+            "value": "Transport zdalnego terminala musi używać SSH, Mosh albo Eternal Terminal."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O transporte do terminal remoto deve ser SSH ou Mosh."
+            "value": "O transporte do terminal remoto deve ser SSH, Mosh ou Eternal Terminal."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Транспорт удалённого терминала должен использовать SSH или Mosh."
+            "value": "Транспорт удалённого терминала должен использовать SSH, Mosh или Eternal Terminal."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "การส่งเทอร์มินัลระยะไกลต้องใช้ SSH หรือ Mosh"
+            "value": "การส่งเทอร์มินัลระยะไกลต้องใช้ SSH, Mosh หรือ Eternal Terminal"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uzak terminal aktarımı SSH veya Mosh olmalıdır."
+            "value": "Uzak terminal aktarımı SSH, Mosh veya Eternal Terminal olmalıdır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Транспорт віддаленого термінала має використовувати SSH або Mosh."
+            "value": "Транспорт віддаленого термінала має використовувати SSH, Mosh або Eternal Terminal."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "远程终端传输必须使用 SSH 或 Mosh。"
+            "value": "远程终端传输必须使用 SSH、Mosh 或 Eternal Terminal。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "遠端終端傳輸必須使用 SSH 或 Mosh。"
+            "value": "遠端終端傳輸必須使用 SSH、Mosh 或 Eternal Terminal。"
           }
         }
       }
@@ -438916,121 +438916,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يتطلب نقل طرفية Mosh مساحة عمل مُدارة عبر SSH."
+            "value": "يتطلب نقل طرفية Mosh وEternal Terminal مساحة عمل مُدارة عبر SSH."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mosh transport terminala zahtijeva workspace kojim upravlja SSH."
+            "value": "Mosh i Eternal Terminal transporti terminala zahtijevaju workspace kojim upravlja SSH."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mosh-terminaltransport kræver et SSH-administreret arbejdsområde."
+            "value": "Mosh- og Eternal Terminal-terminaltransport kræver et SSH-administreret arbejdsområde."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der Mosh-Terminaltransport erfordert einen per SSH verwalteten Workspace."
+            "value": "Mosh- und Eternal-Terminal-Transport erfordern einen per SSH verwalteten Workspace."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mosh terminal transport requires an SSH-managed workspace."
+            "value": "Mosh and Eternal Terminal transports require an SSH-managed workspace."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El transporte de terminal Mosh requiere un espacio de trabajo gestionado por SSH."
+            "value": "Los transportes de terminal Mosh y Eternal Terminal requieren un espacio de trabajo gestionado por SSH."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le transport de terminal Mosh nécessite un espace de travail géré par SSH."
+            "value": "Les transports de terminal Mosh et Eternal Terminal nécessitent un espace de travail géré par SSH."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Il trasporto terminale Mosh richiede un workspace gestito da SSH."
+            "value": "I trasporti terminale Mosh ed Eternal Terminal richiedono un workspace gestito da SSH."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mosh ターミナルトランスポートには SSH 管理のワークスペースが必要です。"
+            "value": "Mosh および Eternal Terminal のターミナルトランスポートには SSH 管理のワークスペースが必要です。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មធ្យោបាយស្ថានីយ Mosh ត្រូវការកន្លែងធ្វើការដែលគ្រប់គ្រងដោយ SSH។"
+            "value": "មធ្យោបាយស្ថានីយ Mosh និង Eternal Terminal ត្រូវការកន្លែងធ្វើការដែលគ្រប់គ្រងដោយ SSH។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mosh 터미널 전송 방식에는 SSH 관리 워크스페이스가 필요합니다."
+            "value": "Mosh 및 Eternal Terminal 터미널 전송 방식에는 SSH 관리 워크스페이스가 필요합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mosh-terminaltransport krever et SSH-administrert arbeidsområde."
+            "value": "Mosh- og Eternal Terminal-terminaltransport krever et SSH-administrert arbeidsområde."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Transport terminala Mosh wymaga obszaru roboczego zarządzanego przez SSH."
+            "value": "Transporty terminala Mosh i Eternal Terminal wymagają obszaru roboczego zarządzanego przez SSH."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O transporte de terminal Mosh exige um workspace gerenciado por SSH."
+            "value": "Os transportes de terminal Mosh e Eternal Terminal exigem um workspace gerenciado por SSH."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Транспорт терминала Mosh требует рабочего пространства под управлением SSH."
+            "value": "Транспорты терминала Mosh и Eternal Terminal требуют рабочего пространства под управлением SSH."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "การส่งเทอร์มินัล Mosh ต้องใช้เวิร์กสเปซที่จัดการด้วย SSH"
+            "value": "การส่งเทอร์มินัล Mosh และ Eternal Terminal ต้องใช้เวิร์กสเปซที่จัดการด้วย SSH"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mosh terminal aktarımı, SSH tarafından yönetilen bir çalışma alanı gerektirir."
+            "value": "Mosh ve Eternal Terminal terminal aktarımları, SSH tarafından yönetilen bir çalışma alanı gerektirir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Транспорт термінала Mosh потребує робочого простору під керуванням SSH."
+            "value": "Транспорти термінала Mosh і Eternal Terminal потребують робочого простору під керуванням SSH."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mosh 终端传输需要由 SSH 管理的工作区。"
+            "value": "Mosh 与 Eternal Terminal 终端传输需要由 SSH 管理的工作区。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mosh 終端傳輸需要由 SSH 管理的工作區。"
+            "value": "Mosh 與 Eternal Terminal 終端傳輸需要由 SSH 管理的工作區。"
           }
         }
       }
@@ -675131,6 +675131,1631 @@
           "stringUnit": {
             "state": "translated",
             "value": "Chief 啟用時，Home 群組會保持釘選"
+          }
+        }
+      }
+    },
+    "cli.ssh.et.bootstrapInstallFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Remote bootstrap install failed; continuing over SSH."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] فشل تثبيت التمهيد عن بعد؛ سيتم المتابعة عبر SSH."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Remote-Bootstrap-Installation fehlgeschlagen; es wird über SSH fortgefahren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Falló la instalación del bootstrap remoto; se continúa por SSH."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Échec de l'installation du bootstrap distant ; poursuite via SSH."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモートのブートストラップのインストールに失敗しました。SSH で続行します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 원격 부트스트랩 설치에 실패했습니다. SSH로 계속합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 远程 bootstrap 安装失败；改用 SSH 继续。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 遠端 bootstrap 安裝失敗；改以 SSH 繼續。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Instalacija udaljenog pokretanja nije uspjela; nastavlja se putem SSH-a."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Installation af fjernopstart mislykkedes; fortsætter via SSH."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Installazione dell’avvio remoto non riuscita; continuazione tramite SSH."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] ការដំឡើងសម្រាប់ចាប់ផ្តើមពីចម្ងាយបានបរាជ័យ; បន្តតាម SSH។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Installasjon av ekstern oppstart mislyktes; fortsetter via SSH."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Instalacja zdalnego rozruchu nie powiodła się; kontynuowanie przez SSH."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] A instalação da inicialização remota falhou; continuando por SSH."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Не удалось установить удалённый загрузчик; продолжаем через SSH."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] ติดตั้งตัวเริ่มต้นระยะไกลไม่สำเร็จ; ดำเนินการต่อผ่าน SSH"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Uzak başlatma kurulumu başarısız oldu; SSH üzerinden devam ediliyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Не вдалося встановити віддалений завантажувач; продовжуємо через SSH."
+          }
+        }
+      }
+    },
+    "cli.ssh.et.commandUndeliverable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal cannot deliver this remote command (too long or contains control characters); continuing over SSH."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] لا يستطيع Eternal Terminal إرسال هذا الأمر البعيد (طويل جدًا أو يحتوي على أحرف تحكم)؛ سيتم المتابعة عبر SSH."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal kann diesen Remote-Befehl nicht übermitteln (zu lang oder enthält Steuerzeichen); es wird über SSH fortgefahren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal no puede enviar este comando remoto (demasiado largo o contiene caracteres de control); se continúa por SSH."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal ne peut pas transmettre cette commande distante (trop longue ou contenant des caractères de contrôle) ; poursuite via SSH."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal ではこのリモートコマンドを送信できません（長すぎるか制御文字を含みます）。SSH で続行します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal이 이 원격 명령을 전달할 수 없습니다(너무 길거나 제어 문자가 포함됨). SSH로 계속합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal 无法传送此远程命令（过长或包含控制字符）；改用 SSH 继续。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal 無法傳送此遠端命令（過長或包含控制字元）；改以 SSH 繼續。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal ne može isporučiti ovu udaljenu komandu (predugačka je ili sadrži kontrolne znakove); nastavlja se putem SSH-a."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal kan ikke levere denne fjernkommando (for lang eller indeholder kontroltegn); fortsætter via SSH."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal non può inviare questo comando remoto (troppo lungo o contiene caratteri di controllo); continuazione tramite SSH."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal មិនអាចបញ្ជូនពាក្យបញ្ជាពីចម្ងាយនេះបានទេ (វែងពេក ឬមានតួអក្សរបញ្ជា); បន្តតាម SSH។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal kan ikke levere denne eksterne kommandoen (for lang eller inneholder kontrolltegn); fortsetter via SSH."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal nie może dostarczyć tego zdalnego polecenia (jest zbyt długie lub zawiera znaki sterujące); kontynuowanie przez SSH."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] O Eternal Terminal não consegue entregar este comando remoto (longo demais ou contém caracteres de controle); continuando por SSH."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal не может передать эту удалённую команду (слишком длинная или содержит управляющие символы); продолжаем через SSH."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal ไม่สามารถส่งคำสั่งระยะไกลนี้ได้ (ยาวเกินไปหรือมีอักขระควบคุม); ดำเนินการต่อผ่าน SSH"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal bu uzak komutu iletemiyor (çok uzun veya denetim karakterleri içeriyor); SSH üzerinden devam ediliyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal не може передати цю віддалену команду (задовга або містить керівні символи); продовжуємо через SSH."
+          }
+        }
+      }
+    },
+    "cli.ssh.et.localMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal (et) is not installed locally; continuing over SSH."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal (et) غير مثبت محليًا؛ سيتم المتابعة عبر SSH."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal (et) ist lokal nicht installiert; es wird über SSH fortgefahren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal (et) no está instalado localmente; se continúa por SSH."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal (et) n'est pas installé localement ; poursuite via SSH."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal (et) がローカルにインストールされていません。SSH で続行します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal (et)이(가) 로컬에 설치되어 있지 않습니다. SSH로 계속합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 本地未安装 Eternal Terminal (et)；改用 SSH 继续。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 本機未安裝 Eternal Terminal (et)；改以 SSH 繼續。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal (et) nije instaliran lokalno; nastavlja se putem SSH-a."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal (et) er ikke installeret lokalt; fortsætter via SSH."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal (et) non è installato localmente; continuazione tramite SSH."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal (et) មិនត្រូវបានដំឡើងក្នុងម៉ាស៊ីននេះទេ; បន្តតាម SSH។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal (et) er ikke installert lokalt; fortsetter via SSH."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal (et) nie jest zainstalowany lokalnie; kontynuowanie przez SSH."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal (et) não está instalado localmente; continuando por SSH."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal (et) не установлен локально; продолжаем через SSH."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] ยังไม่ได้ติดตั้ง Eternal Terminal (et) ในเครื่อง; ดำเนินการต่อผ่าน SSH"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal (et) yerel olarak kurulu değil; SSH üzerinden devam ediliyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Eternal Terminal (et) не встановлено локально; продовжуємо через SSH."
+          }
+        }
+      }
+    },
+    "cli.ssh.et.probeFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Could not verify remote Eternal Terminal support; continuing over SSH."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] تعذر التحقق من دعم Eternal Terminal على المضيف البعيد؛ سيتم المتابعة عبر SSH."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Remote-Unterstützung für Eternal Terminal konnte nicht überprüft werden; es wird über SSH fortgefahren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] No se pudo verificar la compatibilidad remota con Eternal Terminal; se continúa por SSH."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Impossible de vérifier la prise en charge d'Eternal Terminal à distance ; poursuite via SSH."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモートの Eternal Terminal 対応を確認できませんでした。SSH で続行します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 원격 Eternal Terminal 지원을 확인할 수 없습니다. SSH로 계속합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 无法验证远程的 Eternal Terminal 支持；改用 SSH 继续。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 無法驗證遠端的 Eternal Terminal 支援；改以 SSH 繼續。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Nije moguće provjeriti udaljenu podršku za Eternal Terminal; nastavlja se putem SSH-a."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Kunne ikke bekræfte understøttelse af Eternal Terminal på fjernværten; fortsætter via SSH."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Impossibile verificare il supporto remoto per Eternal Terminal; continuazione tramite SSH."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] មិនអាចផ្ទៀងផ្ទាត់ការគាំទ្រ Eternal Terminal ពីចម្ងាយបានទេ; បន្តតាម SSH។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Kunne ikke bekrefte ekstern støtte for Eternal Terminal; fortsetter via SSH."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Nie można potwierdzić zdalnej obsługi Eternal Terminal; kontynuowanie przez SSH."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Não foi possível verificar o suporte remoto ao Eternal Terminal; continuando por SSH."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Не удалось проверить поддержку Eternal Terminal на удалённом узле; продолжаем через SSH."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] ไม่สามารถตรวจสอบการรองรับ Eternal Terminal บนเครื่องระยะไกลได้; ดำเนินการต่อผ่าน SSH"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Uzak Eternal Terminal desteği doğrulanamadı; SSH üzerinden devam ediliyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Не вдалося перевірити підтримку Eternal Terminal на віддаленому вузлі; продовжуємо через SSH."
+          }
+        }
+      }
+    },
+    "cli.ssh.et.remoteMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] etterminal was not found on the remote host; continuing over SSH. Install Eternal Terminal there or pass --et-terminal-path."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] لم يتم العثور على etterminal على المضيف البعيد؛ سيتم المتابعة عبر SSH. ثبّت Eternal Terminal هناك أو مرّر --et-terminal-path."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] etterminal wurde auf dem Remote-Host nicht gefunden; es wird über SSH fortgefahren. Installiere Eternal Terminal dort oder übergib --et-terminal-path."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] No se encontró etterminal en el host remoto; se continúa por SSH. Instala Eternal Terminal allí o pasa --et-terminal-path."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] etterminal est introuvable sur l'hôte distant ; poursuite via SSH. Installez Eternal Terminal sur cet hôte ou passez --et-terminal-path."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモートホストで etterminal が見つかりません。SSH で続行します。そのホストに Eternal Terminal をインストールするか、--et-terminal-path を指定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 원격 호스트에서 etterminal을 찾을 수 없습니다. SSH로 계속합니다. 해당 호스트에 Eternal Terminal을 설치하거나 --et-terminal-path를 전달하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 在远程主机上找不到 etterminal；改用 SSH 继续。请在该主机上安装 Eternal Terminal，或传入 --et-terminal-path。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 在遠端主機上找不到 etterminal；改以 SSH 繼續。請在該主機上安裝 Eternal Terminal，或傳入 --et-terminal-path。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] etterminal nije pronađen na udaljenom računaru; nastavlja se putem SSH-a. Instalirajte Eternal Terminal ili navedite --et-terminal-path."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] etterminal blev ikke fundet på fjernværten; fortsætter via SSH. Installer Eternal Terminal dér, eller angiv --et-terminal-path."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] etterminal non è stato trovato sull’host remoto; continuazione tramite SSH. Installare Eternal Terminal oppure specificare --et-terminal-path."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] រកមិនឃើញ etterminal នៅលើម៉ាស៊ីនពីចម្ងាយទេ; បន្តតាម SSH។ សូមដំឡើង Eternal Terminal ឬបញ្ជាក់ --et-terminal-path។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Fant ikke etterminal på den eksterne verten; fortsetter via SSH. Installer Eternal Terminal der, eller angi --et-terminal-path."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Nie znaleziono etterminal na zdalnym hoście; kontynuowanie przez SSH. Zainstaluj tam Eternal Terminal lub podaj --et-terminal-path."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] etterminal não foi encontrado no host remoto; continuando por SSH. Instale o Eternal Terminal ou informe --et-terminal-path."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] etterminal не найден на удалённом узле; продолжаем через SSH. Установите там Eternal Terminal или укажите --et-terminal-path."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] ไม่พบ etterminal บนโฮสต์ระยะไกล; ดำเนินการต่อผ่าน SSH โปรดติดตั้ง Eternal Terminal หรือระบุ --et-terminal-path"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Uzak ana makinede etterminal bulunamadı; SSH üzerinden devam ediliyor. Eternal Terminal kurun veya --et-terminal-path belirtin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] etterminal не знайдено на віддаленому вузлі; продовжуємо через SSH. Установіть там Eternal Terminal або вкажіть --et-terminal-path."
+          }
+        }
+      }
+    },
+    "cli.ssh.et.serverUnreachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] etserver is not reachable on the remote host's Eternal Terminal port; continuing over SSH."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] تعذر الوصول إلى etserver على منفذ Eternal Terminal للمضيف البعيد؛ سيتم المتابعة عبر SSH."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] etserver ist auf dem Eternal-Terminal-Port des Remote-Hosts nicht erreichbar; es wird über SSH fortgefahren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] etserver no es accesible en el puerto de Eternal Terminal del host remoto; se continúa por SSH."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] etserver est inaccessible sur le port Eternal Terminal de l'hôte distant ; poursuite via SSH."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] リモートホストの Eternal Terminal ポートで etserver に到達できません。SSH で続行します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 원격 호스트의 Eternal Terminal 포트에서 etserver에 연결할 수 없습니다. SSH로 계속합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 无法访问远程主机 Eternal Terminal 端口上的 etserver；改用 SSH 继续。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 無法連線到遠端主機 Eternal Terminal 連接埠上的 etserver；改以 SSH 繼續。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] etserver nije dostupan na udaljenom Eternal Terminal portu; nastavlja se putem SSH-a."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] etserver kan ikke nås på fjernværtens Eternal Terminal-port; fortsætter via SSH."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] etserver non è raggiungibile sulla porta Eternal Terminal dell’host remoto; continuazione tramite SSH."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] មិនអាចភ្ជាប់ទៅ etserver តាមច្រក Eternal Terminal របស់ម៉ាស៊ីនពីចម្ងាយបានទេ; បន្តតាម SSH។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] etserver kan ikke nås på den eksterne vertens Eternal Terminal-port; fortsetter via SSH."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] etserver jest nieosiągalny na porcie Eternal Terminal zdalnego hosta; kontynuowanie przez SSH."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] etserver não está acessível na porta Eternal Terminal do host remoto; continuando por SSH."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] etserver недоступен на порту Eternal Terminal удалённого узла; продолжаем через SSH."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] ไม่สามารถเข้าถึง etserver ที่พอร์ต Eternal Terminal ของโฮสต์ระยะไกลได้; ดำเนินการต่อผ่าน SSH"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] etserver, uzak ana makinenin Eternal Terminal bağlantı noktasında erişilebilir değil; SSH üzerinden devam ediliyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] etserver недоступний на порту Eternal Terminal віддаленого вузла; продовжуємо через SSH."
+          }
+        }
+      }
+    },
+    "cli.help.ssh.et": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eternal Terminal transport:\n  --transport et              Carry the interactive terminal over Eternal Terminal (et)\n  --et-port <n>               etserver port (default: 2022)\n  --et-terminal-path <path>   Absolute remote etterminal path when it is not on the remote PATH\n  --et-tunnel <spec>          ET --tunnel (repeatable: port:port, start-end:start-end, sockets)\n  --et-reversetunnel <spec>   ET --reversetunnel (repeatable: port:port, start-end:start-end, sockets)\n\nSSH continues to handle remote features; ET carries the interactive terminal and\nany --et-tunnel forwards, and forwards the SSH agent when agent forwarding is on.\nIf et, etterminal, or a reachable etserver is missing, cmux reports it and uses SSH.\n\nExample:\n  cmux ssh dev@my-host --transport et --et-port 2022"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وسيط نقل Eternal Terminal:\n  --transport et              نقل الطرفية التفاعلية عبر Eternal Terminal (et)\n  --et-port <n>               منفذ etserver (الافتراضي: 2022)\n  --et-terminal-path <path>   المسار المطلق لـ etterminal البعيد إذا لم يكن ضمن PATH البعيد\n  --et-tunnel <spec>          ET --tunnel (قابل للتكرار: port:port, start-end:start-end, المقابس)\n  --et-reversetunnel <spec>   ET --reversetunnel (قابل للتكرار: port:port, start-end:start-end, المقابس)\n\nيستمر SSH في معالجة الميزات البعيدة؛ بينما ينقل ET الطرفية التفاعلية وأي إعادة توجيه\nعبر --et-tunnel، ويمرر وكيل SSH عند تفعيل تمرير الوكيل. إذا كان et أو etterminal أو etserver\nيمكن الوصول إليه غير متوفر، فسيقوم cmux بالإبلاغ عن ذلك ويستخدم SSH.\n\nمثال:\n  cmux ssh dev@my-host --transport et --et-port 2022"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eternal-Terminal-Transport:\n  --transport et              Interaktives Terminal über Eternal Terminal (et) übertragen\n  --et-port <n>               etserver-Port (Standard: 2022)\n  --et-terminal-path <path>   Absoluter Remote-Pfad von etterminal, wenn es nicht im Remote-PATH liegt\n  --et-tunnel <spec>          ET --tunnel (wiederholbar: port:port, start-end:start-end, Sockets)\n  --et-reversetunnel <spec>   ET --reversetunnel (wiederholbar: port:port, start-end:start-end, Sockets)\n\nSSH übernimmt weiterhin Remote-Funktionen; ET überträgt das interaktive Terminal und\nalle --et-tunnel-Weiterleitungen und leitet den SSH-Agent weiter, wenn die Agent-Weiterleitung\naktiv ist. Wenn et, etterminal oder ein erreichbarer etserver fehlt, meldet cmux dies und verwendet SSH.\n\nBeispiel:\n  cmux ssh dev@my-host --transport et --et-port 2022"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transporte Eternal Terminal:\n  --transport et              Transporta la terminal interactiva mediante Eternal Terminal (et)\n  --et-port <n>               Puerto de etserver (por defecto: 2022)\n  --et-terminal-path <path>   Ruta remota absoluta de etterminal si no está en el PATH remoto\n  --et-tunnel <spec>          ET --tunnel (repetible: port:port, start-end:start-end, sockets)\n  --et-reversetunnel <spec>   ET --reversetunnel (repetible: port:port, start-end:start-end, sockets)\n\nSSH continúa manejando las funciones remotas; ET transporta la terminal interactiva y los\nreenvíos de --et-tunnel, y reenvía el agente SSH cuando el reenvío de agente está activado.\nSi falta et, etterminal o un etserver accesible, cmux lo reporta y utiliza SSH.\n\nEjemplo:\n  cmux ssh dev@my-host --transport et --et-port 2022"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transport Eternal Terminal :\n  --transport et              Transporter le terminal interactif via Eternal Terminal (et)\n  --et-port <n>               Port d'etserver (par défaut : 2022)\n  --et-terminal-path <path>   Chemin distant absolu d'etterminal s'il n'est pas dans le PATH distant\n  --et-tunnel <spec>          ET --tunnel (répétable: port:port, start-end:start-end, sockets)\n  --et-reversetunnel <spec>   ET --reversetunnel (répétable: port:port, start-end:start-end, sockets)\n\nSSH continue de gérer les fonctionnalités distantes ; ET transporte le terminal interactif et\nles redirections --et-tunnel, et transmet l'agent SSH lorsque le transfert d'agent est activé.\nSi et, etterminal ou un etserver joignable est manquant, cmux le signale et utilise SSH.\n\nExemple:\n  cmux ssh dev@my-host --transport et --et-port 2022"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eternal Terminal 転送:\n  --transport et              Eternal Terminal (et) でインタラクティブなターミナルを転送\n  --et-port <n>               etserver のポート（デフォルト: 2022）\n  --et-terminal-path <path>   リモートの PATH にない場合の etterminal の絶対リモートパス\n  --et-tunnel <spec>          ET --tunnel (繰り返し指定可能: port:port, start-end:start-end, ソケット)\n  --et-reversetunnel <spec>   ET --reversetunnel (繰り返し指定可能: port:port, start-end:start-end, ソケット)\n\nリモート機能は引き続き SSH が処理し、ET はインタラクティブなターミナルと --et-tunnel の\nフォワードを転送します。エージェント転送が有効な場合は SSH エージェントも転送します。et、etterminal、\nまたは到達可能な etserver がない場合、cmux はそれを報告して SSH を使用します。\n\n例:\n  cmux ssh dev@my-host --transport et --et-port 2022"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eternal Terminal 전송:\n  --transport et              Eternal Terminal (et)로 대화형 터미널 전송\n  --et-port <n>               etserver 포트 (기본값: 2022)\n  --et-terminal-path <path>   원격 PATH에 없을 때 원격 etterminal 절대 경로\n  --et-tunnel <spec>          ET --tunnel (반복 가능: port:port, start-end:start-end, 소켓)\n  --et-reversetunnel <spec>   ET --reversetunnel (반복 가능: port:port, start-end:start-end, 소켓)\n\nSSH는 계속해서 원격 기능을 처리하며, ET는 대화형 터미널과 --et-tunnel 포워딩을 전송하고\n에이전트 포워딩이 켜져 있으면 SSH 에이전트를 전달합니다. et, etterminal 또는\n접근 가능한 etserver가 없으면 cmux는 이를 보고하고 SSH를 사용합니다.\n\n예시:\n  cmux ssh dev@my-host --transport et --et-port 2022"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eternal Terminal 传输：\n  --transport et              通过 Eternal Terminal (et) 承载交互式终端\n  --et-port <n>               etserver 端口（默认：2022）\n  --et-terminal-path <path>   etterminal 不在远程 PATH 中时的远程绝对路径\n  --et-tunnel <spec>          ET --tunnel (可重复: port:port, start-end:start-end, 套接字)\n  --et-reversetunnel <spec>   ET --reversetunnel (可重复: port:port, start-end:start-end, 套接字)\n\nSSH 继续处理远程功能；ET 承载交互式终端和 --et-tunnel 转发，\n并在启用代理转发时转发 SSH 代理。如果缺少 et、etterminal\n或可访问的 etserver，cmux 会进行报告并使用 SSH。\n\n示例:\n  cmux ssh dev@my-host --transport et --et-port 2022"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eternal Terminal 傳輸：\n  --transport et              透過 Eternal Terminal (et) 承載互動式終端機\n  --et-port <n>               etserver 連接埠 (預設值：2022)\n  --et-terminal-path <path>   etterminal 不在遠端 PATH 時的遠端絕對路徑\n  --et-tunnel <spec>          ET --tunnel (可重複: port:port, start-end:start-end, 通訊端)\n  --et-reversetunnel <spec>   ET --reversetunnel (可重複: port:port, start-end:start-end, 通訊端)\n\nSSH 繼續處理遠端功能；ET 承載互動式終端機和 --et-tunnel 轉送，\n並在啟用代理轉送時轉送 SSH 代理。如果缺少 et、etterminal\n或可連線的 etserver，cmux 會回報並使用 SSH。\n\n範例:\n  cmux ssh dev@my-host --transport et --et-port 2022"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transport Eternal Terminal:\n  --transport et              Interaktivni terminal putem Eternal Terminal (et)\n  --et-port <n>               Port etserver (zadano: 2022)\n  --et-terminal-path <path>   Apsolutna udaljena putanja do etterminal kada nije u PATH-u\n  --et-tunnel <spec>          ET --tunnel (ponovljivo: port:port, start-end:start-end, utičnice)\n  --et-reversetunnel <spec>   ET --reversetunnel (ponovljivo: port:port, start-end:start-end, utičnice)\n\nSSH obrađuje udaljene funkcije; ET prenosi interaktivni terminal, podešene tunele i SSH agenta kada je prosljeđivanje uključeno.\nAko et, etterminal ili dostupan etserver nedostaje, cmux navodi razlog i koristi SSH.\n\nPrimjer:\n  cmux ssh dev@my-host --transport et --et-port 2022"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eternal Terminal-transport:\n  --transport et              Interaktiv terminal via Eternal Terminal (et)\n  --et-port <n>               etserver-port (standard: 2022)\n  --et-terminal-path <path>   Absolut fjernsti til etterminal, hvis den ikke er i PATH\n  --et-tunnel <spec>          ET --tunnel (kan gentages: port:port, start-end:start-end, sockets)\n  --et-reversetunnel <spec>   ET --reversetunnel (kan gentages: port:port, start-end:start-end, sockets)\n\nSSH håndterer fjernfunktioner; ET transporterer den interaktive terminal, konfigurerede tunneler og SSH-agenten, når agentvideresendelse er slået til.\nHvis et, etterminal eller en tilgængelig etserver mangler, viser cmux årsagen og bruger SSH.\n\nEksempel:\n  cmux ssh dev@my-host --transport et --et-port 2022"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trasporto Eternal Terminal:\n  --transport et              Terminale interattivo tramite Eternal Terminal (et)\n  --et-port <n>               Porta etserver (predefinita: 2022)\n  --et-terminal-path <path>   Percorso remoto assoluto di etterminal quando non è nel PATH\n  --et-tunnel <spec>          ET --tunnel (ripetibile: port:port, start-end:start-end, socket)\n  --et-reversetunnel <spec>   ET --reversetunnel (ripetibile: port:port, start-end:start-end, socket)\n\nSSH gestisce le funzionalità remote; ET trasporta il terminale interattivo, i tunnel configurati e l’agente SSH quando l’inoltro è attivo.\nSe et, etterminal o un etserver raggiungibile non sono disponibili, cmux indica il motivo e usa SSH.\n\nEsempio:\n  cmux ssh dev@my-host --transport et --et-port 2022"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការដឹកជញ្ជូនតាម Eternal Terminal:\n  --transport et              ស្ថានីយអន្តរកម្មតាម Eternal Terminal (et)\n  --et-port <n>               ច្រក etserver (លំនាំដើម៖ 2022)\n  --et-terminal-path <path>   ផ្លូវដាច់ខាតពីចម្ងាយទៅ etterminal នៅពេលវាមិនស្ថិតក្នុង PATH\n  --et-tunnel <spec>          ET --tunnel (អាចបញ្ជាក់ម្តងទៀត: port:port, start-end:start-end, សុកឃីត)\n  --et-reversetunnel <spec>   ET --reversetunnel (អាចបញ្ជាក់ម្តងទៀត: port:port, start-end:start-end, សុកឃីត)\n\nSSH គ្រប់គ្រងមុខងារពីចម្ងាយ; ET ដឹកជញ្ជូនស្ថានីយអន្តរកម្ម ផ្លូវរូងដែលបានកំណត់ និងភ្នាក់ងារ SSH នៅពេលបើកការបញ្ជូនភ្នាក់ងារបន្ត។\nប្រសិនបើគ្មាន et, etterminal ឬ etserver ដែលអាចចូលដំណើរការបាន cmux បង្ហាញមូលហេតុ ហើយប្រើ SSH។\n\nឧទាហរណ៍:\n  cmux ssh dev@my-host --transport et --et-port 2022"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eternal Terminal-transport:\n  --transport et              Interaktiv terminal via Eternal Terminal (et)\n  --et-port <n>               etserver-port (standard: 2022)\n  --et-terminal-path <path>   Absolutt ekstern bane til etterminal når den ikke er i PATH\n  --et-tunnel <spec>          ET --tunnel (kan gjentas: port:port, start-end:start-end, sokler)\n  --et-reversetunnel <spec>   ET --reversetunnel (kan gjentas: port:port, start-end:start-end, sokler)\n\nSSH håndterer eksterne funksjoner; ET transporterer den interaktive terminalen, konfigurerte tunneler og SSH-agenten når agentvideresending er på.\nHvis et, etterminal eller en tilgjengelig etserver mangler, viser cmux årsaken og bruker SSH.\n\nEksempel:\n  cmux ssh dev@my-host --transport et --et-port 2022"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transport Eternal Terminal:\n  --transport et              Terminal interaktywny przez Eternal Terminal (et)\n  --et-port <n>               Port etserver (domyślnie: 2022)\n  --et-terminal-path <path>   Bezwzględna zdalna ścieżka etterminal, gdy nie ma go w PATH\n  --et-tunnel <spec>          ET --tunnel (można powtarzać: port:port, start-end:start-end, gniazda)\n  --et-reversetunnel <spec>   ET --reversetunnel (można powtarzać: port:port, start-end:start-end, gniazda)\n\nSSH obsługuje funkcje zdalne; ET przenosi terminal interaktywny, skonfigurowane tunele i agenta SSH, gdy przekazywanie agenta jest włączone.\nJeśli brakuje et, etterminal lub osiągalnego etserver, cmux podaje powód i używa SSH.\n\nPrzykład:\n  cmux ssh dev@my-host --transport et --et-port 2022"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transporte Eternal Terminal:\n  --transport et              Terminal interativo por Eternal Terminal (et)\n  --et-port <n>               Porta do etserver (padrão: 2022)\n  --et-terminal-path <path>   Caminho remoto absoluto de etterminal quando não está no PATH\n  --et-tunnel <spec>          ET --tunnel (repetível: port:port, start-end:start-end, sockets)\n  --et-reversetunnel <spec>   ET --reversetunnel (repetível: port:port, start-end:start-end, sockets)\n\nO SSH gerencia os recursos remotos; o ET transporta o terminal interativo, os túneis configurados e o agente SSH quando o encaminhamento está ativado.\nSe et, etterminal ou um etserver acessível não estiverem disponíveis, o cmux informa o motivo e usa SSH.\n\nExemplo:\n  cmux ssh dev@my-host --transport et --et-port 2022"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Транспорт Eternal Terminal:\n  --transport et              Интерактивный терминал через Eternal Terminal (et)\n  --et-port <n>               Порт etserver (по умолчанию: 2022)\n  --et-terminal-path <path>   Абсолютный удалённый путь к etterminal, если его нет в PATH\n  --et-tunnel <spec>          ET --tunnel (можно повторять: port:port, start-end:start-end, сокеты)\n  --et-reversetunnel <spec>   ET --reversetunnel (можно повторять: port:port, start-end:start-end, сокеты)\n\nSSH обслуживает удалённые функции; ET передаёт интерактивный терминал, настроенные туннели и агент SSH, когда включено перенаправление агента.\nЕсли et, etterminal или доступный etserver отсутствует, cmux сообщает причину и использует SSH.\n\nПример:\n  cmux ssh dev@my-host --transport et --et-port 2022"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การขนส่งผ่าน Eternal Terminal:\n  --transport et              เทอร์มินัลแบบโต้ตอบผ่าน Eternal Terminal (et)\n  --et-port <n>               พอร์ต etserver (ค่าเริ่มต้น: 2022)\n  --et-terminal-path <path>   พาธสัมบูรณ์ระยะไกลของ etterminal เมื่อไม่อยู่ใน PATH\n  --et-tunnel <spec>          ET --tunnel (ระบุซ้ำได้: port:port, start-end:start-end, ซ็อกเก็ต)\n  --et-reversetunnel <spec>   ET --reversetunnel (ระบุซ้ำได้: port:port, start-end:start-end, ซ็อกเก็ต)\n\nSSH จัดการคุณสมบัติระยะไกล; ET ส่งเทอร์มินัลแบบโต้ตอบ ทันเนลที่กำหนดค่า และเอเจนต์ SSH เมื่อเปิดการส่งต่อเอเจนต์\nหากไม่มี et, etterminal หรือ etserver ที่เข้าถึงได้ cmux จะแจ้งเหตุผลและใช้ SSH\n\nตัวอย่าง:\n  cmux ssh dev@my-host --transport et --et-port 2022"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eternal Terminal aktarımı:\n  --transport et              Eternal Terminal (et) üzerinden etkileşimli terminal\n  --et-port <n>               etserver bağlantı noktası (varsayılan: 2022)\n  --et-terminal-path <path>   PATH içinde yoksa etterminal için mutlak uzak yol\n  --et-tunnel <spec>          ET --tunnel (yinelenebilir: port:port, start-end:start-end, soketler)\n  --et-reversetunnel <spec>   ET --reversetunnel (yinelenebilir: port:port, start-end:start-end, soketler)\n\nSSH uzak özellikleri yönetir; ET etkileşimli terminali, yapılandırılmış tünelleri ve aracı yönlendirme açıkken SSH aracısını taşır.\net, etterminal veya erişilebilir bir etserver yoksa cmux nedenini bildirir ve SSH kullanır.\n\nÖrnek:\n  cmux ssh dev@my-host --transport et --et-port 2022"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Транспорт Eternal Terminal:\n  --transport et              Інтерактивний термінал через Eternal Terminal (et)\n  --et-port <n>               Порт etserver (типово: 2022)\n  --et-terminal-path <path>   Абсолютний віддалений шлях до etterminal, якщо його немає в PATH\n  --et-tunnel <spec>          ET --tunnel (можна повторювати: port:port, start-end:start-end, сокети)\n  --et-reversetunnel <spec>   ET --reversetunnel (можна повторювати: port:port, start-end:start-end, сокети)\n\nSSH обслуговує віддалені функції; ET передає інтерактивний термінал, налаштовані тунелі та агент SSH, коли ввімкнено переспрямування агента.\nЯкщо et, etterminal або доступний etserver відсутній, cmux повідомляє причину й використовує SSH.\n\nПриклад:\n  cmux ssh dev@my-host --transport et --et-port 2022"
+          }
+        }
+      }
+    },
+    "cli.ssh.et.optionRequiresValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: %@ requires a value"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: يتطلب %@ قيمة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: %@ erfordert einen Wert"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: %@ requiere un valor"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh : %@ nécessite une valeur"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: %@ には値が必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: %@에는 값이 필요합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh：%@ 需要提供值"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh：%@ 需要提供值"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: %@ zahtijeva vrijednost"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: %@ kræver en værdi"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: %@ richiede un valore"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: %@ ត្រូវការតម្លៃ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: %@ krever en verdi"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: %@ wymaga wartości"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: %@ requer um valor"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: для %@ требуется значение"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: %@ ต้องมีค่า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: %@ bir değer gerektirir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: для %@ потрібне значення"
+          }
+        }
+      }
+    },
+    "cli.ssh.et.optionsInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: Use ports 1-65535, non-empty values without control characters, an absolute terminal path, and compatible tunnel pairs or equal-length port ranges. Use SSH tunnel syntax only for a single tunnel."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: استخدم المنافذ 1-65535، وقيمًا غير فارغة وخالية من محارف التحكم، ومسارًا مطلقًا للطرفية، وأزواج أنفاق متوافقة أو نطاقات منافذ متساوية الطول. استخدم صيغة أنفاق SSH لنفق واحد فقط."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: Verwenden Sie Ports von 1 bis 65535, nicht leere Werte ohne Steuerzeichen, einen absoluten Terminalpfad und kompatible Tunnelpaare oder gleich lange Portbereiche. Die SSH-Tunnelsyntax ist nur für einen einzelnen Tunnel zulässig."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: Usa puertos del 1 al 65535, valores no vacíos sin caracteres de control, una ruta absoluta del terminal y pares de túneles compatibles o rangos de puertos de igual longitud. Usa la sintaxis de túnel SSH solo para un túnel individual."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: Utilisez des ports de 1 à 65535, des valeurs non vides sans caractères de contrôle, un chemin de terminal absolu et des paires de tunnels compatibles ou des plages de ports de même longueur. La syntaxe de tunnel SSH est réservée à un seul tunnel."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: ポートは1〜65535、値は空でなく制御文字を含まないもの、ターミナルのパスは絶対パス、トンネルは互換性のあるペアまたは同じ長さのポート範囲を指定してください。SSHトンネル構文は単一のトンネルにのみ使用できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: 포트는 1-65535, 값은 비어 있지 않고 제어 문자가 없는 값, 터미널 경로는 절대 경로를 사용하세요. 터널은 호환되는 쌍 또는 길이가 같은 포트 범위를 사용하세요. SSH 터널 구문은 단일 터널에만 사용할 수 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: 请使用1-65535范围内的端口、不含控制字符的非空值、终端的绝对路径，以及兼容的隧道对或长度相等的端口范围。SSH隧道语法仅可用于单个隧道。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: 請使用1-65535範圍內的連接埠、不含控制字元的非空值、終端機的絕對路徑，以及相容的通道配對或長度相等的連接埠範圍。SSH通道語法僅可用於單一通道。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: Koristite portove 1-65535, neprazne vrijednosti bez kontrolnih znakova, apsolutnu putanju terminala i kompatibilne parove tunela ili raspone portova jednake dužine. SSH sintaksu tunela koristite samo za jedan tunel."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: Brug porte fra 1 til 65535, ikke-tomme værdier uden kontroltegn, en absolut terminalsti og kompatible tunnelpar eller portintervaller af samme længde. SSH-tunnelsyntaks må kun bruges til en enkelt tunnel."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: Usa porte da 1 a 65535, valori non vuoti senza caratteri di controllo, un percorso assoluto del terminale e coppie di tunnel compatibili o intervalli di porte della stessa lunghezza. Usa la sintassi dei tunnel SSH solo per un singolo tunnel."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: ប្រើច្រកពី 1 ដល់ 65535 តម្លៃមិនទទេដែលគ្មានតួអក្សរបញ្ជា ផ្លូវស្ថានីយដាច់ខាត និងគូផ្លូវរូងដែលត្រូវគ្នា ឬជួរច្រកដែលមានប្រវែងស្មើគ្នា។ ប្រើវាក្យសម្ពន្ធផ្លូវរូង SSH សម្រាប់ផ្លូវរូងតែមួយប៉ុណ្ណោះ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: Bruk porter fra 1 til 65535, ikke-tomme verdier uten kontrolltegn, en absolutt terminalsti og kompatible tunnelpar eller portområder med lik lengde. SSH-tunnelsyntaks kan bare brukes for én tunnel."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: Użyj portów od 1 do 65535, niepustych wartości bez znaków sterujących, bezwzględnej ścieżki terminala oraz zgodnych par tuneli lub zakresów portów o równej długości. Składni tuneli SSH używaj tylko dla pojedynczego tunelu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: Use portas de 1 a 65535, valores não vazios sem caracteres de controle, um caminho absoluto do terminal e pares de túneis compatíveis ou intervalos de portas de mesmo comprimento. Use a sintaxe de túnel SSH apenas para um único túnel."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: Используйте порты от 1 до 65535, непустые значения без управляющих символов, абсолютный путь терминала и совместимые пары туннелей или диапазоны портов одинаковой длины. Синтаксис туннелей SSH допустим только для одного туннеля."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: ใช้พอร์ต 1-65535 ค่าที่ไม่ว่างและไม่มีอักขระควบคุม พาธเทอร์มินัลแบบสัมบูรณ์ และคู่ทันเนลที่เข้ากันได้หรือช่วงพอร์ตที่มีความยาวเท่ากัน ใช้ไวยากรณ์ทันเนล SSH ได้กับทันเนลเดียวเท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: 1-65535 arasındaki bağlantı noktalarını, kontrol karakteri içermeyen boş olmayan değerleri, mutlak bir terminal yolunu ve uyumlu tünel çiftlerini veya eşit uzunlukta bağlantı noktası aralıklarını kullanın. SSH tünel sözdizimini yalnızca tek bir tünel için kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: Використовуйте порти від 1 до 65535, непорожні значення без керівних символів, абсолютний шлях термінала та сумісні пари тунелів або діапазони портів однакової довжини. Синтаксис тунелів SSH дозволений лише для одного тунелю."
+          }
+        }
+      }
+    },
+    "cli.ssh.et.optionsRequireTransport": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --et-* options require --transport et"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: تتطلب خيارات --et-* استخدام --transport et"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --et-*-Optionen erfordern --transport et"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: las opciones --et-* requieren --transport et"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh : les options --et-* nécessitent --transport et"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --et-* オプションには --transport et が必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --et-* 옵션에는 --transport et가 필요합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh：--et-* 选项需要搭配 --transport et"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh：--et-* 選項需要搭配 --transport et"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: opcije --et-* zahtijevaju --transport et"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --et-*-indstillinger kræver --transport et"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: le opzioni --et-* richiedono --transport et"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: ជម្រើស --et-* ត្រូវការ --transport et"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --et-*-alternativer krever --transport et"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: opcje --et-* wymagają --transport et"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: as opções --et-* exigem --transport et"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: параметры --et-* требуют --transport et"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: ตัวเลือก --et-* ต้องใช้ --transport et"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --et-* seçenekleri --transport et gerektirir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: параметри --et-* потребують --transport et"
+          }
+        }
+      }
+    },
+    "cli.ssh.et.portInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --et-port must be 1-65535"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: يجب أن يكون --et-port بين 1 و65535"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --et-port muss zwischen 1 und 65535 liegen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --et-port debe estar entre 1 y 65535"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh : --et-port doit être compris entre 1 et 65535"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --et-port は 1～65535 の範囲で指定してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --et-port는 1-65535 범위여야 합니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh：--et-port 必须介于 1 到 65535 之间"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh：--et-port 必須介於 1 到 65535 之間"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --et-port mora biti 1-65535"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --et-port skal være 1-65535"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --et-port deve essere compreso tra 1 e 65535"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --et-port ត្រូវនៅចន្លោះ 1-65535"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --et-port må være 1-65535"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --et-port musi mieścić się w zakresie 1-65535"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --et-port deve estar entre 1 e 65535"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --et-port должен быть в диапазоне 1-65535"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --et-port ต้องอยู่ในช่วง 1-65535"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --et-port 1-65535 arasında olmalıdır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: --et-port має бути в діапазоні 1-65535"
+          }
+        }
+      }
+    },
+    "socket.workspace.remote.terminalTransport.etOptionsInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use ports 1-65535, non-empty values without control characters, an absolute terminal path, and compatible tunnel pairs or equal-length port ranges. Use SSH tunnel syntax only for a single tunnel."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدم المنافذ 1-65535، وقيمًا غير فارغة وخالية من محارف التحكم، ومسارًا مطلقًا للطرفية، وأزواج أنفاق متوافقة أو نطاقات منافذ متساوية الطول. استخدم صيغة أنفاق SSH لنفق واحد فقط."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwenden Sie Ports von 1 bis 65535, nicht leere Werte ohne Steuerzeichen, einen absoluten Terminalpfad und kompatible Tunnelpaare oder gleich lange Portbereiche. Die SSH-Tunnelsyntax ist nur für einen einzelnen Tunnel zulässig."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa puertos del 1 al 65535, valores no vacíos sin caracteres de control, una ruta absoluta del terminal y pares de túneles compatibles o rangos de puertos de igual longitud. Usa la sintaxis de túnel SSH solo para un túnel individual."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisez des ports de 1 à 65535, des valeurs non vides sans caractères de contrôle, un chemin de terminal absolu et des paires de tunnels compatibles ou des plages de ports de même longueur. La syntaxe de tunnel SSH est réservée à un seul tunnel."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポートは1〜65535、値は空でなく制御文字を含まないもの、ターミナルのパスは絶対パス、トンネルは互換性のあるペアまたは同じ長さのポート範囲を指定してください。SSHトンネル構文は単一のトンネルにのみ使用できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "포트는 1-65535, 값은 비어 있지 않고 제어 문자가 없는 값, 터미널 경로는 절대 경로를 사용하세요. 터널은 호환되는 쌍 또는 길이가 같은 포트 범위를 사용하세요. SSH 터널 구문은 단일 터널에만 사용할 수 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请使用1-65535范围内的端口、不含控制字符的非空值、终端的绝对路径，以及兼容的隧道对或长度相等的端口范围。SSH隧道语法仅可用于单个隧道。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請使用1-65535範圍內的連接埠、不含控制字元的非空值、終端機的絕對路徑，以及相容的通道配對或長度相等的連接埠範圍。SSH通道語法僅可用於單一通道。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koristite portove 1-65535, neprazne vrijednosti bez kontrolnih znakova, apsolutnu putanju terminala i kompatibilne parove tunela ili raspone portova jednake dužine. SSH sintaksu tunela koristite samo za jedan tunel."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug porte fra 1 til 65535, ikke-tomme værdier uden kontroltegn, en absolut terminalsti og kompatible tunnelpar eller portintervaller af samme længde. SSH-tunnelsyntaks må kun bruges til en enkelt tunnel."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa porte da 1 a 65535, valori non vuoti senza caratteri di controllo, un percorso assoluto del terminale e coppie di tunnel compatibili o intervalli di porte della stessa lunghezza. Usa la sintassi dei tunnel SSH solo per un singolo tunnel."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រើច្រកពី 1 ដល់ 65535 តម្លៃមិនទទេដែលគ្មានតួអក្សរបញ្ជា ផ្លូវស្ថានីយដាច់ខាត និងគូផ្លូវរូងដែលត្រូវគ្នា ឬជួរច្រកដែលមានប្រវែងស្មើគ្នា។ ប្រើវាក្យសម្ពន្ធផ្លូវរូង SSH សម្រាប់ផ្លូវរូងតែមួយប៉ុណ្ណោះ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk porter fra 1 til 65535, ikke-tomme verdier uten kontrolltegn, en absolutt terminalsti og kompatible tunnelpar eller portområder med lik lengde. SSH-tunnelsyntaks kan bare brukes for én tunnel."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użyj portów od 1 do 65535, niepustych wartości bez znaków sterujących, bezwzględnej ścieżki terminala oraz zgodnych par tuneli lub zakresów portów o równej długości. Składni tuneli SSH używaj tylko dla pojedynczego tunelu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use portas de 1 a 65535, valores não vazios sem caracteres de controle, um caminho absoluto do terminal e pares de túneis compatíveis ou intervalos de portas de mesmo comprimento. Use a sintaxe de túnel SSH apenas para um único túnel."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Используйте порты от 1 до 65535, непустые значения без управляющих символов, абсолютный путь терминала и совместимые пары туннелей или диапазоны портов одинаковой длины. Синтаксис туннелей SSH допустим только для одного туннеля."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้พอร์ต 1-65535 ค่าที่ไม่ว่างและไม่มีอักขระควบคุม พาธเทอร์มินัลแบบสัมบูรณ์ และคู่ทันเนลที่เข้ากันได้หรือช่วงพอร์ตที่มีความยาวเท่ากัน ใช้ไวยากรณ์ทันเนล SSH ได้กับทันเนลเดียวเท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1-65535 arasındaki bağlantı noktalarını, kontrol karakteri içermeyen boş olmayan değerleri, mutlak bir terminal yolunu ve uyumlu tünel çiftlerini veya eşit uzunlukta bağlantı noktası aralıklarını kullanın. SSH tünel sözdizimini yalnızca tek bir tünel için kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використовуйте порти від 1 до 65535, непорожні значення без керівних символів, абсолютний шлях термінала та сумісні пари тунелів або діапазони портів однакової довжини. Синтаксис тунелів SSH дозволений лише для одного тунелю."
+          }
+        }
+      }
+    },
+    "cli.ssh.et.startupRecovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] The terminal transport exited with an error. The remote session or command may already be running. Type ssh and press Return to retry over SSH, which may run it again; any other response closes this terminal."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] انتهى نقل الطرفية بخطأ. قد تكون الجلسة أو الأمر البعيد قيد التشغيل بالفعل. اكتب ssh واضغط على Return لإعادة المحاولة عبر SSH، مما قد يشغّله مرة أخرى؛ أي رد آخر يغلق هذه الطرفية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Der Terminaltransport wurde mit einem Fehler beendet. Die entfernte Sitzung oder der Befehl läuft möglicherweise bereits. Geben Sie ssh ein und drücken Sie Return, um über SSH erneut zu starten; dies kann den Befehl erneut ausführen. Jede andere Antwort schließt dieses Terminal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] El transporte del terminal terminó con un error. La sesión o el comando remoto puede estar ejecutándose. Escribe ssh y pulsa Retorno para reintentar por SSH, lo que puede ejecutarlo de nuevo; cualquier otra respuesta cierra este terminal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Le transport du terminal s’est arrêté avec une erreur. La session ou la commande distante est peut-être déjà en cours. Saisissez ssh puis appuyez sur Retour pour réessayer via SSH, ce qui peut la relancer ; toute autre réponse ferme ce terminal."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] ターミナル転送がエラーで終了しました。リモートのセッションまたはコマンドはすでに実行中の可能性があります。sshと入力してReturnを押すとSSHで再試行しますが、再実行される可能性があります。それ以外の応答ではこのターミナルを閉じます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 터미널 전송이 오류로 종료되었습니다. 원격 세션이나 명령이 이미 실행 중일 수 있습니다. ssh를 입력하고 Return을 누르면 SSH로 재시도하며, 다시 실행될 수 있습니다. 다른 응답은 이 터미널을 닫습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 终端传输出错退出。远程会话或命令可能已在运行。输入ssh并按Return可通过SSH重试，这可能会再次运行该命令；其他任何回复都会关闭此终端。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] 終端機傳輸因錯誤而結束。遠端工作階段或命令可能已在執行。輸入ssh並按Return可透過SSH重試，這可能會再次執行該命令；任何其他回覆都會關閉此終端機。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Terminalski transport je završen greškom. Udaljena sesija ili naredba možda već radi. Upišite ssh i pritisnite Return za ponovni pokušaj preko SSH-a, što je može ponovo pokrenuti; svaki drugi odgovor zatvara ovaj terminal."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Terminaltransporten sluttede med en fejl. Fjernsessionen eller kommandoen kører muligvis allerede. Skriv ssh, og tryk på Retur for at prøve igen via SSH, hvilket kan starte den igen; alle andre svar lukker denne terminal."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Il trasporto del terminale è terminato con un errore. La sessione o il comando remoto potrebbe essere già in esecuzione. Digita ssh e premi Invio per riprovare via SSH, che potrebbe eseguirlo di nuovo; qualsiasi altra risposta chiude questo terminale."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] ការដឹកជញ្ជូនស្ថានីយបានបញ្ចប់ដោយកំហុស។ សម័យ ឬពាក្យបញ្ជាពីចម្ងាយអាចកំពុងដំណើរការរួចហើយ។ វាយ ssh ហើយចុច Return ដើម្បីព្យាយាមម្ដងទៀតតាម SSH ដែលអាចដំណើរការវាម្ដងទៀត។ ចម្លើយផ្សេងទៀតនឹងបិទស្ថានីយនេះ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Terminaltransporten ble avsluttet med en feil. Den eksterne økten eller kommandoen kjører kanskje allerede. Skriv ssh og trykk Retur for å prøve igjen via SSH, noe som kan starte den på nytt; alle andre svar lukker denne terminalen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Transport terminala zakończył się błędem. Zdalna sesja lub polecenie może już działać. Wpisz ssh i naciśnij Return, aby ponowić próbę przez SSH, co może uruchomić je ponownie; każda inna odpowiedź zamyka ten terminal."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] O transporte do terminal terminou com um erro. A sessão ou o comando remoto pode já estar em execução. Digite ssh e pressione Return para tentar novamente por SSH, o que pode executá-lo outra vez; qualquer outra resposta fecha este terminal."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Терминальный транспорт завершился с ошибкой. Удалённая сессия или команда, возможно, уже выполняется. Введите ssh и нажмите Return для повтора через SSH, который может запустить её снова; любой другой ответ закроет этот терминал."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] การรับส่งเทอร์มินัลจบลงพร้อมข้อผิดพลาด เซสชันหรือคำสั่งระยะไกลอาจกำลังทำงานอยู่แล้ว พิมพ์ ssh แล้วกด Return เพื่อลองใหม่ผ่าน SSH ซึ่งอาจเรียกใช้อีกครั้ง คำตอบอื่นจะปิดเทอร์มินัลนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Terminal aktarımı bir hatayla sonlandı. Uzak oturum veya komut zaten çalışıyor olabilir. SSH üzerinden yeniden denemek için ssh yazıp Return tuşuna basın; bu, komutu yeniden çalıştırabilir. Diğer yanıtlar bu terminali kapatır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[cmux] Термінальний транспорт завершився з помилкою. Віддалений сеанс або команда, можливо, уже виконується. Введіть ssh і натисніть Return, щоб повторити через SSH, що може запустити її знову; будь-яка інша відповідь закриє цей термінал."
           }
         }
       }

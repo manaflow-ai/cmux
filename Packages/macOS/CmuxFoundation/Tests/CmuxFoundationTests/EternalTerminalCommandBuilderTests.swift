@@ -1,0 +1,661 @@
+import Darwin
+import Foundation
+import Testing
+@testable import CmuxFoundation
+
+@Suite("Eternal Terminal command selection and fallback")
+struct EternalTerminalCommandBuilderTests {
+    @Test("falls back to SSH when et is missing locally")
+    func localMissingFallsBack() throws {
+        try withFakeCommands(installEternalTerminal: false) { directory, environment in
+            let result = try run(
+                builder(sshFallbackCommand: "printf 'ssh fallback\\n'"),
+                environment: environment,
+                missingLocalExecutable: true
+            )
+
+            #expect(result.status == 0)
+            #expect(result.stdout == "ssh fallback\n")
+            #expect(result.stderr == "local et missing\n")
+            #expect(!fileExists(directory, "ssh.args"))
+        }
+    }
+
+    @Test("distinguishes a missing remote etterminal from other probe failures")
+    func remoteMissingFallsBack() throws {
+        try withFakeCommands(sshStatus: 127) { directory, environment in
+            let result = try run(builder(sshFallbackCommand: "printf 'ssh fallback\\n'"), environment: environment)
+
+            #expect(result.stdout == "ssh fallback\n")
+            #expect(result.stderr == "remote etterminal missing\n")
+            #expect(!fileExists(directory, "et.args"))
+        }
+    }
+
+    @Test("uses the generic SSH fallback when the remote probe cannot complete")
+    func remoteProbeFailureFallsBack() throws {
+        try withFakeCommands(sshStatus: 255) { directory, environment in
+            let result = try run(builder(sshFallbackCommand: "printf 'ssh fallback\\n'"), environment: environment)
+
+            #expect(result.stdout == "ssh fallback\n")
+            #expect(result.stderr == "remote probe failed\n")
+            #expect(!fileExists(directory, "et.args"))
+        }
+    }
+
+    @Test("falls back when etserver does not accept connections on the SSH-resolved host")
+    func unreachableServerFallsBack() throws {
+        try withFakeCommands(serverReachable: false) { directory, environment in
+            let result = try run(
+                builder(
+                    sshFallbackCommand: "printf 'ssh fallback\\n'",
+                    options: try #require(EternalTerminalOptions(serverPort: 2400))
+                ),
+                environment: environment
+            )
+
+            #expect(result.stdout == "ssh fallback\n")
+            #expect(result.stderr == "etserver unreachable\n")
+            #expect(try lines(directory, "nc.args") == ["-z", "-G", "5", "-w", "5", "resolved.example.com", "2400"])
+            #expect(!fileExists(directory, "et.args"))
+        }
+    }
+
+    @Test("finds etterminal outside the remote non-interactive PATH")
+    func remoteTerminalOutsidePathIsResolved() throws {
+        try withFakeCommands(executeRemoteCommand: true, installRemoteTerminal: .userLocalBin) { directory, environment in
+            let result = try run(builder(), environment: environment)
+
+            #expect(result.status == 0)
+            #expect(result.stderr.isEmpty)
+            // ET's own SSH hop only searches the non-interactive PATH, so the
+            // probed location must reach et as --terminal-path.
+            let arguments = try lines(directory, "et.args")
+            let resolvedPath = directory.appendingPathComponent("remote-home/.local/bin/etterminal").path
+            #expect(Array(arguments.prefix(2)) == ["--terminal-path", resolvedPath])
+        }
+    }
+
+    @Test("treats probe output that is not an absolute path as a failed probe")
+    func nonAbsoluteProbeOutputFallsBack() throws {
+        try withFakeCommands(remoteTerminalPath: "etterminal") { directory, environment in
+            let result = try run(builder(sshFallbackCommand: "printf 'ssh fallback\\n'"), environment: environment)
+
+            #expect(result.stdout == "ssh fallback\n")
+            #expect(result.stderr == "remote probe failed\n")
+            #expect(!fileExists(directory, "et.args"))
+        }
+    }
+
+    @Test("leaves etserver reachability to ET behind a ProxyJump host")
+    func proxyJumpSkipsServerProbe() throws {
+        try withFakeCommands(serverReachable: false, proxyJump: "bastion") { directory, environment in
+            let result = try run(builder(), environment: environment)
+
+            #expect(result.status == 0)
+            #expect(result.stderr.isEmpty)
+            #expect(!fileExists(directory, "nc.args"))
+            #expect(fileExists(directory, "et.args"))
+        }
+    }
+
+    @Test("leaves reachability to ET when SSH config resolution fails or omits hostname", arguments: [true, false])
+    func unresolvedHostSkipsServerProbe(queryFails: Bool) throws {
+        try withFakeCommands(serverReachable: false) { directory, environment in
+            var environment = environment
+            environment["FAKE_CONFIG_STATUS"] = queryFails ? "255" : "0"
+            environment["FAKE_CONFIG_HOST"] = queryFails ? "unusable.example.com" : ""
+            let result = try run(builder(), environment: environment)
+
+            #expect(result.status == 0)
+            #expect(result.stderr.isEmpty)
+            #expect(!fileExists(directory, "nc.args"))
+            #expect(fileExists(directory, "et.args"))
+        }
+    }
+
+    @Test("rejects malformed and out-of-range tunnel endpoints before ET starts", arguments: [
+        "3000:4000:5000", "3000", "3000:", ":4000", "0:80", "70000:80", "80:65536",
+        "0-2:80-82", "65534-65536:80-82", "80-82:65534-65536", "/tmp/socket:70000",
+        "70000:/tmp/socket", "localhost:70000:db.internal:80", "localhost:80:db.internal:0",
+    ])
+    func invalidTunnelEndpoints(tunnel: String) {
+        for tunnels in [[tunnel], [tunnel, "5037:5037"], [tunnel + ",5037:5037"]] {
+            #expect(EternalTerminalOptions(tunnels: tunnels) == nil)
+            #expect(EternalTerminalOptions(reverseTunnels: tunnels) == nil)
+        }
+    }
+
+    @Test("identity paths survive OpenSSH config parsing", arguments: [
+        #"/keys/work "2026"/id"#, #"/keys/work\2026/id"#, #"/keys/work \"2026\"/id"#,
+        "/keys/id'backup",
+    ])
+    func identityPathSurvivesSSHConfig(path: String) throws {
+        let options = EternalTerminalCommandBuilder.sessionSSHOptions(fromSSHArguments: ["ssh", "-i", path])
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+        process.arguments = ["-G", "-F", "/dev/null", "-o", try #require(options.first), "example.com"]
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        let config = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        process.waitUntilExit()
+        #expect(process.terminationStatus == 0)
+        #expect(config.split(separator: "\n").contains(Substring("identityfile " + path)))
+    }
+
+    @Test("ET startup failure retains the SSH launcher until an explicit retry")
+    func startupFailureCanRetrySSH() throws {
+        try withFakeCommands { directory, environment in
+            let launcher = directory.appendingPathComponent("ssh-launcher")
+            try "printf 'ssh fallback\\n'; rm -- \"$0\"\n".write(to: launcher, atomically: true, encoding: .utf8)
+            var environment = environment
+            environment["FAKE_ET_STATUS"] = "1"
+            environment["FAKE_ET_RAW_MODE"] = "1"
+            environment["FAKE_LAUNCHER_PATH"] = launcher.path
+            let result = try run(
+                builder(sshFallbackCommand: "/bin/sh '\(launcher.path)'", sshFallbackLauncherPaths: [launcher.path]),
+                environment: environment,
+                terminalInput: "ssh\n"
+            )
+            #expect(result.status == 0)
+            #expect(result.stdout == "ssh fallback\n")
+            #expect(fileExists(directory, "launcher-present-at-et-start"))
+            #expect(!fileExists(directory, "ssh-launcher"))
+        }
+    }
+
+    @Test("ET errors never automatically replay SSH", arguments: ["", "\n", "no\n", "\u{4}"])
+    func startupFailureRequiresExplicitRetry(input: String) throws {
+        try withFakeCommands { directory, environment in
+            var environment = environment
+            environment["FAKE_ET_STATUS"] = "1"
+            let result = try run(builder(sshFallbackCommand: "printf 'ssh fallback\\n'"),
+                                 environment: environment, terminalInput: input.isEmpty ? nil : input)
+            #expect(result.status == 1)
+            #expect(result.stdout.isEmpty)
+        }
+    }
+
+    @Test("success and signal exits never offer SSH replay", arguments: [0, 2, 15, 130, 143])
+    func completedSessionNeverRetries(status: Int) throws {
+        try withFakeCommands { directory, environment in
+            var environment = environment
+            environment["FAKE_ET_STATUS"] = String(status)
+            let result = try run(builder(sshFallbackCommand: "printf 'ssh fallback\\n'"),
+                                 environment: environment, terminalInput: "ssh\n")
+            #expect(result.status == Int32(status))
+            #expect(result.stdout.isEmpty)
+            #expect(result.stderr.isEmpty)
+        }
+    }
+
+    @Test("probes an explicit --terminal-path instead of searching PATH")
+    func explicitTerminalPathIsProbed() throws {
+        try withFakeCommands(executeRemoteCommand: true, installRemoteTerminal: .custom) { directory, environment in
+            let customPath = directory.appendingPathComponent("remote-home/opt/et/etterminal").path
+            let found = try run(
+                builder(options: try #require(EternalTerminalOptions(terminalPath: customPath))),
+                environment: environment
+            )
+            #expect(found.stderr.isEmpty)
+            #expect(try lines(directory, "et.args").contains(customPath))
+
+            let missing = try run(
+                builder(
+                    sshFallbackCommand: "printf 'ssh fallback\\n'",
+                    options: try #require(EternalTerminalOptions(terminalPath: customPath + "-missing"))
+                ),
+                environment: environment
+            )
+            #expect(missing.stdout == "ssh fallback\n")
+            #expect(missing.stderr == "remote etterminal missing\n")
+        }
+    }
+
+    @Test("single-quotes a terminal path that ET splices into its remote shell")
+    func terminalPathWithSpaceIsQuotedForEternalTerminal() throws {
+        try withFakeCommands(executeRemoteCommand: true, installRemoteTerminal: .customWithSpace) { directory, environment in
+            let customPath = directory.appendingPathComponent("remote-home/opt/et tools/etterminal").path
+            let result = try run(
+                builder(options: try #require(EternalTerminalOptions(terminalPath: customPath))),
+                environment: environment
+            )
+
+            #expect(result.stderr.isEmpty)
+            #expect(Array(try lines(directory, "et.args").prefix(2)) == ["--terminal-path", "'\(customPath)'"])
+        }
+    }
+
+    @Test("passes ET options, SSH options, agent forwarding and the remote command to et")
+    func supportedEternalTerminalPreservesArguments() throws {
+        try withFakeCommands(remoteTerminalPath: "/opt/et/etterminal") { directory, environment in
+            let options = try #require(EternalTerminalOptions(
+                serverPort: 2400,
+                terminalPath: "/opt/et/etterminal",
+                tunnels: ["8080:80", "8443:443"],
+                reverseTunnels: ["9090:90"]
+            ))
+            let result = try run(
+                builder(options: options, forwardsSSHAgent: true, sshAgentSocketPath: "/tmp/agent.sock"),
+                environment: environment
+            )
+
+            #expect(result.status == 0)
+            // ET keeps only the last --tunnel, so repeated values are joined.
+            #expect(try lines(directory, "et.args") == [
+                "--terminal-path", "/opt/et/etterminal",
+                "--port", "2400",
+                "--tunnel", "8080:80,8443:443",
+                "--reversetunnel", "9090:90",
+                "--forward-ssh-agent",
+                "--ssh-socket", "/tmp/agent.sock",
+                "--ssh-option", "RemoteCommand=none",
+                "--ssh-option", "Port=2222",
+                "--command", "exec 'command' 'space arg' 'quote'\\''arg'",
+                "--noexit",
+                "--", "user@example.com",
+            ])
+            #expect(!result.stderr.contains("undeliverable"))
+        }
+    }
+
+    @Test("continues over SSH when the command exceeds ET's remote line limit")
+    func overlongCommandFallsBack() throws {
+        try withFakeCommands { directory, environment in
+            let fits = String(repeating: "a", count: EternalTerminalCommandBuilder.maxDeliverableCommandBytes - "exec ''".utf8.count)
+            _ = try run(builder(remoteCommandArguments: [fits]), environment: environment)
+            #expect(try lines(directory, "et.args").contains("exec '\(fits)'"))
+
+            try FileManager.default.removeItem(at: directory.appendingPathComponent("et.args"))
+            let result = try run(
+                builder(sshFallbackCommand: "printf 'ssh fallback\\n'", remoteCommandArguments: [fits + "a"]),
+                environment: environment
+            )
+            #expect(result.stdout == "ssh fallback\n")
+            #expect(result.stderr == "remote command undeliverable\n")
+            #expect(!fileExists(directory, "et.args"))
+        }
+    }
+
+    @Test("continues over SSH when an argument holds a control character", arguments: ["a\tb", "a\nb", "a\u{3}b", "a\u{1B}b", "a\u{7F}b"])
+    func controlCharacterCommandFallsBack(argument: String) throws {
+        try withFakeCommands { directory, environment in
+            let result = try run(
+                builder(sshFallbackCommand: "printf 'ssh fallback\\n'", remoteCommandArguments: ["printf", argument]),
+                environment: environment
+            )
+            #expect(result.stdout == "ssh fallback\n")
+            #expect(result.stderr == "remote command undeliverable\n")
+            #expect(!fileExists(directory, "et.args"))
+        }
+    }
+
+    @Test("ends ET options before the destination and never kills other ET sessions")
+    func destinationFollowsOptionTerminator() throws {
+        let arguments = builder().clientArguments
+        #expect(Array(arguments.suffix(2)) == ["--", "user@example.com"])
+        #expect(!arguments.contains("-x"))
+        #expect(!arguments.contains("--kill-other-sessions"))
+    }
+
+    @Test("opens a plain login shell without --command")
+    func plainShellHasNoCommand() throws {
+        try withFakeCommands { directory, environment in
+            _ = try run(builder(remoteCommandArguments: []), environment: environment)
+
+            let arguments = try lines(directory, "et.args")
+            #expect(!arguments.contains("--command"))
+            #expect(arguments.last == "user@example.com")
+            #expect(Array(arguments.prefix(4)) == ["--terminal-path", "/usr/bin/etterminal", "--port", "2022"])
+        }
+    }
+
+    @Test(
+        "the injected command execs the staged bootstrap under a fish login shell",
+        .enabled(if: EternalTerminalCommandBuilderTests.fishExecutablePath != nil)
+    )
+    func remoteCommandRunsUnderFish() throws {
+        let fish = try #require(Self.fishExecutablePath)
+        let builder = builder(remoteCommandArguments: ["/bin/sh", "-c", "printf '%s\\n' \"$0:$1\"", "first arg", "it's"])
+        let command = try #require(builder.remoteShellCommand)
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: fish)
+        process.arguments = ["-c", command]
+        process.standardOutput = output
+        try process.run()
+        process.waitUntilExit()
+        #expect(String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self) == "first arg:it's\n")
+    }
+
+    @Test("removes SSH-only launchers and registers the attempt before et starts")
+    func launchersRemovedAndLifecycleRegistered() throws {
+        try withFakeCommands { directory, environment in
+            let launcher = directory.appendingPathComponent("cmux-ssh-startup.sh")
+            try "exit 0\n".write(to: launcher, atomically: true, encoding: .utf8)
+            let result = try run(
+                builder(remoteRelayPort: 64_007, sshFallbackLauncherPaths: [launcher.path]),
+                environment: environment
+            )
+            let lifecycleCalls = try String(contentsOf: directory.appendingPathComponent("cmux.args"), encoding: .utf8)
+
+            #expect(result.status == 0)
+            #expect(!FileManager.default.fileExists(atPath: launcher.path))
+            #expect(lifecycleCalls.contains("rpc workspace.remote.terminal_session_launching"))
+            #expect(!lifecycleCalls.contains("rpc workspace.remote.terminal_session_connected"))
+        }
+    }
+
+    @Test("falls back immediately when lifecycle registration fails")
+    func lifecycleFailureFallsBack() throws {
+        try withFakeCommands(lifecycleStatus: 1) { directory, environment in
+            let launcher = directory.appendingPathComponent("cmux-ssh-startup.sh")
+            try "exit 0\n".write(to: launcher, atomically: true, encoding: .utf8)
+            let result = try run(
+                builder(
+                    sshFallbackCommand: "printf 'ssh fallback\\n'",
+                    remoteRelayPort: 64_007,
+                    sshFallbackLauncherPaths: [launcher.path]
+                ),
+                environment: environment
+            )
+
+            #expect(result.stdout == "ssh fallback\n")
+            #expect(try lines(directory, "cmux.args").count == 1)
+            #expect(fileExists(directory, "cmux-ssh-startup.sh"))
+            #expect(!fileExists(directory, "et.args"))
+        }
+    }
+
+    @Test("preserves SSH routing and agent opt-outs through SSH fallback", arguments: [
+        "HostName=actual.example", "ProxyJump=bastion", "ProxyCommand=nc %h %p", "ForwardAgent=no",
+    ])
+    func unsupportedSSHOverridesFallBack(option: String) throws {
+        try withFakeCommands { directory, environment in
+            let result = try run(
+                builder(sshFallbackCommand: "printf 'ssh fallback\\n'", sessionSSHOptions: [option]),
+                environment: environment
+            )
+
+            #expect(result.stdout == "ssh fallback\n")
+            #expect(result.stderr == "remote probe failed\n")
+            #expect(!fileExists(directory, "et.args"))
+        }
+    }
+
+    @Test("joins socket, environment, port and range tunnel entries independently")
+    func repeatedTunnelGrammar() throws {
+        for tunnels in [
+            ["SERVICE_SOCK:/tmp/service.sock", "5037:5037"],
+            ["/tmp/local.sock:/tmp/remote.sock", "5037:5037"],
+            ["/tmp/local.sock:5037", "5038:/tmp/remote.sock"],
+            ["8080:80,8443:443", "9090:90"],
+            ["3000-3002:4000-4002", "5037:5037"],
+        ] {
+            let options = try #require(EternalTerminalOptions(tunnels: tunnels, reverseTunnels: tunnels))
+            #expect(options.clientArguments == [
+                "--port", "2022", "--tunnel", tunnels.joined(separator: ","),
+                "--reversetunnel", tunnels.joined(separator: ","),
+            ])
+            #expect(try JSONDecoder().decode(EternalTerminalOptions.self, from: JSONEncoder().encode(options)) == options)
+        }
+        for tunnel in ["3000-3002:4000", "3000:4000-4002", "3000-3002:4000-4003"] {
+            #expect(EternalTerminalOptions(tunnels: [tunnel, "5037:5037"]) == nil)
+            #expect(EternalTerminalOptions(reverseTunnels: [tunnel, "5037:5037"]) == nil)
+            #expect(EternalTerminalOptions(tunnels: [tunnel + ",5037:5037"]) == nil)
+        }
+    }
+
+    @Test("maps the management ssh argv onto et --ssh-option values")
+    func sessionSSHOptionsFromArguments() {
+        #expect(EternalTerminalCommandBuilder.sessionSSHOptions(fromSSHArguments: [
+            "/usr/bin/ssh", "-o", "RemoteCommand=none", "-p", "2222", "-i", "/keys/id",
+            "-o", "ControlPath=/tmp/cm-%C", "-o", "RequestTTY=no", "-T",
+        ]) == ["RemoteCommand=none", "Port=2222", #"IdentityFile="/keys/id""#, "ControlPath=/tmp/cm-%C"])
+        #expect(EternalTerminalCommandBuilder.sessionSSHOptions(fromSSHArguments: [
+            "/usr/bin/ssh", "-i", "/keys/id with space",
+        ]) == [#"IdentityFile="/keys/id with space""#])
+    }
+
+    @Test("forwards the agent only for an effective ForwardAgent request")
+    func forwardsAgent() {
+        #expect(!EternalTerminalCommandBuilder.forwardsSSHAgent(sshOptions: []))
+        #expect(!EternalTerminalCommandBuilder.forwardsSSHAgent(sshOptions: ["ForwardAgent=no"]))
+        #expect(EternalTerminalCommandBuilder.forwardsSSHAgent(sshOptions: ["ForwardAgent=/tmp/agent.sock"]))
+    }
+
+    @Test("validates and round-trips ET options")
+    func optionsValidation() throws {
+        #expect(EternalTerminalOptions(serverPort: 0) == nil)
+        #expect(EternalTerminalOptions(serverPort: 65_536) == nil)
+        #expect(EternalTerminalOptions(terminalPath: " ") == nil)
+        #expect(EternalTerminalOptions(terminalPath: "~/bin/etterminal") == nil)
+        #expect(EternalTerminalOptions(terminalPath: "bin/etterminal") == nil)
+        // SSH-style four-field tunnels are single options; ET-style pairs can be joined.
+        #expect(EternalTerminalOptions(tunnels: ["localhost:2222:db.internal:22"]) != nil)
+        #expect(EternalTerminalOptions(tunnels: ["[::1]:8080:[::]:9090"]) != nil)
+        #expect(EternalTerminalOptions(tunnels: [":8080:db.internal:22"]) != nil)
+        #expect(EternalTerminalOptions(tunnels: ["localhost:2222:db.internal:22", "8080:80"]) == nil)
+        #expect(EternalTerminalOptions(reverseTunnels: ["9090:90", "x:90"]) == nil)
+        #expect(EternalTerminalOptions(tunnels: ["8080:80", "9000-9003:9000-9003"])?.tunnels.count == 2)
+        #expect(EternalTerminalOptions(tunnels: ["80\n:80"]) == nil)
+        #expect(EternalTerminalOptions(tunnels: [" 80:80\n"])?.tunnels == ["80:80"])
+        #expect(EternalTerminalOptions.default.clientArguments == ["--port", "2022"])
+
+        let options = try #require(EternalTerminalOptions(serverPort: 2400, terminalPath: "/opt/et", tunnels: ["1:2"]))
+        let data = try JSONEncoder().encode(options)
+        #expect(try JSONDecoder().decode(EternalTerminalOptions.self, from: data) == options)
+        #expect(try JSONDecoder().decode(EternalTerminalOptions.self, from: Data("{}".utf8)) == .default)
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(EternalTerminalOptions.self, from: Data(#"{"serverPort":0}"#.utf8))
+        }
+        #expect(WorkspaceRemoteTerminalTransport(cliValue: " ET ") == .et)
+    }
+
+    // MARK: - Fixtures
+
+    enum RemoteTerminalInstall {
+        case none
+        case userLocalBin
+        case custom
+        case customWithSpace
+    }
+
+    private func builder(
+        sshFallbackCommand: String = "exit 90",
+        options: EternalTerminalOptions = .default,
+        forwardsSSHAgent: Bool = false,
+        sshAgentSocketPath: String? = nil,
+        remoteCommandArguments: [String] = ["command", "space arg", "quote'arg"],
+        remoteRelayPort: Int? = nil,
+        sshFallbackLauncherPaths: [String] = [],
+        sessionSSHOptions: [String] = ["RemoteCommand=none", "Port=2222"]
+    ) -> EternalTerminalCommandBuilder {
+        EternalTerminalCommandBuilder(
+            capabilityProbeSSHArguments: ["ssh", "-o", "RemoteCommand=none"],
+            sessionSSHOptions: sessionSSHOptions,
+            destination: "user@example.com",
+            options: options,
+            forwardsSSHAgent: forwardsSSHAgent,
+            sshAgentSocketPath: sshAgentSocketPath,
+            remoteCommandArguments: remoteCommandArguments,
+            remoteRelayPort: remoteRelayPort,
+            sshFallbackCommand: sshFallbackCommand,
+            sshFallbackLauncherPaths: sshFallbackLauncherPaths,
+            messages: .init(
+                localMissing: "local et missing",
+                remoteMissing: "remote etterminal missing",
+                remoteProbeFailed: "remote probe failed",
+                serverUnreachable: "etserver unreachable",
+                remoteBootstrapInstallFailed: "remote bootstrap install failed",
+                startupRecoveryPrompt: "The remote command may already be running; type ssh to retry.",
+                commandUndeliverable: "remote command undeliverable"
+            )
+        )
+    }
+
+    private static var fishExecutablePath: String? {
+        ["/opt/homebrew/bin/fish", "/usr/local/bin/fish", "/usr/bin/fish"]
+            .first(where: { FileManager.default.isExecutableFile(atPath: $0) })
+    }
+
+    private func withFakeCommands(
+        sshStatus: Int32 = 0,
+        installEternalTerminal: Bool = true,
+        serverReachable: Bool = true,
+        executeRemoteCommand: Bool = false,
+        installRemoteTerminal: RemoteTerminalInstall = .none,
+        remoteTerminalPath: String = "/usr/bin/etterminal",
+        proxyJump: String? = nil,
+        lifecycleStatus: Int32 = 0,
+        operation: (URL, [String: String]) throws -> Void
+    ) throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-et-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        try installExecutable(named: "ssh", script: """
+            #!/bin/sh
+            printf '%s\\n' "$@" >> "$SSH_ARGS_FILE"
+            for cmux_arg in "$@"; do
+              if [ "$cmux_arg" = "-G" ]; then
+                printf '%s\\n' 'user user' 'port 22'
+                if [ -n "$FAKE_CONFIG_HOST" ]; then printf 'hostname %s\\n' "$FAKE_CONFIG_HOST"; fi
+                if [ -n "$FAKE_PROXY_JUMP" ]; then printf 'proxyjump %s\\n' "$FAKE_PROXY_JUMP"; fi
+                exit "$FAKE_CONFIG_STATUS"
+              fi
+            done
+            cmux_remote_command=
+            for cmux_arg in "$@"; do cmux_remote_command=$cmux_arg; done
+            if [ "$FAKE_SSH_EXEC_REMOTE" = "1" ]; then
+              HOME="$FAKE_REMOTE_HOME" PATH=/usr/bin:/bin /bin/sh -c "$cmux_remote_command"
+              exit $?
+            fi
+            if [ "$FAKE_SSH_STATUS" = "0" ]; then
+              printf '%s\\n' 'remote shell startup noise' "$FAKE_REMOTE_TERMINAL_PATH"
+            fi
+            exit "$FAKE_SSH_STATUS"
+            """, in: directory)
+        try installExecutable(named: "nc", script: """
+            #!/bin/sh
+            printf '%s\\n' "$@" > "$NC_ARGS_FILE"
+            exit "$FAKE_NC_STATUS"
+            """, in: directory)
+        try installExecutable(named: "cmux", script: """
+            #!/bin/sh
+            printf '%s\\n' "$*" >> "$CMUX_ARGS_FILE"
+            exit "$FAKE_LIFECYCLE_STATUS"
+            """, in: directory)
+        if installEternalTerminal {
+            try installExecutable(named: "et", script: """
+                #!/bin/sh
+                printf '%s\\n' "$@" > "$ET_ARGS_FILE"
+                if [ -n "$FAKE_LAUNCHER_PATH" ] && [ -f "$FAKE_LAUNCHER_PATH" ]; then
+                  touch "$FAKE_LAUNCHER_RECEIPT"
+                fi
+                if [ "$FAKE_ET_RAW_MODE" = "1" ]; then stty raw -echo <&0; fi
+                exit "${FAKE_ET_STATUS:-0}"
+                """, in: directory)
+        }
+        let remoteHome = directory.appendingPathComponent("remote-home", isDirectory: true)
+        let remoteTerminalDirectory: String? = switch installRemoteTerminal {
+        case .none: nil
+        case .userLocalBin: ".local/bin"
+        case .custom: "opt/et"
+        case .customWithSpace: "opt/et tools"
+        }
+        if let remoteTerminalDirectory {
+            let remoteBin = remoteHome.appendingPathComponent(remoteTerminalDirectory, isDirectory: true)
+            try FileManager.default.createDirectory(at: remoteBin, withIntermediateDirectories: true)
+            try installExecutable(named: "etterminal", script: "#!/bin/sh\nexit 0\n", in: remoteBin)
+        }
+        try operation(directory, [
+            "PATH": directory.path + ":/usr/bin:/bin",
+            "FAKE_SSH_STATUS": String(sshStatus),
+            "FAKE_SSH_EXEC_REMOTE": executeRemoteCommand ? "1" : "0",
+            "FAKE_REMOTE_HOME": remoteHome.path,
+            "FAKE_REMOTE_TERMINAL_PATH": remoteTerminalPath,
+            "FAKE_PROXY_JUMP": proxyJump ?? "",
+            "FAKE_CONFIG_HOST": "resolved.example.com",
+            "FAKE_CONFIG_STATUS": "0",
+            "FAKE_LAUNCHER_RECEIPT": directory.appendingPathComponent("launcher-present-at-et-start").path,
+            "FAKE_LIFECYCLE_STATUS": String(lifecycleStatus),
+            "FAKE_NC_STATUS": serverReachable ? "0" : "1",
+            "SSH_ARGS_FILE": directory.appendingPathComponent("ssh.args").path,
+            "NC_ARGS_FILE": directory.appendingPathComponent("nc.args").path,
+            "ET_ARGS_FILE": directory.appendingPathComponent("et.args").path,
+            "CMUX_ARGS_FILE": directory.appendingPathComponent("cmux.args").path,
+            "CMUX_BUNDLED_CLI_PATH": directory.appendingPathComponent("cmux").path,
+            "CMUX_SOCKET_PATH": "/tmp/cmux-et-test.sock",
+            "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+            "CMUX_SURFACE_ID": "22222222-2222-2222-2222-222222222222",
+            "CMUX_TERMINAL_LIFECYCLE_ID": "33333333-3333-3333-3333-333333333333",
+        ])
+    }
+
+    private func fileExists(_ directory: URL, _ name: String) -> Bool {
+        FileManager.default.fileExists(atPath: directory.appendingPathComponent(name).path)
+    }
+
+    private func lines(_ directory: URL, _ name: String) throws -> [String] {
+        try String(contentsOf: directory.appendingPathComponent(name), encoding: .utf8)
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .dropLast()
+            .map(String.init)
+    }
+
+    private func installExecutable(named name: String, script: String, in directory: URL) throws {
+        let url = directory.appendingPathComponent(name)
+        try script.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+
+    private func run(
+        _ builder: EternalTerminalCommandBuilder,
+        environment: [String: String],
+        terminalInput: String? = nil,
+        missingLocalExecutable: Bool = false
+    ) throws -> (status: Int32, stdout: String, stderr: String) {
+        let process = Process()
+        let standardOutput = Pipe()
+        let standardError = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        // Substitute fixture executable resolution in the rendered shell,
+        // keeping test-only command injection out of the shipping API.
+        var command = builder.command().replacingOccurrences(of: "/usr/bin/nc", with: "nc")
+        if missingLocalExecutable {
+            command = command.replacingOccurrences(of: "'\\''et'\\''", with: "'\\''cmux-missing-et'\\''")
+        }
+        process.arguments = ["-c", command]
+        process.environment = environment
+        process.standardOutput = standardOutput
+        process.standardError = standardError
+        var master: Int32 = -1
+        var slave: Int32 = -1
+        if terminalInput != nil {
+            guard openpty(&master, &slave, nil, nil, nil) == 0 else {
+                throw CocoaError(.fileReadUnknown)
+            }
+            process.standardInput = FileHandle(fileDescriptor: slave, closeOnDealloc: false)
+        } else {
+            process.standardInput = FileHandle.nullDevice
+        }
+        defer {
+            if master >= 0 { close(master) }
+            if slave >= 0 { close(slave) }
+        }
+        try process.run()
+        if let terminalInput {
+            FileHandle(fileDescriptor: master, closeOnDealloc: false).write(Data(terminalInput.utf8))
+        }
+        process.waitUntilExit()
+        return (
+            process.terminationStatus,
+            String(decoding: standardOutput.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self),
+            String(decoding: standardError.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        )
+    }
+}

@@ -116,8 +116,10 @@ extension SessionRemoteWorkspaceSnapshot {
             normalizedLocalSocketPath != nil &&
             normalizedRelayPort != nil &&
             SSHPTYAttachStartupCommandBuilder.sshOptionsSupportReusableForegroundAuth(optionsWithRestoreControlDefaults)
+        // Mosh and ET terminals keep SSH as their management lane, so both
+        // restore the relay namespace their bootstrap registers with.
         let restoreMoshRelayNamespace =
-            restoredTerminalTransport == .mosh &&
+            restoredTerminalTransport != .ssh &&
             skipDaemonBootstrap != true &&
             normalizedLocalSocketPath != nil &&
             normalizedRelayPort != nil
@@ -157,7 +159,7 @@ extension SessionRemoteWorkspaceSnapshot {
                 )
             }
             : nil
-        return WorkspaceRemoteConfiguration(
+        var restoredConfiguration = WorkspaceRemoteConfiguration(
             transport: transport,
             terminalTransport: restoredTerminalTransport,
             terminalProfile: restoredTerminalProfile,
@@ -202,7 +204,7 @@ extension SessionRemoteWorkspaceSnapshot {
                         remoteRelayPort: remoteRelayPort
                     )
                 }
-                guard restoredTerminalTransport == .mosh else {
+                guard restoredTerminalTransport != .ssh else {
                     return fallbackCommand
                 }
                 let sshFallbackCommand: String
@@ -218,6 +220,17 @@ extension SessionRemoteWorkspaceSnapshot {
                     )
                 } else {
                     sshFallbackCommand = fallbackCommand
+                }
+                if restoredTerminalTransport == .et {
+                    return eternalTerminalReconnectCommand(
+                        destination: normalizedDestination,
+                        port: normalizedPort,
+                        sshOptions: restoredSSHOptions,
+                        terminalProfile: restoredTerminalProfile,
+                        remoteRelayPort: restoreMoshRelayNamespace ? normalizedRelayPort : nil,
+                        agentSocketPath: agentSocketPath,
+                        sshFallbackCommand: sshFallbackCommand
+                    )
                 }
                 return moshReconnectCommand(
                     destination: normalizedDestination,
@@ -249,6 +262,10 @@ extension SessionRemoteWorkspaceSnapshot {
             persistentDaemonSlot: (preservePTYSession || restoreDefaultFreestyleSSHD) ? effectivePersistentDaemonSlot : nil,
             skipDaemonBootstrap: skipDaemonBootstrap == true
         )
+        if restoredTerminalTransport == .et {
+            restoredConfiguration.eternalTerminalOptions = eternalTerminalOptions ?? .default
+        }
+        return restoredConfiguration
     }
 
     private static func restoreRelayTokenHex() -> String {
@@ -417,56 +434,20 @@ extension SessionRemoteWorkspaceSnapshot {
         remoteRelayPort: Int?,
         sshFallbackCommand: String
     ) -> String {
-        // Mosh owns terminal allocation; the separately built SSH fallback
-        // still receives the durable RequestTTY option.
-        let invocationSSHOptions = SSHAgentSocketResolver().moshManagementOptions(
-            from: Self.removingRemoteCommand(from: reconnectSSHOptions)
-        )
-        let sshArguments = sshBootstrapArguments(
-            port: normalizedPort,
-            sshOptions: invocationSSHOptions
-        )
-        let moshSSHArguments = [sshArguments[0]]
-            + SSHHostConfiguredRemoteCommand().overrideArguments
-            + sshArguments.dropFirst()
-        var remoteCommandArguments = Self.restoredRemoteCommandArguments(
-            terminalProfile: terminalProfile,
-            configuredRemoteCommand: configuredRemoteCommand
-        )
-        var preparationShellScript: String?
-        if let remoteRelayPort {
-            let remoteBootstrapScript = RemoteInteractiveShellBootstrapBuilder.script(
-                remoteRelayPort: remoteRelayPort,
-                shellFeatures: RemoteInteractiveShellBootstrapBuilder.shellFeatures(),
-                configuredRemoteCommand: configuredRemoteCommand,
-                bundledZshIntegration: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(
-                    named: "cmux-zsh-integration.zsh"
-                ),
-                bundledBashIntegration: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(
-                    named: "cmux-bash-integration.bash"
-                ),
-                bundledFishIntegration: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(
-                    named: "fish/config.fish"
-                ),
-                terminalProfile: terminalProfile
-            )
-            if let staging = RemoteBootstrapStagingCommandBuilder(
-                installerSSHArguments: moshSSHArguments,
-                destination: normalizedDestination,
-                remoteRelayPort: remoteRelayPort,
-                bootstrapScript: remoteBootstrapScript
-            ) {
-                remoteCommandArguments = staging.remoteExecutionCommandArguments
-                preparationShellScript = staging.preparationShellScript
-            }
-        }
-        return MoshTerminalCommandBuilder(
-            capabilityProbeSSHArguments: moshSSHArguments,
-            sessionSSHArguments: moshSSHArguments,
+        let bootstrap = alternateTerminalRestoreBootstrap(
             destination: normalizedDestination,
-            remoteCommandArguments: remoteCommandArguments,
+            port: normalizedPort,
+            sshOptions: reconnectSSHOptions,
+            terminalProfile: terminalProfile,
+            remoteRelayPort: remoteRelayPort
+        )
+        return MoshTerminalCommandBuilder(
+            capabilityProbeSSHArguments: bootstrap.managementSSHArguments,
+            sessionSSHArguments: bootstrap.managementSSHArguments,
+            destination: normalizedDestination,
+            remoteCommandArguments: bootstrap.remoteCommandArguments,
             remoteRelayPort: remoteRelayPort,
-            preparationShellScript: preparationShellScript,
+            preparationShellScript: bootstrap.preparationShellScript,
             sshFallbackCommand: sshFallbackCommand,
             localMoshMissingMessage: String(
                 localized: "cli.ssh.mosh.localMissing",
@@ -493,6 +474,96 @@ extension SessionRemoteWorkspaceSnapshot {
                 defaultValue: "[cmux] Remote SSH advertised an unusable address; resolving the Mosh address through the SSH connection."
             )
         ).command()
+    }
+
+    private func eternalTerminalReconnectCommand(
+        destination normalizedDestination: String,
+        port normalizedPort: Int?,
+        sshOptions reconnectSSHOptions: [String],
+        terminalProfile: WorkspaceRemoteTerminalProfile,
+        remoteRelayPort: Int?,
+        agentSocketPath: String?,
+        sshFallbackCommand: String
+    ) -> String {
+        let bootstrap = alternateTerminalRestoreBootstrap(
+            destination: normalizedDestination,
+            port: normalizedPort,
+            sshOptions: reconnectSSHOptions,
+            terminalProfile: terminalProfile,
+            remoteRelayPort: remoteRelayPort
+        )
+        return EternalTerminalCommandBuilder(
+            capabilityProbeSSHArguments: bootstrap.managementSSHArguments,
+            sessionSSHOptions: EternalTerminalCommandBuilder.sessionSSHOptions(
+                fromSSHArguments: bootstrap.managementSSHArguments
+            ),
+            destination: normalizedDestination,
+            options: eternalTerminalOptions ?? .default,
+            forwardsSSHAgent: EternalTerminalCommandBuilder.forwardsSSHAgent(sshOptions: bootstrap.invocationSSHOptions),
+            // Like the CLI launch, hand ET the restored agent socket so a
+            // ForwardAgent socket path survives relaunch.
+            sshAgentSocketPath: agentSocketPath ?? SSHAgentSocketResolver().agentSocketPath(for: bootstrap.invocationSSHOptions),
+            remoteCommandArguments: bootstrap.remoteCommandArguments,
+            remoteRelayPort: remoteRelayPort,
+            preparationShellScript: bootstrap.preparationShellScript,
+            sshFallbackCommand: sshFallbackCommand,
+            messages: EternalTerminalFallbackMessages.messages
+        ).command()
+    }
+
+    /// Prepares the shared management SSH and staged bootstrap for alternate terminal transports.
+    private func alternateTerminalRestoreBootstrap(
+        destination normalizedDestination: String,
+        port normalizedPort: Int?,
+        sshOptions reconnectSSHOptions: [String],
+        terminalProfile: WorkspaceRemoteTerminalProfile,
+        remoteRelayPort: Int?
+    ) -> (invocationSSHOptions: [String], managementSSHArguments: [String],
+          remoteCommandArguments: [String], preparationShellScript: String?) {
+        // Mosh owns terminal allocation; the separately built SSH fallback
+        // still receives the durable RequestTTY option.
+        let invocationSSHOptions = SSHAgentSocketResolver().moshManagementOptions(
+            from: Self.removingRemoteCommand(from: reconnectSSHOptions)
+        )
+        let sshArguments = sshBootstrapArguments(
+            port: normalizedPort,
+            sshOptions: invocationSSHOptions
+        )
+        let managementSSHArguments = [sshArguments[0]]
+            + SSHHostConfiguredRemoteCommand().overrideArguments
+            + sshArguments.dropFirst()
+        var remoteCommandArguments = Self.restoredRemoteCommandArguments(
+            terminalProfile: terminalProfile,
+            configuredRemoteCommand: configuredRemoteCommand
+        )
+        var preparationShellScript: String?
+        if let remoteRelayPort {
+            let remoteBootstrapScript = RemoteInteractiveShellBootstrapBuilder.script(
+                remoteRelayPort: remoteRelayPort,
+                shellFeatures: RemoteInteractiveShellBootstrapBuilder.shellFeatures(),
+                configuredRemoteCommand: configuredRemoteCommand,
+                bundledZshIntegration: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(
+                    named: "cmux-zsh-integration.zsh"
+                ),
+                bundledBashIntegration: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(
+                    named: "cmux-bash-integration.bash"
+                ),
+                bundledFishIntegration: RemoteInteractiveShellBootstrapBuilder.bundledShellIntegrationScript(
+                    named: "fish/config.fish"
+                ),
+                terminalProfile: terminalProfile
+            )
+            if let staging = RemoteBootstrapStagingCommandBuilder(
+                installerSSHArguments: managementSSHArguments,
+                destination: normalizedDestination,
+                remoteRelayPort: remoteRelayPort,
+                bootstrapScript: remoteBootstrapScript
+            ) {
+                remoteCommandArguments = staging.remoteExecutionCommandArguments
+                preparationShellScript = staging.preparationShellScript
+            }
+        }
+        return (invocationSSHOptions, managementSSHArguments, remoteCommandArguments, preparationShellScript)
     }
 
     /// Returns the single durable program intent used by both Mosh and its
@@ -632,5 +703,44 @@ extension SessionRemoteWorkspaceSnapshot {
     static func acceptsAgentConnections(atPath path: String) -> Bool {
         UnixSocketConnectProbe().acceptsConnections(atPath: path)
             || UnixSocketConnectProbe(peerCheck: UnixSocketPeerCheck(expectedUserID: 0)).acceptsConnections(atPath: path)
+    }
+}
+
+/// Explanations a restored Eternal Terminal pane prints before continuing over SSH.
+///
+/// The CLI builds the same messages with the same keys in
+/// `CLI/CMUXCLI+MoshTerminalTransport.swift`.
+private enum EternalTerminalFallbackMessages {
+    static var messages: EternalTerminalCommandBuilder.Messages {
+        EternalTerminalCommandBuilder.Messages(
+            localMissing: String(
+                localized: "cli.ssh.et.localMissing",
+                defaultValue: "[cmux] Eternal Terminal (et) is not installed locally; continuing over SSH."
+            ),
+            remoteMissing: String(
+                localized: "cli.ssh.et.remoteMissing",
+                defaultValue: "[cmux] etterminal was not found on the remote host; continuing over SSH. Install Eternal Terminal there or pass --et-terminal-path."
+            ),
+            remoteProbeFailed: String(
+                localized: "cli.ssh.et.probeFailed",
+                defaultValue: "[cmux] Could not verify remote Eternal Terminal support; continuing over SSH."
+            ),
+            serverUnreachable: String(
+                localized: "cli.ssh.et.serverUnreachable",
+                defaultValue: "[cmux] etserver is not reachable on the remote host's Eternal Terminal port; continuing over SSH."
+            ),
+            remoteBootstrapInstallFailed: String(
+                localized: "cli.ssh.et.bootstrapInstallFailed",
+                defaultValue: "[cmux] Remote bootstrap install failed; continuing over SSH."
+            ),
+            startupRecoveryPrompt: String(
+                localized: "cli.ssh.et.startupRecovery",
+                defaultValue: "[cmux] The terminal transport exited with an error. The remote session or command may already be running. Type ssh and press Return to retry over SSH, which may run it again; any other response closes this terminal."
+            ),
+            commandUndeliverable: String(
+                localized: "cli.ssh.et.commandUndeliverable",
+                defaultValue: "[cmux] Eternal Terminal cannot deliver this remote command (too long or contains control characters); continuing over SSH."
+            )
+        )
     }
 }
