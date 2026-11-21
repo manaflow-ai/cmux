@@ -24,13 +24,16 @@ use std::io::Write as _;
 use std::os::fd::AsRawFd as _;
 use std::os::unix::fs::{FileExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, UNIX_EPOCH};
 
 use crate::manifest::{Kind, Manifest, ROOT};
 use crate::upper::{SetTime, Stat, Upper};
 use crate::{Fetch, FetchError};
+
+#[path = "overlay_room.rs"]
+mod room;
 
 /// The size of a chunk of a big file, and the largest file fetched whole.
 pub const CHUNK: u64 = 4 * 1024 * 1024;
@@ -52,6 +55,7 @@ pub mod errno {
     pub const EINVAL: i32 = 22;
     pub const ENAMETOOLONG: i32 = 36;
     pub const ENOTEMPTY: i32 = 39;
+    pub const ENOSPC: i32 = 28;
 }
 use errno::{
     EBADF, EEXIST, EINVAL, EIO, EISDIR, ENAMETOOLONG, ENOENT, ENOTDIR, ENOTEMPTY, EPERM, EXDEV,
@@ -192,6 +196,9 @@ pub struct Overlay {
     inflight: Mutex<HashSet<Key>>,
     landed: Condvar,
     temp: AtomicU64,
+    /// The last cache store failed (a full disk): directory readahead is off until one succeeds,
+    /// since what it fetches could not be kept and every read would fetch its folder again.
+    cache_failing: AtomicBool,
     remote_reads: AtomicU64,
     remote_bytes: AtomicU64,
     cache_hits: AtomicU64,
@@ -324,6 +331,7 @@ impl Overlay {
             inflight: Mutex::new(HashSet::new()),
             landed: Condvar::new(),
             temp: AtomicU64::new(0),
+            cache_failing: AtomicBool::new(false),
             remote_reads: AtomicU64::new(0),
             remote_bytes: AtomicU64::new(0),
             cache_hits: AtomicU64::new(0),
@@ -565,27 +573,6 @@ impl Overlay {
         Ok((parent, child))
     }
 
-    fn write_whiteouts(&self, inner: &Inner) -> Result<(), i32> {
-        let mut text = String::new();
-        for path in &inner.whiteouts {
-            text.push_str(path);
-            text.push('\0');
-        }
-        let temp = self.scratch_path();
-        fs::write(&temp, text).map_err(|error| io_errno(&error))?;
-        fs::rename(&temp, &self.whiteouts_file).map_err(|error| io_errno(&error))
-    }
-
-    fn set_whiteout(&self, path: &str, on: bool) -> Result<(), i32> {
-        let mut inner = self.lock();
-        let changed =
-            if on { inner.whiteouts.insert(path.to_owned()) } else { inner.whiteouts.remove(path) };
-        if !changed {
-            return Ok(());
-        }
-        self.write_whiteouts(&inner)
-    }
-
     /// Readies whited-out `path` for something new there: the whiteout goes, and when a lower
     /// folder was there its names stay hidden (the new path is opaque, as overlayfs makes it), so
     /// a folder deleted and made again comes back empty.
@@ -601,10 +588,6 @@ impl Overlay {
             }
         }
         self.write_whiteouts(&inner)
-    }
-
-    fn scratch_path(&self) -> PathBuf {
-        self.scratch.join(format!("t{}", self.temp.fetch_add(1, Ordering::Relaxed)))
     }
 
     // MARK: Reads
@@ -764,13 +747,6 @@ impl Overlay {
         Some(bytes)
     }
 
-    fn store(&self, key: Key, bytes: &[u8]) {
-        let temp = self.scratch_path();
-        if fs::write(&temp, bytes).is_ok() && fs::rename(&temp, self.cache_path(key)).is_err() {
-            let _ = fs::remove_file(&temp);
-        }
-    }
-
     /// Waits until no other thread fetches `key`, then claims it.
     fn claim(&self, key: Key) -> Claim<'_> {
         let mut inflight = self.inflight.lock().unwrap_or_else(PoisonError::into_inner);
@@ -803,7 +779,8 @@ impl Overlay {
         }
         let mut batch = vec![index];
         let mut bytes = self.manifest.entry(index).map_or(0, |entry| entry.size);
-        if let Some(entry) = self.manifest.entry(index) {
+        let readahead = !self.cache_failing.load(Ordering::Relaxed);
+        if let Some(entry) = self.manifest.entry(index).filter(|_| readahead) {
             let folder = self.manifest.path_of(entry.parent);
             let (first, siblings) = self.manifest.children(entry.parent);
             let mut candidates = Vec::new();
@@ -953,8 +930,8 @@ impl Overlay {
             }
             Kind::File => {}
         }
-        let temp = self.scratch_path();
-        let mut file = fs::File::create(&temp).map_err(|error| io_errno(&error))?;
+        let temp = self.scratch_file();
+        let mut file = fs::File::create(temp.path()).map_err(|error| io_errno(&error))?;
         if entry.size <= CHUNK {
             file.write_all(&self.whole(index)?).map_err(|error| io_errno(&error))?;
         } else {
@@ -968,10 +945,10 @@ impl Overlay {
         let at = SetTime::At(entry.mtime_ns);
         let _ = fd_utimes(&file, Some(at), Some(at));
         drop(file);
-        let _ = fs::set_permissions(&temp, fs::Permissions::from_mode(entry.mode));
-        let landed = self.in_folder(parent, || self.upper.adopt(&temp, path));
-        if landed.is_err() {
-            let _ = fs::remove_file(&temp);
+        let _ = fs::set_permissions(temp.path(), fs::Permissions::from_mode(entry.mode));
+        let landed = self.in_folder(parent, || self.upper.adopt(temp.path(), path));
+        if landed.is_ok() {
+            temp.keep();
         }
         landed
     }
@@ -1061,7 +1038,9 @@ impl Overlay {
     ) -> Result<u32, i32> {
         match self.handle_file(handle) {
             Some(file) => {
-                file.write_all_at(data, offset).map_err(|error| io_errno(&error))?;
+                self.with_room(|| {
+                    file.write_all_at(data, offset).map_err(|error| io_errno(&error))
+                })?;
                 u32::try_from(data.len()).map_err(|_| EINVAL)
             }
             None if self.handles().contains_key(&handle) => Err(EBADF),
@@ -1071,11 +1050,13 @@ impl Overlay {
 
     /// Writes `ino` by its path (no open handle), copying a lower file up first.
     pub fn write(&self, ino: u64, offset: u64, data: &[u8]) -> Result<u32, i32> {
-        let path = self.path_of(ino)?;
-        self.ensure_upper(&path)?;
-        let file = self.upper.open_existing(&path, libc::O_WRONLY)?;
-        file.write_all_at(data, offset).map_err(|error| io_errno(&error))?;
-        u32::try_from(data.len()).map_err(|_| EINVAL)
+        self.with_room(|| {
+            let path = self.path_of(ino)?;
+            self.ensure_upper(&path)?;
+            let file = self.upper.open_existing(&path, libc::O_WRONLY)?;
+            file.write_all_at(data, offset).map_err(|error| io_errno(&error))?;
+            u32::try_from(data.len()).map_err(|_| EINVAL)
+        })
     }
 
     /// `fallocate(2)` through open handle `handle`.
@@ -1135,8 +1116,8 @@ impl Overlay {
 
     pub fn mkdir(&self, parent: u64, name: &str, mode: u32, who: Who) -> Result<Attr, i32> {
         let (parent, child) = self.child(parent, name)?;
-        self.make_room(&parent, &child)?;
-        self.in_folder(&parent, || self.upper.mkdir(&child, 0o700))?;
+        self.with_room(|| self.make_room(&parent, &child))?;
+        self.with_room(|| self.in_folder(&parent, || self.upper.mkdir(&child, 0o700)))?;
         self.adopt_new(&parent, &child, who, Some(mode & 0o7777))?;
         self.lookup_path(&child)
     }
@@ -1385,55 +1366,57 @@ impl Overlay {
     /// setattr(2)-family changes to `ino`, through open handle `handle` when the kernel names one
     /// (an `ftruncate` of a file deleted while open).
     pub fn setattr(&self, ino: u64, handle: Option<u64>, set: Set) -> Result<Attr, i32> {
-        let by_handle = handle.and_then(|handle| self.handle_file(handle));
-        let path = match self.path_of(ino) {
-            Ok(path) if self.node(&path).is_some() => Some(path),
-            _ => None,
-        };
-        let file = match (&path, by_handle) {
-            (_, Some(file)) => Some(file),
-            (None, None) => Some(self.open_file_of(ino).ok_or(ENOENT)?),
-            (Some(_), None) => None,
-        };
-        if set == Set::default() {
-            return self.getattr(ino);
-        }
-        if let Some(path) = &path {
-            self.ensure_upper(path)?;
-        }
-        if let Some(size) = set.size {
-            match (&file, &path) {
-                (Some(file), _) => file.set_len(size).map_err(|error| io_errno(&error))?,
-                (None, Some(path)) => {
-                    let opened = self.upper.open_existing(path, libc::O_WRONLY)?;
-                    opened.set_len(size).map_err(|error| io_errno(&error))?;
+        self.with_room(|| {
+            let by_handle = handle.and_then(|handle| self.handle_file(handle));
+            let path = match self.path_of(ino) {
+                Ok(path) if self.node(&path).is_some() => Some(path),
+                _ => None,
+            };
+            let file = match (&path, by_handle) {
+                (_, Some(file)) => Some(file),
+                (None, None) => Some(self.open_file_of(ino).ok_or(ENOENT)?),
+                (Some(_), None) => None,
+            };
+            if set == Set::default() {
+                return self.getattr(ino);
+            }
+            if let Some(path) = &path {
+                self.ensure_upper(path)?;
+            }
+            if let Some(size) = set.size {
+                match (&file, &path) {
+                    (Some(file), _) => file.set_len(size).map_err(|error| io_errno(&error))?,
+                    (None, Some(path)) => {
+                        let opened = self.upper.open_existing(path, libc::O_WRONLY)?;
+                        opened.set_len(size).map_err(|error| io_errno(&error))?;
+                    }
+                    (None, None) => return Err(ENOENT),
                 }
-                (None, None) => return Err(ENOENT),
             }
-        }
-        if set.uid.is_some() || set.gid.is_some() {
-            let (uid, gid) = (set.uid.unwrap_or(u32::MAX), set.gid.unwrap_or(u32::MAX));
-            match (&path, &file) {
-                (Some(path), _) => self.upper.chown(path, uid, gid)?,
-                (None, Some(file)) => fd_chown(file, uid, gid)?,
-                (None, None) => return Err(ENOENT),
+            if set.uid.is_some() || set.gid.is_some() {
+                let (uid, gid) = (set.uid.unwrap_or(u32::MAX), set.gid.unwrap_or(u32::MAX));
+                match (&path, &file) {
+                    (Some(path), _) => self.upper.chown(path, uid, gid)?,
+                    (None, Some(file)) => fd_chown(file, uid, gid)?,
+                    (None, None) => return Err(ENOENT),
+                }
             }
-        }
-        if let Some(mode) = set.mode {
-            match (&path, &file) {
-                (Some(path), _) => self.upper.chmod(path, mode)?,
-                (None, Some(file)) => fd_chmod(file, mode)?,
-                (None, None) => return Err(ENOENT),
+            if let Some(mode) = set.mode {
+                match (&path, &file) {
+                    (Some(path), _) => self.upper.chmod(path, mode)?,
+                    (None, Some(file)) => fd_chmod(file, mode)?,
+                    (None, None) => return Err(ENOENT),
+                }
             }
-        }
-        if set.atime.is_some() || set.mtime.is_some() {
-            match (&path, &file) {
-                (Some(path), _) => self.upper.utimes(path, set.atime, set.mtime)?,
-                (None, Some(file)) => fd_utimes(file, set.atime, set.mtime)?,
-                (None, None) => return Err(ENOENT),
+            if set.atime.is_some() || set.mtime.is_some() {
+                match (&path, &file) {
+                    (Some(path), _) => self.upper.utimes(path, set.atime, set.mtime)?,
+                    (None, Some(file)) => fd_utimes(file, set.atime, set.mtime)?,
+                    (None, None) => return Err(ENOENT),
+                }
             }
-        }
-        self.getattr(ino)
+            self.getattr(ino)
+        })
     }
 
     /// Flushes open handle `handle`'s file to disk.
