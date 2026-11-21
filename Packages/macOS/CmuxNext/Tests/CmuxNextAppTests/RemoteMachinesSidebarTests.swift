@@ -186,8 +186,9 @@ struct RemoteMachinesSidebarTests {
                                     items: [LayoutItem(id: LayoutItemID("itm_home"), ref: .app("cmux/home"))]
                                         + pinned.map { LayoutItem(id: LayoutItemID($0), ref: .app("example/\($0)")) })
         let ids = model.placingTransientItems(in: [section]).flatMap(\.items).map(\.id.rawValue)
-        #expect(ids == ["itm_home", LayoutItemID(LayoutItemID.transientPrefix + "remote:machine:cmux-lawrence").rawValue,
-                        LayoutItemID(LayoutItemID.transientPrefix + "remote:machine:chief-subagents-2").rawValue] + pinned,
+        // Machines sort online first, then by peer name, so the two groups keep a stable order.
+        #expect(ids == ["itm_home", LayoutItemID(LayoutItemID.transientPrefix + "remote:machine:chief-subagents-2").rawValue,
+                        LayoutItemID(LayoutItemID.transientPrefix + "remote:machine:cmux-lawrence").rawValue] + pinned,
                   "the top band drew \(ids)")
         #expect(model.transientTopItems.contains { $0.item.id.rawValue.hasPrefix(LayoutItemID.transientPrefix + "remote:") })
     }

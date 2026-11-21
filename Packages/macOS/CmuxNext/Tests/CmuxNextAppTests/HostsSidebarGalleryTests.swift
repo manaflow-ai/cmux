@@ -64,7 +64,9 @@ import Testing
 
     static func render(_ fixture: Fixture, layout: HostsSidebar.Layout = .addLast, theme: String, dark: Bool) throws -> CGImage {
         _ = NSApplication.shared
-        let width: CGFloat = 300, height: CGFloat = 520
+        // A window-height sidebar: the band above the list stops at its share (`sidebar.topBandMaxShare`, a third)
+        // and scrolls, so a short still would scroll the last Hosts rows out of view.
+        let width: CGFloat = 300, height: CGFloat = 900
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: width, height: height), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
