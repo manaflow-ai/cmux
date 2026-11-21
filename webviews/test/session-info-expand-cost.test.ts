@@ -56,7 +56,8 @@ await requireBrowserLane("session-info-expand-cost.test.ts", async () => {
         Number(row.getAttribute("aria-posinset")),
       ),
     ) > reached;
-  const PRESSES = 5;
+  /// Presses per list and N (SESSION_INFO_EXPAND_PRESSES raises it for a measurement; CI keeps 5).
+  const PRESSES = Math.max(1, Number(process.env.SESSION_INFO_EXPAND_PRESSES) || 5);
 
   test("tasks: the rows past the window draw as the panel scrolls to them", async () => {
     const { port } = vite!.httpServer!.address() as { port: number };
