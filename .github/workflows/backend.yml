@@ -142,7 +142,12 @@ jobs:
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
+      # The type check reports its red and keeps going, so the tests and builds after it still run on a
+      # tree with a type error; the last step fails the job on it (Leo, 2026-11-19: "the CI doesn't
+      # necessarily have to fail and like give up").
       - name: Typecheck
+        id: typecheck
+        continue-on-error: true
         run: bun run typecheck
       - name: Catalog and generated client drift
         run: bun run catalog:check
@@ -203,6 +208,11 @@ jobs:
       - name: Wrangler dry-run build
         working-directory: backend/apps/api
         run: ./node_modules/.bin/wrangler deploy --env production --dry-run --outdir dist
+      - name: Fail on the type check
+        if: ${{ !cancelled() && steps.typecheck.outcome == 'failure' }}
+        run: |
+          echo "::error title=type check::the type check failed; see its step. The steps after it ran anyway."
+          exit 1
 
   # Development is shared by previews and holds no real data, so the PR's own runner may
   # apply there; staging and production only through backend-migrations.yml.

@@ -267,7 +267,7 @@ class WebValidationTests(unittest.TestCase):
         self.assertIn("HEAD_SHARDS: ${{ needs.web-subarea-scope.outputs.react_shards }}", base)
         self.assertIn("pattern: react-apps-head-results-shard*", base)
         for step in ("Generated bundle merge driver", "Check diff viewer eager JS budget",
-                     "Verify React Compiler for webviews", "Check webviews (Oxlint, Oxfmt, type check)",
+                     "Verify React Compiler for webviews", "Check webviews (Oxlint, Oxfmt, source rules)",
                      "Check PR-scoped webview rules"):
             with self.subTest(step=step):
                 body = block[block.index(f"- name: {step}"):]
