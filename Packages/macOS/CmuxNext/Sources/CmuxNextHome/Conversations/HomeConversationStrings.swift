@@ -10,6 +10,10 @@ enum HomeConversationStrings {
     /// The sidebar search section of teammates the user has no DM with yet.
     static var teammatesSection: String { String(localized: "home.list.teammates", defaultValue: "Teammates", bundle: .module) }
     static var newMessage: String { String(localized: "home.list.newMessage", defaultValue: "New Message…", bundle: .module) }
+    /// The chat's Chats button while the conversation list is folded (`HomeChatListButton`).
+    static var showChats: String { String(localized: "home.list.showChats", defaultValue: "Show Chats", bundle: .module) }
+    /// The chat's Chats button while the conversation list shows.
+    static var hideChats: String { String(localized: "home.list.hideChats", defaultValue: "Hide Chats", bundle: .module) }
     /// The list's on-filter chip (Unread ×): what a click does.
     static var filterChipHelp: String {
         String(localized: "home.list.filterChipHelp", defaultValue: "Turns the Unread filter off and shows every chat", bundle: .module)

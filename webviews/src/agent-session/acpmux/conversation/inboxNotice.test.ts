@@ -257,3 +257,41 @@ test("a join never lends an earlier session to a later record of the same label 
   ).threads[0]!;
   expect(unnamed.fromHarness).toBe("codex");
 });
+
+test("a snapshot after the last merges as a fresh read of it would, reading only past the last closed run", () => {
+  // Seeded, so a failure replays.
+  let seed = 7;
+  const random = () => (seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31;
+  let made = 0;
+  const any = (): AcpmuxRow => {
+    made += 1;
+    const pick = random();
+    return pick < 0.4
+      ? notice(`n${made}`, [thread(`pr:${made % 3}`, `lane-${made % 2}`)])
+      : pick < 0.55
+        ? hidden(`h${made}`)
+        : reply(`r${made}`);
+  };
+  const fresh = (rows: AcpmuxRow[]) => {
+    mergeInboxNotices([]);
+    return mergeInboxNotices([...rows]);
+  };
+  const shape = (rows: AcpmuxRow[]) => rows.map((row) => [row.id, row.joined ?? [], row.text]);
+  let rows = Array.from({ length: 40 }, any);
+  mergeInboxNotices(rows);
+  for (let step = 0; step < 400; step += 1) {
+    const next = rows.slice();
+    const pick = random();
+    if (pick < 0.5) next.push(any());
+    else if (pick < 0.8) next[next.length - 1 - Math.floor(random() * 3)] = any();
+    else next[Math.floor(random() * next.length)] = any();
+    const merged = mergeInboxNotices(next);
+    const expected = shape(fresh(next));
+    // The fresh read reset the last call: read the step again to carry on from it.
+    mergeInboxNotices([]);
+    mergeInboxNotices(rows);
+    expect(shape(mergeInboxNotices(next))).toEqual(expected);
+    expect(shape(merged)).toEqual(expected);
+    rows = next;
+  }
+});

@@ -1,19 +1,32 @@
 //! Public clients understand conversation-backed tabs, including agent sessions
 //! and app pages. Declare that before any reads on each fresh connection so the
 //! daemon does not apply its browser compatibility projection.
+//!
+//! They also keep a `session.events` cursor whole, so they ask for its live
+//! position (`session-live-cursor-v1`): a resume (`agents events --after`,
+//! the wait of `agent start`) then gets only the terminals whose live facts
+//! changed after the cursor, not every terminal that has one. A daemon
+//! without the capability ignores the name and sends cursors with no `live`.
 use super::{resolve, wire};
 use cmux_tui_core::platform::transport;
 use serde_json::{Value, json};
 use std::io::BufReader;
+
+/// What each CLI connection sends in `set-client-info`.
+pub(super) const CAPABILITIES: [&str; 5] = [
+    "conversation-tabs-v1",
+    "agent-session-tabs-v1",
+    "page-tabs-v1",
+    "closed-conversation-tabs-v1",
+    cmux_tui_core::server::SESSION_LIVE_CURSOR_CAPABILITY,
+];
 
 pub(super) fn negotiate(
     reader: &mut BufReader<Box<dyn transport::Stream>>,
 ) -> Result<(), resolve::Failure> {
     let id = wire::random_request_id()
         .map_err(|error| resolve::Failure::Transport(error.to_string()))?;
-    let request = json!({"id":id,"cmd":"set-client-info","capabilities":[
-        "conversation-tabs-v1","agent-session-tabs-v1","page-tabs-v1","closed-conversation-tabs-v1"
-    ]});
+    let request = json!({"id":id,"cmd":"set-client-info","capabilities":CAPABILITIES});
     let bytes = resolve::encode_request_bytes(&request).map_err(resolve::Failure::Transport)?;
     resolve::send_request(reader, &bytes)?;
     let response = wire::read_envelope(reader, false)

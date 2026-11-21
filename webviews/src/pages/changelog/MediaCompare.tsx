@@ -52,7 +52,7 @@ export function MediaCompare({
       {mode === "slider" && (
         <>
           <span className="cl-compare-handle" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="14" height="14">
+            <svg className="cl-compare-glyph" viewBox="0 0 24 24" width="14" height="14">
               <path d="M9 7 4 12l5 5M15 7l5 5-5 5" />
             </svg>
           </span>

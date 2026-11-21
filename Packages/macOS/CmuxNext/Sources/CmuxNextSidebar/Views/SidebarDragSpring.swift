@@ -17,7 +17,7 @@ import QuartzCore
     /// Springs `view` to `frame` (its superview's coordinates).
     static func move(_ view: NSView, to frame: NSRect) {
         guard view.frame != frame else { return }
-        guard let layer = view.layer, Motion.sidebar.animatesMovement, Motion.canAnimate(in: view) else {
+        guard let layer = view.layer, Motion.sidebar.animatesMovement(in: view.window), Motion.canAnimate(in: view) else {
             Motion.withoutAnimation { view.frame = frame }
             return
         }
@@ -42,7 +42,7 @@ import QuartzCore
         // Out of a window nothing draws a spring (and none would end), and with movement off nothing moves: the
         // frames land at once, and a spring an earlier move left on any of these views ends with them (it would
         // keep carrying its offset over the frame, and keep the next snap from showing).
-        guard Motion.sidebar.animatesMovement, host.window != nil, Motion.canAnimate(in: host) else {
+        guard Motion.sidebar.animatesMovement(in: host.window), host.window != nil, Motion.canAnimate(in: host) else {
             stop(moves.map(\.0))
             let moving = moves.filter { $0.0.frame != $0.1 }
             if !moving.isEmpty { Motion.withoutAnimation { for (view, frame) in moving { view.animator().frame = frame } } }
@@ -98,7 +98,7 @@ import QuartzCore
         CATransaction.setDisableActions(true)
         layer.frame = frame
         CATransaction.commit()
-        guard Motion.sidebar.animatesMovement else { return }
+        guard Motion.sidebar.animatesMovement(in: Motion.window(showing: layer)) else { return }
         addDelta(to: layer, position: position, size: size)
     }
 

@@ -222,8 +222,12 @@ impl Mux {
         }
         let end = TerminalEnd::from_receipt(terminal.exit.as_ref()).wire_json();
         if end["kind"] == "host_lost" {
-            let root = self.surface_options.lock().unwrap_or_else(PoisonError::into_inner);
-            let root = root.terminal_host_root.clone();
+            let root = self
+                .surface_options
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .terminal_host_root
+                .clone();
             self.terminal_loss_causes.lock().unwrap_or_else(PoisonError::into_inner).restore(
                 root.as_deref(),
                 terminal_id,

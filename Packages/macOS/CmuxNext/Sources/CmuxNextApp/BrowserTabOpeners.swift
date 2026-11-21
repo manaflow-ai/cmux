@@ -33,9 +33,9 @@ final class BrowserTabOpeners {
     /// A page's new tab exists (child, opener): the browser host reports it
     /// as `tab.created`, so an agent driving the opener sees its popup.
     var onChildPlaced: ((SurfaceID, SurfaceID) -> Void)?
-    /// Runs first for each placed child (child, opener): the App marks the
-    /// child agent-driven when its opener is (`BrowserPageRequests`).
-    var inheritsFromOpener: ((SurfaceID, SurfaceID) -> Void)?
+    /// Runs first for each placed child (child, opener, in the foreground): the App marks the
+    /// child agent-driven when its opener is, and reports the link's tab to the close-selection rule (`BrowserPageRequests`).
+    var inheritsFromOpener: ((SurfaceID, SurfaceID, Bool) -> Void)?
 
     /// A page's new tab in `pane`: `create(nil)` (the end) without an
     /// opener; with one, in Chrome's slot, returning once the store shows
@@ -69,7 +69,7 @@ final class BrowserTabOpeners {
             if foreground { self.forgetAll() }
             if child != opener {
                 self.openerOf[child] = opener
-                self.inheritsFromOpener?(child, opener)
+                self.inheritsFromOpener?(child, opener, foreground)
                 self.onChildPlaced?(child, opener)
             }
             return child

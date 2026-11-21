@@ -6,6 +6,7 @@ import { chat, inDO, loopback, paidPerson, post, testEnv } from "./setup/inferen
 import { personalTeamIdFor, stackTeamIdFor, userIdFor } from "../src/domains/user.ts"
 import { fakeBoundaries, fakeStripe, nowS, sync, SYNC_KEY } from "./setup/fake-stripe.ts"
 import { handleBillingTeamMode } from "../src/billing-team-mode.ts"
+import { handleBillingLevels } from "../src/billing-levels.ts"
 
 /**
  * cx-y79zh S1 (plans/cmux-next/usage-billing.md): one model router call is one fact, and the member's
@@ -378,15 +379,17 @@ describe("team included mode per team or per seat (cx-y79zh.1)", () => {
     const added = Object.fromEntries(stripe.calls.filter((c) => c.path === "/v1/subscription_items").map((c) => [c.form.subscription, c.form.price]))
     expect(added).toEqual({ sub_side_a: "price_e2e_pro", sub_side_b: "price_e2e_team_seat" })
     const byCustomer = (cus: string) => stripe.events.filter((e) => e["payload[stripe_customer_id]"] === cus)
-    // Per team: the whole level, whatever the seats. Per seat: 2.5 - 2 x 0.5 = 1.5.
-    expect(byCustomer("cus_side_a")).toEqual([expect.objectContaining({ event_name: "cmux_ai_usage", "payload[value]": "2.500000" })])
-    expect(byCustomer("cus_side_b")).toEqual([expect.objectContaining({ event_name: "cmux_ai_usage_above_included", "payload[value]": "1.500000" })])
-    // A third seat for both: per team nothing changes; per seat 2.5 - 3 x 0.5 = 1.0, and leaving again keeps 3 seats.
+    // e2e bills by v2's rules: model overage at list + 10%. Per team: the whole billed level, whatever the seats,
+    // 1 + 1.5 x 1.1 = 2.65. Per seat: the pool is 2 x 0.5 = 1, so 1 + 1.5 x 1.1 - 1 = 1.65.
+    expect(byCustomer("cus_side_a")).toEqual([expect.objectContaining({ event_name: "cmux_ai_usage", "payload[value]": "2.650000" })])
+    expect(byCustomer("cus_side_b")).toEqual([expect.objectContaining({ event_name: "cmux_ai_usage_above_included", "payload[value]": "1.650000" })])
+    // A third seat for both: per team nothing changes; per seat the pool is 1.5, 1.5 + 1.0 x 1.1 - 1.5 = 1.1, and
+    // leaving again keeps 3 seats.
     a.items.data[0].quantity = 3
     b.items.data[0].quantity = 3
     await sync(e2eEnv)
     expect(byCustomer("cus_side_a")).toHaveLength(1)
-    expect(byCustomer("cus_side_b").at(-1)).toMatchObject({ "payload[value]": "1.000000" })
+    expect(byCustomer("cus_side_b").at(-1)).toMatchObject({ "payload[value]": "1.100000" })
     b.items.data[0].quantity = 2
     await sync(e2eEnv)
     expect(byCustomer("cus_side_b")).toHaveLength(2)
@@ -409,8 +412,8 @@ describe("price set v2: Team 25 USD per seat, per seat by default", () => {
     await spendOn(teamV2, 80)
     expect((await sync(v2Env)).body).toMatchObject({ checked: 1, items_added: 1, pushed: 1, failed: 0 })
     expect(stripe.calls.filter((c) => c.path === "/v1/subscription_items").map((c) => c.form.price)).toEqual(["price_v2_team_seat"])
-    // 80 - 3 x 25 = 5 on the per-seat meter.
-    expect(stripe.events).toEqual([expect.objectContaining({ event_name: "cmux_ai_usage_above_included", "payload[value]": "5.000000" })])
+    // 80 - 3 x 25 = 5 of model overage, at list + 10% under v2 (Leo 2026-11-09): 5.5 on the per-seat meter.
+    expect(stripe.events).toEqual([expect.objectContaining({ event_name: "cmux_ai_usage_above_included", "payload[value]": "5.500000" })])
     const usage = await (testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(teamV2)) as any).teamUsage(teamV2)
     expect(usage.billable).toMatchObject({ mode: "per_seat", seats: 3, included_usd: 75 })
     // The operator read under v2 says per seat for a team with no setting.
@@ -426,6 +429,29 @@ describe("price set v2: Team 25 USD per seat, per seat by default", () => {
     expect((await teamMode({ stack_team: v1Team, actor: "ops" })).body).toMatchObject({ requested: "per_team", in_force_now: "per_team" })
   })
 
+  it("records the first paid renewal from the subscription list (the raise lock), never the sign-up invoice", async () => {
+    const lockTeam = "f1e2d3c4-b5a6-4978-8a6b-5c4d3e2f1a0b"
+    const teamId = stackTeamIdFor(testEnv.STACK_PROJECT_ID, lockTeam)
+    const stripe = fakeStripe({ start: nowS() - 3600, end: nowS() + 30 * 86_400 })
+    const sub: any = stripe.addSub("sub_lockteam1", "cus_lockteam1", { plan: "team", stackTeamId: lockTeam }, "cmux-team-monthly-20")
+    sub.latest_invoice = { id: "in_signup", status: "paid", billing_reason: "subscription_create", amount_paid: 2500, status_transitions: { paid_at: nowS() - 3600 } }
+    fakeBoundaries(stripe, 0)
+    await spendOn(teamId, 1)
+    const paid = async () => {
+      let rows: unknown[] = []
+      await inDO(testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(teamId)), async (m: any) => {
+        rows = m.ctx.storage.sql.exec(`SELECT invoice, subscription, amount_paid FROM usage_paid_invoice`).toArray()
+      })
+      return rows
+    }
+    expect((await sync(v2Env)).body).toMatchObject({ checked: 1, failed: 0 })
+    expect(await paid()).toEqual([])
+    sub.latest_invoice = { id: "in_renewal", status: "paid", billing_reason: "subscription_cycle", amount_paid: 2500, status_transitions: { paid_at: nowS() } }
+    expect((await sync(v2Env)).body).toMatchObject({ checked: 1, failed: 0 })
+    expect((await sync(v2Env, JSON.stringify({ subscription: "sub_lockteam1" }))).body).toMatchObject({ checked: 1, failed: 0 })
+    expect(await paid()).toEqual([{ invoice: "in_renewal", subscription: "sub_lockteam1", amount_paid: 2500 }])
+  })
+
   it("keeps a pushed per-seat period's included amount when the price set changes inside the period", async () => {
     const pinTeam = "8e9d0c1b-2f3a-4b4c-9d5e-7f8091021324"
     const teamId = stackTeamIdFor(testEnv.STACK_PROJECT_ID, pinTeam)
@@ -435,10 +461,11 @@ describe("price set v2: Team 25 USD per seat, per seat by default", () => {
     fakeBoundaries(stripe, 0)
     await spendOn(teamId, 80)
     expect((await sync(v2Env, JSON.stringify({ subscription: "sub_v2pin" }))).body).toMatchObject({ pushed: 1, failed: 0 })
-    // The set goes back to v1 mid-period: the period stays per seat (pinned) and keeps 3 x 25, not 3 x 20.
+    // The set goes back to v1 mid-period: the period stays per seat (pinned) and keeps 3 x 25, not 3 x 20, and keeps
+    // v2's markup (pinned too): 90 - 75 = 15 of model overage x 1.1 = 16.5, never lowered to 15 mid-period.
     await spendOn(teamId, 10)
     expect((await sync({ ...(env as object), ENVIRONMENT: "staging" }, JSON.stringify({ subscription: "sub_v2pin" }))).body).toMatchObject({ pushed: 1, failed: 0 })
-    expect(stripe.events.filter((e) => e["payload[stripe_customer_id]"] === "cus_v2_pin").map((e) => e["payload[value]"])).toEqual(["5.000000", "15.000000"])
+    expect(stripe.events.filter((e) => e["payload[stripe_customer_id]"] === "cus_v2_pin").map((e) => e["payload[value]"])).toEqual(["5.500000", "16.500000"])
     const usage = await (testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(teamId)) as any).teamUsage(teamId)
     expect(usage.billable).toMatchObject({ mode: "per_seat", seats: 3, included_usd: 75 })
   })
@@ -535,5 +562,87 @@ describe("the console's team usage line (cx-y79zh S5)", () => {
     await sync()
     const billed = (await aiLimits(t, env)).value.team_usage
     expect(billed).toMatchObject({ billed: true, included_usd: 20, per_seat: false, seats: 1, spent_usd: 20, period_start: stripe.period.start * 1000, period_end: stripe.period.end * 1000, stop_applies: false, stopped: false })
+  })
+})
+
+/**
+ * Model overage at list + 10% under price set v2 (Leo 2026-11-09, cmuxterm-hq plans/team-plan/margins.md "Decided"):
+ * the sync sends the billed level, pinned per period like the included amount; the levels read answers the same.
+ */
+describe("model overage markup in the sync and the levels read (v2)", () => {
+  const v2Env = { ...(env as object), ENVIRONMENT: "staging", BILLING_USAGE_PRICE_SET: "v2" }
+  const v1Env = { ...(env as object), ENVIRONMENT: "staging" }
+  const M = 1_000_000
+  const meterOf = (team: string) => testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(team)) as any
+  const machineOn = (team: string, usd: number) => meterOf(team).record(team, [{ key: `cloud:machine_${crypto.randomUUID()}:1:2026-11:1`, meter: "cloud.machine_usd", quantity: usd, source: "cloud", observed_at: Date.now(), user: "user_machine_creator" }])
+  const levelsRead = async (runEnv: unknown, item: unknown) => (await (await handleBillingLevels(new Request("https://api.test/v1/internal/billing/levels", { method: "POST", headers: { authorization: `Bearer ${SYNC_KEY}` }, body: JSON.stringify({ items: [item] }) }), runEnv as any)).json()) as any
+
+  it("sends the billed overage above 3 x 25 for models and machine time; the console and the levels read agree", async () => {
+    const stackTeam = "a1b2c3d4-0e0f-4a1b-8c2d-0f1e2d3c4b5a"
+    const team = stackTeamIdFor(testEnv.STACK_PROJECT_ID, stackTeam)
+    const stripe = fakeStripe({ start: nowS() - 3600, end: nowS() + 30 * 86_400 })
+    const sub = stripe.addSub("sub_markup_team", "cus_markup_team", { plan: "team", stackTeamId: stackTeam }, "cmux-team-monthly-20")
+    sub.items.data[0].quantity = 3
+    fakeBoundaries(stripe, 0)
+    await spendOn(team, 60)
+    await machineOn(team, 40)
+    expect((await sync(v2Env)).body).toMatchObject({ checked: 1, pushed: 1, failed: 0 })
+    // Overage 25 = 15 models + 10 machines: 15 x 1.1 + 10.
+    expect(stripe.events).toEqual([expect.objectContaining({ event_name: "cmux_ai_usage_above_included", "payload[value]": "26.500000" })])
+    expect((await meterOf(team).teamUsage(team, "per_seat", true)).billable).toMatchObject({ mode: "per_seat", seats: 3, included_usd: 75, spent_usd: 101.5 })
+    const item = { stack_team: stackTeam, from: stripe.period.start * 1000, to: stripe.period.end * 1000 }
+    const v2Read = await levelsRead(v2Env, item)
+    expect(v2Read.levels[0]).toMatchObject({ team, micros: 101.5 * M, cost_micros: 100 * M, models_micros: 60 * M, machine_micros: 40 * M, included_micros: 75 * M, meter_micros: 26.5 * M, markup_bp: 11_000, facts: 2, price_version: "ai-overage-models110-v2" })
+    expect((v2Read.levels[0].meter_micros / M).toFixed(6)).toBe(stripe.events[0]!["payload[value]"])
+    // Read under v1 the period keeps its pinned markup; v1 does not pool machine time, so 60 of models sits under 75.
+    expect((await levelsRead(env, item)).levels[0]).toMatchObject({ micros: 60 * M, cost_micros: 60 * M, machine_micros: 0, included_micros: 75 * M, meter_micros: 0, markup_bp: 11_000 })
+    // A period the sync never saw has no pool: the level at cost, the pass-through version.
+    expect((await levelsRead(v2Env, { ...item, from: item.from - 86_400_000 })).levels[0]).toMatchObject({ micros: 100 * M, cost_micros: 100 * M, included_micros: null, meter_micros: 100 * M, markup_bp: 10_000, price_version: "ai-passthrough-v1" })
+  })
+
+  it("a period that started under v1 keeps pass-through after the set flips to v2, until it closes", async () => {
+    const stackTeam = "b2c3d4e5-1f0a-4b2c-9d3e-1a2b3c4d5e6f"
+    const team = stackTeamIdFor(testEnv.STACK_PROJECT_ID, stackTeam)
+    // Set per seat (as v2 would default) before the period, so v1 bills it per seat on the 20 USD price.
+    await teamMode({ stack_team: stackTeam, mode: "per_seat", actor: "ops" })
+    await settingBeforePeriods(team)
+    const stripe = fakeStripe({ start: nowS() - 3600, end: nowS() + 30 * 86_400 })
+    stripe.addSub("sub_pinv1", "cus_pin_v1", { plan: "team", stackTeamId: stackTeam }, "cmux-team-monthly-20")
+    fakeBoundaries(stripe, 0)
+    await spendOn(team, 30)
+    expect((await sync(v1Env, JSON.stringify({ subscription: "sub_pinv1" }))).body).toMatchObject({ pushed: 1, failed: 0 })
+    // The set flips to v2 mid-period: the period keeps 1 x 20 included and pass-through (40 - 20 = 20, not 22).
+    await spendOn(team, 10)
+    expect((await sync(v2Env, JSON.stringify({ subscription: "sub_pinv1" }))).body).toMatchObject({ pushed: 1, failed: 0 })
+    expect(stripe.events.map((e) => e["payload[value]"])).toEqual(["10.000000", "20.000000"])
+    expect((await meterOf(team).teamUsage(team, "per_seat", false)).billable).toMatchObject({ included_usd: 20, spent_usd: 40 })
+    expect((await meterOf(team).teamCap(team, false, "v2")).spent_usd).toBe(40)
+  })
+
+  it("a v1 period's identifier is unchanged across the deploy: an unchanged level from before pinning is not sent again", async () => {
+    const person = "usage-markup-v1-ident"
+    const { t, team } = await paidPerson(person)
+    const stripe = fakeStripe({ start: nowS() - 3600, end: nowS() + 30 * 86_400 })
+    stripe.addSub("sub_identv1", "cus_ident_v1", { plan: "pro", stackUserId: person }, "cmux-pro-monthly-50")
+    fakeBoundaries(stripe, 0.000007)
+    expect((await chat(t)).status).toBe(200)
+    expect((await sync(env, JSON.stringify({ subscription: "sub_identv1" }))).body).toMatchObject({ pushed: 1 })
+    let row: any = null
+    await inDO(meterOf(team), async (m) => {
+      row = m.ctx.storage.sql.exec(`SELECT period_start, identifier, micros FROM usage_push WHERE subscription = 'sub_identv1'`).one()
+      // As a row written before this change: no pinned markup on the push or the mark.
+      m.ctx.storage.sql.exec(`UPDATE usage_push SET markup_bp = NULL`)
+      m.ctx.storage.sql.exec(`UPDATE usage_billable SET markup_bp = NULL`)
+    })
+    const level = await meterOf(team).level(team, row.period_start * 1000, (nowS() + 30 * 86_400) * 1000)
+    // The S4 identifier form, over the level at cost.
+    expect(row.identifier).toBe(`ai:sub_identv1:${row.period_start}:${level.micros}:${level.facts}:${level.last_at}`)
+    expect(row.micros).toBe(7)
+    // The deployed sync (production's v1) reads the same identifier and sends nothing; the run pins pass-through.
+    expect((await sync(env, JSON.stringify({ subscription: "sub_identv1" }))).body).toMatchObject({ pushed: 0, unchanged: 1 })
+    expect(stripe.events).toHaveLength(1)
+    await inDO(meterOf(team), async (m) => {
+      expect(m.ctx.storage.sql.exec(`SELECT markup_bp FROM usage_billable WHERE subscription = 'sub_identv1'`).one().markup_bp).toBe(10_000)
+    })
   })
 })

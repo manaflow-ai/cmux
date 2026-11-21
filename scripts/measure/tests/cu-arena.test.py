@@ -74,7 +74,8 @@ class Parsers(unittest.TestCase):
 
 class Argv(unittest.TestCase):
     def test_claude_runs_with_no_builtin_tools_and_medium_effort(self):
-        argv = arena.claude_argv("claude-opus-5-5", "do it", Path("/tmp/m.json"), "guide", 60)
+        with tempfile.TemporaryDirectory() as folder:
+            argv = arena.claude_argv("claude-opus-5-5", "do it", Path(folder) / "m.json", "guide", 60)
         self.assertEqual(argv[argv.index("--tools") + 1], "")
         self.assertEqual(argv[argv.index("--effort") + 1], "medium")
         self.assertIn("--strict-mcp-config", argv)

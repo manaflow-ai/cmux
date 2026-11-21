@@ -1,0 +1,164 @@
+{
+ "title": "Palette rows for moving the focused tab (move to right split, pop out, other window, duplicate to split)",
+ "launch_args": [
+  "--showcase"
+ ],
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 3
+  },
+  {
+   "title": "Palette: move to right split",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "palette.open",
+     "args": {
+      "query": "move to right split"
+     },
+     "focus": true
+    }
+   },
+   "wait": 1.5
+  },
+  {
+   "title": "Palette rows for “move to right split”",
+   "rpc": {
+    "method": "debug.palette.capture",
+    "params": {
+     "path": "{collect}"
+    }
+   },
+   "wait": 0.3,
+   "optional": "the palette may not be open",
+   "collect": "palette-tab-move-right-split.png"
+  },
+  {
+   "title": "Close the palette",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "commandPalette",
+     "focus": true
+    }
+   },
+   "wait": 1,
+   "optional": "no palette"
+  },
+  {
+   "title": "Palette: pop out",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "palette.open",
+     "args": {
+      "query": "pop out"
+     },
+     "focus": true
+    }
+   },
+   "wait": 1.5
+  },
+  {
+   "title": "Palette rows for “pop out”",
+   "rpc": {
+    "method": "debug.palette.capture",
+    "params": {
+     "path": "{collect}"
+    }
+   },
+   "wait": 0.3,
+   "optional": "the palette may not be open",
+   "collect": "palette-tab-move-pop-out.png"
+  },
+  {
+   "title": "Close the palette",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "commandPalette",
+     "focus": true
+    }
+   },
+   "wait": 1,
+   "optional": "no palette"
+  },
+  {
+   "title": "Palette: move to other window",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "palette.open",
+     "args": {
+      "query": "move to other window"
+     },
+     "focus": true
+    }
+   },
+   "wait": 1.5
+  },
+  {
+   "title": "Palette rows for “move to other window”",
+   "rpc": {
+    "method": "debug.palette.capture",
+    "params": {
+     "path": "{collect}"
+    }
+   },
+   "wait": 0.3,
+   "optional": "the palette may not be open",
+   "collect": "palette-tab-move-other-window.png"
+  },
+  {
+   "title": "Close the palette",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "commandPalette",
+     "focus": true
+    }
+   },
+   "wait": 1,
+   "optional": "no palette"
+  },
+  {
+   "title": "Palette: duplicate to split",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "palette.open",
+     "args": {
+      "query": "duplicate to split"
+     },
+     "focus": true
+    }
+   },
+   "wait": 1.5
+  },
+  {
+   "title": "Palette rows for “duplicate to split”",
+   "rpc": {
+    "method": "debug.palette.capture",
+    "params": {
+     "path": "{collect}"
+    }
+   },
+   "wait": 0.3,
+   "optional": "the palette may not be open",
+   "collect": "palette-tab-move-duplicate-split.png"
+  },
+  {
+   "title": "Close the palette",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "commandPalette",
+     "focus": true
+    }
+   },
+   "wait": 1,
+   "optional": "no palette"
+  }
+ ]
+}

@@ -289,6 +289,25 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
         finish()
     }
 
+    /// One text message on the ordered channel, waiting first while its
+    /// buffer is full (a long run of messages, such as a pasted image's
+    /// chunks, never overflows it).
+    func sendTextPaced(_ text: String) async throws {
+        guard let channel = lock.withLock({ channel }), channel.readyState == .open else { throw VNCWebRTCError.closed }
+        while channel.bufferedAmount > Self.highWater {
+            await withCheckedContinuation { continuation in
+                let resumeNow = lock.withLock { () -> Bool in
+                    if ended || channel.bufferedAmount <= Self.highWater { return true }
+                    drained.append(continuation)
+                    return false
+                }
+                if resumeNow { continuation.resume() }
+            }
+            if lock.withLock({ ended }) { throw VNCWebRTCError.closed }
+        }
+        guard channel.sendData(RTCDataBuffer(data: Data(text.utf8), isBinary: false)) else { throw VNCWebRTCError.closed }
+    }
+
     /// Text messages on the data channel (screen stream control and input).
     func sendText(_ text: String, on label: String? = nil) -> Bool {
         let target = lock.withLock { label.flatMap { extras[$0] } ?? channel }

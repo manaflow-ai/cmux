@@ -1,13 +1,27 @@
 // u2647 follow-up: the image viewer's icon buttons name the key that presses them, to VoiceOver
 // (aria-keyshortcuts) and in the tooltip, as every dialog button does: Close ⎋, Previous ←, Next →.
-import { afterEach, expect, test } from "bun:test";
+import { afterAll, afterEach, expect, test } from "bun:test";
+import { settleReact } from "../../../../test/support/domTeardown";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { ImageViewer } from "./ImageViewer";
 
-// Base UI's focus code schedules frames that may run after a test: the frame functions stay installed.
+// Base UI's focus code schedules frames that may run after a test: the frame functions stay installed
+// for the whole file, and go when it ends (the frames still pending then are cleared with them).
+const frames = {
+  requestAnimationFrame: globalThis.requestAnimationFrame,
+  cancelAnimationFrame: globalThis.cancelAnimationFrame,
+};
 installFrames();
+afterAll(async () => {
+  const globals = globalThis as Record<string, unknown>;
+  await settleReact();
+  for (const [key, value] of Object.entries(frames)) {
+    if (value === undefined) delete globals[key];
+    else globals[key] = value;
+  }
+});
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -30,18 +44,22 @@ function installFrames() {
   globals.cancelAnimationFrame ??= (id: number) => clearTimeout(id);
 }
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
-  for (const [key, value] of saved) scope[key] = value;
+  for (const [key, value] of saved) {
+    if (value === undefined) delete scope[key];
+    else scope[key] = value;
+  }
   saved.clear();
 });
 
 function render(node: React.ReactNode): Document {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
-  for (const key of GLOBALS) saved.set(key, scope[key]);
+  for (const key of GLOBALS) if (!saved.has(key)) saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,

@@ -33,11 +33,12 @@ export type TurnFoldStyle = {
 };
 
 /// ChatGPT and Codex: the conclusion fold, under Codex's own header.
-const CODEX: TurnFoldStyle = { conclusion: true, runs: false, countsMessages: true, countsCalls: false };
+const CODEX: TurnFoldStyle = { conclusion: true, runs: false, countsMessages: false, countsCalls: false };
 
 /// The fold every other family gets: one closed "Worked for 36s" over the
-/// conclusion, never a message count; opened, its runs fold per run.
-const WORKED_FOR: TurnFoldStyle = { conclusion: true, runs: true, countsMessages: false, countsCalls: true };
+/// conclusion, never a message or call count, as the Codex app's (Lucas, 2026-11-12: remove the
+/// "15 tool calls"); opened, its runs fold per run.
+const WORKED_FOR: TurnFoldStyle = { conclusion: true, runs: true, countsMessages: false, countsCalls: false };
 
 /// Keyed by the harness family's agent (agentKey: "claude-sr2" is "claude"). A family missing here
 /// folds as Codex does, as every family but Claude did before this table.

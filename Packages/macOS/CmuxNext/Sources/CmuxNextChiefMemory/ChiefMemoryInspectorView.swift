@@ -60,7 +60,7 @@ public struct ChiefMemoryInspectorView: View {
                 .frame(maxWidth: 260)
                 .onSubmit { Task { await model.search() } }
             Button { Task { await model.reload() } } label: { Image(systemName: "arrow.clockwise") }
-                .buttonStyle(.borderless)
+                .buttonStyle(.cmuxPressFill)
                 .disabled(model.busy)
         }
         .padding(10)

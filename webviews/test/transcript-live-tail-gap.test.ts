@@ -11,6 +11,7 @@ import { expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { settleReact } from "./support/domTeardown";
 
 const CHAT = "0190a000-0000-7000-8000-0000000000f1";
 const START = Date.UTC(2026, 10, 6, 5, 0, 0);
@@ -447,7 +448,8 @@ test("reconnect waits stay within 10 s however long the pane was away, and onlin
     }
     await settle();
     expect(Math.max(...waits)).toBeLessThanOrEqual(10_000);
-    expect(waits.at(-1)).toBe(10_000);
+    // The capped step, jittered to 50-100% so tabs that lost one daemon spread out.
+    expect(waits.at(-1)).toBeGreaterThanOrEqual(5_000);
     // The laptop wakes: the network comes back, and the pane connects without waiting out its timer.
     refuse = false;
     const opens = p.opens();
@@ -456,6 +458,7 @@ test("reconnect waits stay within 10 s however long the pane was away, and onlin
     await p.until(() => p.connection() === "connected");
     expect(p.opens()).toBe(opens + 1);
   } finally {
+    await settleReact();
     if (saved.had) Object.assign(scope, { window: saved.window, document: saved.document });
     else {
       delete scope.window;

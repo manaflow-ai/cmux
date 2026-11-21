@@ -184,6 +184,10 @@ pub fn summarize_with(
         if meta.updated_at < fold.streak_since() {
             continue;
         }
+        // A cold-archived chat (`hub/cold_archive.rs`): a read would bring its log back.
+        if meta.cold.is_some() {
+            continue;
+        }
         let mut session = SessionFold::new(options, fresh_input(&meta));
         let scanned = store.scan(&meta.id, 0, &mut |record| {
             session.record(&record);

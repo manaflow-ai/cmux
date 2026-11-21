@@ -1,9 +1,9 @@
 // A send made while acpmux starts, restarts or reconnects is held and sent once it answers, never
 // failed at once (ask-5174ba0b6d, Leo 2026-11-06: "your sends are getting busted intermittently as
-// things load"). Only a wait past the host's deadline fails it, with plain words and no restart advice.
+// things load"). It waits as long as acpmux is away, a machine reboot included, and goes once it
+// answers (Leo, 2026-11-12: "try what? no, it should just automatically do stuff").
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { HOST_ERROR_DEADLINE_MS } from "./hostRetry";
 import { failedSendText, retryHelps, sendCause } from "./sendFailure";
 import {
   SEND_RETRY_FIRST_MS,
@@ -12,6 +12,7 @@ import {
   sendsHeldForHost,
   untilHostAnswers,
 } from "./sendWhenReady";
+import { settleReact } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -24,7 +25,8 @@ beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const key of ["window", "document"] as const)
     if (saved[key]) scope[key] = saved.values[key];
     else delete scope[key];
@@ -82,19 +84,35 @@ test("a send that fails while the host comes back goes once it answers", async (
   expect(clock.waits).toEqual([SEND_RETRY_FIRST_MS, SEND_RETRY_FIRST_MS * 2, SEND_RETRY_FIRST_MS * 4]);
 });
 
-test("the wait has an end: past the deadline the last failure is thrown", async () => {
+test("a send waits out a machine reboot with no deadline, and goes once, when acpmux answers", async () => {
   const clock = fakeClock();
   let tries = 0;
-  const error = await untilHostAnswers(async () => {
+  let sent = 0;
+  // Five minutes away: longer than any deadline the pane used to give up at (25 s).
+  const back = 5 * 60_000;
+  const result = await untilHostAnswers(async () => {
     tries += 1;
-    throw notConnected();
-  }, clock).catch((caught: unknown) => caught);
-  expect((error as { code?: string }).code).toBe("native.not_connected");
-  expect(clock.now()).toBeLessThanOrEqual(HOST_ERROR_DEADLINE_MS);
-  // Backoff doubles to 2 s: a bounded count of tries in 25 s.
-  expect(tries).toBeGreaterThan(5);
-  expect(tries).toBeLessThan(20);
+    if (clock.now() < back) throw notConnected();
+    sent += 1;
+    return "sent";
+  }, clock);
+  expect(result).toBe("sent");
+  expect(sent).toBe(1);
+  // Backoff doubles to 2 s and stays there: a try every 2 s, never a tight loop.
   expect(Math.max(...clock.waits)).toBe(2_000);
+  expect(tries).toBeLessThan(back / 2_000 + 10);
+});
+
+test("a given deadline still ends the wait with the last failure", async () => {
+  const clock = fakeClock();
+  const error = await untilHostAnswers(
+    async () => {
+      throw notConnected();
+    },
+    { ...clock, deadlineMs: 25_000 },
+  ).catch((caught: unknown) => caught);
+  expect((error as { code?: string }).code).toBe("native.not_connected");
+  expect(clock.now()).toBeLessThanOrEqual(25_000);
 });
 
 test("a failure the host does not clear, or a send no longer wanted, stops at once", async () => {
@@ -171,4 +189,25 @@ test("a held start stops once another chat is selected, so the prompt never goes
   expect(stop()).toBe(false);
   closed.isClosed = true;
   expect(stop()).toBe(true);
+});
+
+test("a wait whose timer fires past the deadline starts no further try", async () => {
+  let at = 0;
+  let tries = 0;
+  const error = await untilHostAnswers(
+    async () => {
+      tries += 1;
+      throw notConnected();
+    },
+    {
+      now: () => at,
+      deadlineMs: 25_000,
+      // The Mac slept through the first wait.
+      sleep: async () => {
+        at += 60_000;
+      },
+    },
+  ).catch((caught: unknown) => caught);
+  expect(tries).toBe(1);
+  expect((error as { code?: string }).code).toBe("native.not_connected");
 });

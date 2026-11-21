@@ -12,6 +12,7 @@ import {
   repoSourceHref,
   nextDocPage,
   nextDocPublicPath,
+  repoSourceHref,
   type DocBlock,
   type NextDocPage,
 } from "@/data/next-docs/pages";
@@ -55,7 +56,7 @@ function Block({ block }: { block: DocBlock }) {
         <tbody>
           {block.files.map((file) => (
             <tr key={file.path}>
-              <td><a href={repoSourceHref(file.path)}><code>{file.path}</code></a></td>
+              <td><a href={repoSourceHref(file.path, file.kind)}><code>{file.path}</code></a></td>
               <td>{file.what}</td>
             </tr>
           ))}

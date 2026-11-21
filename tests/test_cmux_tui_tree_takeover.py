@@ -47,12 +47,13 @@ class Repo:
     """GitHub as notify and the takeover see it: a re-run of the waiter's artifacts run, and the
     publish that the re-run makes."""
 
-    def __init__(self, markers: list[dict], tip_runs: list[dict]):
+    def __init__(self, markers: list[dict], tip_runs: list[dict], head_repository_id: int = 1):
         self.artifacts = [
             {"id": 100 + index, "name": f"cmux-next-tree-wait-{KEY}", "expired": False,
              "created_at": "2026-11-09T18:20:00Z", "archive_download_url": f"zip/{100 + index}",
              # A same-repository run (cmux_next_tree_notify.from_same_repository): a fork's marker is ignored.
-             "workflow_run": {"id": marker["run_id"], "repository_id": 1, "head_repository_id": 1,
+             # head_repository_id other than 1: a fork pull request's run uploaded the marker.
+             "workflow_run": {"id": marker["run_id"], "repository_id": 1, "head_repository_id": head_repository_id,
                               "head_branch": marker.get("head_ref") or marker.get("branch")}}
             for index, marker in enumerate(markers)]
         self.zips = {f"zip/{100 + index}": marker_zip(marker) for index, marker in enumerate(markers)}
@@ -152,6 +153,35 @@ class OwnerEndedWithoutPublishing(unittest.TestCase):
                                    log=lambda _line: None, fetch_completion=lambda _key: None,
                                    exclude_run=1, quota_only=lambda: True)
         self.assertEqual((dispatched, repo.reruns), (1, []))
+
+    def test_a_fork_runs_marker_starts_no_takeover(self):
+        """Review of #39634 (notifier-merge-1): a fork pull request's run executes the fork's workflow file, so
+        it can upload a push or dispatch marker that names a waiting feat-cmux-next commit. That marker must not
+        re-run the commit's artifacts run, must not mark the tree taken over (which hides the red from the real
+        waiters) and must not start a same-tree run."""
+        push = {key: value for key, value in tip_marker("base", 2).items() if key != "tip_suite"}
+        for marker in (tip_marker("daemon", 1), dict(push, origin="push")):
+            with self.subTest(origin=marker["origin"]):
+                repo = Repo([marker], [tip_run()], head_repository_id=9)
+                self.assertEqual(notify_run(repo, "failed"), 0)
+                self.assertEqual(repo.reruns, [], "a fork's marker re-runs no artifacts run")
+                self.assertEqual(repo.next_dispatches, [], "a fork's marker starts no same-tree run")
+
+    def test_a_fork_runs_marker_does_not_hide_a_real_waiters_red(self):
+        """A real waiter that cannot take over (a tag dispatch) is reported red even when a fork's marker names
+        a feat-cmux-next commit that could."""
+        real = {key: value for key, value in tip_marker("daemon", 1).items() if key != "tip_suite"}
+        real.update(sha=LANE, status_sha=LANE, branch="v1.2.3", ref_kind="tags")
+        repo = Repo([real], [tip_run()])
+        fork = dict(repo.artifacts[0], id=99, archive_download_url="zip/99",
+                    workflow_run=dict(repo.artifacts[0]["workflow_run"], id=3, head_repository_id=9,
+                                      head_branch="feat-cmux-next"))
+        repo.artifacts.insert(0, fork)
+        repo.zips["zip/99"] = marker_zip(tip_marker("base", 3))
+        self.assertEqual(notify_run(repo, "failed"), 1)
+        self.assertEqual(repo.reruns, [])
+        self.assertEqual([(body["ref"], body["inputs"]["same_tree_state"]) for body in repo.next_dispatches],
+                         [("v1.2.3", "failed")])
 
     def test_at_most_three_waiting_commits_are_looked_at(self):
         reads: list[str] = []

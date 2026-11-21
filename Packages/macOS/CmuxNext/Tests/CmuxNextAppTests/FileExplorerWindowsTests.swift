@@ -30,7 +30,6 @@ struct FileExplorerWindowsTests {
         let services = AppServices(environment: AppEnvironment.current([:]))
         let suite = "cmux-file-explorer-windows-test-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(testSuiteName: suite))
-        services.rightSidebarDefaults = defaults
         services.windows.ordersWindowsIn = false
         AppActions.bind(services)
         let first = try #require(services.windows.openWindow(workspaces: ["fe-windows-a"]))

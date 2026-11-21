@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import cliGenerated from "../data/next-docs/cli-reference.generated.json";
 import paletteGenerated from "../data/next-docs/palette-reference.generated.json";
 import settingsGenerated from "../data/next-docs/settings-reference.generated.json";
-import { nextDocHref, nextDocPage, nextDocPages, nextDocPublicPath } from "../data/next-docs/pages";
+import { nextDocHref, nextDocPage, nextDocPages, nextDocPublicPath, repoSourceHref } from "../data/next-docs/pages";
 import { buildLlmsText, resolveAgentPageVariant } from "../app/lib/agent-page-paths";
 import { buildLocalGuide, buildNextDocsFullText } from "../app/lib/next-docs-text";
 import { sitemapEntries } from "../app/sitemap";
@@ -67,6 +67,21 @@ describe("cmux-next docs", () => {
     expect(nextDocHref("getting-started")).toBe("/docs/next");
   });
 
+  // The architecture page points at folders and files; a move or rename must not leave it
+  // linking to nothing, and a file links under blob, a folder under tree.
+  test("every repository path a page links to exists and is the kind it says", () => {
+    const wrong = nextDocPages.flatMap((page) =>
+      page.body.flatMap((block) => ("files" in block ? block.files : []))
+        .filter((file) => {
+          const full = join(repo, file.path);
+          return !existsSync(full) || statSync(full).isDirectory() !== (file.kind === "folder");
+        })
+        .map((file) => `${page.slug}: ${file.path} (${file.kind})`));
+    expect(wrong).toEqual([]);
+    expect(repoSourceHref("cmux-tui/docs", "folder")).toBe("https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/cmux-tui/docs");
+    expect(repoSourceHref("cmux-tui/spec/resource-api-v2.md", "file")).toBe("https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/cmux-tui/spec/resource-api-v2.md");
+  });
+
   test("the settings reference is fresh against the settings schema", () => {
     expect(buildSettingsReference(schema)).toEqual(settingsGenerated as never);
   });
@@ -99,16 +114,31 @@ describe("cmux-next docs", () => {
     expect(missing).toEqual([]);
   });
 
+  // One prompt, not copies that drift: the Cloud page's "Paste this into your agent" block is
+  // the cloud_session prompt of `cmux setup` (cmux-tui/.../cli/setup.rs), as generated into
+  // docs/chief-setup-prompts.md.
+  test("the Cloud page's agent prompt is cmux setup's cloud_session prompt", () => {
+    const generated = readFileSync(join(repo, "docs/chief-setup-prompts.md"), "utf8");
+    const section = generated.split("\n## ").find((part) => part.startsWith("Work in cmux Cloud"));
+    const prompt = section?.match(/```text\n([^\n]+)\n```/)?.[1]?.replace("--agent AGENT", "--agent claude");
+    const blocks = nextDocPage("cloud")!.body.flatMap((block) => ("code" in block && block.lang === "text" ? [block.code] : []));
+    expect(prompt).toBeDefined();
+    expect(blocks).toEqual([prompt!]);
+  });
+
   test("every cmux command written in a hand-written page is a real CLI verb", () => {
     const verbs = new Set(buildCliReference(surfaces).nouns.flatMap((noun) => noun.verbs.map((verb) => verb.command)));
     // Commands of the Rust CLI itself, not app actions (cmux --help). `cmux harness` and
     // `cmux acp` are acpmux's CLI (cmux-tui/crates/acpmux/src/cli/harness.rs, ledger.rs,
     // host_enroll.rs); `cloud secret` and `machine vault` are cmux-tui's
-    // (src/cli/cloud_secret.rs, src/cli/machine_join/vault.rs).
+    // (src/cli/cloud_secret.rs, src/cli/machine_join/vault.rs, src/cli/setup.rs); `server …` is
+    // cmux-server's (cmux-tui/crates/cmux-server/src/cli/args.rs).
     const allowed = new Set([
       "cmux action list", "cmux action run", "cmux <noun> <verb>", "cmux mcp serve", "cmux mcp tools",
       "cmux settings set", "cmux version", "cmux harness add", "cmux harness secret", "cmux harness doctor",
-      "cmux acp ledger", "cmux acp machine", "cmux cloud secret", "cmux machine vault",
+      "cmux acp ledger", "cmux acp machine", "cmux cloud secret", "cmux machine vault", "cmux setup mcp",
+      "cmux server install", "cmux server uninstall", "cmux server status", "cmux server up",
+      "cmux server down", "cmux server logs",
       // acpmux's sessions and daemon (cmux-tui/crates/acpmux/docs/cli-sessions.md, cli-daemon.md),
       // and `cmux device` (src/devices/mod.rs).
       "cmux acp ls", "cmux acp new", "cmux acp send", "cmux acp wait", "cmux acp last", "cmux acp daemon",

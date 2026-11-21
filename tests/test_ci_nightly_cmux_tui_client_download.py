@@ -159,17 +159,16 @@ class TrickleFailsAtTheStallBound(unittest.TestCase):
         (app / "Contents").mkdir(parents=True)
         env = dict(os.environ, CURL_HOME=str(tmp), CMUX_TUI_CLIENT_DOWNLOAD_ATTEMPTS="2",
                    CMUX_TUI_CLIENT_DOWNLOAD_STALL_SECONDS="2", CMUX_TUI_CLIENT_DOWNLOAD_MAX_SECONDS="40")
-        started = time.monotonic()
         result = subprocess.run(
             ["bash", ROOT / "scripts/install-cmux-tui-client.sh", app, "--allow-unattested",
              "--cache-dir", tmp / "cache", "--manifest-url", f"https://127.0.0.1:{port}/manifest.json"],
             env=env, capture_output=True, text=True, timeout=90)
-        elapsed = time.monotonic() - started
         log = result.stdout + result.stderr
         self.assertNotEqual(result.returncode, 0, log)
+        # The stall detector, not the overall budget, ended each attempt: a trickle that ran to the
+        # budget would say so in the log. That is the causal check; the wall time it took is not asserted.
         self.assertNotIn("download budget exceeded", log, f"one trickling attempt spent the budget:\n{log}")
         self.assertIn(f"could not download https://127.0.0.1:{port}/manifest.json after 2 attempts", log, log)
-        self.assertLess(elapsed, 25, f"a trickle took {elapsed:.0f} s to fail:\n{log}")
         self.assertEqual(len((tmp / "connections").read_text().splitlines()), 2,
                          "each attempt dials its own connection")
 

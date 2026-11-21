@@ -1,14 +1,21 @@
-//! Terminal OSC 9;4 progress and OSC 7501 program status on the public
-//! graph. The daemon parses both for every terminal (mounted or not) and
-//! publishes a terminal upsert whenever the parsed state changes.
+//! A terminal's durable edges on the public graph: a command or prompt
+//! fact, and an OSC 7501 program status record that appears, goes away or
+//! changes its state or kind. The daemon parses them for every terminal
+//! (mounted or not) and commits one terminal upsert per edge. An OSC 9;4
+//! progress, the last output time and a report that keeps its record's
+//! state and kind are live facts: `terminal_live.rs` sends them to the open
+//! streams with no commit, but while a journal stream follows their rows
+//! (`Mux::follow_terminal_progress_rows`) or a journal hook is delivered
+//! them, each is one commit here too.
 
 use super::*;
 use crate::resource_api::{public_terminal_snapshot, terminal_tab_ids_in_canonical_order};
 
 impl Mux {
-    /// Publish `source`'s current terminal snapshot (with its progress and
-    /// program status) as one resource revision named `mutation`. A replaced
-    /// runtime or a terminal that is not running publishes nothing.
+    /// Publish `source`'s current terminal snapshot (with its newest live
+    /// facts) as one resource revision named `mutation`, for a durable
+    /// edge. A replaced runtime or a terminal that is not running publishes
+    /// nothing.
     pub(crate) fn publish_terminal_progress(
         &self,
         source: &Surface,
