@@ -51,6 +51,21 @@ impl Hub {
     /// share the name.
     fn resolve_exact(&self, key: &str) -> Option<Result<Arc<Session>, RpcError>> {
         let sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let tied = |matched: &[Arc<Session>]| {
+            let mut names: Vec<String> = matched
+                .iter()
+                .map(|s| {
+                    let meta = s.meta.lock().unwrap_or_else(|e| e.into_inner());
+                    format!("{} ({})", meta.name, s.id)
+                })
+                .collect();
+            names.sort();
+            RpcError::invalid_params(format!(
+                "{key:?} names {} sessions: {}; use the id",
+                names.len(),
+                names.join(", ")
+            ))
+        };
         if let Some(s) = sessions.get(key) {
             return Some(Ok(s.clone()));
         }
@@ -81,15 +96,11 @@ impl Hub {
                 match matched.len() {
                     0 => None,
                     1 => Some(Ok(matched.remove(0))),
-                    n => Some(Err(RpcError::invalid_params(format!(
-                        "{key:?} names {n} sessions; use the id"
-                    )))),
+                    _ => Some(Err(tied(&matched))),
                 }
             }
             1 => Some(Ok(named.remove(0))),
-            n => Some(Err(RpcError::invalid_params(format!(
-                "{key:?} names {n} sessions; use the id"
-            )))),
+            _ => Some(Err(tied(&named))),
         }
     }
 }

@@ -81,6 +81,10 @@ impl Hub {
             {
                 return self.name_on(&machine, key, rest, false);
             }
+            let agent_id =
+                agent_id.into_iter().filter(|candidate| candidate.host == host).collect();
+            let agent_prefix =
+                agent_prefix.into_iter().filter(|candidate| candidate.host == host).collect();
             [whole, agent_id, agent_prefix, cased, short_cased, spaced]
                 .into_iter()
                 .find(|tier| !tier.is_empty())
@@ -538,6 +542,7 @@ mod tests {
         for key in [peer_id, "a1b2c3d4", "hb/a1b2c3d4", "hb/a1b2c3d4-2200-4000-8000-000000000002"] {
             assert_eq!(hub.key_route(key).unwrap().as_deref(), Some("hb/peer-review"), "{key}");
         }
+        assert_eq!(hub.key_route("other/a1b2c3d4").unwrap(), None);
         assert_eq!(hub.key_route("6e0ba").unwrap(), None);
         assert_eq!(hub.key_route("hb/6e0bad").unwrap(), None);
     }

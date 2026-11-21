@@ -261,7 +261,7 @@ pub fn resolve(hub: &Hub, key: &str) -> Result<String, RpcError> {
     }
     hub.resolve_remote(key)
         .map(|(peer, id, _)| format!("{}/{id}", peer.name))
-        .ok_or_else(|| RpcError::not_found(format!("no session matches {key:?}; run acpmux ls")))
+        .ok_or_else(|| hub.no_session_refusal(key))
 }
 pub(super) fn summary(hub: &Hub, key: &str) -> Value {
     if let Ok(s) = hub.resolve(key) {

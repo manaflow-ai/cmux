@@ -1559,7 +1559,7 @@ impl Hub {
                 map.named(agent_key)
                     .into_iter()
                     .filter(|(_, r)| {
-                        requested_peer.map_or(true, |peer| r.peer == peer)
+                        requested_peer.is_none_or(|peer| r.peer == peer)
                             && crate::session_identity::match_agent_session_id(
                                 r.summary.agent_session_id(),
                                 agent_key,
@@ -1624,15 +1624,22 @@ impl Hub {
             .filter(|n| crate::session_name::contains_ignore_case(n, lower))
             .map(str::to_owned)
             .collect();
+        let requested_peer = lower.split_once('/').map(|(peer, _)| peer);
         let id_key = lower.rsplit('/').next().unwrap_or(lower);
         if crate::session_identity::agent_id_query(id_key)
             || id_key.bytes().any(|b| b.is_ascii_digit())
         {
             names.extend(map.values().filter_map(|r| {
+                let peer_matches =
+                    requested_peer.is_none_or(|peer| r.peer.eq_ignore_ascii_case(peer));
                 r.summary
                     .agent_session_id()
-                    .filter(|id| crate::session_name::contains_ignore_case(id, id_key))
-                    .map(str::to_owned)
+                    .filter(|id| {
+                        peer_matches && crate::session_name::contains_ignore_case(id, id_key)
+                    })
+                    .map(|id| {
+                        requested_peer.map_or_else(|| id.to_owned(), |peer| format!("{peer}/{id}"))
+                    })
             }));
         }
         names

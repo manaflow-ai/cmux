@@ -2448,6 +2448,7 @@ impl Hub {
         // Include those ids in nearest-match diagnostics whenever the query can be an agent-id
         // prefix, while retaining full UUID diagnostics that contain separators.
         let id_key = lower.rsplit('/').next().unwrap_or(&lower);
+        let requested_host = lower.split_once('/').map(|(host, _)| host);
         let id_query = crate::session_identity::agent_id_query(id_key)
             || id_key.bytes().any(|b| b.is_ascii_digit());
         let mut names: Vec<String> = self
@@ -2460,12 +2461,19 @@ impl Hub {
                 name.to_ascii_lowercase().contains(&lower).then_some(name)
             })
             .collect();
-        if id_query {
+        let local_host = requested_host
+            .is_none_or(|host| host == LOCAL_HOST_ID || super::own_host::is_own_machine_name(host));
+        if id_query && local_host {
             names.extend(self.sessions().iter().filter_map(|s| {
                 let meta = s.meta();
-                meta.agent_session_id.filter(|id| {
-                    meta.status != SessionStatus::Closed && id.to_ascii_lowercase().contains(&lower)
-                })
+                meta.agent_session_id
+                    .filter(|id| {
+                        meta.status != SessionStatus::Closed
+                            && id.to_ascii_lowercase().contains(id_key)
+                    })
+                    .map(|id| {
+                        requested_host.map_or_else(|| id.clone(), |host| format!("{host}/{id}"))
+                    })
             }));
         }
         names.extend(self.remote_names_containing(&lower));
