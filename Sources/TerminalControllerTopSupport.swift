@@ -56,12 +56,18 @@ extension TerminalController {
         includeProcesses: Bool
     ) -> Set<Int> {
         var allPIDs: Set<Int> = []
+        // Launch evidence for TTY ownership: a process the app forked onto a surface
+        // TTY is the surface's, an arbitrary off-TTY parent proves nothing. (#11004)
+        // `app_process_pids` only says which window is charged for the app, so a
+        // one-workspace read or a non-key window still needs the app as evidence.
+        let cmuxOwnedPIDs = processSnapshot.expandedPIDs(
+            rootPIDs: windows.reduce(into: [Int(Darwin.getpid())]) { roots, window in
+                roots.formUnion(v2TopIntArray(window["app_process_pids"]))
+            }
+        )
         for index in windows.indices {
             var workspaces = windows[index]["workspaces"] as? [[String: Any]] ?? []
             let appProcessPIDs = Set(v2TopIntArray(windows[index]["app_process_pids"]))
-            // Launch evidence for TTY ownership: a process the app forked onto a surface
-            // TTY is the surface's, an arbitrary off-TTY parent proves nothing. (#11004)
-            let cmuxOwnedPIDs = processSnapshot.expandedPIDs(rootPIDs: appProcessPIDs)
             var windowPIDs = appProcessPIDs
             var windowTopLevelPIDs: Set<Int> = []
             var windowForegroundProcessGroupIDs: Set<Int> = []
