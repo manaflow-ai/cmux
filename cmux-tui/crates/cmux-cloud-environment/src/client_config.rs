@@ -257,13 +257,17 @@ pub(crate) fn is_loopback_origin(value: &str) -> bool {
 /// name Tailscale Serve gives a dev VM's per-tag stack on the team's tailnet. HTTPS only (Serve's
 /// certificate); another tailnet's name, a bare `ts.net` or an IP never matches.
 pub(crate) fn is_tailnet_origin(value: &str) -> bool {
+    // RED: the base's check (any *.ts.net name of two or more labels).
     url::Url::parse(value).is_ok_and(|url| {
         url.scheme() == "https"
             && matches!(url.host(), Some(url::Host::Domain(_)))
             && url.host_str().is_some_and(|host| {
-                host.strip_suffix(TEAM_TAILNET_SUFFIX).is_some_and(|machine| {
-                    !machine.is_empty()
-                        && machine.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+                host.strip_suffix(".ts.net").is_some_and(|name| {
+                    name.split('.').count() >= 2
+                        && name.split('.').all(|label| {
+                            !label.is_empty()
+                                && label.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+                        })
                 })
             })
     })
@@ -288,14 +292,9 @@ fn public_stack_slot(host: &str) -> Option<(&str, &str)> {
 /// A tag stack's public API origin: `https://api.s<N>.wdev.cmux.dev`, HTTPS on the default port, the
 /// one host the gateway answers for a slot's API. Its mobile and hub siblings are never a backend.
 pub(crate) fn is_public_stack_origin(value: &str) -> bool {
-    url::Url::parse(value).is_ok_and(|url| {
-        url.scheme() == "https"
-            && url.port().is_none()
-            && url
-                .host_str()
-                .and_then(public_stack_slot)
-                .is_some_and(|(service, _)| service == "api")
-    })
+    // RED: the base has no public stack origin.
+    let _ = value;
+    false
 }
 
 fn host(value: &str) -> Option<String> {
