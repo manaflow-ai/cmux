@@ -44,10 +44,13 @@ fn daemon_log_refuses_a_symlink() {
 #[cfg(target_os = "linux")]
 #[tokio::test]
 async fn managed_unit_start_avoids_a_symlinked_default_home() {
-    let dir = std::env::temp_dir().join(format!(
-        "acpmux-managed-start-{}-{}",
+    // Under /tmp, not the temp dir: a long TMPDIR (a fleet worker's `/tmp/cbw-<id>`) puts
+    // `supervised/acpmux.sock` past the 96 bytes `socket_path_for` keeps, so the unit's socket
+    // becomes the `/tmp/acpmux-<uid>` alias, no longer the link's, and the CLI rightly skips it.
+    let dir = std::path::PathBuf::from(format!(
+        "/tmp/acpmux-ms-{}-{}",
         std::process::id(),
-        uuid::Uuid::now_v7()
+        uuid::Uuid::now_v7().simple()
     ));
     let supervised = dir.join("supervised");
     std::fs::create_dir_all(&supervised).unwrap();
@@ -150,6 +153,25 @@ fn fake_unit_in_state(
         ),
     );
     systemctl
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn missing_custom_home_is_refused_before_managed_unit_start() {
+    let scratch = cmux_unix_socket::short_test_dir("managed-missing");
+    let dir = scratch.path();
+    std::fs::create_dir_all(dir).unwrap();
+    let home = dir.join("removed");
+    let socket = crate::config::socket_path_for(&home, None);
+    let systemctl = fake_unit_in_state(dir, &home, "inactive");
+
+    let result: Result<()> = connect_with_systemctl(&systemctl, &home, &socket, true, || async {
+        Err(anyhow!("no daemon"))
+    })
+    .await;
+
+    assert!(result.unwrap_err().to_string().contains("does not exist"));
+    assert!(!dir.join("probes").exists(), "the CLI attempted to start the unit");
 }
 
 /// A fleet lane host, 11-06: a review box ran `acpmux` while `acpmux.service` was stopping for
