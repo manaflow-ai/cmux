@@ -4,6 +4,27 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// Accept an invite or a group link from its link (/i/<code>#<secret>). The Worker turns the secret into the proof the owner checks; a group invite may wait for the inviter's approval; a link from grant.create joins at once with the link's role.
+    InviteAcceptOp {
+        name: "invite.accept",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-own",
+        principals: [Session],
+        params: InviteAcceptParams,
+        result: HomeConversationCommit,
+        error: InviteAcceptError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct InviteAcceptParams {
+    pub code: String,
+    pub secret: String,
+}
+
 wire_errors! {
     /// The error codes invite.accept declares.
     InviteAcceptError {
@@ -873,30 +894,4 @@ wire_errors! {
         SelectorNotFound = "selector.not_found",
         ValidationInvalid = "validation.invalid",
     }
-}
-
-wire_op! {
-    /// Set or clear a participant's avatar. A person sets only their own; the owner sets any of their Chiefs'; a Chief token never sets one; nobody sets another person's.
-    ParticipantAvatarSetOp {
-        name: "participant.avatar.set",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: ParticipantAvatarSetParams,
-        result: ParticipantAvatarSetResult,
-        error: ParticipantAvatarSetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ParticipantAvatarSetParams {
-    pub participant_id: ParticipantId,
-    /// The image, base64; at most 1048576 decoded bytes; PNG, JPEG, GIF or WebP by its signature.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub bytes: Option<String>,
-    /// true removes the picture (no bytes).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub clear: Option<bool>,
 }

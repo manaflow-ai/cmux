@@ -607,6 +607,47 @@ wire_errors! {
 }
 
 wire_op! {
+    /// The team board in one read: `machines`, `usage` and `audit` are exactly what GET /v1/machines, GET /v1/machines/usage (the last 30 days) and GET /v1/machines/audit (the newest 50 rows) answer the caller (TeamMachine[], MachineUsage, MachineAuditRow[]); `members` is the first 200 of the team's members by user id with their display names (team.members.list), or null when the caller may not read them; `self` is the caller's user id. The same access as those reads: a member of the team, or its billing role.
+    CloudMachineBoardOp {
+        name: "cloud.machine.board",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:CloudDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: CloudMachineBoardParams,
+        result: CloudMachineBoardResult,
+        error: CloudMachineBoardError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineBoardParams {}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineBoardResult {
+    pub machines: Vec<Value>,
+    pub usage: Value,
+    pub audit: Vec<Value>,
+    pub members: Option<Vec<BoardMember>>,
+    #[serde(rename = "self")]
+    pub self_: UserId,
+}
+
+wire_errors! {
+    /// The error codes cloud.machine.board declares.
+    CloudMachineBoardError {
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        OwnerUnreachable = "owner.unreachable",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. A read never mints a credential: the dial token comes from cloud.machine.link_token. vm_kind is the caller's kind on this machine (owner for its creator on any team, never an agent token; every other member is team).
     CloudMachineConnectInfoOp {
         name: "cloud.machine.connect_info",
@@ -850,50 +891,4 @@ pub struct CloudMachineKeepParams {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CloudMachineKeepResult {
     pub machine: CloudMachine,
-}
-
-wire_errors! {
-    /// The error codes cloud.machine.keep declares.
-    CloudMachineKeepError {
-        AuthForbidden = "auth.forbidden",
-        AuthSsoRequired = "auth.sso_required",
-        AuthUnauthenticated = "auth.unauthenticated",
-        ClientTooOld = "client.too_old",
-        CloudMachineNotFound = "cloud.machine.not_found",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerUnreachable = "owner.unreachable",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists, or `desktop`, which connect_info never lists: the machine's creator only, on a machine whose daemon advertises link-desktop-v1) and the current epoch, valid at most 5 minutes. The token carries the caller's vm_kind (claim vmk, the same value as the result's vm_kind), so the owner answer is bound to this dial and ends with the token. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO and commits no stream event; the token is never cached, logged or kept in the ledger. Install principals only (agent tokens refused), and only cli, mac and ios installs (others: cloud.link.install_refused with details {install_kind, allowed}; the kind is what the install registered, so this keeps well-behaved vm, daemon and web installs out and is not a boundary against the user); limited per install (cloud.rate_limited); a deleting or failed machine answers cloud.machine.not_bound; a paused, pausing or starting machine answers cloud.machine.paused {machine, state} (no automatic start: the client asks the person and calls cloud.machine.start); only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app.
-    CloudMachineLinkTokenOp {
-        name: "cloud.machine.link_token",
-        class: Mutation,
-        idempotency: None,
-        owner: "cloud:CloudDO",
-        risk: "execute",
-        principals: [Install],
-        params: CloudMachineLinkTokenParams,
-        result: CloudMachineLinkTokenResult,
-        error: CloudMachineLinkTokenError,
-    }
-}
-
-wire_enum! {
-    CloudMachineLinkTokenParamsServicesItem {
-        Daemon = "daemon",
-        Ssh = "ssh",
-        Desktop = "desktop",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudMachineLinkTokenParams {
-    pub host: HostId,
-    pub services: Vec<CloudMachineLinkTokenParamsServicesItem>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub native_proof: Option<ServerNetworkProof>,
 }

@@ -4,6 +4,19 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmSshCaRotateParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compromised: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmSshCaRotateResult {
+    pub generation: i64,
+    pub ca_public_key: String,
+    pub previous_trusted_until: Option<i64>,
+}
+
 wire_errors! {
     /// The error codes team_vm.ssh_ca.rotate declares.
     TeamVmSshCaRotateError {

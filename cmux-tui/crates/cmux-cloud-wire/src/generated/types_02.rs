@@ -4,6 +4,19 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DeviceStatus {
+    pub install: InstallId,
+    pub user: String,
+    pub policy_version: i64,
+    pub app_version: String,
+    pub mdm_keys: Vec<String>,
+    pub conflicts: Vec<String>,
+    pub reported_at: i64,
+}
+
+pub type EgressHost = String;
+
 pub type EmailAddress = String;
 
 /// A lowercase DNS name such as acme.com.
@@ -884,17 +897,4 @@ wire_enum! {
         Device = "device",
         Server = "server",
     }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HostNetworkPeer {
-    pub host: HostId,
-    pub user: UserId,
-    pub install: InstallId,
-    pub device: NativeDeviceId,
-    pub wg_public_key: WgPublicKey,
-    pub install_public_key: String,
-    pub authority_version: String,
-    pub inbound: Vec<HostNetworkPeerInboundItem>,
-    pub outbound: Vec<HostNetworkPeerOutboundItem>,
 }

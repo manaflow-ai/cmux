@@ -4,6 +4,22 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamEnrollmentTokenListResult {
+    pub team: TeamId,
+    pub tokens: Vec<EnrollmentToken>,
+    pub devices: Vec<ManagedDevice>,
+    pub revision: String,
+}
+
+wire_errors! {
+    /// The error codes team.enrollment_token.list declares.
+    TeamEnrollmentTokenListError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
 wire_op! {
     /// Revoke an enrollment token. Devices already enrolled stay managed.
     TeamEnrollmentTokenRevokeOp {
@@ -883,17 +899,4 @@ wire_op! {
         result: TeamVmSshCaRotateResult,
         error: TeamVmSshCaRotateError,
     }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmSshCaRotateParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub compromised: Option<bool>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmSshCaRotateResult {
-    pub generation: i64,
-    pub ca_public_key: String,
-    pub previous_trusted_until: Option<i64>,
 }

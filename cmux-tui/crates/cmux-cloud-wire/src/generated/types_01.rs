@@ -106,6 +106,13 @@ wire_enum! {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct BoardMember {
+    pub user: UserId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
 pub enum Body {
     AgentPrompt(BodyAgentPrompt),
@@ -890,16 +897,3 @@ pub struct CronSpec {
 
 /// A device (hardware) that groups installs.
 pub type DeviceId = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct DeviceStatus {
-    pub install: InstallId,
-    pub user: String,
-    pub policy_version: i64,
-    pub app_version: String,
-    pub mdm_keys: Vec<String>,
-    pub conflicts: Vec<String>,
-    pub reported_at: i64,
-}
-
-pub type EgressHost = String;
