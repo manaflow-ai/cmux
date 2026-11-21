@@ -79,7 +79,9 @@ bun scripts/cmux-next/browser-next-capture.ts /private/path/capture.json /tmp/br
 The output directory must be new. Exit 0 requires all flow assertions and a
 nonempty finalized `demo.webm`; exit 1 writes failure evidence, and exit 2 means
 configuration/setup input was invalid. Each action has a deadline; the flow has
-a five-minute bound. Only the browser started by this runner is closed. It does
+a five-minute bound. Video finalization has a separate 20-second deadline and
+browser shutdown has 10 seconds; a timeout still writes a failed result. Only
+the browser started by this runner is closed. It does
 not stop the server, daemon or agent session.
 
 ## Read back and hand off
