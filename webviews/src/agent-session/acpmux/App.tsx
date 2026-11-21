@@ -649,7 +649,6 @@ import { thinkingVerbsFor, ThinkingVerbsContext } from "./conversation/thinkingV
 import { useStatusVerbConfig } from "./statusVerbs";
 import { mergeInboxNotices } from "./conversation/inboxNotice";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
-import { cloudCredentialRecovery } from "./cloudCredentialRecovery";
 import { cloudAgentLogin, localApiKeyLogin, SIGN_IN_ON_MACHINE } from "./cloudAgentLogin";
 import { handoffTurns } from "./cloudHandoffTurn";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
@@ -1827,7 +1826,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Whether `cloudChatIdentity` still names the chat shown (cloudIdentityKept): set by the
   // handshake that gave it, cleared when the pane moves to another chat or New Tab page.
   const cloudIdentityBound = useRef(false);
-  const [cloudCredentialRecoveryAvailable, setCloudCredentialRecoveryAvailable] = useState(false);
   // Back to before this turn (TurnActions `rewind`): per chat, the checkpoint marks of its turns
   // (`user-<n>`), first as the handshake's `cloudTurnRewind` names them for its chat. Undefined where
   // the host serves no rewind (every host today), so no prompt draws the button. Kept per chat:
@@ -1852,10 +1850,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setCloudTurnRewind((marks) => bindMarks(marks, session));
   };
   // A team Cloud machine its start passed no personal login to (handshake `cloudTeamMachine`): a
-  // sign-in failure says so (failureCopy.ts isTeamMachineSignIn) and offers no login transfer.
+  // sign-in failure says so (failureCopy.ts isTeamMachineSignIn).
   const [cloudTeamMachine, setCloudTeamMachine] = useState(false);
-  // Automatic Cloud credential recovery survives turn-action memo rebuilds and is bounded per session.
-  const automaticCloudCredentialAttempts = useRef<Set<string>>(new Set());
   const [scrollAnchor, setScrollAnchor] = useState<(ScrollAnchor & { sessionId: string }) | undefined>();
   const [githubRepository, setGithubRepository] = useState<string | undefined>();
   /// What the direct client (or the host) last reported; `snapshot` draws a pending harness or
@@ -4533,16 +4529,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               run: true,
             }).catch(() => undefined),
         }),
-      transferCloudCredentials: cloudCredentialRecovery(
-        connected && cloudCredentialRecoveryAvailable && !cloudTeamMachine,
-        cloudMachineID,
-        snapshot.sessionId,
-        snapshot.summary?.harness,
-        callNative,
-        (owner) => restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession),
-        () => directClient.current ?? undefined,
-        automaticCloudCredentialAttempts.current,
-      ),
       ...chatSignIns,
       review: hunkReview,
       route: {
@@ -4577,7 +4563,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       rewindRows,
       rewindReady,
       cloudRouteHostKind,
-      cloudCredentialRecoveryAvailable,
       cloudTeamMachine,
       snapshot.summary?.hostKind,
       snapshot.summary?.cwd,
@@ -8537,7 +8522,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           localMachineName?: unknown;
           cloudMachineID?: unknown;
           cloudAccount?: unknown;
-          cloudCredentialRecoveryAvailable?: unknown;
           cloudTeamMachine?: unknown;
           /// The prompt row ids whose turn has a Cloud machine checkpoint to rewind to (TurnActions
           /// `rewind`, answered by `chat.rewindTurn`); absent where the host serves no rewind.
@@ -8567,7 +8551,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         if (typeof host.tab === "string" && host.tab) setSessionInfoTab(host.tab);
         acpmuxPerf.markAgent("handshakeReady");
         acpmuxPerf.markLaunch("handshakeReady");
-        setCloudCredentialRecoveryAvailable(host.cloudCredentialRecoveryAvailable === true);
         setCloudTeamMachine(host.cloudTeamMachine === true);
         const turnRewind =
           Array.isArray(host.cloudTurnRewind) && host.cloudTurnRewind.every((id) => typeof id === "string")
