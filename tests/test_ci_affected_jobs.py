@@ -288,7 +288,8 @@ class PullRequestSkip(unittest.TestCase):
         text = json.dumps({**json.loads(MAP), "pull_request_skip": skip})
         key = (".github/workflows/s.yml", "heavy")
         for kwargs, runs in (({}, False), ({"event": "push"}, True), ({"labels": ["full-ci"]}, True),
-                             ({"labels": ["other"]}, False)):
+                             ({"labels": ["other"]}, False), ({"base_ref": "main"}, True),
+                             ({"base_ref": "main", "labels": ["other"]}, True)):
             with self.subTest(kwargs=kwargs), fake_tree(FILES) as tree:
                 result = jobs.route(tree, ["scripts/run-app.sh"], map_text=text, **kwargs)
                 self.assertEqual(result.pr_skip, {key: runs}, result.lines())
@@ -331,6 +332,18 @@ class PullRequestSkip(unittest.TestCase):
             (Path(tmp) / ".github/workflows/s.yml").write_text(text)
             key = (".github/workflows/s.yml", "heavy")
             self.assertEqual(jobs.check_pr_skip(Path(tmp), [key], {key}), [])
+
+    def test_a_pull_request_exclude_or_a_path_under_a_pushed_glob_is_no_gap(self):
+        # The docs-only block narrows the pull request (`!a/**/*.md`) and puts a read doc back by name; a push
+        # that keeps a/** whole still starts on every path the pull request does.
+        text = SKIP_WORKFLOW.replace("    branches: [feat-cmux-next]\n  push:\n    branches: [feat-cmux-next]\n",
+                                     "    branches: [feat-cmux-next]\n    paths:\n      - a/**\n"
+                                     "      - \"!a/**/*.md\"\n      - a/read.md\n"
+                                     "  push:\n    branches: [feat-cmux-next]\n    paths:\n      - a/**\n")
+        self.assertEqual(self.check(text), [])
+        self.assertEqual(jobs.uncovered_by_push(["a/**", "!a/**/*.md", "a/x/read.md", "b/c.md"], ["a/**"]),
+                         {"b/c.md"})
+        self.assertEqual(jobs.uncovered_by_push(["ab/x.md"], ["a/**"]), {"ab/x.md"})
 
     def test_a_job_that_runs_only_on_the_push_paths_needs_no_wider_push(self):
         # cmux-tui-spec.yml's shape: every pull request starts it, and its `changes` job runs a job only when the
@@ -376,6 +389,11 @@ class PullRequestSkip(unittest.TestCase):
         context = pr_test_lanes.event_context("feat-cmux-next")
         self.assertIs(pr_test_lanes.evaluate("${{ !cancelled() && " + SKIP_IF + " }}", context), True)
         self.assertIs(pr_test_lanes.evaluate("${{ github.event_name != 'pull_request' }}", context), False)
+        # A pull request into main runs every skipped job: no push of main would (SKIP_BASE).
+        self.assertIn("github.event.pull_request.base.ref != '" + jobs.SKIP_BASE + "'", jobs.PR_SKIP_IF)
+        clause = "${{ github.event.pull_request.base.ref != 'feat-cmux-next' }}"
+        self.assertIs(pr_test_lanes.evaluate(clause, pr_test_lanes.event_context("main")), True)
+        self.assertIs(pr_test_lanes.evaluate(clause, context), False)
 
     def test_every_listed_job_is_named_in_the_map_with_its_replay(self):
         data = json.loads((ROOT / jobs.MAP).read_text())

@@ -62,6 +62,9 @@ SELF = (
     "scripts/ci/affected_jobs_replay.py", "tests/test_ci_affected_jobs.py",
 )
 FULL_LABEL = "full-ci"
+# The only base whose pull requests skip pull_request_skip jobs: its push runs them. A pull request into any other
+# base (main) runs them, since no push of its base would.
+SKIP_BASE = "feat-cmux-next"
 # Under cmux-tui/ but in no package and no job's input: a Markdown file is read by nothing unless a crate names it
 # (then it is an input). Anything else there is unknown and runs every job.
 DOC_SUFFIXES = (".md",)
@@ -105,7 +108,7 @@ class Route:
 # skips them, unless it carries the full-ci label; the push that lands it runs them (the safety net), and a red
 # there names the pull requests in its range. `check` holds each one to that: the job's `if:` carries PR_SKIP_IF,
 # its workflow starts on a feat-cmux-next push, and no job that needs it would be skipped with it.
-PR_SKIP_IF = "(github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci'))"
+PR_SKIP_IF = "(github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci'))"
 # A job that runs on a pull request only when its change touches the push paths: the workflow's `changes` job runs
 # cmux-tui-spec-changed.py, which reads the push trigger's own `paths:`, so the push covers every change it runs on.
 PUSH_PATHS_GATE = "needs.changes.outputs.run == 'true'"
@@ -195,7 +198,7 @@ class Graph:
 
 def route(tree: git_tree.GitTree | None, changed: list[str] | None, *, event: str = "pull_request",
           labels: list[str] | None = None, map_text: str | None = None, workflow: str | None = None,
-          base_tree: git_tree.GitTree | None = None) -> Route:
+          base_tree: git_tree.GitTree | None = None, base_ref: str = SKIP_BASE) -> Route:
     """The jobs to run for CHANGED (None: git could not list the change), with the graph read from TREE (the head);
     BASE_TREE, when given, places the files of packages the change deletes."""
     if map_text is None:
@@ -210,7 +213,7 @@ def route(tree: git_tree.GitTree | None, changed: list[str] | None, *, event: st
         jobs_here = jobs
     result = Route()
     for key in skipped_here:
-        result.pr_skip[key] = event != "pull_request" or FULL_LABEL in (labels or [])
+        result.pr_skip[key] = event != "pull_request" or base_ref != SKIP_BASE or FULL_LABEL in (labels or [])
 
     def everything(why: str) -> Route:
         result.everything = why
@@ -402,6 +405,17 @@ def job_if(block: str) -> str:
     return head
 
 
+def uncovered_by_push(pulled: list[str], pushed: list[str]) -> set[str]:
+    """The pull_request patterns the push list does not start on. An exclude (`!x`) only narrows the pull request,
+    so it is never a gap, and a pattern under a pushed `dir/**` is covered by it (a plan doc the docs-only block puts
+    back by name, under a push that keeps plans/cmux-next/** whole)."""
+    pushed_set = set(pushed)
+    prefixes = [p[:-2] for p in pushed if p.endswith("/**") and not p.startswith("!")]
+    return {p for p in pulled
+            if p not in pushed_set and not p.startswith("!")
+            and not any(p.startswith(prefix) for prefix in prefixes)}
+
+
 def check_pr_skip(root: Path, skipped: list[tuple[str, str]], routed: set[tuple[str, str]] = frozenset()) -> list[str]:
     """Each pull_request_skip job: its `if:` carries PR_SKIP_IF; its workflow starts on a feat-cmux-next push, on every
     path its pull_request trigger starts on (the push is the safety net that runs it), or, for a job the crate graph
@@ -430,7 +444,7 @@ def check_pr_skip(root: Path, skipped: list[tuple[str, str]], routed: set[tuple[
                             f"a pull request skips it ({MAP} pull_request_skip)")
         else:
             pushed, pulled = workflow_paths(text, "push"), workflow_paths(text, "pull_request")
-            narrower = pushed is not None and (pulled is None or bool(set(pulled) - set(pushed)))
+            narrower = pushed is not None and (pulled is None or bool(uncovered_by_push(pulled, pushed)))
             gated = PUSH_PATHS_GATE in if_line and "needs: changes" in block and PUSH_PATHS_ROUTER in text
             if narrower and (workflow, job_id) not in routed and not gated:
                 problems.append(f"{workflow}: its push paths start on fewer paths than its pull_request paths, so a "
@@ -458,6 +472,7 @@ def main(argv: list[str] | None = None) -> int:
     one.add_argument("--head", default="HEAD")
     one.add_argument("--event", default="pull_request")
     one.add_argument("--labels", default="[]", help="the pull request's label names, as a JSON list")
+    one.add_argument("--base-ref", default=SKIP_BASE, help="the pull request's base branch")
     one.add_argument("--workflow", help="only this workflow's jobs (and their $GITHUB_OUTPUT keys)")
     inputs = sub.add_parser("inputs")
     inputs.add_argument("--workflow", required=True)
@@ -500,7 +515,8 @@ def main(argv: list[str] | None = None) -> int:
         tree = None
     base_tree = git_tree.GitTree(root, args.base) if changed is not None else None
     try:
-        result = route(tree, changed, event=args.event, labels=labels, workflow=args.workflow, base_tree=base_tree)
+        result = route(tree, changed, event=args.event, labels=labels, workflow=args.workflow, base_tree=base_tree,
+                       base_ref=args.base_ref)
     finally:
         for opened in (tree, base_tree):
             if opened is not None:
