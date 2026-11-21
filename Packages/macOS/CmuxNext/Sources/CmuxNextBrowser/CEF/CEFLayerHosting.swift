@@ -150,6 +150,16 @@ final class CEFLayerHosting {
     private(set) var paneDragHolders = 0
     /// A person drags the view's pane in resize sync.
     var inPaneDrag: Bool { paneDragHolders > 0 }
+    /// A layout change that shows in one commit (a split, a close, a zoom, an unzoom) resizes the view next
+    /// (``paneCommitWillResize(_:)``): the resize that shows it joins the window's fence. It stays to the end of the
+    /// turn of that resize, so each resize of the view in the commit's turn joins.
+    private(set) var commitResizeOwed = false
+    /// The end of the turn that took ``commitResizeOwed`` is asked for.
+    private var commitResizeEnds = false
+    /// How many of the fastest display's refreshes the GPU may take for the page's frame at a pane commit's size: the
+    /// commit's own bound (three refreshes of wait and the one that shows it, `ScreenContentView.commitBound`). The
+    /// page relays out once at a size it never had (AWS's console: 2 to 4 refreshes), not a few points more as in a drag.
+    static let commitFenceRefreshes = 4.0
 
     /// Runs a block later on the main actor.
     typealias Scheduler = (_ block: @escaping @MainActor @Sendable () -> Void) -> Void
@@ -347,15 +357,36 @@ final class CEFLayerHosting {
     /// page's first frame at the new size, and the main thread waits for nothing. Outside a page sync, below the fork
     /// version, or not hosted, nothing happens: the page shows its last frame until its next one, as before.
     func pageViewResized() { // perf-hot: 0.05ms cef-geometry (each hosted page, each motion frame)
-        guard inPaneDrag, page != nil, let browser, let resizeFence = fork?.resizeFence,
+        guard inPaneDrag || commitResizeOwed, page != nil, let browser, let resizeFence = fork?.resizeFence,
               let view, let window = view.window, let layer = view.layer else { return }
         let refreshMs = (shortestIntervals().min() ?? 1.0 / 60) * 1_000
+        let refreshes = inPaneDrag ? 1 : Self.commitFenceRefreshes
+        if commitResizeOwed, !commitResizeEnds {
+            commitResizeEnds = true
+            Self.atEndOfTurn { [weak self] in
+                self?.commitResizeOwed = false
+                self?.commitResizeEnds = false
+            }
+        }
         let timeout = Self.resizeFenceTimeoutOverrideMs > 0 ? Self.resizeFenceTimeoutOverrideMs
-            : Int32(max(8, refreshMs.rounded(.up)))
+            : Int32(max(8, (refreshMs * refreshes).rounded(.up)))
         forkCalls += 1
         resizeFences.join(window: window, layer: layer, timeoutMs: timeout, refreshMs: refreshMs) { port, done in
             resizeFence(browser, port, timeout, done)
         }
+    }
+
+    /// A layout change that shows in one commit resizes the view next (`owed`), or no longer does (a change taken back
+    /// before it showed): the resize that shows it joins the window's resize fence (``pageViewResized()``), with the GPU's
+    /// deadline at ``commitFenceRefreshes`` refreshes. So the frame that shows a zoom of the page's pane shows the page's
+    /// own frame at the zoomed size, as Chrome shows a window's resize, not its old frame at the old size beside the
+    /// page's backdrop for the refreshes Chromium takes to lay out again (Lawrence 2026-11-20, the AWS console: two
+    /// white frames and a relayout in each zoom). The main thread waits for nothing; the render server holds the
+    /// window's commit at most the deadline and one refresh. Below fork API 34, or with a page in its own window,
+    /// nothing changes.
+    func paneCommitWillResize(_ owed: Bool) {
+        guard owed || !commitResizeEnds else { return }
+        commitResizeOwed = owed
     }
 
     /// The fork's tracker read the host view (`-cmuxClipPath`): it is attached
