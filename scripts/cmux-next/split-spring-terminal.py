@@ -47,6 +47,29 @@ if "--suite=launch-check" in sys.argv:
     if _flag("--json"):
         rest += ["--json", _flag("--json")]
     os.execv(sys.executable, [sys.executable, suite] + rest)
+# `--suite=stress-bench`: the multi-angle cmux NEXT stress bench. This stays behind the reviewed split-spring
+# measurement entry so a new stress driver can run at a PR SHA without adding an unreviewed controller script.
+if "--suite=stress-bench" in sys.argv:
+    def _stress_arg(name, default=None):
+        for i, value in enumerate(sys.argv):
+            if value.startswith(name + "="):
+                return value.split("=", 1)[1]
+            if value == name and i + 1 < len(sys.argv):
+                return sys.argv[i + 1]
+        return default
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stress-bench.py")
+    rest = ["--app", _stress_arg("--app"), "--out", _stress_arg("--out", "/tmp/stress-bench")]
+    for name in ("--duration", "--scenarios"):
+        value = _stress_arg(name)
+        if value is not None:
+            rest += [name, value]
+    status = subprocess.call([sys.executable, suite] + rest)
+    report = _stress_arg("--json")
+    source = os.path.join(_stress_arg("--out", "/tmp/stress-bench"), "stress-bench.json")
+    if report and os.path.exists(source):
+        with open(source, encoding="utf-8") as input_file, open(report, "w", encoding="utf-8") as output_file:
+            output_file.write(input_file.read())
+    sys.exit(status)
 # Every other suite but pane-bench (package tests, no window) needs this account's GUI login session on the console:
 # without it the app never opens its socket (bench_launch.py). Say so at once instead of after a launch timeout (the
 # build in split-spring.sh has run by then). launch-check above reports it itself, in `check`'s own --json shape.

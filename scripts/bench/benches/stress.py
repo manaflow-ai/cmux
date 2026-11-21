@@ -7,8 +7,8 @@ from typing import Any
 
 from benchlib.bench import Bench, BenchError, Context
 
-HARNESS = "scripts/measure/stress-bench.sh"
-ARTIFACT = "artifacts/stress-bench/stress-bench.json"
+HARNESS = "scripts/measure/split-spring.sh"
+ARTIFACT = "artifacts/split-spring/report.json"
 
 
 def _num(value: Any) -> float | None:
@@ -29,7 +29,7 @@ class Stress(Bench):
                   "rss_mb": 15.0, "disk_growth_mb": 20.0}
 
     def run(self, ctx: Context) -> None:
-        args = [f"--duration={ctx.arg('duration', '1')}"]
+        args = ["--suite=stress-bench", f"--duration={ctx.arg('duration', '1')}"]
         if ctx.arg("scenarios"):
             args.append(f"--scenarios={ctx.arg('scenarios')}")
         result = ctx.fleet_step(HARNESS, args=args, artifact=ARTIFACT, step_class="exclusive",
