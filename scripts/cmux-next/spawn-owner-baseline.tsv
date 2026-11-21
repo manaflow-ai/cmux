@@ -108,7 +108,6 @@ cmux-tui/crates/acpmux/src/hub/route_switch.rs	2
 cmux-tui/crates/acpmux/src/hub/secrets.rs	1
 cmux-tui/crates/acpmux/src/hub/silent_turn.rs	1
 cmux-tui/crates/acpmux/src/hub/stale_host_respawn.rs	1
-cmux-tui/crates/acpmux/src/hub/stalled_turn.rs	1
 cmux-tui/crates/acpmux/src/hub/startup.rs	3
 cmux-tui/crates/acpmux/src/hub/subagent_retry.rs	2
 cmux-tui/crates/acpmux/src/hub/subagent_retry_manual.rs	1
