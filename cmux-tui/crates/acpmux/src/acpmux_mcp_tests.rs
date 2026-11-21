@@ -94,7 +94,7 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
     );
     let send = tools[0]["description"].as_str().unwrap();
     assert!(send.contains("Message another agent session"), "{send}");
-    assert!(send.contains("instead of running `acpmux send` in a shell"), "{send}");
+    assert!(send.contains("`cmux agent send` front door"), "{send}");
     assert!(send.contains("batch them in one call with messages"), "{send}");
     assert_eq!(tools[7]["inputSchema"]["required"], json!(["to", "body"]));
     assert_eq!(tools[9]["inputSchema"]["required"], json!(["id"]));

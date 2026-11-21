@@ -820,6 +820,9 @@ export type AcpmuxRow = {
   /// `P~resume-n`): its card says it failed again, so a Retry that failed as fast as the first
   /// (a gateway outage) is not read as a click that did nothing (cmux#34369).
   failedAgain?: true;
+  /// A failed turn a later turn of the chat finished after (conversation/turns.ts `markRecovered`):
+  /// the chat went on (Continue, a fork, a new message), so its error card no longer draws (cmux#48434).
+  recovered?: true;
   /// The latest stopped turn with no successor: the empty composer can offer Resume.
   /// Kept as eligibility metadata; it adds no footer control or height.
   resumable?: boolean;

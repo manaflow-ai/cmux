@@ -47672,8 +47672,8 @@
       },
       "palette_suggested" : null,
       "title" : "Chief: Toggle Screen Sharing",
-      "title_key" : "action.chief.screenShare.toggle",
-      "title_table" : "ActionCatalog"
+      "title_key" : null,
+      "title_table" : null
     },
     {
       "args" : [
@@ -47703,8 +47703,8 @@
       },
       "palette_suggested" : null,
       "title" : "Share Screen with Chief",
-      "title_key" : "action.chief.screenShare.start",
-      "title_table" : "ActionCatalog"
+      "title_key" : null,
+      "title_table" : null
     },
     {
       "args" : [
@@ -47734,8 +47734,8 @@
       },
       "palette_suggested" : null,
       "title" : "Stop Sharing Screen with Chief",
-      "title_key" : "action.chief.screenShare.stop",
-      "title_table" : "ActionCatalog"
+      "title_key" : null,
+      "title_table" : null
     },
     {
       "args" : [
@@ -47765,8 +47765,8 @@
       },
       "palette_suggested" : null,
       "title" : "Chief: Look at Screen Now",
-      "title_key" : "action.chief.screenShare.look",
-      "title_table" : "ActionCatalog"
+      "title_key" : null,
+      "title_table" : null
     },
     {
       "args" : [
