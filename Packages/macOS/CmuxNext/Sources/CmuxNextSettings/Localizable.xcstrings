@@ -29871,6 +29871,268 @@
         }
       }
     },
+    "settings.labs.liveTree": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الشجرة المباشرة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live stablo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live-træ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live-Baum"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live Tree"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Árbol en vivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbre en direct"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Albero live"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブツリー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មែកធាងបន្តផ្ទាល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "라이브 트리"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live-tre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drzewo na żywo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Árvore ao vivo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Живое дерево"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ต้นไม้แบบสด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canlı ağaç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Живе дерево"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cây trực tiếp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "实时树"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即時樹"
+          }
+        }
+      }
+    },
+    "settings.labs.liveTree.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار مسار الشجرة المباشرة المشترك وممرات الترجمة في جزء الوكيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži zajedničku putanju live stabla i trake kompajliranja u oknu agenta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis den delte sti til live-træet og compilerbanerne i agentruden."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den gemeinsamen Pfad des Live-Baums und die Compiler-Lanes im Agentenbereich anzeigen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the shared live-tree path and compile lanes in the agent pane."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar la ruta compartida del árbol en vivo y los carriles de compilación en el panel del agente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher le chemin partagé de l’arbre en direct et les voies de compilation dans le volet de l’agent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra il percorso condiviso dell’albero live e le corsie di compilazione nel riquadro dell’agente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントペインに共有ライブツリーのパスとコンパイルレーンを表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញផ្លូវមែកធាងបន្តផ្ទាល់ដែលបានចែករំលែក និងផ្លូវចងក្រងក្នុងផ្ទាំងភ្នាក់ងារ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 패널에 공유 라이브 트리 경로와 컴파일 레인을 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis den delte banen til live-treet og kompilatorfeltene i agentruten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż wspólną ścieżkę drzewa na żywo i tory kompilacji w panelu agenta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar o caminho compartilhado da árvore ao vivo e as faixas de compilação no painel do agente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать общий путь живого дерева и линии компиляции на панели агента."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงเส้นทางต้นไม้แบบสดที่แชร์และเลนการคอมไพล์ในบานหน้าต่างเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paylaşılan canlı ağaç yolunu ve derleme şeritlerini aracı bölmesinde göster."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати спільний шлях живого дерева та смуги компіляції в панелі агента."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiển thị đường dẫn cây trực tiếp dùng chung và các luồng biên dịch trong ngăn tác tử."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在智能体面板中显示共享实时树路径和编译通道。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在代理窗格中顯示共用即時樹路徑與編譯通道。"
+          }
+        }
+      }
+    },
     "settings.labs.voiceRoom": {
       "extractionState": "manual",
       "localizations": {
@@ -53640,127 +53902,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unfinished surfaces, such as the agent session's coverage label and Pull requests view."
+            "value": "Unfinished surfaces, such as the App Store and the agent session's coverage label and Pull requests view."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "واجهات غير مكتملة، مثل تسمية تغطية جلسة الوكيل وعرض طلبات السحب."
+            "value": "واجهات غير مكتملة، مثل App Store وتسمية تغطية جلسة الوكيل وعرض طلبات السحب."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nedovršeni dijelovi, poput oznake pokrivenosti sesije agenta i prikaza zahtjeva za povlačenje."
+            "value": "Nedovršeni dijelovi, poput App Storea, oznake pokrivenosti sesije agenta i prikaza zahtjeva za povlačenje."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ufærdige flader, f.eks. agentsessionens dækningsetiket og visningen af pull requests."
+            "value": "Ufærdige flader, f.eks. App Store, agentsessionens dækningsetiket og visningen af pull requests."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Unfertige Oberflächen, etwa die Abdeckungsangabe der Agent-Sitzung und die Pull-Request-Ansicht."
+            "value": "Unfertige Oberflächen, etwa der App Store, die Abdeckungsangabe der Agent-Sitzung und die Pull-Request-Ansicht."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Superficies sin terminar, como la etiqueta de cobertura de la sesión del agente y la vista de solicitudes de incorporación."
+            "value": "Superficies sin terminar, como la App Store, la etiqueta de cobertura de la sesión del agente y la vista de solicitudes de incorporación."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Surfaces inachevées, comme l'étiquette de couverture de la session de l'agent et la vue des pull requests."
+            "value": "Surfaces inachevées, comme l'App Store, l'étiquette de couverture de la session de l'agent et la vue des pull requests."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Superfici non finite, come l'etichetta di copertura della sessione dell'agente e la vista delle pull request."
+            "value": "Superfici non finite, come l'App Store, l'etichetta di copertura della sessione dell'agente e la vista delle pull request."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "エージェントセッションのカバレッジ表示やプルリクエスト表示など、未完成の画面。"
+            "value": "App Store、エージェントセッションのカバレッジ表示、プルリクエスト表示など、未完成の画面。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ផ្ទៃដែលមិនទាន់បញ្ចប់ ដូចជាស្លាកវិសាលភាពនៃវគ្គភ្នាក់ងារ និងទិដ្ឋភាពសំណើទាញ។"
+            "value": "ផ្ទៃដែលមិនទាន់បញ្ចប់ ដូចជា App Store ស្លាកវិសាលភាពនៃវគ្គភ្នាក់ងារ និងទិដ្ឋភាពសំណើទាញ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "에이전트 세션의 적용 범위 레이블과 풀 리퀘스트 보기처럼 아직 완성되지 않은 화면입니다."
+            "value": "App Store, 에이전트 세션의 적용 범위 레이블, 풀 리퀘스트 보기처럼 아직 완성되지 않은 화면입니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uferdige flater, for eksempel agentøktens dekningsetikett og visningen av pull-forespørsler."
+            "value": "Uferdige flater, for eksempel App Store, agentøktens dekningsetikett og visningen av pull-forespørsler."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Niedokończone elementy, takie jak etykieta pokrycia sesji agenta i widok pull requestów."
+            "value": "Niedokończone elementy, takie jak App Store, etykieta pokrycia sesji agenta i widok pull requestów."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Superfícies inacabadas, como o rótulo de cobertura da sessão do agente e a visualização de pull requests."
+            "value": "Superfícies inacabadas, como a App Store, o rótulo de cobertura da sessão do agente e a visualização de pull requests."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Незавершённые элементы, например метка покрытия сеанса агента и представление запросов на слияние."
+            "value": "Незавершённые элементы, например App Store, метка покрытия сеанса агента и представление запросов на слияние."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ส่วนที่ยังไม่เสร็จ เช่น ป้ายความครอบคลุมของเซสชันเอเจนต์และมุมมองคำขอดึง"
+            "value": "ส่วนที่ยังไม่เสร็จ เช่น App Store ป้ายความครอบคลุมของเซสชันเอเจนต์ และมุมมองคำขอดึง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ajan oturumunun kapsam etiketi ve çekme istekleri görünümü gibi bitmemiş yüzeyler."
+            "value": "App Store, ajan oturumunun kapsam etiketi ve çekme istekleri görünümü gibi bitmemiş yüzeyler."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Незавершені елементи, як-от позначка покриття сеансу агента та подання запитів на злиття."
+            "value": "Незавершені елементи, як-от App Store, позначка покриття сеансу агента та подання запитів на злиття."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Các phần chưa hoàn thiện, như nhãn phạm vi của phiên tác tử và chế độ xem yêu cầu kéo."
+            "value": "Các phần chưa hoàn thiện, như App Store, nhãn phạm vi của phiên tác tử và chế độ xem yêu cầu kéo."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "尚未完成的界面，例如智能体会话的覆盖范围标签和拉取请求视图。"
+            "value": "尚未完成的界面，例如 App Store、智能体会话的覆盖范围标签和拉取请求视图。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "尚未完成的介面，例如代理程式工作階段的涵蓋範圍標籤與提取要求檢視。"
+            "value": "尚未完成的介面，例如 App Store、代理程式工作階段的涵蓋範圍標籤與提取要求檢視。"
           }
         }
       }
@@ -79214,127 +79476,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Home"
+            "value": "Chief"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "الرئيسية"
+            "value": "Chief"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Početna"
+            "value": "Chief"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hjem"
+            "value": "Chief"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Home"
+            "value": "Chief"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Inicio"
+            "value": "Chief"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Accueil"
+            "value": "Chief"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Home"
+            "value": "Chief"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ホーム"
+            "value": "Chief"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ទំព័រដើម"
+            "value": "Chief"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "홈"
+            "value": "Chief"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hjem"
+            "value": "Chief"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Strona główna"
+            "value": "Chief"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Início"
+            "value": "Chief"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Главная"
+            "value": "Chief"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "หน้าแรก"
+            "value": "Chief"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ana Sayfa"
+            "value": "Chief"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Головна"
+            "value": "Chief"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Trang chủ"
+            "value": "Chief"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "主页"
+            "value": "Chief"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "主頁"
+            "value": "Chief"
           }
         }
       }
@@ -220748,6 +221010,270 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "用於日出和日落的緯度,經度，例如 37.77,-122.42。未設定：使用你的時區。"
+          }
+        }
+      }
+    },
+    "settings.appearance.backgroundMemory": {
+      "comment": "Settings > Appearance > Window Background: title of the hidden setting that keeps what each background mode last showed (CLI and docs only)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Background Mode Memory"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ذاكرة أوضاع الخلفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memorija načina pozadine"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hukommelse for baggrundstilstande"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gedächtnis der Hintergrundmodi"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memoria de los modos de fondo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mémoire des modes d’arrière-plan"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memoria delle modalità di sfondo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景モードの記憶"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការចងចាំរបៀបផ្ទៃខាងក្រោយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "배경 모드 기억"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minne for bakgrunnsmoduser"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pamięć trybów tła"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memória dos modos de fundo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Память режимов фона"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หน่วยความจำโหมดพื้นหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arka Plan Modu Belleği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пам’ять режимів тла"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bộ nhớ chế độ nền"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景模式记忆"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景模式記憶"
+          }
+        }
+      }
+    },
+    "settings.appearance.backgroundMemory.help": {
+      "comment": "Settings > Appearance > Window Background: help of the hidden setting that keeps each background mode's last folder and picture",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The folder and picture each background mode last showed, so switching back restores them."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المجلد والصورة اللذان عرضهما كل وضع خلفية آخر مرة، لتستعيدهما عند الرجوع إليه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mapa i slika koje je svaki način pozadine posljednje prikazao, da ih povratak vrati."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den mappe og det billede hver baggrundstilstand sidst viste, så de vender tilbage, når du skifter tilbage."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordner und Bild, die jeder Hintergrundmodus zuletzt zeigte, damit sie beim Zurückwechseln wiederkommen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La carpeta y la imagen que mostró por última vez cada modo de fondo, para recuperarlas al volver."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le dossier et l’image que chaque mode d’arrière-plan a montrés en dernier, rétablis quand vous y revenez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La cartella e l’immagine mostrate per ultime da ogni modalità di sfondo, ripristinate quando ci torni."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各背景モードが最後に表示したフォルダと画像。モードを戻すと復元されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថតនិងរូបភាពដែលរបៀបផ្ទៃខាងក្រោយនីមួយៗបានបង្ហាញចុងក្រោយ ដើម្បីស្ដារវាវិញពេលប្ដូរត្រឡប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 배경 모드가 마지막으로 보여 준 폴더와 그림으로, 다시 전환하면 복원됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mappen og bildet hver bakgrunnsmodus sist viste, så de kommer tilbake når du bytter tilbake."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Folder i obraz, które każdy tryb tła pokazał ostatnio, aby powrót do trybu je przywracał."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A pasta e a imagem que cada modo de fundo mostrou por último, restauradas ao voltar a ele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Папка и изображение, которые каждый режим фона показывал последними, чтобы вернуть их при возврате."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โฟลเดอร์และรูปภาพที่แต่ละโหมดพื้นหลังแสดงล่าสุด เพื่อกู้คืนเมื่อสลับกลับ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her arka plan modunun en son gösterdiği klasör ve resim; moda geri dönünce geri gelir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тека та зображення, які кожен режим тла показував останніми, щоб повернути їх під час повернення."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thư mục và ảnh mà mỗi chế độ nền hiển thị lần cuối, để khôi phục khi chuyển lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每种背景模式上次显示的文件夹和图片，切换回来时会恢复。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每種背景模式上次顯示的資料夾和圖片，切換回來時會還原。"
           }
         }
       }

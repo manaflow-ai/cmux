@@ -3,6 +3,7 @@ import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextAgentIntegrations
 import CmuxNextAgentPane
+import CmuxNextAppCore
 import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextCompat
@@ -68,6 +69,10 @@ final class OnboardingService {
     private(set) lazy var signInHarnesses = SettingsHarnesses(environment: { [weak services] in services.flatMap(QuitAgents.environment) },
                                                               openTerminal: { [weak self] line in await self?.openSignIn(line) ?? false })
     private(set) lazy var agentTools = AgentToolsStepModel.cliSource(cli: { [bundled = services.bundledCLI] in await bundled.resolve() }, settings: { [weak services] in services?.settings })
+    /// Make cmux Yours' choices over the settings owner; density goes through its action, which also applies the tokens.
+    private(set) lazy var firstRunChoices = FirstRunChoicesSettingsSource(settings: { [weak services] in services?.settings }, setDensity: { [weak services] preset in
+        _ = services?.registry.perform("appearance.density.set", invocation: ActionInvocation(arguments: ["density": .string(preset)], origin: .user))
+    })
     /// The top page a Sign In left (Bring your history); it shows again once the tool window closes.
     private var pageLeftForSignIn: TopPageRoute?
 
@@ -98,7 +103,7 @@ final class OnboardingService {
             }
         }
         presenter.makeModel = { [weak self] step in
-            self.map { OnboardingModel(services: AppOnboardingServices(owner: $0), step: step, agentTools: $0.agentTools) }
+            self.map { OnboardingModel(services: AppOnboardingServices(owner: $0), step: step, agentTools: $0.agentTools, choices: $0.firstRunChoices) }
         }
         presenter.onWindowClose = { [weak self] in
             guard let self, let page = pageLeftForSignIn else { return }
@@ -176,13 +181,30 @@ final class OnboardingService {
     /// The launch's steps (``AppEnvironment/launchSteps``): with onboarding on, a first run starts Home's Set Up cmux card
     /// (the Agents window and the CLI toast count as shown), else Agents, then Bring your history (``OnboardingWindowPresenter/showFirstRunSteps``).
     func showFirstRunSteps(isFirstRun: Bool) async {
-        guard await presenter.showLaunchSteps(services.environment.launchSteps, agentTools: agentTools) else { return }
+        guard await presenter.showLaunchSteps(services.environment.launchSteps, isFirstRun: isFirstRun, agentTools: agentTools) else { return }
         let route = setup.route(isFirstRun: isFirstRun, replacedKeys: [CLIInstallHandlers.offeredAtLaunchKey], screenReader: NSWorkspace.shared.isVoiceOverEnabled)
         if route == .startCard { DebugTimings.markLaunch("first_run.setup_card_shown") }
         // The cmux Tools question comes at launch whatever owns the first run, for an existing
         // installation too: until it is answered, the person's agents get no cmux server.
         guard route == .windows else { return await presenter.askAgentToolsOnce(source: agentTools) }
         await presenter.showFirstRunSteps(isFirstRun: isFirstRun, source: signInHarnesses, agentTools: agentTools) { self.showHistoryAtFirstRun(isFirstRun: isFirstRun) }
+    }
+
+    /// A new person's first launch opens a new agent chat, composer ready, in a workspace of its own (cmux#48416): after
+    /// the launch's tool windows close (Make cmux Yours, the cmux Tools answer), none over a top page or for terminal-first.
+    @discardableResult
+    func openFirstChat(isFirstRun: Bool, defaults: UserDefaults = .standard) async -> String? {
+        await presenter.untilClosed()
+        let terminalFirst = (firstRunChoices.pickedWorkStyle ?? firstRunChoices.currentChoices().workStyle) == .terminal
+        guard services.agentTabs.canHost(on: services.daemon), services.windows.active?.shownTopPage == nil,
+              OnboardingWindowPresenter.claimFirstChat(isFirstRun: isFirstRun, steps: services.environment.launchSteps,
+                                                       terminalFirst: terminalFirst, defaults: defaults) else { return nil }
+        var spawn = WorkspaceSpawn(cwd: nil)
+        spawn.firstChat = AgentPaneSeed()
+        do { return try await services.windows.createWorkspace(spawn, into: services.windows.active?.state.id) } catch {
+            services.daemon.logger.error("first-run agent chat failed: \(String(describing: error), privacy: .public)")
+            return nil
+        }
     }
 
     func historyImportFinished() {

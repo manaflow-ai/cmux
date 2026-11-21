@@ -39,6 +39,7 @@ button.acpmux-git-primary text 2.21
 button.acpmux-git-tool text 2.22
 button.acpmux-harness-action.is-primary text 4.10
 button.acpmux-harness-status__copy-all text 3.65
+button.acpmux-harness-updates-all text 4.10
 button.acpmux-hat-questions__quiet text 1.85
 button.acpmux-header-tool icon 1.85
 button.acpmux-header-tool.acpmux-header-panel-toggle icon 2.19
@@ -86,7 +87,8 @@ button.acpmux-tour-offer-take icon 1.85
 button.acpmux-tray-pull__tab icon 1.87
 button.acpmux-trust-ask-action.acpmux-trust-ask-primary text 3.98
 button.acpmux-unavailable-action text 3.79
-button.acpmux-workflow-agent__button.acpmux-workflow-agent__button--detail icon 2.20
+button.acpmux-workflow-agent__button.acpmux-workflow-agent__button--detail icon 1.85
+button.acpmux-workflow-agent__disclosure icon 1.85
 button.apps-button.apps-button-subtle text 2.57
 button.bm-more icon 2.19
 button.chrome-sidebar-toggle text 1.59
@@ -126,6 +128,7 @@ button.cv-iconbtn.cv-iconbtn--compact icon 1.56
 button.cv-iconbtn.cv-iconbtn--compact.cv-fork-button icon 1.70
 button.cv-iconbtn.cv-iconbtn--compact.cv-message-pin icon 2.73
 button.cv-iconbtn.cv-iconbtn--compact.cv-read-aloud icon 1.56
+button.cv-iconbtn.cv-iconbtn--compact.cv-turn-error__dismiss icon 2.03
 button.cv-iconbtn.cv-iconbtn--compact.cv-waterfall-toggle icon 2.36
 button.cv-memory__button.is-accept text 1.25
 button.cv-preset-approval__button.is-primary text 1.25
