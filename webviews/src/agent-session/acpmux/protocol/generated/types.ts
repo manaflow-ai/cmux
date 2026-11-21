@@ -48,6 +48,7 @@ export interface AcpmuxRequestMeta {
   parent?: unknown;
   peer?: unknown;
   peerHops?: unknown;
+  peerRowBatches?: unknown;
   personDecision?: unknown;
   personKey?: unknown;
   personStop?: unknown;
@@ -834,6 +835,20 @@ export interface PeerReconnectParams {
   wait?: unknown;
 }
 
+/**
+ * To a watcher that asked for batches (`initialize` `_meta.acpmux.peerRowBatches`), in place of
+ * one `_acpmux/session_changed` per row: `count` rows of `peer` changed or left at once (a peer's
+ * list). Their list positions are consecutive, after `afterSeq` and up to `listSeq`; a client
+ * reads them with `_acpmux/watch {afterSeq, listEpoch}` from a cursor no higher than `afterSeq`,
+ * and keeps its cursor at most `afterSeq` until a list or follow current to `listSeq` is in.
+ */
+export type PeerRowsChanged = {
+  afterSeq: number;
+  count: number;
+  listSeq: number;
+  peer: string;
+} & Record<string, unknown>;
+
 export interface PeerSnapshotParams {
   _meta?: RequestMeta;
   host?: unknown;
@@ -1065,6 +1080,7 @@ export interface ProcessListParams {
   _meta?: RequestMeta;
   cursor?: unknown;
   limit?: unknown;
+  recent?: unknown;
   sessionId?: unknown;
 }
 
@@ -1319,6 +1335,24 @@ export type RetrySummary = {
   turnId: string;
 } & Record<string, unknown>;
 
+/**
+ * A chat's rolling summary (`hub/rolling_summary.rs`): one short line on where it stands and
+ * the next action, kept current after each turn a person started (or one that ended on a
+ * `wrap_up`). The sidebar and the chat header draw it.
+ */
+export type RollingSummary = {
+  /** When it was written, Unix ms. */
+  at: number;
+  /** The next action, for the person or the agent; absent when there is none. */
+  next?: (string | null);
+  /** Who wrote it: `wrap_up` (the agent's own recap and ask, no model call) or `model`. */
+  source: string;
+  /** Where the chat stands, one or two short sentences. */
+  text: string;
+  /** The chat's turn count it covers. */
+  turn: number;
+} & Record<string, unknown>;
+
 export interface RouteListParams {
   _meta?: RequestMeta;
   sessionId?: unknown;
@@ -1502,6 +1536,13 @@ export type SessionDetail = {
   family?: (string | null);
   /** Where a fork branched off its parent. */
   forkSeq?: (number | null);
+  /**
+   * The names it had before its renames, oldest first: each still names it where no session
+   * has it as its current name. Absent when it was never renamed, and from an older acpmux.
+   */
+  formerNames?: string[];
+  /** The session's spoken handle, independent of its task name and ids. Older peers omit it. */
+  handle?: (string | null);
   harness: string;
   /**
    * Unix milliseconds when its harness first refused a command because the harness's own
@@ -1633,6 +1674,12 @@ export type SessionDetail = {
    */
   retryDeciding?: boolean;
   /**
+   * Where the chat stands and its next action (`hub/rolling_summary.rs`), for the sidebar
+   * and the chat header. Absent before the first turn that makes one, and from a peer on an
+   * older acpmux.
+   */
+  rollingSummary?: (RollingSummary | null);
+  /**
    * The root of its lineage tree: the first ancestor no agent started; its own
    * id for a root. Absent from a peer on an older acpmux.
    */
@@ -1690,6 +1737,12 @@ export type SessionDetail = {
   stuckSince?: (number | null);
   /** Tags that have not expired. */
   tags: Record<string, string>;
+  /**
+   * What is done and what is next across the chat's turns (`task_list.rs`): its harness's
+   * latest plan (TodoWrite, update_plan) or the list its agent or Chief keeps
+   * (`_acpmux/task_list/set`); null until one is written. Absent from a peer on an older acpmux.
+   */
+  taskList?: (TaskListSummary | null);
   /**
    * Incremental wall-time and token attribution for the chat. This is seeded by a detail or
    * attach read and omitted from census rows until then (`hub/time_breakdown.rs`).
@@ -1855,6 +1908,13 @@ export type SessionSummary = {
   family?: (string | null);
   /** Where a fork branched off its parent. */
   forkSeq?: (number | null);
+  /**
+   * The names it had before its renames, oldest first: each still names it where no session
+   * has it as its current name. Absent when it was never renamed, and from an older acpmux.
+   */
+  formerNames?: string[];
+  /** The session's spoken handle, independent of its task name and ids. Older peers omit it. */
+  handle?: (string | null);
   harness: string;
   /**
    * Unix milliseconds when its harness first refused a command because the harness's own
@@ -1981,6 +2041,12 @@ export type SessionSummary = {
    */
   retryDeciding?: boolean;
   /**
+   * Where the chat stands and its next action (`hub/rolling_summary.rs`), for the sidebar
+   * and the chat header. Absent before the first turn that makes one, and from a peer on an
+   * older acpmux.
+   */
+  rollingSummary?: (RollingSummary | null);
+  /**
    * The root of its lineage tree: the first ancestor no agent started; its own
    * id for a root. Absent from a peer on an older acpmux.
    */
@@ -2036,6 +2102,12 @@ export type SessionSummary = {
   stuckSince?: (number | null);
   /** Tags that have not expired. */
   tags: Record<string, string>;
+  /**
+   * What is done and what is next across the chat's turns (`task_list.rs`): its harness's
+   * latest plan (TodoWrite, update_plan) or the list its agent or Chief keeps
+   * (`_acpmux/task_list/set`); null until one is written. Absent from a peer on an older acpmux.
+   */
+  taskList?: (TaskListSummary | null);
   /**
    * Incremental wall-time and token attribution for the chat. This is seeded by a detail or
    * attach read and omitted from census rows until then (`hub/time_breakdown.rs`).
@@ -2220,6 +2292,42 @@ export interface SubsessionLimitsParams {
   sessionId?: unknown;
   workspaceId?: unknown;
 }
+
+/** One step of the list. */
+export type TaskItem = {
+  /** The step's words, masked and cut to [`ITEM_CHARS`]. */
+  content: string;
+  status: TaskStatus;
+} & Record<string, unknown>;
+
+/** Who keeps a chat's task list. */
+export type TaskListSource = ("harness" | "agent" | "chief");
+
+/**
+ * What a summary carries of a chat's task list (`SessionSummary::task_list`): the steps, and the
+ * counts and lines a sidebar row or a chat strip draws without counting again.
+ */
+export type TaskListSummary = {
+  /** The first step in progress; null when none is. */
+  current: (string | null);
+  /** The steps completed. */
+  done: number;
+  items: TaskItem[];
+  /**
+   * The first step still pending after the current one (or the first pending one when none is
+   * in progress); null when none is left.
+   */
+  next: (string | null);
+  /** Who keeps it: `harness` (its own plan events), `agent` or `chief` (`_acpmux/task_list/set`). */
+  source: TaskListSource;
+  /** Every step. */
+  total: number;
+  /** When it last changed, Unix ms. */
+  updatedAt: number;
+} & Record<string, unknown>;
+
+/** Where one step stands. */
+export type TaskStatus = "pending" | "in_progress" | "completed";
 
 export type TimeBreakdown = {
   categories: TimeCategory[];

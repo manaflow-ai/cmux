@@ -126,7 +126,53 @@ pub fn check_sources(s: &Services<'_>) -> Result<()> {
             return Err(refuse(format!("loads {name} from {fragment} (load state {state})")));
         }
     }
+    if system(s) {
+        app_instances(s)?;
+    }
     Ok(())
+}
+
+/// The app server instances (`cmux-app-server@*.service`) systemd knows,
+/// each checked to come from the template cmux writes: uninstall stops
+/// these, by name. A list systemd cannot give changes nothing.
+fn app_instances(s: &Services<'_>) -> Result<Vec<String>> {
+    let template = unit_dir(s)?.join(APP_TEMPLATE);
+    let list = systemctl(s).args([
+        "list-units",
+        "--all",
+        "--plain",
+        "--no-legend",
+        "--full",
+        APP_INSTANCES,
+    ]);
+    let out = s.runner.run(&list).map_err(|e| Error::io(list.display(), e))?;
+    if !out.ok() {
+        return Err(Error::rejected(format!(
+            "cmux cannot list the app server units (`{}` failed), so it changes nothing",
+            list.display()
+        )));
+    }
+    let mut units = Vec::new();
+    for unit in out.stdout_text().lines().filter_map(|l| l.split_whitespace().next()) {
+        if !unit.starts_with("cmux-app-server@")
+            || !unit.ends_with(".service")
+            || unit.contains('*')
+        {
+            continue;
+        }
+        let show = systemctl(s).args(["show", "--property=FragmentPath", "--value", unit]);
+        let out = s.runner.run(&show).map_err(|e| Error::io(show.display(), e))?;
+        let fragment = out.stdout_text();
+        if !out.ok() || Path::new(fragment.trim()) != template {
+            return Err(Error::rejected(format!(
+                "systemd runs {unit} from {}, not from {} (the template cmux writes), so cmux leaves it, and everything it may use, alone; nothing was changed",
+                if fragment.trim().is_empty() { "no unit file" } else { fragment.trim() },
+                template.display()
+            )));
+        }
+        units.push(unit.to_owned());
+    }
+    Ok(units)
 }
 
 /// `loginctl show-user <user> -p Linger --value`: `Some(true)` for `yes`,
@@ -249,6 +295,8 @@ pub fn stop(s: &Services<'_>) -> Result<()> {
 }
 
 pub fn uninstall(s: &Services<'_>) -> Result<Vec<PathBuf>> {
+    // The app server instances, listed and checked before anything stops.
+    let instances = if system(s) { app_instances(s)? } else { Vec::new() };
     let ctl = systemctl(s);
     // KillMode=process leaves terminal hosts after a stop by design;
     // uninstall ends every process of the unit first.
@@ -262,19 +310,16 @@ pub fn uninstall(s: &Services<'_>) -> Result<Vec<PathBuf>> {
         let _ = s.runner.run(&ctl.clone().args(["disable", "--now", unit]));
     }
     if system(s) {
-        // Every app server instance stops before its template is removed;
-        // systemctl expands the pattern itself (literal argv, no shell).
-        let _ = s.runner.run(&ctl.clone().args(["stop", APP_INSTANCES]));
-    }
-    let mut removed = Vec::new();
-    for (path, _) in files(s)? {
-        if fsx::exists_no_follow(&path) {
-            fsx::remove_tree(&path)?;
-            removed.push(path);
+        // Every app server instance stops before its template is removed:
+        // each one listed and checked just now, by name, never by a pattern
+        // that would also match an instance started since.
+        for unit in &instances {
+            let _ = s.runner.run(&ctl.clone().args(["stop", unit.as_str()]));
         }
     }
+    let removed = s.remove_unit_files();
     let _ = s.runner.run(&ctl.arg("daemon-reload"));
-    Ok(removed)
+    removed
 }
 
 pub fn state(s: &Services<'_>) -> ServiceState {

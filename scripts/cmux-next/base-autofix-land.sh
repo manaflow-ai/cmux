@@ -243,6 +243,13 @@ none" >/dev/null; then
     tip="$(git rev-parse FETCH_HEAD)"
     git checkout --quiet --force --detach "$tip"
     git clean --quiet -fd
+    # ghostty-next, when this job initialized it for cargo clippy --fix, follows the tip's gitlink, so
+    # the remade clippy repair builds against that tip's libghostty-vt. A failed update leaves the
+    # remade clippy repair to report "left:"; it never stops the other repairs.
+    if [[ -e ghostty-next/.git ]]; then
+      bash scripts/ci/init-submodule.sh ghostty-next >/dev/null 2>&1 \
+        || echo "::warning::could not move ghostty-next to ${tip:0:12}'s gitlink" >&2
+    fi
     actions_current=0 settings_current=0
     if exports_landed "$held"$'\n'"$waits"; then
       actions_current=1
@@ -278,12 +285,25 @@ none" >/dev/null; then
       echo "::error::making the repair again on ${tip:0:12} failed" >&2
       exit 1
     }
-    if [[ -z "$(git status --porcelain)" ]]; then
+    # A submodule the job initialized (ghostty-next, for cargo clippy --fix) stays at the commit it
+    # was checked out at, so a tip that moved its gitlink shows it modified: a repair never writes a
+    # gitlink, and staging it would undo that move on the branch.
+    git add -A
+    while IFS= read -r -d '' gitlink; do
+      git reset --quiet -- "$gitlink"
+    done < <(git diff --cached --raw -z --no-renames | python3 -I -c '
+import sys
+parts = sys.stdin.buffer.read().split(b"\0")
+for meta, path in zip(parts[0::2], parts[1::2]):
+    modes = meta.split()[:2]
+    if b"160000" in (m.lstrip(b":") for m in modes):
+        sys.stdout.buffer.write(path + b"\0")
+')
+    if git diff --cached --quiet; then
       echo "$branch at ${tip:0:12} needs none of it again."
       status=0
       break
     fi
-    git add -A
     git commit --quiet -m "chore(next): base autofix at ${tip:0:12}" \
       -m "$(grep '^fixed: ' "$work/repair.txt" | sed 's/^fixed: /- /')" \
       -m "Made again on ${tip:0:12}: it moved the inputs of a repair made at ${base:0:12}." \

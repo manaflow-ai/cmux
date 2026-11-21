@@ -217,7 +217,7 @@ extension PaletteRankingSetting {
 extension ContextMenusSetting {
     /// `contextMenus.showCustomizeItem`.
     public nonisolated static let showCustomizeItemPath = ["contextMenus", "showCustomizeItem"]
-    public nonisolated static let showCustomizeItemDefault = true
+    public nonisolated static let showCustomizeItemDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
