@@ -339,3 +339,70 @@ async fn a_precopied_freeze_does_not_grow_with_the_history() {
     }
     eprintln!("freeze, begin to commit:\n{}", report.join("\n"));
 }
+
+/// Sets a move folder's last activity (its `alive` file) `age` back.
+fn age_move_folder(dir: &std::path::Path, age: Duration) {
+    let alive = dir.join("alive");
+    assert!(alive.is_file(), "{} has no alive file", alive.display());
+    let then = std::time::SystemTime::now() - age;
+    std::fs::File::options().write(true).open(&alive).unwrap().set_modified(then).unwrap();
+}
+
+/// The folders an aborted pre-copy leaves under `transfers/`, its prepare (`pre-*`) on the source
+/// and its stage (`in-*`, finished or not) on the target, are swept once a day passes with no
+/// activity, as a move's are; one in use is kept, and a begin from a swept prepare is refused
+/// `transfer.diverged` and gives the chat back (review of cmux#48630, F2).
+#[tokio::test]
+async fn the_sweep_reclaims_the_folders_of_an_aborted_pre_copy_after_a_day() {
+    let (dirs, mut src, mut dst) = two_local().await;
+    let s =
+        src.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    src.request(method::SESSION_PROMPT, prompt(&id, "p-hi", "hi")).await.unwrap();
+    let transfers = acpmux::config::home().join("transfers");
+    // One stage finished, one left with no pages, as a client that went away leaves them.
+    let (prepared, stage_id) = stage(&mut src, &mut dst, &id).await;
+    let params = json!({"sessionId": id});
+    let lone = src.request("_acpmux/transfer_prepare", params.clone()).await.unwrap();
+    let unpaged = dst.request("_acpmux/transfer_stage", json!({"manifest": lone})).await.unwrap();
+    let left = [
+        transfers.join(prepared["prepareId"].as_str().unwrap()),
+        transfers.join(format!("in-{stage_id}")),
+        transfers.join(lone["prepareId"].as_str().unwrap()),
+        transfers.join(format!("in-{}", unpaged["stageId"].as_str().unwrap())),
+    ];
+    for dir in &left {
+        assert!(dir.is_dir(), "{} was made", dir.display());
+    }
+    // An hour idle is not a day: the next prepare's sweep keeps them.
+    for dir in &left {
+        age_move_folder(dir, Duration::from_secs(3600));
+    }
+    let kept = src.request("_acpmux/transfer_prepare", params.clone()).await.unwrap();
+    let kept = transfers.join(kept["prepareId"].as_str().unwrap());
+    for dir in &left {
+        assert!(dir.is_dir(), "{} was swept after an hour", dir.display());
+    }
+    for dir in &left {
+        age_move_folder(dir, Duration::from_secs(25 * 3600));
+    }
+    let fresh = src.request("_acpmux/transfer_prepare", params).await.unwrap();
+    for dir in &left {
+        assert!(!dir.exists(), "{} was not swept after a day", dir.display());
+    }
+    let fresh_dir = transfers.join(fresh["prepareId"].as_str().unwrap());
+    assert!(fresh_dir.is_dir(), "the new prepare is kept");
+
+    let begin = json!({"sessionId": id, "prepareId": prepared["prepareId"],
+                       "afterSeq": prepared["afterSeq"]});
+    let refused = src.request("_acpmux/transfer_begin", begin).await;
+    assert!(refused.as_ref().is_err_and(|e| e.contains("transfer.diverged")), "{refused:?}");
+    let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(info["moving"], false, "{info}");
+    for made in [fresh_dir, kept] {
+        let _ = std::fs::remove_dir_all(made);
+    }
+    for dir in dirs {
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}

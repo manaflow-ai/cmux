@@ -137,18 +137,36 @@ pub(super) async fn move_chat(
     interrupt: bool,
     to_meta: Value,
 ) -> Result<Value> {
-    // Pre-copied when both daemons can: the freeze then costs only what changed since. A target
-    // that lost its stage refuses the bundle, and the move is made again in full.
+    // Pre-copied when both daemons can: the freeze then costs only what changed since.
     let staged = precopy(src, dst, dst_init, id).await;
     let begun = begin_staged(src, id, watch.clone(), interrupt, staged.as_ref()).await?;
-    if begun.stage_id.is_some() {
-        let (cwd, name, meta) = (cwd.clone(), name.clone(), to_meta.clone());
-        match finish_move(src, dst, dst_init, id, &begun, cwd, name, meta).await {
-            Err(e) if refused_as(&e, "transfer.unstaged") => {}
-            moved => return moved,
-        }
-    } else {
+    finish_staged(src, dst, dst_init, id, begun, watch, interrupt, cwd, name, to_meta).await
+}
+
+/// [`finish_move`] of a move [`begin_staged`] began. A target that no longer holds the stage (swept,
+/// or its daemon restarted between the stage and the freeze) refuses it `transfer.unstaged`, and
+/// that refusal gave the chat back on the source (`finish_move` aborts the move): the move is begun
+/// and finished again once, in full, as a move without pre-copy is.
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn finish_staged(
+    src: &Client,
+    dst: &Client,
+    dst_init: &Value,
+    id: &str,
+    begun: Begun,
+    watch: Option<Value>,
+    interrupt: bool,
+    cwd: Option<String>,
+    name: Option<String>,
+    to_meta: Value,
+) -> Result<Value> {
+    if begun.stage_id.is_none() {
         return finish_move(src, dst, dst_init, id, &begun, cwd, name, to_meta).await;
+    }
+    let (first_cwd, first_name, first_meta) = (cwd.clone(), name.clone(), to_meta.clone());
+    match finish_move(src, dst, dst_init, id, &begun, first_cwd, first_name, first_meta).await {
+        Err(e) if refused_as(&e, "transfer.unstaged") => {}
+        moved => return moved,
     }
     let begun = begin_move(src, id, watch, interrupt).await?;
     finish_move(src, dst, dst_init, id, &begun, cwd, name, to_meta).await
@@ -396,3 +414,7 @@ pub(super) async fn connect_target(
     let dst_init = dst.request(method::INITIALIZE, init).await?;
     Ok((forward, dst, dst_init))
 }
+
+#[cfg(all(test, unix))]
+#[path = "transfer_tests.rs"]
+mod tests;

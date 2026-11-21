@@ -397,7 +397,8 @@ async fn move_steps(
         super::transfer::connect_target(&target.ssh, &remote.socket).await?;
     let staged = super::transfer::precopy(src, &dst, &dst_init, &id).await;
     let begun =
-        super::transfer::begin_staged(src, &id, watch, args.interrupt, staged.as_ref()).await?;
+        super::transfer::begin_staged(src, &id, watch.clone(), args.interrupt, staged.as_ref())
+            .await?;
     let prepared = prepare(&cwd, &home, &target, &remote, args, source, o).await;
     let record = match prepared {
         Ok(p) => p,
@@ -407,9 +408,20 @@ async fn move_steps(
         }
     };
     let there = record.get("cwd").and_then(Value::as_str).map(str::to_owned);
-    let moved =
-        super::transfer::finish_move(src, &dst, &dst_init, &id, &begun, there, None, record)
-            .await?;
+    // A target that lost the stage meanwhile takes the move again in full (`finish_staged`).
+    let moved = super::transfer::finish_staged(
+        src,
+        &dst,
+        &dst_init,
+        &id,
+        begun,
+        watch,
+        args.interrupt,
+        there,
+        None,
+        record,
+    )
+    .await?;
     targets.placed(&target.name);
     o.moved = true;
     o.there = moved.get("sessionId").and_then(Value::as_str).map(str::to_owned);
