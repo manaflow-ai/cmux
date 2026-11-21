@@ -2,11 +2,12 @@
 //! `acpmux new` without `--detach`, and `acpmux chats open K`.
 //!
 //! acpmux is headless: its ratatui TUI (`src/tui/`) builds only with the `tui` feature, which is
-//! off by default. The `cmux` multicall binary turns it on (cmux-tui's Cargo.toml), so `cmux acp
-//! attach` and the bundle's `acpmux` symlink open it as before. A headless acpmux (the standalone
-//! `acpmux` the packages ship, a default `cargo build -p acpmux`) hands the same session to a
-//! `cmux` that carries it, as `cmux acp attach S` on this acpmux's home, and with no `cmux` streams
-//! the session as `attach --plain` does.
+//! off by default. The `cmux` multicall binary turns it on through cmux-tui's `acpmux-tui`
+//! feature (cmux-tui's Cargo.toml), so `cmux acp attach` and the bundle's `acpmux` symlink open it
+//! as before; a `cmux` built without that feature is headless here too. A headless acpmux (the
+//! standalone `acpmux` the packages ship, a default `cargo build -p acpmux`) hands the same session
+//! to a `cmux` that carries it, as `cmux acp attach S` on this acpmux's home, and with no `cmux`
+//! streams the session as `attach --plain` does.
 
 use crate::client::Client;
 use anyhow::Result;
@@ -45,6 +46,27 @@ pub async fn run(client: Arc<Client>, session: Option<String>) -> Result<()> {
 #[cfg(not(feature = "tui"))]
 const HANDOFF_ENV: &str = "ACPMUX_TUI_HANDOFF";
 
+/// Set on the `cmux acp --version` probe: a headless acpmux (a `cmux` built without cmux-tui's
+/// `acpmux-tui`) fails it at once ([`refuse_probe`]), so the handoff passes over a `cmux` that
+/// runs acpmux but has no TUI. An older `cmux` ignores it and answers; every one of those has it.
+#[cfg(not(feature = "tui"))]
+const PROBE_ENV: &str = "ACPMUX_TUI_PROBE";
+
+/// Fail the handoff's probe ([`PROBE_ENV`]): this acpmux has no terminal UI to hand to.
+#[cfg(not(feature = "tui"))]
+pub(crate) fn refuse_probe() -> Result<()> {
+    if std::env::var_os(PROBE_ENV).is_some() {
+        return Err(anyhow::anyhow!("this acpmux has no terminal UI"));
+    }
+    Ok(())
+}
+
+/// A TUI build answers the handoff's probe as any command line does.
+#[cfg(feature = "tui")]
+pub(crate) fn refuse_probe() -> Result<()> {
+    Ok(())
+}
+
 /// The `cmux` binary that carries the TUI: `ACPMUX_TUI`, else a `cmux` beside this executable
 /// (one install, one build), else the first `cmux` on PATH that answers `cmux acp --version`
 /// (a cmux client without acpmux, as on a lane VM, does not). Never this executable itself.
@@ -59,12 +81,13 @@ fn handoff_binary() -> Option<std::path::PathBuf> {
     )
 }
 
-/// Whether `cmux` runs acpmux under `acp` (every cmux that links acpmux has its TUI).
+/// Whether `cmux` runs acpmux under `acp` with its TUI (a headless one fails [`PROBE_ENV`]).
 #[cfg(not(feature = "tui"))]
 fn carries_acpmux(cmux: &std::path::Path) -> bool {
     std::process::Command::new(cmux)
         .args(["acp", "--version"])
         .env(HANDOFF_ENV, "1")
+        .env(PROBE_ENV, "1")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
