@@ -91,6 +91,8 @@ public final class ScreenModel: Identifiable {
     /// The panes shown above the tiled layout, back to front (`floating-panes-v1`), as the daemon sent it; not
     /// checked against the layout, the range or repeats. The daemon keeps each one a leaf of ``layout``.
     public internal(set) var floating: [FloatingPaneSnapshot]
+    /// The workspace Quick Terminal mark, if this screen owns it.
+    public internal(set) var quickTerminal: QuickTerminalSnapshot?
 
     /// Shows or hides `split`'s divider line here (a Hide / Show Divider intent, until the daemon's layout says it).
     func setDivider(_ split: SplitID, visible: Bool) {
@@ -118,6 +120,7 @@ public final class ScreenModel: Identifiable {
         group = s.group
         hiddenDividers = s.hiddenDividers
         floating = s.floating
+        quickTerminal = s.quickTerminal
         adoptUnread()
     }
 
@@ -156,6 +159,7 @@ public final class ScreenModel: Identifiable {
         if defaultPane != s.activePane { defaultPane = s.activePane }
         if hiddenDividers != s.hiddenDividers { hiddenDividers = s.hiddenDividers }
         if floating != s.floating { floating = s.floating }
+        if quickTerminal != s.quickTerminal { quickTerminal = s.quickTerminal }
         if isActive != s.active { isActive = s.active }
         if !metadataFromState {
             if color != s.color { color = s.color }
@@ -178,6 +182,7 @@ public final class ScreenModel: Identifiable {
         if defaultPane != d.activePane { defaultPane = d.activePane }
         if hiddenDividers != d.hiddenDividers { hiddenDividers = d.hiddenDividers }
         if floating != d.floating { floating = d.floating }
+        if quickTerminal != d.quickTerminal { quickTerminal = d.quickTerminal }
     }
 
     /// Lays the daemon's screen state over the record.

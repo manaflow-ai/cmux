@@ -23,6 +23,7 @@ public struct LayoutMapping {
         for screen in workspace.screens {
             var paneIDs: [DaemonPaneID: LayoutPaneID] = [:]
             for pane in screen.panes {
+                if screen.quickTerminal?.hidden == true, screen.quickTerminal?.pane == pane.handle { continue }
                 let id = LayoutPaneID(pane.id)
                 paneIDs[pane.handle] = id
                 handles.addPane(id, handle: pane.handle)

@@ -9,7 +9,7 @@ import Foundation
 @MainActor
 public struct FloatingPanePlaceholders {
     public init() {}
-    public static let ids: [ActionID] = ["toggleFloatingPane", "newFloatingPane", "toggleQuickTerminal"]
+    public static let ids: [ActionID] = []
 
     static var reason: String {
         String(localized: "floatingPanes.unavailable", defaultValue: "This build of cmux has no floating panes yet.", bundle: .module)

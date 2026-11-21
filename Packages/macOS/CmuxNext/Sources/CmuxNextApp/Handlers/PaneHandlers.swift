@@ -8,15 +8,14 @@ import CmuxNextWindowRules
 
 /// Pane and split actions (category `.pane` except columns and screens):
 /// split in four directions, focus, swap, resize, equalize, zoom, close,
-/// rename, and workspace font size. Structure changes are daemon commands;
-/// divider moves go through the layout model so they carry a gesture
-/// transaction like a drag.
+/// rename, and workspace font size. Structure changes are daemon commands.
 enum PaneHandlers {
     static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
         bindSplits(registry, ctx)
         bindFocus(registry, ctx)
         bindSizing(registry, ctx)
         PaneHandlers.bindPaneVerbs(into: registry, context: ctx)
+        FloatingPaneActions.register(into: registry, openLook: { try ctx.services.debugSettings.show(selection: .section($0), focus: $1) }) { ctx.daemonPane($0).map { pane in (ctx.services.daemon(for: pane), pane.handle, ctx.services.paneController(for: pane)?.workspace.map { content in NewPaneFocus(begin: { content.beginFocusIntent() }, expect: { content.expectFocus(on: $0, generation: $1) }) }) } }
     }
 
     // MARK: Geometry helpers

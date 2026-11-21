@@ -86,6 +86,26 @@ struct FloatingPanesWireTests {
         }
     }
 
+    @Test func quickTerminalCarriesItsScreenAndOptionalMode() throws {
+        let request = QuickTerminalRequest(screen: ScreenID(rawValue: 4), mode: .hide)
+        guard case .object(let fields) = try JSONDecoder().decode(JSONValue.self, from: WireCoding.encodeRequest(request, id: 8)) else {
+            Issue.record("quick-terminal did not encode an object")
+            return
+        }
+        #expect(fields["cmd"] == .string("quick-terminal"))
+        #expect(fields["screen"] == .number(4))
+        #expect(fields["mode"] == .string("hide"))
+        #expect(fields["x"] == nil)
+        #expect(QuickTerminalRequest.requiredCapability == DaemonCapability.quickTerminal.rawValue)
+        #expect(DaemonCapability.optional.contains("quick-terminal-v1"))
+    }
+
+    @Test func aHiddenQuickTerminalMarkDecodesOnItsScreen() throws {
+        let json = #"{"id":4,"layout":{"type":"leaf","pane":1},"panes":[{"id":1,"tabs":[]}],"floating":[{"pane":1,"x":0.55,"y":0.55,"w":0.45,"h":0.45}],"quick_terminal":{"pane":1,"hidden":true,"from":2}}"#
+        let screen = try JSONDecoder().decode(ScreenSnapshot.self, from: Data(json.utf8))
+        #expect(screen.quickTerminal == QuickTerminalSnapshot(pane: 1, hidden: true, from: 2))
+    }
+
     @Test func aFrameRequestCarriesAllFourNumbers() throws {
         // Four different numbers: a swap of two fields goes red.
         let frame = FloatingPaneSnapshot.Frame(x: 0.125, y: 0.25, w: 0.5, h: 0.625)
