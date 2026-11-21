@@ -15910,7 +15910,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Send Message…",
+      "title" : "Ask Chief About This…",
       "title_key" : "action.home.messageAbout",
       "title_table" : "HomeActions"
     },
@@ -47643,130 +47643,6 @@
       "title" : "Stop Voice Room",
       "title_key" : "action.voiceRoom.stop",
       "title_table" : "ActionCatalog"
-    },
-    {
-      "args" : [
-
-      ],
-      "cli" : "offered",
-      "cli_name" : "chief toggle-screen-share",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "chief.screenShare.toggle",
-      "main_menu" : null,
-      "mcp" : "systemChange",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.agents",
-        "order" : 109,
-        "title" : "Agents",
-        "title_key" : "category.agents",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Chief: Toggle Screen Sharing",
-      "title_key" : null,
-      "title_table" : null
-    },
-    {
-      "args" : [
-
-      ],
-      "cli" : "offered",
-      "cli_name" : "chief share-screen",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "chief.screenShare.start",
-      "main_menu" : null,
-      "mcp" : "systemChange",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.agents",
-        "order" : 109,
-        "title" : "Agents",
-        "title_key" : "category.agents",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Share Screen with Chief",
-      "title_key" : null,
-      "title_table" : null
-    },
-    {
-      "args" : [
-
-      ],
-      "cli" : "offered",
-      "cli_name" : "chief stop-sharing-screen",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "chief.screenShare.stop",
-      "main_menu" : null,
-      "mcp" : "offered",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.agents",
-        "order" : 109,
-        "title" : "Agents",
-        "title_key" : "category.agents",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Stop Sharing Screen with Chief",
-      "title_key" : null,
-      "title_table" : null
-    },
-    {
-      "args" : [
-
-      ],
-      "cli" : "offered",
-      "cli_name" : "chief look-at-screen",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "chief.screenShare.look",
-      "main_menu" : null,
-      "mcp" : "offered",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.agents",
-        "order" : 109,
-        "title" : "Agents",
-        "title_key" : "category.agents",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Chief: Look at Screen Now",
-      "title_key" : null,
-      "title_table" : null
     },
     {
       "args" : [

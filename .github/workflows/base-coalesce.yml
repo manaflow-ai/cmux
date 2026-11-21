@@ -147,7 +147,7 @@ jobs:
           printf 'run=true\nbase=%s\nsave=true\n' "$base" >> "$GITHUB_OUTPUT"
 
       - name: Claim this window
-        if: ${{ steps.decide.outputs.save == 'true' }}
+        if: ${{ steps.decide.outputs.save == 'true' && github.run_attempt == '1' }}
         continue-on-error: true
         timeout-minutes: 2
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -156,7 +156,7 @@ jobs:
           key: base-coalesce-${{ inputs.key }}-w-${{ steps.window.outputs.window }}
 
       - name: Record this tip as tested
-        if: ${{ steps.decide.outputs.save == 'true' }}
+        if: ${{ steps.decide.outputs.save == 'true' && github.run_attempt == '1' }}
         continue-on-error: true
         timeout-minutes: 2
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
