@@ -19,7 +19,10 @@ import AppKit
     /// How the first event went (`app` or `monitor`), for the answer.
     private(set) var route = ""
     private var start: CFTimeInterval?
-    private var sent: CGPoint = .zero
+    /// Whole points sent so far: AppKit reads a made-up event's point deltas as integers (cut toward
+    /// zero), so each event carries the rounded path's next step and the steps add up to the path
+    /// (a 100 x 90 diagonal at 120 Hz cut to (2, -1) steps read as twice as horizontal).
+    private var sent = (x: 0, y: 0)
     private var began = false
     private var link: CADisplayLink?
 
@@ -48,7 +51,7 @@ import AppKit
         guard let start else { self.start = now; return }
         let t = now - start
         let f = CGFloat(min(1, t / duration))
-        let want = CGPoint(x: dx * f, y: dy * f)
+        let want = (x: CrashGuard.int(dx * f), y: CrashGuard.int(dy * f))
         if want != sent || !began {
             post(dx: want.x - sent.x, dy: want.y - sent.y, phase: began ? 2 : 1)
             began = true
@@ -60,20 +63,20 @@ import AppKit
         self.link = nil
     }
 
-    private func post(dx: CGFloat = 0, dy: CGFloat = 0, phase: Int64) {
+    private func post(dx: Int = 0, dy: Int = 0, phase: Int64) {
         guard let window,
               let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2,
-                                  wheel1: Int32(clamping: CrashGuard.int(dy)), wheel2: Int32(clamping: CrashGuard.int(dx)), wheel3: 0) else { return }
+                                  wheel1: Int32(clamping: dy), wheel2: Int32(clamping: dx), wheel3: 0) else { return }
         let screen = window.convertPoint(toScreen: point)
         event.location = CGPoint(x: screen.x, y: (NSScreen.screens.first?.frame.maxY ?? 0) - screen.y)
         event.timestamp = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
-        event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(window.windowNumber))
-        event.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(window.windowNumber))
+        event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(truncatingIfNeeded: window.windowNumber))
+        event.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(truncatingIfNeeded: window.windowNumber))
         event.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
         event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: Double(dy))
         event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: Double(dx))
-        event.setDoubleValueField(.scrollWheelEventPointDeltaAxis1, value: Double(dy))
-        event.setDoubleValueField(.scrollWheelEventPointDeltaAxis2, value: Double(dx))
+        event.setIntegerValueField(.scrollWheelEventPointDeltaAxis1, value: Int64(dy))
+        event.setIntegerValueField(.scrollWheelEventPointDeltaAxis2, value: Int64(dx))
         event.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
         guard let e = NSEvent(cgEvent: event) else { return }
         let how = deliver(e)

@@ -27,9 +27,9 @@ EXEMPTIONS: dict[str, str] = {
     "cmux-vm-cloud.yml": "push covers backend/** on codex/vm-api-cloud-* branches; pull requests "
     "name the cloud-VM API files inside it",
     # The push filter only registers the workflow on feat-cmux-next (its jobs skip on push); pull requests take
-    # every path but prose (the docs-only block, scripts/ci/docs_only_paths.py).
+    # only the paths a look can apply without a build (the workflow's path gate).
     "cmux-next-hot-verify.yml": "push names only its own file, to register the workflow for dispatch; pull "
-    "requests carry the docs-only block",
+    "requests name the paths a no-build look can apply (web and Rust layers)",
 }
 
 # name -> (filter, push-only patterns, why). A narrower exemption: only these

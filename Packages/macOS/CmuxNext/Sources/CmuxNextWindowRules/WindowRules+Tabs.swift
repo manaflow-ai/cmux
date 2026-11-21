@@ -243,14 +243,17 @@ extension WindowRules {
     }
 
     /// A chat's session handed to a new terminal, until that terminal's hooks report it: `tab` nil
-    /// while the chat's run stops. Over at `deadline` (seconds since 1970), reported or not.
+    /// while the chat's run stops. Over at `deadline` (seconds since 1970), reported or not. `machine`
+    /// is the machine the terminal tab was made on, so it is looked up there only (a fork keeps its ids).
     public nonisolated struct HandOff: Codable, Equatable, Sendable {
         public var deadline: Double
         public var tab: String?
+        public var machine: String?
 
-        public init(deadline: Double, tab: String? = nil) {
+        public init(deadline: Double, tab: String? = nil, machine: String? = nil) {
             self.deadline = deadline
             self.tab = tab
+            self.machine = machine
         }
     }
 

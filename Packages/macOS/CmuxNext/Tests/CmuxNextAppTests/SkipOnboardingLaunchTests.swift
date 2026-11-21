@@ -19,12 +19,12 @@ struct SkipOnboardingLaunchTests {
     ])
     func theFlagSkipsOnboardingOnly(environment: [String: String], arguments: [String]) {
         let launch = AppEnvironment.current(environment, arguments: arguments)
-        #expect(launch.skipsOnboarding)
+        #expect(launch.launchSteps.skipsFirstRun)
         #expect(!launch.showcase)
     }
 
     @Test func aPlainLaunchShowsNoOnboarding() {
-        #expect(AppEnvironment.current([:], arguments: ["cmux"]).skipsOnboarding)
+        #expect(AppEnvironment.current([:], arguments: ["cmux"]).launchSteps.skipsFirstRun)
     }
 
     @Test(arguments: [
@@ -32,7 +32,7 @@ struct SkipOnboardingLaunchTests {
         ([String: String](), ["cmux", "--onboarding"]),
     ])
     func theOptInBringsOnboardingBack(environment: [String: String], arguments: [String]) {
-        #expect(!AppEnvironment.current(environment, arguments: arguments).skipsOnboarding)
+        #expect(!AppEnvironment.current(environment, arguments: arguments).launchSteps.skipsFirstRun)
     }
 
     /// A fresh profile on a plain launch: the first run starts no Set Up cmux card, and a card left pending by an
@@ -43,12 +43,12 @@ struct SkipOnboardingLaunchTests {
         defer { defaults.removePersistentDomain(forName: suite) }
         let plain = AppEnvironment.current([:], arguments: ["cmux"])
 
-        let fresh = FirstRunSetup(defaults: defaults, skipsOnboarding: plain.skipsOnboarding)
+        let fresh = FirstRunSetup(defaults: defaults, skipsOnboarding: plain.launchSteps.skipsFirstRun)
         #expect(!fresh.begin(isFirstRun: true, replacedKeys: ["cli.install.offeredAtLaunch"]))
         #expect(!fresh.shows)
 
         defaults.set("pending", forKey: FirstRunSetup.stateKey)
-        #expect(!FirstRunSetup(defaults: defaults, skipsOnboarding: plain.skipsOnboarding).shows)
+        #expect(!FirstRunSetup(defaults: defaults, skipsOnboarding: plain.launchSteps.skipsFirstRun).shows)
     }
 
     @Test func theFirstRunHistoryPageNeverRunsUnderTheFlag() throws {

@@ -215,6 +215,92 @@ class Routes(unittest.TestCase):
         self.assertEqual(jobs.output_key("acpmux-protocol-ir"), "acpmux_protocol_ir")
 
 
+def content_tree(files: dict[str, str]) -> "git_tree.GitTree":
+    """fake_tree, with each directory's object id a hash of what is under it, as git's tree ids are."""
+    import hashlib
+    entries = fake_tree(files).entries()
+    blobs = {}
+    for path, text in files.items():  # a blob's id is its content, so equal files are equal anywhere
+        oid = hashlib.sha1(text.encode()).hexdigest()
+        blobs[oid] = text.encode()
+        entries[path] = ("100644", oid)
+    for path in sorted((p for p, (mode, _) in entries.items() if mode == git_tree.DIRECTORY),
+                       key=lambda p: p.count("/"), reverse=True):  # the deepest first: a parent hashes its children
+        under = sorted(f"{p}={o}" for p, (_, o) in entries.items() if p.startswith(path + "/") and p.count("/") ==
+                       path.count("/") + 1)
+        entries[path] = (git_tree.DIRECTORY, hashlib.sha1("\n".join(under).encode()).hexdigest())
+    return git_tree.GitTree(ROOT, "fake", entries=entries, read_blob=lambda _path, oid: blobs[oid])
+
+
+def keys(files: dict[str, str]) -> dict[str, str]:
+    files = {**files}
+    for p in jobs.SELF:
+        files.setdefault(p, "")
+    with content_tree(files) as tree:
+        return {job: key for (_, job), key in jobs.result_keys(tree, map_text=MAP).items()}
+
+
+class ResultKeys(unittest.TestCase):
+    """The input-tree key a green result is reused by (tree_result.py): equal inputs give an equal key, and a change to
+    any input, the workflow or the router gives a new one."""
+
+    def setUp(self):
+        self.files = {**FILES, ".github/workflows/w.yml": "jobs: {}\n"}
+        self.before = keys(self.files)
+
+    def changed(self, path, text="changed\n"):
+        return keys({**self.files, path: text})
+
+    def test_a_change_outside_a_jobs_inputs_keeps_its_key(self):
+        after = self.changed("cmux-tui/crates/lonely/src/lib.rs")
+        self.assertEqual(after, self.before)
+        after = self.changed("README.md")
+        self.assertEqual(after, self.before)
+
+    def test_a_change_to_an_input_gives_the_jobs_that_read_it_a_new_key(self):
+        after = self.changed("cmux-tui/crates/sim/src/lib.rs")  # only app-sim turns sim on
+        self.assertNotEqual(after["app-sim"], self.before["app-sim"])
+        self.assertEqual(after["app-tests"], self.before["app-tests"])
+        self.assertEqual(after["core-check"], self.before["core-check"])
+        after = self.changed("schemas/core.json")  # an include_str! of core: every job builds core
+        self.assertTrue(all(after[j] != self.before[j] for j in self.before))
+        after = self.changed("scripts/run-app.sh")  # a job's own input
+        self.assertEqual([j for j in after if after[j] != self.before[j]], ["app-tests"])
+
+    def test_the_workflow_the_router_and_the_lockfile_are_in_every_key(self):
+        for path in (".github/workflows/w.yml", jobs.SELF[0], "cmux-tui/Cargo.lock"):
+            after = self.changed(path, "other\n")
+            self.assertTrue(all(after[j] != self.before[j] for j in self.before), path)
+
+    def test_jobs_with_the_same_inputs_still_have_their_own_keys(self):
+        self.assertEqual(len(set(self.before.values())), 3)
+
+    def test_a_reusing_job_gates_every_step_after_the_lookup(self):
+        job = jobs.Job(".github/workflows/w.yml", "app-tests", "app tests", [], [], [])
+        good = ("    steps:\n"
+                "      - uses: actions/checkout@x\n"
+                "      - name: Reuse\n        id: tree\n        uses: ./.github/actions/tree-result\n"
+                "        with:\n          mode: restore\n          job: app-tests\n"
+                "          key: ${{ needs.changes.outputs.app_tests_tree }}\n"
+                "      - name: Test\n        if: ${{ steps.tree.outputs.hit != 'true' && (always()) }}\n"
+                "        run: make test\n"
+                "      - name: Record\n        if: ${{ success() && steps.tree.outputs.hit != 'true' }}\n"
+                "        uses: ./.github/actions/tree-result\n        with:\n          mode: save\n"
+                "          job: app-tests\n          key: ${{ needs.changes.outputs.app_tests_tree }}\n")
+        self.assertEqual(jobs.tree_result_problems(job, good), [])
+        ungated = good.replace("        if: ${{ steps.tree.outputs.hit != 'true' && (always()) }}\n", "")
+        self.assertIn("step `name: Test`", " ".join(jobs.tree_result_problems(job, ungated)))
+        other_key = good.replace("outputs.app_tests_tree", "outputs.app_sim_tree")
+        self.assertTrue(jobs.tree_result_problems(job, other_key))
+        no_save = good.split("      - name: Record")[0]
+        self.assertTrue(jobs.tree_result_problems(job, no_save))
+        self.assertEqual(jobs.tree_result_problems(job, "    steps:\n      - run: make\n"), [])
+
+    def test_an_unreadable_graph_gives_no_key(self):
+        files = {**FILES, "cmux-tui/crates/app/Cargo.toml": "not toml ["}
+        self.assertEqual(keys(files), {})
+
+
 def built_crates(tree, root: str) -> set[str]:
     """The crate directories `cargo test -p ROOT` (default features) builds: normal and build dependencies of every
     crate, dev-dependencies of ROOT only, an optional one only when the depending crate's defaults turn it on.
@@ -403,6 +489,55 @@ class PullRequestSkip(unittest.TestCase):
                     self.assertRegex(why, r"\d+ runs? on \d+ merged pull requests")
 
 
+BINARIES_MAP = json.dumps({
+    "workspace_inputs": ["cmux-tui/Cargo.toml", "cmux-tui/Cargo.lock"],
+    "workflows": {
+        ".github/workflows/next.yml": {
+            "inputs": [],
+            "jobs": {
+                "daemon-test": {"crates": ["cmux-tui/crates/app"], "compile_only": True, "binaries_only": True,
+                                "router_output": "daemon", "binaries_key": "key.txt",
+                                "inputs": ["scripts/build.sh"], "key_only": ["fixtures/bench.json"]},
+            },
+        }
+    },
+})
+KEY = "# comment\ntree cmux-tui\ngitlink ghostty\nblob scripts/build.sh\nblob schemas/core.json\nblob fixtures/bench.json\n"
+
+
+class BinariesOnly(unittest.TestCase):
+    """A job that runs the published binaries (cmux-next.yml's daemon-test, routed by cmux_next_route.py)."""
+
+    def placement(self, files=FILES):
+        with fake_tree({**files, "key.txt": KEY}) as tree:
+            return jobs.placement("daemon-test", tree, map_text=BINARIES_MAP)
+
+    def test_its_crates_are_their_built_targets_only(self):
+        found = self.placement()
+        self.assertTrue(any(jobs.under("cmux-tui/crates/app/src/lib.rs", entry) for entry in found.inputs))
+        self.assertTrue(any(jobs.under("schemas/core.json", entry) for entry in found.inputs))  # core embeds it
+        for path in ("cmux-tui/crates/app/tests/t.rs", "fixtures/app/x.json",  # its own tests and their fixtures
+                     "cmux-tui/crates/helper/src/lib.rs", "cmux-tui/crates/sim/src/lib.rs"):  # dev, off feature
+            with self.subTest(path=path):
+                self.assertFalse(any(jobs.under(path, entry) for entry in found.inputs), found.inputs)
+
+    def test_a_path_in_no_package_is_never_placed(self):
+        found = self.placement()
+        self.assertTrue(found.unknown("cmux-tui/scripts/tool.sh"))
+        self.assertFalse(found.unknown("cmux-tui/crates/lonely/src/lib.rs"))
+        self.assertFalse(found.unknown("cmux-tui/README.md"))
+
+    def test_a_key_input_outside_the_graph_must_be_the_jobs(self):
+        _, all_jobs = jobs.load_map(BINARIES_MAP)
+        job = all_jobs[0]
+        with fake_tree({**FILES, "key.txt": KEY}) as tree:
+            self.assertEqual(jobs.check_binaries_key(jobs.Graph(tree, [], all_jobs), job), [])
+        with fake_tree({**FILES, "key.txt": KEY + "blob scripts/new-recipe.sh\n"}) as tree:
+            problems = jobs.check_binaries_key(jobs.Graph(tree, [], all_jobs), job)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("scripts/new-recipe.sh", problems[0])
+
+
 class TheRepository(unittest.TestCase):
     """The routed workflows, as they are in this commit."""
 
@@ -465,6 +600,22 @@ class TheRepository(unittest.TestCase):
                     result = jobs.route(head, [path], map_text=(ROOT / jobs.MAP).read_text(), base_tree=base)
                     run = {key[1]: value for key, value in result.run.items()}
                     self.assertTrue(run["acpmux-tests"], result.lines())
+
+    def test_the_daemon_tier_routes_by_the_map(self):
+        """cmux_next_route.py's daemon tier reads the map's daemon-test: a crate the fetched binaries build runs it, a
+        crate none of them builds, or a binary crate's own tests, does not."""
+        spec = importlib.util.spec_from_file_location("cmux_next_route_for_jobs", ROOT / "scripts/ci/cmux_next_route.py")
+        router = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = router
+        spec.loader.exec_module(router)
+        daemon = router.daemon_graph(ROOT)
+        self.assertIsNotNone(daemon)
+        self.assertTrue(daemon.reason("cmux-tui/crates/cmux-tui/src/main.rs"))
+        self.assertTrue(daemon.reason("cmux-tui/Cargo.lock"))
+        self.assertTrue(daemon.reason("scripts/cmux-next/pin-cmux-tui.sh"))
+        self.assertIsNone(daemon.reason("cmux-tui/crates/cmux-tui/tests/does_not_exist.rs"))
+        self.assertIsNone(daemon.reason("cmux-tui/crates/cmux-app-ffi/src/lib.rs"))  # the app links its pinned release
+        self.assertEqual(set(router.DAEMON_PATHS) - set(router._daemon_map_inputs(ROOT)), set())
 
     def test_the_workflow_paths_reader(self):
         text = 'on:\n  push:\n    paths:\n      - "a/**"\n      # c\n      - b.txt\n  pull_request:\njobs:\n  x:\n'
