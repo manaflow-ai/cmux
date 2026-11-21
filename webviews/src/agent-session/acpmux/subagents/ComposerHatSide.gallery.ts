@@ -41,7 +41,8 @@ export default componentEntry<Props>({
   ],
   load: () => import("../../../gallery/fixtures/ComposerHatHeadStage").then((module) => module.ComposerHatHeadStage),
   pane: true,
-  height: 320,
+  // The dock leaves the transcript its minimum (bottomStack.css), so the opened list needs this much pane.
+  height: 440,
   widths: { narrow: 360 },
   experiment: { definition: hatSideLook, script: [{ name: "the pointer on the second mark", run: onMark(1) }] },
   variants: {
