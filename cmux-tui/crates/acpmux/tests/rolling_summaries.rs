@@ -19,6 +19,7 @@ use acpmux::hub::Hub;
 use acpmux::rpc::Message;
 use acpmux::server::{Origin, serve_connection_with};
 use serde_json::{Value, json};
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -67,14 +68,16 @@ fn requests(asked: &Path) -> Vec<String> {
         .collect()
 }
 
-struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
+/// A client connection. Pushes that arrive while a call waits for its reply are kept in
+/// `backlog`: a wrap-up's summary is told before the prompt's reply.
+struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64, VecDeque<Value>);
 
 impl Client {
     fn open(hub: &Arc<Hub>) -> Self {
         let (in_tx, in_rx) = mpsc::channel(64);
         let (out_tx, out_rx) = mpsc::channel(4096);
         tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
-        Self(in_tx, out_rx, 0)
+        Self(in_tx, out_rx, 0, VecDeque::new())
     }
 
     async fn line(&mut self, within: Duration) -> Option<Value> {
@@ -92,6 +95,7 @@ impl Client {
                 assert!(value.get("error").is_none(), "{method}: {value}");
                 return value["result"].clone();
             }
+            self.3.push_back(value);
         }
     }
 
@@ -129,8 +133,17 @@ impl Client {
         self.call("_acpmux/info", json!({"sessionId": session})).await["rollingSummary"].clone()
     }
 
-    /// The next `_acpmux/session_changed` of a `summarized` record, within `within`.
+    /// The next `_acpmux/session_changed` of a `summarized` record, within `within`: one that
+    /// came while a call waited first.
     async fn summarized(&mut self, within: Duration) -> Option<Value> {
+        let is_summarized =
+            |v: &Value| v.pointer("/params/recordKind") == Some(&json!("summarized"));
+        if let Some(at) = self.3.iter().position(is_summarized) {
+            let found = self.3.remove(at);
+            self.3.drain(..at);
+            return found;
+        }
+        self.3.clear();
         let end = tokio::time::Instant::now() + within;
         loop {
             let left = end.saturating_duration_since(tokio::time::Instant::now());
@@ -168,7 +181,11 @@ async fn a_persons_turn_gets_a_rolling_summary_and_next_action_on_its_row() {
 
     // Rolling: the next turn's request carries the last summary, not the transcript.
     client.prompt(&session, "now make it vegetarian").await;
-    client.summarized(Duration::from_secs(15)).await.expect("no second summary");
+    let second = client.summarized(Duration::from_secs(15)).await.expect("no second summary");
+    assert_eq!(
+        second.pointer("/params/session/rollingSummary/text"),
+        Some(&json!("The vegetarian picnic menu is final."))
+    );
     let both = requests(&asked);
     assert_eq!(both.len(), 2, "{both:?}");
     assert!(both[1].contains("The picnic menu has three dishes"), "{}", both[1]);
