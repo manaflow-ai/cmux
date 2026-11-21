@@ -2723,3 +2723,10 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   on a tab, so the row keeps the tab bar's balance. Fitting every favicon's ink to the glyphs' side had drawn it about
   1.4x smaller than on its tab.
   Sidebar-Look: "the icon sizes should be the same size as the horizontal tabs... the icon sizes need to be kind of standardized"
+
+- 2026-11-21 (sidebar-hosts-parity): a Labs switch (`labs.hostsSidebar`, off by default) adds a transient Hosts
+  section under Home: a header with the machine count, Add Host…, and one row per machine from the Machines page's
+  `MachineSectionRow.rows` (same names, symbols, order and state captions). Rows never enter the sidebar document.
+  Agent chats on other machines stay out of the sidebar (Lawrence 2026-10-26): `RemoteMachinesSidebar` is still not
+  bound. Tests: HostsSidebarTests, HostsSidebarGalleryTests, HostsSidebarLabsSettingTests.
+  Sidebar-Look: Leo "'parity' means stuff like being able to add hosts and whatnot to the sidebar".

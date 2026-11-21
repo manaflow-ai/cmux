@@ -103,6 +103,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var customizeFromTheApp = CmuxConfigSnapshot.customizeFromTheAppDefault
     /// `labs.agentCustomization`: Settings shows and edits Claude Code's and Codex's own MCP servers, skills and commands (`cmux agent-config`); off when unset.
     public var agentCustomization = CmuxConfigSnapshot.agentCustomizationDefault
+    /// `labs.hostsSidebar`: the Rex-style Hosts section projects the Machines catalog into the sidebar; off when unset.
+    public var hostsSidebar = CmuxConfigSnapshot.hostsSidebarDefault
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`, `browser.freezeHiddenTabs`.
     public var browserHibernation: BrowserHibernationSetting = .fallback
     /// `browser.links.*`: what modified link clicks do; Chrome's when unset.
@@ -404,6 +406,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(Self.parseLabsToggle(root, path: pauseAgentMachinesPath, fallback: pauseAgentMachinesDefault), \.pauseAgentMachines)
         snapshot.take(Self.parseLabsToggle(root, path: customizeFromTheAppPath, fallback: customizeFromTheAppDefault), \.customizeFromTheApp)
         snapshot.take(Self.parseLabsToggle(root, path: agentCustomizationPath, fallback: agentCustomizationDefault), \.agentCustomization)
+        snapshot.take(Self.parseLabsToggle(root, path: hostsSidebarPath, fallback: hostsSidebarDefault), \.hostsSidebar)
         snapshot.take(BrowserHibernationSetting.parse(root), \.browserHibernation)
         snapshot.take(BrowserLinkClickSetting.parse(root), \.browserLinkClicks)
         snapshot.take(LinkRouting.parse(root), \.linkRouting)
