@@ -9,7 +9,7 @@ import CmuxNextDesign
 /// on the row's height, or with `firstTextBaseline` / `lastTextBaseline` on one shared text baseline (a child
 /// with no text aligns its bottom there, as in SwiftUI: AM/PM beside a big time). A section is a short list (budget 4096 nodes), so every child is laid out:
 /// `LazyVStack` draws as a `VStack`.
-final class AppSceneStackNSView: AppSceneNodeNSView {
+class AppSceneStackNSView: AppSceneNodeNSView {
     private var isHorizontal: Bool { node.type == .hStack }
     private var spacing: CGFloat { node.number("spacing").map { CGFloat($0) } ?? (isHorizontal ? Metrics.space2 : 0) }
 
