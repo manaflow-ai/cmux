@@ -326,6 +326,11 @@ pub trait AgentPort: Send + Sync {
     fn withdraw_steer(&self, _session: &str, _prompt_id: &str) -> Result<bool, String> {
         Ok(false)
     }
+    /// Keeps `session`'s task list (`_acpmux/task_list/set`): `items` is the whole
+    /// list, `[{content, status}]`, `[]` clears it. The list's summary, null for none.
+    fn task_list_set(&self, _session: &str, _items: &Value) -> Result<Value, String> {
+        Err("task lists are not supported".into())
+    }
     /// Sets `session`'s harness mode (`session/set_mode`).
     fn set_mode(&self, _session: &str, _mode: &str) -> Result<(), String> {
         Err("set_mode is not supported".into())
@@ -1598,6 +1603,15 @@ impl AgentPort for Acpmux {
             )
             .map(|v| v["removed"].as_bool().unwrap_or(false))
             .map_err(|e| format!("queue_remove: {e}"))
+    }
+
+    fn task_list_set(&self, session: &str, items: &Value) -> Result<Value, String> {
+        self.client()?
+            .request(
+                "_acpmux/task_list/set",
+                json!({"sessionId": session, "items": items}),
+            )
+            .map_err(|e| format!("task_list/set: {e}"))
     }
 
     fn set_mode(&self, session: &str, mode: &str) -> Result<(), String> {

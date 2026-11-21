@@ -889,6 +889,10 @@ pub mod method {
     pub const MUX_GOAL_SET: &str = "_acpmux/goal/set";
     pub const MUX_GOAL_UPDATE: &str = "_acpmux/goal/update";
     pub const MUX_GOAL_GET: &str = "_acpmux/goal/get";
+    /// A chat's task list across its turns (`server/task_list.rs`, `task_list.rs`): kept by its
+    /// agent or its Chief when the harness writes no plan of its own, and read back.
+    pub const MUX_TASK_LIST_SET: &str = "_acpmux/task_list/set";
+    pub const MUX_TASK_LIST_GET: &str = "_acpmux/task_list/get";
     /// Building an approved plan here, in a new worktree, or on two agents to compare
     /// (`server/plan_build.rs`, `hub/plan_build.rs`).
     pub const MUX_PLAN_BUILD: &str = "_acpmux/plan/build";

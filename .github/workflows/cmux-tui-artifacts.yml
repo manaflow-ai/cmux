@@ -67,20 +67,23 @@ on:
   # gitlink. Trusted pushes to the cmux-next branches publish
   # cmux-tui/tree/<key>/ after the build and the cmux_next_ daemon tests pass.
   #
-  # Every other branch of this repository publishes its pushed head too
+  # Every non-lane branch of this repository publishes its pushed head too
   # (cx-r2is), so a same-repository branch can repair its own tree without a
   # hand-pushed cmux-tui-pin-* ref, but only a head an open pull request has
   # (or a cmux-next dispatch, or the Cmux-Daemon-Tests: run trailer, asks
   # for): tree-preflight's superseded step skips the rest before any build
-  # (scripts/ci/cmux_tui_superseded_push.py). Those lane-branch pushes publish without
-  # the daemon tests (tree-preflight's daemon-policy step). Forks never push
-  # here. Pull requests do not publish synthetic merge trees: path routing
-  # skips a cold own tree with a named reason until a trusted feat-cmux-next
-  # publication exists. A push trigger cannot filter paths per branch, so
-  # tree-preflight is the filter: a branch push whose tree key is already
-  # published spends no macOS time (run_macos=false) and publishes nothing.
+  # (scripts/ci/cmux_tui_superseded_push.py). Lane branches are excluded from
+  # this push trigger entirely because their trees have no nightly or release
+  # consumer. The feat-cmux-next tree-request workflow remains the repair path
+  # for a missing tree. Forks never push here. Pull requests do not publish
+  # synthetic merge trees: path routing skips a cold own tree with a named
+  # reason until a trusted feat-cmux-next publication exists. A branch push
+  # whose tree key is already published spends no macOS time (run_macos=false)
+  # and publishes nothing.
   push:
-    branches: ["**"]
+    branches:
+      - "**"
+      - "!lane/**"
     # The published binaries do not contain the prose under cmux-tui/docs.
     # Keep the publisher asleep for docs-only commits; v2 tree-key computation
     # excludes the same non-runtime subtree. A push that also changes code
