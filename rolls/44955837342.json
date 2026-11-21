@@ -1,0 +1,85 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44955837342",
+  "recorded_at": "2026-11-21T22:30:07Z",
+  "reason": "cmux-tui 1a92858e0fc5 changes the image's cmux-tui (pinned d0b731b6e91b)",
+  "dry_run": false,
+  "cmux_tui": "1a92858e0fc58e8011a316395786badb5acd85e0",
+  "fixes": [
+    {
+      "sha": "1a92858e0fc58e8011a316395786badb5acd85e0",
+      "mergedAt": "2026-11-21T20:52:44+00:00",
+      "subject": "acpmux: a kind scan past a restore point reads the copies past it, not every copy (#47288)"
+    },
+    {
+      "sha": "46280b9768fa56a7432a73b20d5d832bb953824d",
+      "mergedAt": "2026-11-21T20:48:21+00:00",
+      "subject": "Agent chat: a slow agent service is never read as a dead one (pane liveness, daemon-wide queue bound) (#49103)"
+    },
+    {
+      "sha": "9231971ec23ccc3bdbcadab29d3229f64cbe71e9",
+      "mergedAt": "2026-11-21T20:38:31+00:00",
+      "subject": "acpmux machine status/doctor: say a hub-carried machine is connected, not unreachable (#48910)"
+    },
+    {
+      "sha": "31a78bbe3b0e03d05eddf6409b206242db00b184",
+      "mergedAt": "2026-11-21T20:37:31+00:00",
+      "subject": "agent pane: the relay takes the page's initialize _meta.acpmux.peerRowBatches; every chat reconnected every few seconds (#49148)"
+    },
+    {
+      "sha": "2084b6ebebdcfb0fa697d2ffcf41c1e9cae8d22d",
+      "mergedAt": "2026-11-21T20:30:52+00:00",
+      "subject": "cmux remote: a bad route and an unknown daemon name the next command (#48945)"
+    },
+    {
+      "sha": "8653b7156a0f0768dac155ce5a4c73a294ac0018",
+      "mergedAt": "2026-11-21T20:26:04+00:00",
+      "subject": "acpmux: the owner's phone keeps the session's mode (remote.mode_not_asking) (#48758)"
+    },
+    {
+      "sha": "7f763661b7e2820117cacf254da4e4818b832afe",
+      "mergedAt": "2026-11-21T20:16:10+00:00",
+      "subject": "App Store: listings that say what you get, with a real listing page and browse page (#47765)"
+    },
+    {
+      "sha": "46829ab738fd754a8f6210e0655d0e5ac0fe1442",
+      "mergedAt": "2026-11-21T12:14:13-08:00",
+      "subject": "acpmux: a chat with no creator starts Claude with suggestions only when the person asked for it"
+    },
+    {
+      "sha": "e3cede1ec64578d6fbc4207a937a882af77bf473",
+      "mergedAt": "2026-11-21T20:07:42+00:00",
+      "subject": "Rust policy for the opt-in pane + creation menu (tabs.plusMenu) (#49233)"
+    },
+    {
+      "sha": "fd4a03e8701f0c6997aa82257704acbd144a04a1",
+      "mergedAt": "2026-11-21T20:07:03+00:00",
+      "subject": "cmux-rd-ffi: record the viewed screen to a fragmented MP4 as it plays (ABI 7; Mac Screen recording step A) (#49252)"
+    },
+    {
+      "sha": "d4886f118169c76eab764f61b62e6a5606dcfbf6",
+      "mergedAt": "2026-11-21T20:06:43+00:00",
+      "subject": "Prototype: agent-made widgets as json-render specs, drawn with the extension kit (#44950)"
+    },
+    {
+      "sha": "c345b18e09263d46a479a7454e6b13492883b7b4",
+      "mergedAt": "2026-11-21T20:04:34+00:00",
+      "subject": "NEXT: Move chats through CLI and command palette (#49141)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-21T22:30:07Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
