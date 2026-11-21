@@ -449,5 +449,89 @@ class BaseRedConsumer(unittest.TestCase):
         self.assertIn(ISSUE, audit[0])
 
 
+
+# Two real attempts of `rust workspaces / cmux-next-ios/rust` at one commit (cmux run 43865211609, head 518a78fa,
+# 2026-11-16), trimmed to the run step's echo and its cargo test group: attempt 1 failed
+# wireguard_bitrate_adapts_to_a_capped_link (its panic message is the ten measured bitrates, different every run);
+# attempt 2 passed it and failed browser_video_rides_the_media_session_beside_wireguard. A Rust test seen both
+# passing and failing at one commit is a flake the base-health reconciler can measure, and it can only quarantine
+# one whose failure has a diagnostic: before cargo panic sites were signatures, it had none (hq#12066).
+FIXTURES = ROOT / "tests/fixtures/test_reds"
+RUST_FAIL = (FIXTURES / "rust-workspaces-media-fail-job-133292315169.log").read_text()
+RUST_PASS = (FIXTURES / "rust-workspaces-media-pass-job-133344008558.log").read_text()
+RUST_JOB, RUST_WORKFLOW = "cmux-next-ios/rust", "rust workspaces"
+RUST_TEST = "wireguard_bitrate_adapts_to_a_capped_link"
+RUST_SITE = "panicked at crates/cmux-mobile-link/tests/media.rs:307:5"
+RUST_STEP = "cargo clippy --all-targets and cargo test"
+
+
+def rust_state(signature=RUST_SITE):
+    return {"schema": "tap-tests/v1", "generated_at": NOW.isoformat(), "tests": [
+        {"workflow": RUST_WORKFLOW, "job": RUST_JOB, "test": RUST_TEST, "observations": 10,
+         "last_observed_at": NOW.isoformat(), "passes": 6, "failures": 4, "flips": 4, "flip_rate": 4 / 9,
+         "failure_signatures": [signature],
+         "quarantine": {"issue": ISSUE, "until": (NOW + timedelta(days=1)).isoformat(), "signatures": [signature]}}]}
+
+
+class RustWorkspaceFlakes(unittest.TestCase):
+    def outcome(self, log, test=RUST_TEST):
+        return next(row for row in reds.observations(log) if row["test"] == test)
+
+    def test_one_commit_shows_the_test_passing_and_failing_with_its_panic_site(self):
+        self.assertEqual(self.outcome(RUST_FAIL), {"test": RUST_TEST, "outcome": "fail", "signature": RUST_SITE})
+        self.assertEqual(self.outcome(RUST_PASS), {"test": RUST_TEST, "outcome": "pass", "signature": ""})
+        self.assertEqual(self.outcome(RUST_PASS, "browser_video_rides_the_media_session_beside_wireguard"),
+                         {"test": "browser_video_rides_the_media_session_beside_wireguard", "outcome": "fail",
+                          "signature": "panicked at crates/cmux-mobile-link-ffi/tests/browser.rs:43:9"})
+
+    def test_the_site_not_the_run_time_message_or_thread_id_is_the_signature(self):
+        other_run = RUST_FAIL.replace("1626101", "1700000").replace("(13073)", "(4242)")
+        self.assertEqual(self.outcome(other_run)["signature"], RUST_SITE)
+        older_rust = RUST_FAIL.replace(
+            "thread 'wireguard_bitrate_adapts_to_a_capped_link' (13073) panicked at crates/cmux-mobile-link/tests/"
+            "media.rs:307:5:",
+            "thread 'wireguard_bitrate_adapts_to_a_capped_link' panicked at 'bitrates', "
+            "crates/cmux-mobile-link/tests/media.rs:307:5")
+        self.assertEqual(self.outcome(older_rust)["signature"], RUST_SITE)
+
+    def test_a_quarantined_rust_flake_is_excused_by_name_and_site_only(self):
+        known = reds.flaky_failures(RUST_FAIL, RUST_JOB, RUST_WORKFLOW, rust_state())
+        self.assertEqual(list(known), [RUST_TEST])
+        self.assertIn(ISSUE, known[RUST_TEST])
+        self.assertFalse(reds.classify(RUST_FAIL, RUST_PASS, RUST_JOB, flake_state=rust_state(),
+                                       workflow=RUST_WORKFLOW).own)
+        # Another assertion of the same test, another workflow, or no quarantine: still the head's own red.
+        moved = RUST_FAIL.replace("media.rs:307:5", "media.rs:280:5")
+        self.assertTrue(reds.classify(moved, RUST_PASS, RUST_JOB, flake_state=rust_state(),
+                                      workflow=RUST_WORKFLOW).own)
+        self.assertFalse(reds.flaky_failures(RUST_FAIL, RUST_JOB, "cmux-next", rust_state()))
+        self.assertTrue(reds.classify(RUST_FAIL, RUST_PASS, RUST_JOB).own)
+
+    def test_base_red_excuse_bridges_a_green_base_run_for_a_quarantined_rust_flake(self):
+        body = [line for line in reds.log_lines(RUST_FAIL) if line]
+        start = next(n for n, line in enumerate(body) if line.startswith("##[group]") and "cargo test" in line)
+        lines = [(RUST_STEP, 3, line) for line in body[:start]] + [(RUST_STEP, 19, line) for line in body[start:]]
+        github = base.FakeGitHub()
+        github.jobs[1]["name"] = RUST_JOB
+        github.jobs[1]["steps"] = base.framed_steps([(RUST_STEP, "failure", 3, 20)])
+        github.logs[1] = base.framed_log(lines, RUST_JOB)
+        github.logs[2] = RUST_PASS
+        github.jobs[2]["name"] = RUST_JOB
+        github.jobs[2]["conclusion"] = "success"
+        original = github.json
+
+        def read(route, **kwargs):
+            result = original(route, **kwargs)
+            if route.endswith("/actions/runs/10"):
+                result["name"] = RUST_WORKFLOW
+            return result
+        github.json = read
+        audit = excuse.judge(base.REPO, "feat-cmux-next", base.HEAD, [10], github, flake_state=rust_state())
+        self.assertIn("quarantined base flakes", audit[0])
+        self.assertIn(RUST_TEST, audit[0])
+        with self.assertRaises(excuse.Refused):
+            excuse.judge(base.REPO, "feat-cmux-next", base.HEAD, [10], github,
+                         flake_state=rust_state("panicked at crates/cmux-mobile-link/tests/media.rs:1:1"))
+
 if __name__ == "__main__":
     unittest.main()
