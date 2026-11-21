@@ -71,7 +71,6 @@
     "cla.yml: Refresh the pull request check after a new signature": "baseline 2026-11-04",
     "classic-api-guard.yml: Check the changed paths against classic's auto-deploys": "baseline 2026-11-04",
     "cloud-image-staleness.yml: Open, update, or close the cloud-image-stale issue": "baseline 2026-11-04",
-    "cloud-vm-canary.yml: Tell Slack when the state changes": "baseline 2026-11-04",
     "cloud-vm-image-auto-promote.yml: Dispatch the checked-in dev promotion": "baseline 2026-11-04",
     "cloud-vm-image-auto-promote.yml: Download completed bake artifacts": "baseline 2026-11-04",
     "cloud-vm-image-bake.yml: Check the production environment": "baseline 2026-11-04",
