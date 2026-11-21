@@ -7,6 +7,9 @@ import CmuxNextSettings
 /// - `tab`, `device_id`, `device` (the tab's name for it);
 /// - `phase` (`connecting`, `connected`, `failed`, `ended`; null with no session), `connected`,
 ///   `has_frame` (a picture is up in this connection), `path` (Direct, Relayed, ...);
+/// - `hub_phase` (the tab's request to the device hub: `idle`, `requesting`, `waiting_for_approval`,
+///   `approved`, `streaming`, `stream_failed`, `declined`, `refused`, `revoked`, `ended`) and
+///   `waits_to_show` (a scope is held until the tab is shown, so nothing was asked of the hub yet);
 /// - `connect_started_at` (ISO 8601, when this session's connect began) and `first_frame_ms`
 ///   (from it to the first decoded frame reaching the screen; null until then);
 /// - `fps`, `target_fps`, `rtt_ms` (latest), `frames_decoded`, `frames_dropped` (frames the other
@@ -56,6 +59,11 @@ extension MacScreenPages {
         ]
         guard let pane = tab.pane else { return .object(row) }
         row["has_frame"] = .bool(pane.model.hasFrame)
+        // The hub side of the connect: a session that never left `idle` never sent the host an offer.
+        if let hub = pane.model.hub {
+            row["hub_phase"] = .string(hubPhaseName(hub.phase))
+            row["waits_to_show"] = .bool(hub.resumeScope != nil)
+        }
         guard let session = pane.session else { return .object(row) }
         row["phase"] = .string(phaseName(session.phase))
         row["connected"] = .bool(session.phase == .connected)
@@ -90,6 +98,21 @@ extension MacScreenPages {
         guard let summary = samples.summary else { return .null }
         func ms(_ value: Double) -> JSONValue { .number((value * 10).rounded() / 10) }
         return ["count": .number(Double(summary.count)), "p50": ms(summary.p50), "p95": ms(summary.p95), "max": ms(summary.max)]
+    }
+
+    static func hubPhaseName(_ phase: MacScreenHubPhase) -> String {
+        switch phase {
+        case .idle: "idle"
+        case .requesting: "requesting"
+        case .waitingForApproval: "waiting_for_approval"
+        case .approved: "approved"
+        case .streaming: "streaming"
+        case .streamFailed: "stream_failed"
+        case .declined: "declined"
+        case .refused: "refused"
+        case .revoked: "revoked"
+        case .ended: "ended"
+        }
     }
 
     static func phaseName(_ phase: MacScreenSession.Phase) -> String {
