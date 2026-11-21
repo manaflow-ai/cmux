@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileDesign
 import CmuxMobileModel
 import Foundation
 import SwiftUI
@@ -136,6 +137,80 @@ import UIKit
         #expect(host.list.movedApplyCount == moves + 1, "the move rebuilt the list")
         #expect(host.list.shownItemIDs(inSection: "recent") == order, "the list's order is the model's")
         #expect(host.list.lastReconfigured == [key])
+    }
+
+    /// A busy row jumps to the top on every tick while the person scrolls: no move is applied
+    /// during the scroll (the rows update in place), then one apply at rest leaves the list in
+    /// the order a live apply would have shown, the row being read in place.
+    @Test func reordersWhileScrollingWaitForRestThenApplyOnce() throws {
+        let host = host()
+        defer {
+            host.window.isHidden = true
+            ListApplyProbe.shared.codeDrivenScroll = false
+        }
+        host.list.update(model: Self.model(300, version: 1), actions: host.actions, animated: false, membershipKey: 0)
+        turn()
+        host.view.layoutIfNeeded()
+        host.view.contentOffset.y = 3000
+        host.view.layoutIfNeeded()
+        ListApplyProbe.shared.codeDrivenScroll = true
+        let moves = host.list.movedApplyCount, snapshots = host.list.applyCount
+        var order = Self.model(300).sections[0].items
+        var titles: [Int: String] = [:]
+        var version = 1
+        for tick in 0..<12 {
+            // The scroll moves on (a frame of the rig's scroll), then a tick's row jumps up.
+            host.view.contentOffset.y += 6
+            let row = 40 + tick * 17
+            let key = WorkspacesListModel.rowID("w\(row)")
+            titles[row] = "busy \(tick)"
+            order.removeAll { $0 == key }
+            order.insert(key, at: 0)
+            var next = Self.model(300, titles: titles, version: version + 1)
+            next.sections[0].items = order
+            next.patchedFrom = version
+            next.patchedItems = [key]
+            next.patchedMoves = [key]
+            version += 1
+            host.list.update(model: next, actions: host.actions, animated: false, membershipKey: 0)
+            turn()
+        }
+        #expect(host.list.movedApplyCount == moves, "a move applied while scrolling")
+        #expect(host.list.applyCount == snapshots)
+        #expect(host.list.deferredReorderCount >= 12)
+        #expect(host.list.shownItemIDs(inSection: "recent") == Self.model(300).sections[0].items,
+                "the shown order changed during the scroll")
+        let anchor = try #require(host.list.readingAnchor()?.ids.first)
+        // The scroll rests: the moving window passes with no new offset.
+        RunLoop.current.run(until: Date().addingTimeInterval(WorkspacesListController.movingWindow + 0.2))
+        host.view.layoutIfNeeded()
+        #expect(host.list.restedApplyCount == 1, "one apply at rest")
+        #expect(host.list.applyCount == snapshots + 1)
+        #expect(host.list.shownItemIDs(inSection: "recent") == order, "the order a live apply shows")
+        let after = try #require(host.list.readingAnchor()?.ids.first { $0.id == anchor.id })
+        #expect(abs(after.delta - anchor.delta) <= 0.5, "the row being read moved \(after.delta - anchor.delta) pt at rest")
+    }
+
+    /// Rows coming or going, and a row into Needs You, apply at once even mid-scroll.
+    @Test func membershipChangesApplyAtOnceWhileScrolling() {
+        let host = host()
+        defer {
+            host.window.isHidden = true
+            ListApplyProbe.shared.codeDrivenScroll = false
+        }
+        host.list.update(model: Self.model(100), actions: host.actions, animated: false, membershipKey: 0)
+        turn()
+        host.view.contentOffset.y = 1500
+        ListApplyProbe.shared.codeDrivenScroll = true
+        host.view.contentOffset.y += 6
+        var needs = Self.model(100)
+        let key = WorkspacesListModel.rowID("w50")
+        needs.sections[0].items.removeAll { $0 == key }
+        needs.sections.insert(ListSectionIDs(id: "needs", items: [key]), at: 0)
+        host.list.update(model: needs, actions: host.actions, animated: false, membershipKey: 1)
+        turn()
+        #expect(host.list.shownItemIDs(inSection: "needs") == [key], "Needs You waited for the scroll")
+        #expect(host.list.deferredReorderCount == 0)
     }
 
     /// The list model's move edit puts each moved row at its place in the inbox's new order

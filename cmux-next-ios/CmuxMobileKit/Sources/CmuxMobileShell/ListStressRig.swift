@@ -302,6 +302,17 @@ final class ListStressRig: NSObject {
                 store.replaceWorkspaces(macID: macID, with: store.workspaces.filter { $0.macID == macID && $0.id != removeID })
             }
         }
+        // `bump`: the Mac reports new activity on `CMUX_MOBILE_LIST_BUMP_ID` (a busy workspace: it
+        // goes to the top of a newest-first list).
+        let bumpID = ProcessInfo.processInfo.environment["CMUX_MOBILE_LIST_BUMP_ID"] ?? ""
+        RigSignals.observe("bump") { [log] in
+            log.notice("FRAMELOG list-stress signal bump \(bumpID, privacy: .public)")
+            guard let row = store.workspace(id: bumpID) else { return }
+            var next = row
+            next.lastActivityAt = Date()
+            next.isWorking = true
+            store.updateWorkspaces(macID: row.macID, rows: [next])
+        }
         // `reveal`: the list scrolls (by its own offset, no finger) until the row to remove sits in
         // the middle of the screen, however far down it is (the Feed pins its open asks first, so
         // an answer can be dozens of screens down: a test's drags never reached it).

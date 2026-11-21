@@ -10,6 +10,8 @@ import XCTest
 ///   window must not turn either.
 final class WorkspacesEdgeUITests: XCTestCase {
     static let removed = "ws-s20"
+    /// The busy workspace of the reorder test: new activity moves it to the top.
+    static let busy = "ws-s30"
 
     override func setUp() {
         continueAfterFailure = false
@@ -30,6 +32,7 @@ final class WorkspacesEdgeUITests: XCTestCase {
         app.launchEnvironment["CMUX_MOBILE_LIST_SETTLE"] = "0"
         app.launchEnvironment["CMUX_MOBILE_LIST_SIGNALS"] = "1"
         app.launchEnvironment["CMUX_MOBILE_LIST_REMOVE_ID"] = Self.removed
+        app.launchEnvironment["CMUX_MOBILE_LIST_BUMP_ID"] = Self.busy
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-tab", "workspaces", "-cmux-mobile-no-restore"]
         app.launch()
         let choose = app.scrollViews["setup.teams.choose"]
@@ -38,6 +41,40 @@ final class WorkspacesEdgeUITests: XCTestCase {
         XCTAssertTrue(list.waitForExistence(timeout: 40), "the Workspaces list\n\(app.debugDescription)")
         XCTAssertTrue(app.buttons["workspace.row.ws-s1"].waitForExistence(timeout: 20), "the seeded rows\n\(app.debugDescription)")
         return (app, list)
+    }
+
+    /// A busy workspace's new activity arrives while a finger holds the list mid-scroll: the row
+    /// stays where it is (no reorder under the finger), and goes to the top when the scroll rests,
+    /// the row being read kept in place (#13742, defer reorders while scrolling).
+    @MainActor
+    func testBusyRowHoldsWhileScrollingAndMovesAtRest() {
+        let (app, list) = launch()
+        defer { app.terminate() }
+        let row = app.buttons["workspace.row.\(Self.busy)"]
+        RowFrames.bring(row, toMiddleOf: list)
+        XCTAssertTrue(row.exists && row.isHittable, "the busy row is on screen\n\(app.debugDescription)")
+        let before = RowFrames.settled(list, prefix: "workspace.row.")
+        edgeShot(app, "reorder-1-reading")
+        // The Mac reports the activity while the finger is down: a short drag, then a hold.
+        DispatchQueue.global().asyncAfter(deadline: .now() + 1.2) { RigSignal.post("bump") }
+        let start = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6))
+        start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -24)), withVelocity: .slow,
+                    thenHoldForDuration: 3)
+        // The finger lifted with no fling: the list is at rest, and the held order applies once.
+        XCTAssertTrue(row.waitForNonExistence(timeout: 5) || !row.isHittable,
+                      "the busy row went to the top at rest\n\(app.debugDescription)")
+        let after = RowFrames.settled(list, prefix: "workspace.row.")
+        edgeShot(app, "reorder-2-rested")
+        let counts = list.value as? String ?? ""
+        edgeNote("before: \(before.keys.sorted())\nafter: \(after.keys.sorted())\ncounts: \(counts)", "reorder-counts")
+        XCTAssertTrue(counts.contains("movedWhileScrolling=0"), "a reorder applied under the finger: \(counts)")
+        XCTAssertFalse(counts.contains("held=0"), "the reorder was not held for the scroll: \(counts)")
+        XCTAssertFalse(counts.contains("rested=0"), "the held order never applied at rest: \(counts)")
+        // At the top, the busy row leads the list.
+        list.swipeDown(velocity: .fast)
+        list.swipeDown(velocity: .fast)
+        XCTAssertTrue(row.waitForExistence(timeout: 5), "the busy row is at the top\n\(app.debugDescription)")
+        edgeShot(app, "reorder-3-top")
     }
 
     /// WS-15.

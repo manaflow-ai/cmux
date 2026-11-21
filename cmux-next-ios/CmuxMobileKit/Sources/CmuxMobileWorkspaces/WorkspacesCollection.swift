@@ -501,7 +501,7 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
         let plan: ListApplyPlan
         if let changedItems, !shownSections.isEmpty {
             // The shown sections, with only the moved items in new places: the changed items alone
-            // are compared and redrawn, and each moved item is moved (O(changed)).
+            // are compared and redrawn (O(changed)).
             sections = movedItems.isEmpty ? shownSections : next.sections
             plan = ListApplyPlan(orderChanged: !movedItems.isEmpty, membershipChanged: false,
                                  reconfigure: changedItems.filter { id in
@@ -509,12 +509,57 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
                                      return before != after
                                  })
             patchedApplyCount += 1
-            if !movedItems.isEmpty {
-                let anchor = animated ? nil : readingAnchor()
+        } else {
+            sections = ListSectionIDs.unique(next.sections)
+            plan = ListApplyPlan.make(old: shownSections, oldItems: items, new: sections, newItems: next.items)
+        }
+        items = next.items
+        lastReconfigured = plan.reconfigure
+        let now = CACurrentMediaTime()
+        // A live reorder while the person scrolls (finger down or coasting) waits for the scroll
+        // to rest: the rows update in place, and the order catches up in one apply at rest
+        // (`applyDeferredOrder`). Rows coming or going, and a row into or out of Needs You (a
+        // change of a section's rows), apply at once. Moving a row of a long list re-lays out
+        // every row between its places, a frame's budget on a busy Mac's every tick.
+        if plan.orderChanged, !plan.membershipChanged, !shownSections.isEmpty, isScrolling(now: now),
+           changedItems != nil || Self.sameRows(shownSections, sections) {
+            deferredSections = sections
+            deferredReorderCount += 1
+            noteReorderCounts()
+            scheduleRestCheck()
+            reconfigureShown(plan.reconfigure)
+            return
+        }
+        if !plan.orderChanged, deferredSections != nil {
+            // Rows changed in place: the order the scroll holds stays deferred.
+            reconfigureShown(plan.reconfigure)
+            return
+        }
+        deferredSections = nil
+        guard !plan.isEmpty || dataSource.snapshot().numberOfSections == 0 && !sections.isEmpty else { return }
+        if plan.orderChanged, !plan.membershipChanged, !shownSections.isEmpty, isAtRestAtTop() {
+            // At the top, at rest: a row moving to the top slides there.
+            animated = !UIAccessibility.isReduceMotionEnabled
+        }
+        applyOrder(sections, plan: plan, moved: changedItems != nil && shownMatchesSnapshot ? movedItems : nil, animated: animated)
+        // Changed rows: the cells on screen take their new value in place (only a
+        // cell whose height changes asks the layout again); every other cell is
+        // filled when it is dequeued or comes on screen. A `reconfigureItems`
+        // snapshot re-solved the whole list's layout for each change.
+        reconfigureShown(plan.reconfigure)
+    }
+
+    /// Shows `sections`: the moved items alone (`moved`, a patched model's, or a few found by
+    /// `moves`), or a new snapshot; the row being read stays in place when nothing animates.
+    private func applyOrder(_ sections: [ListSectionIDs], plan: ListApplyPlan, moved: Set<String>?, animated: Bool) {
+        guard let dataSource else { return }
+        let anchor = animated ? nil : readingAnchor()
+        if plan.orderChanged || dataSource.snapshot().numberOfSections == 0 {
+            if let moved, !moved.isEmpty, !plan.membershipChanged {
                 var snapshot = dataSource.snapshot()
                 var places: [(section: Int, index: Int, id: String)] = []
                 for (s, section) in sections.enumerated() {
-                    for (index, id) in section.items.enumerated() where movedItems.contains(id) { places.append((s, index, id)) }
+                    for (index, id) in section.items.enumerated() where moved.contains(id) { places.append((s, index, id)) }
                 }
                 // Last first: each moved item goes before the item that follows it in the new
                 // order, which is already in its final place.
@@ -526,28 +571,9 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
                         snapshot.moveItem(place.id, afterItem: last)
                     }
                 }
-                dataSource.apply(snapshot, animatingDifferences: false)
-                applyCount += 1
+                dataSource.apply(snapshot, animatingDifferences: animated)
                 movedApplyCount += 1
-                if let anchor { restore(anchor) }
-                shownSections = sections
-                items = next.items
-                lastReconfigured = plan.reconfigure
-                reconfigureShown(plan.reconfigure)
-                return
-            }
-        } else {
-            sections = ListSectionIDs.unique(next.sections)
-            plan = ListApplyPlan.make(old: shownSections, oldItems: items, new: sections, newItems: next.items)
-        }
-        items = next.items
-        lastReconfigured = plan.reconfigure
-        guard !plan.isEmpty || dataSource.snapshot().numberOfSections == 0 && !sections.isEmpty else { return }
-        // The row being read stays where it is when rows above it come, go or move without
-        // animation (a busy Mac mid-scroll): only the rows it does not read move.
-        let anchor = animated ? nil : readingAnchor()
-        if plan.orderChanged || dataSource.snapshot().numberOfSections == 0 {
-            if !animated, !plan.membershipChanged, let moves = Self.moves(from: shownSections, to: sections) {
+            } else if !plan.membershipChanged, !shownSections.isEmpty, let moves = Self.moves(from: shownSections, to: sections) {
                 // A live reorder (a row went to the top): moved items only, in place.
                 var snapshot = dataSource.snapshot()
                 for move in moves {
@@ -558,7 +584,8 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
                         snapshot.appendItems([move.id], toSection: move.section)
                     }
                 }
-                dataSource.apply(snapshot, animatingDifferences: false)
+                dataSource.apply(snapshot, animatingDifferences: animated)
+                movedApplyCount += 1
             } else {
                 var snapshot = NSDiffableDataSourceSnapshot<String, String>()
                 for section in sections {
@@ -568,15 +595,79 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
                 dataSource.apply(snapshot, animatingDifferences: animated)
             }
             applyCount += 1
+            if isScrolling(now: CACurrentMediaTime()), !plan.membershipChanged { movedWhileScrollingCount += 1 }
             if let anchor { restore(anchor) }
         }
         shownSections = sections
-        // Changed rows: the cells on screen take their new value in place (only a
-        // cell whose height changes asks the layout again); every other cell is
-        // filled when it is dequeued or comes on screen. A `reconfigureItems`
-        // snapshot re-solved the whole list's layout for each change.
-        reconfigureShown(plan.reconfigure)
+        noteReorderCounts()
     }
+
+    /// Reorders applied while the list moved (none: they wait for rest; tests and UI tests).
+    private(set) var movedWhileScrollingCount = 0
+
+    /// DEBUG: the reorder counts as the list's accessibility value, for UI tests.
+    private func noteReorderCounts() {
+        #if DEBUG
+        collectionView?.accessibilityValue = "held=\(deferredReorderCount) rested=\(restedApplyCount) movedWhileScrolling=\(movedWhileScrollingCount)"
+        #endif
+    }
+
+    /// The shown snapshot is in `shownSections`' order (no reorder is held back): a patched
+    /// model's moves apply to it as they are.
+    private var shownMatchesSnapshot: Bool { deferredSections == nil }
+
+    /// The order a scroll held back (`applyPending`), applied when the scroll rests.
+    private var deferredSections: [ListSectionIDs]?
+    /// Reorders held back while scrolling, and the applies that caught up at rest (tests).
+    private(set) var deferredReorderCount = 0
+    private(set) var restedApplyCount = 0
+
+    /// Applies the order a scroll held back, once the list rests: the row being read stays in
+    /// place; at the top, the moved rows slide there (none with Reduce Motion).
+    func applyDeferredOrder() {
+        guard let target = deferredSections, !isScrolling(now: CACurrentMediaTime()) else { return }
+        deferredSections = nil
+        let plan = ListApplyPlan(orderChanged: target != shownSections, membershipChanged: false, reconfigure: [])
+        guard plan.orderChanged else { return }
+        let animated = isAtRestAtTop() && !UIAccessibility.isReduceMotionEnabled
+        restedApplyCount += 1
+        applyOrder(target, plan: plan, moved: nil, animated: animated)
+    }
+
+    /// At the top of the list (nothing scrolled under the bars) and on screen.
+    private func isAtRestAtTop() -> Bool {
+        guard let collectionView, collectionView.window != nil else { return false }
+        return collectionView.contentOffset.y + collectionView.adjustedContentInset.top <= 0.5
+    }
+
+    /// Whether every section shows the same rows, in any order (a pure reorder).
+    static func sameRows(_ a: [ListSectionIDs], _ b: [ListSectionIDs]) -> Bool {
+        guard a.count == b.count else { return false }
+        for (x, y) in zip(a, b) {
+            guard x.id == y.id, x.items.count == y.items.count, Set(x.items) == Set(y.items) else { return false }
+        }
+        return true
+    }
+
+    /// A scroll the rig drives sets no dragging flags and ends no deceleration: look again once
+    /// the moving window has passed (DEBUG only; a finger's scroll ends in the delegate).
+    private func scheduleRestCheck() {
+        #if DEBUG
+        guard ListApplyProbe.shared.codeDrivenScroll, !restCheckScheduled else { return }
+        restCheckScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.movingWindow + 0.02) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                restCheckScheduled = false
+                if isScrolling(now: CACurrentMediaTime()) { scheduleRestCheck() } else { applyDeferredOrder() }
+            }
+        }
+        #endif
+    }
+
+    #if DEBUG
+    private var restCheckScheduled = false
+    #endif
 
     #if DEBUG
     private func noteApply(started: CFTimeInterval, configuredBefore: Int) {
@@ -754,6 +845,15 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
         pullToRefresh?.endedDecelerating()
+        applyDeferredOrder()
+    }
+
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate { applyDeferredOrder() }
+    }
+
+    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        applyDeferredOrder()
     }
 
     func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint,
