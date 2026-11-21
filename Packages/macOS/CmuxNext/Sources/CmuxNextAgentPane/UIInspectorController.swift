@@ -1,8 +1,6 @@
-import AppKit
-import CmuxNextActions
-import CmuxNextAgentPane
+public import AppKit
+public import CmuxNextActions
 import CmuxNextDesign
-import CmuxNextLayout
 import CmuxNextSettings
 
 /// Point at Element (Inspect Element) for cmux NEXT's own UI: the HTML/React pages the app hosts (an agent chat,
@@ -15,8 +13,22 @@ import CmuxNextSettings
 /// right-click copies it, Up and Down walk out to its container and back, Return picks, Esc ends. `stop()` drops all
 /// of it again.
 @MainActor
-final class UIInspectorController {
-    private weak var services: AppServices?
+public final class UIInspectorController {
+    /// What the picker needs from the app: its agent chat pages, the active shell window, and a window capture.
+    public struct Host {
+        public var pages: @MainActor () -> [AgentPaneView]
+        public var activeWindow: @MainActor () -> NSWindow?
+        public var capture: @MainActor (NSWindow) async -> CGImage?
+
+        public init(pages: @escaping @MainActor () -> [AgentPaneView], activeWindow: @escaping @MainActor () -> NSWindow?,
+                    capture: @escaping @MainActor (NSWindow) async -> CGImage?) {
+            self.pages = pages
+            self.activeWindow = activeWindow
+            self.capture = capture
+        }
+    }
+
+    private let host: Host
     /// The picker's monitor, installed only between `start()` and `stop()`.
     private var monitor: Any?
     private var inspectNotification: NSObjectProtocol?
@@ -25,12 +37,12 @@ final class UIInspectorController {
     private var selectionGeneration = 0
     private var pendingAction: SelectionAction = .send
     /// The native pick: empty until a pick's first move over native UI, cleared by `stop()`.
-    let native = UIPointerNativePicker()
+    public let native = UIPointerNativePicker()
 
     private enum SelectionAction { case send, copy }
 
-    init(services: AppServices) {
-        self.services = services
+    public init(host: Host) {
+        self.host = host
         inspectNotification = NotificationCenter.default.addObserver(
             forName: .cmuxNextInspectUIElement, object: nil, queue: .main
         ) { [weak self] _ in
@@ -49,9 +61,9 @@ final class UIInspectorController {
         }
     }
 
-    var isPicking: Bool { monitor != nil }
+    public var isPicking: Bool { monitor != nil }
 
-    func toggle() {
+    public func toggle() {
         guard AgentPaneTunables.pointerInspector.value else { return }
         if isPicking { stop(); return }
         start()
@@ -61,7 +73,7 @@ final class UIInspectorController {
     /// page (the page whose menu opened last), never the one under the chosen menu row:
     /// the page records it on `contextmenu` and holds it through a short grace (picker.ts).
     /// No app-wide right-click monitor runs. The web equivalent of DevTools' Inspect Element.
-    func inspectFromContextMenu() {
+    public func inspectFromContextMenu() {
         guard AgentPaneTunables.pointerInspector.value else { return }
         start()
         inspectWebMenuTarget()
@@ -70,16 +82,16 @@ final class UIInspectorController {
     /// The right-click menu's Point at Element: `menu` names which menu it was picked from. The chat page's (or an
     /// unnamed one) starts on the page's right-clicked element; a native tab's, pane's, workspace row's or sidebar
     /// item's starts on that object, found by its identifier in the key window (one walk of its views, at the pick).
-    func inspectFromContextMenu(menu: ActionMenuContext?, target: ActionTargetRef?) {
+    public func inspectFromContextMenu(menu: ActionMenuContext?, target: ActionTargetRef?) {
         guard let menu, menu != .agentChat, let target else { inspectFromContextMenu(); return }
         guard AgentPaneTunables.pointerInspector.value else { return }
         start()
-        guard let window = services?.windows.active?.window ?? NSApp.keyWindow else { return }
+        guard let window = host.activeWindow() ?? NSApp.keyWindow else { return }
         native.start(on: target, in: window)
     }
 
     private func inspectWebMenuTarget() {
-        let candidates = services.map { Array($0.agentTabs.views.values) } ?? []
+        let candidates = host.pages()
         let menus = candidates.compactMap { page in page.lastContextMenu.map { (page: page, menu: $0) } }
         guard let latest = menus.max(by: { $0.menu.uptime < $1.menu.uptime }),
               latest.page.window?.isVisible == true else { return }
@@ -112,10 +124,10 @@ final class UIInspectorController {
     /// One picker event in `window` at `point` (screen points; the monitor passes the event's
     /// own): over an app-owned web page it drives the page's own picker; anywhere else (native
     /// UI) it returns `event` untouched.
-    func handle(_ event: NSEvent, window: NSWindow?, point: NSPoint?) -> NSEvent? {
+    public func handle(_ event: NSEvent, window: NSWindow?, point: NSPoint?) -> NSEvent? {
         if event.type == .keyDown, event.keyCode == 53 { stop(); return nil }
         if event.type == .keyDown { return nativeKey(event) }
-        guard services != nil, let window, let point else { deactivatePage(); return event }
+        guard let window, let point else { deactivatePage(); return event }
         guard let page = page(at: point, in: window) else {
             deactivatePage()
             return handleNative(event, window: window, point: point)
@@ -148,7 +160,7 @@ final class UIInspectorController {
 
     private func shellWindow(for eventWindow: NSWindow?) -> NSWindow? {
         if let eventWindow, let parent = eventWindow.parent { return parent }
-        return eventWindow ?? services?.windows.active?.window
+        return eventWindow ?? host.activeWindow()
     }
 
     private func deactivatePage() {
@@ -163,7 +175,7 @@ final class UIInspectorController {
     }
 
     private func page(at point: NSPoint, in window: NSWindow) -> AgentPaneView? {
-        services?.agentTabs.views.values.first { view in
+        host.pages().first { view in
             guard view.window === window, !view.isHiddenOrHasHiddenAncestor else { return false }
             let rect = view.convert(view.bounds, to: nil)
             return rect.contains(window.convertPoint(fromScreen: point))
@@ -195,7 +207,7 @@ final class UIInspectorController {
         case .pass: return event
         case .handled: return nil
         case .pick(let element):
-            if let window = services?.windows.active?.window ?? NSApp.keyWindow { selectNative(element, in: window, action: .send) }
+            if let window = host.activeWindow() ?? NSApp.keyWindow { selectNative(element, in: window, action: .send) }
             return nil
         }
     }
@@ -206,8 +218,8 @@ final class UIInspectorController {
         let generation = selectionGeneration
         native.clear() // the capture must not show the outline
         Task { [weak self, weak window] in
-            guard let self, let window, let services = self.services, self.selectionGeneration == generation else { return }
-            let image = try? await AppWindowImage(services: services).capture(window)
+            guard let self, let window, self.selectionGeneration == generation else { return }
+            let image = await self.host.capture(window)
             guard self.selectionGeneration == generation else { return }
             let png = image.flatMap { UIPointerNativePicker.crop($0, rect: element.frame, window: window) }
             self.finish(action: action, name: "UI: \(element.title)", text: text, png: png, preferred: nil)
@@ -257,8 +269,7 @@ final class UIInspectorController {
     }
 
     private func deliver(name: String, text: String, png: Data?, preferred: AgentPaneView?) {
-        guard let services else { return }
-        let target = preferred ?? services.agentTabs.views.values.first { $0.window != nil && !$0.isHiddenOrHasHiddenAncestor }
+        let target = preferred ?? host.pages().first { $0.window != nil && !$0.isHiddenOrHasHiddenAncestor }
         guard let target else { return }
         AgentPaneDesignSelection(id: "ui-pointer-" + UUID().uuidString, name: name, text: text, png: png).push(to: target)
     }

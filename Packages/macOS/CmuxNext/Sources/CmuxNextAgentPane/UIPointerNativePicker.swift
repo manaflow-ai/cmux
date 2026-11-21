@@ -1,5 +1,5 @@
-import AppKit
-import CmuxNextActions
+public import AppKit
+public import CmuxNextActions
 import CmuxNextDesign
 import ImageIO
 import UniformTypeIdentifiers

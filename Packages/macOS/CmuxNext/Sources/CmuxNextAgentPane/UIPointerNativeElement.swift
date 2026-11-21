@@ -1,5 +1,5 @@
-import AppKit
-import CmuxNextActions
+public import AppKit
+public import CmuxNextActions
 /// One piece of cmux's native UI as Point at Element names it: what it is, what it says, where it is (window
 /// coordinates) and how a test or the agent finds it again (its accessibility identifier).
 public struct UIPointerNativeElement: Equatable {
