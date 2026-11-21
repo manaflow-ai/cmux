@@ -108,6 +108,11 @@ class WindowTests(unittest.TestCase):
         self.assertEqual(shed.windows(start, start + dt.timedelta(hours=1), lambda lo, hi: 10),
                          [(start, start + dt.timedelta(hours=1))])
 
+    def test_oversized_second_is_reported_instead_of_truncated(self):
+        start = dt.datetime(2026, 11, 19, tzinfo=dt.timezone.utc)
+        with self.assertRaises(shed.WindowTooDense):
+            shed.windows(start, start + dt.timedelta(seconds=1), lambda lo, hi: shed.LIST_CAP + 1)
+
     def test_ls_remote_parse(self):
         text = "abc\trefs/heads/feature\ndef\trefs/heads/a/b\n123\trefs/tags/v1\n"
         self.assertEqual(shed.parse_ls_remote(text), {"feature": "abc", "a/b": "def"})
