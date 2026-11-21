@@ -118,9 +118,10 @@ impl ProfileFile {
         Self::parse(&text)
     }
 
+    /// The profiles that ship in the crate. A file that does not parse gives no profiles, so every
+    /// lookup names the missing row; `every_profile_parses_and_names_its_source` keeps the shipped file parsing.
     pub fn builtin() -> Self {
-        #[allow(clippy::expect_used, reason = "the file ships in the crate and a test parses it")]
-        Self::parse(PROFILES_JSON).expect("link-profiles.json parses")
+        Self::parse(PROFILES_JSON).unwrap_or(Self { version: 0, profiles: Vec::new() })
     }
 
     pub fn get(&self, name: &str) -> Option<&LinkProfile> {
@@ -164,9 +165,10 @@ impl Link {
     fn schedule(&mut self, bytes: usize, down: bool, rng: &mut Rng, floor: Instant) -> Instant {
         let now = Instant::now();
         let lane = usize::from(down);
-        let start = self.free_at[lane].max(now);
+        let free_at = lane_mut(&mut self.free_at, lane);
+        let start = (*free_at).max(now);
         let left = start + self.profile.serialize(bytes, down);
-        self.free_at[lane] = left;
+        *free_at = left;
         let mut jitter = Duration::ZERO;
         if self.profile.jitter_ms > 0 {
             jitter = Duration::from_millis(rng.range(0, self.profile.jitter_ms));
@@ -489,6 +491,17 @@ async fn direction(
         }
     };
     tokio::select! { () = writer => {}, () = reader => {} }
+}
+
+/// One of an (up, down) pair by lane, 0 up and anything else down, without indexing.
+pub(crate) fn lane<T>(pair: &[T; 2], lane: usize) -> &T {
+    let [up, down] = pair;
+    if lane == 0 { up } else { down }
+}
+
+pub(crate) fn lane_mut<T>(pair: &mut [T; 2], lane: usize) -> &mut T {
+    let [up, down] = pair;
+    if lane == 0 { up } else { down }
 }
 
 #[cfg(test)]
