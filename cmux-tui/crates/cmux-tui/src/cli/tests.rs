@@ -742,7 +742,7 @@ fn daemon_start_help_lists_every_remote_option_the_parser_accepts() {
         for flag in &accepted {
             let line = help
                 .lines()
-                .find(|line| line.trim_start().split_whitespace().next() == Some(flag.as_str()))
+                .find(|line| line.split_whitespace().next() == Some(flag.as_str()))
                 .or_else(|| {
                     // `--relay <url> --relay-slot <key>` share a line, as do the ticket command
                     // and its `[--relay-ticket-command-arg <arg>]`.
