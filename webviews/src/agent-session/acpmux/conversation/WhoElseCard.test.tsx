@@ -241,11 +241,14 @@ test("a topic match says what the session works on, never the words it matched",
   expect(page.querySelector(".cv-who-else__line")?.textContent).toBe("1 other session works on something similar");
   expect(page.textContent).not.toContain("topic");
   expect(page.textContent).not.toContain("background");
-  // One row with a file in common keeps the files line.
+});
+
+test("an answer with a file in common keeps the files line beside a topic match", async () => {
+  const topical = { ...ANSWER.sessions[1]!, sessionId: "s-swift", filesInCommon: 0, files: [], topicWords: ["wait"] };
   const mixed = { ...ANSWER, sessions: [ANSWER.sessions[0]!, topical], unreached: [] };
-  const both = activity({ title: "mcp__acpmux__who_else", output: JSON.stringify(mixed) });
-  const page2 = await render(<WhoElseCard item={both} call={whoElseCall(both)!} />);
-  expect(page2.querySelector(".cv-who-else__line")?.textContent).toBe("2 other sessions work on these files");
+  const item = activity({ title: "mcp__acpmux__who_else", output: JSON.stringify(mixed) });
+  const page = await render(<WhoElseCard item={item} call={whoElseCall(item)!} />);
+  expect(page.querySelector(".cv-who-else__line")?.textContent).toBe("2 other sessions work on these files");
 });
 
 test("machines that did not answer read as one list", async () => {
