@@ -12,8 +12,8 @@ name: cmux NEXT Computer Use helper publish
 #
 # resolve  checks that the run is a nightly.yml run of this repository on one of
 #          its own branches and that it kept a helper (cmux-cua-helper-unsigned).
-# publish  the cef-publish environment (the cmux-cef-write token), after one of
-#          its reviewers. Only main code runs; the artifact and the run's source
+# publish  the cef-publish environment (the cmux-cef-write token); its branch
+#          policy admits main only. Only main code runs; the artifact and the run's source
 #          are data. scripts/ci/check-cmux-cua-helper-run.py checks key.txt (its fields hash to its input key, and each
 #          source field is the sha256 of that file at the run's commit), that the
 #          zip holds one ad-hoc com.cmuxterm.cua app, makes the source bundle (full history: a
@@ -31,7 +31,7 @@ on:
 
 permissions: {}
 
-# No workflow-level concurrency group: publish waits for a cef-publish reviewer
+# No workflow-level concurrency group: an environment wait never times out
 # (cmux-next-cua-driver-sdk-publish.yml explains why); its uploads are
 # content-addressed and write-once.
 
@@ -39,7 +39,7 @@ jobs:
   resolve:
     name: Resolve the nightly run
     if: github.ref == 'refs/heads/main'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -69,7 +69,7 @@ jobs:
   publish:
     name: Publish the helper and the source bundle
     needs: resolve
-    # Waits for a reviewer, so it holds no concurrency group.
+    # Holds no concurrency group: an environment wait never times out.
     environment: cef-publish
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 20
