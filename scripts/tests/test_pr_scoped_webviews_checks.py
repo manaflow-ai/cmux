@@ -20,7 +20,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 WEBVIEWS = ROOT / 'webviews'
 SWIFT = 'Packages/macOS/CmuxNext/Sources'
-OUTSIDE = ('schemas', 'web', 'Packages/Shared', 'design/icons/neko-candidates')
+# Gallery entries also load preview data from the first-party apps outside webviews.
+OUTSIDE = ('schemas', 'web', 'Packages/Shared', 'design/icons/neko-candidates', 'first-party-apps')
 UI_RULES = 'test/ui-rules.test.ts'
 COVERAGE = 'test/gallery-coverage.test.ts'
 RAW_KEYS = 'export function RawKeys() {\n  return <div onKeyDown={() => undefined} />;\n}\n'

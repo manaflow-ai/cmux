@@ -1749,10 +1749,11 @@ def command_run(args) -> int:
                 scratch = None
                 raise
         with phases("side"):
-            # A fresh clone per try: the last one, its dev server too, goes first.
+            # A fresh clone per try: the last one, its dev server too, goes first. Its own Cloud session stays
+            # (side-instance.sh remove --keep-sign-in): a person signs a copy in once, not every try.
             if side.exists():
                 side.stop()
-                side.run("remove", timeout=300)
+                side.run("remove", "--keep-sign-in", timeout=300)
             make = ["make", "--from", str(built_app or the_app), "--label", args.label or f"cmux {side.name}"]
             side.run(*make, timeout=600)
             side.remember(try_source=args.source, try_repo=str(repo), try_head=planned["head"],

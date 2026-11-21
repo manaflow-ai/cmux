@@ -1243,6 +1243,9 @@ final class ComposeView: UIView {
     private(set) var inlineAttachments: [ID: ComposeInlineAttachment] = [:]
     /// cmux: the remove button over the inline attachment under the pointer.
     let inlineHover = ComposeInlineRemoveHover()
+    /// cmux: true while the draft takes an edit the field made (an undo that put a picture back):
+    /// `update` leaves the field's text alone then, the field already shows it.
+    var draftFollowsField = false
 
     /// The remove button of an inline attachment: its mark leaves the text as an edit, so the
     /// draft follows through the text view's own change path (`textDidChange`).
@@ -1313,10 +1316,14 @@ final class ComposeView: UIView {
         if (!(tv.string as NSString).isEqual(to: d.text) && tv.string != d.text) || d.attachments != chips {
             // Never replace text that holds marked (IME) text: the input
             // method owns it until it commits.
-            if !tv.hasMarkedText() {
+            // cmux: nor while the draft follows an edit the field made (`draftFollowsField`).
+            if !tv.hasMarkedText(), !draftFollowsField {
                 let old = tv.string as NSString, sel = tv.selectedRange()
-                tv.textStorage?.setAttributedString(ComposeInlineText.build(d.text, attachments: d.attachments, cache: &inlineAttachments,
-                                                                            scale: renderScale, onRemove: { [weak self] in self?.removeInline($0) }))
+                // cmux: a picture that came in is an undo step; any other change of the text takes the
+                // field's entries off the undo stack (ComposeFieldUndo.swift, the Cmd+Z crash).
+                tv.takeDraftText(ComposeInlineText.build(d.text, attachments: d.attachments, cache: &inlineAttachments,
+                                                         scale: renderScale, onRemove: { [weak self] in self?.removeInline($0) }),
+                                 undoable: ComposeView.onlyArrived(d.attachments, over: chips))
                 tv.typingAttributes = ComposeInlineText.attributes(inline: !d.attachments.isEmpty)
                 inlineHover.hide()  // cmux: the attachments moved; the pointer shows the button again
                 tv.setSelectedRange(ComposeView.caretAfterRebuild(old: old, new: tv.string as NSString, selection: sel,
