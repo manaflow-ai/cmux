@@ -2,6 +2,16 @@
 /// (cmux-window-rules `tabs::panes`). Directions are `left`, `right`, `up`, `down`; edges
 /// `left`, `right`, `top`, `bottom`.
 extension WindowRules {
+    /// A configured primary + menu row. Rust owns validation, order and action routing.
+    public nonisolated struct PlusMenuRow: Decodable, Equatable, Sendable {
+        public var action: String
+        public var localWorkspace: Bool
+    }
+
+    public func plusMenu<Value: Encodable>(_ setting: Value) -> [PlusMenuRow] {
+        call("window_tabs_plus_menu", setting, as: [PlusMenuRow].self) ?? []
+    }
+
     /// The folder facts of a new pane, each as the app read it.
     public nonisolated struct SplitFolders: Encodable, Equatable, Sendable {
         public var explicit, uninherited, inherited, selected, first: String?

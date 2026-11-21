@@ -1,0 +1,16 @@
+{
+  "caption": "Click + to choose a terminal tab, a local workspace or a machine connection.",
+  "frameInterval": 0.25,
+  "settings": {
+    "tabs": {"plusMenu": ["terminal", "localWorkspace", "host"], "plusButton": "always", "barPosition": "top"},
+    "appearance": {"metrics": {"sidebarWidth": 240, "tabMaxWidth": 200, "tabMinActiveWidth": 200}},
+    "layout": {"panePadding": 0}
+  },
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "A fixed window", "rpc": {"method": "debug.window_frame", "params": {"frame": [80, 80, 1200, 800]}}, "wait": 0.5},
+    {"title": "A terminal workspace", "cmux": ["action", "run", "newTab", "--arg", "name=Workspace", "--arg", "command=exec /bin/cat"], "wait": 2},
+    {"title": "Open the native plus menu", "rpc": {"method": "debug.mouse", "params": {"action": "click", "x": 454, "y": 80}}, "wait": 3, "clip": true}
+  ],
+  "crop": [0.2, 0.04, 0.4, 0.35]
+}

@@ -85,6 +85,20 @@ nonisolated enum TabSettingsSchema {
                 keywords: ["plus", "+", "new tab", "button", "hover", "tab bar"]
             ),
             SettingDescriptor(
+                CmuxConfigSnapshot.plusMenuPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.tabs.plusMenu", "+ Button Menu"),
+                help: SettingsText.keyed("settings.tabs.plusMenu.help", "Choose and order the actions shown when clicking +. Empty keeps direct creation."),
+                kind: .orderedChoices([
+                    SettingChoice("terminal", SettingsText.keyed("settings.tabs.plusMenu.terminal", "New Terminal Tab")),
+                    SettingChoice("localWorkspace", SettingsText.keyed("settings.tabs.plusMenu.localWorkspace", "New Local Workspace")),
+                    SettingChoice("host", SettingsText.keyed("settings.tabs.plusMenu.host", "Connect to Machine…")),
+                ]),
+                default: .array(CmuxConfigSnapshot.plusMenuDefault.map { .string($0) }),
+                keywords: ["plus", "creation", "menu", "terminal", "workspace", "host"]
+            ),
+            SettingDescriptor(
                 ChromePlacementSetting.tabBarPositionPath,
                 section: .general,
                 group: group,
