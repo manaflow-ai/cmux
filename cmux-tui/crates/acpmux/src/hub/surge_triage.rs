@@ -500,10 +500,10 @@ impl Hub {
                 .map(|l| json!({"promptId": l.prompt_id, "threadId": l.thread_id}))
                 .collect();
             let mut marker = json!({"digestDelivered": id, "items": []});
-            if !redirected.is_empty() {
-                if let Some(fields) = marker.as_object_mut() {
-                    fields.insert("redirected".into(), json!(redirected));
-                }
+            if !redirected.is_empty()
+                && let Some(fields) = marker.as_object_mut()
+            {
+                fields.insert("redirected".into(), json!(redirected));
             }
             journal.read(triage::RECORD_KIND, &marker, crate::store::now_ms());
             let open = self.surge_open_topics(session, journal);
