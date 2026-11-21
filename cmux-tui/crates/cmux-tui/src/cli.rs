@@ -543,6 +543,7 @@ pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "chat",
     "vm",
     "customize",
+    "agent-config",
 ];
 
 /// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>

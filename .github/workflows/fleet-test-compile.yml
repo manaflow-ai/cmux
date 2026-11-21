@@ -59,15 +59,10 @@ name: fleet test-compile (advisory)
 # opens the "Swift test targets do not compile" issue. Revert this condition
 # to run it on every same-repository pull request again.
 
+# Cut from pull requests on 2026-11-21 (ci-time-map: advisory, read by nothing; ~6.9k fleet runner-min a day). It stays runnable
+# by workflow_dispatch; cmux-next-tip-test-compile.yml still compiles the test targets on the base.
 on:
-  pull_request:
-    branches: [feat-cmux-next]
-    paths:
-      - "Packages/**"
-      - "vendor/**"
-      - "scripts/ci/compile_test_plan.py"
-      - "scripts/ci/package-test-lane.sh"
-      - ".github/workflows/fleet-test-compile.yml"
+  workflow_dispatch:
 
 permissions: {}
 
