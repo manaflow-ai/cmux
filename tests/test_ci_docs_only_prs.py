@@ -129,7 +129,9 @@ BASES = ("feat-cmux-next", "main")
 DEFAULT_TYPES = {"opened", "synchronize", "reopened"}
 
 
+@functools.lru_cache(maxsize=None)
 def load(name: str):
+    # Parsed once: the allowed-workflows test asks for every workflow once per base and sample (282 x 2 x 12 parses, 113 s).
     return filters.load_yaml(WORKFLOWS / name)
 
 
