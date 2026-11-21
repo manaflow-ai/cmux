@@ -86,13 +86,13 @@ Test: `cd tailnet && go test ./...`. Install on the VM: hq `tools/cloud-chief/de
 # Chief to Chief: the Home Chief and the Cloud Chief talk
 
 The Mac's Home Chief and the Cloud Chief are two `optchat-chief` hosts. They talk
-through the agent hub on this VM (cmuxterm-hq `tools/agent-hub/hub.py`, unit
-`cloud-chief-hub`, `100.127.110.65:8790`, tailnet only). Code: `src/peer_chiefs.rs`.
+through the agent hub on this VM (unit `cloud-chief-hub`, port 8790, tailnet only;
+its address is in the team's internal docs). Code: `src/peer_chiefs.rs`.
 
 Each host reads `$MUX_HOME/optchat/peer-chiefs.json` (or `OPTCHAT_PEER_CHIEFS`) at start:
 
 ```json
-{"hub": "http://100.127.110.65:8790",
+{"hub": "http://<hub tailnet address>:8790",
  "token_file": "~/.config/agent-hub/mac-chief.token",
  "me": "mac-chief",
  "peers": [{"name": "cloud-chief", "label": "Cloud Chief", "place": "cloud"}]}
@@ -100,7 +100,7 @@ Each host reads `$MUX_HOME/optchat/peer-chiefs.json` (or `OPTCHAT_PEER_CHIEFS`) 
 
 | side | `me` | hub URL | token file (0600, never copied) |
 | --- | --- | --- | --- |
-| Mac Home Chief | `mac-chief` | `http://100.127.110.65:8790` | `~/.config/agent-hub/mac-chief.token` (minted with the owner token) |
+| Mac Home Chief | `mac-chief` | `http://<hub tailnet address>:8790` | `~/.config/agent-hub/mac-chief.token` (minted with the owner token) |
 | Cloud Chief VM | `cloud-chief` | `http://127.0.0.1:8790` | `~chief/.config/agent-hub/cloud-chief.token` (minted on the VM with the hub root key) |
 
 Both tokens carry `box=agent:mac-chief,agent:cloud-chief can=read,post`.
