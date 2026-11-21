@@ -180,6 +180,7 @@ public nonisolated struct CloudPersonCreate {
         "mutation.indeterminate": "cmux.cloud.indeterminate", "owner.unreachable": "cmux.cloud.upstream_error",
         "cloud.plan.required": "cmux.cloud.plan_required", "cloud.quota.exceeded": "cmux.cloud.quota_exceeded",
         "cloud.quota.vm_limit": "cmux.cloud.vm_limit", "cloud.size.locked": "cmux.cloud.size_locked",
+        "cloud.surge.unavailable": "cmux.cloud.surge_unavailable", "cloud.surge.capacity": "cmux.cloud.surge_capacity",
         "cloud.spend_cap.reached": "cmux.cloud.spend_cap_reached", "cloud.member_budget.reached": "cmux.cloud.member_budget_reached",
         "cloud.provider.unavailable": "cmux.cloud.provider_unavailable", "cloud.machine.not_bound": "cmux.cloud.not_bound",
         "cloud.machine.paused": "cmux.cloud.machine_paused", "cloud.migration.unavailable": "cmux.cloud.migration_unavailable",

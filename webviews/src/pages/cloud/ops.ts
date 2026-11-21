@@ -25,6 +25,8 @@ export const CloudOps = {
   machineList: "cmux.cloud.machine.list",
   machineWatch: "cmux.cloud.machine.watch",
   machineCreate: "cmux.cloud.machine.create",
+  surgePreview: "cmux.cloud.surge.preview",
+  surgeCreate: "cmux.cloud.surge.create",
   machineRename: "cmux.cloud.machine.rename",
   machineStart: "cmux.cloud.machine.start",
   machinePause: "cmux.cloud.machine.pause",
@@ -114,6 +116,29 @@ export const ACTION_RUN = "cmux.app.action.run";
 /** App to page: the dispatcher delivered a page command (`find`, `focusSearch`). */
 export const PAGE_COMMAND = "cmux.page.command";
 
+export interface SurgeArgs {
+  count: number;
+  ttl_seconds: number;
+}
+
+export interface SurgePreview extends SurgeArgs {
+  provider: string | null;
+  available: boolean;
+  reason: string | null;
+  estimated_cost_usd: number | null;
+}
+
+export interface SurgeResult extends SurgeArgs {
+  slots: {
+    index: number;
+    status: "created" | "queued" | "refused";
+    machine_id: string | null;
+    provider: string | null;
+    reason: string | null;
+    retryable: boolean;
+  }[];
+}
+
 /**
  * Ops the page never calls itself. The server runs them only for origin `user` (`ops/mod.rs`
  * `Kind::UserOnly`: money, destructive, and the one-way migration and upgrade; decision D-MONEY),
@@ -129,6 +154,7 @@ export const PAGE_COMMAND = "cmux.page.command";
  * own answer under `value` ([`confirmedValue`](./store.ts)).
  */
 export const CONFIRMED_ACTIONS = new Set<string>([
+  CloudOps.surgeCreate,
   CloudOps.machineDelete,
   CloudOps.machineArchiveDelete,
   CloudOps.machineConnect,
@@ -139,6 +165,7 @@ export const CONFIRMED_ACTIONS = new Set<string>([
 ]);
 
 export const NATIVE_ACTIONS = new Set<string>([
+  CloudOps.surgeCreate,
   AccountOps.signIn,
   AccountOps.signOut,
   CloudOps.machineCreate,

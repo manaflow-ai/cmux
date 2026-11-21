@@ -34,6 +34,8 @@ nonisolated enum PageStrings {
     static var cloudBilling: String { t("pages.confirm.cloud.billing", "Open billing in your browser?") }
     static var cloudSignIn: String { t("pages.confirm.cloud.signIn", "Sign in to cmux Cloud?") }
     static var cloudSignOut: String { t("pages.confirm.cloud.signOut", "Sign out of cmux Cloud?") }
+    static var cloudSurge: String { t("pages.confirm.cloud.surge", "Start Cloud Surge?") }
+    static var cloudSurgeDetail: String { t("pages.confirm.cloud.surgeDetail", "This starts temporary cloud machines based on the estimate in the Surge sheet.") }
     static var cloudConnect: String { t("pages.confirm.cloud.connect", "Open “%@”") }
     static var cloudMachine: String { t("pages.confirm.cloud.machine", "Cloud machine") }
     static var cloudConnectDetail: String { t("pages.confirm.cloud.connectDetail", "Connect opens this machine in cmux so you can see what is running.") }

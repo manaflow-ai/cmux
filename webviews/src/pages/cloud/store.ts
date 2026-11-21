@@ -46,6 +46,9 @@ import {
   type PlanRefusal,
   type RetentionOverrides,
   type SnapshotListResult,
+  type SurgeArgs,
+  type SurgePreview,
+  type SurgeResult,
 } from "./ops";
 
 export type Connection = "connecting" | "connected" | "disconnected" | "failed";
@@ -97,6 +100,18 @@ export interface RetentionEdit {
   error?: string;
 }
 
+export interface SurgeDraft {
+  key: string;
+  args: SurgeArgs;
+  preview?: SurgePreview;
+  result?: SurgeResult;
+  pending?: "preview" | "create";
+  sent?: boolean;
+  hidden?: boolean;
+  error?: string;
+  errorCode?: string;
+}
+
 export interface CloudState {
   connection: Connection;
   auth?: AuthStatus;
@@ -124,6 +139,7 @@ export interface CloudState {
   /** A machine created from the storefront: the page connects it once the mirror shows it running. */
   openWhenRunning?: string;
   create?: CreateDraft;
+  surge?: SurgeDraft;
   error?: string;
   /** The server code of `error`, when it had one: the page shows its own sentence for known codes. */
   errorCode?: string;
@@ -451,6 +467,89 @@ export class CloudStore {
 
   closeCreate(): void {
     if (this.state.create && !this.state.create.submitting) this.set({ create: undefined });
+  }
+
+  openSurge(): void {
+    if (!this.canChange() || this.state.create) return;
+    const current = this.state.surge;
+    if (current) {
+      if (current.hidden) this.set({ surge: { ...current, hidden: undefined } });
+      return;
+    }
+    this.set({ surge: { key: this.key(), args: { count: 2, ttl_seconds: 900 } } });
+  }
+
+  closeSurge(): void {
+    const draft = this.state.surge;
+    if (draft?.pending === "create") return;
+    this.set({ surge: draft?.sent && !draft.result ? { ...draft, hidden: true } : undefined });
+  }
+
+  updateSurge(patch: Partial<SurgeArgs>): void {
+    const draft = this.state.surge;
+    if (!draft || draft.sent) return;
+    this.set({ surge: { key: draft.key, args: { ...draft.args, ...patch } } });
+  }
+
+  async previewSurge(): Promise<void> {
+    const draft = this.state.surge;
+    if (!draft || draft.pending || draft.sent || !this.canChange()) return;
+    const request: SurgeDraft = { ...draft, pending: "preview", preview: undefined, error: undefined };
+    this.set({ surge: request });
+    try {
+      const preview = await this.client!.call<SurgePreview>(CloudOps.surgePreview, draft.args);
+      if (this.state.surge === request) this.set({ surge: { ...draft, preview, error: undefined } });
+    } catch (error) {
+      if (this.state.surge === request)
+        this.set({ surge: { ...draft, preview: undefined, error: message(error), errorCode: codeOf(error) } });
+    }
+  }
+
+  async submitSurge(): Promise<void> {
+    const draft = this.state.surge;
+    const cost = draft?.preview?.estimated_cost_usd;
+    if (
+      !draft?.preview?.available ||
+      cost == null ||
+      !Number.isFinite(cost) ||
+      cost < 0 ||
+      draft.pending ||
+      draft.result ||
+      !this.canChange()
+    )
+      return;
+    const request: SurgeDraft = { ...draft, pending: "create", sent: true, error: undefined };
+    this.set({ surge: request });
+    try {
+      const answer = await this.client!.call<{ confirmed: boolean; value?: SurgeResult }>(ACTION_RUN, {
+        action: CloudOps.surgeCreate,
+        args: { ...draft.args, idempotency_key: draft.key },
+      });
+      if (this.state.surge !== request) return;
+      if (!answer.confirmed) {
+        this.set({ surge: draft });
+        return;
+      }
+      if (!answer.value || !Array.isArray(answer.value.slots)) throw new Error("Missing reply from Cloud");
+      this.set({ surge: { ...request, pending: undefined, result: answer.value } });
+      if (answer.value.slots.some((slot) => slot.status !== "refused")) await this.loadSignedIn(this.session);
+    } catch (error) {
+      if (this.state.surge !== request) return;
+      const code = codeOf(error);
+      const refused =
+        code === "cmux.cloud.surge_unavailable" ||
+        code === "cmux.cloud.surge_capacity" ||
+        code === "cmux.cloud.surge_stale_preview";
+      this.set({
+        surge: {
+          ...request,
+          pending: undefined,
+          ...(refused ? { key: this.key(), sent: undefined, preview: undefined } : {}),
+          error: message(error),
+          errorCode: code,
+        },
+      });
+    }
   }
 
   updateDraft(patch: Partial<Pick<CreateDraft, "name" | "memoryMb" | "from_snapshot">>): void {
@@ -1128,6 +1227,7 @@ function signedOutState(): Partial<CloudState> {
     selection: undefined,
     detail: undefined,
     create: undefined,
+    surge: undefined,
     openWhenRunning: undefined,
     planFailed: undefined,
     error: undefined,

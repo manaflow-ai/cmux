@@ -203,6 +203,7 @@ public extension PageDescriptor {
         nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite],
         actions: ["cloudPreviewShare", "cloudPreviewRevoke"],
         confirmedOps: [
+            "cmux.cloud.surge.create": .custom,
             "cmux.cloud.machine.delete": .delete, "cmux.cloud.snapshot.delete": .delete,
             // Automatic cleanup: archive and delete removes the machine (its disk kept as an archive);
             // restore makes a machine from an archive (a money op, titled with the machine's name).

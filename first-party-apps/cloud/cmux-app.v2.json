@@ -80,7 +80,8 @@
       "cloud.snapshot.create",
       "cloud.snapshot.delete",
       "cloud.snapshot.list",
-      "cloud.snapshot.restore"
+      "cloud.snapshot.restore",
+      "cloud.surge.preview"
     ]
   },
   "scopes": {
