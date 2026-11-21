@@ -7,8 +7,9 @@ what runs; only the scripts come from feat-cmux-next. cmux#43781 (2026-11-15) ad
 feat-cmux-next's copy only, and production never ran it until cmux#43866 brought main's copy along.
 
 Each test uses the fixture of tests/test_cmux_next_prepush_gate.py (the real hook installer and the real
-scripts/cmux-next checks in a throwaway repository, pushed through `git push` to a bare origin). Manual lane: no new
-CI tests (CLAUDE.md; Lawrence, 2026-10-23); hq's NOW names a standing difference between the two copies.
+scripts/cmux-next checks in a throwaway repository, pushed through `git push` to a bare origin). Manual lane (kept out
+of CI under Lawrence's 2026-10-23 no-new-CI rule, since lifted); hq's NOW names a standing difference between the
+two copies.
 """
 # tests/git_fixture_env.py, loaded by path (`python3 -I` puts no script folder on sys.path): it drops inherited
 # GIT_DIR / GIT_INDEX_FILE / GIT_CONFIG redirects and turns off git's background maintenance in temp repos.
