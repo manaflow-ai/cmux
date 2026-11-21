@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFilePreviewCore
 import CmuxFoundation
 import CmuxSettings
 import CmuxSettingsUI
@@ -35,6 +36,9 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
     let wordWrap: Bool
     /// Absolute path used only to resolve a highlight.js language.
     var filePath: String = ""
+    var gitGutterMarkers = FilePreviewGitGutterMarkers.untracked
+    /// Advances whenever ``gitGutterMarkers`` changes.
+    var gitGutterMarkersRevision = 0
 
     @LiveSetting(\.fileEditor.syntaxHighlighting) private var syntaxHighlighting
     @LiveSetting(\.fileEditor.lineNumbers) private var lineNumbers
@@ -89,6 +93,8 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             currentLineHighlight: currentLineHighlight,
             tabWidth: tabWidth
         )
+        context.coordinator.lastAppliedGitGutterMarkersRevision = gitGutterMarkersRevision
+        Self.applyGitGutterMarkers(gitGutterMarkers, to: scrollView)
         Self.refreshChrome(on: scrollView, textView: textView)
         if isVisibleInUI {
             context.coordinator.scheduleHighlight(
@@ -166,7 +172,26 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         } else {
             context.coordinator.cancelHighlight()
         }
+        // Apply only when the revision advances, keeping marker comparison off the typing path.
+        if panelChanged
+            || context.coordinator.lastAppliedGitGutterMarkersRevision != gitGutterMarkersRevision {
+            context.coordinator.lastAppliedGitGutterMarkersRevision = gitGutterMarkersRevision
+            Self.applyGitGutterMarkers(gitGutterMarkers, to: scrollView)
+        }
         Self.refreshChrome(on: scrollView, textView: textView)
+    }
+
+    /// Hands git gutter markers to the gutter.
+    ///
+    /// When line numbers are off the ruler is hidden, so the markers hide with it.
+    static func applyGitGutterMarkers(
+        _ markers: FilePreviewGitGutterMarkers,
+        to scrollView: NSScrollView
+    ) {
+        guard let gutter = scrollView.verticalRulerView as? FilePreviewLineNumberGutterView else {
+            return
+        }
+        gutter.gitMarkers = markers
     }
 
     static func applyTheme(
@@ -266,6 +291,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         var filePath: String
         var isApplyingPanelUpdate = false
         var lastAppliedContentRevision: Int?
+        var lastAppliedGitGutterMarkersRevision: Int?
         var isHighlightingVisible = false
         // `FilePreviewSyntaxStyler` owns the cancellable task and cancels it in
         // its own deinitializer. Keeping teardown in that owner also avoids an

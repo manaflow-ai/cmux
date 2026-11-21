@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFilePreviewCore
 import CmuxSettings
 import CmuxSyntaxHighlighting
 import Testing
@@ -454,6 +455,53 @@ struct FilePreviewCodeViewTests {
         #expect(settings.catalog.tabWidth.id == "fileEditor.tabWidth")
         #expect(settings.catalog.tabWidth.defaultValue == 4)
         #expect(settings.catalog.tabWidthRange == (1...8))
+    }
+
+    @Test("A tracked file reserves the stripe so the first change does not shift the text")
+    func trackedFileReservesStripeWidth() {
+        let scrollView = NSScrollView()
+        let textView = SavingTextView.makeFilePreviewTextView()
+        scrollView.documentView = textView
+        let gutter = FilePreviewLineNumberGutterView(scrollView: scrollView, orientation: .verticalRuler)
+        textView.string = String(repeating: "line\n", count: 12)
+        // Use the text view's font so both thickness paths measure the same font.
+        gutter.reloadLineIndex(from: textView.string, textFont: textView.font)
+        let untrackedThickness = gutter.ruleThickness
+
+        gutter.gitMarkers = FilePreviewGitGutterMarkers(isTracked: true, changes: [:])
+        let cleanThickness = gutter.ruleThickness
+        gutter.gitMarkers = FilePreviewGitGutterMarkers(isTracked: true, changes: [2: .added, 5: .modified, 9: .removed])
+        let changedThickness = gutter.ruleThickness
+        gutter.gitMarkers = .untracked
+
+        #expect(cleanThickness > untrackedThickness)
+        #expect(changedThickness == cleanThickness)
+        #expect(gutter.ruleThickness == untrackedThickness)
+    }
+
+    @Test("The gutter keeps the marker width when the line count gains a digit")
+    func gitChangeMarkerWidthSurvivesLineCountChange() {
+        let scrollView = NSScrollView()
+        let textView = SavingTextView.makeFilePreviewTextView()
+        scrollView.documentView = textView
+        let gutter = FilePreviewLineNumberGutterView(scrollView: scrollView, orientation: .verticalRuler)
+        textView.string = String(repeating: "line\n", count: 12)
+        gutter.reloadLineIndex(from: textView.string, textFont: textView.font)
+        gutter.gitMarkers = FilePreviewGitGutterMarkers(isTracked: true, changes: [1: .added])
+        let twoDigitMarkedThickness = gutter.ruleThickness
+
+        textView.string = String(repeating: "line\n", count: 120)
+        gutter.reloadLineIndex(from: textView.string, textFont: textView.font)
+
+        let plainScrollView = NSScrollView()
+        let plainTextView = SavingTextView.makeFilePreviewTextView()
+        plainScrollView.documentView = plainTextView
+        let plainGutter = FilePreviewLineNumberGutterView(scrollView: plainScrollView, orientation: .verticalRuler)
+        plainTextView.string = textView.string
+        plainGutter.reloadLineIndex(from: plainTextView.string, textFont: plainTextView.font)
+
+        #expect(gutter.ruleThickness > twoDigitMarkedThickness)
+        #expect(gutter.ruleThickness > plainGutter.ruleThickness)
     }
 
     private func distinctForegroundColors(in textView: NSTextView) -> Set<String> {
