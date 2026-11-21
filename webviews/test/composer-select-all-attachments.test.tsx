@@ -419,9 +419,9 @@ test("a copy pasted back that ends in a cmux link gets a space after the link", 
   await act(async () => markdownField().insertTyped(" "));
   await pasteBack(written.get("text/plain")!, [], copiedID);
   await until(() => (composer.current!.wakeState().attachments ?? []).length === 2, "the copy of the image");
-  const value = markdownField().value();
-  expect(value.endsWith(`${link} `)).toBe(true);
-  expect(markdownField().caret()).toBe(value.length);
+  const text = markdownField().plainText();
+  expect(text.endsWith(` ${link} `)).toBe(true);
+  expect(markdownField().caret()).toBe(text.length);
 });
 
 test("a fresh clipboard screenshot never restores a previous prompt with the same image name", async () => {
