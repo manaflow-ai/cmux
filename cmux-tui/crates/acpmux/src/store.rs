@@ -45,7 +45,6 @@ mod shared_value;
 mod text_index;
 pub use shared_value::{SharedRows, SharedText, SharedValue};
 
-/// One line in the session event log.
 /// A chat's rolling summary (`hub/rolling_summary.rs`): one short line on where it stands and
 /// the next action, kept current after each turn a person started (or one that ended on a
 /// `wrap_up`). The sidebar and the chat header draw it.
@@ -66,6 +65,7 @@ pub struct RollingSummary {
     pub at: u64,
 }
 
+/// One line in the session event log.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct EventRecord {
