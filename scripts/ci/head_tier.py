@@ -13,7 +13,10 @@ before it is ready. A draft head runs the cheap tier (each workflow says which o
 run nothing); the full tier runs when the PR is marked ready for review (every workflow that skips drafts
 listens to `ready_for_review`), on any non-draft head, with the `full-ci` label, and for every event that is
 not a pull request. Nothing a draft skips can land unchecked: marking it ready runs the full tier on the same
-head before any merge.
+head before any merge. How a draft gets the full tier: mark it ready for review (every gated workflow listens to
+`ready_for_review`), or add `full-ci`; the router and ci.yml re-run on that `labeled` event, but cmux-next.yml does
+not listen to `labeled` (it would start on every label of every PR), so there the label takes effect at the next
+push: push a commit (an empty one does) after adding it.
 
 Idle rule (cmuxterm-hq docs/ci/idle-pr-heads-2026-11-21.md, hq#16419): a head that only merges the base into a
 pull request whose own last commit is more than 24 hours old gets the tier `none`: the router starts nothing, and
