@@ -21,8 +21,10 @@ service first, so an app of the console user whose panel service hangs still blo
 about 40 s (open; plans/cmux-next/picker.md).
 
 The session rule (the same as the hq worker gate, build-fleet console_session.go readConsoleUser, and the app's
-open-panel warm-up, CmuxNextDesign OpenPanelWarmGate; change all three together): the console user is the `Name` of SCDynamicStore `State:/Users/ConsoleUser` (`scutil`); `loginwindow`,
-no such key, or no answer at all means nobody, and the check fails closed. This account has a GUI session only
+open-panel warm-up, CmuxNextDesign OpenPanelWarmGate; change all three together): the console user is the account
+of IOConsoleUsers' session on the console (`ioreg`, kCGSSessionOnConsoleKey), not scutil's State:/Users/ConsoleUser,
+which a Screen Sharing login to another account's own session takes over; `loginwindow`, nobody on the console, or
+no answer at all means nobody, and the check fails closed. This account has a GUI session only
 when it is that user. A locked screen is reported (`screen_locked`, from IOConsoleUsers) but does not fail the
 check.
 `launch()` checks the session first and raises LaunchError("no-gui-session") at once; every other failure gets its
@@ -431,36 +433,42 @@ def unique_paths(paths):
     return out
 
 
-def console_user():
-    """The user logged in on the console (SCDynamicStore State:/Users/ConsoleUser), or None at the login window.
-
-    Not /dev/console's owner (it reads root on a mini whose cmux session is up) and not `who` (it keeps console
-    lines of sessions that ended or went to the background)."""
+def console_sessions():
+    """IOConsoleUsers' session entries (`ioreg -n Root -d1 -a`), or None when ioreg does not answer with a plist."""
     try:
-        out = subprocess.run(["/usr/sbin/scutil"], input="show State:/Users/ConsoleUser\n", capture_output=True,
-                             text=True, timeout=10).stdout
-    except (OSError, subprocess.TimeoutExpired):
-        out = ""
-    match = re.search(r"^\s*Name : (\S+)", out, re.M)
-    if match:
-        return None if match.group(1) == "loginwindow" else match.group(1)
-    # No such key, a dictionary with no name, or no answer at all: nobody, fail closed like the hq worker gate (not
-    # /dev/console's owner, which disagrees with scutil).
+        import plistlib
+        out = subprocess.run(["/usr/sbin/ioreg", "-n", "Root", "-d1", "-a"], capture_output=True, timeout=10).stdout
+        root = plistlib.loads(out)
+    except Exception:  # ioreg missing, timed out or not a plist
+        return None
+    if isinstance(root, list):
+        root = root[0] if root else {}
+    entries = root.get("IOConsoleUsers") if isinstance(root, dict) else None
+    return [e for e in entries if isinstance(e, dict)] if isinstance(entries, list) else []
+
+
+def console_user():
+    """The account whose session WindowServer has on the console, or None (the login window, or no answer).
+
+    IOConsoleUsers' entry with kCGSSessionOnConsoleKey whose login is done, as the hq worker gate reads it
+    (build-fleet/cmd/worker screen_share.go consoleHolderFromIOReg). Not scutil's State:/Users/ConsoleUser: that is
+    the last account to log in, and a Screen Sharing login to another account's own session (the hidden
+    cmuxci-gui-0N accounts, hq `fleet gui-ci-users`, 2026-11-18) sets it while this account's session stays on the
+    console. Not /dev/console's owner (it reads root on a mini whose cmux session is up) and not `who` (it keeps
+    console lines of sessions that ended or went to the background)."""
+    for entry in console_sessions() or []:
+        if not entry.get("kCGSSessionOnConsoleKey") or entry.get("kCGSessionLoginDoneKey") is False:
+            continue
+        name = entry.get("kCGSSessionUserNameKey")
+        return name if isinstance(name, str) and name and name != "loginwindow" else None
+    # Nobody on the console, or no answer at all: nobody, fail closed like the hq worker gate.
     return None
 
 
 def screen_locked(user):
     """Whether `user`'s console session has its screen locked (IOConsoleUsers CGSSessionScreenIsLocked), None
     when ioreg does not say. Reported only: the session rule does not use it."""
-    try:
-        import plistlib
-        out = subprocess.run(["/usr/sbin/ioreg", "-n", "Root", "-d1", "-a"], capture_output=True, timeout=10).stdout
-        root = plistlib.loads(out)
-    except Exception:  # ioreg missing, timed out or not a plist: unknown
-        return None
-    if isinstance(root, list):
-        root = root[0] if root else {}
-    for entry in root.get("IOConsoleUsers") or []:
+    for entry in console_sessions() or []:
         if entry.get("kCGSSessionUserNameKey") == user and entry.get("kCGSSessionOnConsoleKey"):
             return bool(entry.get("CGSSessionScreenIsLocked", False))
     return None
@@ -1274,6 +1282,8 @@ def main(argv=None):
                        help="launch even with no GUI session: only the socket and the window list are checked, no "
                             "frames; the result says socket_only and gui_session")
     sub.add_parser("session", help="only report whether this account has a GUI session")
+    sub.add_parser("console-user", help="print the account whose session is on the console (IOConsoleUsers), or "
+                                        "nothing: the one reader for scripts (scripts/ci/frame-pacing/console-session.sh)")
     sub.add_parser("limits", help="launchd's soft limits (a Finder launch's) and this process's, one JSON line")
     finder = sub.add_parser("finder-exec", help="run COMMAND with launchd's soft limits, as a Finder launch gets")
     finder.add_argument("cmd", nargs=argparse.REMAINDER, metavar="-- COMMAND")
@@ -1294,6 +1304,11 @@ def main(argv=None):
                 os.execvp(cmd[0], cmd)  # the limits set here are the command's (exec keeps them)
             except OSError as error:
                 parser.error(f"finder-exec: cannot run {cmd[0]}: {error}")
+    if opts.command == "console-user":
+        user = console_user()
+        if user:
+            print(user, flush=True)
+        return 0
     if opts.command == "session":
         result = {**host_facts(), "gui_session": gui_session()}
         print("BENCH-LAUNCH " + json.dumps(result), flush=True)
