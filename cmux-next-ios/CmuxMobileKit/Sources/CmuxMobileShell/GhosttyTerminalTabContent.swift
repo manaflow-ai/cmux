@@ -229,7 +229,6 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             release(id)
             slots[id] = nil
             cardViews[id] = nil
-            drafts?.clear(ComposerDraftStore.key(macID: workspace.macID, tabID: id))
         }
         let live = sessionProvider?(tab, workspace.macID)
         if let host = hosts[tab.id], live == nil { return host }
