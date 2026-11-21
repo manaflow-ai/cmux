@@ -243,7 +243,10 @@ fn the_session_records_the_frames_it_hands_out() {
 
     // A folder where the file should go cannot be created.
     assert_eq!(start(&s, path.parent().unwrap()), CMUX_RD_ERR_IO);
-    std::fs::remove_dir_all(path.parent().unwrap().parent().unwrap()).expect("clean up");
+    // A CI run keeps the files in its artifact (to probe them elsewhere).
+    if std::env::var_os("FAST_CHECKS_OUT").is_none() {
+        std::fs::remove_dir_all(path.parent().unwrap().parent().unwrap()).expect("clean up");
+    }
 }
 
 /// With ffprobe installed: the file is H.264 64x40 with `frames` frames.
