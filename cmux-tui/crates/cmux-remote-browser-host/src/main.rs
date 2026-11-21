@@ -307,6 +307,7 @@ fn serve_cdp(all: &[String]) -> std::process::ExitCode {
         chromium: binary,
         profile,
         encoder,
+        stages: None,
     };
     let code = cdp_serve::run(listener, opts);
     std::process::ExitCode::from(u8::try_from(code).unwrap_or(1))

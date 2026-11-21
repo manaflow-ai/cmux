@@ -14,10 +14,10 @@
 use std::io::{BufRead, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
-use std::time::{Duration, Instant};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant, SystemTime};
 
 use cmux_encode::openh264::{OpenH264, OpenH264Api};
 use cmux_encode::{EncCfg, H264Encoder, I420, bgrx_rect_to_i420, convert_threads};
@@ -30,6 +30,7 @@ use cmux_rd_proto::{
 };
 use cmux_remote_browser::proto::{Control, ScreenInfo, ViewerCaps};
 use cmux_remote_browser::session::ScreenSize;
+use serde_json::Value;
 
 use crate::cdp::{CdpEvent, CdpPresentation};
 use crate::chromium::{Chromium, FromChromium};
@@ -83,6 +84,42 @@ pub struct Options {
     pub chromium: PathBuf,
     pub profile: PathBuf,
     pub encoder: EncoderApi,
+    /// Where the per-frame stage times go ([`FrameStages`]); `None` keeps none.
+    pub stages: Option<StageLog>,
+}
+
+/// The stage times of each frame a viewer was sent.
+pub type StageLog = Arc<Mutex<Vec<FrameStages>>>;
+
+/// When one frame passed each stage of the host, in microseconds since the
+/// host started (`t0`). `input_*` is the newest viewer input dispatched
+/// before this frame arrived and after the previous one (none on a frame
+/// no input caused).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct FrameStages {
+    /// The input's datagram reached the loop.
+    pub input_rx_us: Option<u64>,
+    /// `Input.dispatch*` was written to Chromium's pipe.
+    pub input_sent_us: Option<u64>,
+    /// Chromium's capture time of the frame (`metadata.timestamp`, wall
+    /// clock) mapped to the host's clock.
+    pub captured_us: Option<u64>,
+    /// The pipe thread finished reading and parsing the message.
+    pub arrived_us: u64,
+    /// The loop thread took it (after any earlier events).
+    pub picked_us: u64,
+    /// Base64 decoded (`CdpPresentation::on_message`).
+    pub unpacked_us: u64,
+    /// JPEG decoded to RGB.
+    pub decoded_us: u64,
+    /// Converted to I420 at the viewer's size.
+    pub converted_us: u64,
+    /// Encoded and packetized by the pump.
+    pub encoded_us: u64,
+    /// Its datagrams were handed to the viewer's writer.
+    pub sent_us: u64,
+    pub jpeg_bytes: usize,
+    pub datagrams: usize,
 }
 
 impl std::fmt::Debug for Options {
@@ -99,10 +136,22 @@ impl std::fmt::Debug for Options {
 
 /// What the loop thread is told.
 enum Event {
-    Chromium(FromChromium),
-    Joined { conn: u64, writer: Sender<Vec<u8>>, max_datagram: usize, stream: TcpStream },
-    Frame { conn: u64, kind: u8, payload: Vec<u8> },
-    Left { conn: u64 },
+    /// With when the pipe thread finished it.
+    Chromium(FromChromium, Instant),
+    Joined {
+        conn: u64,
+        writer: Sender<Vec<u8>>,
+        max_datagram: usize,
+        stream: TcpStream,
+    },
+    Frame {
+        conn: u64,
+        kind: u8,
+        payload: Vec<u8>,
+    },
+    Left {
+        conn: u64,
+    },
     Quit(&'static str),
 }
 
@@ -145,8 +194,14 @@ pub fn pixel_size(screen: ScreenSize) -> (u32, u32) {
 /// image at the top left, cropped or padded black where its size differs
 /// (a frame from before a resize).
 pub fn jpeg_to_i420(jpeg: &[u8], width: u32, height: u32) -> Result<I420, String> {
+    jpeg_to_i420_timed(jpeg, width, height).map(|(picture, _)| picture)
+}
+
+/// [`jpeg_to_i420`], and when the JPEG decode ended.
+fn jpeg_to_i420_timed(jpeg: &[u8], width: u32, height: u32) -> Result<(I420, Instant), String> {
     let mut decoder = jpeg_decoder::Decoder::new(jpeg);
     let pixels = decoder.decode().map_err(|e| format!("jpeg: {e}"))?;
+    let decoded = Instant::now();
     let info = decoder.info().ok_or("jpeg: no header")?;
     let (src_w, src_h) = (usize::from(info.width), usize::from(info.height));
     let channels = match info.pixel_format {
@@ -167,7 +222,7 @@ pub fn jpeg_to_i420(jpeg: &[u8], width: u32, height: u32) -> Result<I420, String
     }
     let mut picture = I420::new(w, h);
     bgrx_rect_to_i420(&bgrx, &mut picture, 0, 0, w, h, convert_threads());
-    Ok(picture)
+    Ok((picture, decoded))
 }
 
 fn open_control(screen: ScreenSize) -> Control {
@@ -203,6 +258,11 @@ struct Host {
     t0: Instant,
     once: bool,
     served: bool,
+    stages: Option<StageLog>,
+    /// The newest input since the last frame: (reached the loop, sent to Chromium).
+    input: Option<(u64, u64)>,
+    /// Stage times of the frame being handled.
+    current: FrameStages,
 }
 
 fn frame_bytes(kind: u8, payload: &[u8]) -> Option<Vec<u8>> {
@@ -212,7 +272,11 @@ fn frame_bytes(kind: u8, payload: &[u8]) -> Option<Vec<u8>> {
 
 impl Host {
     fn now(&self) -> u64 {
-        u64::try_from(self.t0.elapsed().as_micros()).unwrap_or(u64::MAX)
+        self.at(Instant::now())
+    }
+
+    fn at(&self, t: Instant) -> u64 {
+        u64::try_from(t.saturating_duration_since(self.t0).as_micros()).unwrap_or(u64::MAX)
     }
 
     fn send_rd(&self, control: &RdControl) {
@@ -232,6 +296,7 @@ impl Host {
     }
 
     fn apply(&mut self, out: PumpOut) {
+        let rx = self.now();
         if let Some(v) = &self.viewer {
             for d in &out.datagrams {
                 if let Some(bytes) = frame_bytes(STREAM_DATAGRAM, d) {
@@ -246,6 +311,9 @@ impl Host {
             let seq = out.input_seqs.get(i).copied().flatten();
             // A refused event (Blink would drop it) is not an error here.
             let _ = self.tab.input_seq(event, seq, &mut self.p);
+        }
+        if !out.input.is_empty() {
+            self.input = Some((rx, self.now()));
         }
     }
 
@@ -329,8 +397,11 @@ impl Host {
     fn frame(&mut self, browser: i32, jpeg: &[u8], ack: i64) {
         let size = self.viewer.as_ref().map(|v| v.size);
         if let Some((width, height)) = size {
-            match jpeg_to_i420(jpeg, width, height) {
-                Ok(picture) => {
+            match jpeg_to_i420_timed(jpeg, width, height) {
+                Ok((picture, decoded)) => {
+                    self.current.decoded_us = self.at(decoded);
+                    self.current.converted_us = self.now();
+                    self.current.jpeg_bytes = jpeg.len();
                     if !self.first_frame_seen {
                         self.first_frame_seen = true;
                         let replies = self.tab.first_frame(&mut self.p);
@@ -343,7 +414,14 @@ impl Host {
                         .as_mut()
                         .map(|v| v.pump.frame(Arc::new(Picture(picture)), full, now, now))
                         .unwrap_or_default();
+                    self.current.encoded_us = self.now();
+                    self.current.datagrams = out.datagrams.len();
+                    let sent = !out.datagrams.is_empty();
                     self.apply(out);
+                    if sent {
+                        self.current.sent_us = self.now();
+                        self.log_stages();
+                    }
                 }
                 Err(e) => eprintln!("serve: frame: {e}"),
             }
@@ -352,13 +430,46 @@ impl Host {
         self.p.ack_frame(browser, ack);
     }
 
-    /// One message from Chromium. `Err` ends the host.
-    fn chromium(&mut self, message: FromChromium) -> Result<(), String> {
+    /// Records the frame just sent with the input that preceded it.
+    fn log_stages(&mut self) {
+        let input = self.input.take();
+        let Some(log) = &self.stages else { return };
+        let stages = FrameStages {
+            input_rx_us: input.map(|i| i.0),
+            input_sent_us: input.map(|i| i.1),
+            ..self.current
+        };
+        if let Ok(mut log) = log.lock() {
+            log.push(stages);
+        }
+    }
+
+    /// One message from Chromium, finished by the pipe thread at `arrived`.
+    /// `Err` ends the host.
+    fn chromium(&mut self, message: FromChromium, arrived: Instant) -> Result<(), String> {
         let message = match message {
             FromChromium::Message(m) => m,
             FromChromium::Gone(reason) => return Err(reason),
         };
-        for event in self.p.on_message(&message) {
+        if message.get("method").and_then(Value::as_str) == Some("Page.screencastFrame") {
+            let picked = self.now();
+            let arrived_us = self.at(arrived);
+            // Chromium's capture time is wall clock: map it through now.
+            let captured_us = message["params"]["metadata"]["timestamp"].as_f64().and_then(|ts| {
+                let wall = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).ok()?;
+                let ago_us = (wall.as_secs_f64() - ts) * 1e6;
+                (ago_us >= 0.0).then(|| picked.saturating_sub(ago_us as u64))
+            });
+            self.current = FrameStages {
+                captured_us,
+                arrived_us,
+                picked_us: picked,
+                ..FrameStages::default()
+            };
+        }
+        let events = self.p.on_message(&message);
+        self.current.unpacked_us = self.now();
+        for event in events {
             match event {
                 CdpEvent::TabCreated { request, browser } if request == REQUEST => {
                     self.tab.tab_created(browser, &mut self.p);
@@ -471,14 +582,15 @@ fn session(viewer: Admitted, conn: u64, events: &Sender<Event>) -> std::io::Resu
 /// (`once`) the first viewer leaves. Returns the process exit code.
 pub fn run(listener: TcpListener, opts: Options) -> i32 {
     let (events, inbox) = mpsc::channel::<Event>();
-    let chromium =
-        match Chromium::start(&opts.chromium, &opts.profile, events.clone(), Event::Chromium) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("serve: start {}: {e}", opts.chromium.display());
-                return 1;
-            }
-        };
+    let chromium = match Chromium::start(&opts.chromium, &opts.profile, events.clone(), |m| {
+        Event::Chromium(m, Instant::now())
+    }) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("serve: start {}: {e}", opts.chromium.display());
+            return 1;
+        }
+    };
     eprintln!("serve: chromium pid {} ({})", chromium.pid(), opts.chromium.display());
     if opts.lifeline {
         let quit = events.clone();
@@ -519,6 +631,9 @@ pub fn run(listener: TcpListener, opts: Options) -> i32 {
         t0: Instant::now(),
         once: opts.once,
         served: false,
+        stages: opts.stages.clone(),
+        input: None,
+        current: FrameStages::default(),
     };
     serve_loop(&mut host, &inbox)
 }
@@ -529,8 +644,8 @@ fn serve_loop(host: &mut Host, inbox: &Receiver<Event>) -> i32 {
             Duration::from_micros(d.saturating_sub(host.now()))
         });
         match inbox.recv_timeout(wait) {
-            Ok(Event::Chromium(message)) => {
-                if let Err(reason) = host.chromium(message) {
+            Ok(Event::Chromium(message, arrived)) => {
+                if let Err(reason) = host.chromium(message, arrived) {
                     eprintln!("serve: chromium: {reason}");
                     return 1;
                 }

@@ -13,12 +13,12 @@
 
 use std::net::TcpListener;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use cmux_encode::openh264::OpenH264Api;
-use cmux_remote_browser_host::cdp_serve::{self, Options};
+use cmux_remote_browser_host::cdp_serve::{self, FrameStages, Options};
 use cmux_remote_browser_host::probe::{self, Plan};
 
 /// Each keydown toggles a 16x16 box, so each key makes one new frame.
@@ -37,6 +37,39 @@ fn scratch(name: &str) -> PathBuf {
     dir
 }
 
+/// Median milliseconds of each host stage over the frames a key caused:
+/// input dispatch to Chromium's capture, capture to the pipe message, the
+/// loop's queue, base64, JPEG decode, I420, encode, send.
+fn stage_summary(stages: &[FrameStages]) -> String {
+    let keyed: Vec<&FrameStages> = stages.iter().filter(|s| s.input_sent_us.is_some()).collect();
+    let median = |f: &dyn Fn(&FrameStages) -> Option<u64>| {
+        let mut v: Vec<f64> =
+            keyed.iter().filter_map(|s| f(s)).map(|us| us as f64 / 1000.0).collect();
+        v.sort_by(f64::total_cmp);
+        v.get(v.len() / 2).map(|m| format!("{m:.1}")).unwrap_or_else(|| "none".into())
+    };
+    let d = |a: u64, b: u64| Some(b.saturating_sub(a));
+    let mut out = format!("stage_frames={} keyed={}\n", stages.len(), keyed.len());
+    let rows: [(&str, &dyn Fn(&FrameStages) -> Option<u64>); 10] = [
+        ("input_rx_to_sent", &|s| d(s.input_rx_us?, s.input_sent_us?)),
+        ("input_to_capture", &|s| d(s.input_sent_us?, s.captured_us?)),
+        ("capture_to_arrive", &|s| d(s.captured_us?, s.arrived_us)),
+        ("input_to_arrive", &|s| d(s.input_sent_us?, s.arrived_us)),
+        ("queue", &|s| d(s.arrived_us, s.picked_us)),
+        ("base64", &|s| d(s.picked_us, s.unpacked_us)),
+        ("jpeg_decode", &|s| d(s.unpacked_us, s.decoded_us)),
+        ("i420", &|s| d(s.decoded_us, s.converted_us)),
+        ("encode", &|s| d(s.converted_us, s.encoded_us)),
+        ("input_to_sent", &|s| d(s.input_sent_us?, s.sent_us)),
+    ];
+    for (name, f) in rows {
+        out += &format!("stage_{name}_p50_ms={}\n", median(f));
+    }
+    let bytes: Vec<usize> = keyed.iter().map(|s| s.jpeg_bytes).collect();
+    out += &format!("jpeg_bytes={bytes:?}\n");
+    out
+}
+
 #[test]
 fn headless_chromium_tab_streams_and_answers_keys() {
     let Some(chromium) = cmux_remote_browser_host::chromium::find() else {
@@ -52,6 +85,7 @@ fn headless_chromium_tab_streams_and_answers_keys() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
     let addr = listener.local_addr().expect("addr");
     let secret = "test-secret".to_string();
+    let stages = Arc::new(Mutex::new(Vec::<FrameStages>::new()));
     let opts = Options {
         url: PAGE.into(),
         secret: Some(secret.clone()),
@@ -60,6 +94,7 @@ fn headless_chromium_tab_streams_and_answers_keys() {
         chromium: chromium.clone(),
         profile: root.join("profile"),
         encoder: Arc::new(|| Ok(OpenH264Api::from_source())),
+        stages: Some(stages.clone()),
     };
     let (done, exited) = mpsc::channel();
     std::thread::spawn(move || {
@@ -90,6 +125,11 @@ fn headless_chromium_tab_streams_and_answers_keys() {
         report.latencies_ms.len(),
         pct(0.5),
         sorted.last(),
+    );
+    let summary = format!(
+        "{summary}build={}\n{}",
+        if cfg!(debug_assertions) { "debug" } else { "release" },
+        stage_summary(&stages.lock().expect("stages"))
     );
     eprintln!("{summary}");
     if let Some(dir) = std::env::var_os("FAST_CHECKS_OUT") {
