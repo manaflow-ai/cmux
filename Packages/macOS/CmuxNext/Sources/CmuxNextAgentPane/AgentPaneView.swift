@@ -80,9 +80,9 @@ public final class AgentPaneView: NSView {
     var otherInstallNotice: AgentPaneNotice?
     /// The pane's daemon is another cmux install's (cx-fcaq); the line shows only while a request waits.
     var runsOnOtherInstall = false
-    /// "Not verified as you, reconnecting identity": this pane's connection did not prove the
-    /// person, so its prompts would reach the agent as an unverified sender's.
-    var personUnprovenNotice: AgentPaneNotice?
+    /// "Couldn't verify you": this pane's connection could not prove the person and the silent
+    /// recovery gave up, so its allows are refused (https://github.com/manaflow-ai/cmux/issues/48636).
+    var personProofFailedNotice: AgentPaneNotice?
     /// "Remote approvals are off" (cx-0q7o), and the restart the chat's machine offers.
     var remoteApprovalsNotice: AgentPaneNotice?
     var remoteApprovals: AgentPaneRemoteApprovals?
@@ -565,7 +565,7 @@ public final class AgentPaneView: NSView {
         if let connection = model.transport.connection { model.transport.close(connection: connection) }
         model.transport.deliver = nil
         model.transport.onOtherInstall = nil
-        model.transport.onPersonProof = nil
+        model.transport.onPersonProofFailed = nil
         model.transport.recoverPersonProof = nil
         model.transport.onRemoteApprovalsOff = nil
         model.transport.onPeerApprovalsOff = nil

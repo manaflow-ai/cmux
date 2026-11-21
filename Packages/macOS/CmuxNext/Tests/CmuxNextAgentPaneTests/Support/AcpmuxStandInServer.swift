@@ -173,6 +173,9 @@ nonisolated final class AcpmuxStandInServer: Sendable {
     /// Refuses every `method` request with `error` (raw JSON) from now on.
     func refuse(_ method: String, with error: String) { state.withLock { $0.errors[method] = error } }
 
+    /// Stops refusing `method` (``refuse(_:with:)``): it gets its answer again.
+    func stopRefusing(_ method: String) { state.withLock { _ = $0.errors.removeValue(forKey: method) } }
+
     /// Holds the replies to `method` until ``releaseHeld()`` (a harness that takes its time).
     func hold(_ method: String) { state.withLock { _ = $0.holding.insert(method) } }
 
