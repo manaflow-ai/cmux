@@ -216,6 +216,11 @@ def per_ref_saves() -> list[str]:
                     if save_if.strip().lower() == "false":
                         continue
                     condition += f" {save_if}"
+                # A same-tree receipt (scripts/ci/same_tree_reuse.py) is one JSON file of a few hundred bytes,
+                # keyed by the tree it vouches for: it cannot crowd the 10 GB store, and the same pull request's
+                # re-runs and re-pushes of that tree are what read it.
+                if str(inputs.get("path", "")).startswith(".same-tree/"):
+                    continue
                 # A composite that takes its condition from an input leaves the ref to its callers.
                 if base_only or BASE_REF.search(condition) or (composite and "inputs." in condition):
                     continue
