@@ -52,6 +52,8 @@ pub struct Entry {
     pub seq: u64,
     pub at: u64,
     pub role: Role,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub steer: bool,
     pub text: String,
 }
 
@@ -114,10 +116,26 @@ impl Projector {
     }
 
     fn push(&mut self, rec: &EventRecord, role: Role, text: &str) {
-        let mut entry = Entry { seq: rec.seq, at: rec.at, role, text: String::new() };
+        let steer = role == Role::User && rec.msg.get("steer") == Some(&Value::Bool(true));
+        let mut entry = Entry { seq: rec.seq, at: rec.at, role, steer, text: String::new() };
         push_capped(&mut entry.text, text);
         self.entries.push(entry);
     }
+}
+
+/// Project a cold archive or a fork directly, keeping only the reply still being written.
+pub(crate) fn project_records(
+    scan: impl FnOnce(&mut dyn FnMut(EventRecord)) -> anyhow::Result<()>,
+    visit: &mut dyn FnMut(Entry),
+) -> anyhow::Result<()> {
+    let mut projector = Projector::default();
+    scan(&mut |record| {
+        projector.feed(&record);
+        let ready = projector.entries.len().saturating_sub(usize::from(projector.open.is_some()));
+        projector.entries.drain(..ready).for_each(&mut *visit);
+    })?;
+    projector.entries.into_iter().for_each(visit);
+    Ok(())
 }
 
 /// `text` appended to `to` up to [`MAX_TEXT`] bytes, cut at a character boundary.
@@ -172,38 +190,93 @@ impl Query {
 /// The newest `query.limit` messages of session `id` that match, as `_acpmux/session_search`
 /// answers.
 pub fn search(store: &dyn Store, id: &str, query: &Query) -> anyhow::Result<Value> {
+    Ok(json!(search_messages(store, id, query, TextView::Session)?))
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TextView {
+    Session,
+    Conversation,
+    PeerConversation,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MessageHit {
+    pub seq: u64,
+    pub at: u64,
+    pub role: Role,
+    pub snippet: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub turn_time: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MessageHits {
+    session_id: String,
+    pub hits: Vec<MessageHit>,
+    entries: u64,
+    took_ms: u64,
+}
+
+/// Cross-session search includes prompts and replies and identifies their enclosing turn.
+pub(crate) fn search_messages(
+    store: &dyn Store,
+    id: &str,
+    query: &Query,
+    view: TextView,
+) -> anyhow::Result<MessageHits> {
     let started = std::time::Instant::now();
     // Messages come oldest first: only the newest `limit` hits are kept, each as its snippet, so
     // a search holds at most `limit` snippets however many messages match.
-    let mut hits: std::collections::VecDeque<Value> = std::collections::VecDeque::new();
+    let mut hits = std::collections::VecDeque::new();
     let mut entries = 0_u64;
-    store.text_entries(id, &mut |entry: Entry| {
+    let mut turn_at = None;
+    let mut visit = |entry: Entry| {
         entries = entries.saturating_add(1);
+        if entry.role == Role::User && !entry.steer {
+            turn_at = Some(entry.at);
+        }
+        if view != TextView::Session && entry.role == Role::Tool {
+            return;
+        }
         if query.role.is_some_and(|r| r != entry.role)
             || query.since_ms.is_some_and(|since| entry.at < since)
         {
             return;
         }
-        let flat = flatten(&entry.text);
+        let text = if view == TextView::PeerConversation {
+            crate::secret_scan::mask(&entry.text)
+        } else {
+            entry.text
+        };
+        let flat = flatten(&text);
         if let Some(at) = query.needle.find(&flat) {
             if hits.len() >= query.limit {
                 hits.pop_front();
             }
-            hits.push_back(json!({
-                "seq": entry.seq,
-                "at": entry.at,
-                "role": entry.role,
-                "snippet": snippet(&flat, at),
-            }));
+            hits.push_back(MessageHit {
+                seq: entry.seq,
+                at: entry.at,
+                role: entry.role,
+                snippet: snippet(&flat, at),
+                turn_time: (view != TextView::Session)
+                    .then(|| crate::clock_text::iso(turn_at.unwrap_or(entry.at))),
+            });
         }
-    })?;
-    let hits: Vec<Value> = hits.into_iter().rev().collect();
-    Ok(json!({
-        "sessionId": id,
-        "hits": hits,
-        "entries": entries,
-        "tookMs": u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
-    }))
+    };
+    if view != TextView::Session {
+        store.conversation_entries(id, &mut visit)?;
+    } else {
+        store.text_entries(id, &mut visit)?;
+    }
+    Ok(MessageHits {
+        session_id: id.to_owned(),
+        hits: hits.into_iter().rev().collect(),
+        entries,
+        took_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+    })
 }
 
 #[cfg(test)]

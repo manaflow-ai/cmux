@@ -121,7 +121,31 @@ fn is_backdrop_selection(row: &Row) -> bool {
     row.validation == super::Validation::Domain(DomainKind::BackdropSelection)
 }
 
+/// Values written by older cmux-next builds for the hand-written Swift
+/// `WorkspaceColorIndicatorStyle` enum. Swift reads each as its canonical
+/// replacement without a diagnostic, so the shared Rust validator must do the
+/// same or customization would reject an otherwise valid user config.
+fn accepts_legacy_workspace_color_indicator(row: &Row, value: &Value) -> bool {
+    row.key == "workspaceColors.indicatorStyle"
+        && value.as_str().is_some_and(|text| {
+            matches!(
+                text,
+                "solidFill"
+                    | "rail"
+                    | "border"
+                    | "wash"
+                    | "lift"
+                    | "typography"
+                    | "washRail"
+                    | "blueWashColorRail"
+            )
+        })
+}
+
 fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
+    if accepts_legacy_workspace_color_indicator(row, value) {
+        return true;
+    }
     match row.validation {
         super::Validation::Domain(DomainKind::ChatRoots) => {
             let home = std::env::var("HOME").unwrap_or_default();
@@ -407,5 +431,36 @@ fn domain_name(kind: DomainKind) -> &'static str {
         DomainKind::CustomDensities => "custom_densities",
         DomainKind::CommandLabels => "command_labels",
         DomainKind::AppId => "app_id",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn workspace_color_indicator_accepts_swift_legacy_values() {
+        let row = super::super::Schema::embedded()
+            .row("workspaceColors.indicatorStyle")
+            .expect("workspace color indicator row");
+        for value in [
+            "solidFill",
+            "rail",
+            "border",
+            "wash",
+            "lift",
+            "typography",
+            "washRail",
+            "blueWashColorRail",
+        ] {
+            assert!(
+                accepts(row, &Value::String(value.to_owned()), &Default::default()).is_ok(),
+                "{value}"
+            );
+        }
+        assert!(
+            accepts(row, &Value::String("__not_a_choice__".to_owned()), &Default::default())
+                .is_err()
+        );
     }
 }

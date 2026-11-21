@@ -64,6 +64,7 @@ members = [
     "crates/cmux-cloud-machine",
     "crates/cmux-cloud-tasks",
     "crates/cmux-cloud-config",
+    "crates/cmux-vm-pool",
     "crates/cmux-auth-coordinator",
     "crates/cmux-cloud-handlers",
     "crates/cmux-window-rules",
@@ -81,6 +82,7 @@ members = [
     "crates/cmux-signed-bundle",
     "crates/cmux-scope",
     "crates/cmux-file-lock",
+    "crates/cmux-files-host",
     "crates/cmux-projection",
     "crates/cmux-remote-protocol",
     "crates/cmux-build-identity",
@@ -196,6 +198,7 @@ default-members = [
     "crates/cmux-cloud-machine",
     "crates/cmux-cloud-tasks",
     "crates/cmux-cloud-config",
+    "crates/cmux-vm-pool",
     "crates/cmux-auth-coordinator",
     "crates/cmux-cloud-handlers",
     "crates/cmux-window-rules",
@@ -340,6 +343,7 @@ cmux-cloud-start-core = { path = "crates/cmux-cloud-start-core" }
 cmux-cloud-machine = { path = "crates/cmux-cloud-machine" }
 cmux-cloud-tasks = { path = "crates/cmux-cloud-tasks" }
 cmux-cloud-config = { path = "crates/cmux-cloud-config" }
+cmux-vm-pool = { path = "crates/cmux-vm-pool" }
 cmux-cloud-handlers = { path = "crates/cmux-cloud-handlers" }
 cmux-window-rules = { path = "crates/cmux-window-rules" }
 cmux-build-space = { path = "crates/cmux-build-space" }
@@ -551,7 +555,21 @@ smoltcp = { path = "vendor/smoltcp" }
 # at +24% size; the package overrides below keep one unit per heavy crate.
 # cmux-tui-build-package.yml's `lto: fat` input means "this profile"; its
 # `lto: thin` is the machine channel's LTO-off build.
+#
+# opt-level "z" everywhere, with the hot path kept at 3 (goal bundle-size-falls,
+# CMUX-570; Leo: "decreasing bundle size"). Cross-built for aarch64-apple-darwin
+# on the fleet Linux pool at 618a36c442d4 (scripts/measure/optlevel-size.sh on
+# lane/bundle-size-falls-optlevel-exp): fully stripped 139.16 -> 115.47 MB
+# (-23.7), strip -x 146.24 -> 137.65 MB (-8.6), xz 41.14 -> 40.08 MB. "s"
+# instead of "z" saved only 4.7 MB stripped and grew the strip -x file by
+# 6.3 MB. The hot list: the per-frame render/diff path (cmux-tui-core,
+# ghostty-vt, ghostty-vt-sys, ratatui, ratatui-core, crossterm), the runtime
+# (tokio) and the JSON rewriter on every translated daemon message
+# (cmux-api-compat). acpmux (19.1 MiB of .text, the largest crate) goes to "z".
+# A crate joins the hot list only with a bench that shows "z" costs it more
+# than noise.
 [profile.release]
+opt-level = "z"
 lto = "thin"
 codegen-units = 1
 
@@ -560,7 +578,29 @@ opt-level = "z"
 codegen-units = 1
 
 [profile.release.package.cmux-tui-core]
+opt-level = 3
 codegen-units = 1
+
+[profile.release.package.ghostty-vt]
+opt-level = 3
+
+[profile.release.package.ghostty-vt-sys]
+opt-level = 3
+
+[profile.release.package.tokio]
+opt-level = 3
+
+[profile.release.package.ratatui]
+opt-level = 3
+
+[profile.release.package.ratatui-core]
+opt-level = 3
+
+[profile.release.package.crossterm]
+opt-level = 3
+
+[profile.release.package.cmux-api-compat]
+opt-level = 3
 
 [profile.release.package.acpmux]
 codegen-units = 1
@@ -573,9 +613,11 @@ codegen-units = 1
 # by environment it still ran past 40 minutes, because the package override
 # above keeps `acpmux` at one unit. A gate is a ratio of two sides measured in
 # one build, so it does not need the shipped binary's size settings. Nothing
-# ships from this profile.
+# ships from this profile, so it keeps opt-level 3: the gates time optimized
+# code, and release's "z" would change what they time.
 [profile.gate]
 inherits = "release"
+opt-level = 3
 lto = "off"
 codegen-units = 16
 
