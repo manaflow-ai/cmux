@@ -1,7 +1,8 @@
-import { createFileRoute, Link, redirect } from "@tanstack/react-router"
+import { createFileRoute, Link, redirect, useLocation } from "@tanstack/react-router"
 import { useEffect, useRef } from "react"
 import { useLoad } from "../../lib/hooks"
 import { integrationAppHandoff, integrationCompletionRequest, integrationConfigureLink, integrationReturnLink } from "../../lib/integration-callback"
+import { autoSignInHref, signInHref } from "../../lib/return-path"
 import { callbackSearch } from "../../lib/search"
 import { completeIntegration } from "../../lib/server"
 import { setSignedIn, useSignedIn } from "../../lib/session"
@@ -22,6 +23,30 @@ export const Route = createFileRoute("/integrations/callback")({
   },
   component: Callback
 })
+
+/**
+ * Signed out: go through Sign in with cmux and come back to this exact URL (path and query), where
+ * the signed-in branch finishes the connection by itself. A Sign in link stays for when the page
+ * does not start on its own (autoSignInHref's loop guard).
+ */
+function SignInToFinish() {
+  // The router's location renders the same link on the server and during hydration; the browser's
+  // own URL is read only after mount, for the automatic start.
+  const here = useLocation({ select: (location) => `${location.pathname}${location.searchStr}` })
+  useEffect(() => {
+    let storage: Storage | null = null
+    try {
+      storage = window.sessionStorage
+    } catch {}
+    const href = autoSignInHref(false, { pathname: window.location.pathname, search: window.location.search }, storage)
+    if (href) window.location.replace(href)
+  }, [])
+  return (
+    <p>
+      <a href={signInHref(here)}>Sign in with cmux</a> as the person who started this connection to finish it.
+    </p>
+  )
+}
 
 function Callback() {
   const signedIn = useSignedIn()
@@ -75,12 +100,8 @@ function Callback() {
         <a href={handoff}>Open cmux</a> to finish connecting GitHub.
       </p>
     )
-  if (signedIn === false)
-    return (
-      <p>
-        <Link to="/">Sign in</Link> as the person who started this connection, then open the link again.
-      </p>
-    )
+  if (signedIn === false) return <SignInToFinish />
+
   return (
     <>
       <h2>Connecting</h2>

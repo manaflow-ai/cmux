@@ -3131,3 +3131,26 @@ export const hexclaveWebhookInboxState = pgTable("hexclave_webhook_inbox_state",
 }, (table) => [
   check("hexclave_webhook_inbox_state_singleton", sql`${table.id} = 1`),
 ]);
+
+/**
+ * One-time sign-in hand-off codes (app/lib/handoff-codes.ts): an
+ * authorization code with PKCE for a fixed client and redirect URI. Only the
+ * SHA-256 of the code is stored; a code lives under a minute and is consumed
+ * by one atomic update.
+ */
+export const authHandoffCodes = pgTable("auth_handoff_codes", {
+  codeHash: text("code_hash").primaryKey(),
+  clientId: text("client_id").notNull(),
+  redirectUri: text("redirect_uri").notNull(),
+  userId: text("user_id").notNull(),
+  codeChallenge: text("code_challenge").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  consumedAt: timestamp("consumed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("auth_handoff_codes_expires_idx").on(table.expiresAt),
+  check("auth_handoff_codes_hash_check", sql`${table.codeHash} ~ '^[0-9a-f]{64}$'`),
+  check("auth_handoff_codes_challenge_check", sql`${table.codeChallenge} ~ '^[A-Za-z0-9_-]{43}$'`),
+  check("auth_handoff_codes_client_check", sql`char_length(${table.clientId}) between 1 and 64`),
+  check("auth_handoff_codes_expiry_check", sql`${table.expiresAt} > ${table.createdAt}`),
+]);

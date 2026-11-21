@@ -238,6 +238,14 @@ export const env = createEnv({
     // Native app and CodeRouter handoff routes fail closed when this limiter
     // (and the existing feedback fallback) is absent.
     CMUX_APP_SESSION_HANDOFF_RATE_LIMIT_ID: z.string().min(1).optional(),
+    // Sign in with cmux for the Cloud console (services/auth/consoleSignIn.ts).
+    // Each client is off until its secret (32+ characters) is set; production
+    // sets only the production one, the staging deployment only the staging one.
+    CMUX_CONSOLE_SIGN_IN_SECRET: z.string().min(32).optional(),
+    CMUX_CONSOLE_STAGING_SIGN_IN_SECRET: z.string().min(32).optional(),
+    // The console sign-in start route fails closed on Vercel without this
+    // limiter; only local runs fall back to the feedback limiter.
+    CMUX_CONSOLE_SIGN_IN_RATE_LIMIT_ID: z.string().min(1).optional(),
     // Canonical origin returned with CodeRouter route tokens. Deployed
     // non-preview runtimes must set this; handoff exchange never trusts a
     // forwarded/request host in production.
@@ -519,6 +527,9 @@ export const env = createEnv({
     CMUX_APP_SESSION_HANDOFF_RATE_LIMIT_ID: trimEnv(
       process.env.CMUX_APP_SESSION_HANDOFF_RATE_LIMIT_ID,
     ),
+    CMUX_CONSOLE_SIGN_IN_SECRET: trimEnv(process.env.CMUX_CONSOLE_SIGN_IN_SECRET) || undefined,
+    CMUX_CONSOLE_STAGING_SIGN_IN_SECRET: trimEnv(process.env.CMUX_CONSOLE_STAGING_SIGN_IN_SECRET) || undefined,
+    CMUX_CONSOLE_SIGN_IN_RATE_LIMIT_ID: trimEnv(process.env.CMUX_CONSOLE_SIGN_IN_RATE_LIMIT_ID),
     CMUX_CODEROUTER_PUBLIC_ORIGIN: trimEnv(
       process.env.CMUX_CODEROUTER_PUBLIC_ORIGIN,
     ),
