@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "2fc186d7961113412cfc6906e8855fc2532403bc1bc55e2b1448d569f9fe5226";
+inline constexpr std::string_view kProtocolIrSha256 = "77d1f1f757b3e662836eb03864ead82c0d8bf016579f089d77a6ad8e34279ea2";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -837,6 +837,7 @@ struct AgentChangedEvent {
     AgentSource source{};
     AgentState state{};
     Id surface{};
+    std::optional<std::string> terminal_id{};
     std::uint64_t updated_at_ms{};
     friend bool operator==(const AgentChangedEvent&, const AgentChangedEvent&) = default;
 };
@@ -912,6 +913,7 @@ struct AgentRecord {
     AgentState state{};
     Field<AgentState> status{};
     Id surface{};
+    std::optional<std::string> terminal_id{};
     std::uint64_t updated_at_ms{};
     friend bool operator==(const AgentRecord&, const AgentRecord&) = default;
 };

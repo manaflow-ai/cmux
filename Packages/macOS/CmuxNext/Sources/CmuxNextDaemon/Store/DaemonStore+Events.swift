@@ -322,7 +322,7 @@ extension DaemonStore {
                 // Every tab of the terminal, not only the one on the surface the event names: a
                 // restored or reopened terminal's tab has a surface of its own (cmux#49392).
                 tabsBySurface[status.surface]?.setAgent(status)
-                if let terminal = status.terminalID { index.tabsByTerminalResource[terminal]?.setAgent(status) }
+                if let terminal = status.terminalID { for tab in index.tabs(terminalResource: terminal) { tab.setAgent(status) } }
             }
             return .none
         case .agentPresenceChanged(let presence):

@@ -66,6 +66,19 @@ import Testing
         #expect(try icon(store) == .agentMark("claude"))
     }
 
+    /// A terminal shown in two tabs (two views, two surfaces): a report on a third surface marks both.
+    @Test func everyTabOfTheTerminalLearnsItsAgent() throws {
+        let store = DaemonStore()
+        let tabs = [12, 13].map { TabSnapshot(surface: SurfaceID(rawValue: $0), tabResourceID: ResourceID(rawValue: "tab_\($0)"),
+                                              terminalResourceID: Self.terminal, title: "Claude Code") }
+        let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: tabs)])
+        store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [screen])]))
+        _ = store.apply(.agentChanged(claude(on: 3)))
+        let views = try #require(store.workspaces.first?.allTabs)
+        #expect(views.count == 2)
+        #expect(views.map { TabItemMapping.shared.item($0, fallbackTitle: "Terminal").icon } == [.agentMark("claude"), .agentMark("claude")])
+    }
+
     @Test func agentChangedDecodesTheTerminal() throws {
         let json = #"{"surface":3,"terminal_id":"term_restored","state":"working","source":"hook","session":null,"agent":"claude","updated_at_ms":1}"#
         let status = try JSONDecoder().decode(AgentStatus.self, from: Data(json.utf8))

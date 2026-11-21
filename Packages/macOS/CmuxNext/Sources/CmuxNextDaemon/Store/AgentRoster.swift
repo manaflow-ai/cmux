@@ -26,8 +26,10 @@ public struct AgentRoster: Sendable {
         let held = status.terminalID.flatMap { byTerminal[$0] } ?? bySurface[status.surface]
         if let held, held.updatedAtMs > 0, status.updatedAtMs > 0,
            status.updatedAtMs < held.updatedAtMs { return false }
-        notePrompt(from: bySurface[status.surface], to: status)
-        noteTimeline(from: bySurface[status.surface], to: status)
+        // From the status held for the terminal: a report that names a new surface (its first tab
+        // closed) continues the same turn rather than starting one.
+        notePrompt(from: held, to: status)
+        noteTimeline(from: held, to: status)
         if let terminal = status.terminalID { byTerminal[terminal] = status }
         bySurface[status.surface] = status
         return true

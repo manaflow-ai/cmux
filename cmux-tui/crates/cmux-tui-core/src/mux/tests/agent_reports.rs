@@ -748,6 +748,8 @@ fn agent_events_name_the_tab_a_reopened_terminal_shows_in() {
         .expect("the report announces the agent");
     assert_eq!(changed.0, view, "agent-changed names the tab's surface");
     assert_eq!(changed.1.as_deref(), Some(terminal_id.as_str()));
+    // The roster's owner folds the report's echo after the report answered.
+    assert!(mux.settle_agent_roster_for_test(), "the agent roster's owner settles");
     let listed = mux.list_agents(None, None);
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].surface, view, "list-agents and agent-changed name one surface");
