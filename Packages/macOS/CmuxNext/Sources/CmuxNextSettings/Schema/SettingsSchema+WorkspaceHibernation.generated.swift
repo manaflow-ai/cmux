@@ -13,9 +13,9 @@ extension WorkspaceHibernationSettings {
     public nonisolated static let hiddenSpaceMinutesPath = ["workspaces", "hibernation", "hiddenSpaceMinutes"]
     public nonisolated static let hiddenSpaceMinutesDefault: Double = 15
     public nonisolated static let hiddenSpaceMinutesRange: ClosedRange<Double> = 5...1440
-    /// `workspaces.freeing.enabled`: Off by default at first (plans/cmux-next/sidebar-recents-and-freeing-DESIGN.md): it ends shell processes, user-visible high-tier behavior. On: a hibernated workspace idle freeingIdleMinutes parks each terminal that sits at an empty prompt (park-tabs); showing it starts a new shell in the same folder under the saved screen.
+    /// `workspaces.freeing.enabled`: On by default (Leo, ask-211eed2c58: freeing idle shells in workspaces hidden for a day should be on). A hibernated workspace idle freeingIdleMinutes parks each terminal that sits at an empty prompt (park-tabs); showing it starts a new shell in the same folder under the saved screen. An explicit false keeps idle shells running.
     public nonisolated static let freeingEnabledPath = ["workspaces", "freeing", "enabled"]
-    public nonisolated static let freeingEnabledDefault = false
+    public nonisolated static let freeingEnabledDefault = true
     /// `workspaces.freeing.idleMinutes`: Minutes since the workspace was last shown, printed output, or its agent spoke. 1440: a day away.
     public nonisolated static let freeingIdleMinutesPath = ["workspaces", "freeing", "idleMinutes"]
     public nonisolated static let freeingIdleMinutesDefault: Double = 1440

@@ -1752,12 +1752,51 @@ class HotApplyFFI(unittest.TestCase):
         finally:
             self.ffi._run, self.ffi.answering_pid, self.ffi.app_pid, self.ffi.STAY_SECONDS = saved
         self.assertEqual((step["pid"], step["opened_via"]), (4242, "launchd"))
-        self.assertEqual([c[:2] for c in calls], [("open", str(self.app)), ("launchctl", "bootstrap"),
+        self.assertEqual([c[:2] for c in calls], [("open", "-g"), ("launchctl", "bootstrap"),
                                                   ("launchctl", "bootout")])
+        self.assertEqual(calls[0][2:], (str(self.app), "--args", "--cmux-update-reopened-behind"))
         plist = Path(calls[1][3])
         self.assertFalse(plist.parent.exists(), "the one-shot agent's plist is removed")
         self.assertEqual(calls[2][2], f"gui/{os.getuid()}/{plist.stem}")
 
+
+    def test_a_relaunch_stays_behind_unless_the_app_was_in_front(self):
+        # Leo, 2026-10-31: "WHY THE F*** DOES THE DEV BUILD KEEP STEALING F*** FOCUS". A swap nobody watched
+        # reopens the app behind the app the person types in; a person who was in the app gets it back in front.
+        calls = []
+
+        def run(*args, check=True):
+            calls.append(args)
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        saved = self.ffi._run, self.ffi.answering_pid, self.ffi.app_pid, self.ffi.STAY_SECONDS
+        try:
+            self.ffi._run = run
+            self.ffi.answering_pid = lambda app: 4242
+            self.ffi.app_pid = lambda app: 4242
+            self.ffi.STAY_SECONDS = 0
+            self.ffi.launch(self.app, 4141)
+            self.ffi.launch(self.app, 4141, front=True)
+        finally:
+            self.ffi._run, self.ffi.answering_pid, self.ffi.app_pid, self.ffi.STAY_SECONDS = saved
+        self.assertEqual(calls, [("open", "-g", str(self.app), "--args", "--cmux-update-reopened-behind"),
+                                 ("open", str(self.app))])
+
+    def test_frontmost_reads_lsappinfo_and_says_no_when_it_cannot(self):
+        def fake(answers):
+            def run(argv, **_):
+                return subprocess.CompletedProcess(argv, 0, answers[argv[1]], "")
+            return run
+
+        front = {"front": "ASN:0x0-0x1a01a:\n", "info": '"pid"=4242\n'}
+        with mock.patch.object(self.ffi.subprocess, "run", side_effect=fake(front)):
+            self.assertTrue(self.ffi.is_frontmost(4242))
+            self.assertFalse(self.ffi.is_frontmost(7))
+        with mock.patch.object(self.ffi.subprocess, "run", side_effect=fake({"front": "", "info": ""})):
+            self.assertFalse(self.ffi.is_frontmost(4242))
+        with mock.patch.object(self.ffi.subprocess, "run", side_effect=FileNotFoundError("lsappinfo")):
+            self.assertFalse(self.ffi.is_frontmost(4242))
+        self.assertFalse(self.ffi.is_frontmost(None))
 
 REPIN = "01936a9c77c22a3735bee357aa417eb7f0bf110e"  # app-ffi-repin: app-ffi-pin.json and Package.swift's checksum line
 REPIN_FROM = "e238ea5486824ff4fc766954d4bc91d37b90af0c"  # the release its parent pins
