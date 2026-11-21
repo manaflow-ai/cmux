@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2fc186d7961113412cfc6906e8855fc2532403bc1bc55e2b1448d569f9fe5226. */
+/* cmux-tui mux protocol 12, IR ab0ad41761f7f1456db4324d2458aad4004d24ac55d32231933daa704506d6fa. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "2fc186d7961113412cfc6906e8855fc2532403bc1bc55e2b1448d569f9fe5226" as const;
+export const SDK_IR_SHA256 = "ab0ad41761f7f1456db4324d2458aad4004d24ac55d32231933daa704506d6fa" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1769,6 +1769,10 @@ export const COMMAND_METADATA = {
     "since": 5,
     "capability": null,
     "fields": {
+      "after": {
+        "since": 12,
+        "capability": "list-workspaces-page-v1"
+      },
       "known": {
         "since": 12,
         "capability": "list-workspaces-known-v1"
@@ -15861,6 +15865,19 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "next": {
+        "capability": "list-workspaces-page-v1",
+        "constraints": [
+          "With limit: the after of the next page, on every page that is not the last."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
       "pane_revision": {
         "nullable": false,
         "presence": "optional",
@@ -23406,6 +23423,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "request": {
       "additional_properties": false,
       "fields": {
+        "after": {
+          "capability": "list-workspaces-page-v1",
+          "constraints": [
+            "With limit: skip this many workspaces in sidebar order first (the next of the page before). Ignored without limit."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
         "known": {
           "capability": "list-workspaces-known-v1",
           "constraints": [
@@ -23423,7 +23454,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         "limit": {
           "capability": "list-workspaces-limit-v1",
           "constraints": [
-            "Only the first limit workspaces in sidebar order, with total. A reply with fewer than total workspaces has no tree_revision."
+            "Only the first limit workspaces in sidebar order, with total, and at most 64 KiB of rows (at least one row). A reply with fewer than total workspaces has no tree_revision."
           ],
           "default": null,
           "nullable": true,
