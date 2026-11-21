@@ -158,10 +158,10 @@
 }
 /* Hairline: the gap is only a sliver of page between the two rims, as if the hat sits on the card. */
 :root:root:root .acpmux-composer.acpmux-composer[data-shell-look="stacked-glass-hairline"] {
-  --climb-stack-gap: 2px;
+  --climb-stack-gap: var(--grid-half-step, 2px);
 }
 :root:root:root .acpmux-dock.acpmux-dock > .acpmux-running-tray.acpmux-running-tray[data-card]:has(+ .acpmux-composer[data-shell-look="stacked-glass-hairline"]) {
-  margin-bottom: 2px;
+  margin-bottom: var(--grid-half-step, 2px);
 }
 /* Round: both glasses take a 24 px corner (the card ships at 18 px and its hat at its strip corner). */
 :root:root:root .acpmux-composer.acpmux-composer[data-shell-look="stacked-glass-round"] {
