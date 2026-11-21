@@ -12,8 +12,8 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "home.show",
         group: GROUP,
-        title: t("ActionCatalog", "action.home.show", "Go to Home"),
-        keywords: &["home", "mux", "messages", "conversations", "orchestrator"],
+        title: t("ActionCatalog", "action.home.show", "Go to Chief"),
+        keywords: &["home", "chief", "mux", "messages", "conversations", "orchestrator"],
         category: "window",
         symbol: "house",
         surfaces: PALETTE | KEYBOARD | MENU,
@@ -52,7 +52,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "home.tab",
         group: GROUP,
-        title: t("HomeActions", "action.home.tab", "Open Home in Tab"),
+        title: t("HomeActions", "action.home.tab", "Open Chief in Tab"),
         keywords: &["home", "tab", "split", "pane", "messages", "conversations", "side by side"],
         category: "window",
         symbol: "house",
