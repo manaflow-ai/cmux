@@ -2048,6 +2048,7 @@ Payload:
 object{
   event:"agent-changed",
   surface:Id,
+  terminal_id?:string,
   state:"working"|"blocked"|"idle"|"done"|"unknown",
   source:"plugin"|"detected"|"socket"|"hook",
   session:string|null,
@@ -2060,7 +2061,8 @@ object{
 ```
 
 `last_prompt` is the agent's last prompt (at most 200 characters, memory only; see
-`list-agents`). `agent_session_id` is the harness's own session id its hooks reported
+`list-agents`). `surface` and `terminal_id` are those of `list-agents`: the terminal's first
+tab placement and its public id. `agent_session_id` is the harness's own session id its hooks reported
 (see `list-agents`).
 
 Meaning: The current agent state for a surface changed. `agent` is the

@@ -470,6 +470,7 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
         }),
         MuxEvent::AgentChanged {
             surface,
+            terminal_id,
             state,
             source,
             session,
@@ -481,6 +482,7 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
         } => json!({
             "event": "agent-changed",
             "surface": surface,
+            "terminal_id": terminal_id.as_deref(),
             "state": state.as_ref(),
             "source": source.as_ref(),
             "session": session.as_deref(),
