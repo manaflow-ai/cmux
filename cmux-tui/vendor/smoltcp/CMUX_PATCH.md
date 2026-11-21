@@ -62,6 +62,38 @@ on, and builds smoltcp with a 32-range assembler
 (`assembler-max-segment-count-32`): with the default 4, a receiver dropped every
 out-of-order segment past its fourth hole.
 
+CUBIC tells random loss from congestion. Before a fast retransmit or a SACK
+episode cuts, the socket asks `Controller::loss_is_congestion`. Out of slow
+start, CUBIC answers no when two things hold. No queue: neither the smoothed
+RTT nor the newest sample is past min RTT / β (one segment is timed per round
+trip and srtt moves 1/8 a sample, so a queue slow start built shows in the
+newest sample about eight round trips before srtt). Sparse: segments delivered
+per segment lost are at least 50, the 2% loss BBRv2 tolerates: the average loss
+interval (RFC 5348's loss event rate, smoothed 3/4 old, 1/4 new) over the
+average segments a SACK episode lost (`Controller::on_recovery_end`, the most
+bytes the episode had lost at once). Random loss takes about one segment an
+event; a shallow buffer, whose queue is too short to show in the RTT, drops a
+run of them, and the next losses cut. A loss in slow start always ends it
+(left doubling, slow start overshoots any buffer), and an RTO resets the loss
+history, so the losses after it cut until they are sparse again. A random loss
+is resent and cuts nothing. RTOs still cut. Every cut, an RTO's included, has
+a floor (Westwood+, Mascolo et al. 2001; Linux `tcp_westwood`): ssthresh is
+`max(β × flight, rate × min RTT)`, capped at the window, where `rate` is the
+delivery rate (bytes ACKed per smoothed round trip, smoothed 7/8 old, 1/8
+new). On a full bottleneck the RTT has grown past its minimum, so the floor is
+under the flight and the usual β cut drains the queue.
+
+Without it, a 60 fps screen stream at 50 ms and 2% loss, or 150 ms and 1%, was
+cut every two or three round trips to below its own rate and ran seconds
+behind. The before/after numbers, and the bottleneck rows that keep it honest
+(a 20 Mbit/s, 50 ms bottleneck with a one-RTT and a quarter-RTT queue), are in
+the PR that added it (cmux#45105). `path_changed()` forgets the minimum RTT, so
+the old route's round trip is no floor for the new one. The detectors are
+`random_loss_keeps_the_delivered_window`, `queue_loss_still_cuts`,
+`slow_start_overshoot_cuts_before_srtt_catches_up`,
+`slow_start_loss_is_congestion`, `rto_resets_the_loss_history`,
+`burst_losses_are_congestion` and `sparse_random_loss_is_not_congestion`.
+
 `Socket::path_changed()` is for a tunnel whose route under the connection
 changed (cmux-wg calls it when its multipath underlay leaves the path that
 carried the session, or the peer roams). With data unacknowledged, the socket

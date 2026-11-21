@@ -37,6 +37,17 @@ pub(super) trait Controller {
         self.on_loss(now, in_flight)
     }
 
+    /// cmux patch: called once per loss event (a fast retransmit or a SACK
+    /// recovery episode) before its cut. `false` says the loss was the
+    /// link's, not a queue's: the data is resent and the window is not cut.
+    fn loss_is_congestion(&mut self, now: Instant, in_flight: usize) -> bool {
+        true
+    }
+
+    /// cmux patch: called when a SACK recovery episode ends, with the most
+    /// bytes it had lost at once.
+    fn on_recovery_end(&mut self, lost: usize) {}
+
     fn pre_transmit(&mut self, now: Instant) {}
 
     fn post_transmit(&mut self, now: Instant, len: usize) {}
