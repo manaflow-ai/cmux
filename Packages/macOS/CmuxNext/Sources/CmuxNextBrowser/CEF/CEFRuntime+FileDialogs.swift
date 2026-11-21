@@ -20,7 +20,7 @@ extension CEFRuntime {
         let wasOn = choosersGoToApp
         if armed { agentFileOffers.insert(ObjectIdentifier(tab)) } else { agentFileOffers.remove(ObjectIdentifier(tab)) }
         let isOn = choosersGoToApp
-        if isOn != wasOn { shim?.setFileDialogs(isOn ? 1 : 0) }
+        if isOn != wasOn { shim?.setFileDialogs(isOn ? 1 : 0); fileDialogTrace.routedToApp = isOn }
     }
 
     /// Every chooser goes to the app: while an agent's offer stands, and always with in-tree pages (fork API 36),
@@ -38,16 +38,20 @@ extension CEFRuntime {
     /// Answers chooser `dialogID` (shim `mode`) from `tab`: its agent offer, else the person's panel.
     func answerFileDialog(_ dialogID: Int32, mode raw: Int32, defaultPath: String, tab: CEFTab?) {
         let mode = FileDialogMode(rawValue: raw) ?? .open
+        fileDialogTrace.received += 1
         if let tab, let offered = tab.agentFiles.answer(multiple: mode == .openMultiple, folder: mode == .folder, save: mode == .save) {
+            fileDialogTrace.last = "agent_offer"
             return answerFileDialog(dialogID, multiple: mode == .openMultiple, offered)
         }
         let window = tab?.contentView.window
-        if mode == .save { return askWhereToSave(dialogID, defaultPath: defaultPath, window: window) }
-        guard let fileInput else { return answerFileDialog(dialogID, multiple: false, []) }
+        if mode == .save { fileDialogTrace.last = "save_panel"; return askWhereToSave(dialogID, defaultPath: defaultPath, window: window) }
+        guard let fileInput else { fileDialogTrace.last = "no_file_input"; return answerFileDialog(dialogID, multiple: false, []) }
+        fileDialogTrace.last = window == nil ? "open_panel_no_window" : "open_panel_sheet"
         fileInput.answerFileInput(allowsMultipleSelection: mode == .openMultiple, allowsDirectories: mode == .folder,
                                   window: window) { [weak self, weak tab] urls in
             // The person's pick, before the page gets it (a page that records it, `pageFilesChosen`).
             if let urls, !urls.isEmpty { tab?.pageFilesChosen?(urls) }
+            self?.fileDialogTrace.answered = urls.map { "\($0.count) file(s)" } ?? "cancel"
             self?.answerFileDialog(dialogID, multiple: mode == .openMultiple, urls ?? [])
         }
     }
@@ -72,5 +76,19 @@ extension CEFRuntime {
             self?.answerFileDialog(dialogID, multiple: false, chosen.map { [$0] } ?? [])
         }
         if let window { panel.beginSheetModal(for: window, completionHandler: finish) } else { panel.begin(completionHandler: finish) }
+    }
+}
+
+/// Page file choosers that reached the app (`debug.cef` `file_dialogs`): whether choosers are routed to the app, how
+/// many arrived, the path the last took and how it was answered. Diagnostics only.
+struct CEFFileDialogTrace {
+    var routedToApp = false
+    var received = 0
+    var last: String?
+    var answered: String?
+
+    var reportFields: [String: String] {
+        ["routed_to_app": routedToApp ? "yes" : "no", "received": String(received), "last": last ?? "none",
+         "answered": answered ?? "none"]
     }
 }

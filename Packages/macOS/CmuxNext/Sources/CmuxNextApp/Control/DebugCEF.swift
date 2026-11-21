@@ -53,6 +53,7 @@ enum DebugCEF {
         object["tracker"] = .object(services.cache.cef.trackerStats.reportFields.mapValues { .number($0) })
         // In-tree pages: "off", "pending" (engine not ready), "on", or "unsupported_fork: <why>".
         object["in_tree"] = .string(InTreePages.shared.status)
+        object["file_dialogs"] = .object(services.cache.cef.fileDialogReport.mapValues { .string($0) })
         object["windows"] = windows(services.cache.cef.windowReport)
         if let duration = report.loadDuration { object["load_ms"] = .number(milliseconds(duration)) }
         if let duration = report.initializeDuration { object["initialize_ms"] = .number(milliseconds(duration)) }
