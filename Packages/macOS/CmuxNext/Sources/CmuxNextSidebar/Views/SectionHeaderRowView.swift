@@ -238,7 +238,7 @@ final class SectionHeaderRowView: SidebarRowView {
             setAccessibilityHelp(nil)
         }
         if section.machine == nil || row.titlesProjects { setAccessibilityLabel(title) }
-        glyph.image = NSImage.icon(symbol, size: .iconRowSize(forLabelPointSize: SidebarStyle.headerFont.pointSize))
+        glyph.image = NSImage.icon(symbol, size: .iconRowSize(forLabelPointSize: SidebarStyle.headerFont.pointSize), style: symbol == .statePinned ? .solid : .line)
         machineIcon.configure(icon: ownIcon)
         name.setString(title)
         name.setFont(SidebarStyle.headerFont)

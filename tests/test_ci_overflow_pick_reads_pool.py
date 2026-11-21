@@ -109,7 +109,6 @@ PICKS: dict[str, int] = {
     "cmux-tui.yml": 6,
     "cmux-vm-clients.yml": 2,
     "cmux-vm-cloud.yml": 1,
-    "cmux-vm-upstream-refresh.yml": 1,
     "cmux-vm.yml": 8,
     "coderouter-ci.yml": 1,
     "coderouter-release.yml": 3,
