@@ -306,6 +306,7 @@ import urllib.parse
 import urllib.request
 import zipfile
 import zlib
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import github_spend  # noqa: E402 - per-token request counts, reported when the step exits
@@ -2212,6 +2213,19 @@ def newest_snapshot_artifact(artifacts: Sequence[Any], *, now: dt.datetime,
     return newest
 
 
+def kept_snapshot_path(branch: str) -> Path | None:
+    """Where this job keeps the snapshot it read (RUNNER_TEMP, which the runner empties for each job), or None.
+
+    While the runner census is stale, every placement step reads the janitor's artifact (a list and a download,
+    two calls from the job's GITHUB_TOKEN, the REST hour the promote gates share), and cmux-tui-artifacts.yml's
+    tree-preflight runs four such steps. A later step of the same job reuses the first read while
+    snapshot_problem() still accepts it (tests/test_ci_pool_snapshot_job_cache.py)."""
+    temp = os.environ.get("RUNNER_TEMP", "").strip()
+    if not temp:
+        return None
+    return Path(temp) / f"cmux-pool-snapshot-{re.sub(r'[^A-Za-z0-9._-]', '_', branch)}.json"
+
+
 @dataclasses.dataclass
 class RetryBudget:
     """Retries left to the clients that share it: one for a whole step, not one per client or read."""
@@ -2438,12 +2452,29 @@ class GitHub:
             if embedded is not None:
                 print("Pool snapshot: trusted repository document (no artifact API requests)", file=sys.stderr)
                 return embedded
+        kept = kept_snapshot_path(branch)
+        if kept is not None:
+            try:
+                held = json.loads(kept.read_text())
+            except (OSError, ValueError):
+                held = None
+            if held is not None and not snapshot_problem(held, now):
+                print("Pool snapshot: read earlier in this job (no artifact API requests)", file=sys.stderr)
+                return held
         artifacts = self.get(f"/actions/artifacts?name={ARTIFACT_NAME}&per_page={PAGE_SIZE}").get("artifacts") or []
         newest = newest_snapshot_artifact(artifacts, now=now, branch=branch)
         if newest is None:
             return None
         archive = zipfile.ZipFile(io.BytesIO(self.download(newest)))
-        return json.loads(archive.read(SNAPSHOT_FILE))
+        loaded = json.loads(archive.read(SNAPSHOT_FILE))
+        if kept is not None and isinstance(loaded, Mapping):
+            try:
+                partial = kept.with_name(f".{kept.name}.{os.getpid()}")
+                partial.write_text(json.dumps(loaded))
+                os.replace(partial, kept)
+            except OSError:
+                pass  # only a saving: the next step reads the API again
+        return loaded
 
     def download(self, artifact: Mapping[str, Any]) -> bytes:
         """One artifact's zip archive (one API request)."""
