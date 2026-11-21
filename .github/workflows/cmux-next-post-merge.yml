@@ -185,7 +185,7 @@ jobs:
     needs: judge
     if: ${{ !cancelled() && needs.judge.outputs.culprit != '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
-    timeout-minutes: 10
+    timeout-minutes: 20
     # The routing App's key lives in ci-routing-agent, which serves the base; a drill branch opens
     # its revert with GITHUB_TOKEN instead (that pull request starts no CI, which a drill needs not).
     environment: ${{ github.ref_name == 'feat-cmux-next' && 'ci-routing-agent' || '' }}
@@ -199,6 +199,21 @@ jobs:
           ref: ${{ github.ref_name }}
           fetch-depth: 0
           filter: blob:none
+      # Reads on the route App's own budget, not the GITHUB_TOKEN every workflow in the repository shares
+      # (cmux-next-quality-report.yml does the same); the script falls back to GITHUB_TOKEN when it is spent.
+      - name: Mint the read token
+        id: read-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-actions: read
+          permission-contents: read
       # A pull request GITHUB_TOKEN opens starts no CI, so on the base the revert opens with the
       # routing App's token, as cmux-next.yml's release-compile-revert does.
       - name: Mint the revert PR token
@@ -216,6 +231,7 @@ jobs:
       - name: Open the revert pull request
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          GH_READ_TOKEN: ${{ steps.read-token.outputs.token }}
           CULPRIT: ${{ needs.judge.outputs.culprit }}
           RED_JOB: ${{ needs.judge.outputs.job }}
           GOOD: ${{ needs.judge.outputs.good }}

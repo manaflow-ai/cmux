@@ -600,7 +600,7 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     # Within each job's timeout-minutes (judge 15, plan 10); the tick's shim is short and skips on a refusal.
-    budgets = {"judge": 600.0, "plan": 420.0, "revert": 300.0}
+    budgets = {"judge": 600.0, "plan": 420.0, "revert": 900.0}
     API_WAIT_BUDGET["seconds"] = args.api_wait_seconds if args.api_wait_seconds is not None else budgets.get(args.cmd, 120.0)
     return args.func(args)
 
