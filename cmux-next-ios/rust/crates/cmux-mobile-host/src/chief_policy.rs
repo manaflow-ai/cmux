@@ -74,7 +74,9 @@ pub const ALLOWED_COMMANDS: &[(&str, &[&str])] = &[
     // `offset`/`limit` and `ids` window it here, after the narrowing
     // (``InboxWindow``); the owner never sees them.
     ("home-inbox", &["owners", "offset", "limit", "ids"]),
-    ("conversation-inbox-op", &["conversation", "op"]),
+    // `op_id`: a resend after a lost reply runs once at an owner with
+    // `conversation-inbox-op-once-v1`; an older owner ignores it.
+    ("conversation-inbox-op", &["conversation", "op", "op_id"]),
 ];
 
 /// `conversation-inbox-op` kinds a phone may send, with their exact fields
@@ -123,7 +125,8 @@ const ALLOWED_RESOURCE_OPERATIONS: &[(&str, &[&str])] = &[
 const RESOURCE_FIELDS: &[&str] = &["protocol", "type", "id", "operation", "params", "idempotency_key"];
 
 /// Events a phone receives, for conversations in scope only.
-const FORWARDED_EVENTS: &[&str] = &["conversation-changed", "conversation-typing", "conversation-inbox-changed"];
+const FORWARDED_EVENTS: &[&str] =
+    &["conversation-changed", "conversation-typing", "conversation-inbox-changed"];
 
 /// Requests a phone may have waiting for a reply at once.
 pub const MAXIMUM_IN_FLIGHT: usize = 256;
@@ -325,6 +328,12 @@ impl ChiefPolicy {
             if let Err(why) = check_inbox_op(object.get("op")) {
                 return refuse(format!("{command}: {why}"));
             }
+            if object
+                .get("op_id")
+                .is_some_and(|id| !id.as_str().is_some_and(|id| !id.is_empty() && id.len() <= 128))
+            {
+                return refuse(format!("{command}: op_id is not a short string"));
+            }
         }
         let pending = match command {
             "conversation-list" => Some(Pending::List),
@@ -421,7 +430,9 @@ impl ChiefPolicy {
                         kept.into_iter()
                             .enumerate()
                             .filter(|(_, row)| {
-                                row.get("id").and_then(Value::as_str).is_some_and(|id| ids.iter().any(|asked| asked == id))
+                                row.get("id")
+                                    .and_then(Value::as_str)
+                                    .is_some_and(|id| ids.iter().any(|asked| asked == id))
                             })
                             .map(|(index, mut row)| {
                                 if let Value::Object(fields) = &mut row {
@@ -451,7 +462,9 @@ impl ChiefPolicy {
         }
         let Some(conversation) = object.get("conversation").and_then(Value::as_str) else { return false };
         // The person's own list state, never an agent's.
-        if event == "conversation-inbox-changed" && object.get("participant").and_then(Value::as_str) != Some(OWNER) {
+        if event == "conversation-inbox-changed"
+            && object.get("participant").and_then(Value::as_str) != Some(OWNER)
+        {
             return false;
         }
         let change = object.get("change");
@@ -573,7 +586,9 @@ fn check_home_inbox(object: &Map<String, Value>) -> Result<Option<InboxWindow>, 
     let number = |key: &str| -> Result<Option<u64>, String> {
         match object.get(key) {
             None => Ok(None),
-            Some(value) => value.as_u64().map(Some).ok_or_else(|| format!("{key} is not an unsigned integer")),
+            Some(value) => {
+                value.as_u64().map(Some).ok_or_else(|| format!("{key} is not an unsigned integer"))
+            }
         }
     };
     let offset = number("offset")?;
@@ -582,7 +597,8 @@ fn check_home_inbox(object: &Map<String, Value>) -> Result<Option<InboxWindow>, 
         if offset.is_some() || limit.is_some() {
             return Err("ids takes no offset or limit".into());
         }
-        let Some(ids) = ids.as_array().filter(|ids| !ids.is_empty() && ids.len() <= HOME_INBOX_IDS_MAX) else {
+        let Some(ids) = ids.as_array().filter(|ids| !ids.is_empty() && ids.len() <= HOME_INBOX_IDS_MAX)
+        else {
             return Err(format!("ids must be 1-{HOME_INBOX_IDS_MAX} conversation ids"));
         };
         let ids = ids
@@ -623,7 +639,9 @@ fn check_inbox_op(value: Option<&Value>) -> Result<(), String> {
     if op.get("position").is_some_and(|v| !v.is_u64()) {
         return Err("position is not an unsigned integer".into());
     }
-    if kind == "inbox.pin" && !op.contains_key("pinned") || kind == "inbox.mark_unread" && !op.contains_key("unread") {
+    if kind == "inbox.pin" && !op.contains_key("pinned")
+        || kind == "inbox.mark_unread" && !op.contains_key("unread")
+    {
         return Err(format!("op {kind} is missing its value"));
     }
     Ok(())
@@ -994,8 +1012,10 @@ mod tests {
             }
         };
         let reply = |id: &str| {
-            let reply = serde_json::json!({"id": id, "ok": true, "data": {"me": "user_local", "rows": rows()}});
-            serde_json::from_slice::<Value>(&policy.filter_reply(reply.to_string().as_bytes()).unwrap()).unwrap()
+            let reply =
+                serde_json::json!({"id": id, "ok": true, "data": {"me": "user_local", "rows": rows()}});
+            serde_json::from_slice::<Value>(&policy.filter_reply(reply.to_string().as_bytes()).unwrap())
+                .unwrap()
         };
         let ids = |data: &Value| -> Vec<String> {
             data["rows"].as_array().unwrap().iter().map(|r| r["id"].as_str().unwrap().to_owned()).collect()
@@ -1097,8 +1117,18 @@ mod tests {
             serde_json::json!({"kind": "inbox.mark_unread", "unread": true}),
         ] {
             assert_eq!(
-                policy.evaluate(&line(serde_json::json!({"cmd": "conversation-inbox-op", "id": format!("p{op}"),
-                    "conversation": CHIEF, "op": op}))),
+                policy.evaluate(&line(
+                    serde_json::json!({"cmd": "conversation-inbox-op", "id": format!("o{op}"),
+                    "conversation": CHIEF, "op": op, "op_id": "phone-op-1"})
+                )),
+                Verdict::Forward,
+                "{op} with op_id"
+            );
+            assert_eq!(
+                policy.evaluate(&line(
+                    serde_json::json!({"cmd": "conversation-inbox-op", "id": format!("p{op}"),
+                    "conversation": CHIEF, "op": op})
+                )),
                 Verdict::Forward,
                 "{op}"
             );
@@ -1118,6 +1148,11 @@ mod tests {
             serde_json::json!({"cmd": "conversation-inbox-op", "id": "x6", "conversation": CHIEF, "op": "inbox.pin"}),
             serde_json::json!({"cmd": "conversation-inbox-op", "id": "x7", "conversation": CHIEF,
                 "op": {"kind": "inbox.pin", "pinned": true}, "actor": "agent_mux"}),
+            // An op_id that is not a short string.
+            serde_json::json!({"cmd": "conversation-inbox-op", "id": "x8", "conversation": CHIEF,
+                "op": {"kind": "inbox.pin", "pinned": true}, "op_id": 7}),
+            serde_json::json!({"cmd": "conversation-inbox-op", "id": "x9", "conversation": CHIEF,
+                "op": {"kind": "inbox.pin", "pinned": true}, "op_id": ""}),
         ] {
             refused(&policy, value);
         }
@@ -1135,7 +1170,10 @@ mod tests {
         assert!(policy.filter_reply(&unnamed).is_none());
 
         // A row with no owner (an owner before Cloud rows) is local; it still needs the scope.
-        assert_eq!(policy.evaluate(br#"{"cmd":"home-inbox","id":"h6","owners":["local"]}"#), Verdict::Forward);
+        assert_eq!(
+            policy.evaluate(br#"{"cmd":"home-inbox","id":"h6","owners":["local"]}"#),
+            Verdict::Forward
+        );
         let reply = serde_json::json!({"id": "h6", "ok": true, "data": {"me": "user_local", "rows": [
             {"id": CHIEF, "kind": "chief", "name": "Chief", "unread": 0, "activity_at": "x", "pinned": false, "marked_unread": false},
             {"id": REMOTE, "kind": "direct", "name": "P", "unread": 0, "activity_at": "x", "pinned": false, "marked_unread": false},
@@ -1146,11 +1184,15 @@ mod tests {
 
         // A new owner-and-agents conversation the owner announces joins the rows too.
         let new = "conv_01JNEWHOME0000000000000000";
-        let announce = line(serde_json::json!({"event": "conversation-changed", "conversation": new, "rev": 1,
+        let announce =
+            line(serde_json::json!({"event": "conversation-changed", "conversation": new, "rev": 1,
             "change": {"kind": "conversation", "conversation": {"id": new, "participants": [
                 {"id": "user_local", "kind": "human"}, {"id": "agent_mux", "kind": "agent"}]}}}));
         assert!(policy.filter_reply(&announce).is_some());
-        assert_eq!(policy.evaluate(br#"{"cmd":"home-inbox","id":"h7","owners":["local"]}"#), Verdict::Forward);
+        assert_eq!(
+            policy.evaluate(br#"{"cmd":"home-inbox","id":"h7","owners":["local"]}"#),
+            Verdict::Forward
+        );
         let reply = serde_json::json!({"id": "h7", "ok": true, "data": {"me": "user_local", "rows": [
             {"id": new, "owner": "local", "kind": "chief", "name": "Chief 2", "unread": 1, "activity_at": "x",
              "pinned": false, "marked_unread": false}]}});

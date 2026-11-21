@@ -180,6 +180,7 @@ export interface ApproverDecision {
 export interface ArchiveParams {
   _meta?: RequestMeta;
   archived?: unknown;
+  opId?: unknown;
   sessionId?: unknown;
 }
 

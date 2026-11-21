@@ -24363,6 +24363,14 @@
       },
       "presence": "required",
       "nullable": true
+     },
+     "op_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true
      }
     },
     "additional_properties": false

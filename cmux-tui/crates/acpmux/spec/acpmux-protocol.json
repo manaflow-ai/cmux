@@ -2681,6 +2681,7 @@
           "$ref": "#/types/RequestMeta"
         },
         "archived": true,
+        "opId": true,
         "sessionId": true
       },
       "type": "object"

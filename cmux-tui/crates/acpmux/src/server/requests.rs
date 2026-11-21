@@ -23,6 +23,9 @@ pub use session_open::FEATURE as SESSION_RESUME_FEATURE;
 #[cfg(test)]
 #[path = "requests/hold_attach_tests.rs"]
 mod hold_attach_tests;
+#[cfg(test)]
+#[path = "requests/op_once_tests.rs"]
+mod op_once_tests;
 mod settled_attach;
 #[cfg(test)]
 #[path = "requests/settled_attach_tests.rs"]
@@ -1162,6 +1165,35 @@ pub(super) async fn dispatch_request(
     resolved: Option<Arc<crate::hub::Session>>,
 ) -> Result<Value, RpcError> {
     heap(|| dispatch_request_with_identity(hub, conn, m, params, resolved, None)).await
+}
+
+/// `_acpmux/rename`: a chat's name, or its spoken handle (`newHandle`).
+async fn rename(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
+    let s = hub.resolve(session_key(params)?)?;
+    if let Some(handle) = params.get("newHandle") {
+        let handle = handle
+            .as_str()
+            .ok_or_else(|| RpcError::invalid_params("newHandle must be a string"))?;
+        if params.get("newName").is_some() || params.get("to").is_some() {
+            return Err(RpcError::invalid_params("rename a name or a handle in one request"));
+        }
+        hub.rename_spoken_handle(&s, handle)?;
+        return Ok(hub.session_summary(&s));
+    }
+    let name = str_param(params, "newName")
+        .or_else(|| str_param(params, "to"))
+        .ok_or_else(|| RpcError::invalid_params("newName is required"))?;
+    crate::session_name::validate(name).map_err(RpcError::invalid_params)?;
+    // A registered chat's name is its address: only `acpmux register` moves it, so no
+    // client renames it away for another session to take.
+    if crate::hub::register::is_registered(&s) && s.meta().name != name {
+        return Err(RpcError::invalid_params(
+            "a registered chat is renamed only by `acpmux register NAME` from its own session",
+        )
+        .with_data(json!({"reason": "rename.registered"})));
+    }
+    hub.rename(&s, name.to_owned()).await?;
+    Ok(hub.session_summary(&s))
 }
 
 /// A fixed identity is a typed internal argument, never a session/new field.
@@ -2963,20 +2995,27 @@ async fn dispatch_request_with_identity(
         method::MUX_DETACH_PARENT => super::lane_parent::detach(hub, &params),
         // One tag with one value, so a page relay can allow it without
         // reading tag names (`_acpmux/tag` may set any tag).
+        // An `opId` runs it once (`hub/op_once.rs`): a resend after a lost reply answers the
+        // first result, with no new archive time and no new `listSeq`.
         method::MUX_ARCHIVE => {
-            let s = hub.resolve(session_key(&params)?)?;
-            let archived = params
-                .get("archived")
-                .and_then(Value::as_bool)
-                .ok_or_else(|| RpcError::invalid_params("archived must be true or false"))?;
-            if archived {
-                let mut set = serde_json::Map::new();
-                set.insert(ARCHIVED_TAG.into(), Value::String(crate::store::now_ms().to_string()));
-                hub.set_tags_answered(&s, Some(&set), &[], None)?;
-            } else {
-                hub.set_tags_answered(&s, None, &[ARCHIVED_TAG.to_owned()], None)?;
-            }
-            Ok(hub.session_summary(&s))
+            hub.op_once
+                .run(m, &params, || async {
+                    let s = hub.resolve(session_key(&params)?)?;
+                    let archived =
+                        params.get("archived").and_then(Value::as_bool).ok_or_else(|| {
+                            RpcError::invalid_params("archived must be true or false")
+                        })?;
+                    if archived {
+                        let mut set = serde_json::Map::new();
+                        let now = crate::store::now_ms().to_string();
+                        set.insert(ARCHIVED_TAG.into(), Value::String(now));
+                        hub.set_tags_answered(&s, Some(&set), &[], None)?;
+                    } else {
+                        hub.set_tags_answered(&s, None, &[ARCHIVED_TAG.to_owned()], None)?;
+                    }
+                    Ok(hub.session_summary(&s))
+                })
+                .await
         }
         // A true archive: the chat's log goes into one compressed file (`hub/cold_archive.rs`).
         method::MUX_COLD_ARCHIVE => {
@@ -3459,35 +3498,8 @@ async fn dispatch_request_with_identity(
             let home = hub.harness_homes().claude;
             crate::claude_inbox_relay::poll(pid, home, &params, conn.ended.subscribe()).await
         }
-        method::MUX_RENAME => {
-            let s = hub.resolve(session_key(&params)?)?;
-            if let Some(handle) = params.get("newHandle") {
-                let handle = handle
-                    .as_str()
-                    .ok_or_else(|| RpcError::invalid_params("newHandle must be a string"))?;
-                if params.get("newName").is_some() || params.get("to").is_some() {
-                    return Err(RpcError::invalid_params(
-                        "rename a name or a handle in one request",
-                    ));
-                }
-                hub.rename_spoken_handle(&s, handle)?;
-                return Ok(hub.session_summary(&s));
-            }
-            let name = str_param(&params, "newName")
-                .or_else(|| str_param(&params, "to"))
-                .ok_or_else(|| RpcError::invalid_params("newName is required"))?;
-            crate::session_name::validate(name).map_err(RpcError::invalid_params)?;
-            // A registered chat's name is its address: only `acpmux register` moves it, so no
-            // client renames it away for another session to take.
-            if crate::hub::register::is_registered(&s) && s.meta().name != name {
-                return Err(RpcError::invalid_params(
-                    "a registered chat is renamed only by `acpmux register NAME` from its own session",
-                )
-                .with_data(json!({"reason": "rename.registered"})));
-            }
-            hub.rename(&s, name.to_owned()).await?;
-            Ok(hub.session_summary(&s))
-        }
+        // An `opId` runs it once, as `_acpmux/archive` (`hub/op_once.rs`).
+        method::MUX_RENAME => hub.op_once.run(m, &params, || rename(hub, &params)).await,
         method::MUX_KEEP => {
             let id = str_param(&params, "sessionId")
                 .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?;
