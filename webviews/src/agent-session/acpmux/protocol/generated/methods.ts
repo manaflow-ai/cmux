@@ -49,6 +49,7 @@ export interface AcpmuxRequests {
   "_acpmux/watch": { params: WatchParams; result: SessionsResult };
   "_acpmux/rename": { params: unknown; result: unknown };
   "_acpmux/register": { params: unknown; result: unknown };
+  "_acpmux/inbox_relay": { params: unknown; result: unknown };
   "_acpmux/offer_session": { params: unknown; result: unknown };
   "_acpmux/offer_respond": { params: OfferRespondParams; result: unknown };
   "_acpmux/subsession/answer": { params: unknown; result: unknown };
@@ -113,6 +114,8 @@ export interface AcpmuxRequests {
   "_acpmux/goal/set": { params: unknown; result: unknown };
   "_acpmux/goal/update": { params: unknown; result: unknown };
   "_acpmux/goal/get": { params: unknown; result: unknown };
+  "_acpmux/task_list/set": { params: unknown; result: unknown };
+  "_acpmux/task_list/get": { params: unknown; result: unknown };
   "_acpmux/plan/build": { params: unknown; result: unknown };
   "_acpmux/plan/compare": { params: unknown; result: unknown };
   "_acpmux/plan/keep": { params: unknown; result: unknown };
@@ -432,6 +435,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/watch", kind: "request", acp: false, typed: true },
   { name: "_acpmux/rename", kind: "request", acp: false, typed: false },
   { name: "_acpmux/register", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/inbox_relay", kind: "request", acp: false, typed: false },
   { name: "_acpmux/offer_session", kind: "request", acp: false, typed: false },
   { name: "_acpmux/offer_respond", kind: "request", acp: false, typed: true },
   { name: "_acpmux/subsession/answer", kind: "request", acp: false, typed: false },
@@ -496,6 +500,8 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/goal/set", kind: "request", acp: false, typed: false },
   { name: "_acpmux/goal/update", kind: "request", acp: false, typed: false },
   { name: "_acpmux/goal/get", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/task_list/set", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/task_list/get", kind: "request", acp: false, typed: false },
   { name: "_acpmux/plan/build", kind: "request", acp: false, typed: false },
   { name: "_acpmux/plan/compare", kind: "request", acp: false, typed: false },
   { name: "_acpmux/plan/keep", kind: "request", acp: false, typed: false },
