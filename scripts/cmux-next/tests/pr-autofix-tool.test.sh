@@ -56,7 +56,10 @@ case "\$*" in
   *"/runs?head_sha="*) echo "\${FAKE_RUN-42}" ;;
   *"/runs/42/artifacts"*) echo "\${FAKE_ARTIFACT-7}" ;;
   *"/artifacts/7/zip"*) cat "$tmp/\${FAKE_ZIP:-fmt}.zip" ;;
-  *--paginate*) echo "fake gh: --paginate is refused by the gh quota" >&2; exit 3 ;;
+  *"/contents/scripts/cmux-next/"*"?ref=feat-cmux-next"*)
+    name="\$*"; name="\${name#*contents/scripts/cmux-next/}"; name="\${name%%\?*}"
+    git -C "$tmp/work" show "feat-cmux-next:scripts/cmux-next/\$name" | base64 ;;
+  *--pag[i]nate*) echo "fake gh: the paginate flag is refused by the gh quota" >&2; exit 3 ;;
   *"/pulls/5/files?per_page=100&page=1"*) printf '%s\n' webviews/src/a.ts --file-- .github/workflows/x.yml --file-- ;;
   *"/pulls/5/files?"*) ;;
   *) echo "fake gh: unexpected \$*" >&2; exit 9 ;;
@@ -64,12 +67,22 @@ esac
 EOF
 chmod +x "$tmp/gh"
 export CMUX_PR_AUTOFIX_GH="$tmp/gh"
+# The local bare remote stands in for https://github.com/acme/widgets.
+export CMUX_PR_AUTOFIX_GITHUB="$tmp"
 TOOL_ARGS=(--repo acme/widgets)
 pr_autofix() { "$TOOL" apply 5 "${TOOL_ARGS[@]}" "$@"; }
 
 # origin pushes somewhere else (a fork): refused before anything is applied.
 if pr_autofix --repo other/widgets >"$tmp/out" 2>&1; then fail "an origin that is not the PR's repo must be refused"; fi
-grep -q "not other/widgets" "$tmp/out" || fail "the refusal must name the repository"
+grep -q "not $tmp/other/widgets" "$tmp/out" || fail "the refusal must name the repository"
+
+# An origin on another host whose path only ends in the repository (#38034 review): refused.
+for url in https://attacker.example/acme/widgets git@attacker.example:acme/widgets.git "$tmp/evil/acme/widgets.git"; do
+  git remote set-url --push origin "$url"
+  if pr_autofix >"$tmp/out" 2>&1; then git remote set-url --push origin "$tmp/acme/widgets.git"; fail "origin $url must be refused"; fi
+  grep -q "origin pushes to $url" "$tmp/out" || fail "the refusal must name $url"
+done
+git remote set-url --push origin "$tmp/acme/widgets.git"
 
 # An expired artifact is not "no repairs".
 if FAKE_ARTIFACT=expired pr_autofix >"$tmp/out" 2>&1; then fail "an expired artifact must fail"; fi

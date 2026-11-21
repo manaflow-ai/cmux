@@ -12,10 +12,13 @@
 # pushes it to the pull request's branch.
 #
 # Run it in a clean checkout of the pull request's head. The apply script and
-# the tables it reads come from the base branch (origin/<base>), never from
-# that checkout: a pull request could replace them and run its own code with
-# the lane's credentials, as the push job's base copy prevents in CI. Through
-# the lane-gh broker on a lane VM, gh and git push need no token here.
+# the tables it reads come from the base branch through the GitHub API (gh api
+# .../contents?ref=<base>), never from that checkout or from whatever origin
+# names: a pull request could replace them, and a remote that only looks like
+# the repository could serve its own, and either would run code with the
+# lane's credentials (the push job's base copy prevents the same in CI).
+# origin must push to exactly https://github.com/OWNER/REPO (or its ssh form).
+# Through the lane-gh broker on a lane VM, gh and git push need no token here.
 #
 # Usage: scripts/cmux-next/pr-autofix apply N [--repo OWNER/REPO] [--no-push]
 set -euo pipefail
@@ -34,6 +37,7 @@ while (( $# )); do
     *) usage ;;
   esac
 done
+[[ "$repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die "--repo must be OWNER/REPO, not $repo"
 GH="${CMUX_PR_AUTOFIX_GH:-gh}"
 top="$(git rev-parse --show-toplevel 2>/dev/null)" || die "run this inside a checkout of $repo"
 cd "$top"
@@ -47,8 +51,21 @@ base_ref="$("$GH" pr view "$pr" -R "$repo" --json baseRefName --jq .baseRefName)
   || die "HEAD is $(git rev-parse --short HEAD), not #$pr's head ${head_sha:0:12}: fetch and check out $head_ref first"
 # The push goes to origin: it must be the repository the pull request and artifact came from, or a
 # fork's origin would take the commit and the pull request would stay red.
+# Compared whole, host and path: a suffix match let https://attacker.example/OWNER/REPO through.
+# CMUX_PR_AUTOFIX_GITHUB is the host root, for the test's local remote only.
+github="${CMUX_PR_AUTOFIX_GITHUB:-https://github.com}"
 origin_url="$(git remote get-url --push origin 2>/dev/null)" || die "this checkout has no origin remote"
-[[ "$origin_url" =~ [/:]${repo//./\.}(\.git)?/?$ ]] || die "origin pushes to $origin_url, not $repo"
+canonical() { # a remote URL -> https://github.com/owner/repo form, lowercased, no .git or trailing /
+  local url="$1"
+  case "$url" in
+    git@github.com:*) url="https://github.com/${url#git@github.com:}" ;;
+    ssh://git@github.com/*) url="https://github.com/${url#ssh://git@github.com/}" ;;
+  esac
+  url="${url%/}"; url="${url%.git}"
+  printf '%s' "${url,,}"
+}
+[[ "$(canonical "$origin_url")" == "$(canonical "$github/$repo")" ]] \
+  || die "origin pushes to $origin_url, not $github/$repo"
 [[ -z "$(git status --porcelain --untracked-files=no)" ]] || die "the checkout has uncommitted changes; commit or set them aside first"
 
 run="$("$GH" api "repos/$repo/actions/workflows/cmux-next-pr-autofix.yml/runs?head_sha=$head_sha&per_page=20" \
@@ -66,13 +83,16 @@ fi
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/pr-autofix.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
-# The trusted apply script, from the base branch's tip (cmux-next-pr-autofix.yml's push job does the same).
-git fetch --quiet origin "refs/heads/$base_ref:refs/remotes/origin/$base_ref" \
-  || die "could not fetch $base_ref for its trusted apply script"
+# The trusted apply script, from the base branch's tip in $repo itself, read through the GitHub API
+# rather than fetched from a git remote (cmux-next-pr-autofix.yml's push job checks out the same).
+[[ "$base_ref" =~ ^[A-Za-z0-9._/-]+$ ]] || die "unexpected base branch name: $base_ref"
 mkdir "$tmp/trusted"
 for name in pr-autofix-apply.sh settings-exports.txt generated_outputs.py; do
-  git show "origin/$base_ref:scripts/cmux-next/$name" > "$tmp/trusted/$name" \
-    || die "origin/$base_ref has no scripts/cmux-next/$name"
+  "$GH" api "repos/$repo/contents/scripts/cmux-next/$name?ref=$base_ref" --jq .content > "$tmp/trusted/$name.b64" \
+    && python3 -I -c 'import base64, sys; sys.stdout.buffer.write(base64.b64decode(sys.stdin.read()))' \
+      < "$tmp/trusted/$name.b64" > "$tmp/trusted/$name" && [[ -s "$tmp/trusted/$name" ]] \
+    || die "could not read scripts/cmux-next/$name from $repo at $base_ref"
+  rm -f "$tmp/trusted/$name.b64"
 done
 chmod +x "$tmp/trusted/pr-autofix-apply.sh"
 "$GH" api "repos/$repo/actions/artifacts/$artifact/zip" > "$tmp/artifact.zip"
