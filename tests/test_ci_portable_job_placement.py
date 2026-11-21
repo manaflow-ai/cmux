@@ -702,9 +702,10 @@ class Wiring(unittest.TestCase):
                 with self.subTest(job=f"{workflow}#{name}"):
                     job = workflow_jobs[name]
                     self.assertIn(name, listed)
-                    # tooling-tests also needs hot-route: a hot-only pull request skips the mini leg
-                    # (tests/test_cmux_next_route.py HotAwareWorkflows).
-                    self.assertEqual([need for need in job["needs"] if need != "hot-route"], ["portable-placement"])
+                    # tooling-tests reads portable-placement's hot_only too: a hot-only pull request skips the mini
+                    # leg (tests/test_cmux_next_route.py HotAwareWorkflows).
+                    # cmux-next-guards.yml's jobs also wait for its window gate (base-coalesce.yml).
+                    self.assertEqual([n for n in job["needs"] if n != "coalesce"], ["portable-placement"])
                     self.assertTrue(str(job["if"]).startswith("${{ !cancelled()"))
                     for runs_on in routes(job, name):
                         linux = runs_on.index(f"contains(needs.portable-placement.outputs.linux_jobs, ' {name} ')")
@@ -720,7 +721,7 @@ class Wiring(unittest.TestCase):
         guards = jobs("cmux-next-guards.yml")
         self.assertIn("release-notary", guards["portable-placement"]["steps"][-1]["env"]["JOBS"].split())
         job = guards["release-notary"]
-        self.assertEqual(job["needs"], ["portable-placement"])
+        self.assertEqual(job["needs"], ["coalesce", "portable-placement"])
         self.assertTrue(str(job["if"]).startswith("${{ !cancelled()"))
         for runs_on in routes(job, "release-notary"):
             linux = runs_on.index("contains(needs.portable-placement.outputs.linux_jobs, ' release-notary ')")
@@ -1058,7 +1059,10 @@ class Wiring(unittest.TestCase):
     def test_placement_runs_the_trusted_base_copy(self):
         for workflow in (*self.PLACED, "cmux-next-fast-gates.yml"):
             with self.subTest(workflow=workflow):
-                checkout = jobs(workflow)["portable-placement"]["steps"][0]
+                # The first checkout (a pool job may first remove a reused workspace left sparse:
+                # tests/test_ci_reused_sparse_checkout.py).
+                checkout = next(step for step in jobs(workflow)["portable-placement"]["steps"]
+                                if str(step.get("uses", "")).startswith("actions/checkout@"))
                 self.assertEqual(checkout["with"]["ref"], "${{ github.event.pull_request.base.sha || github.sha }}")
 
 

@@ -121,6 +121,14 @@ import Testing
         "ends with a break\n",
         String(repeating: "a long paragraph that wraps across the composer field more than once ", count: 4),
         String(repeating: "שלום עולם זה טקסט ארוך ", count: 8),
+    ] + mixedTexts
+
+    /// Right-to-left text with left-to-right words and numbers in it, and the other way round.
+    static let mixedTexts: [String] = [
+        "שלום abc 123 עולם",
+        "המחיר 42 שקלים ועוד 7",
+        "עולם, hello 2026!",
+        "price 42 שקלים and 7 more",
     ]
 
     /// Right-to-left (Hebrew, Arabic), left-to-right (a letter of another script) or nil (a space, a
@@ -134,14 +142,20 @@ import Testing
         }
     }
 
+    /// The direction of the visual run a character belongs to: a strong letter's, and left to right for
+    /// a European digit (numbers lay out left to right inside right-to-left text).
+    private static func runDirection(_ c: unichar) -> Bool? {
+        (0x30...0x39).contains(c) ? false : strongDirection(c)
+    }
+
     /// Where a left-to-right run meets a right-to-left one, the caret has two right places (either
     /// run's edge) and TextKit 1 and 2 may pick differently: such an index is left out.
     private static func atDirectionChange(_ units: NSString, _ index: Int) -> Bool {
         var before: Bool?, after: Bool?
         var i = index - 1
-        while i >= 0, before == nil { before = strongDirection(units.character(at: i)); i -= 1 }
+        while i >= 0, before == nil { before = runDirection(units.character(at: i)); i -= 1 }
         i = index
-        while i < units.length, after == nil { after = strongDirection(units.character(at: i)); i += 1 }
+        while i < units.length, after == nil { after = runDirection(units.character(at: i)); i += 1 }
         return before != nil && after != nil && before != after
     }
 
@@ -205,6 +219,104 @@ import Testing
             if abs(start.mine.minX - edge) > 1 { mismatches.append("line at \(start.index) starts at \(start.mine.minX), not \(edge)") }
         }
         #expect(mismatches.isEmpty, "\(mismatches.count) carets off in \(text.prefix(30))…: \(mismatches.prefix(6).joined(separator: "; "))")
+    }
+
+    // MARK: Arrow keys and selection in mixed-direction text
+
+    /// The field and its TextKit 2 twin with TEXT, the caret at the start of each.
+    private func mixedPair(_ r: Rig, _ text: String) throws -> (FieldTextView, NSTextView) {
+        let field = r.field
+        r.window.makeFirstResponder(field)
+        field.insertText(text, replacementRange: field.selectedRange())
+        r.frame()
+        let width = try #require(field.textContainer?.size.width)
+        let twin = textKit2Twin(of: field, width: width)
+        twin.textStorage?.setAttributedString(try #require(field.textStorage))
+        field.setSelectedRange(NSRange(location: 0, length: 0))
+        twin.setSelectedRange(NSRange(location: 0, length: 0))
+        return (field, twin)
+    }
+
+    /// The caret the field draws for its selection (`textKit1CaretSegment`, by the selection's affinity).
+    private func drawnCaret(_ field: NSTextView) -> CGRect? {
+        field.textKit1CaretSegment(at: field.selectedRange().location, upstream: field.selectionAffinity == .upstream)
+    }
+
+    /// The right and left arrow keys walk the caret through Hebrew with English words and numbers in it
+    /// (and English with Hebrew in it) as they did in TextKit 2: the same character offset after each
+    /// key, the caret drawn moving the key's way on screen, never back, and each walk stopping at
+    /// every character boundary of the line.
+    @Test(arguments: mixedTexts) func theArrowKeysWalkMixedTextAsTextKit2Did(_ text: String) async throws {
+        let r = try await rig()
+        defer { r.close() }
+        let (field, twin) = try mixedPair(r, text)
+        let length = (text as NSString).length
+        var problems: [String] = []
+        var visited: [String: Set<Int>] = [:]
+        // From the start of the line (its right edge in a right-to-left paragraph): first the reading
+        // direction to the line's end, then back.
+        let walks: [(String, (NSTextView) -> Void)] = [("right", { $0.moveRight(nil) }), ("left", { $0.moveLeft(nil) })]
+        for (name, step) in Self.paragraphIsRightToLeft(text as NSString, at: 0) ? walks.reversed() : walks {
+            var lastX = try #require(drawnCaret(field)).minX
+            visited[name, default: []].insert(field.selectedRange().location)
+            for key in 0..<(length + 2) {
+                let before = field.selectedRange()
+                step(field)
+                step(twin)
+                let mine = field.selectedRange(), theirs = twin.selectedRange()
+                if mine != theirs { problems.append("\(name) \(key): offset \(mine.location) vs TextKit 2 \(theirs.location)") }
+                if mine == before { break }
+                visited[name, default: []].insert(mine.location)
+                let x = try #require(drawnCaret(field)).minX
+                if name == "right" ? x < lastX - 0.5 : x > lastX + 0.5 {
+                    problems.append("\(name) \(key): the caret drawn at \(x) went back from \(lastX) (offset \(mine.location))")
+                }
+                lastX = x
+            }
+        }
+        // Each walk stops at every character boundary of the line (no key skipped or stuck).
+        let boundaries = Set((0...length).filter { $0 == length || (text as NSString).rangeOfComposedCharacterSequence(at: $0).location == $0 })
+        #expect(visited["right"] == boundaries && visited["left"] == boundaries, "the arrows visited \(visited.mapValues { $0.count }) of \(boundaries.count) boundaries")
+        #expect(problems.isEmpty, "\(problems.count) in \(text): \(problems.prefix(6).joined(separator: "; "))")
+    }
+
+    /// Shift with the arrow keys selects across a change of direction as TextKit 2 did (the same
+    /// selected ranges after each key; where TextKit 2 could not reach the line's last character,
+    /// TextKit 1 selecting it is right), the whole line in the end, and VoiceOver reads the selected text.
+    @Test(arguments: mixedTexts) func shiftArrowsSelectAcrossADirectionChangeAsTextKit2Did(_ text: String) async throws {
+        let r = try await rig()
+        defer { r.close() }
+        let (field, twin) = try mixedPair(r, text)
+        let units = text as NSString
+        var problems: [String] = []
+        var selectedAll = false
+        var theirsBefore = twin.selectedRanges.map(\.rangeValue)
+        // Shift with the arrow of the paragraph's reading direction (Left in Hebrew), from its start.
+        let rightToLeft = Self.paragraphIsRightToLeft(units, at: 0)
+        for key in 0..<(units.length + 2) {
+            let before = field.selectedRanges.map(\.rangeValue)
+            if rightToLeft {
+                field.moveLeftAndModifySelection(nil)
+                twin.moveLeftAndModifySelection(nil)
+            } else {
+                field.moveRightAndModifySelection(nil)
+                twin.moveRightAndModifySelection(nil)
+            }
+            let mine = field.selectedRanges.map(\.rangeValue), theirs = twin.selectedRanges.map(\.rangeValue)
+            // TextKit 2 could not take the last character at the line's visual end (a number ending a
+            // Hebrew line: its key did nothing); TextKit 1 selects the whole line there.
+            let textKit2Stuck = theirs == theirsBefore && mine == [NSRange(location: 0, length: units.length)]
+            if mine != theirs, !textKit2Stuck { problems.append("key \(key): \(mine) vs TextKit 2 \(theirs)") }
+            theirsBefore = theirs
+            if mine == before { break }
+            selectedAll = mine.reduce(0) { $0 + $1.length } == units.length
+            let selected = mine.map { units.substring(with: $0) }.joined()
+            if let read = field.accessibilitySelectedText(), read != selected, mine.count == 1 {
+                problems.append("key \(key): VoiceOver reads \"\(read)\", selected \"\(selected)\"")
+            }
+        }
+        #expect(selectedAll, "Shift with the reading direction's arrow never selected the whole line")
+        #expect(problems.isEmpty, "\(problems.count) in \(text): \(problems.prefix(6).joined(separator: "; "))")
     }
 
     // MARK: Input methods

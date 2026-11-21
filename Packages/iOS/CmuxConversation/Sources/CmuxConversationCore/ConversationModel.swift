@@ -317,6 +317,10 @@ public struct ConversationMessage: Sendable, Hashable, Codable, Identifiable {
     public var deliveredQuietly: Bool
     /// I tapped Notify Anyway for this quietly delivered message.
     public var notifiedAnyway: Bool
+    /// The one line a reply's quote shows when `text` is not it: an agent's
+    /// Markdown as its words ("Table: Before / After", "2 images"), made where the
+    /// Markdown is read. Nil when the quote is `text`.
+    public var previewText: String?
 
     public init(
         id: String,
@@ -344,7 +348,8 @@ public struct ConversationMessage: Sendable, Hashable, Codable, Identifiable {
         scheduledAt: Date? = nil,
         systemEvent: ConversationSystemEvent? = nil,
         deliveredQuietly: Bool = false,
-        notifiedAnyway: Bool = false
+        notifiedAnyway: Bool = false,
+        previewText: String? = nil
     ) {
         self.id = id
         self.seq = seq
@@ -372,7 +377,12 @@ public struct ConversationMessage: Sendable, Hashable, Codable, Identifiable {
         self.systemEvent = systemEvent
         self.deliveredQuietly = deliveredQuietly
         self.notifiedAnyway = notifiedAnyway
+        self.previewText = previewText
     }
+
+    /// The words a reply's quote of this message shows: ``previewText`` when set,
+    /// else `text`.
+    public var quoteText: String { previewText ?? text }
 
     /// A Send Later message still waiting on the server (or failed to send).
     public var isScheduled: Bool { scheduledAt != nil && seq == nil }

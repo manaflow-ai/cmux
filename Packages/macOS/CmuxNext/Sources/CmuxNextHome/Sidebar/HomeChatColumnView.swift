@@ -37,15 +37,21 @@ final class HomeChatColumnView: NSView, WindowControlsAvoiding {
         }
     }
 
-    /// Under the traffic lights (a folded list, or the chat at the window's left edge with the
-    /// window's sidebar closed) the button starts after them on their line, as Messages' compose
-    /// beside its lights; elsewhere it keeps its inset on the list header's row.
-    /// The traffic lights over the column's top band at its last layout.
-    private var windowControls: CGRect?
+    /// The button sits on the traffic lights' line (the list header's top row, `homeLightsRow`),
+    /// lights over the column or not, so a toggle of the window's sidebar never moves it up or
+    /// down. Under the lights (a folded list, or the chat at the window's left edge with the
+    /// window's sidebar closed) it starts after them, as Messages' compose beside its lights;
+    /// elsewhere it keeps its inset. In full screen (no lights) it is centred in the header's band.
+    /// The traffic lights' row (its line) and what of them lies over the column, at its last layout.
+    private var windowControls: (row: CGRect?, over: CGRect?)
+
+    private var currentWindowControls: (row: CGRect?, over: CGRect?) {
+        (homeLightsRow(band: HomeSidebarHeaderLayout.band), homeWindowControls(band: HomeSidebarHeaderLayout.band))
+    }
 
     /// Relays out only when the traffic lights over the column changed (the page moved in its window).
     func updateWindowControlsAvoidance() {
-        guard homeWindowControls(band: HomeSidebarHeaderLayout.band) != windowControls else { return }
+        guard currentWindowControls != windowControls else { return }
         needsLayout = true
         layoutSubtreeIfNeeded()
     }
@@ -66,10 +72,10 @@ final class HomeChatColumnView: NSView, WindowControlsAvoiding {
         super.layout()
         let side = HomeChatComposeButton.side
         var frame = NSRect(x: Self.composeInset, y: bounds.height - Self.composeCenterY - side / 2, width: side, height: side)
-        windowControls = homeWindowControls(band: HomeSidebarHeaderLayout.band)
-        if let lights = windowControls, lights.minX < frame.maxX + Metrics.space3 {
+        windowControls = currentWindowControls
+        if let line = windowControls.row { frame.origin.y = (line.midY - side / 2).rounded() }
+        if let lights = windowControls.over, lights.minX < frame.maxX + Metrics.space3 {
             frame.origin.x = max(frame.minX, (lights.maxX + Metrics.space3).rounded(.up))
-            frame.origin.y = (lights.midY - side / 2).rounded()
         }
         compose.frame = frame
     }
