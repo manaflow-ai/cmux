@@ -89,12 +89,12 @@ def g_chat_find(tag):
         + web_states("Chat find bar (web)", "cmux.agent", ".acpmux-find__bar input", tag)
 
 def g_newtab_web(tag):
-    # The app's first chat page is the New Tab's (Chief is native; a later one is the next chat's warm
-    # spare, which a probe would pick while the window is not key). The dark pass keeps the same tab.
-    first = {"instance": 1}
+    # The New Tab's field is .nt-field (.acpmux-newtab-field is the classic New Tab page's). The dark
+    # pass keeps the same tab.
+    first = {}
     opens = page_tab(tag) if "light" in tag else [KEY()]
-    return opens + [step("The New Tab field draws", rpc("debug.page", {"page": "cmux.agent", "action": "wait", "selector": ".acpmux-newtab .ProseMirror", "timeout_ms": 10000, **first}), shot=False, wait=0.2)] \
-        + web_states("New tab composer (web)", "cmux.agent", ".acpmux-newtab .ProseMirror", tag, pick=first)
+    return opens + [step("The New Tab field draws", rpc("debug.page", {"page": "cmux.agent", "action": "wait", "selector": ".nt-field .ProseMirror", "timeout_ms": 10000, **first}), shot=False, wait=0.2)] \
+        + web_states("New tab composer (web)", "cmux.agent", ".nt-field .ProseMirror", tag, pick=first)
 
 def page_tab(tag):
     return [step("A new tab, as Cmd-T opens it", cmux("action", "run", "newTab.page", "--focus"), shot=False, wait=3), KEY()]
