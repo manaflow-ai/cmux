@@ -9,7 +9,7 @@ import type { AcpmuxRow } from "../model";
 import { BackgroundTurnLine } from "../conversation/BackgroundTurnLine";
 import { BACKGROUND_TURN, backgroundTurnRowId } from "../conversation/backgroundTurns";
 import { withSubagentLines } from "./runningTray";
-import { SUBAGENT_DONE } from "./subagentRows";
+import { SUBAGENT_DONE, SUBAGENT_STARTED } from "./subagentRows";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
 import { SubagentViewsContext } from "./subagentGroupModel";
 
@@ -59,13 +59,14 @@ test("a subagent's report sits right under its finished line and names it", () =
   const out = withSubagentLines(transcript());
   expect(out.map((entry) => entry.id)).toEqual([
     "prompt",
+    `${SUBAGENT_STARTED}:group`,
     "footer",
     "other",
     `${SUBAGENT_DONE}:chat/toolu_fix`,
     backgroundTurnRowId("report"),
     "reply",
   ]);
-  const report = out[4]!;
+  const report = out.find((entry) => entry.id === backgroundTurnRowId("report"))!;
   expect(report.subagentReport?.id).toBe("chat/toolu_fix");
   const closed = renderToStaticMarkup(<BackgroundTurnLine row={report} expanded={false} onToggle={() => {}} />);
   expect(closed).toContain("Report from");

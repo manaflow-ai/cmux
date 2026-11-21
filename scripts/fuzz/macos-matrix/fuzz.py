@@ -23,7 +23,9 @@ import itertools
 import json
 import os
 import random
+import re
 import shlex
+import tempfile
 import subprocess
 import sys
 import time
@@ -63,7 +65,9 @@ class Guest:
         self.binary = ""
         self.env = "CMUX_NEXT_SOCKET_MODE=automation"
         self.socket = ""
-        self.ctl = f"/tmp/fuzz-ssh-{os.getpid()}"
+        # The ControlMaster socket on this host: in a mkdtemp dir (short, under /tmp), never a guessable name
+        # another account could bind first and so answer this run's ssh.
+        self.ctl = os.path.join(tempfile.mkdtemp(prefix="fuzz-ssh-", dir="/tmp"), "ctl")
         self.base = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
                      "-o", "LogLevel=ERROR", "-o", "ControlMaster=auto", "-o", f"ControlPath={self.ctl}",
                      "-o", "ControlPersist=600", "-o", "ConnectTimeout=8", "-o", "ServerAliveInterval=5",
@@ -339,6 +343,9 @@ def run_step(step: dict, g: Guest, vnc: RFB) -> str:
             vnc.scroll(px(step["fx"]), py(step["fy"]), step["down"])
     elif k == "esc":
         vnc.chord("esc")
+    elif k == "wait":
+        # A saved repro's pause for the app to answer (a reply, a check): bounded, never a poll.
+        time.sleep(min(max(float(step.get("seconds", 1)), 0), 120))
     return "ok"
 
 
@@ -549,6 +556,13 @@ def main() -> int:
                               "dt": round(time.time() - started, 3)}) + "\n")
         log.flush()
         summary["steps"] = i + 1
+        shot = step.get("shot")
+        if isinstance(shot, str) and re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", shot):
+            # A saved repro names the screens it shows (shot-NAME.png), taken after its step.
+            try:
+                open(os.path.join(o.out, f"shot-{shot}.png"), "wb").write(vnc.screenshot_png())
+            except Exception as e:  # best effort
+                print("screenshot failed:", e, flush=True)
         if o.shot_every and i % o.shot_every == 0:
             try:
                 open(os.path.join(o.out, f"step-{i:05d}.png"), "wb").write(vnc.screenshot_png())

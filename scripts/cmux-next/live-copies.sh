@@ -30,6 +30,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+# shellcheck source=scripts/cmux-next/lib/origin-net.sh
+source "$ROOT/scripts/cmux-next/lib/origin-net.sh"
 PROJECTION="$ROOT/scripts/cmux-next/projection.sh"
 REPO_SLUG="${CMUX_LIVE_COPIES_REPO:-manaflow-ai/cmux}"
 BASE_BRANCH="${CMUX_LIVE_COPIES_BASE:-feat-cmux-next}"
@@ -58,8 +60,11 @@ set_dir() {
 
 # Whether origin's branch has the copy's HEAD: its tip is HEAD or comes after it.
 pushed() {
-  local tree="$1" branch="$2" remote
-  remote="$(git -C "$tree" ls-remote origin "refs/heads/$branch" 2>/dev/null | cut -f1)"
+  local tree="$1" branch="$2" lines remote
+  # Origin not answering is "not known to be pushed", said as the network (remote_refs), not a
+  # branch origin lacks.
+  lines="$(remote_refs "$tree" origin "refs/heads/$branch")" || return 1
+  remote="${lines%%[[:space:]]*}"
   [[ -n "$remote" ]] || return 1
   [[ "$remote" == "$(git -C "$tree" rev-parse HEAD)" ]] || git -C "$tree" merge-base --is-ancestor HEAD "$remote" 2>/dev/null
 }

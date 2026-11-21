@@ -48,10 +48,8 @@ enum AgentSessionWorkspace {
         }
         let session: String // the chat's acpmux id, never its name or harness session id (AgentLaneStore.localSessionID)
         do { session = try AgentLaneStore.shared.localSessionID(request.session, host: request.host, localHost: context.services.agentTabs.localHost) } catch { throw ActionFailure(message: error.description) }
-        let task = try open(session: session, name: request.name, defaultName: request.defaultName, key: request.key, cwd: request.cwd,
-                            host: request.host, group: request.group, top: request.top, focus: invocation.allowsViewChange, parent: parent,
-                            services: context.services)
-        context.services.registry.track(task)
+        context.services.registry.track(result: try answering(session: session, name: request.name, defaultName: request.defaultName, key: request.key, cwd: request.cwd,
+                                                              host: request.host, group: request.group, top: request.top, focus: invocation.allowsViewChange, parent: parent, services: context.services))
     }
 
     /// Starts the new workspace for `session` (see the type) and returns its
@@ -64,6 +62,12 @@ enum AgentSessionWorkspace {
                      group: String? = nil, top: Bool = false, focus: Bool = false, parent: AgentSessionParents.Identity? = nil,
                      services: AppServices,
                      beforeFirstTab: (@MainActor @Sendable () async -> Void)? = nil) throws -> ActionWork {
+        try answering(session: session, name: name, defaultName: defaultName, key: key, cwd: cwd, host: host, group: group, top: top, focus: focus, parent: parent, services: services, beforeFirstTab: beforeFirstTab).failureWork
+    }
+
+    /// ``open(session:name:defaultName:key:cwd:host:group:top:focus:parent:services:beforeFirstTab:)``, answering the chat's ids (``AgentSessionOpenAnswer``).
+    static func answering(session: String, name: String?, defaultName: String? = nil, key: WorkspaceKey = .generate(), cwd: String?, host: String? = nil, group: String? = nil, top: Bool = false,
+                          focus: Bool = false, parent: AgentSessionParents.Identity? = nil, services: AppServices, beforeFirstTab: (@MainActor @Sendable () async -> Void)? = nil) throws -> ActionResultWork {
         guard services.agentTabs.canHostChat else { throw ActionFailure(message: MiscHandlerStrings.quickChatUnavailable) }
         let daemon = services.daemon
         guard let connection = daemon.connection, services.agentTabs.localHost != nil, case let repair = services.emptyWorkspaces else {
@@ -72,8 +76,11 @@ enum AgentSessionWorkspace {
         let logger = daemon.logger
         let targetHost = host ?? services.agentTabs.localHost ?? ""
         // A caller's key that names a listed workspace already shows the
-        // session (a launcher run again), or its stand-in (the key's first run in flight): nothing is opened twice.
-        if services.machines.workspace(id: key.rawValue) != nil || daemon.store.workspaces.contains(where: { $0.key == key }) { return Task { nil } }
+        // session (a launcher run again), or its stand-in (the key's first run in flight): nothing is opened twice. It answers its live chat tab, else the workspace.
+        if let listed = services.machines.workspace(id: key.rawValue)?.0 ?? daemon.store.workspaces.first(where: { $0.key == key }) {
+            let live = AgentSessionTab.liveTab(showing: session, host: host, services: services, in: key.rawValue), answer = AgentSessionOpenAnswer.fields(session: session, tab: live?.tab, pane: live?.pane, workspace: listed)
+            return Task { .success(answer) }
+        }
         let windows = services.windows
         // Every window's sidebar: each lists only its own workspaces, and the predecessor may be in any.
         if let group, let name,
@@ -112,7 +119,7 @@ enum AgentSessionWorkspace {
                 // by the key chosen here (as CloudHandlers finds its anchor).
                 guard let pane = await daemon.store.firstPane(mirroring: key) else {
                     logger.error("agent.openSessionWorkspace: the pane of workspace \(key.rawValue, privacy: .public) did not appear")
-                    return ActionWorkFailure("agent.openSessionWorkspace: the new workspace's pane did not appear")
+                    return .failure(ActionWorkFailure("agent.openSessionWorkspace: the new workspace's pane did not appear"))
                 }
                 // Selected wherever the workspace is shown later, never shown now.
                 if focus {
@@ -121,12 +128,12 @@ enum AgentSessionWorkspace {
                     }
                 }
                 logger.info("agent.openSessionWorkspace: session \(session, privacy: .public) in workspace \(key.rawValue, privacy: .public) tab \(tab, privacy: .public)")
-                return nil
+                return .success(AgentSessionOpenAnswer.fields(session: session, tab: daemon.store.tab(idOrResource: tab), tabID: tab, pane: pane, workspace: daemon.store.workspace(containing: pane.handle)))
             } catch let refusal as AgentTabRefusal {
-                return ActionWorkFailure("agent.openSessionWorkspace: \(refusal.message)")
+                return .failure(ActionWorkFailure("agent.openSessionWorkspace: \(refusal.message)"))
             } catch {
                 logger.error("agent.openSessionWorkspace failed: \(String(describing: error), privacy: .public)")
-                return ActionWorkFailure("agent.openSessionWorkspace: \(error)")
+                return .failure(ActionWorkFailure(log: "agent.openSessionWorkspace: \(error)"))
             }
         }
     }
@@ -169,13 +176,17 @@ enum AgentSessionWorkspace {
     /// row `row`, selected there; the caller's `key` is the tab's creation key,
     /// so a launcher run again gets the same tab.
     private static func reuse(_ row: SidebarWorkspaceID, session: String, key: WorkspaceKey, host: String?, focus: Bool,
-                              parent: AgentSessionParents.Identity?, services: AppServices) -> ActionWork {
+                              parent: AgentSessionParents.Identity?, services: AppServices) -> ActionResultWork {
         let daemon = services.daemon
         let logger = daemon.logger
         return Task { @MainActor in
             do {
                 guard let pane = await daemon.store.firstPane(mirroring: WorkspaceKey(rawValue: row.rawValue)) else {
-                    return ActionWorkFailure("agent.openSessionWorkspace: the pane of workspace \(row.rawValue) did not appear")
+                    return .failure(ActionWorkFailure("agent.openSessionWorkspace: the pane of workspace \(row.rawValue) did not appear"))
+                }
+                if let live = AgentSessionTab.liveTab(showing: session, host: host, services: services, in: row.rawValue) { // the same open again: that tab, never a second
+                    if focus { for window in services.windows.controllers { window.state.selection.select(live.tab.id, in: live.pane.id) } }
+                    return .success(AgentSessionOpenAnswer.fields(session: session, tab: live.tab, pane: live.pane, workspace: daemon.store.workspace(containing: live.pane.handle)))
                 }
                 let pending = try services.agentTabs.open(in: pane.handle, of: daemon, session: session, linked: true, host: host,
                                                           idempotencyKey: key.rawValue)
@@ -187,11 +198,11 @@ enum AgentSessionWorkspace {
                 }
                 SidebarSessionTreeFeed.shared.recordedParents.record(parent, of: AgentSessionParents.identity(host: host ?? services.agentTabs.localHost ?? "", session: session))
                 logger.info("agent.openSessionWorkspace: session \(session, privacy: .public) in its predecessor's workspace \(row.rawValue, privacy: .public)")
-                return nil
+                return .success(AgentSessionOpenAnswer.fields(session: session, tab: daemon.store.tab(id: created.key), tabID: created.key, pane: pane, workspace: daemon.store.workspace(containing: pane.handle)))
             } catch let refusal as AgentTabRefusal {
-                return ActionWorkFailure("agent.openSessionWorkspace: \(refusal.message)")
+                return .failure(ActionWorkFailure("agent.openSessionWorkspace: \(refusal.message)"))
             } catch {
-                return ActionWorkFailure("agent.openSessionWorkspace: \(error)")
+                return .failure(ActionWorkFailure(log: "agent.openSessionWorkspace: \(error)"))
             }
         }
     }

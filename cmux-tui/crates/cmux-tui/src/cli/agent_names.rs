@@ -269,7 +269,9 @@ pub(in crate::cli) fn targets(words: &[String]) -> Vec<Target> {
             Some((name, value)) => (name, Some(value)),
             None => (flag, None),
         };
-        if super::command::is_boolean_flag(name) {
+        if inline.is_none()
+            && super::command::flag_takes_no_value(name, words.get(index + 1).map(String::as_str))
+        {
             continue;
         }
         let (value_index, value) = match inline {

@@ -23,6 +23,7 @@ import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFol
 import type { SubagentScope } from "../src/agent-session/acpmux/session-info/subagentScope";
 import { sessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { activity, tool } from "../src/gallery/fixtures/acpmux";
+import { settleReact } from "./support/domTeardown";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 
@@ -84,6 +85,7 @@ beforeEach(() => {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

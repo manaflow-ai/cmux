@@ -194,6 +194,9 @@ fn commit_reopen(
     // A deleted space (SPACE-DELETE-CLOSES-ITS-WORKSPACES) comes back first,
     // so its reopened workspaces get their pins and groups back.
     let room = record.get("room").filter(|room| room.is_object()).cloned();
+    // A close that emptied several spaces (LAST-WORKSPACE-CLOSES-SPACE) keeps
+    // the others in `also_rooms`; they come back with the first.
+    let also_rooms = record["also_rooms"].as_array().cloned().unwrap_or_default();
     // A deleted personal workspace group (Ungroup, Delete Group) has no
     // member: its reopen forms the group again around its open workspaces.
     let group = record.get("group").filter(|group| group.is_object()).cloned();
@@ -233,18 +236,16 @@ fn commit_reopen(
         .context("reopened item has no workspace")?;
     let mut changes = vec![change];
     changes.extend(others);
-    let room_restored = match &room {
-        Some(room) => {
-            let local = crate::state::values::local_registry_id(transaction)?;
-            crate::workspace_registry::personal_mutations::room_archive::restore_room(
-                transaction,
-                room,
-                &local,
-                &reopened.placements,
-            )?
-        }
-        None => false,
-    };
+    let mut room_restored = false;
+    for room in room.iter().chain(also_rooms.iter().filter(|room| room.is_object())) {
+        let local = crate::state::values::local_registry_id(transaction)?;
+        room_restored |= crate::workspace_registry::personal_mutations::room_archive::restore_room(
+            transaction,
+            room,
+            &local,
+            &reopened.placements,
+        )?;
+    }
     for (closed_key, reopened_key) in &reopened.placements {
         changes.extend(restore_placement(transaction, closed_key, reopened_key)?);
     }

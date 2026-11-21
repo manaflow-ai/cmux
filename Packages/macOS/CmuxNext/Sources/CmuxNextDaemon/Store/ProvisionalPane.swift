@@ -41,6 +41,9 @@ public struct ProvisionalPane: Sendable, Hashable {
     /// as its title from the key's frame, as the daemon's tab will, so nothing renames the tab when that one arrives
     /// (RESIZE VIDEOS T1). Nil: the daemon picks the folder; the stand-in shows the placeholder.
     public private(set) var cwd: String?
+    /// Set when the pane wraps a whole split (`split-around-v1`, Insert New at a divider): the split shows
+    /// that split and the new pane after it, where the split request names the split's last pane.
+    public private(set) var around: SplitID?
     /// Set when the pane opens before the target on the split axis (Split Left, Split Up; `split {before: true}`,
     /// `split-before-v1`): the split shows it as its first side, where the daemon's split puts it.
     public private(set) var before = false
@@ -49,6 +52,13 @@ public struct ProvisionalPane: Sendable, Hashable {
     public func opening(in cwd: String?) -> ProvisionalPane {
         var pane = self
         pane.cwd = cwd
+        return pane
+    }
+
+    /// This pane, wrapping split `around` whole instead of splitting its target alone (``around``).
+    public func wrapping(_ around: SplitID?) -> ProvisionalPane {
+        var pane = self
+        pane.around = around
         return pane
     }
 

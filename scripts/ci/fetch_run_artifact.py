@@ -37,6 +37,10 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
+# The workflow runs this as `python3 -I` from a copy of scripts/, so its own folder is not on sys.path.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402
+
 CHUNK = 1 << 20
 MIN_PART = 16 << 20
 
@@ -81,8 +85,8 @@ class Api:
                                                   "Content-Type": "application/json",
                                                   "User-Agent": "cmux-fetch-run-artifact"})
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                return json.load(response)
+            _, body, _ = deadline_http.request(request, 30, raise_errors=True)
+            return json.loads(body)
         except urllib.error.HTTPError as error:
             raise Failed(f"artifact service {method} answered HTTP {error.code}") from error
 
@@ -141,7 +145,10 @@ class Ranged:
             try:
                 request = urllib.request.Request(url, headers={"Range": f"bytes={offset}-{end}",
                                                                "User-Agent": "cmux-fetch-run-artifact"})
-                with urllib.request.urlopen(request, timeout=self.stall) as response:
+                # Each wait ends after --stall seconds of silence, as urlopen(timeout=stall) did, and the
+                # whole range ends by the --budget deadline, so a trickling range cannot outlast it.
+                left = max(self.deadline - time.monotonic(), 0.0)
+                with deadline_http.stream(request, left, stall=self.stall) as response:
                     if response.status != 206:
                         raise Failed(f"blob answered HTTP {response.status} to a range request")
                     while offset <= end:
@@ -182,9 +189,11 @@ class Ranged:
             raise Failed("; ".join(self.errors))
 
 
-def blob_size(url: str, stall: float) -> int:
+def blob_size(url: str, stall: float, deadline: float) -> int:
+    """The blob's size from a one-byte range: each wait ends after STALL seconds of silence, the call by
+    DEADLINE (the --budget deadline, a monotonic time)."""
     request = urllib.request.Request(url, headers={"Range": "bytes=0-0", "User-Agent": "cmux-fetch-run-artifact"})
-    with urllib.request.urlopen(request, timeout=stall) as response:
+    with deadline_http.stream(request, max(deadline - time.monotonic(), 0.0), stall=stall) as response:
         content_range = response.headers.get("Content-Range") or ""
         response.read()
     if response.status != 206 or "/" not in content_range:
@@ -219,8 +228,8 @@ def fetch(api: Api, name: str, dest: Path, *, parts: int, stall: float, attempts
     archive = dest.parent / f".{dest.name}.{artifact['id']}.zip"
     try:
         url = api.blob_url(artifact)
-        ranged = Ranged(api, artifact, url, archive, blob_size(url, stall), parts=parts, stall=stall,
-                        attempts=attempts, deadline=started + budget)
+        ranged = Ranged(api, artifact, url, archive, blob_size(url, stall, started + budget), parts=parts,
+                        stall=stall, attempts=attempts, deadline=started + budget)
         ranged.run()
         sha = hashlib.sha256()
         with open(archive, "rb") as handle:

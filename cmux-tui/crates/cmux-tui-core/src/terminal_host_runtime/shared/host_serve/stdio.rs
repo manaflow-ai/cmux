@@ -203,7 +203,7 @@ pub fn serve_terminal_host_stdio(
     });
 
     let launch_owner_deadline = Instant::now() + HOST_LAUNCH_OWNER_TIMEOUT;
-    let mut backoff = host_accept::AcceptBackoff::new();
+    let mut backoff = host_accept::accept_backoff();
     // No client stream since this instant: the owner daemon is gone. After
     // the orphan grace (tagged DEV, staging, debug builds: 10 minutes; every
     // other build: ABANDONED_HOST_GRACE, a week) with still no client the
@@ -211,7 +211,7 @@ pub fn serve_terminal_host_stdio(
     // included), so a deleted build or a renamed tag does not hold a PTY
     // until reboot. Any accepted connection restarts the clock, so a
     // restarted daemon's adoption always wins.
-    let mut orphan_since: Option<Instant> = None;
+    let mut orphan_since: Option<OrphanSince> = None;
     let mut orphan_ended = false;
     loop {
         let now = Instant::now();
@@ -235,7 +235,7 @@ pub fn serve_terminal_host_stdio(
         }
         if shared.active_client_streams.load(Ordering::Acquire) == 0 {
             if orphan_since.is_none() {
-                orphan_since = Some(now);
+                orphan_since = Some(OrphanSince::now());
                 set_orphan_since(orphan_since);
             }
         } else if orphan_since.take().is_some() {
@@ -248,7 +248,7 @@ pub fn serve_terminal_host_stdio(
                 }
                 match host_accept::serve_accepted(&shared, stream) {
                     Ok(()) => backoff.reset(),
-                    Err(error) => backoff.after_error(&shared, &error),
+                    Err(error) => host_accept::wait_after_error(&mut backoff, &shared, &error),
                 }
             }
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
@@ -257,7 +257,7 @@ pub fn serve_terminal_host_stdio(
                 // tie with the deadline.
                 if let Some(since) = orphan_since
                     && !orphan_ended
-                    && now.saturating_duration_since(since) >= orphan_grace
+                    && since.elapsed() >= orphan_grace
                 {
                     orphan_ended = true;
                     eprintln!(
@@ -281,9 +281,11 @@ pub fn serve_terminal_host_stdio(
                 } else {
                     Some(launch_owner_deadline.saturating_duration_since(now))
                 };
+                // Rechecked at least every ORPHAN_RECHECK: the wait's own
+                // timeout runs on the awake clock, which a sleep stops.
                 let orphan_timeout = orphan_since
                     .filter(|_| !orphan_ended)
-                    .map(|since| (since + orphan_grace).saturating_duration_since(now));
+                    .map(|since| orphan_grace.saturating_sub(since.elapsed()).min(ORPHAN_RECHECK));
                 let timeout = match (launch_timeout, orphan_timeout) {
                     (Some(a), Some(b)) => Some(a.min(b)),
                     (a, b) => a.or(b),
@@ -291,7 +293,7 @@ pub fn serve_terminal_host_stdio(
                 match listener.wait(&shared.accept_waker, timeout) {
                     Err(error) => {
                         if error.kind() != std::io::ErrorKind::Interrupted {
-                            backoff.after_error(&shared, &error);
+                            host_accept::wait_after_error(&mut backoff, &shared, &error);
                         }
                     }
                     Ok(woken) => {
@@ -310,7 +312,7 @@ pub fn serve_terminal_host_stdio(
                     std::io::ErrorKind::Interrupted | std::io::ErrorKind::ConnectionAborted
                 ) => {}
             // EMFILE, ENFILE, ENOBUFS, ENOMEM: never end the shell.
-            Err(error) => backoff.after_error(&shared, &error),
+            Err(error) => host_accept::wait_after_error(&mut backoff, &shared, &error),
         }
     }
     // Debug builds only (cx-6xk9): a test holds an ended host alive, with

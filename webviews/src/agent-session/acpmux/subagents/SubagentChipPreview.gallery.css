@@ -1,0 +1,23 @@
+/* The looks SubagentChipPreview.gallery.tsx compares beside the shipped card ("card"), drawn open
+   where the card floats. Gallery only; the shipped card is subagents.css `.acpmux-agent-card`. */
+.subagent-preview-gallery > .acpmux-row {
+  position: relative;
+  inset: auto;
+}
+.subagent-preview-gallery__open {
+  position: static;
+  align-self: flex-start;
+  margin-block-start: var(--ds-space-2);
+  margin-inline-start: var(--cv-tool-text-inset, 0px);
+  opacity: 1;
+  transform: none;
+}
+/* Version B: the state as a tinted pill above the name, as a session hover card reference leads. */
+.subagent-preview-gallery__pill {
+  align-self: flex-start;
+  padding: 0 var(--ds-space-1);
+  border-radius: var(--ds-radius-control);
+  color: var(--agent-accent);
+  background: color-mix(in srgb, var(--agent-accent) 16%, transparent);
+  font-size: var(--text-detail);
+}

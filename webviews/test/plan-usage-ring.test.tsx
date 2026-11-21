@@ -11,6 +11,7 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxUsageLimits } from "../src/agent-session/acpmux/model";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -69,11 +70,8 @@ afterEach(async () => {
   settings.setComposerSettings({ showContextUsage: true, composerRing: "context" });
 });
 
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { scope });
 });
 
 // Leo's Claude desktop screenshot: 5-hour 22% resetting tonight, weekly 41% resetting Monday.

@@ -12,13 +12,13 @@ import { nextMonthStart } from "./usage-user.ts"
  * the sync bills against (x seats per seat); any other team reads the UTC month and its plan's amount.
  */
 export interface TeamUsageLine {
-  /** Usage above the included amount is billed at cost (a billable subscription). */
+  /** Usage above the included amount is billed (a billable subscription): at cost, models at list + 10% under price set v2. */
   readonly billed: boolean
   /** The included amount for this period, or null when the plan is not known yet. */
   readonly included_usd: number | null
   readonly per_seat: boolean
   readonly seats: number
-  /** -1 when the meter did not answer. */
+  /** Billed: the billed level (models above the included amount at the period's pinned markup, billing-catalog.ts billedLevelMicros). -1 when the meter did not answer. */
   readonly spent_usd: number
   readonly period_start: number | null
   readonly period_end: number

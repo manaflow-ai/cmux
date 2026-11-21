@@ -25,6 +25,8 @@ public nonisolated struct ChromePlacementSetting {
         snapshot.browserToolbarPosition = choice(root, browserToolbarPositionPath, fallback: browserToolbarPositionDefault, &snapshot.diagnostics)
         _ = PaneToolbarButtonsSetting.parse(root, diagnostics: &snapshot.diagnostics) // the app reads the root (`current`)
         _ = SidebarSurfaceSetting.parse(root, diagnostics: &snapshot.diagnostics) // applied from the root (`applySidebarSurface`)
+        _ = TitleAreaContrastSetting.parse(root, diagnostics: &snapshot.diagnostics) // applied from the root (`applyTitleAreaContrast`)
+        _ = TitleAreaToneSetting.parse(root, diagnostics: &snapshot.diagnostics) // applied from the root (`applyTitleAreaTone`)
     }
 
     private static func choice<Value: RawRepresentable & CaseIterable>(
@@ -49,8 +51,11 @@ extension SettingsApplier {
         if design.tabBarPosition != snapshot.tabBarPosition { design.tabBarPosition = snapshot.tabBarPosition }
         if design.tabBarOrder != snapshot.tabBarOrder { design.tabBarOrder = snapshot.tabBarOrder }
         if design.browserToolbarPosition != snapshot.browserToolbarPosition { design.browserToolbarPosition = snapshot.browserToolbarPosition }
+        if design.browserShowsLoadingBar != snapshot.browserShowLoadingBar { design.browserShowsLoadingBar = snapshot.browserShowLoadingBar }
         if design.paneBackgrounds != snapshot.paneBackgrounds { design.paneBackgrounds = snapshot.paneBackgrounds }
         applyChromeStyle(snapshot, to: design)
         applySidebarSurface(snapshot, to: design)
+        applyTitleAreaContrast(snapshot, to: design)
+        applyTitleAreaTone(snapshot, to: design)
     }
 }

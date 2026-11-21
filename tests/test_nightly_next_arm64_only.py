@@ -18,11 +18,11 @@ import sys
 from pathlib import Path
 
 from test_ci_nightly_push_throttle import NEXT_ENV, run_decide
-from nightly_workflow_text import nightly_text
+from nightly_workflow_text import nightly_text, write_out_step_aliases
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "nightly.yml"
-TEXT = nightly_text()
+TEXT = write_out_step_aliases(nightly_text())
 FOUR = ["appcast-arm64.xml", "appcast-x86_64.xml", "appcast-universal.xml", "appcast.xml"]
 
 
@@ -153,11 +153,17 @@ def compile_commands(outputs):
         (root / "scripts/cmux-next/lib").mkdir(parents=True)
         (root / "scripts/cmux-next/lib/compilation-cache.sh").write_text(
             (ROOT / "scripts/cmux-next/lib/compilation-cache.sh").read_text())
+        # And the Release Swift optimization settings (-Osize, hot targets at -O).
+        (root / "scripts/cmux-next/lib/swift-size-opt.sh").write_text(
+            (ROOT / "scripts/cmux-next/lib/swift-size-opt.sh").read_text())
         # It also sources the per-Mac build root (#32514). With no BUILD_TRACK here the script keeps
         # the slot's own tree, so xcodebuild still runs in this recorder root.
         (root / "scripts/ci/nightly-steps").mkdir(parents=True)
         (root / "scripts/ci/nightly-steps/app-host-build-root.sh").write_text(
             (ROOT / "scripts/ci/nightly-steps/app-host-build-root.sh").read_text())
+        # And the SourcePackages preflight; with no .spm-cache in this root it resolves nothing.
+        (root / "scripts/ci/spm_artifact_preflight.py").write_text(
+            (ROOT / "scripts/ci/spm_artifact_preflight.py").read_text())
         capture = root / "capture"
         capture.mkdir()
         steps = (

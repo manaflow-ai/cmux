@@ -1,6 +1,5 @@
 import CmuxNextDaemon
 import CmuxNextDaemonService
-import CmuxNextOnboarding
 import Foundation
 
 /// A classic workspace and the index of the classic window it belongs to.
@@ -12,16 +11,16 @@ struct ClassicWorkspaceTurn: Sendable {
 /// One run's state, which each workspace it makes writes.
 @MainActor
 final class ClassicMigrationRunState {
-    var ledger: ClassicMigrationLedger
+    /// Records each step in the daemon's ledger.
+    let client: ClassicImportClient
     var outcome: ClassicMigrationOutcome
     /// Who started the run (only the launch's run parks background workspaces).
-    let mode: ClassicMigrationPlanner.Mode
+    let mode: ClassicImportMode
     let plan: ClassicMigrationPlan
     /// cmux-next group ids by classic group id.
     let groups: [String: WorkspaceGroupID]
     /// The daemon of each SSH destination, connecting since the run's start.
     let hosts: [String: DaemonService]
-    let repository: ClassicMigrationRepository
     /// The window each classic window's workspaces go to, by index.
     let targets: [String]
     var unreachable = Set<String>()
@@ -32,16 +31,15 @@ final class ClassicMigrationRunState {
     let progress: (@MainActor (Double) -> Void)?
     private var handledCount = 0
 
-    init(ledger: ClassicMigrationLedger, outcome: ClassicMigrationOutcome, mode: ClassicMigrationPlanner.Mode, plan: ClassicMigrationPlan,
-         groups: [String: WorkspaceGroupID], hosts: [String: DaemonService], repository: ClassicMigrationRepository,
+    init(client: ClassicImportClient, outcome: ClassicMigrationOutcome, mode: ClassicImportMode, plan: ClassicMigrationPlan,
+         groups: [String: WorkspaceGroupID], hosts: [String: DaemonService],
          progress: (@MainActor (Double) -> Void)? = nil, targets: [String]) {
-        self.ledger = ledger
+        self.client = client
         self.outcome = outcome
         self.mode = mode
         self.plan = plan
         self.groups = groups
         self.hosts = hosts
-        self.repository = repository
         self.targets = targets
         self.progress = progress
     }

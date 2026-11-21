@@ -7,8 +7,8 @@ import Testing
 
 /// cmux-ad i7: Close Other Tabs, Close Tabs to the Left and Close Tabs to the Right started from a
 /// tab that is NOT selected select that tab: it is the tab the person acted on, and it stays.
-/// From the selected tab nothing changes; a plain close of one tab keeps the tab-before rule
-/// (`TabCloseSelectsBeforeTests`). Each case runs the app's own action (the tab menu, the palette,
+/// From the selected tab nothing changes; a plain close of one tab uses the one close-selection rule
+/// (/work/wt/handoff/tasks/close-selection-rule.md; `TabCloseSelectsBeforeTests`). Each case runs the app's own action (the tab menu, the palette,
 /// the shortcut, the app's action run) or the strip's intent against a same-tree cmux-tui daemon.
 /// The pinned cases put a pinned tab first: the close selected that pinned tab before.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
@@ -87,11 +87,12 @@ struct CloseSeveralSelectsActedOnTabTests {
         try await Self.run("closeTabsToRight", pinned: false, selected: 2, actedOn: 2, closed: [3], selects: 2)
     }
 
-    /// A plain close of one tab keeps its rule: an unselected close keeps the selection, and the
-    /// selected tab's close selects the tab before it.
-    @Test func aPlainCloseKeepsTheTabBeforeRule() async throws {
+    /// A plain close of one tab uses the one close-selection rule
+    /// (/work/wt/handoff/tasks/close-selection-rule.md R0, R1 rank 4; it was the tab before): an
+    /// unselected close keeps the selection, and the selected tab's close selects the next tab.
+    @Test func aPlainCloseUsesTheOneCloseSelectionRule() async throws {
         try await Self.run("closeTab", pinned: false, selected: 2, actedOn: 3, closed: [3], selects: 2)
-        try await Self.run("closeTab", pinned: true, selected: 2, actedOn: 2, closed: [2], selects: 1)
+        try await Self.run("closeTab", pinned: true, selected: 2, actedOn: 2, closed: [2], selects: 3)
     }
 
     /// Live terminals leave in the gesture's turn while the daemon reads what they run (`TabCloseGuard`'s hide): the kept
