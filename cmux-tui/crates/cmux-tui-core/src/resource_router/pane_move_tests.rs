@@ -313,3 +313,78 @@ fn w5p_pane_move_resolves_names_prefixes_bare_ids_and_focused() {
     }
     assert_eq!(focused_pane(&mux), home);
 }
+
+/// The (column id, width) pairs of the screen that shows `pane`.
+fn column_widths(mux: &Arc<Mux>, pane: crate::PaneId) -> Vec<(crate::SplitId, f32)> {
+    mux.with_state(|state| {
+        let (workspace, screen) = state.screen_of(pane).expect("the pane is on a screen");
+        state
+            .workspaces
+            .get(workspace)
+            .and_then(|workspace| workspace.screens.get(screen))
+            .map(|screen| screen.layout_columns.iter().map(|c| (c.id, c.width)).collect())
+            .unwrap_or_default()
+    })
+}
+
+/// W5-P review: a pane that goes beside a pane in a column layout splits
+/// that pane's cell inside its own column. No column is added, and no
+/// column changes its width ("columns never resize").
+#[test]
+fn w5p_pane_move_split_into_a_column_keeps_every_column_width() {
+    let mux = mux();
+    let first = mux.new_workspace(Some("w5p-columns".into()), None).unwrap().id;
+    let origin = mux.with_state(|state| state.pane_of(first)).unwrap();
+    let second = mux.new_tab(Some(origin), None, None).unwrap().id;
+    let third = mux.new_tab(Some(origin), None, None).unwrap().id;
+    let middle = mux.move_tab_to_column(second, origin, None, Some(0.4), None, None).unwrap().pane;
+    mux.move_tab_to_column(third, middle, None, Some(0.3), None, None).unwrap();
+    let before = column_widths(&mux, origin);
+    assert_eq!(before.len(), 3, "{before:?}");
+
+    let other = mux.new_screen_named(None, None, Default::default(), None).unwrap().id;
+    let moved = mux.with_state(|state| state.pane_of(other)).unwrap();
+    let public = |pane: crate::PaneId| {
+        mux.with_state(|state| state.resource_indexes.pane_ids.get(&pane).map(ToString::to_string))
+            .unwrap()
+    };
+    let (moved_id, middle_id) = (public(moved), public(middle));
+    let fields = json!({"pane":moved_id,"destination_pane":middle_id,"split":"down"});
+    let result = move_pane(&mux, fields, "w5p-columns-split");
+    assert_eq!(result["pane_id"], moved_id.as_str(), "{result}");
+    assert_eq!(place_of(&mux, &moved_id).map(|p| p.0), place_of(&mux, &middle_id).map(|p| p.0));
+    assert_eq!(column_widths(&mux, origin), before, "the columns keep their widths");
+}
+
+/// W5-P review: `destination_workspace` and `destination_screen` are the
+/// parents of `destination_pane`. A pane outside that screen is
+/// `selector.wrong_parent`, and nothing moves.
+#[test]
+fn w5p_pane_move_refuses_a_destination_pane_outside_the_named_screen() {
+    let mux = mux();
+    let (_, home) = focused_workspace(&mux, "w5p-parent-home");
+    let moved = split_with_tabs(&mux, &home, 2, "w5p-parent-split");
+    let (other, _) = focused_workspace(&mux, "w5p-parent-other");
+    let other_screen = rows(&snapshot(&mux), "screens")
+        .iter()
+        .find(|screen| screen["workspace_id"] == other.as_str())
+        .and_then(|screen| screen["id"].as_str().map(str::to_owned))
+        .unwrap();
+    let (place, tabs) = (place_of(&mux, &moved), tabs_of(&mux, &moved));
+    let response = request(
+        &mux,
+        "pane.move",
+        json!({
+            "pane": moved,
+            "destination_workspace": other,
+            "destination_screen": other_screen,
+            "destination_pane": home,
+            "split": "down",
+        }),
+        Some("w5p-parent-wrong"),
+    );
+    assert_eq!(response["ok"], false, "{response}");
+    assert_eq!(response["error"]["code"], "selector.wrong_parent", "{response}");
+    assert_eq!(place_of(&mux, &moved), place, "nothing moved");
+    assert_eq!(tabs_of(&mux, &moved), tabs);
+}

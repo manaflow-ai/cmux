@@ -496,3 +496,16 @@ fn no_current_selector_names_the_flags_and_the_list_instead_of_matching_current(
     // Any other selector keeps the plain message.
     assert_eq!(ResourceError::not_found("screen", "x").message, "no screen matches \"x\"");
 }
+
+/// W5-P review: an id prefix with uppercase hex digits says ids are
+/// lowercase (as a full uppercase id does), not that the id is too short.
+#[test]
+fn w5p_an_uppercase_id_prefix_says_ids_are_lowercase() {
+    for value in ["pane_3F0A", "tab_ABCDEF", "term_8A3"] {
+        let error = Selector::parse(value).unwrap_err();
+        assert_eq!(error.code, "validation.invalid", "{value}");
+        assert!(error.message.contains("lowercase"), "{}", error.message);
+        let lower = value.to_ascii_lowercase();
+        assert!(error.message.contains(&lower), "{}", error.message);
+    }
+}
