@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { AgentMark } from "../../shared/AgentMark";
 import { Spinner } from "../conversation/icons";
@@ -96,17 +96,17 @@ export function HarnessesScreen({
       live.current = false;
     };
   }, []);
-  const mark = (harness: string, next: Progress | undefined) => {
+  const mark = useCallback((harness: string, next: Progress | undefined) => {
     if (live.current) setProgress((current) => ({ ...current, [harness]: next }));
-  };
-  const remember = (harness: string, reply: unknown) => {
+  }, []);
+  const remember = useCallback((harness: string, reply: unknown) => {
     const row = (reply as { health?: HarnessHealth | null } | null)?.health ?? {
       id: harness,
       auth: "unknown" as const,
     };
     if (live.current) setHealth((current) => ({ ...current, [harness]: row }));
     return row;
-  };
+  }, []);
   useEffect(() => {
     // A failed terminal launch can race with a health refresh that reports the harness ready.
     // Reconcile that completed state so the stale failure cannot keep the row stuck on Sign In.
@@ -149,7 +149,7 @@ export function HarnessesScreen({
       live = false;
     };
   }, [callNative, installed, checks]);
-  const rows = harnessRows(catalog, acpmux, health, checking);
+  const rows = useMemo(() => harnessRows(catalog, acpmux, health, checking), [acpmux, catalog, checking, health]);
   const needsOf = useMemo(
     () => Object.fromEntries(rows.flatMap((row) => (row.needs ? [[row.harness, row.needs.harness]] : []))),
     [rows],
@@ -190,25 +190,33 @@ export function HarnessesScreen({
   }, [callNative, needsOf, waiting, signInPollMs]);
   useEscapeCloses(true, onClose);
   /// The harness a row's checks ask about: the one it needs, else its own.
-  const target = (row: HarnessRow) => row.needs?.harness ?? row.harness;
+  const target = useCallback((row: HarnessRow) => row.needs?.harness ?? row.harness, []);
   /// Rows whose install finished while acpmux still cannot run the harness: coming back to the page
   /// (from a terminal tab, Finder or System Settings) has acpmux look for them again.
-  const stuckRows = rows.filter(
-    (row) => progress[row.harness]?.kind === "done" && (row.status === "notInstalled" || row.status === "unavailable"),
+  const stuckRows = useMemo(
+    () =>
+      rows.filter(
+        (row) =>
+          progress[row.harness]?.kind === "done" && (row.status === "notInstalled" || row.status === "unavailable"),
+      ),
+    [progress, rows],
   );
   const inFolder = cwd ? { cwd } : {};
   const openDocs = (row: HarnessRow) =>
     void callNative("tab.open", { kind: "browser", text: row.docsUrl, keep: true }).catch(() => undefined);
   /// acpmux looks for harnesses again (PATH and profiles, `rescan`), and the page reads its catalog.
-  const rescan = async (row: HarnessRow) => {
-    const id = target(row);
-    try {
-      remember(id, await callNative("harness.health", { id, refresh: true, rescan: true }));
-      await refreshCatalog?.();
-    } catch {
-      // The row shows what the catalog says.
-    }
-  };
+  const rescan = useCallback(
+    async (row: HarnessRow) => {
+      const id = target(row);
+      try {
+        remember(id, await callNative("harness.health", { id, refresh: true, rescan: true }));
+        await refreshCatalog?.();
+      } catch {
+        // The row shows what the catalog says.
+      }
+    },
+    [callNative, refreshCatalog, remember, target],
+  );
   /// Runs an install or update command in place: the row shows its last output line, and when it
   /// ends well acpmux looks for the harness again; otherwise the row says why.
   const runInPlace = (row: HarnessRow, command: string) => {
@@ -250,10 +258,13 @@ export function HarnessesScreen({
       }
     })();
   };
-  const checkAgain = (row: HarnessRow) => {
-    mark(row.harness, { kind: "installing" });
-    void rescan(row).then(() => mark(row.harness, { kind: "done" }));
-  };
+  const checkAgain = useCallback(
+    (row: HarnessRow) => {
+      mark(row.harness, { kind: "installing" });
+      void rescan(row).then(() => mark(row.harness, { kind: "done" }));
+    },
+    [mark, rescan],
+  );
   useEffect(() => {
     // After a Sign In ran in a terminal tab, coming back checks again.
     const recheck = () => {
