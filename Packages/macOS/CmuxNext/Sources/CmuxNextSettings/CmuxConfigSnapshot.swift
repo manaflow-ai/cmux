@@ -78,8 +78,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var homeChiefPetEnabled = HomeChiefPetSetting.fallback, homeChiefPetMascot = HomeChiefPetSetting.mascotDefault
     /// `home.feedInChief`: the main Chief's conversation shows the Feed's notices; on when unset.
     public var homeFeedInChief = HomeFeedRowsSetting.fallback
-    /// `home.chiefDock.edge`: the window edge the Chief docks to (``ChiefDockSetting``); `left` when unset.
-    public var chiefDockEdge = ChiefDockSetting.edgeDefault
+    /// `home.chiefDock.edge`: the window edge the Chief docks to (``ChiefDockSetting``), `left` when unset; `home.chiefDock.sidePanel`: every window keeps it docked there (Chief in Side Panel), off when unset.
+    public var chiefDockEdge = ChiefDockSetting.edgeDefault, chiefDockSidePanel = ChiefDockSetting.sidePanelDefault
     /// `home.chiefDock.openBeside`: a link clicked in the Chief opens its workspace with the Chief floating over it; off when unset (cmux#45889).
     public var chiefDockOpenBeside = ChiefDockSetting.openBesideDefault
     /// `home.chiefPanel.style`: how the floating Chief looks (``ChiefDockSetting``); `composeBar` when unset.
@@ -99,7 +99,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var liveCode = CmuxConfigSnapshot.liveCodeDefault
     /// `customize.fromTheApp`: the Customize Inspector (hold Option) and right-click Customize…; off when unset.
     public var customizeFromTheApp = CmuxConfigSnapshot.customizeFromTheAppDefault
-    /// `labs.agentCustomization`: Settings shows and edits Claude Code's and Codex's own MCP servers (`cmux agent-config`); off when unset.
+    /// `labs.agentCustomization`: Settings shows and edits Claude Code's and Codex's own MCP servers, skills and commands (`cmux agent-config`); off when unset.
     public var agentCustomization = CmuxConfigSnapshot.agentCustomizationDefault
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`, `browser.freezeHiddenTabs`.
     public var browserHibernation: BrowserHibernationSetting = .fallback
@@ -207,6 +207,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `appearance.agentGlow`: off when unset or invalid. On, the window background stays calm while
     /// agents are idle and glows softly in the machine's color when an agent needs you.
     public var agentGlow: Bool = AgentGlowSetting.fallback
+    /// `appearance.previousGlass`: off when unset or invalid. On, web pages draw the glass numbers
+    /// from before the one glass system (``PreviousGlassSetting``).
+    public var previousGlass: Bool = PreviousGlassSetting.fallback
     /// `appearance.experimentalControls`; off unless explicitly enabled.
     public var experimentalAppearance = false
     /// `appearance.glassTransparency`, `appearance.hue` and
@@ -432,6 +435,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         if case .art(let art) = snapshot.backdropSelection { snapshot.backdropArt = art } else { snapshot.backdropArt = nil }
         snapshot.take(ReducedBackgroundsSetting.parse(root), \.reducedBackgrounds)
         snapshot.take(AgentGlowSetting.parse(root), \.agentGlow)
+        snapshot.take(PreviousGlassSetting.parse(root), \.previousGlass)
         snapshot.take(FontSmoothingSetting.parse(root), \.fontSmoothing)
         snapshot.experimentalAppearance = ExperimentalAppearanceSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.appearanceTuning = AppearanceTuningSetting.parse(root, diagnostics: &snapshot.diagnostics)

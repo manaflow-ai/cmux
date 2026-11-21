@@ -318,6 +318,16 @@ extension AppearanceSettingsSchema {
                 keywords: ["agent", "agents", "glow", "react", "reactive", "background", "attention", "needs you", "idle", "calm", "machine color"]
             ),
             SettingDescriptor(
+                PreviousGlassSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.previousGlass", "Previous Glass Look"),
+                help: SettingsText.keyed("settings.appearance.previousGlass.help", "Draws menus, popovers, the composer and cards with the glass from before November 2026."),
+                kind: .toggle,
+                default: .bool(PreviousGlassSetting.fallback),
+                keywords: ["glass", "liquid glass", "previous", "old", "classic look", "blur", "frost", "translucent", "transparency", "menu", "popover"]
+            ),
+            SettingDescriptor(
                 ExperimentalAppearanceSetting.configPath,
                 section: .appearance,
                 group: group,

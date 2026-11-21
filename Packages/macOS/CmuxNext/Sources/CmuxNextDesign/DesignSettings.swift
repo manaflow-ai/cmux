@@ -175,6 +175,9 @@ public final class DesignSettings {
     /// `appearance.agentGlow`: the backdrop answers the agents (``BackdropAgentGlow``). Off by
     /// default: it changes the default look. The App's ``agentGlow`` reader starts and stops with it.
     public var agentGlowEnabled = false
+    /// `appearance.previousGlass`: web pages draw the glass numbers from before the one glass system
+    /// (``WebTheme/glassLevels`` is `previous`). Off by default.
+    public var previousGlass = false
     /// What every window's backdrop shows of the agents now; ``BackdropAgentGlow/calm`` while
     /// ``agentGlowEnabled`` is off. Each window backdrop observes it (``BackdropAgentGlowView``).
     public var agentGlow = BackdropAgentGlow.calm

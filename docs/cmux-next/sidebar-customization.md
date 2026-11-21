@@ -151,6 +151,11 @@ function renderCard(ctx) {
 }
 ```
 
+### Glass
+
+`.glass("chip")` (or `"chrome"`, `"popover"`, `"menu"`) puts the app's own glass under any piece of
+the card, with no change to its layout: [glass.md](glass.md).
+
 ### Live data
 
 `cmux.live(op, params)` reads cmux data and updates the view when it changes, for example
