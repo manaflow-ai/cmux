@@ -221,7 +221,7 @@ pub(super) fn print_installed(installed: bool) {
 }
 
 /// A reply's data, or its error as `code: message`.
-fn answer(value: &Value) -> Result<Value, String> {
+pub(super) fn answer(value: &Value) -> Result<Value, String> {
     if value.get("ok").and_then(Value::as_bool) == Some(true) {
         return Ok(value.get("data").cloned().unwrap_or(Value::Null));
     }

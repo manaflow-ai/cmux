@@ -906,6 +906,15 @@ pub(super) struct ConnectFailure {
 
 /// [`connect_command`] that says whether its failure may pass by waiting.
 pub(super) fn connect_command_or_wait(global: &GlobalArgs) -> Result<UnixStream, ConnectFailure> {
+    let stream = connect_command_or_wait_unchecked(global)?;
+    // Warns, once, when the app on the other end is older than this installed CLI.
+    if let Ok(socket) = command_socket(global) {
+        super::stale_app::warn_if_stale(global, &socket.path);
+    }
+    Ok(stream)
+}
+
+fn connect_command_or_wait_unchecked(global: &GlobalArgs) -> Result<UnixStream, ConnectFailure> {
     let fixed = |error| ConnectFailure { error, may_pass: false };
     let socket = command_socket(global).map_err(fixed)?;
     let uid = cmux_tui_core::platform::effective_uid();

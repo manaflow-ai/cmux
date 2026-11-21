@@ -108,6 +108,8 @@ public final class AgentPaneView: NSView {
     private var pageResources: AgentPageResources?
     /// Whether the page can take typing yet (the key dispatcher queues keys until then).
     public let inputReadiness: PageInputReadiness
+    /// The text of held keys on its way into the page while the app is not active (``typeHeldText(of:appIsActive:)``), in order.
+    var heldKeyTyping: Task<Void, Never>?
     /// Re-pushes the theme when ui.animationSpeed or Reduce Motion changes, so the
     /// page's `--agent-motion-*` fades follow them (AgentPaneTheme.values).
     private var motionObservation: Task<Void, Never>?, sessionStatusObservation: Task<Void, Never>?, iconFamilyObservation: Task<Void, Never>?
@@ -164,6 +166,9 @@ public final class AgentPaneView: NSView {
     /// Bounded reports from the app-owned webview UI picker.
     /// Receives a bounded element report while the debug UI pointer is active.
     public var uiPointerReport: (@MainActor (JSONValue) -> Void)?
+    /// Told the ids of browser picks (``AgentPaneDesignSelection``) that left this chat's composer,
+    /// removed or sent, so the browser takes their pins off its page.
+    public var designSelectionReleased: (@MainActor ([String]) -> Void)?
     /// Where (screen points) and when (system uptime) this page's context menu last opened:
     /// Inspect Element starts the picker there, with no app-wide right-click monitor.
     public internal(set) var lastContextMenu: (point: NSPoint, uptime: TimeInterval)?
@@ -291,6 +296,7 @@ public final class AgentPaneView: NSView {
         self.webView = webView
         super.init(frame: .zero)
         pageEvents?.onUiPointerReport = { [weak self] value in self?.uiPointerReport?(value) }
+        pageEvents?.onDesignSelectionReleased = { [weak self] ids in self?.designSelectionReleased?(ids) }
         pageEvents?.onFlicker = { [weak self] params in self?.recordPageFlicker(params) }
         pageResources?.themeKey = { [weak self] in
             guard let self else { return nil }

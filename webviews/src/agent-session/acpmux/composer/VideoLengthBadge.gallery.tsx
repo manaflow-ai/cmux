@@ -6,7 +6,7 @@
 //
 //   composer strip chip (64 tall)  composer/VideoAttachmentTile.tsx in the attachment strip
 //   chip in the text (48 tall)     the same tile placed in the prompt's text (markdownField.css)
-//   sent tile (120 tall)           conversation/SentVideoTile.tsx in a sent prompt's row
+//   sent tile (160 tall)           conversation/SentVideoTile.tsx in a sent prompt's row
 //   queued tile (36 tall)          QueuedImages.tsx under a queued prompt
 //
 // The variants are the looks compared for the rule (composer/videoLengthFit.ts); `corner-or-hidden`
@@ -15,6 +15,7 @@ import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import { SCREEN_RECORDING_POSTER_JPEG } from "../../../gallery/fixtures/videoPoster";
 import { SentVideoTile } from "../conversation/SentVideoTile";
+import { SENT_IMAGE_HEIGHT } from "../conversation/userBubbleModel";
 import { QueuedImages } from "../QueuedImages";
 import { useT } from "../i18n";
 import { VideoAttachmentTile } from "./VideoAttachmentTile";
@@ -155,7 +156,7 @@ function Tiles({ size }: { size: "strip" | "inline" | "sent" | "queued" }) {
             </span>
           );
         if (size === "sent") {
-          const height = 120;
+          const height = SENT_IMAGE_HEIGHT;
           return (
             <span key={key} className="cv-user__images vlb-sent" {...data}>
               <SentVideoTile
@@ -199,7 +200,7 @@ function Tiles({ size }: { size: "strip" | "inline" | "sent" | "queued" }) {
 const ROWS = [
   { size: "strip", label: "Composer strip chip, 64 tall" },
   { size: "inline", label: "Chip in the prompt's text, 48 tall (Leo's 36 × 48 chip is the first)" },
-  { size: "sent", label: "Sent prompt's tile, 120 tall" },
+  { size: "sent", label: "Sent prompt's tile, 160 tall" },
   { size: "queued", label: "Queued prompt's tile, 36 tall" },
 ] as const;
 
