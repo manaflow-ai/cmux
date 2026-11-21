@@ -237,8 +237,33 @@ class MainFixEvidenceTests(unittest.TestCase):
             with self.subTest(conclusion=conclusion):
                 self.gh = FakeGitHub()
                 self.sibling_pair("success", newest=conclusion)
-                with self.assertRaisesRegex(module.Refused, "lane tests: failed check has no same-base test match"):
+                with self.assertRaises(module.Refused) as caught:
                     self.validate()
+                self.assertIn("lane tests: failed check has no same-base test match", str(caught.exception))
+                # The newest check run's refusal says the name and stops. An implementation that always appended the
+                # sibling clause would satisfy the message above, and would then name a sibling of a check that has
+                # none.
+                self.assertNotIn("sibling of the newest", str(caught.exception))
+
+    def test_the_base_match_waiver_does_not_reach_a_sibling_it_never_examined(self):
+        """The waiver `cmux-next swift test` earns by failing the same way on the base was read from one check run,
+        the newest of that name; a sibling of it is another workflow's job, whose own failure nobody compared with
+        anything. Letting the waiver cover the name rather than the check run would excuse exactly the red this sweep
+        is for. The same holds for `ci-status`, below."""
+        for name in (module.SWIFT, "ci-status"):
+            with self.subTest(name=name):
+                self.gh = FakeGitHub()
+                self.gh.fail_test()
+                # Older than the matched check run (ids 3 and 4), so the matched one stays the name's newest. The id
+                # repeats one the fake already uses for another name, which nothing here reads: this check run is
+                # never fetched as a job, only swept.
+                self.gh.head_checks.append({"id": 2 if name == module.SWIFT else 3, "name": name,
+                                            "status": "completed", "conclusion": "failure",
+                                            "app": {"slug": "github-actions"}, "check_suite": {"id": 9100},
+                                            "details_url": "https://github.com/manaflow-ai/cmux/actions/runs/91/job/91"})
+                with self.assertRaises(module.Refused) as caught:
+                    self.validate()
+                self.assertIn(f"{name}: failed check has no same-base", str(caught.exception))
 
     def sibling_pair(self, older, newest="success"):
         """One job name in two workflows: two check runs of 'lane tests' at the head, the older one with conclusion
