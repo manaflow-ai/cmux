@@ -86,4 +86,21 @@ struct PagedListShiftLedgerTests {
         #expect(ledger.explained == 0)
         #expect(ledger.pending == 0)
     }
+
+    /// A row that changes height in place moves one edge: no shift, whichever edge it is
+    /// (up-*-flood kept the bottom, step 6d8bcee4; down-*-edits kept the top, step d20b5519).
+    @Test func aRowChangingHeightInPlaceDrawsNoShift() {
+        #expect(PagedListShiftLedger.drawnShift(top: -22, bottom: 0) == 0)
+        #expect(PagedListShiftLedger.drawnShift(top: 0, bottom: -22) == 0)
+        #expect(PagedListShiftLedger.drawnShift(top: -11, bottom: 11) == 0)
+    }
+
+    /// A move of the whole row counts in full, and a move that comes with a size change counts the
+    /// part both edges share (the move), not the size change.
+    @Test func aMoveOfTheWholeRowCountsWhatBothEdgesShare() {
+        #expect(PagedListShiftLedger.drawnShift(top: 10, bottom: 10) == 10)
+        #expect(PagedListShiftLedger.drawnShift(top: -10, bottom: -10) == -10)
+        #expect(PagedListShiftLedger.drawnShift(top: 10, bottom: 32) == 10)
+        #expect(PagedListShiftLedger.drawnShift(top: -410, bottom: -414.7) == -410)
+    }
 }
