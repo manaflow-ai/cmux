@@ -1315,6 +1315,7 @@ fn the_store_examples_list_and_install_for_the_user() {
 #[test]
 fn a_first_party_store_app_built_into_the_store_folder_is_listed_not_installed() {
     let apps = Apps::new("fp-store");
+    // affected-reads: docs/cmux-next/sidebar-customization samples/apps first-party-apps scripts/cmux-next
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let quick_links = repo.join("samples/apps/quick-links");
     let first_party = apps.dir.join("fp-src");
