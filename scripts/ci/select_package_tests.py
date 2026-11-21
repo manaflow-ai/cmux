@@ -178,6 +178,9 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--changed-files", help="one path per line; omit when the diff is unknown")
     parser.add_argument("--routed-inputs-only", action="store_true",
                         help="select only inputs eligible for the targeted PR lane")
+    parser.add_argument("--skip-absent", action="store_true",
+                        help="leave out a listed package this tree does not have yet (one listed ahead of the "
+                             "pull request that adds it), with a note, instead of failing")
     parser.add_argument("packages", nargs="+")
     args = parser.parse_args(argv)
 
@@ -190,6 +193,12 @@ def main(argv: list[str]) -> int:
         changed = [path for path in changed if is_routed_input(path, Path(args.root))]
     # The list has historical duplicates; keep the first of each.
     packages = list(dict.fromkeys(args.packages))
+    if args.skip_absent:
+        present = package_dirs(Path(args.root))
+        for name in packages:
+            if name not in present:
+                print(f"{name} is listed but not under Packages/*/ in this tree; skipping it", file=sys.stderr)
+        packages = [name for name in packages if name in present]
     for name in select(Path(args.root), packages, changed):
         print(name)
     return 0
