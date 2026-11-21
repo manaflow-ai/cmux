@@ -183,6 +183,10 @@ impl Hub {
 pub fn closest(names: &[String], key: &str) -> Vec<String> {
     let mut out = crate::session_name::candidates(names.iter().map(String::as_str), key);
     out.truncate(CLOSEST_SHOWN);
+    let id_key = key.rsplit('/').next().unwrap_or(key);
+    if crate::session_identity::agent_id_query(id_key) && !out.is_empty() {
+        return out;
+    }
     if out.len() < CLOSEST_SHOWN {
         let lower = key.to_ascii_lowercase();
         let mut rest: Vec<(usize, &String)> = names

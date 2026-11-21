@@ -1632,14 +1632,11 @@ impl Hub {
             names.extend(map.values().filter_map(|r| {
                 let peer_matches =
                     requested_peer.is_none_or(|peer| r.peer.eq_ignore_ascii_case(peer));
-                r.summary
-                    .agent_session_id()
-                    .filter(|id| {
-                        peer_matches && crate::session_name::contains_ignore_case(id, id_key)
-                    })
-                    .map(|id| {
+                r.summary.agent_session_id().filter(|_| peer_matches && !remote_closed(r)).map(
+                    |id| {
                         requested_peer.map_or_else(|| id.to_owned(), |peer| format!("{peer}/{id}"))
-                    })
+                    },
+                )
             }));
         }
         names

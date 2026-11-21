@@ -2466,14 +2466,9 @@ impl Hub {
         if id_query && local_host {
             names.extend(self.sessions().iter().filter_map(|s| {
                 let meta = s.meta();
-                meta.agent_session_id
-                    .filter(|id| {
-                        meta.status != SessionStatus::Closed
-                            && id.to_ascii_lowercase().contains(id_key)
-                    })
-                    .map(|id| {
-                        requested_host.map_or_else(|| id.clone(), |host| format!("{host}/{id}"))
-                    })
+                meta.agent_session_id.filter(|_| meta.status != SessionStatus::Closed).map(|id| {
+                    requested_host.map_or_else(|| id.clone(), |host| format!("{host}/{id}"))
+                })
             }));
         }
         names.extend(self.remote_names_containing(&lower));
