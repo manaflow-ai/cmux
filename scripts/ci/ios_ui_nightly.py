@@ -136,6 +136,11 @@ def command_report(args: argparse.Namespace) -> int:
         ]))
         body = failure_body(run, jobs)
         if plan == "open" and issue is None:
+            # Two report jobs can still overlap a create from before this run
+            # started; a slower job must comment on the issue the faster one
+            # opened, not open a second one (#44421).
+            issue = tracking_issue(args.repo)
+        if plan == "open" and issue is None:
             ensure_label(args.repo)
             gh([
                 f"repos/{args.repo}/issues",

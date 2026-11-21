@@ -25,6 +25,11 @@ from delivery_concurrency import can_be_shared, findings, matching, stale_allowa
 # per run, SHA or build (scripts/ci/delivery_concurrency.py; the same check runs in
 # manaflow-ai/cmuxterm-hq and teamleaderleo/glaeda).
 ALLOWED_SHARED: dict[tuple[str, str], str] = {
+    ("ios-ui-tests-nightly.yml", "report"): (
+        "the report job builds nothing: it syncs one tracking issue, reading it when it starts; only failure "
+        "and success runs queue, so the report that replaces a waiting one carries a newer verdict, so the issue still ends open or closed "
+        "correctly and only the replaced run's comment is dropped; the group stops two reports from both "
+        "opening a red issue (#44421)"),
     ("cmux-next-dev-daily-dispatch.yml", ""): (
         "the dispatcher snapshots the branch tip when it starts and builds nothing itself; the run that "
         "waits does the work of any it replaced"),

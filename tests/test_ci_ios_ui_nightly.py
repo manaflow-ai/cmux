@@ -1,10 +1,14 @@
 """The nightly run of every iOS UI test: the run it reports, its issue body, and its wiring."""
 
+import argparse
 import importlib.util
 import pathlib
 import re
 import sys
 import unittest
+from unittest import mock
+
+import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/ios_ui_nightly.py"
@@ -112,6 +116,67 @@ class WiringTests(unittest.TestCase):
         self.assertIsNotNone(cap)
         self.assertIsNotNone(bound)
         self.assertLess(int(bound.group(1)), int(cap.group(1)) * 60)
+
+    def test_report_jobs_serialize_to_avoid_duplicate_issues(self):
+        # Parsed, so a commented-out block cannot satisfy it.
+        report = yaml.safe_load(NIGHTLY.read_text())["jobs"]["report"]
+        self.assertEqual(report.get("concurrency"), {
+            "group": "ios-ui-nightly-report",
+            "cancel-in-progress": False,
+        })
+
+    def test_only_runs_that_can_change_the_issue_enter_the_report_queue(self):
+        # A newer queued report replaces a waiting one. A run whose conclusion
+        # plans nothing (cancelled, skipped, ...) must therefore never queue,
+        # or it can replace a waiting failure report and lose that failure.
+        condition = yaml.safe_load(NIGHTLY.read_text())["jobs"]["report"]["if"]
+        admitted = set(re.findall(r"github\.event\.workflow_run\.conclusion == '(\w+)'", condition))
+        conclusions = {"action_required", "cancelled", "failure", "neutral", "skipped", "stale", "success",
+                       "timed_out", "startup_failure"}
+        acting = {c for c in conclusions
+                  if any(MODULE.issue_plan(c, is_open, False) != "none" for is_open in (False, True))}
+        self.assertEqual(admitted, acting)
+
+
+class CommandReportTests(unittest.TestCase):
+    """A slower report job must not open a second red issue (#44421)."""
+
+    def setUp(self):
+        self.calls = []
+        self.patchers = [
+            mock.patch.object(MODULE, "gh", self.calls.append),
+            mock.patch.object(MODULE, "ensure_label", lambda repo: self.calls.append(["ensure-label"])),
+            mock.patch.object(MODULE, "failing_jobs", lambda jobs: jobs),
+            mock.patch.object(MODULE, "gh_json_lines",
+                              lambda args: [run()] if args[0] == "repos/o/r/actions/runs/7" else []),
+            mock.patch.object(MODULE, "issue_mentions", lambda repo, issue, text: False),
+        ]
+        for patcher in self.patchers:
+            patcher.start()
+
+    def tearDown(self):
+        for patcher in reversed(self.patchers):
+            patcher.stop()
+
+    def test_a_slower_job_comments_on_the_issue_the_faster_one_opened(self):
+        opened = {"number": 11, "state": "open", "body": ""}
+        lookups = []
+
+        def tracking_issue(repo):
+            lookups.append(repo)
+            return None if len(lookups) == 1 else dict(opened)
+
+        self.patchers.append(mock.patch.object(MODULE, "tracking_issue", tracking_issue))
+        self.patchers[-1].start()
+        code = MODULE.command_report(argparse.Namespace(repo="o/r", run_id="7", branch="main"))
+
+        self.assertEqual(code, 0)
+        self.assertGreaterEqual(len(lookups), 2)  # re-checked before opening
+        self.assertNotIn(["ensure-label"], self.calls)  # no duplicate label/issue work
+        self.assertFalse([c for c in self.calls if c and c[0] == "repos/o/r/issues"],
+                         "a second red issue was created")
+        self.assertIn(["-X", "PATCH", "repos/o/r/issues/11", "-f", "state=open"], self.calls)
+        self.assertTrue([c for c in self.calls if c and c[0] == "repos/o/r/issues/11/comments"])
 
 
 if __name__ == "__main__":
