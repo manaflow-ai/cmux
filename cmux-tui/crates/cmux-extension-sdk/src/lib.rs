@@ -73,6 +73,13 @@ pub fn signal(name: &str) -> Option<&'static Signal> {
     SIGNALS.iter().find(|s| s.name == name)
 }
 
+/// Placement of a composer's live reasoning choices in a searchable model picker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReasoningMenu {
+    Column,
+    Separate,
+}
+
 /// Where a sidebar section starts; the person moves it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Region {
@@ -225,6 +232,21 @@ impl Manifest {
         {
             items.push(entry);
         }
+        self
+    }
+
+    /// Use the searchable model menu, with the live reasoning choices in the menu's column
+    /// or in a separate chip. This data-only interface needs no activation or scope.
+    pub fn model_picker(mut self, reasoning: ReasoningMenu) -> Self {
+        let reasoning = match reasoning {
+            ReasoningMenu::Column => "column",
+            ReasoningMenu::Separate => "separate",
+        };
+        self.insert_in(
+            "implements",
+            "cmux.composer.model.picker/1",
+            json!({ "options": { "modelMenu": "search", "reasoningMenu": reasoning } }),
+        );
         self
     }
 
