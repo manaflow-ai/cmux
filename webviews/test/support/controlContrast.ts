@@ -405,7 +405,8 @@ export async function controlContrast({ file, part, parts, viteConfig }: Control
       // CONTROL_CONTRAST_PRINT_BASELINE=1 prints the worst reading per class, for a run whose
       // files stay on a fleet worker; the lines after the prefix are baseline lines.
       if (process.env.CONTROL_CONTRAST_PRINT_BASELINE === "1")
-        for (const [key, floor] of [...worst].sort()) console.log(`control-contrast baseline: ${key} ${floor}`);
+        for (const [key, floor] of [...worst].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+          console.log(`control-contrast baseline: ${key} ${floor}`);
       const read = results.filter((result) => !("error" in result));
       console.log(
         `control-contrast: read ${read.length} of ${stages.length} stages, ${controls} controls, ${all.length} failing readings, ${fresh.length} new`,
