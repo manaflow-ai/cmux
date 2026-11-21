@@ -52,13 +52,9 @@ impl<W: Write> Recorder<W> {
     }
 
     /// True until a keyframe with its SPS and PPS started the file.
+    #[cfg(test)]
     pub fn waiting_for_keyframe(&self) -> bool {
         !self.started
-    }
-
-    /// Frames written so far (the held one not counted).
-    pub fn frames(&self) -> u64 {
-        self.frames
     }
 
     /// Adds one access unit (Annex-B) captured at `t_capture_us`. Frames

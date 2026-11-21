@@ -108,7 +108,7 @@ fn a_recording_is_an_init_segment_and_one_fragment_per_frame() {
     let tkhd = child(trak, "tkhd");
     assert_eq!((be32(tkhd, 76) >> 16, be32(tkhd, 80) >> 16), (64, 40));
     let mdhd = child(child(trak, "mdia"), "mdhd");
-    assert_eq!(be32(mdhd, 12), crate::mp4::TIMESCALE);
+    assert_eq!(be32(mdhd, 12), mp4::TIMESCALE);
     let sps = nal_units(&units[0]).into_iter().find(|n| nal_type(n) == 7).unwrap();
     let at = file.windows(4).position(|w| w == b"avcC").expect("avcC");
     assert_eq!(&file[at + 4..at + 8], &[1, 100, sps[2], sps[3]]);
