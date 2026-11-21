@@ -1,6 +1,7 @@
 //! Part of `Hub`; see `hub/mod.rs`.
 
 use super::exit_reason::explains_exit;
+use super::transcript::REPLAY_CHARS;
 use super::*;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -1194,9 +1195,15 @@ impl Hub {
             || (team_enabled && self.has_team_work(session, &team_prompt_ids))
             || super::inbox::is_notice(provenance.as_ref());
         if session.rehydrate.swap(false, Ordering::SeqCst)
-            && let Some(transcript) = self.transcript(session, 24_000, &prompt_id)
+            && let Some(transcript) = self.transcript(session, REPLAY_CHARS, &prompt_id)
         {
+            // The whole transcript covers what an older agent session lacked too.
+            session.meta.lock().unwrap_or_else(|e| e.into_inner()).agent_behind_seq = None;
             blocks.insert(0, restored_transcript(session, &transcript));
+        } else if let Some(block) = self.missed_turns(session, REPLAY_CHARS) {
+            // The agent resumed an older copy of its own session (`journal_restore.rs`): only
+            // the turns after it.
+            blocks.insert(0, block);
         }
         // The forum rules this session was not told yet (`hub/forum.rs`).
         let mut told = self.forum_context(session, pushed.clone(), &mut blocks).await;
@@ -1459,7 +1466,8 @@ impl Hub {
                         // attempt's blocks, whose write may have failed before it was confirmed.
                         let rules_in_message = rules_owed || rules_owed_here;
                         if session.rehydrate.swap(false, Ordering::SeqCst)
-                            && let Some(transcript) = self.transcript(session, 24_000, &prompt_id)
+                            && let Some(transcript) =
+                                self.transcript(session, REPLAY_CHARS, &prompt_id)
                         {
                             blocks.insert(0, restored_transcript(session, &transcript));
                             // The new agent session gets every rule again.
