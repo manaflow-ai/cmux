@@ -442,7 +442,7 @@ final class AppServices {
     let chiefMascotPicks = ChiefMascotPicks(defaults: .standard, defaultChief: HomeChiefAvatars.defaultChief)
     /// Each Chief's own uploaded avatar, kept on this Mac only (Application Support/<bundle id>/AvatarUploads).
     let chiefAvatarUploads = ChiefAvatarUploads(folder: ChiefAvatarUploads.defaultFolder)
-    let chiefSidebarPictures = ChiefSidebarPictures()  // the sidebar Chief item's picture, one per upload
+    let chiefSidebarPictures = ChiefSidebarPictures(), chiefSidePanel = ChiefSidePanel()  // the sidebar Chief item's picture, one per upload; Chief in Side Panel
     /// The chat the Chief pet (the floating mini) stands for: the Chief, or one Show in Mini picked.
     private(set) lazy var chiefPetMini = ChiefPetMini(uploads: chiefAvatarUploads, localHost: { [weak self] in self?.agentTabs.localHost },
                                                       settings: { [weak self] in self?.settings }, pet: { [weak self] in self?.notifications.chiefPet },
