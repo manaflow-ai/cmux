@@ -115,7 +115,7 @@ impl RowLog {
 /// `server::deliver` sends a `session_changed` for.
 pub(super) fn row_change(ev: &HubEvent) -> Option<(RowKey, bool)> {
     let rec = &ev.record;
-    if rec.kind == PEER_LAGGED || rec.kind == PEER_ROWS_CHANGED {
+    if rec.kind == PEER_LAGGED || rec.kind == PEER_REWOUND || rec.kind == PEER_ROWS_CHANGED {
         return None;
     }
     if let Some(remote) = &ev.remote {

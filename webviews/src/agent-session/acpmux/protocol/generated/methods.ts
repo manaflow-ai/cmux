@@ -371,6 +371,7 @@ export interface AcpmuxNotifications {
   "_acpmux/cancel_refused": unknown;
   "_acpmux/unsent": unknown;
   "_acpmux/lagged": unknown;
+  "_acpmux/rewound": unknown;
 }
 
 /** Daemon to client requests the client answers. */
@@ -747,5 +748,6 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/cancel_refused", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/unsent", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/lagged", kind: "notification", acp: false, typed: false },
+  { name: "_acpmux/rewound", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/disconnected", kind: "client_local", acp: false, typed: false },
 ];

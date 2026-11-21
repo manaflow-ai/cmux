@@ -2157,6 +2157,16 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         }
         return;
     }
+    if ev.record.kind == crate::hub::PEER_REWOUND {
+        if conn.sub_opts(&ev.session_id).is_some() {
+            let mut params = ev.record.msg.clone();
+            if let (Some(remote), Some(fields)) = (&ev.remote, params.as_object_mut()) {
+                fields.insert("peer".to_owned(), json!(remote.peer));
+            }
+            conn.send(&Message::notification(method::MUX_REWOUND, params));
+        }
+        return;
+    }
     // A chat's cold archive came or went (`hub/cold_archive.rs`): its row's `coldArchive`; or
     // another unlogged row change (`row_notice`). Not a logged record, so nothing but this
     // notice goes out for it.

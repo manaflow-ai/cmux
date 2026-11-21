@@ -85,6 +85,8 @@ mod owned_scope_bench_tests;
 #[cfg(test)]
 mod peer_notice_cost_tests;
 #[cfg(test)]
+mod peer_rewound_tests;
+#[cfg(test)]
 mod phone_floor_tests;
 #[cfg(test)]
 mod prompt_accept_tests;
@@ -379,7 +381,8 @@ mod peers;
 mod remote_rows;
 mod remote_table;
 pub(crate) use peers::{
-    PEER_LAGGED, PEER_PERMISSION_PENDING, PEER_ROWS_CHANGED, PEER_SETTLE_BUDGET, is_permission_ask,
+    PEER_LAGGED, PEER_PERMISSION_PENDING, PEER_REWOUND, PEER_ROWS_CHANGED, PEER_SETTLE_BUDGET,
+    is_permission_ask,
 };
 mod permission_groups;
 mod permissions;
