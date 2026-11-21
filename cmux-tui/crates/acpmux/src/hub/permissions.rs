@@ -313,15 +313,17 @@ impl Hub {
                     }
                 }
                 Inbound::Exited { pid, code, host_seq } => {
-                    {
+                    let signal = {
                         let mut slot = session.child.lock().await;
                         // A late exit from a process that was already replaced
                         // must not detach the new one.
                         if slot.as_ref().is_some_and(|c| c.pid != pid) {
                             continue;
                         }
-                        *slot = None;
-                    }
+                        slot.take().and_then(|c| c.exit_signal())
+                    };
+                    // Its code or signal, which the chat's next close records (`close_record.rs`).
+                    self.note_agent_exit(&session, pid, code, signal);
                     self.cancel_pending_permissions(&session);
                     self.revoke_permission_chat(&session);
                     // A new agent holds no grant and no undeclared mode.

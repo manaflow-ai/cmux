@@ -90,6 +90,7 @@ pub(crate) mod session_tail;
 pub mod session_turn_cap;
 pub mod shutdown;
 pub(crate) use crate::slow_notice;
+pub(crate) mod agent_verbs;
 #[cfg(test)]
 mod skill_coverage_tests;
 pub mod stdio;

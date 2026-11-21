@@ -154,6 +154,7 @@ cmux agent session rename --handle NAME Mango    # change the handle without cha
 cmux agent ls Mango                               # the same session's handle, task, host and harness
 acpmux --json ls --machine local --live            # this machine's sessions only: `ls` lists every machine's, so a script after its own passes this
 cmux agent session info NAME                           # model, mode, policy, pending permissions, usage
+cmux agent session info NAME                           # a closed one: `closed:` says when, why, by what command and pid, and the agent's exit
 cmux agent session info NAME --fields status,turn.activity   # just those fields (one field: its bare value), no `--json | python3`
 cmux agent ls 'review-*' --fields name,status          # name globs (`machine/glob` for one machine); --fields takes dotted paths
 cmux agent send --tag area=X [--dry-run] "…"           # a --no-wait message to every live session with the tag, one line each
@@ -317,6 +318,7 @@ cmux agent wait NAME --until running             # the prompt was accepted
 cmux agent wait NAME --until done                # turn ended while no client was attached
 cmux agent wait NAME --match "tests pass"        # or --regex; existing text matches at once
 cmux agent session tail NAME --since CURSOR -f   # raw events as JSON lines; cursor = sessionId:seq
+cmux agent events NAME -n 25                     # the same: `events`, `log`, `logs`, `tail` are one command (-n/--tail N, -f/--follow)
 ```
 
 Exit 3 is a timeout. A timeout or `prompt_stalled` does not prove the prompt

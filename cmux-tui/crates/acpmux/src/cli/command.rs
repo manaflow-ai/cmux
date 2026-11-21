@@ -123,6 +123,7 @@ pub(super) mod aliases {
         RENAME => ["rename-session"],
         SHUTDOWN => ["kill-server"],
         SEARCH => ["grep"],
+        TAIL => ["events", "log", "logs"],
     }
 }
 
@@ -663,10 +664,13 @@ pub enum Command {
     #[command(hide = true)]
     ToolsMcp,
     // Old spellings, kept working but hidden from help.
-    #[command(hide = true)]
+    /// A session's recent events as JSON lines (`session tail`): `events`, `log` and `logs` are
+    /// this command too, the names agents reach for.
+    #[command(hide = true, aliases = aliases::TAIL)]
     Tail {
         session: String,
-        #[arg(long, default_value_t = 50)]
+        /// How many of the newest events (`--tail N`, `-n N`).
+        #[arg(long, short = 'n', visible_alias = "tail", default_value_t = 50)]
         last: u64,
         #[arg(long, short)]
         follow: bool,
@@ -1295,10 +1299,13 @@ pub enum SessionCmd {
         #[arg(long)]
         after_turn: bool,
     },
-    /// Print the last raw events as JSON lines; -f keeps following.
+    /// Print the last raw events as JSON lines; -f keeps following. Also `events`, `log`, `logs`
+    /// (and `acpmux events NAME`, `acpmux log NAME`, `acpmux tail NAME`).
+    #[command(aliases = ["events", "log", "logs"])]
     Tail {
         session: String,
-        #[arg(long, default_value_t = 50)]
+        /// How many of the newest events (`--tail N`, `-n N`).
+        #[arg(long, short = 'n', visible_alias = "tail", default_value_t = 50)]
         last: u64,
         #[arg(long, short)]
         follow: bool,
