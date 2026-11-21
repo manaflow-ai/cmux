@@ -20,6 +20,7 @@ name: cmux-next web
 # 2026-11-21: "id rather we simply cut shit now and revisit later." It stays for its dispatch: next_batch.py's web
 # lane dispatches it on a stack head (WEB_WORKFLOW), where coalesce runs at once (`wait --off`) and web bisect, a
 # push-only job, never starts. The batch tier's own bisect replaces web bisect and the 120-minute coalescing below.
+# post_merge_batch.py tick no longer dispatches its coalescing tick (the `tick` input stays for a hand dispatch).
 on:
   workflow_dispatch:
     inputs:
