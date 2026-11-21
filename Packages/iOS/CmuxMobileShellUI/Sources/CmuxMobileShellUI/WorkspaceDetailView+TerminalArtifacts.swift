@@ -30,6 +30,7 @@ extension WorkspaceDetailView {
         ),
         fontSize: MobileTerminalFontPreference.defaultSize,
         terminalPresentationIsActive: scenePhase == .active,
+        connectionIsLive: store.connectionState == .connected,
         // Do not let a terminal reattach steal focus while the
         // composer owns or intentionally withholds the keyboard.
         autoFocusOnWindowAttach: shouldAutoFocus,
