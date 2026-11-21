@@ -1,0 +1,219 @@
+// A message surge the chat's inbox holds (cmuxterm-hq RFD 0018, per-host-dedup handbook page): when
+// other agents write faster than the chat should take turns, acpmux stores their messages in the
+// chat's inbox and wakes the agent only for the ones that need it. The pane draws that as one row of
+// the composer hat (SurgeHoldRow.tsx), never a row per held message (Leo, 2026-11-20: "when it gets
+// to states like this all of you need to be able to temporarily let the messages go to some inbox
+// that you later categorize/read maybe with a cheaper model to filter things").
+//
+// The wire (acpmux's receiver, forum-surge-inbox): a persisted mux `inbox` event with
+// `msg.surgeHeld === true` and `msg.surge = {held, needYou}`, a cumulative snapshot, and later
+// `inbox_triaged` events with a new `msg.surge`. The newest snapshot by seq is the row; a page of
+// older events read later never moves it back. `_acpmux/inbox_threads` lists the threads, and may
+// carry the same `surge` snapshot.
+import type { InboxNotice, InboxThread, SenderRef } from "./inboxNotice";
+import { foldFind } from "./chatFind";
+
+/// The chat's held surge, as its newest snapshot said.
+export type SurgeHold = {
+  /// Messages held in the inbox without a turn.
+  held: number;
+  /// Distinct unresolved topics that triage marked for this session.
+  needYou: number;
+  /// Sequence of the journal snapshot. Older, unversioned listings start at zero.
+  seq: number;
+  /// When the snapshot was taken (Unix ms), when known.
+  at?: number;
+};
+
+const count = (value: unknown): number | undefined =>
+  typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.floor(value) : undefined;
+
+/// A `surge` object's counts, or undefined when it names none.
+export function surgeCounts(value: unknown): { held: number; needYou: number } | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  const held = count(record.held);
+  const needYou = count(record.needYou);
+  if (held === undefined && needYou === undefined) return undefined;
+  return { held: held ?? 0, needYou: needYou ?? 0 };
+}
+
+/// A listing or count-only read names the event its counts came from. Older daemons
+/// omitted that cursor, so their reply can seed an empty row until a journal event arrives.
+export function listedSurge(value: unknown): SurgeHold | undefined {
+  const counts = surgeCounts(value);
+  if (!counts) return undefined;
+  const seq = count((value as Record<string, unknown>).seq) ?? 0;
+  return { ...counts, seq };
+}
+
+/// The snapshot a mux event carries: a held `inbox` event's or an `inbox_triaged` event's.
+export function surgeOfEvent(kind: string, msg: unknown, seq: number, at?: number): SurgeHold | undefined {
+  if (kind !== "inbox" && kind !== "inbox_triaged") return undefined;
+  const record = (msg ?? {}) as Record<string, unknown>;
+  if (kind === "inbox" && record.surgeHeld !== true) return undefined;
+  const counts = surgeCounts(record.surge);
+  return counts && { ...counts, seq, ...(at !== undefined && { at }) };
+}
+
+/// The newer of two snapshots: by seq, a tie to the later one heard.
+export function newerSurge(current: SurgeHold | undefined, next: SurgeHold | undefined): SurgeHold | undefined {
+  if (!next) return current;
+  if (!current || next.seq >= current.seq) return next;
+  return current;
+}
+
+/// Whether the row draws: something is held or needs the person.
+export const surgeShows = (surge: SurgeHold | undefined): surge is SurgeHold =>
+  Boolean(surge && (surge.held > 0 || surge.needYou > 0));
+
+/// One thread of `_acpmux/inbox_threads` (hub/inbox.rs `inbox_threads`).
+type ListedThread = {
+  threadId?: unknown;
+  label?: unknown;
+  from?: unknown;
+  count?: unknown;
+  unread?: unknown;
+  newestAt?: unknown;
+  newestPreview?: unknown;
+  class?: unknown;
+  sender?: unknown;
+  surgeHeld?: unknown;
+  held?: unknown;
+  needYou?: unknown;
+  needsYou?: unknown;
+};
+
+/// A listed thread as the received-messages card (InboxNoticeCard.tsx) draws one, with when its
+/// newest message came for the order.
+export type HeldThread = InboxThread & {
+  newestAt: number;
+  /// It needs this session (the person or its agent): the triage's own per-thread mark (`needYou`),
+  /// else a block or a question (`class: "blocker"`) from a listing that marks none.
+  needYou: boolean;
+};
+
+const text = (value: unknown): string => (typeof value === "string" ? value : "");
+
+const senderOf = (value: unknown): SenderRef | undefined => {
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  const session = text(record.session);
+  const label = text(record.label);
+  return session || label ? { ...(session && { session }), ...(label && { label }) } : undefined;
+};
+
+/// The listing's reply as the threads the panel lists: a listing that marks held threads
+/// (`surgeHeld` or `held` on a thread) lists only those; one that marks none lists every thread.
+/// The ones that need the person first, then the newest.
+export function heldThreads(reply: unknown): HeldThread[] {
+  const listed = (reply as { threads?: unknown } | null)?.threads;
+  if (!Array.isArray(listed)) return [];
+  const rows = listed.filter((row): row is ListedThread => Boolean(row) && typeof row === "object");
+  const marks = rows.some((row) => row.surgeHeld === true || row.held === true);
+  const threads: HeldThread[] = [];
+  for (const row of marks ? rows.filter((r) => r.surgeHeld === true || r.held === true) : rows) {
+    const threadId = text(row.threadId);
+    if (!threadId) continue;
+    const from = Array.isArray(row.from) ? row.from.filter((f): f is string => typeof f === "string" && f !== "") : [];
+    const sender = senderOf(row.sender);
+    threads.push({
+      threadId,
+      label: text(row.label),
+      from,
+      ...(sender && { sender }),
+      ...(sender?.session && { fromSession: sender.session }),
+      count: count(row.count) || 1,
+      preview: text(row.newestPreview),
+      blocker: row.class === "blocker",
+      promptIds: [],
+      newestAt: count(row.newestAt) ?? 0,
+      needYou:
+        typeof row.needYou === "boolean"
+          ? row.needYou
+          : typeof row.needsYou === "boolean"
+            ? row.needsYou
+            : row.class === "blocker",
+    });
+  }
+  return threads.sort((a, b) => Number(b.needYou) - Number(a.needYou) || b.newestAt - a.newestAt);
+}
+
+/// The threads a search keeps: every word of it in the thread's label, senders or newest preview
+/// (case and accents folded as Find folds them). An empty search keeps them all.
+export function searchThreads(threads: readonly HeldThread[], query: string): HeldThread[] {
+  const words = foldFind(query).split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [...threads];
+  return threads.filter((thread) => {
+    const hay = foldFind([thread.label, ...thread.from, thread.sender?.label ?? "", thread.preview].join("\n"));
+    return words.every((word) => hay.includes(word));
+  });
+}
+
+/// How many threads the panel draws at a time: each drawn line reads its thread once, so a surge of
+/// hundreds costs what a short one does until the person asks for more.
+export const HELD_PAGE = 20;
+
+/// The threads drawn, as one notice for the received-messages card.
+export function heldNotice(threads: readonly HeldThread[], shown: number): InboxNotice {
+  return { threads: threads.slice(0, Math.max(0, shown)) };
+}
+
+/// One post the inbox's archive holds that matched a search (`_acpmux/inbox_threads` with
+/// `search`): whole, including posts evicted from the live inbox and older text in a live thread.
+export type ArchiveHit = {
+  seq: number;
+  at?: number;
+  promptId?: string;
+  threadId: string;
+  text: string;
+  from: string;
+  sender?: SenderRef;
+};
+
+/// A page of archive hits, and the cursor (`before`) that reads the page after it, if any.
+export type ArchivePage = { hits: ArchiveHit[]; next?: string | number };
+
+/// The archive's reply as a page: hits without text or a thread are dropped, never drawn empty.
+export function archivePage(reply: unknown): ArchivePage {
+  const record = (reply ?? {}) as { hits?: unknown; next?: unknown };
+  const hits: ArchiveHit[] = [];
+  for (const raw of Array.isArray(record.hits) ? record.hits : []) {
+    if (!raw || typeof raw !== "object") continue;
+    const hit = raw as Record<string, unknown>;
+    const threadId = text(hit.threadId);
+    const body = text(hit.text);
+    const seq = count(hit.seq);
+    if (!threadId || !body || seq === undefined) continue;
+    const sender = senderOf(hit.sender);
+    const at = count(hit.at);
+    const promptId = text(hit.promptId);
+    hits.push({
+      seq,
+      threadId,
+      text: body,
+      from: text(hit.from) || sender?.label || threadId,
+      ...(at !== undefined && { at }),
+      ...(promptId && { promptId }),
+      ...(sender && { sender }),
+    });
+  }
+  const next = record.next;
+  return {
+    hits,
+    ...((typeof next === "string" && next) || (typeof next === "number" && Number.isFinite(next)) ? { next } : {}),
+  };
+}
+
+/// Pages read one after another as one list: a hit a later page repeats (same seq) draws once.
+export function appendArchive(pages: readonly ArchiveHit[], page: ArchivePage): ArchiveHit[] {
+  const seen = new Set(pages.map((hit) => hit.seq));
+  return [...pages, ...page.hits.filter((hit) => !seen.has(hit.seq))];
+}
+
+/// How long the search field waits after the last keystroke before it asks the archive (Enter asks
+/// at once): one read per search the person settles on, never one per key.
+export const ARCHIVE_DEBOUNCE_MS = 400;
+
+/// The shortest search the archive is asked for: a single letter matches nearly every post.
+export const ARCHIVE_MIN_CHARS = 2;

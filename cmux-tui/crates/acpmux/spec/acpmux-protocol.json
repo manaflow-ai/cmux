@@ -1428,6 +1428,46 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/inbox_subscription_set",
+      "params": {
+        "$ref": "#/types/InboxSubscriptionSetParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/inbox_subscription_remove",
+      "params": {
+        "$ref": "#/types/InboxSubscriptionRemoveParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/inbox_subscriptions",
+      "params": {
+        "$ref": "#/types/InboxSubscriptionsParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/inbox_subscription_grant",
+      "params": {
+        "$ref": "#/types/InboxSubscriptionGrantParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/inbox_subscription_revoke",
+      "params": {
+        "$ref": "#/types/InboxSubscriptionRevokeParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/person_enroll",
       "params": true,
       "result": true
@@ -3618,6 +3658,62 @@
           "$ref": "#/types/RequestMeta"
         },
         "cwd": true
+      },
+      "type": "object"
+    },
+    "InboxSubscriptionGrantParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "ownerSessionId": true,
+        "sessionId": true,
+        "threadId": true
+      },
+      "type": "object"
+    },
+    "InboxSubscriptionRemoveParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "sessionId": true,
+        "threadId": true
+      },
+      "type": "object"
+    },
+    "InboxSubscriptionRevokeParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "ownerSessionId": true,
+        "sessionId": true,
+        "threadId": true
+      },
+      "type": "object"
+    },
+    "InboxSubscriptionSetParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "sessionId": true,
+        "threadId": true
+      },
+      "type": "object"
+    },
+    "InboxSubscriptionsParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "sessionId": true
       },
       "type": "object"
     },

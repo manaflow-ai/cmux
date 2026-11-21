@@ -339,7 +339,7 @@ impl Hub {
             return;
         }
         if let Some(known) = delivered_ids().get_mut(&session.id) {
-            known.extend(ids.iter().cloned());
+            known.extend(ids.iter().map(|id| (id.clone(), super::Arrival::App(None))));
         }
         for id in ids.iter().cloned().chain(ids.is_empty().then(|| prompt_id.clone())) {
             self.append(session, "mux", "bridge_delivered", json!({"promptId": id, "uuid": uuid}));

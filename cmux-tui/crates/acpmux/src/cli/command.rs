@@ -1454,6 +1454,30 @@ pub struct SendRelay {
 /// `acpmux session inbox NAME`'s flags.
 #[derive(Args, Default)]
 pub struct SessionInboxOpts {
+    /// Search the full text, sender and thread of surge-held messages.
+    #[arg(long, conflicts_with_all = ["thread", "digest", "dry_run"])]
+    pub search: Option<String>,
+    /// Continue a held-inbox search before this sequence number.
+    #[arg(long, requires = "search")]
+    pub before: Option<u64>,
+    /// Bind a surge thread to this recipient session for durable triage ownership.
+    #[arg(long, value_name = "THREAD", conflicts_with_all = ["search", "unsubscribe", "subscriptions", "thread", "digest", "dry_run"])]
+    pub subscribe: Option<String>,
+    /// Remove this recipient session's durable surge thread binding.
+    #[arg(long, value_name = "THREAD", conflicts_with_all = ["search", "subscribe", "subscriptions", "thread", "digest", "dry_run"])]
+    pub unsubscribe: Option<String>,
+    /// Grant this thread to a distinct session that has self-subscribed first.
+    #[arg(long, value_name = "THREAD", conflicts_with_all = ["search", "subscribe", "unsubscribe", "subscriptions", "thread", "digest", "dry_run", "revoke"])]
+    pub grant: Option<String>,
+    /// Revoke this thread from a distinct subscriber.
+    #[arg(long, value_name = "THREAD", conflicts_with_all = ["search", "subscribe", "unsubscribe", "subscriptions", "thread", "digest", "dry_run", "grant"])]
+    pub revoke: Option<String>,
+    /// Subscriber session for --grant or --revoke.
+    #[arg(long, value_name = "SESSION", conflicts_with_all = ["search", "subscribe", "unsubscribe", "subscriptions", "thread", "digest", "dry_run"])]
+    pub subscriber: Option<String>,
+    /// List this recipient session's durable surge thread bindings.
+    #[arg(long, conflicts_with_all = ["search", "subscribe", "unsubscribe", "thread", "digest", "dry_run"])]
+    pub subscriptions: bool,
     /// A threadId, as the list names it.
     #[arg(long, value_name = "THREAD", conflicts_with_all = ["digest", "dry_run"])]
     pub thread: Option<String>,
@@ -1472,6 +1496,22 @@ pub struct SessionInboxOpts {
 #[derive(Args)]
 pub struct SessionInboxTarget {
     pub session: String,
+    #[arg(long)]
+    pub search: Option<String>,
+    #[arg(long, requires = "search")]
+    pub before: Option<u64>,
+    #[arg(long, value_name = "THREAD", conflicts_with_all = ["search", "unsubscribe", "subscriptions", "thread"])]
+    pub subscribe: Option<String>,
+    #[arg(long, value_name = "THREAD", conflicts_with_all = ["search", "subscribe", "subscriptions", "thread"])]
+    pub unsubscribe: Option<String>,
+    #[arg(long, value_name = "THREAD", conflicts_with_all = ["search", "subscribe", "unsubscribe", "subscriptions", "thread", "revoke"])]
+    pub grant: Option<String>,
+    #[arg(long, value_name = "THREAD", conflicts_with_all = ["search", "subscribe", "unsubscribe", "subscriptions", "thread", "grant"])]
+    pub revoke: Option<String>,
+    #[arg(long, value_name = "SESSION", conflicts_with_all = ["search", "subscribe", "unsubscribe", "subscriptions", "thread"])]
+    pub subscriber: Option<String>,
+    #[arg(long, conflicts_with_all = ["search", "subscribe", "unsubscribe", "thread"])]
+    pub subscriptions: bool,
     #[arg(long)]
     pub thread: Option<String>,
     #[arg(long)]
@@ -1710,6 +1750,14 @@ pub fn flatten(c: Command) -> Command {
             }
             SessionCmd::Inbox { session, opts } => Command::SessionInboxCmd(SessionInboxTarget {
                 session,
+                search: opts.search,
+                before: opts.before,
+                subscribe: opts.subscribe,
+                unsubscribe: opts.unsubscribe,
+                grant: opts.grant,
+                revoke: opts.revoke,
+                subscriber: opts.subscriber,
+                subscriptions: opts.subscriptions,
                 thread: opts.thread,
                 unread: opts.mark_read,
             }),
@@ -2233,6 +2281,21 @@ mod help_contract_tests {
             all,
             Ok(Command::SessionInboxCmd(SessionInboxTarget { thread: None, .. }))
         ));
+        let subscribe = parse(&["acpmux", "session", "inbox", "c", "--subscribe", "pr:1"]);
+        assert!(matches!(
+            subscribe,
+            Ok(Command::SessionInboxCmd(SessionInboxTarget { ref subscribe, .. }))
+                if subscribe.as_deref() == Some("pr:1")
+        ));
+        let subscriptions = parse(&["acpmux", "session", "inbox", "c", "--subscriptions"]);
+        assert!(matches!(
+            subscriptions,
+            Ok(Command::SessionInboxCmd(SessionInboxTarget { subscriptions: true, .. }))
+        ));
+        assert!(
+            parse(&["acpmux", "session", "inbox", "c", "--subscribe", "t", "--thread", "u"])
+                .is_err()
+        );
         let digest = parse(&["acpmux", "session", "inbox", "c", "--digest"]);
         assert!(matches!(digest, Ok(Command::InboxDigest { dry_run: false, .. })));
         let dry = parse(&["acpmux", "session", "inbox", "c", "--dry-run"]);

@@ -2,6 +2,9 @@
 
 use super::*;
 
+#[path = "inbox_replay_tests.rs"]
+mod replay;
+
 #[test]
 fn fyi_flush_is_a_fifteen_minute_austerity_window() {
     // FYIs are intentionally coalesced to at most four notice turns per hour;
@@ -26,6 +29,7 @@ fn item(
     text: &str,
 ) -> Item {
     Item {
+        surge_held: false,
         prompt_id: prompt_id.to_owned(),
         notice: None,
         answered: None,
@@ -40,6 +44,7 @@ fn item(
         text: text.to_owned(),
         details: None,
         tool_notice: None,
+        fire: false,
         noticed: false,
         read: false,
         answer: None,
@@ -432,6 +437,7 @@ async fn an_idle_chat_waits_for_its_cut_turns_continuation_before_its_inbox() {
         "createdAt": 1, "updatedAt": 2});
     store.save(&serde_json::from_value(meta).unwrap()).unwrap();
     let hub = Hub::new(cfg, store);
+    hub.set_surge_inbox(Some(true));
     hub.begin_startup(false);
     let session = hub.resolve("inbox-wait").unwrap();
     let due = now_ms().saturating_sub(FLUSH_MS + 1);
@@ -464,6 +470,7 @@ async fn a_turn_that_ends_with_no_continuation_lets_the_inbox_in_at_once() {
             "createdAt": 1, "updatedAt": 2});
         store.save(&serde_json::from_value(meta).unwrap()).unwrap();
         let hub = Hub::new(cfg, store);
+        hub.set_surge_inbox(Some(true));
         hub.begin_startup(false);
         let session = hub.resolve("inbox-ended").unwrap();
         let due = now_ms().saturating_sub(FLUSH_MS + 1);
@@ -504,9 +511,171 @@ fn hub_with_chat(id: &str) -> (Arc<Hub>, Arc<Session>) {
         "createdAt": 1, "updatedAt": 2});
     store.save(&serde_json::from_value(meta).unwrap()).unwrap();
     let hub = Hub::new(cfg, store);
+    hub.set_surge_inbox(Some(true));
     hub.begin_startup(false);
     let session = hub.resolve(id).unwrap();
     (hub, session)
+}
+
+#[tokio::test]
+async fn surge_cold_headless_burst_uses_the_last_held_measurement() {
+    let (hub, session) = hub_with_chat("reopening");
+    let blocks = [json!({"type":"text","text":"Runner is still busy"})];
+    let opts = PromptOptions { agent: Some("runner".into()), ..Default::default() };
+    hub.append(
+        &session,
+        "mux",
+        "inbox",
+        json!({
+            "promptId":"before-restart", "threadId":"runner", "from":"runner",
+            "surgeHeld":true, "replyPeriodMs":30_000, "text":"Runner is busy"
+        }),
+    );
+    *session.inbox() = Default::default();
+    hub.restore_inbox(&session);
+    assert!(session.time_breakdown.lock().unwrap().reply_period_ms(now_ms()).is_none());
+    assert!(session.turn().is_none());
+    for id in ["first-after-restart", "second-after-restart"] {
+        let receipt =
+            hub.hold_surge_message(&session, id, "cli", &blocks, &opts, now_ms()).unwrap();
+        assert_eq!(receipt.unwrap()["surgeHeld"], true);
+    }
+    assert_eq!(hub.inbox_threads(&session)["surge"]["held"], 3);
+}
+
+/// Surge admission is a preview (`labs.previewFeatures`): off, the burst that would be held
+/// takes the path it took before the surge inbox, with nothing held or counted.
+#[tokio::test]
+async fn with_the_surge_preview_off_a_burst_is_not_held() {
+    let (hub, session) = hub_with_chat("preview-off");
+    hub.set_surge_inbox(Some(false));
+    let blocks = [json!({"type":"text","text":"Runner is still busy"})];
+    let opts = PromptOptions { agent: Some("runner".into()), ..Default::default() };
+    hub.append(
+        &session,
+        "mux",
+        "inbox",
+        json!({
+            "promptId":"before-restart", "threadId":"runner", "from":"runner",
+            "surgeHeld":true, "replyPeriodMs":30_000, "text":"Runner is busy"
+        }),
+    );
+    *session.inbox() = Default::default();
+    hub.restore_inbox(&session);
+    for id in ["first", "second", "third"] {
+        let receipt =
+            hub.hold_surge_message(&session, id, "cli", &blocks, &opts, now_ms()).unwrap();
+        assert!(receipt.is_none(), "preview off: {id} is not held");
+    }
+    assert_eq!(hub.inbox_threads(&session)["surge"]["held"], 1, "only the restored hold");
+}
+
+/// A fire notice wakes and skips the FYI wait only with the surge preview on: off, it is its class
+/// alone, as before the surge inbox (router review of #48220 at 2d7dfc02, F1).
+#[tokio::test]
+async fn a_fire_notice_wakes_only_with_the_surge_preview_on() {
+    for on in [false, true] {
+        let (hub, session) = hub_with_chat(if on { "fire-on" } else { "fire-off" });
+        hub.set_surge_inbox(Some(on));
+        let provenance = crate::prompt_provenance::notice(
+            &json!({"sender":"watcher","severity":"fire","title":"Runner failure"}),
+            "chat",
+        );
+        hub.append(
+            &session,
+            "mux",
+            "inbox",
+            json!({
+                "promptId":"fire", "threadId":"watcher", "from":"watcher", "class":"fyi",
+                "text":"Runner failure", "_meta": {"provenance": provenance}
+            }),
+        );
+        *session.inbox() = Default::default();
+        hub.restore_inbox(&session);
+        let inbox = session.inbox();
+        let item = inbox.items.iter().find(|i| i.prompt_id == "fire").expect("restored");
+        assert!(item.tool_notice.is_some(), "the notice is kept either way");
+        assert_eq!(wakes(&session.meta(), item), on, "preview {on}");
+        assert_eq!(ordinary_fyi(item), !on, "preview {on}");
+    }
+}
+
+#[tokio::test]
+async fn surge_receipt_restores_the_same_held_message_and_searches_its_original_text() {
+    let (hub, session) = hub_with_chat("busy-chat");
+    // The receiving chat took 30 seconds to reply before the burst.
+    for (seq, at, kind) in [(1, 10_000, "turn_started"), (2, 40_000, "turn_result")] {
+        let msg = json!({"turnSeq":1,"turnId":"finished","status":"completed"});
+        session.time_breakdown.lock().unwrap().record(&EventRecord {
+            seq,
+            at,
+            kind: kind.into(),
+            dir: "mux".into(),
+            msg,
+            host_seq: None,
+        });
+    }
+    let mut opts = PromptOptions {
+        provenance: Some(crate::prompt_provenance::notice(
+            &json!({"sender":"watcher","severity":"warn","title":"Runner warning"}),
+            "busy-chat",
+        )),
+        class: Some(PromptClass::Fyi),
+        ..Default::default()
+    };
+    let body = [json!({"type":"text","text":"Read the runner report for #418."})];
+    assert!(
+        hub.hold_surge_message(&session, "first", "cli", &body, &opts, 41_000).unwrap().is_none()
+    );
+    let receipt =
+        hub.hold_surge_message(&session, "second", "cli", &body, &opts, 42_000).unwrap().unwrap();
+    assert_eq!(receipt["surgeHeld"], true);
+    let thread = receipt["threadId"].as_str().unwrap();
+    assert_eq!(hub.inbox_threads(&session)["surge"], json!({"held":1,"needYou":0}));
+    hub.persist_surge_triage(&session, json!({"batchId":"batch-1"}), 1).unwrap();
+    *session.inbox() = Default::default();
+    hub.restore_inbox(&session);
+    assert_eq!(hub.inbox_threads(&session)["surge"], json!({"held":1,"needYou":1}));
+    let thread = hub.inbox_thread(&session, thread, false);
+    assert_eq!(thread["messages"][0]["text"], body[0]["text"]);
+    assert_eq!(thread["messages"][0]["surgeHeld"], true);
+    assert!(session.inbox().items.iter().all(|item| item.noticed));
+    let duplicate = hub.logged_inbox_answer(&session, "second").unwrap().unwrap();
+    assert_eq!(duplicate.pointer("/_meta/acpmux/surgeHeld").unwrap(), true);
+    let needle = crate::chats::search::Needle::parse("runner watcher 418").unwrap();
+    let search = hub.search_held_inbox(&session, &needle, None).unwrap();
+    assert_eq!(search["hits"].as_array().unwrap().len(), 1);
+    assert_eq!(search["hits"][0]["promptId"], "second");
+    opts.provenance = Some(crate::prompt_provenance::notice(
+        &json!({"sender":"watcher","severity":"fire","title":"Runner failure"}),
+        "busy-chat",
+    ));
+    assert!(
+        hub.hold_surge_message(&session, "fire", "cli", &body, &opts, 43_000).unwrap().is_none()
+    );
+    let mut urgent = item("fire", "runner", "watcher", PromptClass::Fyi, now_ms(), "fire");
+    urgent.tool_notice = tool_notice_of(opts.provenance.as_ref());
+    urgent.fire = fire_notice(urgent.tool_notice.as_ref());
+    assert!(wakes(&session.meta(), &urgent));
+    assert!(!ordinary_fyi(&urgent));
+}
+
+#[test]
+fn surge_eviction_preserves_unanswered_questions_without_growing_the_removed_id_set() {
+    let mut inbox = Inbox::default();
+    inbox.items.push(item("question", "question", "owner", PromptClass::Question, 1, "Ready?"));
+    for seq in 0..(KEEP + 20) {
+        let mut held =
+            item(&seq.to_string(), "runner", "watcher", PromptClass::Fyi, seq as u64, "held");
+        held.surge_held = true;
+        held.noticed = true;
+        inbox.items.push(held);
+        trim(&mut inbox);
+    }
+    assert_eq!(inbox.items.len(), KEEP);
+    assert_eq!(inbox.items[0].prompt_id, "question");
+    assert_eq!(inbox.items.last().unwrap().prompt_id, (KEEP + 19).to_string());
+    assert!(inbox.trimmed.is_empty());
 }
 
 /// The chat runs another agent's turn (not the person's) that takes steers.
@@ -680,6 +849,7 @@ async fn a_notice_reader_has_tools_only_by_its_last_launch_and_its_next_spawn() 
             "modelRequest": "0"});
         store.save(&serde_json::from_value(meta).unwrap()).unwrap();
         let hub = Hub::new(cfg, store);
+        hub.set_surge_inbox(Some(true));
         hub.begin_startup(false);
         let session = hub.resolve("inbox-reader").unwrap();
         assert_eq!(hub.notice_reader_has_tools(&session).await, has, "{case}");
@@ -916,6 +1086,7 @@ async fn an_opened_thread_names_its_senders_plainly_for_the_transcript() {
         "createdAt": 1, "updatedAt": 2});
     store.save(&serde_json::from_value(meta).unwrap()).unwrap();
     let hub = Hub::new(cfg, store);
+    hub.set_surge_inbox(Some(true));
     hub.begin_startup(false);
     let session = hub.resolve("inbox-open").unwrap();
     let declared = crate::prompt_provenance::named_sender("dot", "inbox-open");

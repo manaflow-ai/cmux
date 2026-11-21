@@ -40,7 +40,7 @@ pub(super) mod hold;
 use crate::claude_peers::Unreached;
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
@@ -55,7 +55,24 @@ const ANSWER_WAIT: Duration = Duration::from_secs(30 * 60);
 const KEPT: usize = 256;
 
 /// How a delivery ended: the turn the watch showed it as, or why the app's inbox did not take it.
-type Outcome = Option<Result<String, String>>;
+type Outcome = Option<Result<Arrival, String>>;
+
+#[derive(Clone, Debug, PartialEq)]
+enum Arrival {
+    App(Option<String>),
+    Inbox(String),
+}
+
+impl Arrival {
+    fn receipt(&self, prompt_id: &str, app: Option<&Value>) -> Value {
+        match self {
+            Self::App(turn) => reply(prompt_id, turn.as_deref(), app),
+            Self::Inbox(thread) => json!({"stopReason":"end_turn","_meta":{"acpmux":{
+                "promptId":prompt_id,"threadId":thread,"surgeHeld":true,"queued":false,"inbox":true
+            }}}),
+        }
+    }
+}
 
 /// A delivery, by the uuid it was sent with: waiting for its transcript line and turn until
 /// `turn` holds its [`Outcome`], then kept (when it went) so a resend is not delivered again.
@@ -88,10 +105,10 @@ fn deliveries() -> std::sync::MutexGuard<'static, Deliveries> {
 
 /// The prompt ids each session's log records as delivered (`bridge_delivered`), by session id:
 /// read from the log once per session per daemon, then added to on each delivery.
-static DELIVERED: LazyLock<Mutex<HashMap<String, HashSet<String>>>> =
-    LazyLock::new(Default::default);
+type DeliveredIds = HashMap<String, HashMap<String, Arrival>>;
+static DELIVERED: LazyLock<Mutex<DeliveredIds>> = LazyLock::new(Default::default);
 
-fn delivered_ids() -> std::sync::MutexGuard<'static, HashMap<String, HashSet<String>>> {
+fn delivered_ids() -> std::sync::MutexGuard<'static, DeliveredIds> {
     DELIVERED.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
@@ -173,11 +190,11 @@ pub(super) fn delivered_text(session_id: &str, text: &str) -> Option<(String, St
 pub(super) fn answered(session_id: &str, prompt_id: &str, turn_id: &str) {
     let all = deliveries();
     let Some((_, p)) = all.of_prompt(session_id, prompt_id) else { return };
-    p.turn.send_replace(Some(Ok(turn_id.to_owned())));
+    p.turn.send_replace(Some(Ok(Arrival::App(Some(turn_id.to_owned())))));
     // The prompts a rate-limit hold folded into this one went in the same turn.
     for rider in &p.riders {
         if let Some((_, r)) = all.of_prompt(session_id, rider) {
-            r.turn.send_replace(Some(Ok(turn_id.to_owned())));
+            r.turn.send_replace(Some(Ok(Arrival::App(Some(turn_id.to_owned())))));
         }
     }
 }
@@ -275,17 +292,8 @@ impl Hub {
             }
             // One this daemon no longer holds (a restart, or evicted) but the log records: the
             // app has it, so it is answered as a duplicate and never delivered again.
-            if self.delivered_before(session, &id).await {
-                if let Some(f) = opts.on_accepted.take() {
-                    f(json!({"sessionId": session.id, "promptId": id, "duplicate": true}));
-                }
-                let mut reply = reply(&id, None, None);
-                if let Some(meta) =
-                    reply.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut)
-                {
-                    meta.insert("duplicate".to_owned(), json!(true));
-                }
-                return Some(Ok(reply));
+            if let Some(arrival) = self.delivered_before(session, &id).await {
+                return Some(Ok(known_arrival(session, &id, &arrival, opts)));
             }
         }
         let target = self.bridge_target(session).await;
@@ -363,6 +371,39 @@ impl Hub {
             Ok(rx) => rx,
             Err(rx) => return Some(resent(session, &prompt_id, rx, opts).await),
         };
+        match self.hold_surge_message(
+            session,
+            &prompt_id,
+            client,
+            blocks,
+            opts,
+            crate::store::now_ms(),
+        ) {
+            Ok(Some(receipt)) => {
+                self.schedule_surge_triage(session);
+                let Some(thread) = receipt.get("threadId").and_then(Value::as_str) else {
+                    return Some(Err(RpcError::internal("held inbox receipt has no thread")));
+                };
+                let arrival = Arrival::Inbox(thread.to_owned());
+                if let Some(ids) = delivered_ids().get_mut(&session.id) {
+                    ids.insert(prompt_id.clone(), arrival.clone());
+                }
+                if let Some(p) = deliveries().by_uuid.get(&uuid) {
+                    p.turn.send_replace(Some(Ok(arrival)));
+                }
+                if let Some(f) = opts.on_accepted.take() {
+                    f(receipt.clone());
+                }
+                return Some(Ok(json!({"stopReason":"end_turn","_meta":{"acpmux":receipt}})));
+            }
+            Err(error) => {
+                if let Some(p) = deliveries().by_uuid.remove(&uuid) {
+                    p.turn.send_replace(Some(Err(error.message.clone())));
+                }
+                return Some(Err(error));
+            }
+            Ok(None) => {}
+        }
         if let Err(e) = target.deliver(&wire, &uuid, &sender).await {
             // A resend waiting on this delivery fails with it, and a later one delivers again.
             let gone = deliveries().by_uuid.remove(&uuid);
@@ -378,7 +419,7 @@ impl Hub {
         }
         self.append(session, "mux", "bridge_delivered", record);
         if let Some(ids) = delivered_ids().get_mut(&session.id) {
-            ids.insert(prompt_id.clone());
+            ids.insert(prompt_id.clone(), Arrival::App(None));
         }
         if let Some(f) = opts.on_accepted.take() {
             f(
@@ -458,20 +499,30 @@ impl Hub {
     /// Whether `session`'s log records `prompt_id` as delivered. The first ask of a session reads
     /// its log's `bridge_delivered` records (headers only, off the async threads); later ones
     /// read the set that read made.
-    async fn delivered_before(self: &Arc<Self>, session: &Session, prompt_id: &str) -> bool {
+    async fn delivered_before(
+        self: &Arc<Self>,
+        session: &Session,
+        prompt_id: &str,
+    ) -> Option<Arrival> {
         if let Some(ids) = delivered_ids().get(&session.id) {
-            return ids.contains(prompt_id);
+            return ids.get(prompt_id).cloned();
         }
         let hub = Arc::clone(self);
         let id = session.id.clone();
         let read = tokio::task::spawn_blocking(move || {
-            let mut ids = HashSet::new();
+            let mut ids = HashMap::new();
             let scanned = hub.store.scan_heads(&id, &mut |head| {
-                if head.dir == "mux" && head.kind == "bridge_delivered" {
-                    let rec = head.record();
-                    let prompt = rec.as_ref().and_then(|r| r.msg.get("promptId")?.as_str());
-                    if let Some(prompt) = prompt {
-                        ids.insert(prompt.to_owned());
+                if head.dir == "mux"
+                    && matches!(head.kind, "bridge_delivered" | "inbox")
+                    && let Some(rec) = head.record()
+                    && let Some(prompt) = rec.msg.get("promptId").and_then(Value::as_str)
+                {
+                    if head.kind == "bridge_delivered" {
+                        ids.insert(prompt.to_owned(), Arrival::App(None));
+                    } else if rec.msg.get("surgeHeld").and_then(Value::as_bool) == Some(true)
+                        && let Some(thread) = rec.msg.get("threadId").and_then(Value::as_str)
+                    {
+                        ids.insert(prompt.to_owned(), Arrival::Inbox(thread.to_owned()));
                     }
                 }
                 true
@@ -482,12 +533,12 @@ impl Hub {
         .ok()
         .flatten();
         // A log that could not be read is read again on the next ask, not taken as empty.
-        let Some(ids) = read else { return false };
+        let ids = read?;
         // A delivery made while the log was read added nothing (no set yet): merge, never replace.
         let mut all = delivered_ids();
         let known = all.entry(session.id.clone()).or_default();
         known.extend(ids);
-        known.contains(prompt_id)
+        known.get(prompt_id).cloned()
     }
 }
 
@@ -649,7 +700,7 @@ fn undelivered(e: &str) -> RpcError {
 fn answer(prompt_id: &str, outcome: Outcome, app: Option<&Value>) -> Result<Value, RpcError> {
     match outcome {
         Some(Err(e)) => Err(undelivered(&e)),
-        Some(Ok(turn_id)) => Ok(reply(prompt_id, Some(&turn_id), app)),
+        Some(Ok(arrival)) => Ok(arrival.receipt(prompt_id, app)),
         None => Ok(reply(prompt_id, None, app)),
     }
 }
@@ -661,6 +712,9 @@ async fn resent(
     rx: watch::Receiver<Outcome>,
     opts: &mut PromptOptions,
 ) -> Result<Value, RpcError> {
+    if let Some(Ok(arrival)) = rx.borrow().as_ref() {
+        return Ok(known_arrival(session, prompt_id, arrival, opts));
+    }
     if let Some(f) = opts.on_accepted.take() {
         f(json!({"sessionId": session.id, "promptId": prompt_id, "duplicate": true}));
     }
@@ -670,6 +724,25 @@ async fn resent(
         meta.insert("duplicate".to_owned(), json!(true));
     }
     answer
+}
+
+fn known_arrival(
+    session: &Session,
+    prompt_id: &str,
+    arrival: &Arrival,
+    opts: &mut PromptOptions,
+) -> Value {
+    let mut reply = arrival.receipt(prompt_id, None);
+    let Some(meta) = reply.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) else {
+        return reply;
+    };
+    meta.insert("duplicate".into(), json!(true));
+    if let Some(f) = opts.on_accepted.take() {
+        let mut accepted = meta.clone();
+        accepted.insert("sessionId".into(), json!(session.id));
+        f(Value::Object(accepted));
+    }
+    reply
 }
 
 /// `app`: what the delivery says of the app ([`Target::details`]); a resend's names none.

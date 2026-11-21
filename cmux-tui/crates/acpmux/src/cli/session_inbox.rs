@@ -16,9 +16,137 @@ pub async fn run(
     session: &str,
     thread: Option<&str>,
     mark_read: bool,
+    search: Option<&str>,
+    before: Option<u64>,
+    subscribe: Option<&str>,
+    unsubscribe: Option<&str>,
+    grant: Option<&str>,
+    revoke: Option<&str>,
+    subscriber: Option<&str>,
+    subscriptions: bool,
     json_out: bool,
 ) -> Result<()> {
     let id = resolve_id(client, session).await?;
+    if let Some(thread) = subscribe {
+        let reply = client
+            .request(
+                method::MUX_INBOX_SUBSCRIPTION_SET,
+                json!({"sessionId": id, "threadId": thread}),
+            )
+            .await?;
+        if json_out {
+            print_json(&reply);
+        } else {
+            println!(
+                "Subscribed to surge thread {}.",
+                reply.get("threadId").and_then(serde_json::Value::as_str).unwrap_or(thread)
+            );
+        }
+        return Ok(());
+    }
+    if let Some(thread) = unsubscribe {
+        let reply = client
+            .request(
+                method::MUX_INBOX_SUBSCRIPTION_REMOVE,
+                json!({"sessionId": id, "threadId": thread}),
+            )
+            .await?;
+        if json_out {
+            print_json(&reply);
+        } else {
+            println!(
+                "Unsubscribed from surge thread {}.",
+                reply.get("threadId").and_then(serde_json::Value::as_str).unwrap_or(thread)
+            );
+        }
+        return Ok(());
+    }
+    if grant.is_some() || revoke.is_some() || subscriber.is_some() {
+        let thread = grant
+            .or(revoke)
+            .ok_or_else(|| anyhow::anyhow!("--subscriber requires --grant or --revoke"))?;
+        let subscriber =
+            subscriber.ok_or_else(|| anyhow::anyhow!("--grant/--revoke requires --subscriber"))?;
+        let owner_id = resolve_id(client, subscriber).await?;
+        let method = if grant.is_some() {
+            method::MUX_INBOX_SUBSCRIPTION_GRANT
+        } else {
+            method::MUX_INBOX_SUBSCRIPTION_REVOKE
+        };
+        let reply = client
+            .request(
+                method,
+                json!({"sessionId": id, "threadId": thread, "ownerSessionId": owner_id}),
+            )
+            .await?;
+        if json_out {
+            print_json(&reply);
+        } else if grant.is_some() {
+            println!("Granted surge thread {thread} for subscriber {owner_id}.");
+        } else {
+            println!("Revoked surge thread {thread} for subscriber {owner_id}.");
+        }
+        return Ok(());
+    }
+    if subscriptions {
+        let reply =
+            client.request(method::MUX_INBOX_SUBSCRIPTIONS, json!({"sessionId": id})).await?;
+        if json_out {
+            print_json(&reply);
+        } else {
+            let rows = reply
+                .get("subscriptions")
+                .and_then(serde_json::Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            if rows.is_empty() {
+                println!("No surge thread subscriptions.");
+            } else {
+                for row in rows {
+                    println!(
+                        "{}",
+                        row.get("threadId").and_then(serde_json::Value::as_str).unwrap_or_default()
+                    );
+                }
+            }
+        }
+        return Ok(());
+    }
+    if let Some(query) = search {
+        let reply = client
+            .request(
+                method::MUX_INBOX_THREADS,
+                json!({"sessionId":id,"search":query,"before":before}),
+            )
+            .await?;
+        let hits = reply
+            .get("hits")
+            .and_then(serde_json::Value::as_array)
+            .ok_or_else(|| anyhow::anyhow!("this daemon does not support held-inbox search"))?;
+        if json_out {
+            print_json(&reply);
+        } else {
+            for hit in hits {
+                let field = |key: &str| {
+                    hit.get(key).and_then(serde_json::Value::as_str).unwrap_or_default()
+                };
+                println!(
+                    "[{}] {} · {}\n{}",
+                    field("promptId"),
+                    field("from"),
+                    field("threadId"),
+                    field("text")
+                );
+            }
+            if hits.is_empty() {
+                println!("No matching held messages.");
+            }
+            if let Some(next) = reply.get("next").and_then(serde_json::Value::as_u64) {
+                println!("Continue with --before {next}.");
+            }
+        }
+        return Ok(());
+    }
     let reply = match thread {
         Some(thread) => {
             let params = json!({"sessionId": id, "threadId": thread, "markRead": mark_read});
