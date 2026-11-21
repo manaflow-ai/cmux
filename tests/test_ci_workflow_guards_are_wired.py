@@ -45,6 +45,22 @@ INVOKED_PATH = re.compile(r"(?:\./)?(tests(?:_v2)?/[A-Za-z0-9_.-]+\.(?:py|sh))")
 # an allowlist that can be appended to without argument is the failure mode
 # this test exists to prevent.
 UNWIRED: set[str] = {
+    # lane = "manual" in tests/test-execution.d/other.toml (no new CI tests, CLAUDE.md). Proves cmux Files (dev) never
+    # reaches a shipped build; it needs macOS ditto and codesign, and reads the workflows only as data. Run it by hand on
+    # a fleet Mac when the embed phase, FilesHost or the pin changes. Exit: as below.
+    "tests/test_files_host_dev_only.py",
+    # lane = "manual" in tests/test-execution.d/other.toml (no new CI tests, CLAUDE.md). Pins run_ci_guards.py
+    # --affected's per-diff guard step selection; it reads the workflows as data. Run it by hand when
+    # scripts/ci/guard_step_inputs.py or run_ci_guards.py changes. Exit: as below.
+    "tests/test_guard_step_inputs.py",
+    # lane = "manual" in tests/test-execution.d/ci.toml (no new CI tests, Lawrence 2026-10-23). The pre-push hook
+    # refuses a push that adds an unbounded job (prepush-gate.py JOB_BOUNDS_CHECK); it reads the workflows as data.
+    # Run it by hand after changing scripts/ci/workflow_job_bounds.py or .github/workflow-job-bounds.json.
+    "tests/test_ci_workflow_job_bounds.py",
+    # lane = "manual" in tests/test-execution.d/nightly.toml (no new CI tests, CLAUDE.md). Checks the nightly health
+    # gate's verdicts; it reads nightly-next-health.yml only as data. Run it by hand when nightly_next_health.py or
+    # that workflow changes. Exit: as below.
+    "tests/test_nightly_next_health.py",
     # lane = "manual" in tests/test-execution.d/app.toml (no new CI tests, CLAUDE.md). It checks that the app FFI release's Linux control jobs take the nightly lane's reserved label first, never the bulk route alone; it reads app-ffi-repin.yml and app-ffi-release.yml only as data. Run it by hand
     # when those workflows change. Exit: as below.
     "tests/test_app_ffi_release_linux_route.py",
@@ -54,6 +70,10 @@ UNWIRED: set[str] = {
     # lane = "manual" in tests/test-execution.d/ci.toml (no new CI tests, CLAUDE.md). It checks that every pool job in rust-workspaces, cmux-next-guards and the cloud VM image bake/roll removes a reused workspace left sparse or broken before checkout; it runs that step on fixture repos and reads the workflows as data. Run it by hand
     # when those workflows change. Exit: as below.
     "tests/test_ci_reused_sparse_checkout.py",
+    # lane = "manual" in tests/test-execution.d/ci.toml (no new CI tests, CLAUDE.md). It checks that every reader of the
+    # Linux pools (fast gates' receipt and post, rescue, reconcile, artifact runner sets) reads the ephemeral-only pools;
+    # it reads the workflows and runners.json only as data. Run it by hand when those readers change. Exit: as below.
+    "tests/test_ci_ephemeral_pool_readers.py",
     # lane = "manual" in tests/test-execution.d/ci.toml (no new CI tests, CLAUDE.md). Policy tests of
     # scripts/ci/shed_superseded_runs.py over fixture runs (#47662); it reads ci-shed-superseded-runs.yml only as data.
     # Run it by hand when the script or that workflow changes. Exit: as below.
@@ -81,6 +101,12 @@ UNWIRED: set[str] = {
     # lane = "manual" (no new CI tests, CLAUDE.md). It checks pool reads against .github/runners.json and that
     # copy against main's; run it by hand when a pool read or the pools change. Exit: as below.
     "tests/test_ci_runner_pools_copy.py",
+    # lane = "manual" in tests/test-execution.d/ci.toml (no new CI tests, CLAUDE.md). Both read every workflow only
+    # as data: a job whose need runs past a skipped ancestor has a status function in its if (tree-owner-wait,
+    # runs 44818589673, 44834489171), and a fleet-reachable job sources ensure-gh-attestation.sh before
+    # `gh attestation` (#48350). Run them by hand when a job's needs/if or a gh attestation step changes. Exit: as below.
+    "tests/test_ci_needs_skip_propagation.py",
+    "tests/test_ci_gh_attestation_has_gh.py",
     # lane = "manual" (no new CI tests, CLAUDE.md). It reads workflows and scripts only as data: which callers
     # read reload.sh's App path after --build-only without --keep-app. Run it after adding such a caller. Exit: as below.
     "tests/test_reload_build_only_app_path_readers.py",
@@ -94,6 +120,16 @@ UNWIRED: set[str] = {
     # No new CI tests (CLAUDE.md): #44697 added it with no step. It reads test-ios.yml only as data (a bot's re-run
     # on a cmux-next lane takes the picker's Blacksmith route); run it by hand when that route changes. Exit: as below.
     "tests/test_ci_ios_bot_rerun_route.py",
+    # lane = "manual": no new CI tests (AGENTS.md:214, Lawrence 2026-10-23). It reads the fast-check workflows only
+    # as data (each routed job's needs and if, and its declared inputs in scripts/ci/fast-check-inputs.json); run
+    # it by hand when fast_check_route.py, that map or a routed workflow changes. Exit: as below.
+    "tests/test_ci_fast_check_route.py",
+    # lane = "manual": no new CI tests (AGENTS.md:214, Lawrence 2026-10-23). Both read the workflows only as data
+    # (the receipt jobs' verifier calls; each pull-request job's same-tree reuse or denial in
+    # scripts/ci/same_tree_reuse.json); run them by hand when ci_receipt.py, same_tree_reuse.py, its map or a
+    # covered workflow changes. Exit: as below.
+    "tests/test_ci_receipt.py",
+    "tests/test_same_tree_reuse.py",
     # Both are lane = "manual" in tests/test-execution.toml: CLAUDE.md forbids adding CI tests (Lawrence
     # 2026-10-23: "not to add gates/tests in CI, but you have to run them yourself"). Each reads a workflow
     # only as data (a fixture nightly.yml; cmux-next.yml for stamp readers). Exit: wire it here if that

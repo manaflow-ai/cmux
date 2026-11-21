@@ -16,7 +16,7 @@ import os
 /// drops the free token at once):
 ///
 /// ```swift
-/// FreeTierAttestStarter(build: build, bundle: .main, apiBaseURL: url, settings: settings,
+/// FreeTierAttestStarter(build: build, bundle: .main, apiBaseURL: url, settings: settings, loginKeychain: loginKeychain,
 ///                       signedIn: { cloud.isSignedIn || cloud.auth.isRestoring }).start()
 /// ```
 @MainActor public struct FreeTierAttestStarter {
@@ -24,19 +24,22 @@ import os
     private let bundle: Bundle
     private let apiBaseURL: URL
     private let settings: SettingsController?
+    private let loginKeychain: LoginKeychain
     private let signedIn: @MainActor () -> Bool
 
     /// - Parameter build: the app's build (its acpmux home, per-build isolation cx-is1kf).
     /// - Parameter bundle: the app bundle (bundled acpmux, bundle id for the keychain item).
     /// - Parameter apiBaseURL: the cmux API base URL; the relay sends the free token only to its origin.
     /// - Parameter settings: `freeModel.enabled` and its managed lock.
+    /// - Parameter loginKeychain: the app's one guard of the Keychain UI switch (the key id item).
     /// - Parameter signedIn: an account is signed in, or a session is still restoring.
     public init(build: BuildIdentity?, bundle: Bundle, apiBaseURL: URL, settings: SettingsController?,
-                signedIn: @escaping @MainActor () -> Bool) {
+                loginKeychain: LoginKeychain, signedIn: @escaping @MainActor () -> Bool) {
         self.build = build
         self.bundle = bundle
         self.apiBaseURL = apiBaseURL
         self.settings = settings
+        self.loginKeychain = loginKeychain
         self.signedIn = signedIn
     }
 
@@ -49,12 +52,13 @@ import os
               let scheme = apiBaseURL.scheme, let host = apiBaseURL.host else { return }
         // Scheme, host and port only; the relay accepts only a known cmux API origin.
         let origin = "\(scheme)://\(host)" + (apiBaseURL.port.map { ":\($0)" } ?? "")
+        let loginKeychain = loginKeychain
         let provider = FreeTierAttestProvider(
             environment: acpmux, attest: AppleDeviceAttest(service: .shared, device: .current),
             // One item per app: Release, NIGHTLY and DEV builds never share an App Attest key id
             // (another build's id is an invalid key here and would spend this Mac's monthly grant).
             keys: KeychainAttestKeyStore(service: "com.cmuxterm.next.free-tier.app-attest.\(bundle.bundleIdentifier ?? "unknown")",
-                                         account: "key"),
+                                         account: "key", withoutUI: { loginKeychain.withoutUI($0) }),
             logger: Logger(subsystem: "com.cmuxterm.next", category: "free-tier"))
         let settings = settings, signedIn = signedIn
         // task-owner: lives as long as the app (the provider's connection ends with the process); one provider start, then one update per setting or sign-in change
