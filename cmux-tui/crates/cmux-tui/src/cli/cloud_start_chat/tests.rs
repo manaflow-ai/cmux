@@ -2528,6 +2528,57 @@ fn a_fresh_name_that_is_taken_or_unread_never_reaches_a_start_or_a_create() {
     }
 }
 
+/// Leo's account, 2026-11-21: `cmux chat --on vm:new --harness claude --no-folder --wait` with no Cloud connection
+/// serving claude. The app refuses before any machine (CloudStartSession's Set up Cloud gate), and its retry named
+/// this run's fresh name (`cmux vm start-session --name chat-7626761eda3c4404`), a machine `cmux vm ls` never listed.
+/// The refusal comes at once, nothing is made, and its retry is this run's own command, which names no machine. A
+/// name some machine has, or a list that cannot be read, keeps the app's words.
+#[test]
+fn a_start_refused_before_its_fresh_machine_retries_with_no_machine_named() {
+    let setup = "No Cloud connection serves claude yet. Add one in Settings > Cloud (ChatGPT, Claude or an API key), \
+                 then run `cmux cloud start-session --name chat-fresh --agent claude` again.";
+    let refused = || Ran {
+        code: 1,
+        stdout: String::new(),
+        stderr: json!({"code": "unavailable", "message": setup}).to_string(),
+    };
+    let asked = request(&["--prompt", "x", "--wait"]);
+    let mut fake = Fake::new(vec![signed_in(), refused(), signed_in()]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    let message = error["message"].as_str().unwrap();
+    assert_eq!(exit, 1, "{error}");
+    assert!(message.starts_with("No Cloud connection serves claude yet."), "{message}");
+    assert!(
+        message.contains("then run `cmux cloud start-chat --prompt TEXT --wait --json` again."),
+        "{message}"
+    );
+    assert!(!message.contains("chat-fresh"), "{message}");
+    // At once: one start-session and the list reads, no wait, no new-machine and no second start.
+    let verbs: Vec<&str> = fake.ran.iter().map(|step| step[1].as_str()).collect();
+    assert_eq!(verbs, ["list-machines", "start-session", "list-machines"], "{:?}", fake.ran);
+    assert_eq!(fake.paused, Duration::ZERO);
+
+    // A machine has the name now: the app's command is the one that reaches it.
+    let has = ok(json!({"account": {"signed_in": true}, "machines": [{"title": "chat-fresh"}]}));
+    let mut fake = Fake::new(vec![signed_in(), refused(), has]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(error["message"], setup);
+    // The list is not read: never refused on an unknown, the app's words stay.
+    let unread = Ran { code: 1, stdout: String::new(), stderr: "boom".into() };
+    let mut fake = Fake::new(vec![signed_in(), refused(), unread]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(error["message"], setup);
+    // A start on a named machine is the person's own retry: no list is read for it.
+    let mut fake = Fake::new(vec![signed_in(), refused()]);
+    let Outcome::Failed { error, .. } =
+        run(&mut fake, &request(&["--prompt", "x", "--name", "dev"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["message"], setup);
+    assert_eq!(fake.ran.len(), 2, "{:?}", fake.ran);
+}
+
 /// The real runner's fresh name: the run's prefix and 16 hex characters from the OS's random source, so two runs
 /// (or a person's own machine) share one only by a negligible chance.
 #[test]
