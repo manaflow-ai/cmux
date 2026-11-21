@@ -313,3 +313,102 @@ fn cargo_directive_paths_reject_cr_and_lf() {
         );
     }
 }
+
+fn commit_empty(root: &Path, message: &str) {
+    run_git(
+        root,
+        [
+            "-c",
+            "user.name=cmux test",
+            "-c",
+            "user.email=cmux@example.test",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--quiet",
+            "--allow-empty",
+            "-m",
+            message,
+        ],
+    );
+}
+
+/// The paths under `root`'s Git directory the build script watches, relative
+/// to that directory.
+fn watched_git_paths(fixture: &BuildFixture) -> Vec<PathBuf> {
+    let git_dir = fixture.root.join(".git").canonicalize().unwrap();
+    fixture
+        .run(None)
+        .lines()
+        .filter_map(|line| line.strip_prefix("cargo:rerun-if-changed="))
+        .filter_map(|path| Path::new(path).canonicalize().ok())
+        .filter_map(|path| path.strip_prefix(&git_dir).ok().map(Path::to_owned))
+        .collect()
+}
+
+#[test]
+fn watched_git_files_have_the_same_bytes_in_a_fresh_clone_of_the_commit() {
+    let fixture = BuildFixture::new();
+    let watched = watched_git_paths(&fixture);
+    assert!(
+        watched.iter().any(|path| path == Path::new("HEAD")),
+        "the build script does not watch HEAD: {watched:?}"
+    );
+
+    // A re-clone of the same commit (a cache restoring target/ under a fresh
+    // checkout) must leave the script fresh: every watched Git file must be
+    // byte-identical there, or a cache that serves mtimes by content cannot.
+    let clone = fixture.root.join("fresh-clone");
+    let output = Command::new("git")
+        .args(["clone", "--quiet", "--no-local"])
+        .arg(&fixture.root)
+        .arg(&clone)
+        .output()
+        .unwrap();
+    assert_success("clone the fixture", &output);
+    for path in &watched {
+        let original = fixture.root.join(".git").join(path);
+        let cloned = clone.join(".git").join(path);
+        if original.is_dir() {
+            continue;
+        }
+        assert_eq!(
+            fs::read(&original).unwrap(),
+            fs::read(&cloned).unwrap_or_default(),
+            "watched Git file {} differs in a fresh clone of the same commit: {watched:?}",
+            path.display()
+        );
+    }
+}
+
+#[test]
+fn cargo_restamps_a_commit_on_a_packed_branch_and_on_a_detached_head() {
+    let fixture = BuildFixture::new();
+    // A packed branch ref has no loose file; its first commit creates one and
+    // touches neither HEAD nor packed-refs.
+    run_git(&fixture.root, ["pack-refs", "--all", "--prune"]);
+    assert_eq!(fixture.cargo_identity(), fixture.head(), "the packed-branch build was stale");
+
+    commit_empty(&fixture.root, "on a packed branch");
+    assert_eq!(
+        fixture.cargo_identity(),
+        fixture.head(),
+        "Cargo kept the old identity after a commit on a packed branch"
+    );
+
+    // Back to a loose ref: the next commit rewrites it.
+    commit_empty(&fixture.root, "on a loose branch");
+    assert_eq!(
+        fixture.cargo_identity(),
+        fixture.head(),
+        "Cargo kept the old identity after a commit on a loose branch"
+    );
+
+    run_git(&fixture.root, ["checkout", "--quiet", "--detach"]);
+    commit_empty(&fixture.root, "on a detached HEAD");
+    assert_eq!(
+        fixture.cargo_identity(),
+        fixture.head(),
+        "Cargo kept the old identity after a commit on a detached HEAD"
+    );
+}

@@ -41,6 +41,29 @@ fn git(args: &[&str]) -> Option<String> {
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
 }
 
+fn git_path(path: &str) -> Option<PathBuf> {
+    git(&["rev-parse", "--path-format=absolute", "--git-path", path]).map(PathBuf::from)
+}
+
+/// What to watch for the branch `reference` (`refs/heads/...`): its loose ref
+/// file, or, when the ref is packed and has no loose file, the nearest
+/// existing directory under refs/ that the file will be created in, so the
+/// first commit on a packed branch (which writes the loose file) still reruns
+/// this script.
+fn branch_ref_watch_path(reference: &str) -> Option<PathBuf> {
+    let loose = git_path(reference)?;
+    if loose.exists() {
+        return Some(loose);
+    }
+    let refs = git_path("refs")?;
+    loose
+        .ancestors()
+        .skip(1)
+        .take_while(|dir| dir.starts_with(&refs))
+        .find(|dir| dir.is_dir())
+        .map(Path::to_owned)
+}
+
 fn main() {
     // Git counts only when it tracks this crate, so an archive unpacked inside
     // some other repository does not take that repository's commit.
@@ -114,9 +137,17 @@ fn main() {
         })
         .unwrap_or(0);
     println!("cargo:rustc-env=ACPMUX_COMMIT_TIME={commit_time}");
-    // The commit: HEAD, the branch ref it names, packed-refs, and logs/HEAD
-    // (every commit, amend, reset, rebase and checkout appends to it, also
-    // when the branch ref is packed and no loose ref file exists yet). Not
+    // The commit: HEAD (a checkout, or a commit on a detached HEAD, rewrites
+    // it), packed-refs, and the branch ref HEAD names (a commit, amend, reset
+    // or rebase on the branch rewrites its loose file). Only files whose bytes
+    // are the ref state: a fresh clone of the same commit has the same bytes,
+    // so a cache that serves mtimes by content (hq build-fleet/cache-bench)
+    // leaves this script fresh. Not logs/HEAD, though every ref move appends
+    // to it: its lines carry wall-clock times, so every clone differs, and a
+    // target/ restored under a fresh clone relinked acpmux (133 s, not ~1 s).
+    // The case it covered, a commit on a branch whose ref is packed (no loose
+    // file to watch yet), is covered by `branch_ref_watch_path`; a clone
+    // writes its branch loose, so that case never meets a cache. Not
     // .git/index: `git status` and `git diff HEAD` rewrite it on a stat
     // refresh, including the calls in this script and cmux-remote's, so
     // tracking it reran both scripts on an unchanged tree (bin no-op 6.2-6.4 s,
@@ -126,21 +157,20 @@ fn main() {
     // same. Only paths that exist: Cargo reruns a script on every build for a
     // missing path.
     // reftable/tables.list is the ref store of a reftable repository.
-    let mut git_paths = vec![
-        "HEAD".to_owned(),
-        "packed-refs".to_owned(),
-        "logs/HEAD".to_owned(),
-        "reftable/tables.list".to_owned(),
-    ];
-    if let Some(reference) = git(&["symbolic-ref", "-q", "HEAD"]) {
-        git_paths.push(reference);
-    }
-    for path in &git_paths {
-        if let Some(p) = git(&["rev-parse", "--path-format=absolute", "--git-path", path])
-            && Path::new(&p).exists()
+    // cmux-build-identity's tests/git_watch_lint.rs keeps every cmux-tui
+    // build script off logs/, index, FETCH_HEAD and ORIG_HEAD; its
+    // tests/acpmux_build_id_git_watch.rs checks this script's watches.
+    for path in ["HEAD", "packed-refs", "reftable/tables.list"] {
+        if let Some(p) = git_path(path)
+            && p.exists()
         {
-            println!("cargo:rerun-if-changed={p}");
+            println!("cargo:rerun-if-changed={}", p.display());
         }
+    }
+    if let Some(reference) = git(&["symbolic-ref", "-q", "HEAD"])
+        && let Some(p) = branch_ref_watch_path(&reference)
+    {
+        println!("cargo:rerun-if-changed={}", p.display());
     }
     // Everything the binary embeds, so the dirty check reruns for each.
     for dir in
