@@ -136,7 +136,14 @@ jobs:
             scripts/ci/simple_pool_picker.py
             scripts/ci/warm_distance.py
             scripts/ci/same_tree_reuse.py
+            scripts/ci/same_tree_reuse.json
+            scripts/ci/workflow_paths_cover_inputs.py
+            scripts/ci/gh_expressions.py
+            .github/workflows/cmux-next-ios-kit.yml
           sparse-checkout-cone-mode: false
+          # The merge commit, the pull request's head and the head's parent: a machine-fix head reuses the pass of
+          # the tree before its fix (same_tree_reuse.py fix_tree).
+          fetch-depth: 3
           persist-credentials: false
       - name: Mint the owned-pool routing token
         id: route-token
@@ -228,7 +235,9 @@ jobs:
         id: same-tree-keys
         if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && vars.CI_SAME_TREE_REUSE != '0' }}
         continue-on-error: true
-        run: python3 scripts/ci/same_tree_reuse.py keys --workflow .github/workflows/cmux-next-ios-kit.yml --jobs kit-tests >> "$GITHUB_OUTPUT"
+        run: |
+          python3 scripts/ci/same_tree_reuse.py keys --workflow .github/workflows/cmux-next-ios-kit.yml --jobs kit-tests \
+            --fix-only >> "$GITHUB_OUTPUT"
       - name: Look up a same-tree pass of kit-tests
         id: same-tree-kit-tests
         if: ${{ steps.same-tree-keys.outputs.kit-tests != '' }}
@@ -240,16 +249,19 @@ jobs:
           path: .same-tree/kit-tests
           enableCrossOsArchive: true
           key: ${{ steps.same-tree-keys.outputs.kit-tests }}
+          # A machine-fix head whose fix is outside this workflow's paths: the pass of the tree before the fix.
+          restore-keys: ${{ steps.same-tree-keys.outputs.kit-tests_fix }}
       - name: Same-tree decision
         id: same-tree
         if: ${{ steps.same-tree-keys.outputs.keys != '' }}
         continue-on-error: true
         env:
           KEYS: ${{ steps.same-tree-keys.outputs.keys }}
-          HITS: kit-tests=${{ steps.same-tree-kit-tests.outputs.cache-hit }}
+          FIX_KEYS: ${{ steps.same-tree-keys.outputs.fix_keys }}
+          HITS: kit-tests=${{ steps.same-tree-kit-tests.outputs.cache-matched-key != '' }}
           AUDIT_PERCENT: ${{ vars.CI_SAME_TREE_AUDIT_PERCENT }}
         run: |
-          python3 scripts/ci/same_tree_reuse.py decide --keys "$KEYS" --hits "$HITS" \
+          python3 scripts/ci/same_tree_reuse.py decide --keys "$KEYS" --fix-keys "$FIX_KEYS" --hits "$HITS" \
             --receipts .same-tree --audit-percent "$AUDIT_PERCENT" >> "$GITHUB_OUTPUT"
 
   kit-tests:

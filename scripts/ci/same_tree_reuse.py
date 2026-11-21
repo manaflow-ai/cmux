@@ -18,6 +18,20 @@ and the host's annotation and step summary name the run that passed. The Actions
 secret. GitHub scopes it: a pull request reads entries its own runs wrote and its base branch's, never another pull
 request's, so a fork or another branch cannot plant a receipt. Only same-repository pull requests read or write.
 
+A fix-only commit reuses its parent's passes (`fix_key`). The PR autofix push (`chore(next): PR autofix at ...`,
+its `Autofix-Run:` trailer), the base autofix's commit for a pull request (`chore(next): base autofix at ...`) and
+`wt push`'s `chore: pre-push fixes (format, generated files)` (the markers are FIX_COMMITS in same_tree_reuse.json)
+change generated files and formatting the run before them already judged. Before this, that commit's tree was new,
+so every check ran again in full for a commit no person wrote. When the pull request's head is such a commit and
+every path it changes lies outside the workflow's own `pull_request` `paths:` filter (what decides whether the
+workflow runs at all, and what scripts/ci/workflow_paths_cover_inputs.py holds to cover every input of its jobs),
+the job's result cannot depend on those paths: the key of the merge tree with those paths put back as the fix's
+parent had them is a second key (`<job>_fix`), and a receipt on it is reused like one on the tree itself. A
+receipt on that tree is a real pass on a tree that differs from this one only outside the job's inputs. Only an
+unchanged base gives the parent's merge tree back, as for any same-tree hit; a base that moved runs the job. A
+workflow with no `paths:` filter, a fix that touches a filtered path, a merge of more than one commit or a head
+that is no fix commit gets no second key. The record is always written under the tree's own key.
+
 Detector: CI_SAME_TREE_AUDIT_PERCENT (default 10) of hits still run in full, seeded by the key and the run attempt;
 a red there names the receipt it contradicts (the job's audit step). `vars.CI_SAME_TREE_REUSE == '0'` turns lookups
 off; every job then runs.
@@ -34,8 +48,10 @@ jobs that are not tree-pure), 96 on an already-green head tree. A receipt write 
 wired only where that is below what it saves; the rest say so on the deny list.
 
 usage:
-  same_tree_reuse.py keys --workflow PATH --jobs A[,B] [--rev SHA]      -> `<job>=<key>` and `keys=<json>` lines
-  same_tree_reuse.py decide --keys JSON --hits JOB=true,... [--receipts DIR] [--audit-percent N]
+  same_tree_reuse.py keys --workflow PATH --jobs A[,B] [--rev SHA] [--fix-only]
+                                                                        -> `<job>=<key>` and `keys=<json>` lines (and
+                                                                           `<job>_fix=<key>`, `fix_keys=<json>`)
+  same_tree_reuse.py decide --keys JSON [--fix-keys JSON] --hits JOB=true,... [--receipts DIR] [--audit-percent N]
                             [--run-id ID] [--attempt N]                 -> `same_tree=<json>` line
   same_tree_reuse.py receipt --job JOB --key KEY --out DIR              -> writes DIR/receipt.json for the cache save
   same_tree_reuse.py check [--root DIR]                                 -> coverage and wiring of every PR job
@@ -80,6 +96,113 @@ def keys(workflow: str, jobs: list[str], rev: str = "HEAD", cwd: str | None = No
     return {job: make_key(job, blob, tree) for job in jobs}
 
 
+def fix_commits(config: dict | None = None) -> dict:
+    config = config if config is not None else json.loads(CONFIG.read_text())
+    return config.get("fix_commits") or {}
+
+
+def is_fix_commit(message: str, markers: dict) -> bool:
+    """Whether a commit message is one of the machine-fix commits (a subject prefix or a trailer line)."""
+    lines = message.splitlines()
+    subject = lines[0] if lines else ""
+    if any(subject.startswith(prefix) for prefix in markers.get("subject_prefixes", [])):
+        return True
+    return any(line.startswith(trailer) for line in lines[1:] for trailer in markers.get("trailers", []))
+
+
+def parents(sha: str, cwd: str | None) -> list[str]:
+    """A commit's parents read from the object itself, so a shallow boundary still names them."""
+    body = git("cat-file", "-p", sha, cwd=cwd).split("\n\n", 1)[0]
+    return [line.split()[1] for line in body.splitlines() if line.startswith("parent ")]
+
+
+def have(sha: str, cwd: str | None) -> bool:
+    return subprocess.run(["git", "cat-file", "-e", f"{sha}^{{commit}}"], cwd=cwd, capture_output=True,
+                          env={**os.environ, "GIT_NO_LAZY_FETCH": "1"}).returncode == 0
+
+
+def workflow_filter(workflow: str, rev: str, cwd: str | None) -> list[str] | None:
+    """The `on.pull_request.paths` filter of WORKFLOW at REV, or None (no filter, or paths-ignore)."""
+    import yaml  # PyYAML: the guard venv and the Linux runners have it.
+
+    data = yaml.load(git("show", f"{rev}:{workflow}", cwd=cwd), Loader=yaml.BaseLoader)
+    on = data.get("on") if isinstance(data, dict) else None
+    event = on.get("pull_request") if isinstance(on, dict) else None
+    paths = event.get("paths") if isinstance(event, dict) else None
+    return [str(p) for p in paths] if isinstance(paths, list) and paths else None
+
+
+def fix_tree(workflow: str, rev: str, cwd: str | None, markers: dict, fetch: bool = True) -> tuple[str, str]:
+    """(the merge tree with the fix put back as its parent had it, why) or ("", why not).
+
+    REV is the pull_request run's merge commit, whose second parent is the pull request's head; a REV of one parent
+    is the head itself.
+    """
+    sha = git("rev-parse", rev, cwd=cwd)
+    merge_parents = parents(sha, cwd)
+    head = merge_parents[1] if len(merge_parents) == 2 else sha
+    if fetch and not (have(head, cwd) and all(have(p, cwd) for p in parents(head, cwd))):
+        # The host's checkout is the merge commit alone: the head and its parent, trees only.
+        subprocess.run(["git", "fetch", "--no-tags", "--quiet", "--depth=2", "--filter=blob:none", "origin", head],
+                       cwd=cwd, capture_output=True, timeout=120)
+    if not have(head, cwd):
+        return "", f"head {head[:12]} not readable"
+    if not is_fix_commit(git("log", "-1", "--format=%B", head, cwd=cwd), markers):
+        return "", f"head {head[:12]} is no fix commit"
+    head_parents = parents(head, cwd)
+    if len(head_parents) != 1 or not have(head_parents[0], cwd):
+        return "", f"fix commit {head[:12]} has no single readable parent"
+    parent = head_parents[0]
+    changed = [p for p in git("diff", "--no-renames", "--name-only", "-z", parent, head, cwd=cwd).split("\0") if p]
+    if not changed:
+        return "", "the fix commit changes nothing"
+    patterns = workflow_filter(workflow, rev, cwd)
+    if patterns is None:
+        return "", f"{workflow} has no pull_request paths filter"
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from workflow_paths_cover_inputs import admits  # noqa: E402
+
+    inside = [p for p in changed if admits("paths", patterns, p)]
+    if inside:
+        return "", f"the fix changes {inside[0]}, an input of {workflow}"
+    # The merge tree in a scratch index, each fixed path back to the parent's entry (or gone, if the fix added it).
+    index = Path(git("rev-parse", "--absolute-git-dir", cwd=cwd)) / "same-tree-fix-index"
+    env = {**os.environ, "GIT_INDEX_FILE": str(index), "GIT_NO_LAZY_FETCH": "1"}
+
+    def run(*args: str, stdin: str | None = None) -> str:
+        return subprocess.run(["git", *args], cwd=cwd, env=env, check=True, capture_output=True, text=True,
+                              input=stdin).stdout.strip()
+
+    try:
+        run("read-tree", f"{rev}^{{tree}}")
+        before = {}
+        for line in run("ls-tree", "-r", "-z", parent, "--", *changed).split("\0"):
+            if line:
+                meta, path = line.split("\t", 1)
+                mode, _kind, oid = meta.split()
+                before[path] = (mode, oid)
+        removals = [p for p in changed if p not in before]
+        if removals:
+            run("update-index", "--force-remove", "-z", "--stdin", stdin="\0".join(removals) + "\0")
+        if before:
+            run("update-index", "--add", "-z", "--index-info",
+                stdin="".join(f"{mode} {oid}\t{path}\0" for path, (mode, oid) in before.items()))
+        tree = run("write-tree", "--missing-ok")
+    finally:
+        index.unlink(missing_ok=True)
+    return tree, f"fix commit {head[:12]} changes only {len(changed)} path(s) outside {workflow}'s paths filter"
+
+
+def fix_keys(workflow: str, jobs: list[str], rev: str = "HEAD", cwd: str | None = None,
+             markers: dict | None = None, fetch: bool = True) -> tuple[dict[str, str], str]:
+    """Each job's key on the fix's parent tree (see the module doc), and why there is none."""
+    tree, why = fix_tree(workflow, rev, cwd, fix_commits() if markers is None else markers, fetch)
+    if not tree or tree == git("rev-parse", f"{rev}^{{tree}}", cwd=cwd):
+        return {}, why
+    blob = git("rev-parse", f"{rev}:{workflow}", cwd=cwd)
+    return {job: make_key(job, blob, tree) for job in jobs}, why
+
+
 def audit_pick(key: str, run_id: str, attempt: str, percent: int) -> bool:
     """Whether a hit still runs in full. Seeded by the key and the run attempt, so a re-run re-rolls it."""
     if percent <= 0:
@@ -110,16 +233,22 @@ def read_receipt(directory: Path | None, job: str) -> dict:
 
 
 def decide(job_keys: dict[str, str], hits: dict[str, bool], receipts: Path | None, audit_percent: int,
-           run_id: str, attempt: str) -> dict[str, dict]:
-    """Per job: `reuse` (skip it), `audit` (a hit that runs anyway), `record` (write a receipt on a pass)."""
+           run_id: str, attempt: str, fix: dict[str, str] | None = None) -> dict[str, dict]:
+    """Per job: `reuse` (skip it), `audit` (a hit that runs anyway), `record` (write a receipt on a pass).
+
+    `key` is always the tree's own key (what a pass records); a receipt on the job's fix key (FIX) counts too.
+    """
     out = {}
+    fix = fix or {}
     for job, key in job_keys.items():
         receipt = read_receipt(receipts, job) if hits.get(job) else {}
         # A restored entry that does not name this key and job is no receipt (an old or foreign layout): run.
-        hit = bool(hits.get(job)) and receipt.get("key") == key and receipt.get("job") == job
+        allowed = {key} | ({fix[job]} if fix.get(job) else set())
+        hit = bool(hits.get(job)) and receipt.get("key") in allowed and receipt.get("job") == job
         audit = hit and audit_pick(key, run_id, attempt, audit_percent)
         out[job] = {"key": key, "reuse": hit and not audit, "audit": audit, "record": not hit,
-                    "receipt": receipt.get("run_url", "") if hit else ""}
+                    "receipt": receipt.get("run_url", "") if hit else "",
+                    "fix": hit and receipt.get("key") != key}
     return out
 
 
@@ -127,7 +256,10 @@ def summary_lines(decisions: dict[str, dict]) -> list[str]:
     lines = []
     for job, d in decisions.items():
         tree = KEY.match(d["key"])["tree"] if KEY.match(d["key"]) else "?"
-        if d["reuse"]:
+        if d["reuse"] and d.get("fix"):
+            lines.append(f"- `{job}`: passed in {d['receipt'] or 'an earlier run'} on this tree before its fix commit, "
+                         "which changed only paths outside this workflow's inputs; not run again")
+        elif d["reuse"]:
             lines.append(f"- `{job}`: passed on this tree ({tree[:12]}) in {d['receipt'] or 'an earlier run'}; "
                          "not run again")
         elif d["audit"]:
@@ -292,8 +424,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--workflow", required=True)
     p.add_argument("--jobs", required=True)
     p.add_argument("--rev", default="HEAD")
+    p.add_argument("--fix-only", action="store_true", help="also print each job's key on the fix's parent tree")
     p = sub.add_parser("decide")
     p.add_argument("--keys", required=True)
+    p.add_argument("--fix-keys", default="")
     p.add_argument("--hits", default="")
     p.add_argument("--receipts")
     p.add_argument("--audit-percent", default="")
@@ -317,17 +451,27 @@ def main(argv: list[str] | None = None) -> int:
         for job, key in found.items():
             print(f"{job}={key}")
         print(f"keys={json.dumps(found, separators=(',', ':'))}")
+        if args.fix_only:
+            try:
+                fixed, why = fix_keys(args.workflow, list(found), args.rev)
+            except Exception as error:  # noqa: BLE001 - a fix key is optional: anything unreadable runs the job.
+                fixed, why = {}, f"unreadable ({error})"
+            print(f"::notice title=same-tree reuse (fix commit)::{why}", file=sys.stderr)
+            for job, key in fixed.items():
+                print(f"{job}_fix={key}")
+            print(f"fix_keys={json.dumps(fixed, separators=(',', ':'))}")
         return 0
 
     if args.command == "decide":
         try:
             job_keys = json.loads(args.keys)
+            fix = json.loads(args.fix_keys) if args.fix_keys.strip() else {}
             percent = int(args.audit_percent) if str(args.audit_percent).strip() else DEFAULT_AUDIT_PERCENT
         except ValueError as error:
             print(f"::notice title=same-tree reuse::unreadable input ({error}); every job runs", file=sys.stderr)
             return 0
         decisions = decide(job_keys, parse_hits(args.hits), Path(args.receipts) if args.receipts else None,
-                           percent, args.run_id, args.attempt)
+                           percent, args.run_id, args.attempt, fix if isinstance(fix, dict) else {})
         for job, d in decisions.items():
             if d["reuse"]:
                 print(f"::notice title=same-tree reuse::{job} passed on this tree in {d['receipt']}; not run again",
