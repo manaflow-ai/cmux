@@ -273,9 +273,14 @@ impl Hub {
         let duplicate = |v: Value| {
             let mut answer = json!({"sessionId": session.id, "promptId": prompt_id, "duplicate": true, "queued": false, "turnId": v.pointer("/_meta/acpmux/turnId")});
             if v.pointer("/_meta/acpmux/surgeHeld").and_then(Value::as_bool) == Some(true) {
-                answer["inbox"] = json!(true);
-                answer["surgeHeld"] = json!(true);
-                answer["threadId"] = v["_meta"]["acpmux"]["threadId"].clone();
+                if let Some(fields) = answer.as_object_mut() {
+                    fields.insert("inbox".into(), json!(true));
+                    fields.insert("surgeHeld".into(), json!(true));
+                    fields.insert(
+                        "threadId".into(),
+                        v.pointer("/_meta/acpmux/threadId").cloned().unwrap_or(Value::Null),
+                    );
+                }
             }
             name_kept_message(&mut answer, session, &prompt_id);
             answer

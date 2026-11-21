@@ -24,7 +24,9 @@ impl Counts {
             event.msg.pointer("/surge/needYou").and_then(Value::as_u64),
         ) {
             *self = Self { seq: event.seq, held, need_you };
-        } else if event.kind == "inbox" && event.msg["surgeHeld"] == true {
+        } else if event.kind == "inbox"
+            && event.msg.get("surgeHeld").and_then(Value::as_bool) == Some(true)
+        {
             self.held = self.held.saturating_add(1);
             self.seq = event.seq;
         }
@@ -120,7 +122,10 @@ impl Hub {
             Some(n) => next.need_you = n,
             None => next.held = next.held.saturating_add(1),
         }
-        msg["surge"] = next.json();
+        let Some(fields) = msg.as_object_mut() else {
+            return Err(RpcError::internal("a held inbox record is not an object"));
+        };
+        fields.insert("surge".into(), next.json());
         // The caller retries a failed append. A parked copy must not be replayed behind it.
         let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
         self.catch_up_locked(session);

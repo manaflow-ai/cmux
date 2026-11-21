@@ -145,7 +145,7 @@ fn hash_ids<'a>(salt: &str, ids: impl IntoIterator<Item = &'a str>) -> String {
         h.update([0]);
         h.update(id.as_bytes());
     }
-    format!("{:x}", h.finalize())[..32].to_owned()
+    format!("{:x}", h.finalize()).chars().take(32).collect()
 }
 
 /// `recipient`'s pending messages in batches of at most [`MAX_BATCH`], oldest first, at most
@@ -429,7 +429,7 @@ pub fn fingerprint(m: &Held) -> String {
         }
     }
     flush(&mut word, &mut norm);
-    format!("{:x}", Sha256::digest(norm.as_bytes()))[..16].to_owned()
+    format!("{:x}", Sha256::digest(norm.as_bytes())).chars().take(16).collect()
 }
 
 /// The subjects and conditions a chat's digests already told, by who was told: `(recipient,

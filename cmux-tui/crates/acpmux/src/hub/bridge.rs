@@ -381,7 +381,7 @@ impl Hub {
         ) {
             Ok(Some(receipt)) => {
                 self.schedule_surge_triage(session);
-                let Some(thread) = receipt["threadId"].as_str() else {
+                let Some(thread) = receipt.get("threadId").and_then(Value::as_str) else {
                     return Some(Err(RpcError::internal("held inbox receipt has no thread")));
                 };
                 let arrival = Arrival::Inbox(thread.to_owned());
@@ -519,8 +519,8 @@ impl Hub {
                 {
                     if head.kind == "bridge_delivered" {
                         ids.insert(prompt.to_owned(), Arrival::App(None));
-                    } else if rec.msg["surgeHeld"].as_bool() == Some(true)
-                        && let Some(thread) = rec.msg["threadId"].as_str()
+                    } else if rec.msg.get("surgeHeld").and_then(Value::as_bool) == Some(true)
+                        && let Some(thread) = rec.msg.get("threadId").and_then(Value::as_str)
                     {
                         ids.insert(prompt.to_owned(), Arrival::Inbox(thread.to_owned()));
                     }
@@ -733,12 +733,14 @@ fn known_arrival(
     opts: &mut PromptOptions,
 ) -> Value {
     let mut reply = arrival.receipt(prompt_id, None);
-    let meta = &mut reply["_meta"]["acpmux"];
-    meta["duplicate"] = json!(true);
+    let Some(meta) = reply.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) else {
+        return reply;
+    };
+    meta.insert("duplicate".into(), json!(true));
     if let Some(f) = opts.on_accepted.take() {
         let mut accepted = meta.clone();
-        accepted["sessionId"] = json!(session.id);
-        f(accepted);
+        accepted.insert("sessionId".into(), json!(session.id));
+        f(Value::Object(accepted));
     }
     reply
 }
