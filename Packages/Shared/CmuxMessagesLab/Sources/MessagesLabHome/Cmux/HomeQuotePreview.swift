@@ -89,8 +89,10 @@ struct HomeQuotePreview {
     /// `s` cut with "…" to fit `maxWidth` in the card's title font.
     static func fit(_ s: String, maxWidth: CGFloat) -> String {
         guard TextDraw.width(s, font: ThreadPreview.titleFont) > maxWidth else { return s }
-        // No 12 pt glyph is narrower than 2 pt: more characters than this never fit.
-        var head = s.prefix(Int(maxWidth / 2) + 1)
+        // No 12 pt glyph is narrower than 2 pt: more characters than this never fit. A width that is not finite or
+        // does not fit an Int keeps every character (no trap); a negative one keeps none but the first.
+        let fits = Int(exactly: (maxWidth / 2).rounded(.down)) ?? s.count
+        var head = s.prefix(max(0, min(fits, s.count)) + 1)
         while !head.isEmpty, TextDraw.width(head.trimmingCharacters(in: .whitespaces) + "…", font: ThreadPreview.titleFont) > maxWidth {
             head = head.dropLast()
         }
