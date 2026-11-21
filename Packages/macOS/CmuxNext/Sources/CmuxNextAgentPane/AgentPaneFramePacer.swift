@@ -50,6 +50,8 @@ import CmuxNextWakeups
     private let now: @MainActor () -> TimeInterval
     private let nextTurn: @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void
     private let isHidden: @MainActor () -> Bool
+    /// Whether the pane's page itself is hidden (``pageHidden(_:)``): its socket then leaves the chat's stream out.
+    private let streamHidden: @MainActor () -> Bool
     private var flush: (@MainActor @Sendable () -> AgentPaneFlush)?
     /// Frames arrived, or a capped flush left some, since the last call began.
     private var pending = false
@@ -84,23 +86,35 @@ import CmuxNextWakeups
                     // task-owner: one next-turn delivery; the pacer runs it once, on the main actor
                     Task { @MainActor in work() }
                 },
-                isHidden: @escaping @MainActor () -> Bool = { false }) {
+                isHidden: @escaping @MainActor () -> Bool = { false },
+                streamHidden: (@MainActor () -> Bool)? = nil) {
         self.frames = frames
         self.fallback = fallback
         self.now = now
         self.nextTurn = nextTurn
         self.isHidden = isHidden
+        self.streamHidden = streamHidden ?? isHidden
         frames.onTick = { [weak self] in self?.ticked() }
     }
 
     /// The pacer of a pane: its window's display frames, a ``DemandTimer`` fallback.
     public convenience init(view: NSView) {
         self.init(frames: AgentPaneWindowFrames(view: view), fallback: AgentPaneDemandDeadline(),
-                  isHidden: { [weak view] in view.map(Self.nobodySees) ?? true })
+                  isHidden: { [weak view] in view.map(Self.nobodySees) ?? true },
+                  streamHidden: { [weak view] in view.map(Self.pageHidden) ?? true })
         let probe = AgentPaneVisibilityProbe(frame: .zero)
         probe.onChange = { [weak self] in self?.visibilityChanged() }
         view.addSubview(probe)
         self.probe = probe
+    }
+
+    /// Whether `view`'s page is hidden to its own document: out of a window, hidden, or its window minimized, not
+    /// shown or on another Space. A covered window's pages stay visible to the document
+    /// (``ChromiumPageWindowVisibility``), and such a page checks that its stream flows (direct.ts `quietCheck`), so
+    /// its stream must still come: only a page that knows it is hidden goes without it.
+    static func pageHidden(_ view: NSView) -> Bool {
+        guard let window = view.window else { return true }
+        return view.isHiddenOrHasHiddenAncestor || window.isMiniaturized || !window.isVisible || !window.isOnActiveSpace
     }
 
     /// Whether nobody can see `view`: out of a window, hidden, or its window covered or minimized.
@@ -196,7 +210,7 @@ import CmuxNextWakeups
 
     /// The pane may have come into sight: frames held while it was hidden go now.
     func visibilityChanged() {
-        streamVisibility?.set(hidden: isHidden())
+        streamVisibility?.set(hidden: streamHidden())
         guard held || waitingWhileHidden, !isHidden() else { return }
         held = false
         if waitingWhileHidden {

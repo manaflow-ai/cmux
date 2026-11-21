@@ -5774,6 +5774,10 @@ export class AcpmuxDirectClient {
     this.hostHidden = false;
     const hole = this.hiddenHole;
     this.hiddenHole = undefined;
+    // The stream flows again: the quiet watch (which a hidden episode stops) starts over from here.
+    this.chatEventAt = Date.now();
+    this.quietChecks = 0;
+    this.armQuietWatch();
     if (!sessionId) return;
     if (this.attachedGeneration !== this.selectionGeneration) {
       this.lagOwed = { sessionId, generation: this.selectionGeneration };
@@ -5879,6 +5883,10 @@ export class AcpmuxDirectClient {
   /// schedule, and hear the outcome (`done`: true when the pane connects again).
   private checkStall(sessionId: string, cause: StallCause = "send", done?: (missed: boolean) => void): void {
     if (this.closed || this.selectedSessionId !== sessionId || !pageShown()) return;
+    // The host leaves this chat's stream out while its pane is hidden (`hostHidden`): a record acpmux holds and the
+    // page lacks is that, not a stalled stream, and the end marker reads it. The page can read itself shown first
+    // (its visibility event can come before the host's), and a reconnect here would only start hidden again.
+    if (this.hostHidden) return done?.(false);
     const paneSeq = this.lastSeq;
     if (cause === "send" || cause === "stop") {
       const key = `${sessionId} ${paneSeq} ${cause}`;
@@ -6444,7 +6452,7 @@ export class AcpmuxDirectClient {
     if (this.closed || !this.hasConnected || this.opening) return;
     if (this.socket?.readyState !== WebSocket.OPEN || this.endedSocket === this.socket) return;
     const sessionId = this.selectedSessionId;
-    if (!sessionId || !pageShown() || !this.workingNow()) return;
+    if (!sessionId || !pageShown() || !this.workingNow() || this.hostHidden) return;
     // The chat's attach is still out: it reads the chat itself.
     if (this.attachedGeneration !== this.selectionGeneration) return this.armQuietWatch();
     if (Date.now() - this.chatEventAt < quietDelay(this.quietChecks)) return this.armQuietWatch();
