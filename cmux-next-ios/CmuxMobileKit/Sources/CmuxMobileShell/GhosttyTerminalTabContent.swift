@@ -196,6 +196,11 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// Voice mode's source for a tab's terminal (its agent's Feed events in, typed prompts out).
     var voiceSourceProvider: (@MainActor (WorkspaceTab, Workspace, TerminalModel) -> (any AgentVoiceSource)?)?
     var uploaderProvider: (@MainActor (WorkspaceTab, _ macID: String) -> (@MainActor (LinkUpload.Payload, String) async throws -> String)?)?
+    /// Live mode: the agent families installed on a Mac (its agent catalog), for
+    /// the key row's launchers; nil when the Mac did not say.
+    var agentFamiliesProvider: (@MainActor (_ macID: String) async -> Set<String>?)?
+    /// Each Mac's installed agent families, read once per Mac.
+    private var agentFamilies: [String: Set<String>] = [:]
     /// DEBUG mock mode (Settings → Developer → Mock): tabs with no live
     /// session run the scripted mock. Ignored outside DEBUG builds.
     var mockDataEnabled = false
@@ -203,6 +208,23 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     var macName: (@MainActor (Workspace) -> String?)?
     /// Opens Connected Devices for a live terminal of a Mac (its session, its Mac).
     var showConnectedDevices: (@MainActor (DaemonTerminalSession, _ macID: String) -> Void)?
+
+    /// The key row offers launchers only for the agents installed on the tab's
+    /// Mac (Leo, 2026-11-21: "why do we have ollama!?"); until the Mac says,
+    /// it keeps the defaults.
+    private func showAgentLaunchers(in model: TerminalModel, macID: String) {
+        if let known = agentFamilies[macID] {
+            model.showAgentLaunchers(installedFamilies: known)
+            return
+        }
+        guard let provider = agentFamiliesProvider else { return }
+        Task { @MainActor [weak self, weak model] in
+            // Not read (no agent link yet): the next host asks again.
+            guard let families = await provider(macID) else { return }
+            self?.agentFamilies[macID] = families
+            model?.showAgentLaunchers(installedFamilies: families)
+        }
+    }
 
     private func host(for tab: WorkspaceTab, in workspace: Workspace) -> TerminalTabHost {
         let key = frameKey(for: tab, in: workspace)
@@ -252,6 +274,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             self?.liveDataChanged()
         }
         model.uploader = live == nil ? nil : uploaderProvider?(tab, workspace.macID)
+        if live != nil { showAgentLaunchers(in: model, macID: workspace.macID) }
         model.voiceSource = voiceSourceProvider?(tab, workspace, model)
         // The page shown already keeps opening links where it did (R1-0 swaps the host in place).
         model.linkOpener = previous?.model.linkOpener

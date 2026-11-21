@@ -442,6 +442,11 @@ final class ShellModel {
             // Each change goes to its workspace's Mac over that Mac's own link.
             let backend = MultiMacWorkspaceBackend(coordinator: live)
             creator.backend = backend
+            // The key row's launchers: the agents installed on the tab's Mac.
+            terminalTabs.agentFamiliesProvider = { [weak backend] macID in
+                guard let catalog = try? await backend?.agentCatalog(on: macID), !catalog.harnesses.isEmpty else { return nil }
+                return catalog.installedFamilies
+            }
             FeedRouting.shared.clearAllNotifications = { [weak live, weak backend] in
                 // The Feed holds every linked Mac's terminal events: each clears its own.
                 let macs = (live?.linkedMacIDs ?? []).filter { backend?.canClearNotifications(on: $0) == true }
@@ -488,6 +493,7 @@ final class ShellModel {
             terminalTabs.hasLiveSession = nil
             terminalTabs.artifactSourceProvider = nil
             terminalTabs.uploaderProvider = nil
+            terminalTabs.agentFamiliesProvider = nil
             terminalTabs.screenTextProvider = nil
             creator.backend = offlineCreation
         }

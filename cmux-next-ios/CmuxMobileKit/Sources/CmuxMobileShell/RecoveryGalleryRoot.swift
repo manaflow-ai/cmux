@@ -25,6 +25,7 @@ import SwiftUI
 ///   unavailable on this account), then the variants it was picked from, B and C;
 /// - `cloudmachines`: Settings → Cloud → Cloud Machines with fixed machines, plan and snapshots.
 /// - `theme-mocha`, `theme-solarized`, `theme-wallpaper`: the chrome under a Mac's theme (`MacThemeGallery`).
+/// - `keybar`: the terminal key row's layouts, A (the default), B and C (`TerminalKeyBarGallery`).
 public struct RecoveryGalleryRoot: View {
     public static var isRequested: Bool {
         ProcessInfo.processInfo.arguments.contains("-cmux-mobile-recovery-gallery")
@@ -61,6 +62,8 @@ public struct RecoveryGalleryRoot: View {
                 NavigationStack { CloudMachinesScreen(model: .gallery(), openChats: {}) }
             case "theme-mocha", "theme-solarized", "theme-wallpaper":
                 MacThemeGallery(variant: scene)
+            case "keybar":
+                TerminalKeyBarGallery()
             default:
                 states
             }

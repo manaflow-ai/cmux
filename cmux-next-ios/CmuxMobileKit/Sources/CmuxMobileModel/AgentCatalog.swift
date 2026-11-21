@@ -133,11 +133,14 @@ public struct AgentHarnessChoice: Identifiable, Hashable, Sendable {
     /// Its other options a new chat can start with (`reported.configOptions` less the model,
     /// effort and mode, which have their own pickers).
     public var configOptions: [AgentConfigChoice]
+    /// Its launcher runs on the Mac (acpmux reports no `unavailable`): the agent is
+    /// installed there, whether or not a phone may start it.
+    public var isInstalled: Bool
 
     public init(id: String, name: String, family: String, isDefault: Bool = false, unavailableReason: String? = nil,
                 models: [AgentModelChoice] = [], defaultModel: String? = nil, askingModes: [String] = [],
                 startEffort: String? = nil, reportedModes: [AgentSettingChoice] = [], effortOption: AgentConfigChoice? = nil,
-                configOptions: [AgentConfigChoice] = []) {
+                configOptions: [AgentConfigChoice] = [], isInstalled: Bool = true) {
         self.id = id
         self.name = name
         self.family = family
@@ -150,6 +153,7 @@ public struct AgentHarnessChoice: Identifiable, Hashable, Sendable {
         self.reportedModes = reportedModes
         self.effortOption = effortOption
         self.configOptions = configOptions
+        self.isInstalled = isInstalled
     }
 
     /// The model `id` names here: a release by its id or an alias (`opus` → Opus 5.5).
@@ -208,6 +212,10 @@ public struct AgentCatalog: Hashable, Sendable {
     }
 
     public static let empty = AgentCatalog(harnesses: [])
+
+    /// The agent families installed on the Mac (`claude`, `codex`): the terminal key row's
+    /// launchers.
+    public var installedFamilies: Set<String> { Set(harnesses.filter(\.isInstalled).map(\.family)) }
 
     /// What New Agent Chat starts: the Mac's default agent when a phone can start it, else
     /// the first agent a phone can start (Claude before others, as acpmux asks only there).

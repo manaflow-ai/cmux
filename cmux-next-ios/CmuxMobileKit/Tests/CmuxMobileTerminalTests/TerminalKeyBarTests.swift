@@ -139,9 +139,11 @@ import Testing
 
 /// The key row: classic cmux iOS's keys in its default order.
 @Suite struct TerminalKeyRowTests {
-    @Test func theRowIsClassicsOrder() {
-        #expect(Array(KeyBarKey.row.prefix(10)) == [
+    @Test func theRowIsClassicsOrderWithTheArrowsBeforeTheAgents() {
+        // Leo, 2026-11-21: arrows "left of the weird claude/codex/ollama ... buttons".
+        #expect(Array(KeyBarKey.row.prefix(16)) == [
             .control, .alternate, .command, .shift, .paste, .tab, .escape, .returnKey, .chord("c"), .chord("d"),
+            .up, .down, .left, .right, .launcher(.claude), .launcher(.codex),
         ])
         #expect(Array(KeyBarKey.row.suffix(3)) == [.zoomOut, .zoomIn, .hideChrome])
         #expect(Set(KeyBarKey.row).count == KeyBarKey.row.count)
@@ -151,13 +153,35 @@ import Testing
         #expect(KeyBarKey.control.label == "⌃")
     }
 
+    @Test func everyLayoutHasEveryKeyOnceAndTheArrowsBeforeTheAgents() {
+        let reference = Set(KeyBarLayout.standard.scroller(launchers: KeyBarLauncher.defaults))
+        for layout in KeyBarLayout.allCases {
+            let row = layout.scroller(launchers: KeyBarLauncher.defaults)
+            #expect(Set(row) == reference, "\(layout)")
+            #expect(row.count == reference.count, "\(layout)")
+            #expect(row.last == .hideChrome)
+            let lastArrow = row.lastIndex { KeyBarKey.arrows.contains($0) }
+            let firstAgent = row.firstIndex { if case .launcher = $0 { true } else { false } }
+            #expect(lastArrow! < firstAgent!, "\(layout)")
+        }
+        #expect(KeyBarLayout.standard == .arrowsBeforeAgents)
+    }
+
+    @Test func launchersFollowTheMacsInstalledAgents() {
+        // No Ollama (Leo: "why do we have ollama!?").
+        #expect(KeyBarLauncher.allCases == [.claude, .codex])
+        // Unknown: the defaults.
+        #expect(KeyBarLauncher.shown(installedFamilies: nil) == [.claude, .codex])
+        #expect(KeyBarLauncher.shown(installedFamilies: ["claude", "opencode"]) == [.claude])
+        #expect(KeyBarLauncher.shown(installedFamilies: []) == [])
+        let row = KeyBarLayout.standard.scroller(launchers: [.codex])
+        #expect(!row.contains(.launcher(.claude)))
+        #expect(row.contains(.launcher(.codex)))
+    }
+
     @Test func launchersTypeClassicsCommands() {
         #expect(KeyBarLauncher.claude.command == "claude --dangerously-skip-permissions")
-        #expect(KeyBarLauncher.claude.pressesReturn)
-        #expect(KeyBarLauncher.codex.pressesReturn)
-        // Ollama waits for the model name.
-        #expect(KeyBarLauncher.ollama.command == "ollama run ")
-        #expect(!KeyBarLauncher.ollama.pressesReturn)
+        #expect(KeyBarLauncher.codex.command == "codex --yolo -c model_reasoning_effort=xhigh --search")
     }
 
     @Test func keysFadeAtThePinnedKeysOnlyOnceScrolled() {

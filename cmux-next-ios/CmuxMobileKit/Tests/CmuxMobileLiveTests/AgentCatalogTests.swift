@@ -72,6 +72,14 @@ import Testing
         #expect(catalog.harness("claude-cr")?.name == "Claude (CodeRouter)")
     }
 
+    /// The terminal key row's launchers: agents installed on the Mac, refused to a phone or not.
+    @Test func installedFamiliesSkipAgentsThatAreNotInstalled() throws {
+        let catalog = AgentCatalog(harnesses: try json(harnesses))
+        // Codex is refused to a phone's chats but installed; Gemini is not installed.
+        #expect(catalog.installedFamilies == ["codex", "claude", "pi"])
+        #expect(catalog.harness("gemini")?.isInstalled == false)
+    }
+
     @Test func modelsAndTheirDefault() throws {
         let catalog = AgentCatalog(harnesses: try json(harnesses), models: try json(models))
         let claude = try #require(catalog.harness("claude"))
