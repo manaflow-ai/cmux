@@ -16,6 +16,7 @@ use tokio::runtime::Runtime;
 
 mod browser;
 mod classic_leftovers;
+mod lan;
 mod link_side;
 mod terminal_chat;
 mod terminal_prediction;
@@ -261,8 +262,9 @@ fn timing_marks(timeline: &Timeline) -> Vec<TimingMark> {
 pub struct LinkHandle {
     link: cmux_mobile_link::Link,
     /// The (shared, warm) signaling socket this link was dialed on; it
-    /// stays open for the next dial while the warm pool holds it.
-    _signaling: Arc<WarmSocket>,
+    /// stays open for the next dial while the warm pool holds it. None: the
+    /// link came up directly on the LAN (`lan.rs`).
+    _signaling: Option<Arc<WarmSocket>>,
     transport: Transport,
     path: tokio::sync::watch::Receiver<cmux_mobile_link::LinkPath>,
     watcher: Mutex<Option<tokio::task::JoinHandle<()>>>,
@@ -762,7 +764,7 @@ async fn connect_on(
     let timeline = Timeline::new();
     let transport = request.transport;
     emit(&observer, LinkEvent::Connecting { transport });
-    let result = dial(pool, &request, &timeline).await;
+    let result = lan::race(&request.mac_device_id, &timeline, dial(pool, &request, &timeline)).await;
     let (connected, signaling) = match result {
         Ok(ok) => ok,
         Err(error) => {
@@ -772,7 +774,11 @@ async fn connect_on(
     };
     let mut path = connected.path.clone();
     emit(&observer, LinkEvent::Connected { transport, path: (*path.borrow()).into() });
-    let media = connected.webrtc_media.then(|| media_manager(pool, &request, &connected, &signaling));
+    let media = signaling
+        .as_ref()
+        .filter(|_| connected.webrtc_media)
+        .map(|signaling| media_manager(pool, &request, &connected, signaling));
+    lan::enroll_later(connected.link.clone(), request.mac_device_id.clone());
     let mut media_status = media.as_ref().map(cmux_mobile_link::hybrid::MediaManager::status);
     let link = connected.link.clone();
     let watcher = tokio::spawn(async move {

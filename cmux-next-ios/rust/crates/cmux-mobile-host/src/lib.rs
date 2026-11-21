@@ -23,6 +23,7 @@ pub(crate) mod cloud_acp;
 pub mod config;
 pub mod control;
 pub mod host;
+pub mod lan;
 pub mod link_deflate;
 pub mod link_socket;
 pub mod localhost;

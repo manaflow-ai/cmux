@@ -533,6 +533,25 @@ pub async fn answer(
     Ok(Connected { link, transport: kind, path: dialed.path, session_id, webrtc_media: dialed.webrtc_media })
 }
 
+/// Run a link on a stream dialed or accepted off signaling (the LAN path,
+/// [`crate::lan`]): no session to unsubscribe and no media beside it.
+pub(crate) fn run_dialed(
+    dialed: Dialed,
+    role: Role,
+    link_config: LinkConfig,
+    transport: TransportKind,
+) -> Connected {
+    let link = Link::new(dialed.stream, role, link_config, Some(dialed.guard));
+    follow_lane(&link, dialed.lane);
+    Connected {
+        link,
+        transport,
+        path: dialed.path,
+        session_id: uuid::Uuid::new_v4().to_string(),
+        webrtc_media: false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
