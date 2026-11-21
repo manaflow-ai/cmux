@@ -64,7 +64,7 @@ function GrantRow({ row, confirmsCapture }: { row: ComputerUseRow; confirmsCaptu
 function FinishedView() {
   const { strings } = useOnboarding();
   return (
-    <div className="onb-cu-finished" role="status">
+    <div className="onb-cu-finished" aria-live="polite">
       <StatusGlyph name="done" size={64} className="onb-cu-finished-mark" />
       <h1 className="onb-title">{strings.t("onboarding.computerUse.done.title")}</h1>
       <p className="onb-sentence">{strings.t("onboarding.computerUse.done.line")}</p>
