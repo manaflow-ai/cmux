@@ -1,3 +1,4 @@
+import { PendingEntrances } from "./conversation/pendingEntrances";
 import { MARK_INDICATOR, MARK_PROMPT, rowMark, TRANSCRIPT_COMPOSER_GAP, transcriptLiveVars } from "./transcriptGrid";
 import React, {
   useCallback,
@@ -59,6 +60,7 @@ import { holdMomentum, installMomentumHold } from "./threadMinimap/momentumHold"
 import { JUMP_CURVE, jumpDuration, jumpGlideStart, transcriptFadeReach } from "./threadMinimap/model";
 import { cssTimeMs, foldMotion, foldMs } from "./conversation/fold";
 import { ChatMinimap } from "./chatMinimap/ChatMinimap";
+import { useStableCallback } from "./stableCallback";
 import { minimapReserve } from "./chatMinimap/paint";
 import type { RowsChange } from "./threadMinimap/model";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
@@ -205,7 +207,7 @@ import { jumpUpButton } from "./jumpUp.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import { jumpPairLook } from "./jumpPair.experiment";
 import { MOTION_MS, MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../motion/scale.generated";
-import { SHOWN_INK_PROPERTIES, SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
+import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade, SHOWN_INK_PROPERTIES } from "../../scrollers";
 import { thumbMotion } from "./conversation/thumbMotion.experiment";
 import { editableTarget, wheelScrollsDown } from "./conversation/wheelChain";
 import { OlderAhead } from "./conversation/olderAhead";
@@ -231,6 +233,8 @@ import {
 import { focusRoute } from "../../ui/focusRoute";
 import { continuesLiveResize, LIVE_RESIZE_MS, stepLiveResize } from "./conversation/liveResizeStep";
 import { DOCK_NOTICE } from "./noticeSlotModel";
+import { JumpDots } from "./conversation/JumpDots";
+import { useThinkingLook } from "./conversation/thinkingLook";
 
 /// The live line's box and gap in a run as custom properties on the scroller (transcriptGrid.ts transcriptLiveVars):
 /// conversation.css sizes the line with them. Constant, so the scroller's per-scroll restyle never changes them.
@@ -821,7 +825,7 @@ const disclosureControls = (rows: readonly AcpmuxRow[], after: number): string |
 /// The transcript's own sets of rows that enter, fade in as the chat loads, or fade in from a late
 /// page of older history: read when the frames are drawn, so the render reads no ref itself.
 type RowFrameSources = {
-  entering: { readonly current: ReadonlySet<string> };
+  entering: { readonly current: { has(key: string): boolean } };
   loadFade: LoadFadeWindow;
   older: OlderRowFade;
 };
@@ -1366,6 +1370,9 @@ export function JumpToLatest({
 }) {
   const t = useT();
   const [look] = useState(() => experimentArm(jumpPairLook));
+  // A look's working dots (thinkingLook.ts `jumpButton: "dots"`, off by default): drawn over the arrow's
+  // cell while the agent works; the arrow comes back on hover and focus (JumpDots.css).
+  const dots = useThinkingLook().jumpButton === "dots" && working;
   if (needsYou && needsYou.count > 0) return <NeedsYouPill {...needsYou} shown={shown} lift={lift} onJump={onJump} />;
   const label = t(working ? "transcript.jumpLatestWorking" : "transcript.jumpLatest");
   const lens = look === "lens";
@@ -1378,6 +1385,7 @@ export function JumpToLatest({
         className={lens ? "ui-glass ui-glass-fisheye acpmux-jump-latest" : "ui-glass acpmux-jump-latest"}
         data-look={look}
         data-shown={shown ? "" : undefined}
+        data-working-dots={dots ? "" : undefined}
         // Its keyboard focus is its own wash over the glass (conversation.css), not the shared one,
         // whose `box-shadow: none` took the glass's rim and shadow away while it was focused.
         data-focus-ring="none"
@@ -1393,6 +1401,7 @@ export function JumpToLatest({
         {/* The mark is a theme slot (schemas/theme/slots.json `chat.jumpToBottom`): its default variant
             draws exactly the static arrow this button drew before. */}
         <Slot slot={jumpToBottomSlot} props={{ shown, working }} />
+        {dots && <JumpDots />}
         {look === "labeled" && <span className="acpmux-jump-latest__label">{t("transcript.jumpLatest")}</span>}
       </button>
     </>
@@ -2710,7 +2719,9 @@ function TranscriptView({
   if (frameSession.session !== sessionKey) setFrameSession({ session: sessionKey, key: frameKey });
   /// A row can be newly arrived but outside the mounted virtual range. Pending entrances are
   /// page-scoped: hiding or switching chats must drop them before that row can mount later.
-  const enteringRows = useRef(new Set<string>());
+  /// Each entry is kept with its arrival time, and a row that mounts long after it arrived (scrolled
+  /// back to) draws in place (conversation/pendingEntrances.ts).
+  const enteringRows = useRef(new PendingEntrances());
   /// Where the tab stop and the selection's ends were found last (rowPresence `hints`).
   const presenceHints = useRef<RowPresenceHints>({});
   useEffect(() => {
@@ -2892,7 +2903,7 @@ function TranscriptView({
     for (let index = from; index < rows.length; index += 1) chatRowsDrawn.add(drawnKey(rows[index]!));
     committedRows.current = { drawn: chatRowsDrawn, rows };
   }, [rows, chatRowsDrawn]);
-  const onEntered = useCallback((id: string) => void enteringRows.current.delete(id), []);
+  const onEntered = useCallback((id: string) => enteringRows.current.delete(id), []);
   const onLoadFaded = useCallback((id: string) => loadFade.shown(id), [loadFade]);
   const onOlderShown = useCallback((id: string) => olderRows.shown(id), [olderRows]);
   useEffect(() => () => olderRows.disconnect(), [olderRows]);
@@ -7161,6 +7172,18 @@ function TranscriptView({
     for (const node of threadNode.querySelectorAll<HTMLElement>(":scope > .acpmux-row[data-row-id]"))
       if (node.getAttribute("aria-setsize") !== setSize) node.setAttribute("aria-setsize", setSize);
   }, [setSize]);
+  // One identity for the pane's life: a wheel tick re-renders the transcript to draw the rows coming into view,
+  // and a new handler each time drew the Jump to latest control again with it (render-counts.bench.ts `scroll`).
+  const onJumpLatest = useStableCallback((focused: boolean) => {
+    // One press, one move: to the latest message when this chat's ask waits there (or no
+    // ask is open), else straight to the next chat's ask.
+    // With no ask open it is Jump to latest, whatever the last render read for `behind`.
+    const asks = needsYou?.count ?? 0;
+    const here = asks - (needsYou?.elsewhere ?? 0);
+    const scroll = asks === 0 || (behind && here > 0);
+    if (scroll) jumpToLatest(focused);
+    if (needsYou && asks > 0) needsYou.next(scroll);
+  });
   if (renderStart > 0) acpmuxPerf.span("vt.body", performance.now() - renderStart);
   return (
     <ReadOnlyBoundary readOnly={readOnly}>
@@ -7244,7 +7267,7 @@ function TranscriptView({
               />
             )}
             {/* The VS Code-style minimap at the right edge (Settings > Agent Chat > VS Code Minimap, off by default). */}
-            <ChatMinimap
+            <ChatMinimapMemo
               // Another chat is another minimap: no canvas, placeholder or scale carried over.
               key={sessionId}
               rows={rows}
@@ -7324,20 +7347,11 @@ function TranscriptView({
           )}
           {jumpUp && <JumpUp shown={upShown} back={jumpBackHeld} onJump={() => pressUp()} lift={dockSpace} />}
           {jumpButton && (
-            <JumpToLatest
+            <JumpToLatestMemo
               // The pill also shows at the latest message while the chats this chat started wait: it cycles to them.
               shown={behind || (needsYou?.elsewhere ?? 0) > 0}
               working={working}
-              onJump={(focused) => {
-                // One press, one move: to the latest message when this chat's ask waits there (or no
-                // ask is open), else straight to the next chat's ask.
-                // With no ask open it is Jump to latest, whatever the last render read for `behind`.
-                const asks = needsYou?.count ?? 0;
-                const here = asks - (needsYou?.elsewhere ?? 0);
-                const scroll = asks === 0 || (behind && here > 0);
-                if (scroll) jumpToLatest(focused);
-                if (needsYou && asks > 0) needsYou.next(scroll);
-              }}
+              onJump={onJumpLatest}
               lift={dockSpace}
               needsYou={needsYou}
             />
@@ -7349,3 +7363,7 @@ function TranscriptView({
 }
 
 const TranscriptViewMemo = React.memo(TranscriptView);
+/// A wheel tick re-renders the transcript; these draw again only when their own props change (the minimap reads
+/// the scroll from its scroller, not from a prop).
+const JumpToLatestMemo = React.memo(JumpToLatest);
+const ChatMinimapMemo = React.memo(ChatMinimap);

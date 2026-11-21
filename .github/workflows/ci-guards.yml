@@ -318,6 +318,15 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_classify_failures.py
 
+      # scripts/ci/oops is cmuxterm-hq tools/ci-oops, vendored byte for byte.
+      - name: Validate the vendored ci-oops classifier
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 scripts/ci/oops/test_ci_oops_vendored.py
+
+      - name: Validate in-job ci-oops retry and ledger
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 scripts/ci/oops/test_retry.py
+
       - name: Validate the workflow_run handlers' API budget
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_run_api_budget.py
@@ -627,6 +636,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       # TypeScript is pinned exactly in agent-chat's devDependencies, so this
       # check uses the locked local compiler instead of fetching one at runtime.
@@ -764,6 +774,10 @@ jobs:
       - name: Check that path-filtered workflows start for their tests' inputs
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_paths_cover_inputs.py
+
+      - name: Check that a docs-only pull request starts only the allowed workflows
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_docs_only_prs.py
 
       - name: Check that a cmux-rd-host change runs its macOS clippy and tests
         if: ${{ !cancelled() && matrix.group == 'ci' }}
