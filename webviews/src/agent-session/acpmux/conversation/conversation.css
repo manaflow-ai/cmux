@@ -3872,6 +3872,124 @@ pre.cv-math-source {
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-thinking[data-roll="even"] {
     animation: cv-roll-in-even var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) backwards;
   }
+  /* The words handing over to a call (Leo, 2026-11-21: "the animation for the Thinking swapping to
+     tool calls also probably needs to be smoothed out"). The line keeps its roll above (never a blank
+     line, status-swap-frames.test.ts); the call's own row waits it out (`.acpmux-row--enter` below),
+     so the call's name is never drawn twice. Other looks, for the gallery and the frame stills
+     (`data-live-swap`, thinking-tool-swap-stills.test.ts): `before`, the row fading in a line over the
+     roll while the call's name rolls out at full ink; `wait`, the row fading in on the whole arrival
+     step after the roll; `exit`, the old words fading in place over the
+     exit lead (exitLead.ts) and the new after it; `quick`, `exit` with the new fading over the lead
+     too; `cross`, both cross-fading in the one cell; `slide`, the old lifting half a line as they fade,
+     the new rising half a line after the lead. Every one but the roll draws a blank or a faint line
+     mid-change. */
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) :is([data-live-swap="exit"], [data-live-swap="quick"]) .cv-roll-out,
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) :is([data-live-swap="exit"], [data-live-swap="quick"]) .cv-roll-out__tail {
+    animation: cv-swap-out var(--cv-exit-lead) var(--agent-ease-out, ease-out) both;
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="exit"] .cv-thinking[data-roll="odd"],
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="exit"] .cv-worked--live[data-roll="odd"] > .cv-worked__count,
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="exit"] .cv-worked--live[data-roll="odd"] > .cv-shimmer__row > :is(.cv-worked__time, .cv-worked__own) {
+    animation: cv-swap-in-odd var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) var(--cv-exit-lead) backwards;
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="exit"] .cv-thinking[data-roll="even"],
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="exit"] .cv-worked--live[data-roll="even"] > .cv-worked__count,
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="exit"] .cv-worked--live[data-roll="even"] > .cv-shimmer__row > :is(.cv-worked__time, .cv-worked__own) {
+    animation: cv-swap-in-even var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) var(--cv-exit-lead) backwards;
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="cross"] .cv-roll-out,
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="cross"] .cv-roll-out__tail {
+    animation: cv-swap-out var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) both;
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="cross"] .cv-thinking[data-roll="odd"],
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="cross"] .cv-worked--live[data-roll="odd"] > .cv-worked__count,
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="cross"] .cv-worked--live[data-roll="odd"] > .cv-shimmer__row > :is(.cv-worked__time, .cv-worked__own) {
+    animation: cv-swap-in-odd var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) backwards;
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="cross"] .cv-thinking[data-roll="even"],
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="cross"] .cv-worked--live[data-roll="even"] > .cv-worked__count,
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="cross"] .cv-worked--live[data-roll="even"] > .cv-shimmer__row > :is(.cv-worked__time, .cv-worked__own) {
+    animation: cv-swap-in-even var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) backwards;
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="slide"] .cv-roll-out,
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="slide"] .cv-roll-out__tail {
+    animation: cv-slide-out var(--cv-exit-lead) var(--agent-ease-out, ease-out) both;
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="slide"] .cv-thinking[data-roll="odd"],
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="slide"] .cv-worked--live[data-roll="odd"] > .cv-worked__count,
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="slide"] .cv-worked--live[data-roll="odd"] > .cv-shimmer__row > :is(.cv-worked__time, .cv-worked__own) {
+    animation: cv-slide-in-odd var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) var(--cv-exit-lead) backwards;
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="slide"] .cv-thinking[data-roll="even"],
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="slide"] .cv-worked--live[data-roll="even"] > .cv-worked__count,
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="slide"] .cv-worked--live[data-roll="even"] > .cv-shimmer__row > :is(.cv-worked__time, .cv-worked__own) {
+    animation: cv-slide-in-even var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) var(--cv-exit-lead) backwards;
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="quick"] .cv-thinking[data-roll="odd"],
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="quick"] .cv-worked--live[data-roll="odd"] > .cv-worked__count,
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="quick"] .cv-worked--live[data-roll="odd"] > .cv-shimmer__row > :is(.cv-worked__time, .cv-worked__own) {
+    animation: cv-swap-in-odd var(--cv-exit-lead) var(--agent-ease-out, ease-out) var(--cv-exit-lead) backwards;
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="quick"] .cv-thinking[data-roll="even"],
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="quick"] .cv-worked--live[data-roll="even"] > .cv-worked__count,
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="quick"] .cv-worked--live[data-roll="even"] > .cv-shimmer__row > :is(.cv-worked__time, .cv-worked__own) {
+    animation: cv-swap-in-even var(--cv-exit-lead) var(--agent-ease-out, ease-out) var(--cv-exit-lead) backwards;
+  }
+}
+/* The hand-over's looks (above): two names a look, swapped each change, so each change restarts it. */
+@keyframes cv-swap-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes cv-swap-in-odd {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes cv-swap-in-even {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes cv-slide-out {
+  from {
+    opacity: 1;
+    translate: 0 0;
+  }
+  to {
+    opacity: 0;
+    translate: 0 -50%;
+  }
+}
+@keyframes cv-slide-in-odd {
+  from {
+    opacity: 0;
+    translate: 0 50%;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+@keyframes cv-slide-in-even {
+  from {
+    opacity: 0;
+    translate: 0 50%;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
 }
 @keyframes cv-roll-out {
   from {
@@ -7079,6 +7197,32 @@ a.cv-sha:focus-visible {
      the layout, so only its ink fades in. Message rows keep their dedicated presentation motion. */
   .acpmux-row.acpmux-row--enter:not(.acpmux-user):not(.acpmux-assistant) {
     animation: cv-enter-fade var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) both;
+  }
+  /* A call's row arriving while the live line hands its words over (Thinking.tsx `useRoll`) waits
+     the roll out, so the call's name leaves the line before it lands in its row, never drawn twice
+     (thinking-tool-swap-frames.test.ts), and fades in on the exit lead, so the hand-over rests about
+     as soon as a row arriving alone would (`wait`: on the full arrival step, 50 ms later). The
+     gallery's other looks (the hand-over above). */
+  .acpmux-scroll:has(.acpmux-row[data-row-id="thinking-live"]) .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
+    animation-delay: var(--agent-motion-arrive, 80ms);
+    animation-duration: var(--cv-exit-lead);
+  }
+  [data-live-swap="wait"] .acpmux-scroll:has(.acpmux-row[data-row-id="thinking-live"]) .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
+    animation-duration: var(--agent-motion-arrive, 80ms);
+  }
+  :is([data-live-swap="exit"], [data-live-swap="quick"], [data-live-swap="slide"]) .acpmux-scroll:has(.acpmux-row[data-row-id="thinking-live"]) .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
+    animation-delay: var(--cv-exit-lead);
+    animation-duration: var(--agent-motion-arrive, 80ms);
+  }
+  [data-live-swap="quick"] .acpmux-scroll:has(.acpmux-row[data-row-id="thinking-live"]) .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
+    animation-duration: var(--cv-exit-lead);
+  }
+  :is([data-live-swap="before"], [data-live-swap="cross"]) .acpmux-scroll:has(.acpmux-row[data-row-id="thinking-live"]) .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant, [data-row-id="thinking-live"]) {
+    animation-delay: 0s;
+    animation-duration: var(--agent-motion-arrive, 80ms);
+  }
+  :is([data-live-swap="roll"], [data-live-swap="cross"]) .acpmux-scroll:has(.acpmux-row[data-row-id="thinking-live"]) .acpmux-row.acpmux-row--enter:not(.acpmux-user, .acpmux-assistant) {
+    animation-delay: 0s;
   }
   .acpmux-row__message-presentation {
     animation: cv-message-enter var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) both;
