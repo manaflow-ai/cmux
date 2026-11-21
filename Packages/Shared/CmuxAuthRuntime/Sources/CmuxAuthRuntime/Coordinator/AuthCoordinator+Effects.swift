@@ -128,7 +128,13 @@ extension AuthCoordinator {
                 exchangeRecordedRefreshToken = false
             } else {
                 let client = self.client
-                Task { latestSignInRefreshToken = await client.refreshToken() }
+                let generation = sessionGeneration
+                Task {
+                    let token = await client.refreshToken()
+                    // A sign-out (or new session) since the read: drop it.
+                    guard sessionGeneration == generation else { return }
+                    latestSignInRefreshToken = token
+                }
             }
         case "forgetLatestSignInRefreshToken": latestSignInRefreshToken = nil
         case "forgetDebugCredentials": debugCredentials = nil
@@ -184,6 +190,7 @@ extension AuthCoordinator {
             }
         case "sessionCheckRateLimited":
             guard let limit = lastRateLimit else { break }
+            lastRateLimit = nil
             rateLimitTelemetry.rateLimited(
                 .sessionCheck,
                 rateLimit: limit,
@@ -210,7 +217,8 @@ extension AuthCoordinator {
             phaseDampersCleared = Task { await registry.clear(phases) }
         case "captureTeardownCredentialsAndClearLocalSession": captureTeardownCredentials(payload)
         case "endSignOutCredentialCapture": finishSignOutCredentialCapture()
-        case "waitForPostSignInHooks": pendingSignOut?.waitsForPostSignInHooks = true
+        case "waitForPostSignInHooks":
+            if let epoch = answeringSignOutEpoch { pendingSignOuts[epoch]?.waitsForPostSignInHooks = true }
         case "serverTeardown": serverTeardown()
         case "failTokenRead": tokenReadFailure = Self.authError(payload)
         case "tryDevAuthAccessToken": tokenReadTriesDevAuth = true
@@ -503,6 +511,11 @@ extension AuthCoordinator {
 
     private func captureTeardownCredentials(_ payload: AuthWire) {
         let epoch = payload["signOutEpoch"]
+        let key = epoch.uint
+        if let requested = requestedSignOut {
+            requestedSignOut = nil
+            pendingSignOuts[key] = requested
+        }
         let client = self.client
         let dampers = phaseDampersCleared
         Task {
@@ -510,18 +523,23 @@ extension AuthCoordinator {
             // Raw stored reads (no refresh, no network) before the clear.
             let accessToken = await client.storedAccessToken()
             let refreshToken = await client.refreshToken()
-            pendingSignOut?.capturedTokens = (accessToken, refreshToken)
+            pendingSignOuts[key]?.capturedTokens = (accessToken, refreshToken)
             latestSignInRefreshToken = nil
             // LOCAL-FIRST: from here the device is signed out no matter what
             // the network does.
             await client.clearLocalSession()
+            // The answer's teardown effects run inside this feed and belong
+            // to this epoch.
+            answeringSignOutEpoch = key
             feed(["signOutLocalCleared": ["signOutEpoch": epoch]])
+            answeringSignOutEpoch = nil
+            // The reducer queued no teardown for this answer: release the caller.
+            pendingSignOuts.removeValue(forKey: key)?.continuation.resume()
         }
     }
 
     private func serverTeardown() {
-        guard let signOut = pendingSignOut else { return }
-        pendingSignOut = nil
+        guard let epoch = answeringSignOutEpoch, let signOut = pendingSignOuts.removeValue(forKey: epoch) else { return }
         Task {
             if signOut.waitsForPostSignInHooks {
                 await waitForPostSignInHooksAfterSignOut(timeout: signOut.teardownTimeout)
@@ -586,6 +604,7 @@ extension AuthCoordinator {
     /// The reducer's name for a failure. A 429 keeps its ``AuthRateLimit`` for
     /// the telemetry record the reducer may ask for next.
     func wireFailure(_ error: any Error) -> AuthWire {
+        lastRateLimit = nil
         if let limit = AuthRateLimit(error: error) {
             lastRateLimit = limit
             return ["rateLimited": ["retryAfter": AuthWire(milliseconds: limit.retryAfter)]]
