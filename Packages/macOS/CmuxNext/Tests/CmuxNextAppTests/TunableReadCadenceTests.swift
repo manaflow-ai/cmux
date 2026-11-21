@@ -1,0 +1,66 @@
+#if DEBUG || CMUX_BENCH_HOOKS
+import AppKit
+@testable import CmuxNextApp
+import CmuxNextDesignTokens
+import CmuxNextSettings
+import Testing
+
+/// A tunable's read cadence, and what `debug.tunables` says about it.
+///
+/// cmux#45709 shipped a switch whose two gates made it nil, so an A/B measured the same thing twice
+/// and reported it as off against on. The same shape bit the bench harness again with
+/// `browserPage.noFrameRateLimit`: Chromium reads its command line once, so a live `set` stores the
+/// value and the running process keeps the old one, while `set` answered as if the change had
+/// landed. A descriptor now declares when the app reads it, and every row says whether the stored
+/// value is the one this process uses, so a harness cannot read success into a change that did nothing.
+@MainActor @Suite(.serialized)
+struct TunableReadCadenceTests {
+    private static func services() -> AppServices {
+        _ = NSApplication.shared
+        return AppServices(environment: AppEnvironment.current([:]))
+    }
+
+    private static func call(_ params: [String: CmuxNextSettings.JSONValue], _ store: TunableStore,
+                             _ services: AppServices,
+                             _ catalog: [TunableDescriptor] = TunableCatalog.all) -> CmuxNextSettings.JSONValue {
+        DebugTunables.handle(params, services: services, store: store, catalog: catalog)
+    }
+
+    /// A launch-time toggle, as `browserPage.noFrameRateLimit` declares itself: no shipped tunable is
+    /// read at launch yet, so the launch row is driven through a catalog of this one.
+    private static let launchRead = Tunable<Bool>.toggle(
+        "test.launchRead", BrowserPageTunables.section, "Launch read",
+        help: "Read once while the app starts.", default: false, readCadence: .launch)
+
+    /// Live is the default: nothing declares a cadence unless it is read at launch.
+    @Test func aTunableIsLiveUnlessItSaysOtherwise() {
+        #expect(BrowserPageTunables.uiPointer.descriptor.readCadence == .live)
+        #expect(Self.launchRead.descriptor.readCadence == .launch)
+    }
+
+    /// A live key's row says the value applies, so an A/B arm may set it and measure at once.
+    @Test func aLiveRowSaysItApplies() {
+        let services = Self.services(), store = TunableStore()
+        _ = Self.call(["action": "activate"], store, services)
+        let row = Self.call(["action": "set", "key": .string(BrowserPageTunables.uiPointer.key), "value": true], store, services)
+        #expect(row["read_cadence"]?.stringValue == "live")
+        #expect(row["applies"]?.boolValue == true)
+        #expect(row["applies_why"] == nil)
+    }
+
+    /// A launch-time key's row says the stored value is not the one this process uses, and why: an
+    /// A/B over it takes one launch per arm, not a `set` between arms.
+    @Test func aLaunchTimeRowSaysItNeedsARelaunch() {
+        let services = Self.services(), store = TunableStore()
+        let catalog = [Self.launchRead.descriptor]
+        _ = Self.call(["action": "activate"], store, services, catalog)
+        let row = Self.call(["action": "set", "key": "test.launchRead", "value": true], store, services, catalog)
+        #expect(row["read_cadence"]?.stringValue == "launch")
+        #expect(row["applies"]?.boolValue == false)
+        #expect(row["applies_why"]?.stringValue?.contains("relaunch") == true)
+        // The store still took the value: the next launch is the one that uses it.
+        #expect(row["value"]?.boolValue == true)
+        #expect(Self.launchRead.value(in: store) == true)
+    }
+}
+#endif
