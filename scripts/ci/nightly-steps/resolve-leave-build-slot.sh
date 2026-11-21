@@ -11,6 +11,10 @@
 # leaves. Run 43558081148 of a22a4eb1 waited 23 min behind another build, started at 05:06 with 20 newer commits on
 # feat-cmux-next and failed; its retry 43560964857 built a22a4eb1 again: 60.9 min from landing to the feed.
 # With nothing promoted in YIELD_MINUTES the run builds its own commit, as before. A fresh push run never waits.
+# A push run's time in the group is from its creation to its first job's start: its own decide and resolve steps
+# are not waiting. Counted from creation to this step, run 44893172356 of 89a0aaea (2026-11-21) read 6 min (1.4 min
+# of decide, 4.8 of "Build the tip while its tree publishes", in a group of its own: NIGHTLY_NEXT_ONE_JOB=on gives
+# every push run one), waited the whole YIELD_MINUTES for a promotion nothing asked for and built its commit 6 min late.
 # IN_SLOT=1: nightly-next-one's first step, once its group (nightly-next-one-push) admits it. A run that waited
 # YIELD_STALE_MINUTES or more at that slot (from resolve's end) is stale the same way, and one that leaves sets
 # LEFT_SLOT=1 in the job's env: every later build and publish step skips, so it ends green with nothing cancelled.
@@ -55,6 +59,8 @@ if moved "$current" && [[ -n "${LOOP_RETRY:-}" || "${SUPERSEDE_SKIP:-}" == 1 ]];
   leave "$current"
 fi
 minutes_since() { python3 -c 'import datetime as d,sys; print(int((d.datetime.now(d.timezone.utc)-d.datetime.fromisoformat(sys.argv[1].replace("Z","+00:00"))).total_seconds()//60))' "$1" 2>/dev/null; }
+# Whole minutes from ISO time $1 to ISO time $2; nothing when either is not a time.
+minutes_between() { python3 -c 'import datetime as d,sys; t=lambda v: d.datetime.fromisoformat(v.replace("Z","+00:00")); print(int((t(sys.argv[2])-t(sys.argv[1])).total_seconds()//60))' "$1" "$2" 2>/dev/null; }
 stale=""
 if [[ -n "${IN_SLOT:-}" ]]; then
   # The wait at the slot: since this run's resolve job ended (nightly-next-one queued then). A retry's age was
@@ -67,7 +73,9 @@ if [[ -n "${IN_SLOT:-}" ]]; then
 elif [[ -n "${LOOP_RETRY:-}" ]]; then
   stale="a loop retry of $TIP_SHA"
 elif created="$(gh_bounded api "repos/$REPOSITORY/actions/runs/${GITHUB_RUN_ID:-0}" --jq .created_at 2>/dev/null)" \
-  && waited="$(minutes_since "$created")" \
+  && first="$(gh_bounded api "repos/$REPOSITORY/actions/runs/${GITHUB_RUN_ID:-0}/attempts/${GITHUB_RUN_ATTEMPT:-1}/jobs?per_page=100" \
+    --jq '[.jobs[].started_at | select(. != null)] | min' 2>/dev/null)" \
+  && waited="$(minutes_between "$created" "$first")" \
   && (( waited >= ${YIELD_STALE_MINUTES:-5} )); then
   stale="a push run that waited $waited min for the build slot"
 fi
