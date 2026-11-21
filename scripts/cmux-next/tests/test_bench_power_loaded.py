@@ -297,6 +297,20 @@ class ManyChatsTests(unittest.TestCase):
         self.assertIsNone(bp.page_pushes("sock", lambda *a, **k: {"pages": [{"page": "x", "instance": 1}]}))
         self.assertIsNone(bp.push_summary(None, after, 10))
 
+    def test_live_pages_count_unparked_pages_by_id(self):
+        listed = {"pages": [{"page": "cmux.agent", "instance": 1}, {"page": "cmux.agent", "instance": 2},
+                            {"page": "cmux.agent", "instance": 3, "parked": True}, {"page": "cmux.newtab", "instance": 4}]}
+        self.assertEqual(bp.live_pages("sock", lambda *a, **k: listed), {"cmux.agent": 2, "cmux.newtab": 1})
+        self.assertEqual(bp.live_pages("sock", lambda *a, **k: None), {})
+
+    def test_heavy_preset_and_stream_prompt(self):
+        args = bp.apply_preset(argparse_namespace(), "many-chats-heavy")
+        self.assertEqual((args.load_pin, args.load_split, args.retitle_bytes, args.retitle_rate, args.load_seeded_open),
+                         (30, 3, 80000, 0.5, 190))
+        self.assertEqual(load.stream_prompt(960, 10, 400, 80000, 0.5), "stream: 960 10 400 80000 0.5")
+        self.assertEqual(load.stream_prompt(960, 10, 400), "stream: 960 10 400")
+        self.assertEqual(load.stream_prompt(960, 10), "stream: 960 10")
+
     def test_seeded_idle_ids_are_open_chats_not_closed(self):
         ids = load.seeded_idle_ids(10, 0.6, 3)
         self.assertEqual(ids, [load.seeded_id(9), load.seeded_id(8), load.seeded_id(7)])
@@ -324,7 +338,8 @@ class ManyChatsTests(unittest.TestCase):
 def argparse_namespace():
     import argparse
     return argparse.Namespace(load_remote=None, load_local=None, load_streaming=None, load_tabs=None,
-                              load_seeded_open=None, stream_chunk=None, settle=None, measure=None)
+                              load_seeded_open=None, stream_chunk=None, settle=None, measure=None,
+                              load_pin=None, load_split=None, retitle_bytes=None, retitle_rate=None)
 
 
 if __name__ == "__main__":
