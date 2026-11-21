@@ -1,0 +1,49 @@
+name: Shared Rust compile cache (sccache)
+description: >-
+  start: every later cargo step of the job compiles through sccache 0.19.0, whose store is this repository's
+  GitHub Actions cache (the store rust-cache already uses; no credential, reachable from the GCP runner pool,
+  Blacksmith and hosted runners). Keys hash each compile's inputs (sources, arguments, CARGO_* environment,
+  rustc), never a commit, so a crate any earlier job compiled from the same inputs is downloaded, not compiled.
+  CARGO_INCREMENTAL=0: sccache cannot cache an incremental crate, and a fresh target dir gains nothing from it.
+  report (last step, `if: always()`): the job's hits, misses and store errors as one summary line. A store that
+  cannot be reached is an ::error annotation naming it, never a silent cold build (hq
+  docs/handbook/cache-store-down-reads-as-misses.md). See scripts/ci/rust_compile_cache.py.
+
+inputs:
+  mode:
+    description: "`start` (after rust-cache, before the first cargo step) or `report` (last step, if: always())."
+    required: true
+  job:
+    description: The job's name for the summary line.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # The cache service's URL and token live only in a JavaScript action's environment; sccache reads them
+    # from the job environment. Exported here, they reach the later run steps of this job only.
+    - name: Hand the cache service to sccache
+      if: ${{ inputs.mode == 'start' }}
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      with:
+        script: |
+          for (const name of ['ACTIONS_RESULTS_URL', 'ACTIONS_RUNTIME_TOKEN', 'ACTIONS_CACHE_URL', 'ACTIONS_CACHE_SERVICE_V2']) {
+            if (process.env[name]) core.exportVariable(name, process.env[name]);
+          }
+    - name: Start sccache on the shared store
+      if: ${{ inputs.mode == 'start' }}
+      shell: bash
+      env:
+        RCC_JOB: ${{ inputs.job }}
+        # Only base pushes write: their entries are readable from every pull request, and the Actions cache
+        # rate-limits writes (161 of 270 refused on one cold PR job, 2026-11-21). A PR's own writes would be
+        # visible to that PR alone.
+        RCC_RW_MODE: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/main') && 'READ_WRITE' || 'READ_ONLY' }}
+      run: python3 "$GITHUB_WORKSPACE/scripts/ci/rust_compile_cache.py" start --job "$RCC_JOB"
+    - name: Report the shared compile cache
+      if: ${{ always() && inputs.mode == 'report' }}
+      continue-on-error: true
+      shell: bash
+      env:
+        RCC_JOB: ${{ inputs.job }}
+      run: python3 "$GITHUB_WORKSPACE/scripts/ci/rust_compile_cache.py" report --job "$RCC_JOB"
