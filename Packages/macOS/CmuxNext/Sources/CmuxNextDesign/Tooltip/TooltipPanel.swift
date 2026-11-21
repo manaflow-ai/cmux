@@ -57,8 +57,6 @@ final class TooltipPanel: NSPanel {
     let legibility = ThemeChangeView()
     /// The scope the glass draws in: the hovered view's, at full strength.
     private weak var adoptedScope: ThemeScope?
-    /// Always false: it goes in one frame (kept for the presenter's and tests' reads).
-    let isFadingOut = false
 
     init() {
         glass = Glass.makeSurface(.tooltip, cornerRadius: Self.radius, interactive: false)

@@ -14,7 +14,7 @@ import Testing
     static let exemptDirectory = "CmuxNextDesign/Tooltip/"
 
     /// The package's `Sources`, from this file's path.
-    static var sources: URL {
+    nonisolated static var sources: URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Sources")
@@ -23,7 +23,7 @@ import Testing
     /// The Home transcript and conversation list (Packages/Shared/CmuxMessagesLab), which cmux-next hosts: their
     /// controls show the themed tooltip through the host's hooks (`MessagesLabHomeView.host`, `CmuxSidebarView.host`) (Lawrence 2026-11-20: one tooltip,
     /// everywhere), vendored MessagesLab files included.
-    static var homeSources: URL {
+    nonisolated static var homeSources: URL {
         sources.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Shared/CmuxMessagesLab/Sources")
     }
