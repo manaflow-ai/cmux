@@ -195,6 +195,8 @@ final class CEFRuntime {
     private(set) var loadTask: Task<Result<CEFLoadedLibrary, BootError>, Never>?
     /// The keychain step of the first start (``CEFKeychainMigration``), off the main thread beside the framework load.
     private var keychainTask: Task<CEFKeychainMigration.Outcome?, Never>?
+    /// What the keychain step found, read when Chromium's switches are made (``applyNoKeychain(_:to:)``).
+    private var keychainOutcome: CEFKeychainMigration.Outcome?
     /// Whether the running Chromium keeps its key in the mock keychain (a public constant): set when it starts,
     /// after the keychain item step, so it says what Chromium uses, not what the bundle suggests. Nil before.
     private(set) var chromiumUsesMockKeychain: Bool?
@@ -400,7 +402,10 @@ final class CEFRuntime {
         // A utility-priority preload may still be running; the await below
         // raises its priority to this task's.
         let loaded = await task.value
-        if let outcome = await keychain.value { logger.notice("keychain item: \(String(describing: outcome), privacy: .public)") }
+        if let outcome = await keychain.value {
+            keychainOutcome = outcome
+            logger.notice("keychain item: \(String(describing: outcome), privacy: .public)")
+        }
         let read = await prep.value
         CEFStartSteps.shared.point("launch_prep_read")
         if await Self.waitForInitializeGate(initializeAfter) { CEFStartSteps.shared.point("first_frame_waited") }
@@ -593,6 +598,15 @@ final class CEFRuntime {
         return accepted
     }
 
+    /// Turns `switches` to the mock keychain when the keychain step found no keychain (``CEFKeychainMigration/Outcome/noKeychain``)
+    /// and returns whether it did. Chromium's first `SecItemAdd` there shows "Keychain Not Found" (Cancel, Help, Reset To
+    /// Defaults) and waits for a person: on a fleet Mac running a throwaway copy in a fresh `HOME`, nobody ever answers.
+    nonisolated static func applyNoKeychain(_ outcome: CEFKeychainMigration.Outcome?, to switches: inout CEFSwitches) -> Bool {
+        guard outcome == .noKeychain, !switches.useMockKeychain else { return false }
+        switches.useMockKeychain = true
+        return true
+    }
+
     /// The main-thread part: NSApp check, message pump, `CefInitialize`.
     private func initialize(_ library: CEFLoadedLibrary, prep: CEFLaunchPrep, environment: [String: String]) throws(BootError) {
         let shim = library.shim
@@ -627,6 +641,9 @@ final class CEFRuntime {
         )
         // Chromium's key in cmux's own keychain item, never the shared "Chromium Safe Storage" one (CEFKeychainItem).
         let keychainItem = CEFKeychainItem.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
+        if Self.applyNoKeychain(keychainOutcome, to: &switchSet) {
+            logger.error("no default keychain: Chromium uses the mock keychain, so nothing asks; cookies are not kept in the keychain")
+        }
         if !Self.applyKeychainItem(keychainItem, to: &switchSet, set: shim.setKeychainItem), !switchSet.useMockKeychain {
             logger.error("keychain item refused")
         }
