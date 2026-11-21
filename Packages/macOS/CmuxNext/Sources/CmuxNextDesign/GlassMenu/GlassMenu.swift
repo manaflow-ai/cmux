@@ -103,6 +103,74 @@ public final class GlassMenu {
     /// Closes the menu and its submenus without running a row.
     public func close() { root.finish(runs: nil) }
 
+    // MARK: Press tracking
+
+    /// Follows the press that opened the menu, as an `NSMenu` tracks the press on its pop-up button
+    /// (Lawrence, 2026-11-17: "now mousedown drag mouseup doesnt work like it does natively"). The
+    /// control that took the press keeps the mouse, so its drags and its release reach the control,
+    /// never the menu's panels: the control hands each one here.
+    ///
+    /// - A drag over a row highlights it (and opens its submenu); off every row, the deepest menu
+    ///   shows no highlight.
+    /// - A release on an enabled row without a submenu runs it. A release elsewhere in the menu
+    ///   (a separator, a disabled row, a submenu's row) leaves it open.
+    /// - A release on the control is a click: the menu stays open for a second click.
+    /// - A release anywhere else closes the menu and runs nothing.
+    ///
+    /// - Parameter event: a `leftMouseDragged` or `leftMouseUp` of the press, in the control's window.
+    public func trackPress(_ event: NSEvent) {
+        let root = root
+        guard !root.closed, root.isShown, let window = event.window else { return }
+        let point = window.convertPoint(toScreen: event.locationInWindow)
+        let hit = root.hit(at: point)
+        switch event.type {
+        case .leftMouseDragged:
+            guard let (menu, index) = hit else {
+                root.deepest.list.highlight(nil)
+                return
+            }
+            if let index, let item = menu.list.row(at: index)?.item, item.isEnabled {
+                menu.hovered(index)
+            } else if menu.child == nil {
+                menu.list.highlight(nil)
+            }
+        case .leftMouseUp:
+            if let (menu, index) = hit {
+                guard let index, let item = menu.list.row(at: index)?.item, item.isEnabled, item.submenu == nil else { return }
+                root.finish(runs: item)
+                return
+            }
+            if root.isOnAnchor(screenPoint: point) { return }
+            root.finish(runs: nil)
+        default:
+            return
+        }
+    }
+
+    /// The last open menu of the chain (the root without a submenu open).
+    private var deepest: GlassMenu { child?.deepest ?? self }
+
+    /// The menu of the chain under `point` (screen), innermost first, with the row under it (nil on
+    /// the inset or a gap).
+    private func hit(at point: CGPoint) -> (GlassMenu, Int?)? {
+        var chain: [GlassMenu] = []
+        var menu: GlassMenu? = self
+        while let current = menu {
+            chain.append(current)
+            menu = current.child
+        }
+        for current in chain.reversed() where current.isShown && current.panel.frame.contains(point) {
+            let local = current.list.convert(current.panel.convertPoint(fromScreen: point), from: nil)
+            return (current, current.list.index(at: local))
+        }
+        return nil
+    }
+
+    private func isOnAnchor(screenPoint point: CGPoint) -> Bool {
+        guard let anchor = anchorView, let window = anchor.window else { return false }
+        return anchor.bounds.contains(anchor.convert(window.convertPoint(fromScreen: point), from: nil))
+    }
+
     // MARK: Rows
 
     private func hovered(_ index: Int) {
@@ -388,6 +456,8 @@ final class GlassMenuListView: NSView {
     }
 
     func row(at index: Int) -> GlassMenuRow? { rows.indices.contains(index) ? rows[index] : nil }
+    /// The row whose view holds `point` (the list's coordinates), or nil on the inset.
+    func index(at point: CGPoint) -> Int? { views.firstIndex { $0.frame.contains(point) } }
     func view(at index: Int) -> NSView? { views.indices.contains(index) ? views[index] : nil }
 
     func highlight(_ index: Int?) {

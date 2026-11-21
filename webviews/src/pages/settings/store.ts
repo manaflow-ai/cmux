@@ -64,10 +64,17 @@ import {
   type HarnessesState,
   type HostLists,
   type IntegrationsRun,
+  type AgentToolsCardRun,
+  type AgentToolsCardState,
   type IntegrationsState,
+  type AgentSkillsRun,
+  type AgentSkillsState,
+  type McpServersRun,
+  type McpServersState,
   type ListRow,
   type ManagedInfo,
   type MuseumArtResult,
+  type RowNoteData,
   type SettingsClient,
   type SettingsOpName,
   type SettingsOps,
@@ -75,13 +82,17 @@ import {
   type SettingsStreams,
   type WireError,
   type WorkspaceBackground,
-  type ModelsRun,
-  type ModelsState,
   SETTINGS_SENTENCES,
   type CustomizeTryOn,
   type JoinConsentSurface,
   type LibraryListing,
   type LibraryRun,
+  type ModelsRun,
+  type ModelsState,
+  type AgentMcpRun,
+  type AgentMcpState,
+  type AgentHooksRun,
+  type AgentHooksState,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -117,6 +128,8 @@ export type SettingsState = {
   revision: number;
   rows: ReadonlyMap<string, ListRow>;
   diagnostics: ReadonlyMap<string, string[]>;
+  /** Row notes by schema row: where a value comes from, and why it does not draw (#44894). */
+  notes: ReadonlyMap<string, RowNoteData[]>;
   /** Every problem of the last load, in file order (Advanced lists them). */
   problems: ReadonlyArray<{ path: string; message: string }>;
   managed: ReadonlyMap<string, ManagedInfo>;
@@ -188,6 +201,7 @@ export function composeState(ui: UiState, cache: CacheView): SettingsState {
     revision: scope?.revision ?? 0,
     rows,
     diagnostics: scope?.diagnostics ?? new Map(),
+    notes: scope?.notes ?? new Map(),
     problems: scope?.problems ?? [],
     managed: scope?.managed ?? new Map(),
     errors: ui.errors,
@@ -620,10 +634,15 @@ export class SettingsStore {
     await this.refreshHost();
   }
 
-  /** Settings > Devices: one of this joined Mac's consent switches on or off, then re-read the host lists. */
-  async setJoinConsent(surface: JoinConsentSurface, on: boolean): Promise<void> {
-    await this.request("cmux.settings.devices.join_consent", { surface, on });
+  /** Settings > Devices: one of this joined Mac's consent switches on or off, then re-read the host lists.
+   * Answers the host's refusal of the call itself (an on without the person's own click), or the reason a
+   * reply that ran carries (`error`: busy with another write), else null; a write that failed later says
+   * why in the host lists' `devices_join.error`. */
+  async setJoinConsent(surface: JoinConsentSurface, on: boolean): Promise<string | null> {
+    const reply = await this.request("cmux.settings.devices.join_consent", { surface, on });
     await this.refreshHost();
+    if (!reply.ok) return userMessage(reply.error, SETTINGS_SENTENCES);
+    return reply.value.error || null;
   }
 
   /** Settings > Machines: a Cloud machine's "Dedicated agent machine" on or off, then re-read the host lists. */
@@ -758,10 +777,65 @@ export class SettingsStore {
     return reply.ok ? reply.value : null;
   }
 
+  /** Settings > Agents > Agents on This Mac: one gesture (a refresh reads), and the card as it is
+   * after it; null when the host has none. */
+  async runAgentTools(run: AgentToolsCardRun): Promise<AgentToolsCardState | null> {
+    const reply = await this.request("cmux.settings.agentTools.run", run);
+    return reply.ok ? reply.value : null;
+  }
+
   /** One Agent integrations gesture, then the part as it is after it (null: the host has none). */
   async runIntegrations(run: IntegrationsRun): Promise<IntegrationsState | null> {
     await this.request("cmux.settings.integrations.run", run);
     return this.integrationsState();
+  }
+
+  /** Settings > MCP Servers; null when the host has none. */
+  async mcpServersState(): Promise<McpServersState | null> {
+    const reply = await this.request("cmux.settings.mcp.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One MCP Servers gesture, then the page as it is after it (null: the host has none). */
+  async runMcpServers(run: McpServersRun): Promise<McpServersState | null> {
+    await this.request("cmux.settings.mcp.run", run);
+    return this.mcpServersState();
+  }
+
+  /** Settings > Agents > Claude Code & Codex > Skills; null when the host has none. */
+  async agentSkillsState(): Promise<AgentSkillsState | null> {
+    const reply = await this.request("cmux.settings.agentSkills.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One Skills gesture, then the card as it is after it (null: the host has none). */
+  async runAgentSkills(run: AgentSkillsRun): Promise<AgentSkillsState | null> {
+    const reply = await this.request("cmux.settings.agentSkills.run", run);
+    return reply.ok ? reply.value : this.agentSkillsState();
+  }
+
+  /** Settings > MCP Servers, Claude Code and Codex; null when the host has none. */
+  async agentMcpState(): Promise<AgentMcpState | null> {
+    const reply = await this.request("cmux.settings.agentMcp.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One Claude Code / Codex MCP gesture, then the groups as they are after it (null: the host has none). */
+  async runAgentMcp(run: AgentMcpRun): Promise<AgentMcpState | null> {
+    await this.request("cmux.settings.agentMcp.run", run);
+    return this.agentMcpState();
+  }
+
+  /** Settings > Agents > Claude Code & Codex > Hooks; null when the host has none. */
+  async agentHooksState(): Promise<AgentHooksState | null> {
+    const reply = await this.request("cmux.settings.agentHooks.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One Hooks gesture; the host answers with the state after it (a refused gesture: the state as it is). */
+  async runAgentHooks(run: AgentHooksRun): Promise<AgentHooksState | null> {
+    const reply = await this.request("cmux.settings.agentHooks.run", run);
+    return reply.ok ? reply.value : this.agentHooksState();
   }
 
   /** Reads Settings > Models (a host without it rejects, and the part stays null). */
@@ -844,7 +918,7 @@ export class SettingsStore {
     return reply.ok ? reply.value : null;
   }
 
-  /** Personalization > Customization Library: one `cmux customize library` verb. Answers the
+  /** Appearance > Customization Library: one `cmux customize library` verb. Answers the
    * library after it (null when the host has no CLI or did not answer) and the CLI's refusal in its
    * own words (a toggle while a preview is open), else null. */
   async customizeLibrary(run: LibraryRun): Promise<{ library: LibraryListing | null; refusal: string | null }> {

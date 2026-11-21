@@ -1,0 +1,12 @@
+{
+  "_doc": "written by cmuxterm-hq tools/ci-oops/vendor.py: never edit these files here",
+  "files": {
+    "act_retry.py": "76237f0b2b0296e855eab85e3888710ecfe13c9877442664d0df97bd09c13df0",
+    "oops.py": "f65a3d2d62200a19d9559f9e716571276714e74e1b461e2330cb678079bd92c5",
+    "oops_core.py": "e9e8190ce8457cc525542caa5b2435610a312555cf3e5bd83f12405483bcbcc4",
+    "rules/infra.json": "ae1fdd0a02c5c10f4182bb3cd8f7df2cd6bbbaf0739e671bfab3ce8131472441"
+  },
+  "fingerprint": "aa3143b4f8bd4ee96a49fa442b9feee704bb851d019a6bbdc8cf6fe2e3632b65",
+  "source": "manaflow-ai/cmuxterm-hq tools/ci-oops",
+  "source_rev": "482b7886ec2432f0002987b96ecdb043f69795c8"
+}

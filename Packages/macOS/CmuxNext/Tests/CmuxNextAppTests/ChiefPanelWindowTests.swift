@@ -72,8 +72,8 @@ struct ChiefPanelWindowTests {
         return view.frame
     }
 
-    /// Clicking the open-workspace indicator (a link in the Chief) opens its workspace with the Chief floating over
-    /// it: the workspace fills the content area under it (its layout untouched, no dock), and the panel holds the
+    /// Clicking the open-workspace indicator (a link in the Chief, with `home.chiefDock.openBeside` on; off by default,
+    /// cmux#45889) opens its workspace with the Chief floating over it: the workspace fills the content area under it (its layout untouched, no dock), and the panel holds the
     /// Chief's own view, its draft, selection and scroll kept.
     @Test func theIndicatorOpensTheWorkspaceWithTheChiefFloatingOverIt() async throws {
         let (chief, state) = Self.chiefView()

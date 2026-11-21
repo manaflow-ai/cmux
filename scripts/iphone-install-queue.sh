@@ -115,6 +115,7 @@ default_device_id() {
 # Bundle id and slug come from the signed app itself so this script never
 # re-implements the tag->slug transform (scripts/lib/mobile-attach.sh owns it).
 app_bundle_id() {
+  [[ -f "$1/Info.plist" ]] || return 1
   /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$1/Info.plist" 2>/dev/null
 }
 

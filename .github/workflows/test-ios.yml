@@ -112,7 +112,9 @@ env:
   # ...) is a style guard. For pull requests and merge groups into
   # feat-cmux-next it prints its findings as warnings and passes (Leo,
   # 2026-10-19), and the iOS suites run whatever it reports. The lint's own
-  # tests still fail the job, and so the ios-tests gate.
+  # tests still fail the job, and so the ios-tests gate. One rule still fails a
+  # pull request: a namespace type it adds that --namespace-fix rewrites
+  # (scripts/ci/pr_added_namespace_types.py; label namespace-lint-override skips it).
   # Everywhere else it still fails. Change `warn` to `fail` to make it block
   # feat-cmux-next again.
   CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.event.merge_group.base_ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
@@ -164,6 +166,9 @@ jobs:
       retry_label: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || steps.pool.outputs.retry_label }}
       # runs-on as JSON: a label, or an owned pool label with glaeda-ios-sim.
       runs_on: ${{ steps.pool.outputs.runs_on }}
+      # ios-simulator-build's own: glaeda's sim-first label alone when an owned run sees one of those runners
+      # idle (glaeda#2057 admits the build there), else runs_on (ios_runner_pool.py, Build placement).
+      build_runs_on: ${{ steps.pool.outputs.build_runs_on }}
       # mobile-core-package needs no simulator: the pool label alone.
       package_runs_on: ${{ steps.pool.outputs.package_runs_on }}
       retry_runs_on: ${{ steps.pool.outputs.retry_runs_on }}
@@ -197,7 +202,7 @@ jobs:
         # Same-repository runs only, on this ephemeral Linux runner: a fork
         # run never sees the key, and no Mac ever holds it. Any failure leaves
         # the token empty, and the choice falls back to the janitor snapshot.
-        if: (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_PR_POOL_OWNED == '1' && vars.CI_IOS_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
+        if: (github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_PR_POOL_OWNED == '1' && vars.CI_IOS_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -479,12 +484,18 @@ jobs:
       - name: Lint iOS package conventions
         env:
           GATE_SCOPE: ${{ github.event_name == 'pull_request' && '--pr' || '' }}
+          NAMESPACE_OVERRIDE: ${{ contains(github.event.pull_request.labels.*.name, 'namespace-lint-override') }}
         run: |
           # The lint's own tests always gate: they protect the lint itself.
           python3 scripts/tests/test_ios_package_conventions.py
           python3 scripts/tests/test_pr_scoped_lint_gates.py
           rc=0
           scripts/ci/package-conventions-gate.sh ${GATE_SCOPE:+"$GATE_SCOPE"} || rc=$?
+          # Warn-only still fails a pull request that adds a namespace type the
+          # safe rewrite fixes: each one that merged turned the base red.
+          if (( rc != 0 )) && [[ "$CMUX_NEXT_STYLE_GUARDS" == warn && -n "$GATE_SCOPE" && "$NAMESPACE_OVERRIDE" != true ]]; then
+            python3 scripts/ci/pr_added_namespace_types.py || exit 1
+          fi
           if (( rc != 0 )) && [[ "$CMUX_NEXT_STYLE_GUARDS" == warn ]]; then
             echo "::warning title=package conventions (warn-only)::the package conventions lint reported findings; see this step's log"
             exit 0
@@ -702,7 +713,7 @@ jobs:
               || (needs.package-conventions-lint.result == 'skipped'
                   && needs.detect-ios-changes.outputs.should_lint == 'false'))
           && inputs.swift_package == '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) && needs.runner.outputs.bot_retry_runs_on || github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) && needs.runner.outputs.bot_retry_runs_on || github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.build_runs_on || needs.runner.outputs.runs_on) }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     timeout-minutes: 35
     env:

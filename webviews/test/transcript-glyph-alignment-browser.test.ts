@@ -178,8 +178,9 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
       // baseline (the age's inline-block rule beat the note's flex centring), 2px from them. Leo,
       // 2026-11-17: "stop making the copy button move with the text ... why was it not just at the
       // right edge": the row stays anchored at the bubble's right edge, as a sent prompt's, so Copy
-      // is where it always is and the note's words grow to its left.
-      test(`${theme}: a pending note's clock is centred on its words, and Copy keeps the sent row's right edge`, async () => {
+      // is where it always is and the note's words grow to its left. Leo, 2026-11-17, on a queued
+      // prompt's note: "it's not really useful to see ever": a queued prompt draws none.
+      test(`${theme}: a pending note's clock is centred on its words, Copy keeps the sent row's right edge, and a queued prompt has no note`, async () => {
         const page = await browser.newPage({ viewport: { width: 760, height: 900 }, deviceScaleFactor: 2 });
         try {
           const port = (vite.httpServer!.address() as { port: number }).port;
@@ -218,6 +219,18 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
           });
           console.log(`PENDING_NOTE ${JSON.stringify({ theme, ...m })}`);
           expect(m.text).toContain("Sending");
+          // The queued prompt keeps its time: no clock, no queued words.
+          const queued = await page.evaluate(() => {
+            const scope = document.querySelector("[data-queued-row]")!;
+            return {
+              notes: scope.querySelectorAll(".cv-user__pending-state").length,
+              ages: scope.querySelectorAll("time.cv-user__time").length,
+              text: scope.textContent ?? "",
+            };
+          });
+          expect(queued.notes).toBe(0);
+          expect(queued.ages).toBe(1);
+          expect(queued.text).not.toContain("Queued, sends when");
           expect(Math.abs(m.iconCenter - m.wordsCenter)).toBeLessThanOrEqual(0.5);
           expect(Math.abs(m.gap - m.tokenPx)).toBeLessThanOrEqual(0.5);
           expect(Math.abs(m.copyFromBubbleRight - m.sentCopyFromBubbleRight)).toBeLessThanOrEqual(0.5);

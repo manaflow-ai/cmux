@@ -1,7 +1,7 @@
 // A sent prompt's way to the agent (plans/cmux-next/composer-delivery-DESIGN.md). One state per row,
 // said in one place: while the prompt is on its way (after a second, so a fast send shows nothing)
-// its footer's time slot says so ("Sending", "Sending when ready"; one queued behind the running
-// turn looks sent) with a clock, and the footer stays shown; once acpmux took it the slot is its time
+// its footer's time slot says so ("Sending" or "Sending
+// when ready") with a clock, and the footer stays shown; once acpmux took it the slot is its time
 // again and the bubble's read check (UserBubble.tsx) says how far it got. Nothing else on the row
 // speaks to delivery meanwhile: before, a "Still sending" label beside a bubble whose footer already
 // said "just now", and a free "Not sent yet" line under it, said two things at once (Leo,
@@ -32,11 +32,11 @@ export function pendingLabel(delivery: PromptDelivery): StringKey {
 }
 
 /// Whether `delivery` shows as pending now: on its way, and either past its first second or held
-/// for the host (whose words show at once). Re-renders once when the second passes. `queued`: it
-/// waits behind the running turn (a steer, or a prompt acpmux holds for the turn's end), and looks
-/// sent: its age, never a pending sentence (Leo, 2026-11-17, of "Queued, sends when the current turn
-/// ends": "it's not really useful to see ever"; "i also dont like seeing the flicker flash of the
-/// Queued blah blah"). A host it waits for still says so.
+/// for the host (whose words show at once). Re-renders once when the second passes. A prompt that
+/// waits behind the running turn (`queued`: a steer, or one acpmux holds for the turn's end) says
+/// nothing of it: its bubble and its Send now already do, and the slot keeps its time (Leo,
+/// 2026-11-17: "Queued, sends when the turn ends" / "it's not really useful to see ever"). Held for
+/// the host, it still says "Sending when ready".
 export function usePendingShown(delivery: PromptDelivery | undefined, queued = false): boolean {
   const sending = delivery?.state === "sending";
   const sentAt = delivery?.sentAt ?? 0;
@@ -46,8 +46,8 @@ export function usePendingShown(delivery: PromptDelivery | undefined, queued = f
     const timer = setTimeout(() => setLate(true), Math.max(0, PENDING_AFTER_MS - (Date.now() - sentAt)));
     return () => clearTimeout(timer);
   }, [sending, late, sentAt]);
-  const host = delivery?.waitingForHost === true;
-  return sending && (host || (late && !queued));
+  if (delivery?.waitingForHost === true) return sending;
+  return sending && late && !queued;
 }
 
 /// The footer's time slot while the prompt is on its way: a clock and its one sentence, in the

@@ -8,10 +8,11 @@ import Foundation
 import Testing
 
 /// The automatic light/dark theme switch over a background picture (Chief, Nov 17, after "colors between ghostty
-/// and cmux-next are definitely still different"): with a `light:A,dark:B` theme, a terminal over a picture draws its
-/// Ghostty background solid (`TerminalGhosttyBackgroundOverArtTests`), so when the app's appearance flips, that ground
-/// must turn to the other variant's background with the cells, as Ghostty's window does. A stale ground shows the old
-/// variant's background beside and under every cell (the surfaces draw a transparent default background over a picture).
+/// and cmux-next are definitely still different"): with a `light:A,dark:B` theme, a terminal over a picture at Opacity 1
+/// (an opaque window: `TerminalGhosttyBackgroundOverArtTests`) draws its Ghostty background solid, so when the app's
+/// appearance flips, that ground must turn to the other variant's background with the cells, as Ghostty's window does.
+/// A stale ground shows the old variant's background beside and under every cell. Under 1 the terminal shows the
+/// window's sheet, which follows the app's colors (`TerminalTransparencyOverPictureTests`).
 ///
 /// The test flips only this process's appearance (`NSApp.appearance`), never the Mac's: the Ghostty runtime follows
 /// `NSApp.effectiveAppearance` (`GhosttyRuntime.applyColorScheme`), Ghostty applies the pair's other variant and
@@ -79,6 +80,7 @@ import Testing
 
         let scope = ThemeScope(level: .room)
         scope.pinBackdrop(.selection(.art(.dahlDresdenMoonlight)))
+        scope.pinBackdropTint(1)
         let root = NSView(frame: window.contentLayoutRect)
         window.contentView = root
         scope.root(root)

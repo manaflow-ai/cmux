@@ -17,7 +17,12 @@ public final class CmuxDialogButtonView: ClickableButton {
     /// Whether the title shows the key hint at all (a keyed button whose style shows no key for its role does not).
     private let drawsHint: Bool
     private var tracking: NSTrackingArea?
-    private var hasFocus = false { didSet { refresh() } }
+    /// Whether the focus ring shows: this button has keyboard focus, or the SwiftUI button it draws for has
+    /// (``isFace``).
+    var hasFocus = false { didSet { if hasFocus != oldValue { refresh() } } }
+    /// Draws a SwiftUI `Button` (``CmuxDialogButtonStyle``): SwiftUI takes the clicks, the keys and the focus, so
+    /// this view never does.
+    var isFace = false
     /// The keyboard focus ring, just outside the button.
     private let focusRing = CALayer()
     /// On a solid fill, a line of the card's color just inside the button's edge, between the fill and
@@ -66,6 +71,7 @@ public final class CmuxDialogButtonView: ClickableButton {
         wantsLayer = true
         self.target = target
         self.action = action
+        isEnabled = button.isEnabled
         identifier = NSUserInterfaceItemIdentifier("cmux.dialog.button.\(button.id)")
         setAccessibilityLabel(button.title)
         // VoiceOver reads the key after the title; the label stays the title (automation finds it).
@@ -97,6 +103,11 @@ public final class CmuxDialogButtonView: ClickableButton {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    public override class var cellClass: AnyClass? {
+        get { OwnInkButtonCell.self }
+        set {}
+    }
+
     public override var isEnabled: Bool { didSet { refresh() } }
 
     /// Shows a new title in place (Copy Link turning into "Copied").
@@ -107,8 +118,10 @@ public final class CmuxDialogButtonView: ClickableButton {
         refresh()
     }
 
-    public override var acceptsFirstResponder: Bool { true }
-    public override var canBecomeKeyView: Bool { true }
+    public override var acceptsFirstResponder: Bool { !isFace }
+    public override var canBecomeKeyView: Bool { !isFace }
+
+    public override func hitTest(_ point: NSPoint) -> NSView? { isFace ? nil : super.hitTest(point) }
     public override var isHighlighted: Bool { didSet { refresh() } }
 
     public override func becomeFirstResponder() -> Bool {
@@ -211,8 +224,16 @@ public final class CmuxDialogButtonView: ClickableButton {
         return performWithTheme {
             let tokens = ThemeContext.active ?? ThemeScope.app.tokens
             // A quiet button is a destructive one, or a stacked request's Deny (its cancel answer) in the same red text.
+            let lift = ChromeTunables.opaqueOverlayLift.value
+            // On a menu or popover's glass (the bookmark bubble) the page shows through unscrimmed: fit to any page.
+            // Outside any card the button sits on the window, see-through or not.
+            let card = switch enclosingSurface?.tintLevel {
+            case nil: CmuxDialogButtonLook.windowSurfaces(tokens)
+            case .menu?: CmuxDialogButtonLook.menuCardSurfaces(tokens, lift: lift)
+            default: CmuxDialogButtonLook.cardSurfaces(tokens, lift: lift)
+            }
             return CmuxDialogButtonLook(role: isQuiet ? .destructive : button.role, tokens: tokens, state: state, quiet: isQuiet,
-                                        card: CmuxDialogButtonLook.cardSurfaces(tokens, lift: ChromeTunables.opaqueOverlayLift.value))
+                                        isEnabled: isEnabled, card: card)
         }
     }
 
@@ -231,7 +252,6 @@ public final class CmuxDialogButtonView: ClickableButton {
             let onOpaqueCard = enclosingSurface?.material == .opaque
             focusGap.borderColor = (onOpaqueCard ? look.opaqueCard : look.card).nsColor.cgColor
             CATransaction.commit()
-            alphaValue = isEnabled ? 1 : 0.45
             let font = button.role == .default ? Typography.bodyEmphasized : Typography.body
             if let keycapView {
                 keycapView.paint(ink: look.title.nsColor, glyph: look.keyHint.nsColor)

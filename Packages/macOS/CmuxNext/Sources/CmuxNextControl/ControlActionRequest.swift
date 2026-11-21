@@ -27,10 +27,18 @@ public struct ControlActionRequest: Sendable, Hashable {
     public var callerTerminal: String?
     /// `caller.home_chat`: a Chief turn, whose chat is the Home chat (ControlCaller).
     public var callerHomeChat = false
+    /// `caller.workspace`: the key of the workspace the agent session runs in (`CMUX_WORKSPACE_ID`),
+    /// where its run is placed when no tab shows its chat (ControlCallerLocation).
+    public var callerWorkspace: String?
     public var besideCaller = false
     /// That column does not exist: the target is the chat itself, and the
     /// handler moves the new tab into a new column right of it.
     public var newColumnBeside = false
+    /// `action.run` `beside_chat: true`: the caller named a workspace and no pane (`cmux tab create browser
+    /// --workspace`, `browser.open_split` `workspace_id`), so its target is only that workspace's default pane.
+    /// When that pane holds an agent chat, a browser opens in the column right of the chat
+    /// (`placeBesideTargetChat`, ControlCaller). Without it the target is the pane the caller named.
+    public var besideTargetChat = false
 
     public init(actionID: String, target: ControlTargetRef? = nil, arguments: [String: ControlValue] = [:], origin: String = "cli",
                 focus: Bool = false) {

@@ -5,7 +5,10 @@ import CmuxNextDesign
 /// `minHeight`, `maxHeight`; a number or `"infinity"`) sizes the node around its padding; `background` fills it, `borderColor` and
 /// `borderWidth` (1 by default) stroke it inside, `cornerRadius` rounds and clips both;
 /// `hoverBackground` washes it while the pointer is over it (local, no script round trip);
-/// `rotation` turns it clockwise by that many degrees about its center.
+/// `rotation` turns it clockwise by that many degrees about its center; `offset` (`{x, y}` points) moves
+/// its drawing first, without moving its layout (a clock hand offset by half its length turns about the
+/// face's center); `position` (`{x, y}`, points or, with `unit: "fraction"`, 0...1 of the parent) places
+/// a ZStack child's center (``AppSceneZStackNSView``).
 extension AppSceneNodeNSView {
     /// One `frame` dimension: a number, or `"infinity"` (fill).
     func frameDimension(_ key: String) -> CGFloat? {
@@ -62,22 +65,54 @@ extension AppSceneNodeNSView {
     func paintDecorations() {
         guard let layer else { return }
         let hover = isDecorationHovered ? node.props["hoverBackground"]?.sceneColor : nil
-        layer.backgroundColor = (hover ?? node.props["background"]?.sceneColor)?.cgColor
+        if hover == nil, let gradient = AppSceneGradient(node.props["background"]) {
+            let fill = backgroundGradientLayer(in: layer)
+            fill.isHidden = false
+            fill.frame = layer.bounds
+            gradient.apply(to: fill, size: layer.bounds.size, yDown: fill.contentsAreFlipped())
+            layer.backgroundColor = nil
+        } else {
+            decorationGradient?.isHidden = true
+            layer.backgroundColor = (hover ?? node.props["background"]?.sceneColor)?.cgColor
+        }
         layer.borderColor = node.props["borderColor"]?.sceneColor?.cgColor
     }
 
-    /// The rotation about the node's center (on each layout, since it depends on the size).
+    /// The layer a gradient `background` draws in, below every child (made once per view).
+    private func backgroundGradientLayer(in layer: CALayer) -> CAGradientLayer {
+        if let decorationGradient { return decorationGradient }
+        let made = CAGradientLayer()
+        made.actions = ["colors": NSNull(), "startPoint": NSNull(), "endPoint": NSNull(), "bounds": NSNull(), "position": NSNull(), "hidden": NSNull()]
+        layer.insertSublayer(made, at: 0)
+        decorationGradient = made
+        return made
+    }
+
+    /// `offset`'s `{x, y}` in points (zero when absent).
+    var drawingOffset: CGPoint {
+        let offset = node.props["offset"]?.objectValue
+        return CGPoint(x: offset?["x"]?.numberValue ?? 0, y: offset?["y"]?.numberValue ?? 0)
+    }
+
+    /// The offset, then the rotation about the node's center (on each layout, since it depends on the size).
+    /// A rotation change draws its end state: the AppKit renderer does not animate scene props yet.
     func layoutDecorations() {
         guard let layer else { return }
+        // A gradient's points follow the box's shape: repaint it at the new size.
+        if let decorationGradient, !decorationGradient.isHidden, decorationGradient.frame != layer.bounds { needsDisplay = true }
         let degrees = node.number("rotation") ?? 0
-        guard degrees != 0 else {
+        let offset = drawingOffset
+        guard degrees != 0 || offset != .zero else {
             if !CATransform3DIsIdentity(layer.sublayerTransform) { layer.sublayerTransform = CATransform3DIdentity }
             return
         }
         // Clockwise on screen, about the center: the content's sublayers turn, the node keeps its frame.
+        let flip: CGFloat = layer.contentsAreFlipped() ? -1 : 1
         let (cx, cy) = (bounds.midX, bounds.midY)
         var turn = CATransform3DMakeTranslation(cx, cy, 0)
-        turn = CATransform3DRotate(turn, CGFloat(-degrees * .pi / 180) * (layer.contentsAreFlipped() ? -1 : 1), 0, 0, 1)
-        layer.sublayerTransform = CATransform3DTranslate(turn, -cx, -cy, 0)
+        turn = CATransform3DRotate(turn, CGFloat(-degrees * .pi / 180) * flip, 0, 0, 1)
+        turn = CATransform3DTranslate(turn, -cx, -cy, 0)
+        // y grows downward in the flipped view; an unflipped layer's y grows upward.
+        layer.sublayerTransform = CATransform3DTranslate(turn, offset.x, offset.y * -flip, 0)
     }
 }
