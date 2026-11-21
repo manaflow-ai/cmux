@@ -9,7 +9,8 @@ import Testing
 /// is, to the pixel (#48495). The band's presence was the sidebar's laid-out frame width over the
 /// width the drag set: the drag sets fractional widths from the pointer, Auto Layout rounds the frame
 /// to whole pixels, so the share flickered just under 1 and the band's origin, width and button slots
-/// moved by a pixel on every other step.
+/// moved by a pixel on every other step. The sidebar's +, floored at the band's edge, read the panel's
+/// origin from the rounded bounds less the fractional panel width and moved a pixel on a tie.
 @MainActor @Suite(.serialized, .closesItsWindows) struct SidebarResizeTitlebarBandSteadyTests {
     func root() -> (NSWindow, WindowRootView) {
         _ = NSApplication.shared
@@ -55,6 +56,9 @@ import Testing
             #expect(root.toolbarBand.presence == 1, "step \(step): presence \(root.toolbarBand.presence)")
             #expect(root.toolbarBand.alphaValue == 1, "step \(step)")
             #expect(bandFrames(root) == rest, "step \(step) dx \(dx): \(bandFrames(root)) != \(rest)")
+            // The + is floored at the band's edge only when the sidebar is too narrow for it; at these
+            // widths it rides its column and is never shifted by a rounding error in the panel's origin.
+            #expect(container.sidebarView.titlebarRowShift == 0, "step \(step): + shifted \(container.sidebarView.titlebarRowShift)")
         }
         container.handleDrag(.ended)
         settle(root)
