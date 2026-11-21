@@ -150,14 +150,14 @@ import { holdNewTabAttachments } from "./newtab/remoteAttachmentDraft";
 import { startNewTabTransition } from "./newtab/startTransition";
 import { drawPaneSnapshot, PendingPaneDraw } from "./paneSnapshotLane";
 import {
+  FolderRecency,
   folderFields,
   isAgentHome,
+  placeFields,
   projectLabel,
   SessionsBy,
   sessionTitle,
   type AcpmuxSessionEntry,
-  FolderRecency,
-  placeFields,
 } from "./sessionList";
 import { findSession } from "./sessionIndex";
 import { setBookmarkTransport } from "./threadMinimap/bookmarks";
@@ -450,13 +450,7 @@ import {
 } from "./conversation/runInBackground";
 import { SkillWordsContext, useSkillWords } from "./conversation/skillWords";
 import { TranscriptChief } from "./conversation/sentFrom";
-import {
-  editableKey,
-  editableSeqs,
-  promptTurns,
-  trackEditableTurns,
-  type EditableTurns,
-} from "./conversation/editPrompt";
+import { trackEditableTurns, trackPromptTurns, type EditableTurns, type PromptTurns } from "./conversation/editPrompt";
 import {
   CloudTurnCheckpoints,
   readyPromptKey,
@@ -2300,12 +2294,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [rowsForEdits, editFamily],
   );
   // Each prompt's own turn, for the Fork under its bubble; rebuilt only when the turns change.
-  // Read when the rows change, never on a render of anything else: another chat's change renders the
-  // pane, and a walk of every row and a string of every prompt then cost O(transcript) per change of any
-  // chat in the list (bench/session-scale-typing.bench.ts).
-  const promptSeqsRows = turnForkable ? snapshot.rows : NO_ROWS;
-  const promptSeqsKey = useMemo(() => editableKey(promptTurns(promptSeqsRows)), [promptSeqsRows]);
-  const stablePromptSeqs = useMemo(() => editableSeqs(promptSeqsKey), [promptSeqsKey]);
+  // Tracked across snapshots: a streamed row reads the rows after it, not the whole chat (cmux#48711).
+  // A cache the memo below carries forward. A render React replays or drops only re-derives it
+  // from the same rows, so it lives in a state-held box, not a ref written during render.
+  const [promptTurnsCache] = useState<{ last?: PromptTurns }>(() => ({}));
+  const rowsForPromptTurns = turnForkable ? snapshot.rows : NO_ROWS;
+  const stablePromptSeqs = useMemo(
+    () => (promptTurnsCache.last = trackPromptTurns(rowsForPromptTurns, promptTurnsCache.last)).seqs,
+    [rowsForPromptTurns, promptTurnsCache],
+  );
   // Retry with another model (cx-ncc.62): the models the composer's picker lists for the chat's
   // harness (user-hidden ones left out, aliases folded, the session's own choices added) that it can
   // run now, kept the same array while they stay the same.
@@ -11924,11 +11921,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // `folderFields`): another chat's status, unread, title or cost changing leaves them as they are.
   // The New Tab list reads the folders apart from their order: a chat on this Mac working moves its
   // folder up (`FolderRecency`) without naming every folder again.
-  const folderLists = useRef<{
-    newTab: SessionsBy;
-    composer: SessionsBy;
-    recency: FolderRecency;
-  } | null>(null);
+  const folderLists = useRef<{ newTab: SessionsBy; composer: SessionsBy; recency: FolderRecency } | null>(null);
   folderLists.current ??= {
     newTab: new SessionsBy(placeFields),
     composer: new SessionsBy(folderFields),

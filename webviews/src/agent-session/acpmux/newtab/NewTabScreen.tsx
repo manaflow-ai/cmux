@@ -495,9 +495,8 @@ export function NewTabScreen(props: Props) {
   const startsRecent = !picked && folderless && !props.startCwd;
   // This Mac's chat folders, newest first, kept as the chats change (sessionList.ts
   // `FolderRecency`): a chat working moves its folder up without every chat being sorted again.
-  const recency = useRef<FolderRecency>(null);
-  recency.current ??= new FolderRecency();
-  const recentFolders = recency.current.of(snapshot.sessions);
+  const [recency] = useState(() => new FolderRecency());
+  const recentFolders = useMemo(() => recency.of(snapshot.sessions), [recency, snapshot.sessions]);
   const candidate = useMemo(
     () => (startsRecent ? firstProject(recentFolders, home, props.knownProjects) : undefined),
     [startsRecent, recentFolders, home, props.knownProjects],
@@ -1074,9 +1073,8 @@ export function NewTabScreen(props: Props) {
   const barText = touched && !shell && !commandTyping && !profilePick ? typed : "";
   // The chats' folders newest first, kept as the chats change (sessionList.ts `FolderRecency`):
   // another chat working sorts no chat again.
-  const barRecency = useRef<FolderRecency>(null);
-  barRecency.current ??= new FolderRecency(omnibarFolder);
-  const barRecent = barRecency.current.of(snapshot.sessions);
+  const [barRecency] = useState(() => new FolderRecency(omnibarFolder));
+  const barRecent = useMemo(() => barRecency.of(snapshot.sessions), [barRecency, snapshot.sessions]);
   const barFolders = useMemo(() => omnibarFolders(props.projects, barRecent), [props.projects, barRecent]);
   const barAgents = useMemo(
     () =>
@@ -1903,9 +1901,10 @@ export function NewTabScreen(props: Props) {
   // Filtered again only when where a chat runs changed (`SessionsBy` over what the composer's
   // machine and folder lists read): another chat's status or title leaves the same array, so the
   // composer reads none of them again.
-  const startablePlaces = useRef<SessionsBy>(null);
-  startablePlaces.current ??= new SessionsBy((session) => [session.cwd, session.peer, session.hostKind, session.host]);
-  const placedChats = startablePlaces.current.of(snapshot.sessions);
+  const [startablePlaces] = useState(
+    () => new SessionsBy((session) => [session.cwd, session.peer, session.hostKind, session.host]),
+  );
+  const placedChats = useMemo(() => startablePlaces.of(snapshot.sessions), [startablePlaces, snapshot.sessions]);
   const startableSessions = useMemo(
     () => placedChats.filter((session) => session.peer || session.hostKind !== "cloud"),
     [placedChats],
