@@ -129,7 +129,6 @@ PATH_OWNERS = {
     # test_ci_merge_receipt.py loads it by path and also reads its workflow
     # and fixtures.
     "scripts/ci/merge_receipt.py": frozenset(("ci",)),
-    ".github/workflows/merge-receipt.yml": frozenset(("ci",)),
     "tests/fixtures/merge_receipt/pr14433.json": frozenset(("ci",)),
     "tests/fixtures/merge_receipt/pr14461.json": frozenset(("ci",)),
     # The local merge-main resolver runs these trusted generators. The

@@ -128,7 +128,19 @@ def branch_admitted(config, branch: str) -> bool:
     return True
 
 
-def reachable_events(wf: Workflow, default_branch: str) -> set[str]:
+def names_other_branch(config, foreign: set[str]) -> bool:
+    """Whether a filter names a branch that carries this ref's tree: any listed branch that is not another audited
+    ref's (nightly-next, rc/*, lane/* hold NEXT's files, so `push: nightly-next` on NEXT fires)."""
+    if not isinstance(config, dict):
+        return True
+    if "branches" in config:
+        return any(not str(p).startswith("!") and str(p) not in foreign for p in config["branches"] or [])
+    if "branches-ignore" in config:
+        return True
+    return not ("tags" in config or "tags-ignore" in config)
+
+
+def reachable_events(wf: Workflow, default_branch: str, foreign: frozenset = frozenset()) -> set[str]:
     """Events (other than workflow_call) that can fire this ref's copy of the file."""
     out = set()
     for event, config in wf.triggers.items():
@@ -139,10 +151,10 @@ def reachable_events(wf: Workflow, default_branch: str) -> set[str]:
                 out.add(event)
         elif event == "push":
             tagged = isinstance(config, dict) and ("tags" in config or "tags-ignore" in config)
-            if branch_admitted(config, wf.branch) or tagged:
+            if branch_admitted(config, wf.branch) or tagged or names_other_branch(config, foreign):
                 out.add(event)
         elif event in PR_EVENTS:
-            if branch_admitted(config, wf.branch):
+            if branch_admitted(config, wf.branch) or names_other_branch(config, foreign):
                 out.add(event)
         elif event != "workflow_call":
             out.add(event)  # unknown event: keep
@@ -238,11 +250,21 @@ def read_titles(files: list[str], since: int, until: int) -> collections.Counter
 
 def runs_by_file(workflows: list[Workflow], titles: collections.Counter) -> dict[str, int]:
     """Jobs in the window per file name (a file on two refs shares its count: the feed has no ref for old rows)."""
+    exact: dict[str, set[str]] = collections.defaultdict(set)
     pats: dict[str, list[re.Pattern]] = collections.defaultdict(list)
     for wf in workflows:
-        pats[wf.file].extend(title_patterns(wf))
-    out = {name: 0 for name in pats}
+        for template in (wf.name, wf.run_name):
+            template = " ".join(template.split())
+            if template and not EXPR.search(template):
+                exact[template].add(wf.file)
+            elif template:
+                pats[wf.file].extend(literal_patterns(template))
+        if not wf.name:
+            exact[wf.path].add(wf.file)
+    out = {wf.file: 0 for wf in workflows}
     for title, n in titles.items():
+        for name in exact.get(title, ()):
+            out[name] += n
         for name, rxs in pats.items():
             if any(rx.match(title) for rx in rxs):
                 out[name] += n
@@ -256,7 +278,8 @@ def audit(workflows: list[Workflow], runs: dict[str, int], default_branch: str) 
     default_copy = {wf.file: wf for wf in workflows if wf.branch == default_branch}
     found = []
     for ref, files in by_ref.items():
-        direct = {name: reachable_events(wf, default_branch) for name, wf in files.items()}
+        foreign = frozenset(r.branch for r in workflows if r.ref != ref)
+        direct = {name: reachable_events(wf, default_branch, foreign) for name, wf in files.items()}
         live = {name for name, ev in direct.items() if ev}
         callers: dict[str, set] = collections.defaultdict(set)
         for name, wf in files.items():
