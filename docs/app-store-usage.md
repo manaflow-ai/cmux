@@ -86,9 +86,11 @@ What cmux installs:
 2. **One consent card first.** The card names the repository and the short commit (and the tag),
    every permission the extension asks for, and "Not reviewed by cmux" when the extension is
    not on the community list. Nothing installs or runs until you confirm.
+   The install is for the commit the card showed: if the branch moves while the card is open, the
+   install still gets the commit you saw (a card older than 15 minutes asks again).
 3. **Checks.** The repo (or PATH) holds `cmux-app.json` or `cmux-app.v2.json`, which passes the
    manifest validator. The app id must start with the repository owner (`OWNER/...`);
-   `cmux/` and `manaflow-ai/` ids come only from manaflow-ai's repositories. When the manifest's
+   `cmux/` and `manaflow-ai/` ids come only from manaflow-ai's repositories on github.com. When the manifest's
    `engines.cmux` needs a newer cmux, the install stops and says which version you need. An
    extension from a repository is always unverified: it runs in the sandbox with only the
    permissions on its card.

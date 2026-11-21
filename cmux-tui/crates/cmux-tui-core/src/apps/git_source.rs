@@ -45,6 +45,8 @@ const MAX_ENTRIES: usize = 20_000;
 pub const INDEX: &str = "sources.json";
 
 /// Publishers a repository may not claim unless it is manaflow-ai's.
+/// The one host whose `manaflow-ai` owner is ours.
+const TRUSTED_HOST: &str = "github.com";
 const FIRST_PARTY: &[&str] = &["cmux", "manaflow-ai"];
 
 /// A parsed reference.
@@ -237,8 +239,65 @@ pub trait GitTransport: Send + Sync {
     fn get(&self, url: &str, accept: &str, limit: u64) -> Result<(u16, Vec<u8>), String>;
     /// The tree of `commit` in the repository at `clone_url` as a tar, for a
     /// host without an archive endpoint.
-    fn git_archive(&self, clone_url: &str, commit: &str, limit: u64) -> Result<Vec<u8>, String>;
-    /// POSTs a JSON body, best effort (the anonymous install count).
+    fn git_archive(&self, clone_url: &str, commit: &str, limit: u64) -> Result<Vec<u8>, String> {
+        if !is_commit(commit) || !clone_url.starts_with("https://") {
+            return Err("git fetches only an https repository at a commit".into());
+        }
+        let work = std::env::temp_dir().join(format!(
+            "cmux-git-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let dir = work.to_string_lossy().into_owned();
+        let tar_path = work.join("tree.tar");
+        let tar_arg = format!("--output={}", tar_path.to_string_lossy());
+        let deadline = std::time::Instant::now() + GIT_FETCH_TIMEOUT;
+        let result = (|| {
+            run_git(&["init", "-q", "--bare", dir.as_str()], &work, limit, deadline)?;
+            run_git(
+                &[
+                    "-C",
+                    dir.as_str(),
+                    "fetch",
+                    "-q",
+                    "--depth",
+                    "1",
+                    "--no-tags",
+                    "--",
+                    clone_url,
+                    commit,
+                ],
+                &work,
+                limit,
+                deadline,
+            )?;
+            run_git(
+                &[
+                    "-C",
+                    dir.as_str(),
+                    "archive",
+                    "--format=tar",
+                    "--prefix=tree/",
+                    tar_arg.as_str(),
+                    commit,
+                ],
+                &work,
+                limit,
+                deadline,
+            )?;
+            let tar = std::fs::read(&tar_path).map_err(|_| GIT_DOWNLOAD_FAILED.to_string())?;
+            if tar.len() as u64 > limit {
+                return Err(format!("the tree is larger than {} MiB", limit >> 20));
+            }
+            Ok(tar)
+        })();
+        let _ = std::fs::remove_dir_all(&work);
+        result
+    }
+
     fn post_json(&self, url: &str, body: &Value) -> Result<(), String>;
 }
 
@@ -648,18 +707,21 @@ pub(super) fn extract_with(
 
 /// The contract's id rule: a repository app's id starts with the
 /// repository owner, lowercased (`OWNER/...`); `cmux/` and `manaflow-ai/`
-/// only from manaflow-ai's repositories; never `local/`.
-pub fn check_id(id: &str, owner: &str) -> Result<(), String> {
+/// only from manaflow-ai's repositories on github.com (another host's
+/// `manaflow-ai` owner is not ours); never `local/`.
+pub fn check_id(id: &str, host: &str, owner: &str) -> Result<(), String> {
     let owner = owner.to_ascii_lowercase();
     let publisher = id.split('/').next().unwrap_or_default();
     if publisher == "local" {
         return Err(format!("{id}: local/ apps come only from your own folders, not a repository"));
     }
     if FIRST_PARTY.contains(&publisher) {
-        return if owner == "manaflow-ai" {
+        return if owner == "manaflow-ai" && host.eq_ignore_ascii_case(TRUSTED_HOST) {
             Ok(())
         } else {
-            Err(format!("{id}: {publisher}/ apps come only from manaflow-ai's repositories"))
+            Err(format!(
+                "{id}: {publisher}/ apps come only from manaflow-ai's repositories on {TRUSTED_HOST}"
+            ))
         };
     }
     if publisher != owner {
@@ -711,33 +773,70 @@ fn meets(comparator: &str, have: (u64, u64, u64)) -> Option<bool> {
     Some(have == want)
 }
 
-/// The manifest's `engines.cmux`: a range with major 2 or more names the app
-/// platform ([`PLATFORM_API`], what every v2 manifest's `^2.0` means); a
-/// lower one names the cmux release (`>=0.70.0`), unchecked in a build that
-/// is not a release. A range this does not parse is left to the validator.
+/// The manifest's `engines.cmux`: alternatives joined by `||`, each a
+/// space-separated set of comparators that must all hold (`^2.0 || ^3.0`,
+/// `>=0.70.0 <1`). An alternative whose first comparator has major 2 or more
+/// names the app platform ([`PLATFORM_API`], what every v2 manifest's `^2.0`
+/// means); a lower one names the cmux release (`>=0.70.0`), unchecked in a
+/// build that is not a release. The range passes when one alternative does.
+/// A range this does not parse is refused, not guessed at.
 pub fn check_engines(manifest: &Value, release: &str) -> Result<(), String> {
     let Some(range) = manifest.pointer("/engines/cmux").and_then(Value::as_str) else {
         return Ok(());
     };
-    let comparators: Vec<&str> = range.split_whitespace().collect();
-    let Some(first) = comparators
-        .first()
-        .and_then(|c| version_triple(c.trim_start_matches(['>', '<', '=', '^', '~'])))
-    else {
-        return Ok(());
+    let unsupported = || {
+        format!(
+            "engines.cmux {range:?} is not a range this cmux reads: use comparators like ^2.0, ~2.1, >=0.70.0 or *, joined by spaces (and) or || (or)"
+        )
     };
-    let have = if first.0 >= 2 {
-        PLATFORM_API
-    } else {
-        match version_triple(release).filter(|v| *v != (0, 0, 0)) {
-            Some(version) => version,
-            None => return Ok(()),
+    // Parse every alternative first: one that does not parse refuses the range.
+    let mut parsed: Vec<(bool, Vec<String>)> = Vec::new();
+    for alternative in range.split("||") {
+        // `>= 2.1` is one comparator written with a space.
+        let mut comparators: Vec<String> = Vec::new();
+        let mut pending = String::new();
+        for token in alternative.split_whitespace() {
+            if !pending.is_empty() {
+                comparators.push(format!("{pending}{token}"));
+                pending.clear();
+            } else if token.chars().all(|c| matches!(c, '>' | '<' | '=' | '^' | '~')) {
+                pending = token.to_string();
+            } else {
+                comparators.push(token.to_string());
+            }
         }
-    };
-    let ok = comparators.iter().all(|c| meets(c, have).unwrap_or(true));
-    if ok {
-        Ok(())
-    } else if first.0 >= 2 {
+        if !pending.is_empty() || comparators.is_empty() {
+            return Err(unsupported());
+        }
+        if comparators.iter().any(|c| meets(c, (0, 0, 0)).is_none()) {
+            return Err(unsupported());
+        }
+        let first = comparators[0].trim_start_matches(['>', '<', '=', '^', '~']);
+        let major = if first == "*" { 0 } else { version_triple(first).ok_or_else(unsupported)?.0 };
+        parsed.push((major >= 2, comparators));
+    }
+    let mut platform_failed = false;
+    let mut release_failed = false;
+    for (platform, comparators) in &parsed {
+        let have = if *platform {
+            PLATFORM_API
+        } else {
+            match version_triple(release).filter(|v| *v != (0, 0, 0)) {
+                Some(version) => version,
+                // Not a release build: its release range is not checked.
+                None => return Ok(()),
+            }
+        };
+        if comparators.iter().all(|c| meets(c, have) == Some(true)) {
+            return Ok(());
+        }
+        if *platform {
+            platform_failed = true;
+        } else {
+            release_failed = true;
+        }
+    }
+    if platform_failed && !release_failed {
         Err(format!(
             "this extension needs cmux app platform {range}; this cmux has {}.{}, so it needs a newer cmux",
             PLATFORM_API.0, PLATFORM_API.1
@@ -872,12 +971,12 @@ pub fn inside(git_dir: &Path, relative: &str) -> Option<PathBuf> {
 }
 
 /// Validates a fetched package: the one validator, the id rule, engines.
-pub fn validate(dir: &Path, owner: &str) -> Result<Package, String> {
+pub fn validate(dir: &Path, host: &str, owner: &str) -> Result<Package, String> {
     let package = catalog::package(dir, DirKind::Git)?;
     if package.id == catalog::CUSTOMIZE_APP {
         return Err(format!("{} loads only from the customize folder", catalog::CUSTOMIZE_APP));
     }
-    check_id(&package.id, owner)?;
+    check_id(&package.id, host, owner)?;
     check_engines(&package.manifest, crate::release::distribution_version())?;
     Ok(package)
 }
@@ -903,6 +1002,72 @@ pub fn load_into(catalog: &mut Catalog, sources: &Sources) {
                 catalog.packages.insert(id, package);
             }
             Err(issue) => catalog.rejected.push((dir, issue)),
+        }
+    }
+}
+
+/// Longest a custom host's `git fetch` and `git archive` may take in all.
+const GIT_FETCH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// What a failed or stalled custom-host download says: git's own stderr
+/// is not shown (it can carry the host's raw text).
+const GIT_DOWNLOAD_FAILED: &str = "could not download the repository from its host; check that the address is right and the repository is public, then try again";
+
+/// Bytes under `dir`, counting only until `cap` is passed.
+fn dir_bytes(dir: &Path, cap: u64) -> u64 {
+    let mut total = 0u64;
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(next) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&next) else { continue };
+        for entry in entries.flatten() {
+            let Ok(meta) = entry.metadata() else { continue };
+            if meta.is_dir() {
+                stack.push(entry.path());
+            } else {
+                total += meta.len();
+            }
+            if total > cap {
+                return total;
+            }
+        }
+    }
+    total
+}
+
+/// Runs `git args` to its end, killing it when `deadline` passes or the
+/// bytes it writes under `work` pass `limit`. Its streams are discarded:
+/// the error is the fixed [`GIT_DOWNLOAD_FAILED`] (or the size limit).
+fn run_git(
+    args: &[&str],
+    work: &Path,
+    limit: u64,
+    deadline: std::time::Instant,
+) -> Result<(), String> {
+    let mut child = cmux_process::Command::new("git")
+        .args(["-c", "protocol.allow=never", "-c", "protocol.https.allow=always"])
+        .args(args)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .stdin(cmux_process::Stdio::null())
+        .stdout(cmux_process::Stdio::null())
+        .stderr(cmux_process::Stdio::null())
+        .spawn()
+        .map_err(|_| "git is not available to fetch from this host".to_string())?;
+    loop {
+        match child.wait_timeout(std::time::Duration::from_millis(200)) {
+            Ok(Some(status)) if status.success() => return Ok(()),
+            Ok(Some(_)) | Err(_) => return Err(GIT_DOWNLOAD_FAILED.to_string()),
+            Ok(None) => {}
+        }
+        let too_big = dir_bytes(work, limit) > limit;
+        if too_big || std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(if too_big {
+                format!("the repository is larger than {} MiB", limit >> 20)
+            } else {
+                GIT_DOWNLOAD_FAILED.to_string()
+            });
         }
     }
 }

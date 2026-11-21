@@ -6,9 +6,11 @@
 //!   (staged, not installed) and answers its listing with its scopes, the
 //!   source (`repository`, `path`, `ref`, `commit`, `tag`, `version`) and
 //!   `reviewed` / `verified_source`: what the consent card shows.
-//! - `install {app: <reference>}` installs the commit the card showed (the
-//!   staged one; nothing else installs); on an installed app it moves it to that
-//!   commit, the card having shown the new scopes.
+//! - `install {app: <reference>, commit}` installs the commit the card showed
+//!   (`commit` is the card's; it must be staged, and a later `catalog.get` that
+//!   staged another commit does not replace it; nothing else installs); on an
+//!   installed app it moves it to that commit, the card having shown the new
+//!   scopes. `grant_optional` is the card's too.
 //! - `update {app: <id or reference>}` re-resolves the recorded ref and moves
 //!   the app to the new commit; when the new commit asks for a scope the
 //!   installed one did not, it refuses (`apps.update.needs_consent`): the
@@ -48,14 +50,27 @@ pub(crate) struct Staged {
     pub reviewed: bool,
 }
 
+/// Requests that finished, newest last: (idempotency key, what it asked,
+/// the commit it installed, the app). A retry of one replays its answer.
+type Done = (String, String, String, String);
+
+/// How many finished requests a retry can still replay.
+const DONE_KEPT: usize = 256;
+
 #[derive(Default)]
 pub(crate) struct GitState {
+    /// Staged packages by `reference#commit`: each card's commit stays its own.
     staged: Mutex<HashMap<String, Staged>>,
+    done: Mutex<std::collections::VecDeque<Done>>,
     transport: OnceLock<Arc<dyn GitTransport>>,
     /// One fetch at a time.
     fetching: Mutex<()>,
     /// One `sources.json` read-modify-write at a time.
     index: Mutex<()>,
+}
+
+fn staged_key(reference: &str, commit: &str) -> String {
+    format!("{reference}#{commit}")
 }
 
 fn git_error(code: &str) -> impl Fn(String) -> ApiError + '_ {
@@ -126,10 +141,30 @@ impl Supervisor {
                         "an app from a git repository installs without deploy",
                     ));
                 }
-                self.install_from_git(client, reference, &key()?, origin)
+                let commit = args
+                    .get("commit")
+                    .and_then(Value::as_str)
+                    .filter(|c| git_source::is_commit(c))
+                    .ok_or_else(|| {
+                        ApiError::new(
+                            "apps.git.commit_required",
+                            "an install from a git repository names the commit its consent card showed (commit)",
+                        )
+                    })?;
+                let grant_optional =
+                    args.get("grant_optional").and_then(Value::as_bool).unwrap_or(false);
+                self.install_from_git(client, reference, commit, grant_optional, &key()?, origin)
             }
             ("apps.update", _) => {
-                self.git_update(client, app.as_deref().unwrap_or_default(), &key()?, origin)
+                let grant_optional =
+                    args.get("grant_optional").and_then(Value::as_bool).unwrap_or(false);
+                self.git_update(
+                    client,
+                    app.as_deref().unwrap_or_default(),
+                    grant_optional,
+                    &key()?,
+                    origin,
+                )
             }
             ("apps.uninstall", _) => {
                 let result = self.store_call_base(client, op, args, origin)?;
@@ -195,8 +230,8 @@ impl Supervisor {
             None => self.fetch_tree(&*transport, &reference, &resolved, &git_dir, &relative)?,
         };
         let tag = resolved.tag;
-        let package =
-            git_source::validate(&dir, &reference.owner).map_err(git_error("apps.git.invalid"))?;
+        let package = git_source::validate(&dir, &reference.host, &reference.owner)
+            .map_err(git_error("apps.git.invalid"))?;
         let tag = tag.or_else(|| refs.tag_at(&commit, &package.version));
         let verified_source = tag
             .as_deref()
@@ -218,7 +253,11 @@ impl Supervisor {
             verified_source,
         };
         let staged = Staged { at: Instant::now(), source, package, reviewed };
-        self.git.staged.lock().recover_poison().insert(reference.reference(), staged.clone());
+        self.git
+            .staged
+            .lock()
+            .recover_poison()
+            .insert(staged_key(&reference.reference(), &staged.source.commit), staged.clone());
         Ok(staged)
     }
 
@@ -264,7 +303,7 @@ impl Supervisor {
                     ),
                 ));
             }
-            git_source::validate(&staging, &reference.owner)
+            git_source::validate(&staging, &reference.host, &reference.owner)
                 .map_err(git_error("apps.git.invalid"))?;
             Ok(sha256)
         })();
@@ -324,24 +363,66 @@ impl Supervisor {
         Ok(value)
     }
 
-    fn take_staged(&self, reference: &str) -> Option<Staged> {
+    /// The package the card for `commit` of `reference` staged, still fresh.
+    fn staged_at(&self, reference: &str, commit: &str) -> Option<Staged> {
         let mut staged = self.git.staged.lock().recover_poison();
         staged.retain(|_, s| s.at.elapsed() < STAGED_FOR && s.package.dir.is_dir());
-        staged.remove(reference)
+        staged.get(&staged_key(reference, commit)).cloned()
+    }
+
+    /// After an install finished: its reference's staged packages go.
+    fn consume_staged(&self, reference: &str) {
+        let prefix = format!("{reference}#");
+        self.git.staged.lock().recover_poison().retain(|key, _| !key.starts_with(&prefix));
+    }
+
+    /// The app a finished request with this idempotency key answered, when
+    /// `request` (and, for an install, the `commit`) is the one it asked: a
+    /// retry replays success. Another request under the key conflicts.
+    fn replayed(
+        &self,
+        key: &str,
+        request: &str,
+        commit: Option<&str>,
+    ) -> Result<Option<String>, ApiError> {
+        let done = self.git.done.lock().recover_poison();
+        let Some((_, asked, installed, app)) = done.iter().find(|(k, ..)| k == key) else {
+            return Ok(None);
+        };
+        if asked == request && commit.is_none_or(|c| c == installed) {
+            Ok(Some(app.clone()))
+        } else {
+            Err(ApiError::new(
+                "idempotency.conflict",
+                "this idempotency key was used for a different change",
+            ))
+        }
+    }
+
+    fn remember_done(&self, key: &str, request: &str, commit: &str, app: &str) {
+        let mut done = self.git.done.lock().recover_poison();
+        done.push_back((key.into(), request.into(), commit.into(), app.into()));
+        while done.len() > DONE_KEPT {
+            done.pop_front();
+        }
     }
 
     /// The one "install this ref" entry point (CLI, deeplink, App Store page,
-    /// setups): installs `reference` (`HOST/OWNER/REPO[/PATH][@REF]`) at the
-    /// commit the consent card showed, which [`Self::git_stage`] (the card's
-    /// `catalog.get`) staged in the last 15 minutes; refuses
-    /// `apps.git.not_staged` otherwise. On an app already installed from this
-    /// repository it moves the app to that commit. Origin user only: the
-    /// person confirmed the card. Answers the app's state as `apps.install`
-    /// does, with its source fields.
+    /// setups): installs `reference` (`HOST/OWNER/REPO[/PATH][@REF]`) at
+    /// `commit`, the commit the consent card showed, which [`Self::git_stage`]
+    /// (the card's `catalog.get`) staged in the last 15 minutes; refuses
+    /// `apps.git.not_staged` otherwise, so a card for one commit never
+    /// installs another. On an app already installed from this repository it
+    /// moves the app to that commit. `grant_optional`: the card listed the
+    /// optional scopes too. Origin user only: the person confirmed the card.
+    /// A retry with the same `idempotency_key` replays the finished answer.
+    /// Answers the app's state as `apps.install` does, with its source fields.
     pub(crate) fn install_from_git(
         &self,
         client: u64,
         reference: &str,
+        commit: &str,
+        grant_optional: bool,
         idempotency_key: &str,
         origin: Origin,
     ) -> Result<Value, ApiError> {
@@ -349,18 +430,32 @@ impl Supervisor {
             return Err(ApiError::new("apps.origin", "installing an app needs a user action"));
         }
         let parsed = RepoRef::parse(reference).map_err(git_error("apps.git.reference"))?;
+        let request = format!("install {} {grant_optional}", parsed.reference());
+        if let Some(app) = self.replayed(idempotency_key, &request, Some(commit))? {
+            return self.git_result(&app);
+        }
         // Only what the consent card showed installs: its `catalog.get` (or
         // a caller's [`Self::git_stage`]) staged this exact commit.
-        let Some(staged) = self.take_staged(&parsed.reference()) else {
+        let Some(staged) = self.staged_at(&parsed.reference(), commit) else {
             return Err(ApiError::new(
                 "apps.git.not_staged",
                 format!(
-                    "{} was not shown on a consent card in the last 15 minutes; install it again to see the card",
+                    "{} at {commit} was not shown on a consent card in the last 15 minutes; install it again to see the card",
                     parsed.reference()
                 ),
             ));
         };
-        self.commit_git(client, staged, idempotency_key, origin, true)
+        let result = self.commit_git(
+            client,
+            staged,
+            idempotency_key,
+            &request,
+            origin,
+            true,
+            grant_optional,
+        )?;
+        self.consume_staged(&parsed.reference());
+        Ok(result)
     }
 
     /// `apps.update`: the git app `app` (an id or a reference) at the commit
@@ -369,11 +464,18 @@ impl Supervisor {
         &self,
         client: u64,
         app: &str,
+        grant_optional: bool,
         key: &str,
         origin: Origin,
     ) -> Result<Value, ApiError> {
         if origin != Origin::User {
             return Err(ApiError::new("apps.origin", "updating an app needs a user action"));
+        }
+        let request = format!("update {app}");
+        if let Some(id) = self.replayed(key, &request, None)? {
+            let mut result = self.git_result(&id)?;
+            result.set("updated", json!(true));
+            return Ok(result);
         }
         let found = {
             let inner = self.inner.lock().recover_poison();
@@ -403,7 +505,8 @@ impl Supervisor {
             ));
         }
         let updated = staged.source.commit != current.commit;
-        let mut result = self.commit_git(client, staged, key, origin, false)?;
+        let mut result =
+            self.commit_git(client, staged, key, &request, origin, false, grant_optional)?;
         result.set("updated", json!(updated));
         Ok(result)
     }
@@ -411,13 +514,16 @@ impl Supervisor {
     /// Records and installs (or moves to) a staged package. `consented`:
     /// the consent card showed this commit's scopes, so it may grant what a
     /// fresh install grants; without it a commit asking for more refuses.
+    #[allow(clippy::too_many_arguments, reason = "one internal step shared by install and update")]
     fn commit_git(
         &self,
         client: u64,
         staged: Staged,
         key: &str,
+        request: &str,
         origin: Origin,
         consented: bool,
+        grant_optional: bool,
     ) -> Result<Value, ApiError> {
         let id = staged.package.id.clone();
         let git_dir = self.git_dir()?;
@@ -483,12 +589,18 @@ impl Supervisor {
                 .map_err(|e| ApiError::new("apps.git.persist", format!("sources.json: {e}")))?;
         }
         let commit = staged.source.commit.clone();
-        if installed {
-            self.repackage(&id, staged.package, staged.source.clone(), consented)?;
+        let applied = if installed {
+            self.repackage(
+                &id,
+                staged.package.clone(),
+                staged.source.clone(),
+                consented,
+                grant_optional,
+            )
         } else {
             {
                 let mut inner = self.inner.lock().recover_poison();
-                inner.catalog.packages.insert(id.clone(), staged.package);
+                inner.catalog.packages.insert(id.clone(), staged.package.clone());
                 inner.catalog.git.insert(id.clone(), staged.source.clone());
             }
             let op = SetOp {
@@ -496,12 +608,33 @@ impl Supervisor {
                 app: id.clone(),
                 origin,
                 installed: Some(true),
+                grant_optional,
                 ..SetOp::default()
             };
-            self.set(client, op)?;
+            self.set(client, op).map(|_| ())
+        };
+        if let Err(error) = applied {
+            // `apps.json` did not take it: `sources.json` and the catalog go
+            // back to what they were, so a restart loads what still runs.
+            if !installed {
+                let mut inner = self.inner.lock().recover_poison();
+                inner.catalog.packages.remove(&id);
+                inner.catalog.git.remove(&id);
+            }
+            let _index = self.git.index.lock().recover_poison();
+            let mut index = Index::load(&git_dir);
+            match &previous {
+                Some(previous) => index.apps.insert(id.clone(), previous.clone()),
+                None => index.apps.remove(&id),
+            };
+            let _ = index.save(&git_dir);
+            return Err(error);
+        }
+        if !installed {
             // Best effort, bounded at 5 s; this request already runs off the connection's thread.
             git_source::ping_install(&*self.git_transport(), &staged.source.reference(), &commit);
         }
+        self.remember_done(key, request, &commit, &id);
         if let Some(previous) = previous.filter(|p| p.dir != staged.source.dir) {
             self.remove_tree(&git_dir, &previous.dir);
         }
@@ -528,17 +661,34 @@ impl Supervisor {
         package: Package,
         source: GitSource,
         consented: bool,
+        grant_optional: bool,
     ) -> Result<(), ApiError> {
         let turn = self.commits.lock().recover_poison();
         let outs = {
             let mut inner = self.inner.lock().recover_poison();
             let facts = package.facts();
+            let before = inner.catalog.packages.get(id).map(Package::facts);
             let mut next = inner.mirror.clone();
             if let Some(record) = next.apps.get_mut(id) {
                 record.grants.retain(|s| facts.requested.contains(s) || facts.optional.contains(s));
                 if consented {
-                    let (defaults, _) = facts.install_defaults();
-                    record.grants.extend(defaults);
+                    // What the card listed and the person confirmed, as a
+                    // fresh install grants it, for the scopes the old commit
+                    // did not ask for (a scope they took away stays away).
+                    let (confirmed, _) = facts.confirmed_install(grant_optional);
+                    let new: Vec<String> = confirmed
+                        .into_iter()
+                        .filter(|s| {
+                            before
+                                .as_ref()
+                                .is_none_or(|b| !b.requested.contains(s) && !b.optional.contains(s))
+                        })
+                        .collect();
+                    // A new scope that reaches out lifts the sandbox, as it does at install.
+                    if new.iter().any(|s| cmux_app_manifest::scope_reaches_out(s)) {
+                        record.sandboxed = false;
+                    }
+                    record.grants.extend(new);
                 }
             }
             next.revision += 1;

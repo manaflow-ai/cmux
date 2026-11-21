@@ -30,8 +30,14 @@ fn install(
     reference: &str,
     key: &str,
 ) -> Result<Value, super::super::supervisor::ApiError> {
-    call(f, "cmux.apps.catalog.get", json!({"app": reference}), Origin::Cli)?;
-    call(f, "cmux.apps.install", json!({"app": reference, "idempotency_key": key}), Origin::User)
+    let card = call(f, "cmux.apps.catalog.get", json!({"app": reference}), Origin::Cli)?;
+    let commit = card["commit"].clone();
+    call(
+        f,
+        "cmux.apps.install",
+        json!({"app": reference, "commit": commit, "idempotency_key": key}),
+        Origin::User,
+    )
 }
 
 #[test]
@@ -40,6 +46,9 @@ fn nothing_installs_from_a_repository_without_its_consent_card() {
     let git = with_git(&f);
     git.serve("octo", "hello", A, &[], &[(A, app_tarball("octo/hello", "1.0.0", json!({})))]);
     let args = json!({"app": "github.com/octo/hello", "idempotency_key": "k"});
+    let error = call(&f, "cmux.apps.install", args, Origin::User).unwrap_err();
+    assert_eq!(error.code, "apps.git.commit_required");
+    let args = json!({"app": "github.com/octo/hello", "commit": A, "idempotency_key": "k"});
     let error = call(&f, "cmux.apps.install", args, Origin::User).unwrap_err();
     assert_eq!(error.code, "apps.git.not_staged");
     assert!(git.gets.lock().unwrap().is_empty(), "nothing was fetched");
@@ -106,7 +115,7 @@ fn install_with_origin(
     call(
         f,
         "cmux.apps.install",
-        json!({"app": "github.com/octo/hello", "idempotency_key": "cli"}),
+        json!({"app": "github.com/octo/hello", "commit": A, "idempotency_key": "cli"}),
         origin,
     )
 }
@@ -242,4 +251,47 @@ fn a_git_install_loads_back_after_a_restart() {
     assert_eq!(row["state"]["installed"], true);
     assert_eq!(row["commit"], A);
     assert_eq!(row["state"]["source"], "git");
+}
+
+#[test]
+fn an_install_is_the_commit_its_card_showed_even_after_the_branch_moves() {
+    let f = fixture();
+    let git = with_git(&f);
+    let one = app_tarball("octo/hello", "1.0.0", json!({}));
+    let two = app_tarball("octo/hello", "2.0.0", json!({"net:*": "Reach the internet"}));
+    git.serve("octo", "hello", A, &[("refs/heads/main", A)], &[(A, one.clone()), (B, two.clone())]);
+    let card =
+        call(&f, "cmux.apps.catalog.get", json!({"app": "github.com/octo/hello"}), Origin::Cli)
+            .unwrap();
+    assert_eq!(card["commit"], A);
+    // The branch moves and another card is read before the first is confirmed.
+    git.serve("octo", "hello", B, &[("refs/heads/main", B)], &[(A, one), (B, two)]);
+    let other =
+        call(&f, "cmux.apps.catalog.get", json!({"app": "github.com/octo/hello"}), Origin::Cli)
+            .unwrap();
+    assert_eq!(other["commit"], B);
+    let args = json!({"app": "github.com/octo/hello", "commit": A, "idempotency_key": "k"});
+    let installed = call(&f, "cmux.apps.install", args, Origin::User).unwrap();
+    assert_eq!(installed["app"]["commit"], A, "the first card's commit installs, not the newest");
+}
+
+#[test]
+fn a_failed_install_keeps_its_card_and_a_retry_with_the_same_key_replays_success() {
+    let f = fixture();
+    let git = with_git(&f);
+    git.serve(
+        "octo",
+        "hello",
+        A,
+        &[("refs/heads/main", A)],
+        &[(A, app_tarball("octo/hello", "1.0.0", json!({})))],
+    );
+    let first = install(&f, "github.com/octo/hello", "k").unwrap();
+    // The same key again answers the finished install; another commit under it conflicts.
+    let args = json!({"app": "github.com/octo/hello", "commit": A, "idempotency_key": "k"});
+    let again = call(&f, "cmux.apps.install", args, Origin::User).unwrap();
+    assert_eq!(again["app"]["commit"], first["app"]["commit"]);
+    let args = json!({"app": "github.com/octo/hello", "commit": B, "idempotency_key": "k"});
+    let conflict = call(&f, "cmux.apps.install", args, Origin::User).unwrap_err();
+    assert_eq!(conflict.code, "idempotency.conflict");
 }

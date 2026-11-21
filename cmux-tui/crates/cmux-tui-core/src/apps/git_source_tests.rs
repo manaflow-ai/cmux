@@ -329,12 +329,23 @@ fn extraction_refuses_escapes_and_oversized_archives_and_skips_links() {
 
 #[test]
 fn a_repository_app_id_starts_with_its_owner() {
-    assert_eq!(check_id("octo/hello", "Octo"), Ok(()));
-    assert!(check_id("someone/hello", "octo").is_err());
-    assert!(check_id("cmux/hello", "octo").is_err());
-    assert!(check_id("manaflow-ai/hello", "octo").is_err());
-    assert_eq!(check_id("cmux/hello", "manaflow-ai"), Ok(()));
-    assert!(check_id("local/hello", "local").is_err());
+    assert_eq!(check_id("octo/hello", "github.com", "Octo"), Ok(()));
+    assert!(check_id("someone/hello", "github.com", "octo").is_err());
+    assert!(check_id("cmux/hello", "github.com", "octo").is_err());
+    assert!(check_id("manaflow-ai/hello", "github.com", "octo").is_err());
+    assert_eq!(check_id("cmux/hello", "github.com", "manaflow-ai"), Ok(()));
+    assert_eq!(check_id("manaflow-ai/hello", "GitHub.com", "manaflow-ai"), Ok(()));
+    assert!(check_id("local/hello", "github.com", "local").is_err());
+}
+
+#[test]
+fn another_hosts_manaflow_owner_does_not_get_reserved_ids() {
+    for host in ["git.example.com", "gitlab.com", "codeberg.org"] {
+        assert!(check_id("cmux/example", host, "manaflow-ai").is_err(), "{host}");
+        assert!(check_id("manaflow-ai/example", host, "manaflow-ai").is_err(), "{host}");
+    }
+    // An owner's own namespace is theirs on any host.
+    assert_eq!(check_id("octo/x", "git.example.com", "octo"), Ok(()));
 }
 
 #[test]
@@ -348,6 +359,27 @@ fn engines_refuse_a_newer_platform_or_release() {
     assert!(
         check_engines(&with(">=0.70.0"), "0.69.9").unwrap_err().contains("requires cmux >=0.70.0")
     );
-    assert_eq!(check_engines(&with("whatever"), "0.1.0"), Ok(()));
     assert_eq!(check_engines(&json!({}), "0.1.0"), Ok(()));
+}
+
+#[test]
+fn engines_read_alternatives_and_refuse_what_they_cannot_parse() {
+    let with = |range: &str| json!({"engines": {"cmux": range}});
+    // One alternative that holds is enough.
+    assert_eq!(check_engines(&with("^2.0 || ^3.0"), "0.0.0"), Ok(()));
+    assert_eq!(check_engines(&with("^3.0 || ^2.0"), "0.0.0"), Ok(()));
+    assert!(check_engines(&with("^3.0 || ^4.0"), "0.0.0").unwrap_err().contains("newer cmux"));
+    // All comparators of one alternative must hold.
+    assert_eq!(check_engines(&with(">=2.0 <3"), "0.0.0"), Ok(()));
+    assert!(check_engines(&with(">=2.0 <2"), "0.0.0").is_err());
+    assert_eq!(check_engines(&with(">= 2.0"), "0.0.0"), Ok(()));
+    assert_eq!(check_engines(&with("*"), "0.0.0"), Ok(()));
+    // A release alternative against a release build.
+    assert_eq!(check_engines(&with(">=0.80.0 || >=0.70.0 <0.75.0"), "0.71.0"), Ok(()));
+    assert!(check_engines(&with(">=0.80.0 || >=0.70.0 <0.75.0"), "0.76.0").is_err());
+    // What does not parse is refused, never passed unchecked.
+    for bad in ["whatever", "^2.0 || ", ">=", "^2.0 nonsense", "^x.y"] {
+        let error = check_engines(&with(bad), "0.1.0").unwrap_err();
+        assert!(error.contains("is not a range this cmux reads"), "{bad}: {error}");
+    }
 }
