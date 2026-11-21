@@ -8,6 +8,16 @@
 #   cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA \
 #     --arg MODE --artifact artifacts/ios-sim/evidence.zip
 #
+# Any MODE that boots a simulator also takes, as further `--arg`s (see "The simulator's options"
+# below): device=NAME (an iPhone type other than the default, e.g. --arg device=iPhone,16e or
+# --arg device=iPhone,17,Pro,Max; commas stand for spaces; an unknown type exits 3 with the list)
+# and reducemotion=1 (Reduce Motion on, read back in the simulator and in SUMMARY.md).
+# Through the fleet controller (hq build-fleet/cmd/controller/ios_next_sim_step.go), until its
+# change for these lands, they pass only after `shots` with at least one real scene, e.g.
+#   --arg shots --arg device=iPhone,16e --arg reducemotion=1 --arg settings=-cmux-mobile-tab,settings
+# The controller's argument pattern has no spaces or parentheses: a name with parentheses goes in
+# its identifier form (device=iPhone-SE-3rd-generation).
+#
 # MODE:
 #   release-build
 #           CmuxMobileLinkFFI.xcframework, xcodegen, and an unsigned Release app
@@ -112,13 +122,29 @@
 #                          head, on the one simulator: a same-harness before/after
 #             reps=N       repetitions of every case (1-5, default 2)
 #             cases=A,B    cases by label (default ws-200-live4, chat-40-stream,
-#                          chat-40, diff-2400, tabs-30-stream); the labels are
-#                          final.sh's: ws-200 ws-200-live4 ws-500-live8 home-300
+#                          chat-40, diff-2400, tabs-30-stream); the labels (a
+#                          branch's verify/listperf/final.sh runs the same):
+#                          ws-200 ws-200-live4 ws-500-live8 home-300
+#                          home-25-live (300 rows, 25 live Chiefs: 60 typing or
+#                          new-message changes a second through MacHomeFeed's event
+#                          path) home-5000 (5000 rows, idle; one pass at 4000 pt/s,
+#                          so both windows fit the 300 s launch bound)
 #                          chat-40 chat-200 chat-40-stream tabs-30 tabs-30-stream
 #                          tabs-80 diff-2400 diff-2400-pan artifacts-40 feed-ref
+#                          subagent-200 (a finished subagent, 200 transcript items)
+#                          subagent-stream (a running subagent, 40 items, a token
+#                          every 20 ms, 5 siblings changing state)
+#                          subagent-2000 (2000 items; one pass, for the 300 s bound)
+#                          subagents-list-60 (60 subagents 3 deep, 10 changing 4 Hz)
+#                          events-500 (Event Inspector, 500 records, some ~160 KB)
+#                          events-burst (events-500, then 2000 records in 1 s)
+#                          events-filter (events-500 at 20 records/s while "tool_call"
+#                          is typed into Filter and cleared, repeating)
 #                          ws-heavy-live feed-live ws-2000 (the first two: a
 #                          busy Mac on the real live path, ListStressSettings
 #                          CMUX_MOBILE_LIST_FLOOD)
+#                          A row's rig knobs may exist only on a feature branch's
+#                          app; the table is data.
 #           SUMMARY.md gets one row per window; the artifact keeps listperf/.
 #   energy
 #           build, plus the battery and memory bench (cmux-next-ios/verify/energy.md):
@@ -184,6 +210,43 @@ cmux_next_require_fleet cmux-next-ios-sim.sh "xcodebuild and an iOS simulator" "
   "cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --arg bench --artifact artifacts/ios-sim/evidence.zip"
 
 mode="${1:-build}"
+# The simulator's options, taken out of the arguments before each mode reads its own, so they go
+# after any MODE that boots a simulator, in any order (each at most once):
+#   device=NAME      that iPhone device type instead of the default (the first of ios_sim_runtime.py's
+#                    PHONES): its name ("iPhone 16e"), the same with commas for spaces
+#                    (device=iPhone,16e: fleet step arguments hold no spaces) or its identifier's last
+#                    part (device=iPhone-SE-3rd-generation, for a name with parentheses). Every
+#                    simulator of the step (the app's, the kit and UI tests', the Chief benchmark's)
+#                    is that type. A type the runtime lacks fails the step with exit 3 and the
+#                    runtime's iPhone types, before anything is built; never another device.
+#   reducemotion=1   Reduce Motion on in every simulator of the step, before the app first launches
+#                    (`defaults write com.apple.Accessibility ReduceMotionEnabled` inside the booted
+#                    simulator), read back there and written to SUMMARY.md; the DEBUG app logs
+#                    UIAccessibility.isReduceMotionEnabled at launch and SUMMARY.md quotes that line.
+# SUMMARY.md names the device type the step ran on. shots therefore has no scene named device or
+# reducemotion.
+sim_device=""
+reduce_motion=0
+if [[ $# -gt 1 ]]; then
+  sim_rest=()
+  for arg in "${@:2}"; do
+    case "$arg" in
+      device=*)
+        [[ -z "$sim_device" ]] || { echo "cmux-next-ios-sim.sh: device= given twice" >&2; exit 2; }
+        sim_device="${arg#device=}"
+        device_pattern='^[A-Za-z0-9][A-Za-z0-9 ,._()-]*$'
+        [[ "$sim_device" =~ $device_pattern ]] ||
+          { echo "cmux-next-ios-sim.sh: device= wants an iPhone device type name, e.g. device=iPhone,16e, got '$sim_device'" >&2; exit 2; } ;;
+      reducemotion=1) reduce_motion=1 ;;
+      reducemotion=*) echo "cmux-next-ios-sim.sh: reducemotion takes only reducemotion=1, got '$arg'" >&2; exit 2 ;;
+      *) sim_rest+=("$arg") ;;
+    esac
+  done
+  set -- "$1" ${sim_rest[@]+"${sim_rest[@]}"}
+fi
+if [[ "$mode" == release-build && ( -n "$sim_device" || $reduce_motion -eq 1 ) ]]; then
+  echo "cmux-next-ios-sim.sh: release-build boots no simulator; it takes no device= or reducemotion=" >&2; exit 2
+fi
 # handoff through the fleet controller's shots form: the controller's MODE list (hq
 # build-fleet/cmd/controller/ios_next_sim_step.go iosNextSimModes) does not name handoff yet, and
 # shots takes name=WORDS scenes, so `shots handoff=TAG` (exactly that one scene) is handoff tag=TAG.
@@ -252,6 +315,8 @@ listperf_table=(
   "ws-200-live4    workspaces  LIST_COUNT=200 LIST_LIVE_HZ=4"
   "ws-500-live8    workspaces  LIST_COUNT=500 LIST_LIVE_HZ=8"
   "home-300        home        LIST_COUNT=300"
+  "home-25-live    home        LIST_COUNT=300 LIST_LIVE_HZ=20 LIST_LIVE_ROWS=3"
+  "home-5000       home        LIST_COUNT=5000 LIST_PASSES=1 LIST_SPEED=4000"
   "chat-40         chat        LIST_COUNT=40"
   "chat-200        chat        LIST_COUNT=200"
   "chat-40-stream  chat        LIST_COUNT=40 LIST_STREAM=1"
@@ -262,6 +327,13 @@ listperf_table=(
   "diff-2400-pan   diff        LIST_COUNT=3 LIST_PAN=1 LIST_PASSES=4 LIST_SPEED=800"
   "artifacts-40    artifacts   LIST_COUNT=40"
   "feed-ref        feed        FEED_STRESS=320"
+  "subagent-200       subagent    LIST_COUNT=200"
+  "subagent-stream    subagent    LIST_COUNT=40 LIST_STREAM=1"
+  "subagent-2000      subagent    LIST_COUNT=2000 LIST_PASSES=1"
+  "subagents-list-60  subagents   LIST_COUNT=60 LIST_LIVE_HZ=4"
+  "events-500         inspector   LIST_COUNT=500"
+  "events-burst       inspector   LIST_COUNT=500 LIST_STREAM=1"
+  "events-filter      inspector   LIST_COUNT=500 LIST_LIVE_HZ=20 LIST_FILTER=tool_call"
   "ws-heavy-live   workspaces  LIST_FLOOD=45 LIST_FLOOD_ROWS=200 LIST_FLOOD_ADD_SECONDS=3 LIST_FLOOD_BURST=500 LIST_PASSES=3 LIST_SPEED=2400"
   "feed-live       feed        LIST_FLOOD=45 LIST_FLOOD_ROWS=200 LIST_FLOOD_ADD_SECONDS=3 FEED_STRESS=320 LIST_PASSES=2 LIST_SPEED=2400"
   "ws-2000         workspaces  LIST_COUNT=2000 LIST_PASSES=1"
@@ -379,8 +451,15 @@ mkdir -p "$out/screens" "$out/bench" "$work"
 summary="$out/SUMMARY.md"
 note() { printf '%s\n' "$*" | tee -a "$summary"; }
 
-# Steps run with a per-step HOME; Homebrew tools live outside it.
-export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.cargo/bin:$PATH"
+# Steps run with a per-step HOME; Homebrew tools live outside it. Appended, not
+# prepended: on a fleet worker the first PATH entry is the worker's rustup shim,
+# which takes the shared RUSTUP_HOME's install lock for every `rustup target add`
+# and cargo auto-install. Homebrew's rustup ahead of it installed the iOS std
+# targets with no lock, and concurrent simulator steps left the toolchain's
+# component records disagreeing (cmuxs-Mac-mini-4 and cmux14, 2026-11-19:
+# "detected conflict: 'lib/rustlib/aarch64-apple-ios-sim/...'" and "the 'cargo'
+# binary ... is not applicable"). It also kept Homebrew's bun ahead of the pin.
+export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin:$HOME/.cargo/bin"
 
 # Everything this step makes outside its checkout goes away when it ends: the
 # pinned xcodegen's temp dir and, once made, the simulator device set.
@@ -522,6 +601,19 @@ sim_set_dir() {
 }
 # --- end sim_create
 
+# sim_reduce_motion UDID [SET] and reduce_motion_app_verdict LOG (reducemotion=1).
+# shellcheck source-path=SCRIPTDIR source=lib/ios-sim-reduce-motion.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/ios-sim-reduce-motion.sh"
+# sim_boot_reduce_motion UDID WHAT: boots a default-set simulator (unless booted) and turns Reduce Motion on.
+sim_boot_reduce_motion() {
+  local value
+  xcrun simctl boot "$1" >/dev/null 2>&1 || true
+  xcrun simctl bootstatus "$1" -b >/dev/null
+  value="$(sim_reduce_motion "$1")" || {
+    note "- reduce motion ($2 simulator): FAIL: ReduceMotionEnabled read back in the simulator: '$value'"; exit 3; }
+  note "- reduce motion ($2 simulator): on, ReduceMotionEnabled read back in the simulator: $value"
+}
+
 # xcodegen: a pinned release, checksum-verified, in a temp dir of this step's
 # own, never the host's (aws-m4pro-2 has none, and the fleet's AWS Macs are not
 # provisioned by hand). Bump the version and the zip's sha256 together.
@@ -552,8 +644,10 @@ fi
 # (CMUX_CI_IOS_SIM_RUNTIME, set by the build fleet's controller), else the newest (ios_sim_runtime.py).
 # A host without the declared runtime fails here, with the runtimes it has.
 if [[ "$mode" != release-build ]]; then
-  sim_choice="$(xcrun simctl list -j runtimes devicetypes | python3 -I scripts/ci/ios_sim_runtime.py)" || exit 3
-  read -r runtime device_type <<< "$sim_choice"
+  sim_choice="$(xcrun simctl list -j runtimes devicetypes |
+    python3 -I scripts/ci/ios_sim_runtime.py --with-name ${sim_device:+--device "$sim_device"})" || exit 3
+  read -r runtime device_type device_name <<< "$sim_choice"
+  echo "cmux-next-ios-sim.sh: simulator device type: $device_name ($device_type)${sim_device:+, from device=$sim_device}"
   # The step's iPhone is made before anything is built (booted after the build), so a creation that
   # cannot succeed fails the step in seconds, not after the build.
   sims="$(sim_set_dir "$work" "$(df -P "$work" | awk 'NR==2 {print $6}')")"
@@ -773,6 +867,16 @@ else
 fi
 simctl ui "$udid" appearance dark >/dev/null 2>&1 || true
 note "- simulator: ${device_type##*.} on ${runtime##*.}"
+if [[ -n "$sim_device" ]]; then
+  note "- device: $device_name ($device_type), from device=$sim_device"
+else
+  note "- device: $device_name ($device_type), the default"
+fi
+if [[ $reduce_motion -eq 1 ]]; then
+  rm_value="$(sim_reduce_motion "$udid" "$sims")" || {
+    note "- reduce motion: FAIL: com.apple.Accessibility ReduceMotionEnabled read back in the simulator: '$rm_value'"; exit 3; }
+  note "- reduce motion: on, com.apple.Accessibility ReduceMotionEnabled read back in the simulator: $rm_value"
+fi
 simctl install "$udid" "$app"
 simctl launch "$udid" "$bundle_id" >/dev/null
 # A bounded wait for the first screen to draw; the launch itself has no signal to wait on.
@@ -780,6 +884,18 @@ sleep 8
 simctl io "$udid" screenshot "$out/screens/launch.png" >/dev/null
 simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
 note "- launch: ok, screens/launch.png"
+# What the app itself read: its DEBUG launch line (CmuxMobileApp.init), from the simulator's log.
+# With reducemotion=1 the app must have seen it: false or no line fails the step (exit 3).
+a11y_log="$(simctl spawn "$udid" log show --last 5m --style compact \
+  --predicate 'subsystem == "dev.cmux.mobile" AND category == "accessibility"' 2>/dev/null || true)"
+a11y_ok=1
+a11y_seen="$(reduce_motion_app_verdict "$a11y_log")" || a11y_ok=0
+note "- app at launch: UIAccessibility.isReduceMotionEnabled: $a11y_seen"
+if [[ $reduce_motion -eq 1 && $a11y_ok -eq 0 ]]; then
+  note "- reduce motion: FAIL: the app did not see Reduce Motion at launch (isReduceMotionEnabled: $a11y_seen)"
+  exit 3
+fi
+[[ $reduce_motion -eq 0 ]] || note "- reduce motion: PASS: the app saw isReduceMotionEnabled=true at launch"
 # The simulator's memory at launch (simslim measure: phys_footprint of its processes, slim or stock),
 # for the fleet's stock-versus-slim comparison. Read-only; never fails the step.
 if [[ -n "${CMUX_CI_SIMSLIM:-}" && -x "${CMUX_CI_SIMSLIM}" ]] &&
@@ -901,6 +1017,7 @@ if [[ ( "$mode" == test || "$mode" == all ) && $run_kit -eq 1 ]]; then
   # xcodebuild sees only the default device set: the tests get their own new
   # iPhone there, deleted by its UDID afterwards (never another step's device).
   test_udid="$(sim_create "cmux-next-ios-sim-test-${CMUX_CI_STEP_KEY:-local}" "$device_type" "$runtime")"
+  [[ $reduce_motion -eq 0 ]] || sim_boot_reduce_motion "$test_udid" "kit test"
   set +e
   (cd cmux-next-ios/CmuxMobileKit && env ${kit_env[@]+"${kit_env[@]}"} xcodebuild test -scheme CmuxMobileKit-Package \
     -destination "id=$test_udid,arch=arm64" -enableCodeCoverage NO -derivedDataPath "$work/dd-test" \
@@ -1118,6 +1235,7 @@ if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 ]]; then
     xcrun simctl boot "$ui_udid"
     xcrun simctl bootstatus "$ui_udid" -b >/dev/null
   fi
+  [[ $reduce_motion -eq 0 ]] || sim_boot_reduce_motion "$ui_udid" "UI test"
   ui_xcodebuild=(-project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Debug
     -destination "id=$ui_udid,arch=arm64" -enableCodeCoverage NO -derivedDataPath "$work/dd-ui"
     CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= -quiet)
@@ -1228,6 +1346,7 @@ fi
 # --- Chief layout benchmark -------------------------------------------------
 if [[ "$mode" == chief-live-perf || "$mode" == chief-live-perf-baseline ]]; then
   perf_udid="$(sim_create "cmux-chief-perf-${CMUX_CI_STEP_KEY:-local}" "$device_type" "$runtime")"
+  [[ $reduce_motion -eq 0 ]] || sim_boot_reduce_motion "$perf_udid" "Chief benchmark"
   perf_flags=('SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited)')
   if [[ "$mode" == chief-live-perf-baseline ]]; then
     perf_flags=('SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) CMUX_CHIEF_LIVE_BASELINE')

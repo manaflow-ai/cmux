@@ -1756,6 +1756,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-deadline"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-device-kind"
 version = "0.1.0"
 dependencies = [
@@ -1843,6 +1851,14 @@ dependencies = [
  "serde",
  "serde_json",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "cmux-follow-cam"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2201,6 +2217,7 @@ name = "cmux-rd-host"
 version = "0.2.7"
 dependencies = [
  "cc",
+ "cmux-computer-use",
  "cmux-encode",
  "cmux-file-lock",
  "cmux-hub-host",
@@ -2266,6 +2283,7 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-build-identity",
+ "cmux-deadline",
  "cmux-json",
  "cmux-link",
  "cmux-netwatch",
