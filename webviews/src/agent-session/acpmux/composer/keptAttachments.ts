@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ComposerAttachment } from "../attachments";
 import { appendAttachments } from "./attachmentIntakeModel";
 import { holdWebSwap } from "../../../pages/shared/webSwap";
@@ -64,10 +64,7 @@ export function useKeptAttachments(
   store: KeptAttachments | undefined,
   carrying: () => boolean,
 ): void {
-  /// The chat whose kept chips were read back. A ref, not state: the read answers right after a
-  /// chat switch commits, and a state write rendered the whole composer again before the switch's
-  /// first frame. Chips the read puts back render through `setAttachments`, and that render keeps them.
-  const readFor = useRef<string | undefined>(undefined);
+  const [readFor, setReadFor] = useState<string>();
   /// The chips' ids the host holds for the chat as last written, and which of them it has contents for.
   const written = useRef<{ sessionId?: string; ids: string; stored: Set<string> }>({ ids: "", stored: new Set() });
   const pending = useRef<Pending | undefined>(undefined);
@@ -83,8 +80,8 @@ export function useKeptAttachments(
   const lastWrite = useRef(new Map<string, number>());
   const refused = useRef(new Map<string, ComposerAttachment[]>());
   /// What a web update's reload would bring back (pages/shared/webSwap.ts).
-  const shown = useRef({ sessionId, attachments, store });
-  shown.current = { sessionId, attachments, store };
+  const shown = useRef({ sessionId, attachments, readFor, store });
+  shown.current = { sessionId, attachments, readFor, store };
 
   /// Writes chat `sessionId`'s chips: the shown chat's (`shownChat`) also says what the host holds now.
   const write = (sessionId: string, chips: ComposerAttachment[], sent: ComposerAttachment[], shownChat: boolean) => {
@@ -152,15 +149,11 @@ export function useKeptAttachments(
         if (unkept) written.current.ids = "\u0000refused";
         const keep = keepHeld || !readOne.current;
         readOne.current = true;
-        readFor.current = sessionId;
         setAttachments((held) => {
           const others = keep ? held.filter((chip) => !back.some((k) => k.id === chip.id)) : [];
           return back.length || others.length !== held.length ? [...back, ...others] : held;
         });
-        // Nothing came back and the chips held stay: no render follows, so they are kept from here
-        // (a harness switch's carried chips go to the new session). Any other read changes the list
-        // and its render keeps it, or leaves an empty composer with nothing to keep.
-        if (!back.length && keep) keepNow.current(sessionId, shown.current.attachments);
+        setReadFor(sessionId);
       });
     return () => {
       current = false;
@@ -168,9 +161,8 @@ export function useKeptAttachments(
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- flush only sends what rests; a chat is read once per session.
   }, [sessionId, store, setAttachments]);
 
-  /// Keeps the chips shown for the chat once its read answered: a write rests, then goes.
-  const keep = (sessionId: string | undefined, attachments: ComposerAttachment[]) => {
-    if (!sessionId || !store || readFor.current !== sessionId) return;
+  useEffect(() => {
+    if (!sessionId || !store || readFor !== sessionId) return;
     const chips = keptChips(attachments);
     // Back to what the host has (a chip pasted and sent or removed before it rested): a write still
     // resting would put back what is gone, so it is dropped.
@@ -189,20 +181,15 @@ export function useKeptAttachments(
         send(sessionId, chips);
       }, KEPT_ATTACHMENTS_SETTLE_MS),
     };
-  };
-  const keepNow = useRef(keep);
-  keepNow.current = keep;
-  useEffect(() => {
-    keep(sessionId, attachments);
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- keep is this render's; the timer sends what this render held.
-  }, [sessionId, store, attachments]);
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- send is this render's; the timer sends what this render held.
+  }, [sessionId, store, readFor, attachments]);
 
   // WEB-SWAP: a web update reloads the page only once the host holds every chip as shown, with
   // its contents: a chip still resting, in flight, refused or not read back yet waits for it.
   useEffect(
     () =>
       holdWebSwap(() => {
-        const { sessionId, attachments, store } = shown.current;
+        const { sessionId, attachments, readFor, store } = shown.current;
         if (attachments.some((chip) => chip.shellRun)) return "composer.shell-run";
         // A write resting or in flight (a removal's empty list too): what a reload reads back is not known yet.
         if (pending.current || inFlight.current) return "composer.attachments-unsaved";
@@ -216,7 +203,7 @@ export function useKeptAttachments(
         if (other) return "composer.attachments-unsaved";
         const chips = keptChips(attachments);
         // The host's chips not read back yet: a page that reloads now reads them then.
-        if (sessionId && store && readFor.current !== sessionId) return "composer.attachments-unread";
+        if (sessionId && store && readFor !== sessionId) return "composer.attachments-unread";
         if (!sessionId || !store) return chips.length ? "composer.attachments-unkept" : null;
         const kept = written.current;
         const behind =
