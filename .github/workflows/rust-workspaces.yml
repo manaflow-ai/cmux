@@ -383,7 +383,7 @@ jobs:
           RECEIPT_RUN: ${{ needs.receipt.outputs.run_url }}
           RECEIPT_PRODUCER: ${{ needs.receipt.outputs.producer }}
         run: |
-          # A receipt skip says so in the log, a notice and the step summary, so neither a reader nor merge_hold
+          # A receipt skip says so in the log, a notice and the step summary, so neither a reader nor land-judge
           # takes it for a plain skip (work nobody judged). its manual test test_ci_receipt.py runs this step.
           if [[ "$RECEIPT_VALID" == true && "$RECEIPT_AUDIT" != true ]]; then
             line="rust workspaces: verified reuse of receipt $RECEIPT_RUN (by $RECEIPT_PRODUCER); plan and every workspace skipped on it"
