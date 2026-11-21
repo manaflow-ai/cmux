@@ -118,6 +118,38 @@ export const MINIMUM = { text: 4.5, large: 3, icon: 3, disabled: 2.5 } as const;
 type Stage = { entry: string; variant: string; source: string; height: number; scheme: Scheme };
 const stageName = (stage: Stage): string => `${stage.entry}/${stage.variant}@${stage.scheme.name}`;
 
+/** Stages grouped by entry, in their order. */
+const byEntry = <S extends { entry: string }>(stages: S[]): Map<string, S[]> => {
+  const groups = new Map<string, S[]>();
+  for (const stage of stages) groups.set(stage.entry, [...(groups.get(stage.entry) ?? []), stage]);
+  return groups;
+};
+
+/**
+ * The stages part `part` of `parts` reads: every scheme of an entry in the same part, the entries
+ * dealt to the parts by stage count, most stages first, each to the part with the fewest so far
+ * (ties to the lowest part, entries of equal count by name), so every part gets about as many.
+ *
+ * Why whole entries: a stage's time is almost all its frame loading, and an entry's first load
+ * transforms its modules on the dev server (0.4 to 6 s on an idle runner) where a later scheme of
+ * the same entry loads warm (about 0.4 s). Dealt one stage at a time by index, an entry's seven
+ * schemes went to seven parts, so every part loaded nearly every entry cold: 525 to 620 s a part
+ * (run 44879946614).
+ */
+export function stagesOfPart<S extends { entry: string }>(stages: S[], part: number, parts: number): S[] {
+  const groups = [...byEntry(stages)].sort(
+    ([a, x], [b, y]) => y.length - x.length || (a < b ? -1 : a > b ? 1 : 0),
+  );
+  const load = Array.from({ length: parts }, () => 0);
+  const mine: S[] = [];
+  for (const [, group] of groups) {
+    const least = load.indexOf(Math.min(...load));
+    load[least]! += group.length;
+    if (least === part - 1) mine.push(...group);
+  }
+  return mine;
+}
+
 /** One failing reading. */
 export type Failure = { key: string; stage: string; state: State; control: Control; reading: Reading; minimum: number };
 
@@ -179,7 +211,7 @@ export async function controlContrast({ file, part, parts, viteConfig }: Control
       ? part === 1
         ? everyStage.filter((stage) => filter.includes(stage.entry))
         : []
-      : everyStage.filter((_, index) => index % parts === part - 1);
+      : stagesOfPart(everyStage, part, parts);
     if (stages.length === 0) {
       test.skip(`control contrast part ${part} of ${parts}: CONTROL_CONTRAST_ENTRIES runs in part 1`, () => {});
       return;
@@ -232,8 +264,11 @@ export async function controlContrast({ file, part, parts, viteConfig }: Control
     const capture = async (page: Page): Promise<string> =>
       `data:image/png;base64,${(await page.screenshot({ type: "png", animations: "disabled", caret: "hide" })).toString("base64")}`;
 
+    const prof = new Map<string, number>();
+    const tick = (k: string, t0: number) => prof.set(k, (prof.get(k) ?? 0) + performance.now() - t0);
     const scan = async (page: Page, cdp: CDPSession, stage: Stage): Promise<Scanned> => {
       const name = stageName(stage);
+      let t = performance.now();
       const port = (vite!.httpServer!.address() as { port: number }).port;
       const query = new URLSearchParams({
         entry: stage.entry,
@@ -246,27 +281,40 @@ export async function controlContrast({ file, part, parts, viteConfig }: Control
       try {
         await page.setViewportSize({ width: 760, height: Math.min(1100, Math.max(320, stage.height)) });
         await page.goto(`http://127.0.0.1:${port}/gallery/frame.html?${query}`);
+        tick("goto", t); t = performance.now();
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 20_000 });
         if ((await page.evaluate(() => document.documentElement.dataset.galleryReady)) !== "1")
           return { stage: name, error: "the stage did not render" };
+        if (process.env.CC_READY_LOG) fs.appendFileSync(process.env.CC_READY_LOG, `${Math.round(performance.now() - t)} ${name}\n`);
+        tick("ready", t); t = performance.now();
         await page.addStyleTag({
           content: "*, *::before, *::after { transition: none !important; animation: none !important; }",
         });
         await page.mouse.move(-10, -10);
         const controls = await page.evaluate(markControls);
+        tick("mark", t); t = performance.now();
         const failures: Failure[] = [];
         if (controls.length === 0) return { stage: name, controls: 0, failures };
         await cdp.send("DOM.enable");
         await cdp.send("CSS.enable");
         for (const state of stage.scheme.states) {
+          t = performance.now();
           await force(cdp, state);
+          tick("force", t); t = performance.now();
           await settle(page);
+          tick("settle", t); t = performance.now();
           const drawn = await capture(page);
+          tick("capture", t); t = performance.now();
           const ink = await page.evaluate(hideInk, true);
+          tick("hide", t); t = performance.now();
           await settle(page);
+          tick("settle", t); t = performance.now();
           const bare = await capture(page);
+          tick("capture", t); t = performance.now();
           await page.evaluate(hideInk, false);
+          tick("hide", t); t = performance.now();
           const readings = await page.evaluate(readControls, { drawn, bare, scale: 2, controls, ink });
+          tick("read", t); t = performance.now();
           for (const reading of readings) {
             const control = controls[reading.id]!;
             const minimum = minimumOf(control, reading);
@@ -309,12 +357,16 @@ export async function controlContrast({ file, part, parts, viteConfig }: Control
 
     test(`every control's ink reads in every theme and mode (part ${part} of ${parts})`, async () => {
       const results: Scanned[] = [];
-      const queue = [...stages];
+      // A worker takes a whole entry at a time: its first scheme loads the entry's modules, the rest
+      // load them again warm. The entries with the most stages go first, so none is left to one worker
+      // at the end.
+      const queue = [...byEntry(stages).values()].sort((a, b) => b.length - a.length);
       await Promise.all(
         Array.from({ length: 6 }, async () => {
           let page: Page | undefined;
           let cdp: CDPSession | undefined;
-          for (let stage = queue.shift(); stage; stage = queue.shift()) {
+          for (let group = queue.shift(); group; group = queue.shift())
+          for (const stage of group) {
             if (!page || !cdp)
               try {
                 page = await shared!.page();
@@ -369,6 +421,7 @@ export async function controlContrast({ file, part, parts, viteConfig }: Control
         console.log(`control-contrast: read ${recheck.length} stage(s) again to confirm their new failures`);
       }
 
+      console.log(`control-contrast profile: ${[...prof].map(([k, v]) => `${k}=${Math.round(v / 1000)}s`).join(" ")}`);
       const fresh: string[] = [];
       const reported = new Set<string>();
       const worst = new Map<string, number>();
