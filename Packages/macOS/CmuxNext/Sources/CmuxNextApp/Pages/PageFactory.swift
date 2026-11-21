@@ -154,6 +154,14 @@ struct PageFactory {
                           account: { [weak account] in
                               CloudPageProvider.accountValue(signedIn: account?.isSignedIn ?? false, user: account?.auth.user?.id,
                                                              team: account?.auth.teamID)
+                          },
+                          surgeScope: { [weak account] in
+                              guard let account, let user = account.auth.user?.id, let team = account.carrierTeam else { return nil }
+                              return CloudPageProvider.SurgeScope(user: user, team: team)
+                          },
+                          surgeCreate: { [weak account] scope, args, key in
+                              guard let account else { throw PageError.unknownOp("cmux.cloud.surge.create") }
+                              return try await account.appServerSurge(scope: scope, args: args, key: key)
                           })
     }
 

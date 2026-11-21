@@ -361,9 +361,12 @@ export type CloudPageVariant = VariantBase & {
     | "ports-pending"
     | "ports-shared"
     | "cleanup-team"
-    | "resume";
+    | "resume"
+    | "surge-preview"
+    | "surge-result";
   error?: { code: string; message: string };
   signedIn?: boolean;
+  surge?: "available" | "unavailable" | "partial";
   layout?: "rows" | "cards";
   /** The page's URL fragment, e.g. `#/get` for the storefront. */
   hash?: string;

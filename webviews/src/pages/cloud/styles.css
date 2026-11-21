@@ -1224,3 +1224,9 @@ select {
   display: block;
   margin: 8px 0;
 }
+
+.cloud-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

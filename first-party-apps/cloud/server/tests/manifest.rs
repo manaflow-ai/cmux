@@ -156,6 +156,22 @@ fn the_link_token_is_its_own_op_that_the_app_does_not_consume() {
 }
 
 #[test]
+fn surge_requires_a_bounded_request_and_only_serves_preview_in_the_app() {
+    let backend = backend_ops();
+    for name in ["cloud.surge.preview", "cloud.surge.create"] {
+        let fields = &backend[name]["params"]["fields"];
+        for field in ["count", "ttl_seconds"] {
+            assert_eq!(fields[field]["required"], true, "{name} requires {field}");
+        }
+    }
+    assert_eq!(cmux_cloud::ops::op_policy("cloud.surge.preview"), Some((false, false)));
+    assert!(cmux_cloud::ops::canonical_name("cloud.surge.create").is_none());
+    assert_eq!(backend["cloud.surge.create"]["principals"], serde_json::json!(["session"]));
+    let scopes = json(&app_dir().join("../../cmux-tui/crates/cmux-app-host/generated/scopes.json"));
+    assert!(scopes["ops"].get("cloud.surge.create").is_none());
+}
+
+#[test]
 fn link_token_is_never_reachable_from_an_app() {
     let generated = app_dir().join("../../cmux-tui/crates/cmux-app-host/generated/scopes.json");
     let scopes = json(&generated);
