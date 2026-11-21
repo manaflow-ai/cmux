@@ -112,7 +112,9 @@ public final class SignInButton: ClickableButton {
         let state: CmuxDialogButtonLook.State = isHighlighted ? .pressed : isHovering ? .hover : .rest
         return performWithTheme {
             let tokens = ThemeContext.active ?? ThemeScope.app.tokens
-            return CmuxDialogButtonLook(role: .default, tokens: tokens, state: state, isEnabled: isEnabled)
+            // A Sign In button sits on a page or pane, not a dialog card: its disabled fill fades toward the window.
+            return CmuxDialogButtonLook(role: .default, tokens: tokens, state: state, isEnabled: isEnabled,
+                                        card: CmuxDialogButtonLook.windowSurfaces(tokens))
         }
     }
 

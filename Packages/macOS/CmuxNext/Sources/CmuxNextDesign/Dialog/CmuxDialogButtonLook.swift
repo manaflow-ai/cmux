@@ -128,6 +128,16 @@ public nonisolated struct CmuxDialogButtonLook: Equatable, Sendable {
         return [own, tokens.opaqueOverlayFill(lift: lift), own, glass(over: white), glass(over: black)]
     }
 
+    /// The ground a button sits on outside any card (a Home page, a settings pane, a sheet's own window): the window's
+    /// background, and in a see-through window that background over the worst desktop for the theme (white behind a
+    /// dark theme, black behind a light one), as the theme's own text is fit. A gray Cancel fit to the dialog card read
+    /// 1.65:1 there instead (Hot Dog Stand, NativeControlContrastAuditTests). All three surfaces are that ground: the
+    /// focus ring's gap sits on it too.
+    public static func windowSurfaces(_ tokens: ThemeTokens) -> [ThemeRGB] {
+        let ground = tokens.windowBackground.composited(over: tokens.isDark ? white : black)
+        return [ground, ground, ground]
+    }
+
     static let white = ThemeRGB(red: 1, green: 1, blue: 1)
     static let black = ThemeRGB(red: 0, green: 0, blue: 0)
 
