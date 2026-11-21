@@ -1,0 +1,31 @@
+diff --git a/webviews/src/agent-session/acpmux/checkpoints/controller.tsx b/webviews/src/agent-session/acpmux/checkpoints/controller.tsx
+index eee48846f36c..cca0fed32504 100644
+--- a/webviews/src/agent-session/acpmux/checkpoints/controller.tsx
++++ b/webviews/src/agent-session/acpmux/checkpoints/controller.tsx
+@@ -1,5 +1,5 @@
+ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+-import { CheckpointClient, type CheckpointClientOptions, type Request } from "./client";
++import { CheckpointClient, type CheckpointClientOptions, type CheckpointClientState, type Request } from "./client";
+ import type { CheckpointTarget } from "./protocol";
+ import { CheckpointReview } from "./Review";
+ import type { CheckpointStrings } from "./strings";
+@@ -29,9 +29,17 @@ export function useCheckpoints({
+       }),
+   );
+   const subscribe = useCallback((listener: () => void) => client.subscribe(listener), [client]);
+-  const read = useCallback(() => client.getSnapshot(), [client]);
+-  const state = useSyncExternalStore(subscribe, read);
+   const [open, setOpen] = useState(false);
++  // A closed review reads only `supported`: the client's other state (a switch's `select`, a list
++  // or record) changes nothing the pane draws until the review opens, so it renders nothing.
++  const closedView = useRef<CheckpointClientState | undefined>(undefined);
++  const read = useCallback(() => {
++    const next = client.getSnapshot();
++    if (open) return next;
++    if (closedView.current?.supported !== next.supported) closedView.current = { supported: next.supported };
++    return closedView.current;
++  }, [client, open]);
++  const state = useSyncExternalStore(subscribe, read);
+   const [copyError, setCopyError] = useState(false);
+   const cwd = target?.cwd;
+   const sessionId = target?.sessionId;
