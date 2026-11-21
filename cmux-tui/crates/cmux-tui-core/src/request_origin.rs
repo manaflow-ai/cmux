@@ -49,11 +49,13 @@ pub(crate) const CONFIRMATION_TTL_MS: u64 = 60_000;
 /// make the daemon read a file by path. The same holds for a step of the
 /// location trail. The move from classic cmux reads classic's session
 /// (terminal scrollback included) and writes the app's migration ledger
-/// and backups, so only the verified app runs it. A browser import read
+/// and backups, so only the verified app runs it. A pull request review
+/// posts under the person's own GitHub account, so only their click in the
+/// diff page sends one. A browser import read
 /// opens another browser's profile by path: an agent must not read the
 /// person's bookmarks, history or tabs through the daemon, nor a profile
 /// macOS keeps from it (Full Disk Access) by asking the daemon instead.
-pub(crate) const USER_ONLY_OPERATIONS: [&str; 12] = [
+pub(crate) const USER_ONLY_OPERATIONS: [&str; 13] = [
     "apps.install",
     "apps.uninstall",
     "apps.enable",
@@ -63,6 +65,7 @@ pub(crate) const USER_ONLY_OPERATIONS: [&str; 12] = [
     crate::history_ops::TITLE_OPERATION,
     crate::history_ops::IMPORT_OPERATION,
     crate::history_ops::TRAIL_RECORD_OPERATION,
+    crate::git_ops::REVIEW_POST_OPERATION,
     crate::state::classic_import_router::PLAN_OPERATION,
     crate::state::classic_import_router::RECORD_OPERATION,
     crate::resource_router::browser_import::OPERATION,

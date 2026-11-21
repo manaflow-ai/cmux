@@ -12,9 +12,13 @@
 // card's rect, so a 2 px rise rewrote the transcript's blur filter on every frame of the fade, and
 // the display compositor redrew the whole filtered transcript each time. It leaves with the
 // tooltip's short fade, which moves nothing. A menu opens on the click with no fade either.
+// A pull request's head also has a quiet Review left of Open (review from link, prReview.ts): a side
+// chat reviews it in its own worktree and leaves drafts in the diff viewer for the person to post.
+// Open keeps its place at the row's end.
 import { useEffect, type PointerEvent, type ReactNode } from "react";
 import { AnchoredCard } from "../../../ui/Tooltip";
 import { OpenInMenu } from "../previewCard/OpenInMenu";
+import { callNative } from "../callNative";
 import { useT } from "../i18n";
 import { callChipHost } from "./host";
 import { redactUrlText } from "./linkDisplay";
@@ -79,6 +83,16 @@ export function LinkHoverCard({
     event.stopPropagation();
     openInCmux(href);
   };
+  // Not an issue's, and not a read-only transcript's: the side chat is the owner's. Only the agent
+  // pane serves `pr.review` (App.tsx's direct action); other pages that show this card (the
+  // changelog) have no chat to open it beside.
+  const reviewable =
+    !readOnly && githubItemRef(href)?.kind === "pull" && globalThis.window?.cmuxAcpmuxActions?.["pr.review"] != null;
+  const onReview = (event: PointerEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    void callNative("pr.review", { url: href }).catch(() => undefined);
+  };
   const head = (title: string, glyph: ReactNode = mark, address?: string) => (
     <div className="cv-link-preview__head">
       <span className="cv-link-preview__icon">{glyph}</span>
@@ -86,6 +100,11 @@ export function LinkHoverCard({
         <span className="cv-link-preview__site">{title}</span>
         {address && <span className="cv-link-preview__target">{address}</span>}
       </span>
+      {reviewable && (
+        <button type="button" className="cv-link-preview__open cv-link-preview__review" onClick={onReview}>
+          {t("prCard.review")}
+        </button>
+      )}
       {!readOnly && (
         // One split control (Leo 2026-11-07: "the open and open in, why don't we just combine both
         // of those?"): Open takes the click to a cmux tab, the chevron offers the other targets.

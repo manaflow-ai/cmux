@@ -14,7 +14,9 @@
 //! (`worktree_remove`). `git.worktree.setup` reads a repository's worktree
 //! recipe and a worktree's setup run (`worktree_setup`). `diff.comments.*`
 //! keeps the diff page's review comments per worktree root until they are
-//! sent (`diff_comments`). The pure git pieces (bounded runs, the repository
+//! sent (`diff_comments`). `git.review.*` reviews a GitHub pull request
+//! from its link in a worktree of its own, with those comments as its
+//! drafts (`pr_review`). The pure git pieces (bounded runs, the repository
 //! handle, parsers, diff scopes and branch refs) live in the `cmux-git`
 //! crate, which the diff sidecar links too.
 
@@ -33,6 +35,7 @@ mod fingerprint;
 mod journal;
 mod list;
 mod mutation;
+mod pr_review;
 mod push;
 mod target;
 mod user_run;
@@ -43,6 +46,8 @@ mod worktree_include;
 mod worktree_recipe;
 mod worktree_remove;
 mod worktree_setup;
+
+pub(crate) use pr_review::POST as REVIEW_POST_OPERATION;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -77,6 +82,10 @@ pub(crate) const FINGERPRINT_CAPABILITY: &str = "git-fingerprint-v1";
 /// Advertised in identify: the session host owns `diff.comments.list`,
 /// `save` and `delete`.
 pub(crate) const DIFF_COMMENTS_CAPABILITY: &str = diff_comments::CAPABILITY;
+
+/// Advertised in identify: the session host owns `git.review.start`,
+/// `comment` and `post`.
+pub(crate) const REVIEW_CAPABILITY: &str = pr_review::CAPABILITY;
 
 /// Advertised in identify: the session host answers `diff.comments.send`.
 pub(crate) const DIFF_COMMENTS_SEND_CAPABILITY: &str = diff_comments::SEND_CAPABILITY;
@@ -120,6 +129,7 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::GitWorktreeSetup
     ) || checkpoint::handles(operation)
         || diff_comments::handles(operation)
+        || pr_review::handles(operation)
 }
 
 pub(crate) fn dispatch(
@@ -132,6 +142,9 @@ pub(crate) fn dispatch(
     }
     if diff_comments::handles(request.envelope.operation) {
         return diff_comments::dispatch(mux, &request);
+    }
+    if pr_review::handles(request.envelope.operation) {
+        return pr_review::dispatch(mux, &request);
     }
     match request.envelope.operation {
         ResourceOperation::GitCommit => return commit::dispatch(mux, &request),
