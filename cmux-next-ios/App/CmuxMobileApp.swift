@@ -50,6 +50,8 @@ struct CmuxMobileApp: App {
         // A notification reply on a cold background launch signs in with it (no scene runs then).
         PushReplies.shared.auth = auth
         #if DEBUG
+        // `-cmux-mobile-no-restore` (UI tests, rigs): open the lists on All Macs, no grouping.
+        ShellLaunchOptions.clearListViewStateIfNotRestoring()
         // Screenshot rig: CMUX_MOBILE_FEED_LIVE_FIXTURE=1 fills the Feed from a fixed Mac.
         LiveFeedFixture.shared.startIfRequested()
         #endif
