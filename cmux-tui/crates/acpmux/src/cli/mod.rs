@@ -55,6 +55,7 @@ pub(crate) mod owned_child;
 pub(crate) use crate::machine_consent;
 pub mod machine_deps;
 pub mod mesh_control;
+pub(crate) mod new_relay;
 pub use crate::mesh_node_key;
 pub mod notices;
 pub mod orchestrate;
