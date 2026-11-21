@@ -40,7 +40,7 @@ enum MacScreenViewerLookC {
 
     /// The pill's glass: the transient neutral glass every floating control uses, with a soft shadow.
     static func pillSurface() -> NSView {
-        let surface = Glass.makeOverlayPanel(cornerRadius: Metrics.space6, tone: .neutralGlass(.transient))
+        let surface = Glass.makeOverlayPanel(cornerRadius: Metrics.space6, tone: .neutralGlass(.transient)) // concentric-allow: a capsule; the toolbar's layout sets the radius to half its height
         surface.translatesAutoresizingMaskIntoConstraints = true
         surface.castShadow = PopupStyle.elevation2
         return surface
@@ -270,7 +270,7 @@ struct MacScreenFullPaneState {
     }
 
     private func symbolView(_ name: String, ink: KeyPath<MacScreenColors, NSColor>) -> NSView {
-        let font = Typography.system(size: (Typography.title.pointSize * 2.4).rounded(), weight: .light)
+        let font = Typography.system(size: (Typography.title.pointSize * 2.4).rounded(), weight: TypeScale.regular)
         let glyph = MacScreenGlyph(name, font: font, ink: ink)
         glyph.heightAnchor.constraint(equalToConstant: ceil(font.ascender - font.descender)).isActive = true
         glyph.setAccessibilityIdentifier("macScreen.state.symbol")

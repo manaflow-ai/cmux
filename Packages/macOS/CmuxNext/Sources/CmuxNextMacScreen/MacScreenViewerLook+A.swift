@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextWakeups
 import Observation
@@ -80,6 +81,8 @@ final class MacScreenViewerOverlay: MacScreenThemedView {
     private enum Mark { case none, controlling, viewOnly, reconnecting }
 
     private let model: MacScreenPaneModel
+    /// Follows the model (``ObservationStream``); ends once the view is gone.
+    private var watch: Task<Void, Never>?
     private let toolbar: NSView
     private let edge = CALayer()
     private let pill = MacScreenPictureMark()
@@ -159,20 +162,26 @@ final class MacScreenViewerOverlay: MacScreenThemedView {
     // MARK: State
 
     private func track() {
-        withObservationTracking {
-            _ = model.viewerLook
-            _ = model.isLive
-            _ = model.card
-            _ = model.hasFrame
-            _ = model.session?.isStalled
-            _ = model.viewOnly
-            _ = model.capturesKeyboard
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in self?.track() }
-        }
-        // The look may have turned auto-hide on or off.
+        // At once for the first frame (the gallery draws in this turn), then on each change.
         updateTrackingAreas()
         sync()
+        let model = model
+        watch = Task { [weak self] in
+            for await _ in ObservationStream({
+                _ = model.viewerLook
+                _ = model.isLive
+                _ = model.card
+                _ = model.hasFrame
+                _ = model.session?.isStalled
+                _ = model.viewOnly
+                _ = model.capturesKeyboard
+            }) {
+                guard let self else { return }
+                // The look may have turned auto-hide on or off.
+                updateTrackingAreas()
+                sync()
+            }
+        }
     }
 
     /// The toolbar stays while the pane is not live, a card asks something, or the pointer is at the top; otherwise it

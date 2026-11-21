@@ -26,6 +26,8 @@ final class MacScreenStatusStrip {
     /// The strip's height: the design scale's row (28), at every pane width, so the picture and the pointer mapping never
     /// move when the pane resizes or the state changes.
     static let height: CGFloat = 28
+    /// A transient state waits this long before it shows (arch: a blink of a state shows nothing).
+    static let revealDelay: CFTimeInterval = 0.3
     /// A control in the strip: the design scale's compact control (24), centered in the row on the 4 pt grid.
     static let controlHeight: CGFloat = 24
 

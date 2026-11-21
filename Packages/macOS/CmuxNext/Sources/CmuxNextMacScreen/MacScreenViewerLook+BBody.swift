@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import Observation
 
@@ -14,6 +15,8 @@ final class MacScreenStatusStripBody: MacScreenThemedView {
     static let captionWidth: CGFloat = 360
 
     private let model: MacScreenPaneModel
+    /// Follows the model (``ObservationStream``); ends once the view is gone.
+    private var watch: Task<Void, Never>?
     private let actions: MacScreenChromeActions
     private let stack = MacScreenStack.make(.vertical, spacing: Metrics.space5, alignment: .centerX)
     private let spinner = StatusIndicatorView.spinner()
@@ -60,8 +63,10 @@ final class MacScreenStatusStripBody: MacScreenThemedView {
     }
 
     private func track() {
-        withObservationTracking { apply() } onChange: { [weak self] in
-            Task { @MainActor [weak self] in self?.track() }
+        // At once for the first frame (the gallery draws in this turn), then on each change.
+        apply()
+        watch = Task { [weak self] in
+            for await _ in ObservationStream({ [weak self] in self?.apply() }) { if self == nil { return } }
         }
     }
 
@@ -74,7 +79,7 @@ final class MacScreenStatusStripBody: MacScreenThemedView {
     }
 
     private func rebuild(_ state: MacScreenStripState?, revealsLate: Bool) {
-        for view in stack.arrangedSubviews {
+        for view in stack.arrangedSubviews { // visible-only: the body holds at most a mark, two lines and two buttons
             stack.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
@@ -109,11 +114,9 @@ final class MacScreenStatusStripBody: MacScreenThemedView {
     /// The loading mark shows only after ~300 ms (a blink of a state shows nothing), on the layer's clock.
     private func reveal(_ view: NSView) {
         guard let layer = view.layer else { return }
-        let fade = CAKeyframeAnimation(keyPath: "opacity")
-        let opacity = NSNumber(value: Float(view.alphaValue))
-        fade.values = [0, 0, opacity]
-        fade.keyTimes = Motion.reduceMotion ? [0, 0.999, 1] : [0, 0.5, 1]
-        fade.duration = 0.6
+        let fade = Motion.overlays.scheduledFade(.fadeIn, "opacity", from: Float(0), to: Float(view.alphaValue),
+                                                 after: MacScreenStatusStrip.revealDelay, on: layer)
+        fade.fillMode = .both
         layer.add(fade, forKey: "cmux.stripReveal")
     }
 

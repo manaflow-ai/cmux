@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import Observation
 
@@ -10,6 +11,8 @@ import Observation
 @MainActor
 final class MacScreenStatusStripBar: MacScreenThemedView {
     private let model: MacScreenPaneModel
+    /// Follows the model (``ObservationStream``); ends once the view is gone.
+    private var watch: Task<Void, Never>?
     private let actions: MacScreenChromeActions
     private let menus: MacScreenToolbarView
     private let icon = MacScreenGlyph("desktopcomputer", font: MacScreenType.body)
@@ -97,10 +100,15 @@ final class MacScreenStatusStripBar: MacScreenThemedView {
     private var state: MacScreenStripState? { model.card.map { MacScreenStripState.make($0, model: model) } }
 
     private func track() {
-        withObservationTracking { apply() } onChange: { [weak self] in
-            Task { @MainActor [weak self] in self?.track() }
-        }
+        // At once for the first frame (the gallery draws in this turn), then on each change.
+        apply()
         needsLayout = true
+        watch = Task { [weak self] in
+            for await _ in ObservationStream({ [weak self] in self?.apply() }) {
+                guard let self else { return }
+                needsLayout = true
+            }
+        }
     }
 
     private func apply() {
@@ -189,10 +197,9 @@ final class MacScreenStatusStripBar: MacScreenThemedView {
         guard let layer = stateLabel.layer else { return }
         layer.removeAnimation(forKey: "cmux.stripReveal")
         guard late else { return }
-        let fade = CAKeyframeAnimation(keyPath: "opacity")
-        fade.values = [0, 0, 1]
-        fade.keyTimes = Motion.reduceMotion ? [0, 0.999, 1] : [0, 0.6, 1]
-        fade.duration = 0.5
+        let fade = Motion.overlays.scheduledFade(.fadeIn, "opacity", from: Float(0), to: Float(1),
+                                                 after: MacScreenStatusStrip.revealDelay, on: layer)
+        fade.fillMode = .both
         layer.add(fade, forKey: "cmux.stripReveal")
     }
 
