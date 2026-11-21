@@ -1133,6 +1133,26 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     }
                     return Ok(());
                 }
+                PeerCmd::ChatPick { cwd, needs, cloud, running } => {
+                    let has = |n: &str| needs.iter().any(|x| x == n);
+                    let mut p = json!({
+                        "cwd": cwd.or_else(|| std::env::current_dir().ok().map(|d| d.display().to_string())),
+                        "needs": {"macos": has("macos"), "gpu": has("gpu"), "longBuild": has("build")},
+                        "cloud": {"available": cloud},
+                    });
+                    if let (Some(r), Some(obj)) = (running, p.as_object_mut()) {
+                        let parsed: Value = serde_json::from_str(&r)
+                            .map_err(|e| anyhow!("--running is JSON ({e})"))?;
+                        obj.insert("running".into(), parsed);
+                    }
+                    let v = client.request("_acpmux/place_chat", p).await?;
+                    if json_out {
+                        print_json(&v);
+                    } else {
+                        crate::cli::place::chat_lines(&v).iter().for_each(|l| println!("{l}"));
+                    }
+                    return Ok(());
+                }
                 PeerCmd::VmHost { name, state } => {
                     // `vm-host on` names no peer: the state alone.
                     let (name, state) = match (name, state) {

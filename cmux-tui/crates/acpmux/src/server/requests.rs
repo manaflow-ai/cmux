@@ -2680,6 +2680,11 @@ async fn dispatch_request_with_identity(
             ))
         }
         "_acpmux/place" => Ok(super::place::place(hub, &params).await),
+        // Auto chat placement (`chat_place.rs`): the same origins as `_acpmux/place` (checked in
+        // `place.rs`), since the verdict names every machine and its numbers. Boxed: its future
+        // holds the whole input (`heap_future.rs`).
+        "_acpmux/place_chat" => heap(|| super::place::chat_place(hub, conn.origin, &params)).await,
+        "_acpmux/place_chat_event" => super::place::chat_place_event(conn.origin, &params),
         "_acpmux/directories" => {
             let home = dirs::home_dir().unwrap_or_default();
             let base = str_param(&params, "cwd").map(PathBuf::from).unwrap_or_else(|| home.clone());
