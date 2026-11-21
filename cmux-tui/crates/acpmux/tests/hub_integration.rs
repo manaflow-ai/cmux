@@ -62,6 +62,8 @@ mod mcp_connect;
 mod permission_display;
 #[path = "hub_integration/permission_groups.rs"]
 mod permission_groups;
+#[path = "hub_integration/person_hold.rs"]
+mod person_hold;
 #[path = "hub_integration/presence.rs"]
 mod presence;
 #[path = "hub_integration/prompt_approval.rs"]
