@@ -44,6 +44,9 @@ const replacements: Record<string, unknown> = {
   requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
   cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
   IS_REACT_ACT_ENVIRONMENT: true,
+  // This file pins the named header (the `one` arm); the default `kinds` arm, each kind's mark and
+  // count, has its own file (subagent-tray-head-kinds.test.ts; trayFoldHead.experiment.ts).
+  cmuxExperiments: { "subagent-tray-fold-head": "one" },
 };
 for (const key of Object.getOwnPropertyNames(dom.window))
   if (/^(HTML|SVG|CSS|Shadow|Document|Mutation)/.test(key) && !(key in scope))
@@ -1325,8 +1328,9 @@ describe("the tray tells the truth", () => {
       ["A=$(touch marker); bun test", "touch marker · bun test"],
       ['A="$(git rev-parse HEAD)"; bun test', "git rev-parse HEAD · bun test"],
       ["A=`git rev-parse HEAD`; bun test", "git rev-parse HEAD · bun test"],
-      ['A=$(printf "%s" "$(git rev-parse HEAD)"); bun test', "git rev-parse HEAD · printf · bun test"],
-      ['printf "%s" "$(git rev-parse HEAD)"', "git rev-parse HEAD · printf"],
+      // A printf only formats its substitution's answer: quiet, as echo and sleep are (commandWorkLabel.ts).
+      ['A=$(printf "%s" "$(git rev-parse HEAD)"); bun test', "git rev-parse HEAD · bun test"],
+      ['printf "%s" "$(git rev-parse HEAD)"', "git rev-parse HEAD"],
       ["sleep $((60 * 5))", "sleep $((60 * 5))"],
       ["export A=$(git rev-parse HEAD); bun test", "git rev-parse HEAD · bun test"],
       ["cd /tmp && A=$(git rev-parse HEAD); /opt/bin/cmux-ci run --ref $A", "git rev-parse HEAD · cmux-ci run"],

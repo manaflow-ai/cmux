@@ -41,6 +41,9 @@ const replacements: Record<string, unknown> = {
   requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
   cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
   IS_REACT_ACT_ENVIRONMENT: true,
+  // This file pins the named header (the `one` arm); the default `kinds` arm, each kind's mark and
+  // count, has its own file (subagent-tray-head-kinds.test.ts; trayFoldHead.experiment.ts).
+  cmuxExperiments: { "subagent-tray-fold-head": "one" },
 };
 for (const key of Object.getOwnPropertyNames(dom.window))
   if (/^(HTML|SVG|CSS|Shadow|Document|Mutation)/.test(key) && !(key in scope))
