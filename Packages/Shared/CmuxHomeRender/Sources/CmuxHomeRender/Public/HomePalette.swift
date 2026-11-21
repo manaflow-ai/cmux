@@ -329,6 +329,7 @@ public struct HomePalette: Hashable, Sendable {
         // placeholder fell to 1.8:1 (text-inputs-glass, chief-art). It takes the host's secondary text
         // token, the ink every web field's placeholder takes over a see-through window
         // (--cmux-text-secondary, ui/controls.css), so native and web draw the same pixels.
+        if fill.alpha < 1, let placeholderOverGlass { p.placeholder = placeholderOverGlass }
         return p
     }
 
