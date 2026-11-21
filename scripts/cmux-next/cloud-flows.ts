@@ -111,7 +111,9 @@ const done = (detail: string): Result => ({ value: null, detail });
 // ---- the browser (Playwright from the repository's own pin) ----
 function playwright(): any {
   const require = createRequire(import.meta.url);
-  for (const where of ["playwright", path.join(ROOT, "scripts/gallery-matrix/node_modules/playwright"), path.join(ROOT, "webviews/node_modules/playwright")]) {
+  // The pin first: a bare "playwright" can resolve to another version (bun's global cache) whose Chromium and ffmpeg
+  // builds `playwright install` in scripts/gallery-matrix did not fetch.
+  for (const where of [path.join(ROOT, "scripts/gallery-matrix/node_modules/playwright"), path.join(ROOT, "webviews/node_modules/playwright"), "playwright"]) {
     try {
       return require(where);
     } catch {
@@ -132,8 +134,18 @@ async function page(ctx: Ctx): Promise<any> {
     }
   };
   const browser = await launch();
-  const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, recordVideo: { dir: path.join(ctx.out, "video"), size: { width: 1280, height: 800 } } });
-  ctx.page = await context.newPage();
+  const viewport = { width: 1280, height: 800 };
+  let context = await browser.newContext({ viewport, recordVideo: { dir: path.join(ctx.out, "video"), size: viewport } });
+  try {
+    ctx.page = await context.newPage();
+  } catch (error) {
+    // No Playwright ffmpeg (`playwright install ffmpeg`): the steps still run, with stills and no video.
+    if (!/ffmpeg/i.test(String((error as Error)?.message ?? error))) throw error;
+    console.log("::warning::no Playwright ffmpeg, so no video; install it with `bunx playwright install ffmpeg`");
+    await context.close().catch(() => undefined);
+    context = await browser.newContext({ viewport });
+    ctx.page = await context.newPage();
+  }
   ctx.page.setDefaultTimeout(20_000);
   ctx.browserClose = async () => {
     await context.close();
@@ -452,7 +464,7 @@ export async function runFlow(flow: Flow, backend: Backend, out: string, env: Re
   await ctx.browserClose?.().catch(() => undefined);
   const counts = (s: string) => J.steps.filter((x) => x.status === s && !x.step.startsWith("  ")).length;
   const line = `${failed ? "FAIL" : "PASS"} ${flow.name} on ${backend.name}: ${counts("pass")} passed, ${counts("fail")} failed, ${counts("skip")} skipped` +
-    `${absent.size ? ` (skipped for absent secrets: ${[...absent].map((n) => NEEDS[n].label).join(", ")})` : ""}; video ${existsSync(path.join(out, "flow.webm")) ? "flow.webm" : "none (no browser step ran)"}`;
+    `${absent.size ? ` (skipped for absent secrets: ${[...absent].map((n) => NEEDS[n].label).join(", ")})` : ""}; video ${existsSync(path.join(out, "flow.webm")) ? "flow.webm" : ctx.browserClose ? "none (no Playwright ffmpeg)" : "none (no browser step ran)"}`;
   console.log(`\n${line}`);
   writeFileSync(path.join(out, "summary.md"), `${readFileSync(path.join(out, "summary.md"), "utf8")}\n${line}\n`);
   return failed ? 1 : 0;
