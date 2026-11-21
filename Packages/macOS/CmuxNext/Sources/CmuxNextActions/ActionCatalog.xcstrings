@@ -38245,127 +38245,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Go to Home"
+            "value": "Go to Chief"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "الانتقال إلى الرئيسية"
+            "value": "الانتقال إلى Chief"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Idi na početnu"
+            "value": "Idi na Chief"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gå til Hjem"
+            "value": "Gå til Chief"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zu Home wechseln"
+            "value": "Zu Chief wechseln"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ir a Inicio"
+            "value": "Ir a Chief"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aller à l’accueil"
+            "value": "Aller à Chief"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vai a Home"
+            "value": "Vai a Chief"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ホームへ移動"
+            "value": "Chiefへ移動"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ទៅទំព័រដើម"
+            "value": "ទៅ Chief"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "홈으로 이동"
+            "value": "Chief로 이동"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gå til Hjem"
+            "value": "Gå til Chief"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Przejdź do ekranu Start"
+            "value": "Przejdź do Chief"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ir para Início"
+            "value": "Ir para Chief"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Перейти на главную"
+            "value": "Перейти к Chief"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไปที่หน้าหลัก"
+            "value": "ไปที่ Chief"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ana Sayfa’ya git"
+            "value": "Chief'e git"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Перейти на головну"
+            "value": "Перейти до Chief"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Đi tới Trang chủ"
+            "value": "Đi tới Chief"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "前往主页"
+            "value": "前往 Chief"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "前往主頁"
+            "value": "前往 Chief"
           }
         }
       }

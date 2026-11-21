@@ -7,7 +7,7 @@
 //
 // The gap: another agent's message opens a turn (user_message with its turnId, then turn_started and
 // a tool_call). Its "Working for" line sat flush under the message (0 px): the line's mark read as a
-// step's, and a step under a status row sits flush (transcriptGrid.ts). Now a block gap (24 px), and
+// step's, and a step under a status row sits flush (transcriptGrid.ts). Now the head gap (16 px, the gap "Worked for" stands under a line, #48591), and
 // the same once turn_result renames it "Worked for".
 //
 // The fold: user_message, turn_started, agent text, a SendMessage call, an ls call. On the second
@@ -17,7 +17,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { layoutConversation, MESSAGE_RUN, type AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { TRANSCRIPT_BLOCK_GAP } from "../src/agent-session/acpmux/transcriptGrid";
+import { TRANSCRIPT_BLOCK_GAP, TRANSCRIPT_RUN_GAP } from "../src/agent-session/acpmux/transcriptGrid";
 import { connect, fakeDaemon, record, type Step } from "./support/agentPairDaemon";
 
 afterEach(() => {
@@ -80,16 +80,17 @@ const opened: Step[] = [
   ["mux", "turn_result", { turnId: "t2", status: "completed" }],
 ];
 
-test("user_message(turnId) > turn_started > tool_call: the Working for line has a block gap over it", async () => {
+test("user_message(turnId) > turn_started > tool_call: the Working for line has the head gap over it", async () => {
   for (const count of [7, 8]) {
     const { view, gap } = await after(opened, count, true);
     const line = view.find((row) => row.kind === "working" && !row.below)!;
     const above = view[view.indexOf(line) - 1]!;
     expect(above.kind).toBe("user");
     expect(above.incoming?.kind).toBe("message");
-    expect(gap(line.id)).toBe(TRANSCRIPT_BLOCK_GAP);
+    expect(gap(line.id)).toBe(TRANSCRIPT_RUN_GAP);
   }
-  // turn_result: the line becomes "Worked for", the message folded into it, and keeps a block gap.
+  // turn_result: the line becomes "Worked for" and the message folds into it, so the row over it is the turn
+  // before's footer: the block gap a footer stands over "Worked for" (rowGapTable.test.ts footer -> worked).
   const { view, gap } = await after(opened, opened.length, false);
   const worked = view.filter((row) => row.kind === "worked").at(-1)!;
   expect(gap(worked.id)).toBe(TRANSCRIPT_BLOCK_GAP);
@@ -165,11 +166,11 @@ for (const kind of ["message", "notice"] as const)
     const above = started.view.at(-2)!;
     expect(above.kind).toBe("user");
     expect(above.incoming).toBeDefined();
-    expect(started.gap(live.id)).toBe(TRANSCRIPT_BLOCK_GAP);
+    expect(started.gap(live.id)).toBe(TRANSCRIPT_RUN_GAP);
     // The first thought: "Working for" heads the turn there, with the same gap (the rule above).
     const thought = await after(steps, 7, true);
     const at = thought.view.findLastIndex((row) => row.kind === "user");
-    expect(thought.gap(thought.view[at + 1]!.id)).toBe(TRANSCRIPT_BLOCK_GAP);
+    expect(thought.gap(thought.view[at + 1]!.id)).toBe(TRANSCRIPT_RUN_GAP);
   });
 
 // A turn that ends on work (no reply) draws "Worked for" with an empty footer under it. The notice or
@@ -208,6 +209,6 @@ test("turn_result (ended on work) > user_message(turnId, notice) > turn_started:
     const notice = view[at]!;
     expect(notice.incoming).toBeDefined();
     expect(view.slice(0, at).some((row) => row.kind === "worked")).toBe(true);
-    expect(gap(notice.id)).toBe(TRANSCRIPT_BLOCK_GAP);
+    expect(gap(notice.id)).toBe(TRANSCRIPT_RUN_GAP);
   }
 });

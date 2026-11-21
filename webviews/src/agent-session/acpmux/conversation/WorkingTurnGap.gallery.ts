@@ -33,21 +33,21 @@ export default agentPaneEntry({
   height: 560,
   covers: ["agent-session/acpmux/transcriptGrid.ts#transcriptGap"],
   variants: {
-    block: variant(
-      "Shipped: a block gap (24) between the message and the turn's Working for line, as between any two blocks. It stays when the line becomes Worked for.",
+    shipped: variant(
+      "Shipped: the run gap (16) \"Worked for\" stands under any one-line row (#48591, agent-pane.chat-row-spacing), between the message and the turn's Working for line. It stays when the line becomes Worked for.",
     ),
+    block: variant("Alternative: a block gap (24), as between any two blocks.", "block"),
     flush: variant("Before: flush (0); the line reads as the message's own tail.", "flush"),
-    run: variant("Alternative: a run gap (16), as between two tool runs.", "run"),
     turn: variant("Alternative: the turn gap (32), as under a person's prompt.", "turn"),
     // Before the turn's first call: the live line is the row right under the message.
     thinking: variant(
-      "Shipped, before the first call: the live line stands the same block gap (24) under the message, as under a person's prompt.",
+      "Shipped, before the first call: the live line stands the same gap under the message as Working for does (16).",
       undefined,
       OPENED_BY_MESSAGE.slice(0, 8),
     ),
-    "thinking-before": variant(
-      "Before: the live line stood a run gap (16) under the message, as under a tool run.",
-      "run",
+    "thinking-block": variant(
+      "Alternative, before the first call: the live line stands a block gap (24) under the message, as under a person's prompt.",
+      "block",
       OPENED_BY_MESSAGE.slice(0, 8),
     ),
   },
