@@ -5,9 +5,9 @@
 #[cfg(unix)]
 use std::time::Duration;
 
-use cmux_conversation::{Question, QuestionAnswer};
 #[cfg(any(unix, test))]
-use cmux_conversation::{QuestionHarness, QuestionState};
+use cmux_conversation::QuestionState;
+use cmux_conversation::{Question, QuestionAnswer};
 #[cfg(any(unix, test))]
 use serde::Deserialize;
 use serde_json::Value;
@@ -196,34 +196,12 @@ fn deliver_with(
     Ok(())
 }
 
+/// The one encoder the app signs over (`decision_answers_proof`): a different byte here would make
+/// acpmux refuse every Home answer.
 #[cfg(any(unix, test))]
 fn encode_answers(question: &Question, answer: &QuestionAnswer) -> anyhow::Result<Value> {
-    let mut answers = serde_json::Map::new();
-    for item in &question.items {
-        let selection =
-            answer.selections.get(&item.id).ok_or_else(|| refuse("question.invalid_answer"))?;
-        let mut labels: Vec<_> = item
-            .options
-            .iter()
-            .filter(|o| selection.option_ids.contains(&o.id))
-            .map(|o| o.label.clone())
-            .collect();
-        if let Some(other) = &selection.other {
-            labels.push(other.trim().to_owned());
-        }
-        match question.harness {
-            QuestionHarness::Claude | QuestionHarness::Chief => {
-                if answers.insert(item.prompt.clone(), json!(labels.join(", "))).is_some() {
-                    return Err(refuse("question.ambiguous"));
-                }
-            }
-            QuestionHarness::Codex => {
-                answers.insert(item.id.clone(), json!({"answers":labels}));
-            }
-            QuestionHarness::Acp => return Err(refuse("question.unsupported_harness")),
-        }
-    }
-    Ok(Value::Object(answers))
+    cmux_conversation::question_wire::acpmux_answers(question, answer)
+        .map_err(|error| refuse(error.code()))
 }
 
 #[cfg(test)]
