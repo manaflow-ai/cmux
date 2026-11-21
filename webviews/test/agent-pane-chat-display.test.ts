@@ -30,6 +30,18 @@ describe("chat display resolution", () => {
     expect(metrics.blockCodeSize).toBe(12);
   });
 
+  test("New Tab prompt preferences stay unscaled inside its density zoom", () => {
+    const custom = resolveChatDisplay({ "agentPane.display.font.size": 18, "agentPane.display.lineHeight": 1.5 });
+    for (const t of [0.8, 1, 1.2]) {
+      const variables = chatDisplayVariables(custom, t);
+      expect(variables["--cv-base-font-size"]).toBe("18px");
+      expect(variables["--cv-base-line-height"]).toBe(`${custom.fontSize * custom.lineHeight}px`);
+      const defaults = chatDisplayVariables(DEFAULT_CHAT_DISPLAY, t);
+      expect(defaults["--cv-base-font-size"]).toBeNull();
+      expect(defaults["--cv-base-line-height"]).toBeNull();
+    }
+  });
+
   test("the chat follows the Markdown viewer's font, code font and code size", () => {
     const display = resolveChatDisplay({
       "markdown.font.preset": "serif",

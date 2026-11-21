@@ -157,6 +157,71 @@ mod agent_message_policy {
         );
     }
 
+    /// A terminal that lived through a restart of the daemon has its class
+    /// before the new daemon has adopted it: a message from a process of it
+    /// is that terminal's message, and follows the terminal's rule for
+    /// another workspace.
+    #[test]
+    fn a_message_from_a_terminal_that_the_daemon_has_not_adopted_yet_is_that_terminals() {
+        // A Debug seam: a daemon that starts again starts each adoption this
+        // much later. The test asserts no time: it reads, after the message
+        // is there, that the terminal still adopts.
+        let mut daemon =
+            Daemon::start("not-adopted-yet", &[("CMUX_TUI_TEST_ADOPTION_DELAY_MS", "10000")]);
+        let (beta, _) = daemon.workspace("beta");
+        let (started, go, to) =
+            (daemon.dir.join("started"), daemon.dir.join("go"), daemon.dir.join("to"));
+        let script = format!(
+            "unset CMUX_LAUNCH_CREDENTIAL; : > '{started}'; \
+             while [ ! -e '{go}' ]; do sleep 0.05; done; \
+             '{cli}' --json --socket '{socket}' agent message \"$(cat '{to}')\" kept-terminal; \
+             exec sleep 600",
+            started = started.display(),
+            go = go.display(),
+            to = to.display(),
+            cli = env!("CARGO_BIN_EXE_cmux-tui"),
+            socket = daemon.socket.display(),
+        );
+        let writer = daemon.terminal(&beta, &script);
+        // The terminal's process runs, and waits for `go`.
+        wait_for_file(&started);
+
+        daemon.restart();
+        let (alpha, _) = daemon.workspace("alpha");
+        let reader = daemon.terminal(&alpha, "exec sleep 600");
+        std::fs::write(&to, &reader).unwrap();
+        assert_eq!(daemon.lifecycle(&writer), "adopting", "setup: the terminal does not adopt");
+        std::fs::write(&go, "").unwrap();
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        let message = loop {
+            let found = daemon.list(json!({})).into_iter().find(|m| m["body"] == "kept-terminal");
+            if let Some(found) = found {
+                break found;
+            }
+            assert!(std::time::Instant::now() < deadline, "the terminal's process never sent");
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        };
+        assert_eq!(
+            daemon.lifecycle(&writer),
+            "adopting",
+            "setup: the daemon adopted the terminal before its process sent"
+        );
+        assert_eq!(
+            (message["sender"].as_str(), state_and_reason(&message, &reader).0.as_str()),
+            (Some(writer.as_str()), "held"),
+            "the sender and the first state of a message from a process of terminal \
+             {writer}, which the daemon had not adopted yet: {message}"
+        );
+
+        // The daemon adopts the terminal, so the end of the test closes it.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        while daemon.lifecycle(&writer) != "running" {
+            assert!(std::time::Instant::now() < deadline, "the terminal was never adopted");
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    }
+
     #[test]
     fn deliveries_start_queued_in_a_shared_workspace_and_held_otherwise() {
         let daemon = Daemon::start_owner_with("workspaces", &[], true);

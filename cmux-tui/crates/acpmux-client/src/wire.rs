@@ -9,8 +9,8 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 use std::fmt;
 use std::mem::size_of;
 
-pub use acpmux_book::index::folders::FolderRow;
-pub use acpmux_book::index::{ListFilter, OriginState};
+pub use acpmux_list_types::folders::FolderRow;
+pub use acpmux_list_types::{ListFilter, OriginState};
 
 /// The inclusive encoded-frame limit from the v2 protocol.
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
@@ -20,6 +20,9 @@ pub const CREDIT_WINDOW_BYTES: u64 = 1024 * 1024;
 pub const CONNECTION_BUDGET_BYTES: usize = 4 * 1024 * 1024;
 pub const MAX_SUBSCRIPTIONS: usize = 256;
 pub const MAX_IDENTIFIER_BYTES: usize = 256;
+pub const MAX_ACT_ID_BYTES: usize = 64;
+pub const MAX_ACT_OP_BYTES: usize = 32;
+pub const MAX_DAEMON_LINE_BYTES: usize = 256 * 1024;
 
 /// Subscription and request identifiers have one UTF-8 byte bound.
 pub fn identifier_fits(value: &str) -> bool {
@@ -38,6 +41,10 @@ pub enum Request {
     Page(Page),
     Credit(Credit),
     Unsub(Unsub),
+    Blob(Blob),
+    /// A v2 action request. Servers may decode this shape while keeping action
+    /// execution disabled until the corresponding surface is enabled.
+    Act(Act),
 }
 
 /// A generic stream name. The wire layer does not know which stream is being
@@ -106,13 +113,61 @@ pub struct ListKey {
     pub last_activity: u64,
     pub chat_id: String,
     pub origin: String,
+    /// A position, not a row (decision 290): just past every `local` key at `last_activity`.
+    /// Only a serving side mints it, as the `before` key of a peer's empty `all` page, spelled
+    /// origin `local`, chat id "" and `past` true, and only that page accepts it back; every
+    /// other door answers `InvalidPage`. So a past key never reaches the client's maps keyed
+    /// by `ListKey` (its `Ord` and `Hash` see `past`). False is omitted: today's bytes.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub past: bool,
 }
+
+/// Stable position key for the folders view.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderPosition {
+    pub at: u64,
+    pub origin: String,
+    pub folder: String,
+}
+
+/// Identity used by keyed folder pages. Activity time is intentionally absent:
+/// a lookup is by `(origin, folder)` and the supplied cursor time must never
+/// become part of identity.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderIdentity {
+    pub origin: String,
+    pub folder: String,
+}
+
+pub type FolderKey = FolderIdentity;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Position {
     Row(u64),
     List(ListKey),
+    Folder(FolderPosition),
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum PageKey {
+    Summary(ListKey),
+    Folder(FolderIdentity),
+}
+
+impl From<ListKey> for PageKey {
+    fn from(value: ListKey) -> Self {
+        Self::Summary(value)
+    }
+}
+
+impl From<FolderIdentity> for PageKey {
+    fn from(value: FolderIdentity) -> Self {
+        Self::Folder(value)
+    }
 }
 
 impl Serialize for Anchor {
@@ -242,6 +297,15 @@ impl Sub {
 pub enum ListView {
     All,
     Live,
+    Folders,
+}
+
+/// Folders are bounded windows, never whole-view mirrors.
+pub fn validate_mirror_view(view: Option<ListView>) -> Result<(), FrameError> {
+    if matches!(view, Some(ListView::Folders)) {
+        return Err(FrameError::MirrorUnsupported);
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -280,6 +344,73 @@ impl Default for Limits {
 pub struct HelloReply {
     pub daemon_id: String,
     pub limits: Limits,
+}
+
+/// A request to perform one idempotent action on a chat.
+///
+/// `body` is deliberately an arbitrary JSON value. The serving side hashes the
+/// operation and body together when it records the durable receipt, so a retry
+/// with the same id and a different body can never be mistaken for a replay.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Act {
+    pub chat: Stream,
+    pub op: String,
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since: Option<u64>,
+    pub body: serde_json::Value,
+}
+
+impl Act {
+    pub fn new(
+        chat: impl Into<Stream>,
+        op: impl Into<String>,
+        id: impl Into<String>,
+        body: serde_json::Value,
+    ) -> Self {
+        Self { chat: chat.into(), op: op.into(), id: id.into(), since: None, body }
+    }
+
+    pub fn since(mut self, since: u64) -> Self {
+        self.since = Some(since);
+        self
+    }
+
+    /// Validates the bounded fields used by the daemon action writer.
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if self.id.is_empty() || self.id.len() > MAX_ACT_ID_BYTES {
+            return Err("action id must be 1..64 UTF-8 bytes");
+        }
+        if self.op.len() > MAX_ACT_OP_BYTES {
+            return Err("action op must be at most 32 UTF-8 bytes");
+        }
+        let encoded =
+            serde_json::to_vec(&self.body).map_err(|_| "action body is not serializable")?;
+        if encoded.len() > MAX_DAEMON_LINE_BYTES {
+            return Err("action daemon line exceeds 256 KiB");
+        }
+        Ok(())
+    }
+}
+
+/// The successful durable receipt for an [`Act`].
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Ack {
+    pub id: String,
+    pub seq: u64,
+}
+
+/// A typed action error. The id is omitted when the request could not be
+/// correlated (for example, malformed JSON or an overlong identifier).
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Error {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    pub code: String,
+    pub message: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -340,13 +471,24 @@ pub struct Page {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub after: Option<Position>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub keys: Option<Vec<ListKey>>,
+    pub keys: Option<Vec<PageKey>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub view: Option<ListView>,
     #[serde(default = "default_page_bytes")]
     pub max_bytes: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filter: Option<ListFilter>,
+    /// On a chat: the edition the anchor's rowId is from. A page of another edition is
+    /// answered `stale_edition`, never rows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edition: Option<u32>,
+    /// On a chat: a group's rowId. The page holds that fold's rows, taken as open.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fold: Option<u64>,
+    /// On a chat: the page holds the group rows `folds.idx` lists, one a settled turn, and no
+    /// other row. Not with `fold`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub turns: bool,
 }
 
 /// Descriptive alias used by request routers.
@@ -372,6 +514,9 @@ impl Page {
             view: None,
             max_bytes: default_page_bytes(),
             filter: None,
+            edition: None,
+            fold: None,
+            turns: false,
         }
     }
 
@@ -397,6 +542,30 @@ impl Page {
             view: None,
             max_bytes: default_page_bytes(),
             filter: None,
+            edition: None,
+            fold: None,
+            turns: false,
+        }
+    }
+
+    pub fn new_folder(
+        sid: impl Into<String>,
+        stream: impl Into<Stream>,
+        side: PageSide,
+        key: FolderPosition,
+    ) -> Self {
+        Self {
+            sid: sid.into(),
+            stream: stream.into(),
+            before: (side == PageSide::Before).then_some(Position::Folder(key.clone())),
+            after: (side == PageSide::After).then_some(Position::Folder(key)),
+            keys: None,
+            view: Some(ListView::Folders),
+            max_bytes: default_page_bytes(),
+            filter: None,
+            edition: None,
+            fold: None,
+            turns: false,
         }
     }
 
@@ -449,6 +618,302 @@ pub struct PageResult<T> {
     pub unknown: Vec<ListKey>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rest: Vec<ListKey>,
+}
+
+/// A bounded window on the folders view. It is separate from `Window<T>` so
+/// older clients can continue decoding summary list windows unchanged.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderWindow {
+    pub sid: String,
+    pub cursor: u64,
+    pub rows: Vec<FolderRow>,
+    pub has_before: bool,
+    pub has_after: bool,
+    #[serde(default)]
+    pub edition: u32,
+    #[serde(default)]
+    pub origins: Vec<Origin>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before_key: Option<FolderPosition>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_key: Option<FolderPosition>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderPageResult {
+    pub sid: String,
+    pub rows: Vec<FolderRow>,
+    pub has_before: bool,
+    pub has_after: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cold_unread: bool,
+    #[serde(default)]
+    pub before_key: Option<FolderPosition>,
+    #[serde(default)]
+    pub after_key: Option<FolderPosition>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub missing: Vec<FolderIdentity>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rest: Vec<FolderIdentity>,
+}
+
+/// JSON bytes carried as they are stored: a chat row's text, or an escaped `text` piece.
+/// They are copied into a frame and never parsed into values and escaped again.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct RawJson(pub Box<serde_json::value::RawValue>);
+
+impl RawJson {
+    /// Takes stored JSON bytes. The bytes are checked once, here.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, FrameError> {
+        let text = std::str::from_utf8(bytes).map_err(|_| {
+            FrameError::Encode(serde_json::Error::custom("stored JSON is not UTF-8"))
+        })?;
+        serde_json::value::RawValue::from_string(text.to_owned())
+            .map(Self)
+            .map_err(FrameError::Encode)
+    }
+
+    pub fn get(&self) -> &str {
+        self.0.get()
+    }
+}
+
+impl PartialEq for RawJson {
+    fn eq(&self, other: &Self) -> bool {
+        self.get() == other.get()
+    }
+}
+
+impl Eq for RawJson {}
+
+/// A waiting prompt as a window and a `queue` op carry it: its id, at most 1 KB of its text,
+/// and the text's whole length. The rest of the text is read by `blob`.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueItem {
+    pub id: String,
+    pub text: String,
+    /// The decoded text's length in bytes.
+    pub len: u64,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub held: bool,
+    pub at: u64,
+}
+
+/// The entries next to run (at most 64) and the count of all that wait.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueHead {
+    pub entries: Vec<QueueItem>,
+    pub count: u32,
+}
+
+/// An open row as a window or a resume's state frame carries it. `row` holds the body while
+/// the open bodies fit in 64 KB together; past that the body is left out (`{}`) and `bodyLen`
+/// names its length, read by `blob`.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenRow {
+    pub row: RawJson,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body_len: Option<u64>,
+}
+
+/// A chat's window: the breakpoint everything after it is a delta of. Separate from
+/// `Window<T>` so the list's clients decode their windows unchanged.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatWindow {
+    pub sid: String,
+    pub cursor: u64,
+    pub edition: u32,
+    pub rows: Vec<RawJson>,
+    pub has_before: bool,
+    pub has_after: bool,
+    #[serde(default)]
+    pub open: Vec<OpenRow>,
+    #[serde(default)]
+    pub queue: QueueHead,
+    /// The person's seen row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seen: Option<u64>,
+    /// The person's open folds.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub folds: Vec<u64>,
+    /// Rows this window would hold whose records a read refused.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub refused: Vec<u64>,
+}
+
+/// A chat's page reply. `refused` names the rows in its range whose records were refused.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatPageResult {
+    pub sid: String,
+    pub edition: u32,
+    pub rows: Vec<RawJson>,
+    pub has_before: bool,
+    pub has_after: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub refused: Vec<u64>,
+    /// The reply to a page of turns says so. A daemon from before `turns` reads the request as
+    /// an ordinary page and answers rows without it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub turns: bool,
+}
+
+/// One op of a chat's delta. A settled row and a patch carry a seq of their own; a row that
+/// begins, a `text` and a `queue` op carry the last record's seq and move no cursor. Separate
+/// from the list's `DeltaOp<T>`, in the same frame kind.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase", tag = "op")]
+pub enum ChatOp {
+    /// A settled row, or an open one as it is now; it replaces what the client holds for its
+    /// rowId. An open row whose body was left out names its length, read by `blob`.
+    Row {
+        seq: u64,
+        row: RawJson,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        body_len: Option<u64>,
+    },
+    /// Text appended to an open row's `text`: an escaped JSON string, as stored.
+    Text { seq: u64, row_id: u64, text: RawJson },
+    /// A new rev of a settled row.
+    Patch { seq: u64, row: RawJson },
+    /// One entry as it is now, or its removal, with the count; or `head`, the entries next to
+    /// run, which replaces what the client holds.
+    Queue {
+        seq: u64,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        entry: Option<QueueItem>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        removed: Option<String>,
+        count: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        head: Option<QueueHead>,
+    },
+}
+
+// Read from the JSON map directly, as `DeltaOp` is: an internally tagged enum buffers its
+// fields, which a `RawJson` cannot come through.
+impl<'de> Deserialize<'de> for ChatOp {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Fields {
+            op: String,
+            seq: u64,
+            row: Option<RawJson>,
+            body_len: Option<u64>,
+            row_id: Option<u64>,
+            text: Option<RawJson>,
+            entry: Option<QueueItem>,
+            removed: Option<String>,
+            count: Option<u32>,
+            head: Option<QueueHead>,
+        }
+        let fields = Fields::deserialize(deserializer)?;
+        let seq = fields.seq;
+        match fields.op.as_str() {
+            "row" => Ok(Self::Row {
+                seq,
+                row: fields.row.ok_or_else(|| D::Error::missing_field("row"))?,
+                body_len: fields.body_len,
+            }),
+            "text" => Ok(Self::Text {
+                seq,
+                row_id: fields.row_id.ok_or_else(|| D::Error::missing_field("rowId"))?,
+                text: fields.text.ok_or_else(|| D::Error::missing_field("text"))?,
+            }),
+            "patch" => Ok(Self::Patch {
+                seq,
+                row: fields.row.ok_or_else(|| D::Error::missing_field("row"))?,
+            }),
+            "queue" => Ok(Self::Queue {
+                seq,
+                entry: fields.entry,
+                removed: fields.removed,
+                count: fields.count.ok_or_else(|| D::Error::missing_field("count"))?,
+                head: fields.head,
+            }),
+            other => Err(D::Error::unknown_variant(other, &["row", "text", "patch", "queue"])),
+        }
+    }
+}
+
+/// A chat's delta frame: `{sid, replay?, ops}`. A resume's frames set `replay`; its last, the
+/// state frame, is `"end"`.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatDelta {
+    pub sid: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replay: Option<ReplayMark>,
+    pub ops: Vec<ChatOp>,
+}
+
+/// A bounded read of a row's body, or of a waiting prompt's text.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Blob {
+    /// The request's id, named again by its reply.
+    pub id: String,
+    pub stream: Stream,
+    pub edition: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub row_id: Option<u64>,
+    /// A waiting prompt's id, in place of `rowId`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
+    /// The range's start; for a prompt with `from` and no start, the token's offset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start: Option<u64>,
+    pub len: u64,
+    /// A prompt's `next` token: where the scan starts, never where the bytes start.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
+}
+
+/// The JSON head of a `blob` reply. The frame is this head, a newline, then the bytes.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlobHead {
+    pub id: String,
+    pub start: u64,
+    pub len: u64,
+    /// The body's (or the prompt text's) whole length.
+    pub total: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next: Option<String>,
+    /// An open row's snapshot: `gen` names it and the bytes under `fixed` stay within it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub open: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "gen")]
+    pub generation: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fixed: Option<u64>,
+}
+
+/// A `blob` reply: the head, a newline, the bytes as they are stored.
+pub fn blob_frame(head: &BlobHead, bytes: &[u8]) -> Result<Frame, FrameError> {
+    let mut payload = serde_json::to_vec(head).map_err(FrameError::Encode)?;
+    payload.reserve(1 + bytes.len());
+    payload.push(b'\n');
+    payload.extend_from_slice(bytes);
+    Frame::new(FrameKind::Blob, payload)
+}
+
+/// Splits a `blob` reply into its head and its bytes.
+pub fn decode_blob(frame: &Frame) -> Result<(BlobHead, &[u8]), FrameError> {
+    let payload = frame.payload();
+    let newline = payload.iter().position(|byte| *byte == b'\n').ok_or(FrameError::Truncated)?;
+    let (head, rest) = payload.split_at(newline);
+    let head = serde_json::from_slice(head).map_err(FrameError::Decode)?;
+    Ok((head, rest.get(1..).unwrap_or_default()))
 }
 
 /// One bounded delta frame. Resume frames carry at most 256 KiB of operations;
@@ -732,7 +1197,9 @@ impl FrameDecoder {
 /// Errors raised by bounded frame encoding and decoding.
 #[derive(Debug)]
 pub enum FrameError {
-    TooLarge { bytes: usize },
+    TooLarge {
+        bytes: usize,
+    },
     InvalidLength(usize),
     UnknownKind(u8),
     Truncated,
@@ -740,6 +1207,9 @@ pub enum FrameError {
     Encode(serde_json::Error),
     Decode(serde_json::Error),
     RequestInFlight,
+    MirrorUnsupported,
+    /// A request the client core does not send, and why.
+    Refused(&'static str),
 }
 
 impl fmt::Display for FrameError {
@@ -755,6 +1225,8 @@ impl fmt::Display for FrameError {
             Self::Encode(error) => write!(f, "frame payload encode failed: {error}"),
             Self::Decode(error) => write!(f, "frame payload decode failed: {error}"),
             Self::RequestInFlight => f.write_str("a page request is already in flight"),
+            Self::MirrorUnsupported => f.write_str("folders view cannot be mirrored"),
+            Self::Refused(why) => write!(f, "refused: {why}"),
         }
     }
 }
@@ -790,6 +1262,84 @@ mod tests {
     }
 
     #[test]
+    fn act_wire_round_trips_without_changing_v1_shapes() {
+        let act =
+            Act::new("chat:demo", "append", "a-1", serde_json::json!({"text":"hello"})).since(7);
+        let value = serde_json::to_value(Request::Act(act.clone())).unwrap();
+        assert_eq!(value["method"], "act");
+        assert_eq!(value["params"]["chat"], "chat:demo");
+        assert_eq!(value["params"]["since"], 7);
+        assert!(
+            matches!(serde_json::from_value::<Request>(value), Ok(Request::Act(decoded)) if decoded == act)
+        );
+    }
+
+    #[test]
+    fn act_validation_bounds_id_op_and_body() {
+        let valid = Act::new("chat:demo", "append", "a", serde_json::json!({"text":"ok"}));
+        assert!(valid.validate().is_ok());
+        assert!(Act::new("chat:demo", "append", "", serde_json::Value::Null).validate().is_err());
+        assert!(
+            Act::new(
+                "chat:demo",
+                "append",
+                "x".repeat(MAX_ACT_ID_BYTES + 1),
+                serde_json::Value::Null
+            )
+            .validate()
+            .is_err()
+        );
+        assert!(
+            Act::new("chat:demo", "x".repeat(MAX_ACT_OP_BYTES + 1), "x", serde_json::Value::Null)
+                .validate()
+                .is_err()
+        );
+        assert!(
+            Act::new(
+                "chat:demo",
+                "append",
+                "x",
+                serde_json::Value::String("x".repeat(MAX_DAEMON_LINE_BYTES))
+            )
+            .validate()
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn ack_and_error_use_compact_camel_case_fields() {
+        assert_eq!(
+            serde_json::to_string(&Ack { id: "a".into(), seq: 9 }).unwrap(),
+            r#"{"id":"a","seq":9}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&Error {
+                id: Some("a".into()),
+                code: "id_reuse".into(),
+                message: "different body".into(),
+            })
+            .unwrap(),
+            r#"{"id":"a","code":"id_reuse","message":"different body"}"#
+        );
+    }
+
+    #[test]
+    fn a_page_of_turns_round_trips_and_is_left_out_when_false() {
+        let mut page = Page::new("s1", "chat:c", PageSide::Before, 11);
+        assert!(serde_json::to_value(&page).unwrap().get("turns").is_none());
+        page.turns = true;
+        page.edition = Some(3);
+        let text = serde_json::to_string(&page).unwrap();
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&text).unwrap()["turns"], true);
+        let back: Page = serde_json::from_str(&text).unwrap();
+        assert!(back.turns && back.fold.is_none());
+        assert_eq!(serde_json::to_string(&back).unwrap(), text);
+        let old: Page =
+            serde_json::from_str(r#"{"sid":"s1","stream":"chat:c","before":11}"#).unwrap();
+        assert!(!old.turns);
+    }
+
+    #[test]
     fn old_page_results_default_cold_unread_and_false_stays_off_wire() {
         let old = serde_json::json!({"sid":"s","rows":[],"hasBefore":false,"hasAfter":false});
         let page: PageResult<serde_json::Value> = serde_json::from_value(old).unwrap();
@@ -814,7 +1364,7 @@ mod tests {
 #[cfg(test)]
 mod raw_delta_tests {
     use super::*;
-    use acpmux_book::index::Summary;
+    use acpmux_list_types::Summary;
 
     #[test]
     fn summary_delta_preserves_opaque_json_bytes() {
@@ -838,8 +1388,8 @@ mod raw_delta_tests {
 #[cfg(test)]
 mod other_delta_tests {
     use super::*;
-    use acpmux_book::index::RowKey;
-    use acpmux_book::index::folders::FolderRow;
+    use acpmux_list_types::RowKey;
+    use acpmux_list_types::folders::FolderRow;
 
     #[test]
     fn every_delta_op_has_one_round_tripping_shape() {
@@ -879,11 +1429,10 @@ mod other_delta_tests {
             at: 19,
             count: 3,
         };
-        let request = Sub::new("s", "list");
+        let request = Sub { view: Some(ListView::Folders), ..Sub::new("s", "list") };
         let value = serde_json::to_value(&request).unwrap();
-        assert!(value.get("view").is_none());
-        let unsupported = serde_json::json!({"sid":"s","kind":"list","view":"folders"});
-        assert!(serde_json::from_value::<Sub>(unsupported).is_err());
+        assert_eq!(value.get("view"), Some(&serde_json::json!("folders")));
+        assert!(validate_mirror_view(Some(ListView::Folders)).is_err());
 
         let ops = vec![
             DeltaOp::<serde_json::Value>::Folder { seq: 4, row },
@@ -897,5 +1446,94 @@ mod other_delta_tests {
         .unwrap();
         let decoded: DeltaFrame<serde_json::Value> = frame.decode_json().unwrap();
         assert_eq!(decoded.ops, ops);
+    }
+
+    #[test]
+    fn chat_ops_round_trip_in_their_own_delta() {
+        let row = RawJson::from_bytes(br#"{"id":7,"rev":1,"body":{"text":"a\"b"}}"#).unwrap();
+        let item = QueueItem { id: "p".into(), text: "hi".into(), len: 2, held: false, at: 9 };
+        let ops = vec![
+            ChatOp::Row { seq: 3, row: row.clone(), body_len: Some(9) },
+            ChatOp::Text {
+                seq: 3,
+                row_id: 7,
+                text: RawJson::from_bytes(br#""\n\u0001""#).unwrap(),
+            },
+            ChatOp::Patch { seq: 4, row },
+            ChatOp::Queue {
+                seq: 4,
+                entry: Some(item.clone()),
+                removed: None,
+                count: 1,
+                head: None,
+            },
+            ChatOp::Queue { seq: 4, entry: None, removed: Some("q".into()), count: 0, head: None },
+            ChatOp::Queue {
+                seq: 4,
+                entry: None,
+                removed: None,
+                count: 1,
+                head: Some(QueueHead { entries: vec![item], count: 1 }),
+            },
+        ];
+        let delta = ChatDelta { sid: "s".into(), replay: Some(ReplayMark::End), ops };
+        let frame = Frame::json(FrameKind::Delta, &delta).unwrap();
+        // Stored bytes go out as they are: the escape is not decoded and escaped again.
+        assert!(std::str::from_utf8(frame.payload()).unwrap().contains(r#""a\"b""#));
+        let decoded: ChatDelta = frame.decode_json().unwrap();
+        assert_eq!(decoded, delta);
+    }
+
+    #[test]
+    fn a_blob_reply_is_a_head_a_newline_and_the_stored_bytes() {
+        let head = BlobHead {
+            id: "b".into(),
+            start: 4,
+            len: 3,
+            total: 10,
+            next: None,
+            open: true,
+            generation: Some("0123456789abcdef".into()),
+            fixed: Some(8),
+        };
+        let frame = blob_frame(&head, b"\\\"\n").unwrap();
+        assert_eq!(frame.kind, FrameKind::Blob);
+        let (decoded, bytes) = decode_blob(&frame).unwrap();
+        assert_eq!(decoded, head);
+        assert_eq!(bytes, b"\\\"\n");
+        let request: Request = serde_json::from_value(serde_json::json!({
+            "method": "blob",
+            "params": {"id": "b", "stream": "chat:c", "edition": 2, "rowId": 7, "len": 10}
+        }))
+        .unwrap();
+        assert!(matches!(request, Request::Blob(Blob { row_id: Some(7), .. })));
+    }
+
+    #[test]
+    fn folder_position_keeps_a_full_bound_sized_name() {
+        let key = FolderPosition { at: 7, origin: "o".into(), folder: "x".repeat(1024) };
+        let value = serde_json::to_value(&key).unwrap();
+        let decoded: FolderPosition = serde_json::from_value(value).unwrap();
+        assert_eq!(decoded, key);
+    }
+
+    #[test]
+    fn keyed_summary_pages_keep_the_old_json_shape() {
+        let page = serde_json::json!({
+            "sid":"s", "stream":"list", "keys":[{"lastActivity":4,"chatId":"c","origin":"local"}]
+        });
+        let decoded: Page = serde_json::from_value(page).unwrap();
+        assert!(matches!(decoded.keys.as_deref(), Some([PageKey::Summary(_)])));
+        let legacy = vec![ListKey {
+            last_activity: 4,
+            chat_id: "c".into(),
+            origin: "local".into(),
+            past: false,
+        }];
+        assert_eq!(
+            serde_json::to_vec(decoded.keys.as_ref().unwrap()).unwrap(),
+            serde_json::to_vec(&legacy).unwrap(),
+            "summary keys retain their pre-folders wire bytes"
+        );
     }
 }

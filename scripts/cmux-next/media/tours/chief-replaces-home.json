@@ -1,0 +1,14 @@
+{
+  "title": "Chief replaces Home: the sidebar's top row is the Chief, its chat fills the page",
+  "steps": [
+    {"title": "Launch", "wait": 3, "shot": false},
+    {"title": "Open the Chief from the sidebar's top row", "cmux": ["action", "run", "home.show"], "wait": 3, "shot": false},
+    {"title": "Six conversations, two pinned", "rpc": {"method": "debug.home.sidebar_fixture", "params": {"count": 6, "pinned": 2}}, "wait": 1.5, "optional": "the Home list fixture is DEBUG only", "shot": false},
+    {"title": "Light: the Chief's chat at the full width", "rpc": {"method": "debug.appearance", "params": {"mode": "light"}}, "wait": 2},
+    {"title": "Dark: the Chief's chat at the full width", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 2},
+    {"title": "Dark: Chats shows the conversation list", "rpc": {"method": "debug.home.sidebar_fixture", "params": {"chatList": true}}, "wait": 1.5, "optional": "the Chats toggle is in builds with Chief replacing Home"},
+    {"title": "Light: Chats shows the conversation list", "rpc": {"method": "debug.appearance", "params": {"mode": "light"}}, "wait": 2, "optional": "the Chats toggle is in builds with Chief replacing Home"},
+    {"title": "Chats folds the list again", "rpc": {"method": "debug.home.sidebar_fixture", "params": {"chatList": false}}, "wait": 0.5, "optional": "the Chats toggle is in builds with Chief replacing Home", "shot": false},
+    {"title": "Back to the system appearance", "rpc": {"method": "debug.appearance", "params": {"mode": "system"}}, "wait": 2, "shot": false}
+  ]
+}

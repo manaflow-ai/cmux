@@ -1,4 +1,5 @@
 import CmuxMobileAgentChat
+import enum CmuxMobileModel.UserFacingError
 import CmuxMobileNotifications
 import CmuxMobileTransport
 import CryptoKit
@@ -25,6 +26,11 @@ public struct LinkPairing: Sendable {
 
     /// A scanned pairing code waiting for its Mac's challenge (``PairInvite``).
     public let invites: PairInvites
+
+    /// This app's bundle id, sent with `auth` as `bundleId` (PROTOCOL.md "Pairing"): a tagged dev
+    /// Mac pairs its own tag's phone app (`dev.cmux.mobile.<tag>`) without its Allow prompt
+    /// (SECURITY.md "Dev auto-approve"). Every other Mac ignores it. Nil sends none.
+    public var bundleID: String? = Bundle.main.bundleIdentifier
 
     // Network exchange and the Mac's Allow prompt have different budgets.
     static let defaultHandshakeTimeout: Duration = .seconds(15)
@@ -89,9 +95,13 @@ public struct LinkPairing: Sendable {
         case "busy": "the Mac is already pairing this iPhone"
         case "mac_identity_changed": identityChanged
         case "unavailable": "the Mac isn't ready to pair. Retry in a moment"
-        default: error.message
+        // Never a raw code or an unreadable message (LinkError's display mapping).
+        default: error.displayReason
         }
     }
+
+    /// Said when pairing fails with an error that has no sentence of its own.
+    static let pairingFailed = "The Mac couldn't pair with this iPhone. Try again."
 
     /// When the phone asks the Mac again by itself after `auth` refused it on a live link.
     ///
@@ -152,6 +162,7 @@ public struct LinkPairing: Sendable {
             ]
             let pushArgs = macID.flatMap { pushKeyArgs(mac: $0) }
             if let pushArgs { args.merge(pushArgs) { a, _ in a } }
+            if let bundleID, !bundleID.isEmpty { args["bundleId"] = bundleID }
             let channelArgs = args
             let channel = try await LinkDeadline.run(
                 timeout: handshakeTimeout,
@@ -164,7 +175,7 @@ public struct LinkPairing: Sendable {
         } catch let error as LinkError {
             return .failure(error)
         } catch {
-            return .failure(LinkError(code: "pairing", message: String(describing: error)))
+            return .failure(LinkError(code: "pairing", message: UserFacingError.message(error, fallback: Self.pairingFailed)))
         }
     }
 
@@ -280,7 +291,7 @@ public struct LinkPairing: Sendable {
         } catch let error as LinkError {
             return .refused(error)
         } catch {
-            return .refused(LinkError(code: "pairing", message: String(describing: error)))
+            return .refused(LinkError(code: "pairing", message: UserFacingError.message(error, fallback: Self.pairingFailed)))
         }
     }
 
@@ -343,7 +354,7 @@ public struct LinkPairing: Sendable {
         try await LinkDeadline.run(
             timeout: deadline - clockNow(),
             timeoutError: LinkError(code: approval ? "timeout" : "reply_timeout",
-                                   message: "The Mac didn't answer. Retry."),
+                                   message: "pairing reply timed out"),
             operation: operation,
             onCancel: { await channel.close(code: "eof", reason: "pairing ended") }
         )

@@ -49,6 +49,9 @@ public final class LiveCoordinator {
     /// A Mac left the account (removed here or on another device), after
     /// the store forgot it: screens showing one of its workspaces close.
     @ObservationIgnored public var onMacRemoved: ((String) -> Void)?
+    /// A terminal tab drew output on a Mac (tab id, Mac id), or (nil tab) any
+    /// of that Mac's may have (`WorkspaceSync.onTerminalOutput`).
+    @ObservationIgnored public var onTerminalOutput: (@MainActor (String?, String) -> Void)?
 
     /// One session per Mac this phone links (`MacLinkPolicy`): each has its
     /// own link, workspace list, chats and Feed items, so two Macs work at
@@ -66,6 +69,11 @@ public final class LiveCoordinator {
     @ObservationIgnored var showingMacs: Set<String>? = []
     /// When each Mac was last on screen (or focused).
     @ObservationIgnored var lastShown: [String: ContinuousClock.Instant] = [:]
+    /// Terminal tabs of a Mac whose session closed (another team's list loaded, the
+    /// policy closed it) while their pages stay on screen: the Mac's next session
+    /// takes them back, so they reattach on its link and follow its state instead of
+    /// waiting on a session that is gone (one live state per Mac).
+    @ObservationIgnored var parkedTerminals: [String: [MacSession.WeakTerminal]] = [:]
     @ObservationIgnored var expiryTask: Task<Void, Never>?
     /// The transport settings every link dials with.
     @ObservationIgnored private var transport: CmuxMobileTransport.TransportKind
@@ -98,6 +106,11 @@ public final class LiveCoordinator {
     @ObservationIgnored let store: AppStore
     @ObservationIgnored let api: LiveAPI
     @ObservationIgnored let identity: DeviceIdentity
+    #if DEBUG
+    /// This phone's device ids for the account (link, then presence): the ids a Mac lists the phone by.
+    /// DEBUG only: the dogfood readiness receipt is its one reader.
+    public var deviceIDs: [String] { [identity.link, identity.presence] }
+    #endif
     /// Where `identity` and the pairing keys are kept (the Keychain; memory in tests).
     @ObservationIgnored let secrets: any DeviceSecretStore
     @ObservationIgnored let userID: String
@@ -105,6 +118,8 @@ public final class LiveCoordinator {
     /// The phone's keys; nil (tests, mock) skips pairing.
     @ObservationIgnored let pairing: LinkPairing?
     @ObservationIgnored let clock: any Clock<Duration>
+    /// `clock`'s now, for the instants kept beside its sleeps (link idle times, link down since).
+    @ObservationIgnored let instants: ClockInstants
     @ObservationIgnored private var presence: PresenceListener?
     @ObservationIgnored private var isBackgrounded = false
     /// Major connectivity incidents of a cmux team account, for the team's Slack (PROTOCOL.md
@@ -141,7 +156,8 @@ public final class LiveCoordinator {
     @ObservationIgnored var chiefLink: ObjectIdentifier?
     /// A `startChief` is opening the channel (Try Again does not start a second one).
     @ObservationIgnored var chiefStarting = false
-    @ObservationIgnored private var discoveryTask: Task<Void, Never>?
+    /// Looks at the account's Macs in every team (`/me/macs`) on `clock`.
+    @ObservationIgnored let discovery: MacDiscoveryPoll
     /// Follows the phone's network (Wi-Fi, cellular, airplane mode).
     @ObservationIgnored private var networkTask: Task<Void, Never>?
     /// The account's Macs that were online at the last look (nil before the first).
@@ -175,9 +191,6 @@ public final class LiveCoordinator {
     /// the list says it could not load them (with Retry), instead of a
     /// skeleton that never ends.
     static let workspacesDeadline: Duration = .seconds(10)
-    /// How often discovery looks while the active team has no online Mac, and otherwise.
-    static let waitingPoll: Duration = .seconds(4)
-    static let idlePoll: Duration = .seconds(30)
 
     /// The personal space id for a user (PROTOCOL.md "Personal space").
     public static func personalTeamID(userID: String) -> String { "personal-\(userID)" }
@@ -214,6 +227,8 @@ public final class LiveCoordinator {
             LinkPairing(keys: $0, phoneID: identity.link, name: deviceName, pins: pins ?? .forAccount(userID), push: push)
         }
         self.clock = clock
+        instants = ClockInstants(clock)
+        discovery = MacDiscoveryPoll(clock: clock)
         self.transport = transport
         self.relayOnly = relayOnly
         self.blockUDP = blockUDP
@@ -237,7 +252,8 @@ public final class LiveCoordinator {
             deviceID: identity.link, deviceName: deviceName, feedStore: feedStore)
         // The default Chief is the account's Cloud Chief (same sign-in);
         // the Mac Chief below stays reachable beside it.
-        ChiefSources.shared.start(userID: userID) { try await apiForLink.accessToken($0) }
+        // In the same build space as the mobile service (a dev build's own cloud data).
+        ChiefSources.shared.start(userID: userID, config: .current(buildSpace: api.buildSpace)) { try await apiForLink.accessToken($0) }
         // The Feed as this phone last saw it; the Mac's history merges in on connect.
         let archive = FeedArchive.forAccount(userID)
         feedStore.useReadMarks(readMarks ?? .forAccount(userID))
@@ -266,13 +282,26 @@ public final class LiveCoordinator {
             if !summary.macID.isEmpty, owner?.link.target == nil { self.touch(summary.macID) }
             var scoped = summary
             scoped.accountID = self.userID
+            // A terminal tab's chat face names its acpmux session itself (Toggle Terminal and Chat).
+            if let owner, let session = summary.acpmuxSessionID {
+                return self.agentSource(owner, session: session, summary: scoped)
+            }
             let key = AgentSessionDirectory.key(id: summary.id, macID: summary.macID)
+            // A tab of a workspace this phone is still creating (New Task, New Agent Chat): the Mac
+            // is starting its chat, which opens under the Mac's own tab id once listed. It loads
+            // meanwhile; it has not "not started".
+            if self.store.pendingWorkspaceIDs.contains(where: { self.store.workspace(id: $0)?.tabs.contains { $0.id == summary.id } == true }) {
+                return StartingAgentSource(summary: scoped)
+            }
             // The Mac's tree has not come yet (a relaunch, the link still opening): the tab is not
             // known to be unbound. Its kept session opens at once (and catches up when the link
             // comes); with none kept, the chat loads instead of saying it hasn't started.
             if let owner, owner.tree == nil {
                 let keptKey = AgentTranscriptCache.key(accountID: scoped.accountID, macID: summary.macID, tabID: summary.id)
-                if let keptKey, let keptSession = self.transcriptCache?.cached(keptKey)?.sessionID ?? self.keptSessionIDs[key] {
+                // The kept session from memory, else the chat's small head file in this turn (no
+                // "Loading chat…" first frame for a chat this phone holds).
+                if let keptKey, let keptSession = self.transcriptCache?.cached(keptKey)?.sessionID ?? self.keptSessionIDs[key]
+                    ?? self.transcriptCache?.firstScreen(keptKey)?.sessionID {
                     self.sourcedSessions[key] = (tabID: summary.id, macID: summary.macID, session: keptSession, provisional: true)
                     return self.agentSource(owner, session: keptSession, summary: scoped)
                 }
@@ -293,6 +322,8 @@ public final class LiveCoordinator {
             return self.agentSource(owner, session: session, summary: scoped)
         }
         restoreSnapshot()
+        // Which chat each terminal agent shows, read now: an offline relaunch opens on its kept turns.
+        if let kept = transcriptCache?.terminalChats { Task { await kept.load() } }
         watchNetwork()
     }
 
@@ -354,6 +385,7 @@ public final class LiveCoordinator {
             incidents.network(Self.networkKind(path))
             if store.isOffline { store.isOffline = false }
             presence?.kick()
+            discovery.wake()
             guard let teamID = registeredTeamID else { return }
             // Every link roams in place (one signaling socket carries them all);
             // one controller asks the dialer, the others only redial a failed link.
@@ -407,6 +439,9 @@ public final class LiveCoordinator {
         registeredTeamID = snapshot.teamID
         idleSession.link.prewarm(baseURL: api.baseURL, teamID: snapshot.teamID, deviceID: identity.link)
         retarget()
+        // Launch dials the focused Mac now, whatever the snapshot last heard from
+        // presence: a cached "offline" waits for a real dial to say so.
+        if let focusedMacID { sessions[focusedMacID]?.link.send(.open) }
         startedTeamID = snapshot.teamID
         feedTeamID = snapshot.teamID
         teamTask = Task { [weak self] in await self?.startTeam(snapshot.teamID, warm: true) }
@@ -477,7 +512,7 @@ public final class LiveCoordinator {
         spacesFromSnapshot = false
         activeTeamChanged()
         for team in list { loadPrefs(team.id) }
-        if discoveryTask == nil { startDiscovery() }
+        discovery.start { [weak self] in await self?.lookForMacs() }
         steerToInvite()
     }
 
@@ -573,6 +608,7 @@ public final class LiveCoordinator {
         let listener = PresenceListener(api: api, teamID: teamID, deviceID: identity.presence, clock: clock) { [weak self] update in
             self?.presenceUpdate(update, teamID: teamID)
         }
+        listener.backgrounded = isBackgrounded
         presence = listener
         listener.start()
     }
@@ -594,6 +630,9 @@ public final class LiveCoordinator {
         case .mac(let mac) where mac.removed == true:
             forgetMac(mac.deviceId)
         case .mac(let mac):
+            // A Mac came or went: discovery looks now (another team's Mac to follow, or the
+            // fast wait again) instead of at its backed-off cadence.
+            discovery.wake()
             var current = store.teams.first { $0.id == teamID }?.macs ?? []
             let known = current.first { $0.id == mac.deviceId }
             // A Worker that predates machine ids sends none: keep the one the list had. A
@@ -631,6 +670,7 @@ public final class LiveCoordinator {
         let linked = sessions[id]?.link.target != nil
         // Its link closes first, and its phase change must not write data for it back.
         closeSession(id)
+        parkedTerminals[id] = nil
         // Its banner, pairing prompt and Chief go with it (retarget may focus another Mac).
         if focusedMacID == id { setFocus(nil) }
         lastShown[id] = nil
@@ -662,7 +702,10 @@ public final class LiveCoordinator {
         guard let team = store.activeTeam, registeredTeamID == team.id else { return }
         let remembered = UserDefaults.standard.string(forKey: "cmuxMobile.live.mac.\(team.id)")
             ?? (snapshot?.teamID == team.id ? snapshot?.linkedMacID : nil)
-        let next = LinkMachine.target(in: listedMacs(team), remembered: remembered, current: focusedMacID)
+        // The remembered Mac stands for its computer (a build this phone paired by its code, beside
+        // another build of the same computer), in the focus and in every list (``MacRoster``).
+        store.setPickedMac(remembered, teamID: team.id)
+        let next = LinkMachine.target(in: listedMacs(store.activeTeam ?? team), remembered: remembered, current: focusedMacID)
         // The focused Mac's session exists before the focus moves to it.
         if let next { _ = session(for: next) }
         setFocus(next?.id)
@@ -672,7 +715,7 @@ public final class LiveCoordinator {
     /// The Macs the phone focuses and the screens list: the owner's own, one
     /// build per computer (``MacRoster``).
     private func listedMacs(_ team: Team) -> [MacDevice] {
-        MacRoster(team.macs.filter { !othersMacs.contains($0.id) }).visible
+        MacRoster(team.macs.filter { !othersMacs.contains($0.id) }, preferring: team.pickedMacID).visible
     }
 
     /// The Macs this phone may link: the listed ones, and another build on a
@@ -682,7 +725,7 @@ public final class LiveCoordinator {
     /// A Mac whose pairing code is held is one too, while the code is.
     private func dialableMacs(_ team: Team) -> [MacDevice] {
         let own = team.macs.filter { !othersMacs.contains($0.id) }
-        let listed = Set(MacRoster(own).visible.map(\.id))
+        let listed = Set(MacRoster(own, preferring: team.pickedMacID).visible.map(\.id))
         let invited = pairing?.invites.pending()?.mac
         return own.filter { listed.contains($0.id) || lastShown[$0.id] != nil || $0.id == invited }
     }
@@ -691,10 +734,10 @@ public final class LiveCoordinator {
     /// (`MacLinkPolicy.idleAfter`), and the banner, pairing and Chief follow.
     private func setFocus(_ macID: String?) {
         guard macID != focusedMacID else { return }
-        if let old = focusedMacID { lastShown[old] = ContinuousClock.now }
+        if let old = focusedMacID { lastShown[old] = instants.now() }
         focusedMacID = macID
         appearance.focus(macID: macID)
-        if let macID { lastShown[macID] = ContinuousClock.now }
+        if let macID { lastShown[macID] = instants.now() }
         pairingState = focused.pairingState
         chiefFollowsFocus()
         ChiefComputer.shared.macChanged()
@@ -705,7 +748,7 @@ public final class LiveCoordinator {
     func applyLinks(_ dialable: [MacDevice]? = nil) {
         guard let team = store.activeTeam, registeredTeamID == team.id else { return }
         let macs = dialable ?? dialableMacs(team)
-        let now = ContinuousClock.now
+        let now = instants.now()
         // nil (Workspaces, the Feed): every listed Mac. Another build of a listed Mac is
         // never "shown" by that: it keeps its link only for the idle window after
         // something named it (`touch`), then closes.
@@ -748,7 +791,7 @@ public final class LiveCoordinator {
     /// is dialed then (lazy links).
     public func showing(macIDs: Set<String>?) {
         guard macIDs != showingMacs else { return }
-        let now = ContinuousClock.now
+        let now = instants.now()
         for id in showingMacs ?? Set(sessions.keys) { lastShown[id] = now }
         showingMacs = macIDs
         applyLinks()
@@ -764,14 +807,22 @@ public final class LiveCoordinator {
         let session = MacSession(macID: mac.id, name: mac.name, link: controller, deviceID: identity.link,
                                  deviceName: deviceName, feedStore: feedStore)
         session.acpmux.transcriptCache = transcriptCache
+        let macID = mac.id
+        session.acpmux.onStall = { [weak self] in await self?.recoverAcpmuxChannel(macID: macID) }
         wire(session)
         sessions[mac.id] = session
+        if let parked = parkedTerminals.removeValue(forKey: mac.id) {
+            // Their state follows this session's link from its first phase change.
+            session.terminals = parked.filter { $0.session != nil }
+        }
         return session
     }
 
     /// Closes a Mac's link and forgets its session.
     private func closeSession(_ id: String) {
         guard let session = sessions.removeValue(forKey: id) else { return }
+        let kept = session.terminals.filter { $0.session != nil }
+        if !kept.isEmpty { parkedTerminals[id] = kept }
         session.pairingRetry?.cancel()
         for relay in session.cloudChats.values { relay.retire() }
         session.cloudChats.removeAll()
@@ -824,17 +875,10 @@ public final class LiveCoordinator {
 
     // MARK: Discovery across spaces
 
-    private func startDiscovery() {
-        discoveryTask?.cancel()
-        discoveryTask = Task { [weak self] in await self?.discover() }
-    }
-
-    private func discover() async {
-        while !Task.isCancelled {
-            await discoverOnce()
-            let waiting = !(store.activeTeam?.macs.contains(where: \.isOnline) ?? false)
-            do { try await clock.sleep(for: waiting ? Self.waitingPoll : Self.idlePoll) } catch { return }
-        }
+    /// One discovery look; says whether the active team has an online Mac (the poll's cadence).
+    private func lookForMacs() async -> Bool {
+        await discoverOnce()
+        return store.activeTeam?.macs.contains(where: \.isOnline) ?? false
     }
 
     /// One look at the account's Macs everywhere: shows each in its team and
@@ -962,8 +1006,7 @@ public final class LiveCoordinator {
         incidents.stop()
         networkTask?.cancel()
         networkTask = nil
-        discoveryTask?.cancel()
-        discoveryTask = nil
+        discovery.stop()
         teamTask?.cancel()
         presence?.stop()
         presence = nil
@@ -1024,6 +1067,8 @@ public final class LiveCoordinator {
         isBackgrounded = true
         incidents.appActive(false)
         for session in sessions.values { session.link.send(.background) }
+        discovery.pause()
+        presence?.backgrounded = true
     }
 
     /// The app's process (not a test): the connectivity incident watch follows UIKit's app state,
@@ -1047,8 +1092,9 @@ public final class LiveCoordinator {
         if let teamID = registeredTeamID {
             idleSession.link.prewarm(baseURL: api.baseURL, teamID: teamID, deviceID: identity.link)
         }
+        presence?.backgrounded = false
         presence?.kick()
-        if discoveryTask != nil { startDiscovery() }
+        discovery.resume()
         for session in sessions.values { session.link.send(.resume) }
     }
 

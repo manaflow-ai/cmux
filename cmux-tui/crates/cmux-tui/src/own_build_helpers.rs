@@ -43,6 +43,111 @@ fn shim_dir(executable: &Path) -> Option<PathBuf> {
     Some(build_dir(executable)?.join("shims"))
 }
 
+/// The shared per-user shim folder of builds before per-build folders. Their
+/// terminals keep it in `CMUX_TUI_AGENT_SHIMS` for as long as they live (a
+/// terminal host outlives app updates), and their shell integration keeps it
+/// first on PATH, so its `claude` and `codex` still start every agent of
+/// those terminals.
+fn shared_shim_dir() -> Option<PathBuf> {
+    Some(agent_hook_install::runtime_cmux_tui_data_home()?.join("shims"))
+}
+
+/// A shim for the shared folder `dir` that names no build: it starts the
+/// agent through the terminal's own cmux. Terminals of the builds that used
+/// this folder predate `CMUX_TUI_CLI`, so their route is the app's bundled
+/// `CMUX_BUNDLED_CLI_PATH`, taken only when it is a cmux-next bundle, whose
+/// `cmux-tui` is the same file as its `cmux` (a classic app ships a separate
+/// Swift `cmux` that has no `agent` wrappers). `CMUX_TUI_CLI` comes first for
+/// any newer terminal that reaches the folder. Every build writes the same
+/// bytes, so the last writer no longer decides which build's wrapper a
+/// terminal runs. Without either it runs the executable the older shim
+/// named (`writer`, the quoted path its writer put there, kept verbatim so a
+/// rewrite reproduces the same bytes) while it still exists: a classic app's
+/// or npm install's `cmux-tui` at a fixed path keeps adding the hooks it
+/// added before. Without any it runs the agent itself, as the per-build shims
+/// do when their build is gone.
+fn shared_shim_script(
+    name: &str,
+    marker: &str,
+    verb: &str,
+    agent: &str,
+    dir: &Path,
+    writer: Option<&str>,
+) -> Option<String> {
+    let dir = agent_hook_install::shell_quote(dir.to_str()?);
+    let writer = writer
+        .map(|target| {
+            format!("if [ -x {target} ]; then\n  exec {target} agent {verb} \"$@\"\nfi\n")
+        })
+        .unwrap_or_default();
+    Some(format!(
+        "#!/bin/sh\n\
+         {marker}\n\
+         # Written by cmux-tui for terminals started with this folder in\n\
+         # CMUX_TUI_AGENT_SHIMS: starts {agent} through the terminal's own cmux.\n\
+         for cli in \"${{CMUX_TUI_CLI-}}\" \"${{CMUX_BUNDLED_CLI_PATH-}}\"; do\n  \
+           case $cli in\n    \
+             /*)\n      \
+               if [ -x \"$cli\" ] && {{ [ \"$cli\" = \"${{CMUX_TUI_CLI-}}\" ] || [ \"$cli\" -ef \"${{cli%/*}}/cmux-tui\" ]; }}; then\n        \
+                 exec \"$cli\" agent {verb} \"$@\"\n      \
+               fi\n      \
+               ;;\n  \
+           esac\n\
+         done\n\
+         {writer}\
+         set -f\n\
+         IFS=:\n\
+         kept=\n\
+         for entry in $PATH; do\n  [ \"$entry\" = {dir} ] || kept=\"${{kept:+$kept:}}$entry\"\ndone\n\
+         unset IFS\n\
+         set +f\n\
+         PATH=$kept\n\
+         export PATH\n\
+         exec {name} \"$@\"\n"
+    ))
+}
+
+/// The quoted executable an older shim (or a rewritten one) execs for
+/// `verb`: the token of its `exec '<path>' agent <verb> "$@"` line, as
+/// written. `exec "$cli" ...` lines of a rewritten shim are not one.
+fn shim_writer_target<'a>(existing: &'a str, verb: &str) -> Option<&'a str> {
+    let tail = format!(" agent {verb} \"$@\"");
+    existing.lines().find_map(|line| {
+        let token = line.trim().strip_prefix("exec ")?.strip_suffix(tail.as_str())?;
+        (token.len() > 2 && token.starts_with('\'') && token.ends_with('\'')).then_some(token)
+    })
+}
+
+/// Rewrites the `claude` and `codex` shims an older build left in the
+/// shared folder (an older build names its own executable there, and a
+/// deleted dev build's shim silently starts the agent without cmux) as
+/// [`shared_shim_script`]s. Only files that are cmux-tui shims are touched,
+/// and nothing is created: with no older build, no terminal names the folder.
+fn refresh_shared_shims_in(dir: &Path) {
+    let shims = [
+        ("claude", crate::claude_wrapper::SHIM_MARKER, crate::claude_wrapper::VERB, "Claude Code"),
+        ("codex", crate::codex_wrapper::SHIM_MARKER, crate::codex_wrapper::VERB, "Codex"),
+    ];
+    for (name, marker, verb, agent) in shims {
+        let path = dir.join(name);
+        let Ok(existing) = fs::read(&path) else { continue };
+        let is_ours = fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.is_file())
+            && existing.windows(marker.len()).any(|window| window == marker.as_bytes());
+        if !is_ours {
+            continue;
+        }
+        let text = String::from_utf8_lossy(&existing);
+        let writer = shim_writer_target(&text, verb);
+        let Some(script) = shared_shim_script(name, marker, verb, agent, dir, writer) else {
+            continue;
+        };
+        if existing != script.as_bytes() {
+            let _ =
+                agent_hook_install::replace_rewritable_file(&path, script.as_bytes(), Some(0o700));
+        }
+    }
+}
+
 /// The shim folder a wrapper leaves out of the agent's PATH: the one its
 /// daemon put first on the pane PATH (`CMUX_TUI_AGENT_SHIMS`), else this
 /// build's. Shims of other builds are found by their marker.
@@ -193,6 +298,9 @@ pub(crate) fn configure_pane(options: &mut cmux_tui_core::SurfaceOptions) {
     if let Some(dirs) = helper.and_then(|helper| claude_plugin_dirs(&executable, &helper)) {
         options.extra_env.push((crate::claude_plugin::PLUGIN_DIRS_ENV.into(), dirs));
     }
+    if let Some(shared) = shared_shim_dir() {
+        refresh_shared_shims_in(&shared);
+    }
     let Some(dir) = shim_dir(&executable) else { return };
     let claude = crate::claude_wrapper::install_shim(&dir, &executable).is_ok();
     let codex = crate::codex_wrapper::install_shim(&dir, &executable).is_ok();
@@ -229,6 +337,51 @@ mod tests {
         assert_eq!(build_dir(a), Some(dir_a.clone()));
         assert_eq!(dir_a.file_name().unwrap().len(), 16);
         assert_eq!(dir_a.parent().unwrap().file_name().unwrap(), "builds");
+    }
+
+    /// Only existing cmux-tui shims in the shared folder are rewritten, to
+    /// name no build; a person's own file is kept and nothing is created.
+    /// What the rewritten shims run: tests/own_build_helpers.rs.
+    #[test]
+    fn shared_shims_are_rewritten_only_where_an_older_build_left_them() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let root = tempfile::tempdir().unwrap();
+        let write = |path: &Path, text: &str| {
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, text).unwrap();
+            fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+        };
+        let shared = root.path().join("data/cmux-tui/shims");
+        write(
+            &shared.join("claude"),
+            "#!/bin/sh\n# cmux-tui-claude-shim\nif [ -x '/old build/cmux-tui' ]; then\n  exec '/old build/cmux-tui' agent claude-wrapper \"$@\"\nfi\nexec claude \"$@\"\n",
+        );
+        write(
+            &shared.join("codex"),
+            "#!/bin/sh\n# cmux-tui-codex-shim\nexec /gone/cmux agent codex-wrapper \"$@\"\n",
+        );
+        refresh_shared_shims_in(&shared);
+        let first: Vec<String> = ["claude", "codex"]
+            .iter()
+            .map(|name| fs::read_to_string(shared.join(name)).unwrap())
+            .collect();
+        for script in &first {
+            assert!(script.contains("CMUX_BUNDLED_CLI_PATH"), "{script}");
+        }
+        // The older shim's own target stays as a checked fallback, and a
+        // second start reproduces the same bytes.
+        assert!(first[0].contains("if [ -x '/old build/cmux-tui' ]"), "{}", first[0]);
+        refresh_shared_shims_in(&shared);
+        for (name, script) in ["claude", "codex"].iter().zip(&first) {
+            assert_eq!(&fs::read_to_string(shared.join(name)).unwrap(), script, "{name}");
+        }
+        // Rewritten only when the bytes differ; a person's own file and a
+        // missing one are left alone.
+        let other = root.path().join("other");
+        write(&other.join("claude"), "#!/bin/sh\nexec mine\n");
+        refresh_shared_shims_in(&other);
+        assert_eq!(fs::read_to_string(other.join("claude")).unwrap(), "#!/bin/sh\nexec mine\n");
+        assert!(!other.join("codex").exists());
     }
 
     /// The build's helpers (its hook launcher, `claude` and `codex` shims and

@@ -21,7 +21,7 @@ export const FIRST_RUN_OPS = {
 } as const;
 
 /** What a first-run row asks the app to do. */
-export type FirstRunAction = "openTerminal" | "startAgent" | "togglePet" | "importMemories";
+export type FirstRunAction = "openTerminal" | "startAgent" | "togglePet";
 
 /** Which first-open intro a Chief's empty conversation shows. */
 export type ChiefIntroKind = "welcome" | "askFocus";
