@@ -324,7 +324,7 @@ jobs:
             ${{ runner.temp }}/flow/journey-*/journey.json
             ${{ runner.temp }}/flow/journey-*/summary.md
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3
 
   github-config:
     # flow: github-pr-app only. Staging's GitHub set-up, read before any Mac is taken: the App's public page and the staging
@@ -718,7 +718,7 @@ jobs:
             ${{ runner.temp }}/cloud-chat-proof/github-main-path/*.md
             ${{ runner.temp }}/cloud-chat-proof/github-main-path/frames/
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3
 
       - name: Upload the paused price images
         if: always() && inputs.paused_capture
