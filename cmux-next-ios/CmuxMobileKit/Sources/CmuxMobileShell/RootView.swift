@@ -242,6 +242,12 @@ public struct RootView: View {
                let opened = OpenedURL(url: url) {
                 open(opened)
             }
+            // The iOS dev CLI (DevShow): its requests reach the app on any root, and its launch
+            // receipt for a root that is not the shell (the shell writes its own).
+            DevShow.shared.startRequestWatch()
+            if destination != .shell {
+                DevShow.shared.launchShown(destination: "\(destination)", shell: nil, appearance: settings.appearance, demo: options.demo)
+            }
             if options.setupPairDemo { await runSetupPairDemo() }
             // The hand-off's --no-auth proof (DogfoodReadiness): this launch resolved signed out.
             if !auth.isSignedIn, !auth.isMock { DogfoodReadiness(auth: auth).writeSignedOut(apiBase: auth.apiBaseURL) }
@@ -278,6 +284,13 @@ public struct RootView: View {
         // A Mac's invite for a new machine (`https://cmux.com/pair?i=…`) opens Pair Another Machine.
         // Any other cmux link (`cmux://tab/…`, Safari, Messages, Notes) opens what it names.
         .onOpenURL { url in
+            #if DEBUG
+            // The iOS dev CLI's link (DevShow): the shell navigates in process; never opened as a cmux link.
+            if let request = DevShow.Request(url: url) {
+                DevShow.shared.deliver(request)
+                return
+            }
+            #endif
             if let opened = OpenedURL(url: url) { open(opened) }
         }
         // A universal link (`https://cmux.com/link/…`, `/deeplink/agent`, `/pair?i=`, a cloud group's page).
@@ -299,7 +312,14 @@ public struct RootView: View {
         .onChange(of: auth.isSignedIn) { _, signedIn in
             if signedIn { theme.haptics.success() } else { signedOut() }
         }
+        #if DEBUG
+        .onChange(of: destination, initial: true) { _, root in DevShow.shared.rootDestination = "\(root)" }
+        #endif
         .onChange(of: settings.appearance, initial: true) { _, mode in
+            #if DEBUG
+            DevShow.shared.rootAppearance = mode
+            DevShow.shared.appearanceSettingChanged()
+            #endif
             applyAppearance(mode)
         }
     }
@@ -602,6 +622,7 @@ struct ShellView: View {
         .ignoresSafeArea()
         #if DEBUG
         .modifier(BillingDemoSheet(billing: billing))
+        .modifier(DevShowObserver(shell: shell, demo: options.demo))
         #endif
         .cmuxMobileToast($shell.toast)
         .modifier(LiveCallHost(shell: shell))
@@ -702,7 +723,11 @@ struct ShellView: View {
             #endif
             if options.sidebarOpen { shell.sidebar.open() }
             #if DEBUG
-            if let demo = options.demo { await DemoDriver(shell: shell).run(demo) }
+            if let demo = options.demo {
+                await DemoDriver(shell: shell).run(demo)
+                // The iOS dev CLI's receipt that the demo's state is set (DevShow).
+                DevShow.shared.demoReached(demo, shell: shell)
+            }
             await ListStressRig.runIfConfigured(shell: shell)
             await DebugLaunch.run(selectTab: { shell.tab = $0 })
             #endif
