@@ -37,6 +37,8 @@ use super::local::{self, LocalFile, Rules};
 
 /// How long a start waits for the machine to mount the folder.
 const START_WAIT: Duration = Duration::from_secs(120);
+/// How long a restart waits for the older server to exit.
+const STOP_WAIT: Duration = Duration::from_secs(5);
 /// How long the server keeps dialing a machine it cannot reach before it stops.
 const GIVE_UP_AFTER: Duration = Duration::from_secs(6 * 60 * 60);
 /// The env switch that overrides the setting (`1`/`true` on, `0`/`false` off).
@@ -201,6 +203,10 @@ pub(crate) fn start(
     if ok(&answer) {
         // It runs on as the folder's server; `cmux link project stop --at REMOTE` ends it.
         let _ = std::fs::write(log.join(format!("{server}.pid")), child.id().to_string());
+        // What it serves and to which machine: a moved chat's frozen push projects it again
+        // ([`projected_from`], [`restart`]).
+        let served = Served { socket: socket.to_path_buf(), local: local.to_path_buf() };
+        let _ = std::fs::write(log.join(format!("{server}.served")), served.encode());
         child.detach("the folder's server outlives the start that made it");
         drop(child);
         let mut answer = answer;
@@ -227,12 +233,26 @@ fn stop(args: &[String]) -> anyhow::Result<Value> {
         [flag, at] if flag == "--at" => at,
         _ => bail!("usage: cmux link project stop --at REMOTE"),
     };
-    let name = name_of(at);
-    let pid_file = cmux_tui_core::platform::workspace_state_dir()
-        .map(|dir| dir.join("link-sync").join("projections").join(format!("{name}.pid")))
-        .context("this Mac has no state folder")?;
+    let stopped = stop_server(at)?;
+    Ok(json!({"ok": true, "stopped": stopped}))
+}
+
+/// This Mac's folder for its projection servers' pid and record files.
+fn servers_dir() -> anyhow::Result<PathBuf> {
+    cmux_tui_core::platform::workspace_state_dir()
+        .map(|dir| dir.join("link-sync").join("projections"))
+        .context("this Mac has no state folder")
+}
+
+/// Ends the server [`start`] left running for the projection at `remote`, and forgets what it
+/// served. Whether there was one to end.
+fn stop_server(remote: &str) -> anyhow::Result<bool> {
+    let dir = servers_dir()?;
+    let server = name_of(remote);
+    let pid_file = dir.join(format!("{server}.pid"));
+    let _ = std::fs::remove_file(dir.join(format!("{server}.served")));
     let Ok(pid) = std::fs::read_to_string(&pid_file) else {
-        return Ok(json!({"ok": true, "stopped": false}));
+        return Ok(false);
     };
     let pid = pid.trim().parse::<u32>().context("a bad pid file")?;
     let stopped = cmux_process::Command::new("kill")
@@ -240,7 +260,89 @@ fn stop(args: &[String]) -> anyhow::Result<Value> {
         .status()
         .is_ok_and(|status| status.success());
     let _ = std::fs::remove_file(&pid_file);
-    Ok(json!({"ok": true, "stopped": stopped}))
+    if stopped {
+        // Gone before the next server dials: a server that lived on would dial the machine again
+        // with its older manifest and mount that one back over the new one.
+        let deadline = Instant::now() + STOP_WAIT;
+        while Instant::now() < deadline && alive(pid) {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+    Ok(stopped)
+}
+
+/// Whether process `pid` still runs (`kill -0`).
+fn alive(pid: u32) -> bool {
+    cmux_process::Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .stderr(cmux_process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+/// What a projection server serves: the machine's link socket and this Mac's folder (its
+/// `.served` file beside its pid file: the socket's bytes, a NUL, the folder's bytes).
+#[derive(Debug, PartialEq, Eq)]
+struct Served {
+    socket: PathBuf,
+    local: PathBuf,
+}
+
+impl Served {
+    fn encode(&self) -> Vec<u8> {
+        use std::os::unix::ffi::OsStrExt as _;
+        let mut bytes = self.socket.as_os_str().as_bytes().to_vec();
+        bytes.push(0);
+        bytes.extend_from_slice(self.local.as_os_str().as_bytes());
+        bytes
+    }
+
+    fn decode(bytes: &[u8]) -> Option<Self> {
+        use std::os::unix::ffi::OsStrExt as _;
+        let at = bytes.iter().position(|byte| *byte == 0)?;
+        let (socket, local) = (bytes.get(..at)?, bytes.get(at + 1..)?);
+        if socket.is_empty() || local.is_empty() {
+            return None;
+        }
+        let path = |part: &[u8]| PathBuf::from(std::ffi::OsStr::from_bytes(part));
+        Some(Self { socket: path(socket), local: path(local) })
+    }
+}
+
+/// The folder of this Mac a running server projects at `remote` on the machine at `socket`; None
+/// when no server [`start`] left is on record for it there.
+pub(crate) fn projected_from(socket: &Path, remote: &str) -> Option<PathBuf> {
+    let dir = servers_dir().ok()?;
+    let server = name_of(remote);
+    if !dir.join(format!("{server}.pid")).exists() {
+        return None;
+    }
+    let served = Served::decode(&std::fs::read(dir.join(format!("{server}.served"))).ok()?)?;
+    (served.socket == socket).then_some(served.local)
+}
+
+/// The projection name of a chat that moves to a machine (Move to Cloud's `cmux link seed push`):
+/// one per machine folder, so the move's push once the chat is frozen (`--since-last`) mounts the
+/// same projection again, its upper layer kept.
+#[must_use]
+pub(crate) fn move_key(remote: &str) -> String {
+    format!("move-{}", name_of(remote))
+}
+
+/// [`start`] after ending the server already projecting a folder at `remote` on the same machine
+/// (an earlier push of this move, or of an earlier move to that folder). The new server lists the
+/// folder as it is now: the machine mounts that manifest in place of the older one, which it would
+/// otherwise answer every read of a changed file from as `changed`, and never list a new one.
+pub(crate) fn restart(
+    socket: &Path,
+    local: &Path,
+    remote: &str,
+    chat: &str,
+) -> anyhow::Result<Result<Value, NotProjected>> {
+    if enabled() && projected_from(socket, remote).is_some() {
+        stop_server(remote)?;
+    }
+    start(socket, local, remote, chat)
 }
 
 /// Whether the machine's `identify` lists `projection-v1`.

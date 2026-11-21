@@ -46,3 +46,24 @@ fn each_chat_has_its_own_projection_and_its_name_is_one_the_machine_takes() {
     assert!(one.len() <= 64);
     assert!(one.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"-_".contains(&byte)));
 }
+
+#[test]
+fn a_moved_chats_projection_has_one_name_per_machine_folder_the_machine_takes() {
+    let one = chat_name(&move_key("/home/cmux/work/api"));
+    assert_eq!(one, chat_name(&move_key("/home/cmux/work/api")));
+    assert_ne!(one, chat_name(&move_key("/home/cmux/work/web")));
+    // The daemon's rule (cmux-tui-core projection.rs): 1-64 letters, digits, - or _.
+    assert!(one.len() <= 64);
+    assert!(one.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"-_".contains(&byte)));
+}
+
+#[test]
+fn what_a_server_serves_reads_back_as_written() {
+    let served = Served {
+        socket: PathBuf::from("/tmp/link a/m.sock"),
+        local: PathBuf::from("/Users/leo/Projects/with\nnewline"),
+    };
+    assert_eq!(Served::decode(&served.encode()), Some(served));
+    assert_eq!(Served::decode(b"no separator"), None);
+    assert_eq!(Served::decode(b"\0/only/local"), None);
+}
