@@ -8,6 +8,9 @@ extension CmuxConfigSnapshot {
     /// `experiments.composerV2`: Taste prototype: the agent chat composer as a glass panel with an edge light on focus, mode and scope chips in a row inside it (only the active one raised), inline @mention chips, the model picker left and + and Send right, and a round Send dimmed until there is text (webviews useExperimentSwitch("composerV2"), composerV2.css). Off by default; off keeps today's composer.
     public nonisolated static let composerV2Path = ["experiments", "composerV2"]
     public nonisolated static let composerV2Default = false
+    /// `experiments.hoverLook`: Taste prototype: one restyled look for every tooltip and hover card in the web UI (Base UI tooltips, title tooltips, toolbar hints, hover cards): a frostier glass with a crisp hairline ring and a soft two-layer shadow, painted by the page instead of the App's glass (webviews useExperimentSwitch("hoverLook"), ui/hoverLook.css; arms in ui/hoverLook.experiment.ts). Paint only: sizes, padding and type do not change. Off by default; off keeps today's tooltips.
+    public nonisolated static let hoverLookPath = ["experiments", "hoverLook"]
+    public nonisolated static let hoverLookDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -35,6 +38,16 @@ nonisolated enum ExperimentsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.composerV2Default),
                 keywords: ["experiments", "experimental", "prototype", "composer", "glass", "chips", "mention", "send"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.hoverLookPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.experiments.hoverLook", "Tooltip Refresh"),
+                help: SettingsText.keyed("settings.experiments.hoverLook.help", "Tooltips and hover cards get a crisper glass, a sharper edge and a softer shadow."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.hoverLookDefault),
+                keywords: ["experiments", "experimental", "prototype", "tooltip", "tooltips", "hover", "card", "glass"]
             ),
         ]
     }

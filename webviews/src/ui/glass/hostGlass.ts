@@ -56,6 +56,7 @@
 // measured at (`hostGlassPageZoom`, the zoom the page renders at, published on `<html>` before the
 // frame paints), a zoom change alone sends a new report, and the App places each box with that zoom
 // and never its own (AgentPaneView+HostGlass.swift hostGlassFrame).
+import { pageDrawsHover } from "../hoverLook";
 import { LENS_ATTRIBUTE, LIVE_BACKGROUND_ATTRIBUTE } from "./glassState";
 import { onVisualViewport, visualViewportScale } from "../visualViewportBox";
 import { INTERFACE_SCALE_EVENT } from "../interfaceScale";
@@ -401,6 +402,11 @@ export function reportHostGlass(
     resize?.observe(element);
     watchStyles();
     if (!live) {
+      mark(element, "0");
+      return;
+    }
+    // The restyled tooltips and hover cards (experiments.hoverLook) paint their own glass.
+    if (pageDrawsHover(element)) {
       mark(element, "0");
       return;
     }

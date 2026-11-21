@@ -58,6 +58,30 @@
             "mention",
             "send"
           ]
+        },
+        {
+          "key": "experiments.hoverLook",
+          "note": "Taste prototype: one restyled look for every tooltip and hover card in the web UI (Base UI tooltips, title tooltips, toolbar hints, hover cards): a frostier glass with a crisp hairline ring and a soft two-layer shadow, painted by the page instead of the App's glass (webviews useExperimentSwitch(\"hoverLook\"), ui/hoverLook.css; arms in ui/hoverLook.experiment.ts). Paint only: sizes, padding and type do not change. Off by default; off keeps today's tooltips.",
+          "title": {
+            "key": "settings.experiments.hoverLook",
+            "text": "Tooltip Refresh"
+          },
+          "help": {
+            "key": "settings.experiments.hoverLook.help",
+            "text": "Tooltips and hover cards get a crisper glass, a sharper edge and a softer shadow."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "tooltip",
+            "tooltips",
+            "hover",
+            "card",
+            "glass"
+          ]
         }
       ]
     }
