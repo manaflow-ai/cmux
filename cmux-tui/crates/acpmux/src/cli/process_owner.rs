@@ -471,7 +471,7 @@ pub async fn kill_pid(pid: u32, json_out: bool) -> Result<()> {
     if !o.verdict.may_end() {
         return Err(anyhow!("refused: pid {pid} is {}: {}", o.verdict.word(), next_step(&o)));
     }
-    let entry = end_owned(&o, &spared, caller_session()).await;
+    let entry = end_owned(&o, &spared, caller_session(), None).await;
     if json_out {
         print_json(&entry);
     } else {
@@ -491,7 +491,14 @@ pub async fn kill_pid(pid: u32, json_out: bool) -> Result<()> {
 /// may end too, SIGTERM then SIGKILL after `bg_run::GRACE`, and log it in
 /// `process-kills.jsonl` as done `by` (a session id, or `acpmux gc`). The one kill path for
 /// `process kill --pid` and `acpmux gc --apply`.
-pub(crate) async fn end_owned(o: &Owned, spared: &[u32], by: Option<String>) -> Value {
+/// Ends `o` and what runs under it in the same session, then logs the entry, with `reason` when
+/// the caller has one (gc's), in `process-kills.jsonl`.
+pub(crate) async fn end_owned(
+    o: &Owned,
+    spared: &[u32],
+    by: Option<String>,
+    reason: Option<String>,
+) -> Value {
     let pid = o.proc.pid;
     // What runs under it goes too, each only when its own answer allows it and it is the same
     // session's: never acpmux's own processes or another session's that happen to sit below.
@@ -525,7 +532,7 @@ pub(crate) async fn end_owned(o: &Owned, spared: &[u32], by: Option<String>) -> 
     if killed {
         tree::kill_still_running(&left);
     }
-    let entry = json!({
+    let mut entry = json!({
         "at": crate::store::now_ms(),
         "by": by,
         "pid": pid,
@@ -536,6 +543,9 @@ pub(crate) async fn end_owned(o: &Owned, spared: &[u32], by: Option<String>) -> 
         "processes": procs.iter().map(|p| p.pid).collect::<Vec<_>>(),
         "sigkill": left.iter().map(|p| p.pid).collect::<Vec<_>>(),
     });
+    if let Some(reason) = reason {
+        entry["reason"] = json!(reason);
+    }
     log_kill(&entry);
     entry
 }

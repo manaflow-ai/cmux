@@ -149,6 +149,10 @@ fn state(o: &Owned, kind: &str, session: &SessionInfo) -> (&'static str, String)
     match o.verdict {
         Verdict::Acpmux => ("in-use", format!("acpmux's own {kind}: stopped by its own verb, never by pid")),
         Verdict::Task => ("in-use", format!("background task of {name}; its runner still runs")),
+        Verdict::Live if o.marks.as_ref().is_none_or(|m| m.host_nonce.is_none()) => (
+            "in-use",
+            format!("session {name} is live; acpmux runs this for it (no agent host of its own)"),
+        ),
         Verdict::Yours | Verdict::Live => {
             let whose = if o.verdict == Verdict::Yours { "your session" } else { "session" };
             if session.status.as_deref() == Some("idle") {
@@ -244,6 +248,7 @@ pub async fn census() -> Value {
         });
         let owner_pid = match o.verdict {
             Verdict::Acpmux if Some(o.proc.pid) != daemon => daemon,
+            Verdict::Live if m.host_nonce.is_none() => daemon,
             Verdict::Yours | Verdict::Live | Verdict::Task => host_now.map(|h| h.record.host_pid),
             _ => None,
         };
@@ -305,7 +310,7 @@ pub async fn census() -> Value {
         .iter()
         .map(|b| json!({"path": b.path, "sessionId": b.session_id, "reason": b.reason, "state": "unknown"}))
         .collect();
-    let stray = stray_live_locks(&hosts);
+    let stray = stray_live_locks(&LockNames::from_rows(&hosts, &bad));
     let home = crate::config::home();
     let daemon_lock = home.join("daemon.lock");
     let daemon_state = json!({
@@ -343,27 +348,124 @@ pub async fn census() -> Value {
     })
 }
 
+/// How old a `.live` file with no record must be before gc calls it stray. A starting host
+/// creates its lock first and writes its record only once the harness runs, so a young lock with
+/// no record is a host still starting; and probing one could take its flock the moment the host
+/// tries to (a host's lock is never an old file: each start has a fresh nonce).
+pub(crate) const STRAY_LOCK_MIN_AGE: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
+/// Who names a lock: every readable record's (session, nonce), and every unreadable record's
+/// session, whatever its nonce (a record we cannot parse may still be the lock's).
+#[derive(Default)]
+pub(crate) struct LockNames {
+    pairs: Vec<(String, String)>,
+    sessions: Vec<String>,
+}
+
+impl LockNames {
+    fn read() -> Self {
+        let (hosts, bad) = host_rows();
+        Self::from_rows(&hosts, &bad)
+    }
+
+    fn from_rows(hosts: &[HostRow], bad: &[agent_host::UnreadableRecord]) -> Self {
+        Self {
+            pairs: hosts
+                .iter()
+                .map(|h| (h.record.session_id.clone(), h.record.start_nonce.clone()))
+                .collect(),
+            sessions: bad.iter().map(|b| b.session_id.clone()).collect(),
+        }
+    }
+
+    pub(crate) fn names(&self, session: &str, nonce: &str) -> bool {
+        self.sessions.iter().any(|s| s == session)
+            || self.pairs.iter().any(|(s, n)| s == session && n == nonce)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_test(pairs: &[(&str, &str)], sessions: &[&str]) -> Self {
+        Self {
+            pairs: pairs.iter().map(|(s, n)| ((*s).to_owned(), (*n).to_owned())).collect(),
+            sessions: sessions.iter().map(|s| (*s).to_owned()).collect(),
+        }
+    }
+}
+
 /// `<session>.<nonce>.live` files in the hosts and pool directories that no record names and no
 /// process holds: an ended host's lock whose record already went.
-fn stray_live_locks(hosts: &[HostRow]) -> Vec<PathBuf> {
+fn stray_live_locks(names: &LockNames) -> Vec<PathBuf> {
     let dir = agent_host::hosts_dir();
+    stray_locks_in(&[agent_host::pool_dir(&dir), dir], names, STRAY_LOCK_MIN_AGE)
+}
+
+fn lock_name(path: &Path) -> Option<(&str, &str)> {
+    let stem = path.file_name()?.to_str()?.strip_suffix(".live")?;
+    stem.rsplit_once('.')
+}
+
+fn old_enough(path: &Path, min_age: std::time::Duration) -> bool {
+    std::fs::symlink_metadata(path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.elapsed().ok())
+        .is_some_and(|age| age >= min_age)
+}
+
+pub(crate) fn stray_locks_in(
+    dirs: &[PathBuf],
+    names: &LockNames,
+    min_age: std::time::Duration,
+) -> Vec<PathBuf> {
     let mut out = Vec::new();
-    for d in [dir.clone(), agent_host::pool_dir(&dir)] {
-        let Ok(entries) = std::fs::read_dir(&d) else { continue };
+    for d in dirs {
+        let Ok(entries) = std::fs::read_dir(d) else { continue };
         for e in entries.flatten() {
             let path = e.path();
-            let Some(name) = path.file_name().and_then(|n| n.to_str()) else { continue };
-            let Some(stem) = name.strip_suffix(".live") else { continue };
-            let Some((session, nonce)) = stem.rsplit_once('.') else { continue };
-            let named = hosts
-                .iter()
-                .any(|h| h.record.session_id == session && h.record.start_nonce == nonce);
-            if !named && agent_host::liveness_of(&path) == Liveness::Dead {
+            let Some((session, nonce)) = lock_name(&path) else { continue };
+            if names.names(session, nonce) || !old_enough(&path, min_age) {
+                continue;
+            }
+            if agent_host::liveness_of(&path) == Liveness::Dead {
                 out.push(path);
             }
         }
     }
     out
+}
+
+/// Removes one stray lock, judged again under its own flock: the file is held while it is checked
+/// (still old, still the same file at that path, still named by no record) and unlinked, so no
+/// host can take it between the check and the unlink. `names` is read after the flock is taken.
+pub(crate) fn remove_stray_lock(
+    path: &Path,
+    names: impl FnOnce() -> LockNames,
+    min_age: std::time::Duration,
+) -> std::result::Result<(), String> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::MetadataExt;
+    let (session, nonce) = lock_name(path).ok_or("not a live lock name")?;
+    let file = crate::home_fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)
+        .map_err(|e| format!("open: {e}"))?;
+    // SAFETY: flock on a descriptor this function owns; it is released when `file` drops.
+    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        return Err("a process holds it now".to_owned());
+    }
+    let held = file.metadata().map_err(|e| format!("stat: {e}"))?;
+    let at_path = std::fs::symlink_metadata(path).map_err(|e| format!("stat: {e}"))?;
+    if (held.dev(), held.ino()) != (at_path.dev(), at_path.ino()) {
+        return Err("another file took its name".to_owned());
+    }
+    if !old_enough(path, min_age) {
+        return Err("it is younger than the stray-lock age".to_owned());
+    }
+    if names().names(session, nonce) {
+        return Err("a host record names it now".to_owned());
+    }
+    crate::home_fs::remove_file(path).map_err(|e| format!("remove: {e}"))
 }
 
 fn print_human(c: &Value) {
@@ -427,8 +529,10 @@ pub async fn gc(apply: bool, json_out: bool) -> Result<()> {
     let mut skipped = Vec::new();
     if apply {
         let spared = tree::spared_now();
-        // Judge each one again right before ending it: the census is a moment old.
-        for (pid, again) in process_owner::owners(&candidates) {
+        // Judge each one again right before ending it, one at a time: the census is a moment old,
+        // and each end can wait out its grace, so a verdict read for the whole batch would age.
+        for &pid in &candidates {
+            let again = process_owner::owners(&[pid]).into_iter().next().and_then(|(_, o)| o);
             match again {
                 Some(o) if o.verdict == Verdict::LeftBehind && !spared.contains(&pid) => {
                     let (hosts, _) = host_rows();
@@ -436,10 +540,16 @@ pub async fn gc(apply: bool, json_out: bool) -> Result<()> {
                         skipped.push(json!({"pid": pid, "refused": why}));
                         continue;
                     }
-                    let mut entry =
-                        process_owner::end_owned(&o, &spared, Some("acpmux gc".to_owned())).await;
-                    entry["reason"] = json!(state(&o, "process", &SessionInfo::default()).1);
-                    ended.push(entry);
+                    let reason = state(&o, "process", &SessionInfo::default()).1;
+                    ended.push(
+                        process_owner::end_owned(
+                            &o,
+                            &spared,
+                            Some("acpmux gc".to_owned()),
+                            Some(reason),
+                        )
+                        .await,
+                    );
                 }
                 Some(o) => skipped
                     .push(json!({"pid": pid, "refused": format!("now {}", o.verdict.word())})),
@@ -447,12 +557,13 @@ pub async fn gc(apply: bool, json_out: bool) -> Result<()> {
             }
         }
         for path in &stray {
-            if agent_host::liveness_of(path) == Liveness::Dead
-                && crate::home_fs::remove_file(path).is_ok()
-            {
-                removed
-                    .push(json!({"path": path, "reason": "stray live lock: no record, no holder"}));
-                log_state_removal(path);
+            match remove_stray_lock(path, LockNames::read, STRAY_LOCK_MIN_AGE) {
+                Ok(()) => {
+                    let reason = "stray live lock: no record names it, no process holds it";
+                    removed.push(json!({"path": path, "reason": reason}));
+                    log_state_removal(path);
+                }
+                Err(why) => skipped.push(json!({"path": path, "refused": why})),
             }
         }
     }
@@ -482,14 +593,26 @@ pub async fn gc(apply: bool, json_out: bool) -> Result<()> {
         c["gc"]["refused"].as_array().map_or(0, Vec::len),
         stray.len()
     );
-    for r in c["gc"]["candidates"].as_array().into_iter().flatten() {
+    let listed: Vec<&Value> = if apply {
+        ended.iter().collect()
+    } else {
+        c["gc"]["candidates"].as_array().into_iter().flatten().collect()
+    };
+    for r in listed {
         println!("  {}  {}", r["pid"], r["reason"].as_str().unwrap_or(""));
     }
     for r in c["gc"]["refused"].as_array().into_iter().flatten().chain(skipped.iter()) {
-        println!("  {}  refused: {}", r["pid"], r["refused"].as_str().unwrap_or(""));
+        let what = r["pid"].as_u64().map_or_else(|| r["path"].to_string(), |p| p.to_string());
+        println!("  {what}  refused: {}", r["refused"].as_str().unwrap_or(""));
     }
-    for p in &stray {
-        println!("  {}  stray live lock", p.display());
+    if apply {
+        for r in &removed {
+            println!("  {}  removed: {}", r["path"], r["reason"].as_str().unwrap_or(""));
+        }
+    } else {
+        for p in &stray {
+            println!("  {}  stray live lock", p.display());
+        }
     }
     if apply {
         println!("logged in {}", process_owner::kills_log().display());
