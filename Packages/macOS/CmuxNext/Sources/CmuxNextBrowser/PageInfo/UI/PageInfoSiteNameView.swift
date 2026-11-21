@@ -10,6 +10,10 @@ final class PageInfoSiteNameView: NSView {
     /// The width the whole name draws at.
     private let fullWidth: CGFloat
     private var fittedWidth: CGFloat = -1
+    /// The Public Suffix List's lookup, read in the background the first time the name is cut;
+    /// until then the cut guesses (``PageInfoSite/splitName(_:registrableDomain:)``).
+    private var registrableDomain: (@Sendable (String) -> String?)?
+    private var readsRegistrableDomain = false
 
     init(name: String, font: NSFont, color: @escaping @autoclosure () -> NSColor) {
         self.name = name
@@ -50,9 +54,22 @@ final class PageInfoSiteNameView: NSView {
 
     private func fitted(to width: CGFloat) -> String {
         guard let font = label.font else { return name }
+        readRegistrableDomain()
         // A label draws its text 2 pt inside each edge.
-        return PageInfoSite.fittedName(name, width: width) { text in
+        return PageInfoSite.fittedName(name, width: width, registrableDomain: registrableDomain) { text in
             ceil((text as NSString).size(withAttributes: [.font: font]).width) + 4
+        }
+    }
+
+    /// Reads the list off the main thread once, then cuts the name again with it.
+    private func readRegistrableDomain() {
+        guard !readsRegistrableDomain else { return }
+        readsRegistrableDomain = true
+        Task { [weak self] in
+            guard let lookup = await PublicSuffixList.sharedRegistrableDomainInBackground(), let self else { return }
+            registrableDomain = lookup
+            fittedWidth = -1
+            needsLayout = true
         }
     }
 }
