@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 640,
+  "count": 644,
   "sections": [
     {
       "id": "general",
@@ -1505,10 +1505,6 @@
           "group": "Tabs",
           "values": [
             "minimal",
-            "cards",
-            "default",
-            "threads",
-            "console",
             "classic",
             "terminal"
           ]
@@ -2557,6 +2553,14 @@
           "title": "Sun Location",
           "help": "Latitude,longitude for sunrise and sunset, such as 37.77,-122.42. Unset: your time zone.",
           "kind": "text",
+          "default": null,
+          "group": "Window Background"
+        },
+        {
+          "key": "appearance.backgroundMemory",
+          "title": "Background Mode Memory",
+          "help": "The folder and picture each background mode last showed, so switching back restores them.",
+          "kind": "string_map",
           "default": null,
           "group": "Window Background"
         },
@@ -4316,6 +4320,14 @@
           "group": "Sidebar"
         },
         {
+          "key": "sidebar.settleFinished",
+          "title": "Settle Finished Chats",
+          "help": "A chat whose answer you have read folds into Settled at the end of its list until its next turn.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
           "key": "sidebar.showChats",
           "title": "Show All Chats on New Tab",
           "help": "New Tab lists every agent chat on this computer, not only recent ones.",
@@ -4376,7 +4388,7 @@
           "title": "Show Spaces",
           "help": "",
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "group": "Sidebar"
         },
         {
@@ -6202,6 +6214,14 @@
           "group": "Chief Dock"
         },
         {
+          "key": "home.chiefDock.sidePanel",
+          "title": "Chief in Side Panel",
+          "help": "Keeps the Chief docked beside every workspace. Cmd-I hides or shows it.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Chief Dock"
+        },
+        {
           "key": "home.chiefEngine",
           "title": "Engine",
           "help": "Auto uses this Mac's Chief while it runs, else the Hosted Chief.",
@@ -6947,6 +6967,14 @@
           "key": "labs.liveCode",
           "title": "Live Code",
           "help": "Swift changes you compile apply to the running app. Takes effect after cmux restarts.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Labs"
+        },
+        {
+          "key": "labs.liveTree",
+          "title": "Live Tree",
+          "help": "Show the shared live-tree path and compile lanes in the agent pane.",
           "kind": "toggle",
           "default": false,
           "group": "Labs"

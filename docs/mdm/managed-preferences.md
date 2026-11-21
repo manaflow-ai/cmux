@@ -26,7 +26,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `app.startAgentGlobalHotKey` | boolean | `false` |  | Start Agent from Any App. ⌃⌥⌘Space starts an agent while another app is in front. |
 | `app.hideDockIconWithoutWindows` | boolean | `false` |  | Hide Dock Icon When No Windows Are Open. cmux stays in the menu bar until a window opens. |
 | `app.showMenuBarIcon` | boolean | `true` |  | Show Menu Bar Icon |
-| `tabs.newTabTemplate` | string | `"minimal"` | `minimal`, `cards`, `default`, `threads`, `console`, `classic`, `terminal` | New Tab Template. The layout of the New Tab page. Terminal opens a terminal instead. |
+| `tabs.newTabTemplate` | string | `"minimal"` | `minimal`, `classic`, `terminal` | New Tab Template. The layout of the New Tab page. Terminal opens a terminal instead. |
 | `tabs.nativeNewTabPage` | boolean | `false` |  | Native New Tab Page. Cmd-T opens the faster native New Tab page. Recent chats and widgets are web only. |
 | `tabs.newTabApp` | string |  |  | New Tab App. An extension id that draws New Tab, such as "local/showcase-newtab". Unset: cmux's own. |
 | `tabs.newTabPosition` | string | `"afterCurrent"` | `afterCurrent`, `end`, `start` | New Tab Position (Cmd-T) |
@@ -190,6 +190,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.backgroundSchedule` | dictionary |  |  | Time of Day Pictures. A time (07:00) or sun event (sunset-30m) for each picture. |
 | `appearance.backgroundDynamic` | string | `"appearance"` | `appearance`, `time` | Dynamic Wallpaper. Follow light and dark, or change with the sun through the day. |
 | `appearance.backgroundLocation` | string |  |  | Sun Location. Latitude,longitude for sunrise and sunset, such as 37.77,-122.42. Unset: your time zone. |
+| `appearance.backgroundMemory` | dictionary |  |  | Background Mode Memory. The folder and picture each background mode last showed, so switching back restores them. |
 | `appearance.displayBackgrounds` | dictionary |  |  | Per-display Backgrounds. Display ID to daily, folder:<path>, desktop, a background or none. |
 | `appearance.displayBackgroundRotations` | dictionary |  |  | Per-display Background Rotation. Display ID to 15m, hourly or daily. Others use the global rotation. |
 | `appearance.paneBackgrounds` | string | `"shared"` | `shared`, `perPane` | Pane Backgrounds. One background behind the window, or a copy in each pane. |
@@ -405,7 +406,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.sessionTree` | boolean | `false` |  | Session Tree. Lists workspaces an agent started under the workspace that started them. |
 | `sidebar.showProjects` | boolean | `true` |  | Show Projects |
 | `sidebar.groupBy` | string | `"none"` | `none`, `folder`, `recents` | Group Projects By |
-| `sidebar.showSpaces` | boolean | `false` |  | Show Spaces |
+| `sidebar.showSpaces` | boolean | `true` |  | Show Spaces |
 | `sidebar.showProfileControl` | boolean | `true` |  | Show Profile Button |
 | `sidebar.showSearchButton` | boolean | `true` |  | Show Search Button. A search button after the profile button. Off: search from the palette. |
 | `sidebar.showNewWorkspaceChooser` | boolean | `false` |  | Show New Workspace Menu Button. A chevron beside the + opens the New Workspace menu. Off: right-click the +. |
@@ -421,6 +422,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.textSize` | string | `"default"` | `default`, `large`, `larger` | Sidebar Text Size. Makes the sidebar's names, icons and rows larger together. |
 | `sidebar.detailedStatusIcons` | boolean | `false` |  | Detailed Status Icons. Icons for working, waiting, error and done. Off: a spinner and a dot. |
 | `sidebar.showTimestamps` | boolean | `false` |  | Show Timestamps. Rows show when they last changed, such as 3d. |
+| `sidebar.settleFinished` | boolean | `false` |  | Settle Finished Chats. A chat whose answer you have read folds into Settled at the end of its list until its next turn. |
 | `sidebar.showColors` | boolean | `true` |  | Show Workspace Colors |
 | `workspaceColors.indicatorStyle` | string | `"leftRail"` | `dot`, `leftRail`, `fill` | Workspace Color Style. How a workspace's color shows in the sidebar. |
 | `sidebar.showLocalMachine` | boolean | `false` |  | Mark This Mac's Workspaces. With more than one computer, this Mac's workspaces show its icon too. |
@@ -611,6 +613,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `home.channelsEnabled` | boolean | `false` |  | Channels. Show Channels below Home in the sidebar. |
 | `home.chiefPetEnabled` | boolean | `false` |  | Show Chief Pet. A small Chief over every app shows agent events. ⌃⌥⌘C opens its reply box. |
 | `home.chiefPetMascot` | string | `"orb"` | `fox`, `machine`, `machine-cyan`, `machine-blue`, `moon`, `moon-blue`, `mochi`, `captain`, `sprout`, `bolt`, `fox-arctic`, `machine-violet`, `machine-gold`, `moon-rose`, `orb`, `orb-spark`, `orb-hood` | Character |
+| `home.chiefDock.sidePanel` | boolean | `false` |  | Chief in Side Panel. Keeps the Chief docked beside every workspace. Cmd-I hides or shows it. |
 | `home.chiefDock.edge` | string | `"left"` | `left`, `right`, `top`, `bottom` | Dock Edge. The window edge the Chief docks to. |
 | `home.chiefPanel.style` | string | `"composeBar"` | `composeBar`, `pill`, `card`, `panel`, `bubble`, `seeThrough`, `seeThroughBar` | Floating Chief Style. How the Chief looks floating over a workspace. Drag any style by its grip. |
 | `home.chiefDock.openBeside` | boolean | `false` |  | Show Chief When Opening Workspaces. Links in the Chief open their workspace with the Chief over it. Esc hides it. |
@@ -672,6 +675,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `notifications.sounds.groups` | dictionary | `{}` |  | Group Sounds. Sounds per group id or name. Set one from the group's sidebar menu. |
 | `notifications.sounds.agents` | dictionary | `{}` |  | Agent Sounds. Sounds per agent kind, such as claude or codex. |
 | `labs.previewFeatures` | boolean | `false` |  | Show Preview Features. Unfinished surfaces, such as the App Store and the agent session's coverage label and Pull requests view. |
+| `labs.liveTree` | boolean | `false` |  | Live Tree. Show the shared live-tree path and compile lanes in the agent pane. |
 | `labs.voiceRoom` | boolean | `false` |  | Voice Room. While a room is open, cmux sends a transcript of your mic and your screen's text to it. |
 | `labs.voiceRoomURL` | string | `""` |  | Voice Room Address. The room's web address. Empty uses the room server on this Mac. |
 | `labs.machineJoin` | boolean | `false` |  | Screen Sharing for Joined Machines. Shows Screen sharing and Control in Settings > Devices once this Mac joins. |
