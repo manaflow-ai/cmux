@@ -1698,6 +1698,10 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                 if key == ("sdk-release-cut.yml", "cut-tags"):
                     # The SDK release security contract pins the pre-BS8 selector.
                     expected = expected.replace(',"blacksmith-8vcpu-ubuntu-2404"', '')
+                if key == ("ci-hosted-queue-rescue.yml", "rescue"):
+                    # The hosted-queue rescue reruns jobs a hosted outage cancelled, so it must not
+                    # queue behind that outage itself: no hosted ubuntu-24.04 in its selector.
+                    expected = expected.replace('"ubuntu-24.04",', '')
                 self.assertIn(expected + " }}", runs_on[key])
 
     def test_the_bounded_selector_yields_only_its_labels_for_any_value(self) -> None:
