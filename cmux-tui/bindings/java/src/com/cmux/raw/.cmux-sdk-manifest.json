@@ -2247,7 +2247,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "a4f25d29ffe6c4f4acea6752d2e3594cb37935f349a877e1e635c056397833b4",
+      "sha256": "61c040d3226caa2426d0c61bdbcf52c2e46a1626f0ed9a785c7d6b5afa4545c2",
       "size": 8310
     },
     {
@@ -2697,8 +2697,13 @@
     },
     {
       "path": "ServerStatsDisk.java",
-      "sha256": "6553b111b97dea5e564c8a24dcce65a65e5ec2bb253b954d71bc221a46fed0e5",
-      "size": 10460
+      "sha256": "fe27ef6b83fd37002b6b65532425441e6ff8a7a77a2b1445ac338dfbb6007d01",
+      "size": 11260
+    },
+    {
+      "path": "ServerStatsDiskCheckpoints.java",
+      "sha256": "9c1cc2d2ded32a5c24b7c6a5e2b18e042963b3d83193aee6ccc5d390fde572ff",
+      "size": 5166
     },
     {
       "path": "ServerStatsDiskFile.java",
@@ -3787,7 +3792,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "9e23695456a61db1d4ae9aa726f4287919ff5a51a8c001cf11da3b30c1555dd2",
+  "ir_sha256": "5feb097e63a0b89cd29bb190b63d648400b8e4791f9ad5ee8878f009fdb461e4",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2
