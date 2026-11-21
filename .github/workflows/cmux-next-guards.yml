@@ -756,6 +756,10 @@ jobs:
   # so such a change is red at its own landing.
   rust-notices-tree:
     name: cmux-next Rust notices generate
+    # Same-repo PRs already have the base and merge commit in hot-route.
+    # A skipped or failed route leaves the original in-job check in charge.
+    needs: hot-route
+    if: ${{ !cancelled() && (needs.hot-route.result != 'success' || needs.hot-route.outputs.notices_changed != 'false') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 25
     steps:
@@ -799,9 +803,7 @@ jobs:
             echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
           fi
           git fetch --no-tags --depth=1 origin "$BASE_SHA"
-          changed="$(git diff --name-only "$BASE_SHA" HEAD)"
-          pattern='(^|/)Cargo\.(toml|lock)$|^scripts/cmux-next/remote-browser-host\.pin\.json$|^cmux-tui/build-support/notices/|^scripts/cmux-next/generate-third-party-notices\.sh$|^scripts/cmux-next/notices/|^Packages/macOS/CmuxNext/Package\.resolved$'
-          if grep -qE "$pattern" <<<"$changed"; then echo "run=true" >> "$GITHUB_OUTPUT"; else echo "run=false" >> "$GITHUB_OUTPUT"; fi
+          bash scripts/ci/rust-notices-changed.sh "$BASE_SHA" HEAD >> "$GITHUB_OUTPUT"
 
       - name: Generate the Rust notices from this tree (as the nightly does)
         if: steps.inputs.outputs.run == 'true'
@@ -1032,6 +1034,7 @@ jobs:
       contents: read
     outputs:
       hot_only: ${{ steps.route.outputs.hot_only }}
+      notices_changed: ${{ steps.notices.outputs.run }}
     steps:
       # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
@@ -1064,6 +1067,12 @@ jobs:
           persist-credentials: false
           submodules: false
           fetch-depth: 2
+
+      - name: Check notice inputs before allocating the notices runner
+        id: notices
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: bash scripts/ci/rust-notices-changed.sh "$BASE_SHA" HEAD >> "$GITHUB_OUTPUT"
 
       - name: Route the pull request (cmux_next_route.py --hot-only)
         id: route
