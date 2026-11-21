@@ -21,8 +21,9 @@
 //! repair that loads a page again) passes without the part's signal
 //! coming back (a `repairResult` with `ok: false` makes it due at once).
 //! Past [`policy::MAX_REPAIRS`] attempts in [`policy::REPAIR_WINDOW_MS`] the
-//! part is `failed` and waits for the user's click, which clears the cap and
-//! starts again at step 1. The episode ends only when the signal comes back
+//! part is `failed`: it tries again by itself from step 1 once its oldest
+//! attempt leaves the window, and the user's click clears the cap and starts
+//! again at step 1 at once. The episode ends only when the signal comes back
 //! (a beat, `responsive`, `connected`, `loaded`), never on a result alone.
 
 use crate::detail::{self, Cause};
@@ -672,6 +673,15 @@ impl Health {
         let r = &mut part.repair;
         let state = match (cond.level, cond.mode) {
             (State::Stuck, Mode::Ladder(ladder)) => {
+                if r.failed {
+                    // The cap is MAX_REPAIRS in the window, not for good: once the oldest attempt leaves
+                    // it, the part tries again by itself from step 1, with no click (David Beyer,
+                    // 2026-11-20: "Agent chat needs a repair" asked for what the app can do itself).
+                    prune(&mut r.history, policy::REPAIR_WINDOW_MS, now);
+                    if r.history.len() < policy::MAX_REPAIRS as usize {
+                        (r.failed, r.attempt, r.next_at) = (false, 0, None);
+                    }
+                }
                 let due = r.attempt == 0 || r.next_at.is_some_and(|at| at <= now);
                 if r.failed {
                     State::Failed
@@ -733,6 +743,11 @@ impl Health {
         };
         if state == State::Repairing {
             deadline = earliest(deadline, r.next_at);
+        }
+        if state == State::Failed {
+            // One deadline: when the oldest attempt leaves the cap's window, it tries again by itself.
+            let free = r.history.front().map(|&at| at.saturating_add(policy::REPAIR_WINDOW_MS));
+            deadline = earliest(deadline, free);
         }
         part.detail = match state {
             State::Healthy => String::new(),

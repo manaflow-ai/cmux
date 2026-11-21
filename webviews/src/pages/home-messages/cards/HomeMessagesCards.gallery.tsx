@@ -436,7 +436,6 @@ export default componentEntry<Props>({
         height: 640,
         intro: chiefIntroText("askFocus", strings),
         agents: GLANCES,
-        memoryOffer: "Bring your memory from Claude Code",
         petShown: true,
       },
     },
