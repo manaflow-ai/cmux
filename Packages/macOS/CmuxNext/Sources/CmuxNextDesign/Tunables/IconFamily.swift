@@ -1,5 +1,5 @@
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// Which drawings the cmux icon pack shows (Debug Settings `icons.family`). `pack` is the shipped
 /// pack (design/icons/source). `custom` lays the cmux custom family over it (design/icons/source-custom,
