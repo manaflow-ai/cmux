@@ -19,7 +19,7 @@ while read -r run sha; do
   [[ -n "$run" ]] || continue
   deferred="$(gh api "repos/$repo/actions/runs/$run/jobs?per_page=100" \
     --jq "([.jobs[] | select(.name == \"$marker\" and .conclusion == \"success\")] | length)
-      + ([.jobs[] | select(.name != \"batch window\")] as $rest | if ($rest | length) > 0 and all($rest[]; .conclusion == \"skipped\") then 1 else 0 end)" 2>/dev/null)" || continue
+      + ([.jobs[] | select(.name != \"batch window\")] as \$rest | if (\$rest | length) > 0 and all(\$rest[]; .conclusion == \"skipped\") then 1 else 0 end)" 2>/dev/null)" || continue
   if [[ "$deferred" == 0 ]]; then
     echo "$sha"
     exit 0

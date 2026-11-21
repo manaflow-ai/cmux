@@ -451,9 +451,10 @@ class BaseAutofixFinishes(unittest.TestCase):
         # 2026-10-21: a push to feat-cmux-next added a test target without the graph (Tier routing red on
         # every PR) and the graph landed 90 minutes later: autofix, which made it, needed the Mac exports
         # job, 12-15 minutes in the owned queue and 15-26 running, and two of those runs' repairs were
-        # held. The graph is made on Linux from the manifest alone, so its own job needs nothing.
+        # held. The graph is made on Linux from the manifest alone, so its own job needs only the batch
+        # window (one Linux read, cmux#49308), never the Mac exports.
         job = DOC["jobs"]["target-graph"]
-        self.assertNotIn("needs", job)
+        self.assertIn(job.get("needs", "window"), ("window", ["window"]))
         cells = workflow_jobs.runs_on_cells(job)
         self.assertIsNotNone(cells, "target-graph runs-on reads a matrix value nothing resolves")
         self.assertTrue(cells)
@@ -586,9 +587,10 @@ if m:
     jobs = next(j for i, _, j in runs if str(i) == m.group(1))
     if jobs is None:
         sys.exit(1)
-    assert 'all(.jobs[]; .conclusion == "skipped")' in sys.argv[sys.argv.index("--jq") + 1], sys.argv
+    assert 'select(.name != "batch window")' in sys.argv[sys.argv.index("--jq") + 1], sys.argv
+    rest = [c for name, c in jobs if name != "batch window"]
     print(sum(1 for name, c in jobs if name == "Mac exports deferred" and c == "success")
-          + (1 if jobs and all(c == "skipped" for _, c in jobs) else 0))
+          + (1 if rest and all(c == "skipped" for c in rest) else 0))
 else:
     assert "status=success" in path and "event=push" in path, path
     for i, sha, _ in runs:
@@ -616,6 +618,9 @@ else:
                    ("autofix feat-cmux-next", "skipped")]
         made = [("action exports (Mac)", "success"), ("Mac exports deferred", "skipped")]
         self.assertEqual(self.since([(9, "c" * 40, skipped), (7, "a" * 40, made)]), "a" * 40 + "\n")
+        # A run its batch window held whose cancel did not take: only that job ran (cmux#49308).
+        held = [("batch window", "success")] + skipped
+        self.assertEqual(self.since([(9, "c" * 40, held), (7, "a" * 40, made)]), "a" * 40 + "\n")
 
     def test_since_passes_a_run_whose_jobs_cannot_be_read(self):
         self.assertEqual(self.since([(9, "c" * 40, None), (7, "a" * 40, [])]), "a" * 40 + "\n")
