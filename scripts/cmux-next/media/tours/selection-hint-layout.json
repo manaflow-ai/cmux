@@ -1,0 +1,16 @@
+{
+  "title": "Terminal selection hint: where it rests as the panes and the sidebar change under it",
+  "steps": [
+    {"title": "Launch", "wait": 2, "shot": false},
+    {"title": "New workspace", "cmux": ["workspace", "new", "--name", "Hint"], "shot": false},
+    {"title": "Show the Hint workspace", "cmux": ["workspace", "name:Hint", "focus"], "wait": 2, "shot": false},
+    {"title": "Split right: two terminal panes", "cmux": ["action", "run", "splitRight"], "wait": 2, "shot": false},
+    {"title": "An agent chat on the right", "cmux": ["agent", "new-chat"], "wait": 6, "optional": "agent backend unavailable on this runner", "shot": false},
+    {"title": "Focus left", "cmux": ["action", "run", "focusLeft"], "wait": 1, "shot": false},
+    {"title": "The hint over the terminal, panes split evenly", "rpc": {"method": "debug.toast", "params": {"show": {"id": "terminal.selectionHint", "message": "Option or Shift + drag selects text", "seconds": 120}}}, "wait": 2},
+    {"title": "Drag the divider right: the terminal grows under the hint", "rpc": {"method": "debug.mouse", "params": {"action": "drag", "divider": "split:", "by_x": 160, "steps": 20}}, "wait": 2, "optional": "debug.mouse is DEBUG only"},
+    {"title": "Drag the divider left: the chat's composer slides under the hint", "rpc": {"method": "debug.mouse", "params": {"action": "drag", "divider": "split:", "by_x": -360, "steps": 30}}, "wait": 2, "optional": "debug.mouse is DEBUG only"},
+    {"title": "Hide the sidebar", "cmux": ["action", "run", "toggleSidebar"], "wait": 2},
+    {"title": "Show the sidebar again", "cmux": ["action", "run", "toggleSidebar"], "wait": 2}
+  ]
+}
