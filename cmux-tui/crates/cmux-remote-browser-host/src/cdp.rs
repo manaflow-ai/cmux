@@ -1077,10 +1077,10 @@ mod tests {
         assert_eq!(repeat[0].1["autoRepeat"], true);
         assert_eq!(repeat[0].1["modifiers"], 4);
         assert_eq!(repeat[0].1["windowsVirtualKeyCode"], 0x25);
-        let copy = RpCall::SendKey {
-            commands: vec![("copy".into(), String::new())],
-            ..key(true, "KeyC", "c", "c", rp_mod::COMMAND)
-        };
+        let mut copy = key(true, "KeyC", "c", "c", rp_mod::COMMAND);
+        if let RpCall::SendKey { commands, .. } = &mut copy {
+            commands.push(("copy".into(), String::new()));
+        }
         assert_eq!(input_commands(&copy, &mut buttons)[0].1["commands"], json!(["copy"]));
     }
 
