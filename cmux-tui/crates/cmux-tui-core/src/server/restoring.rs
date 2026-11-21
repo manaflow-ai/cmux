@@ -497,10 +497,13 @@ mod tests {
         let (server, client) = UnixStream::pair().unwrap();
         assert!(slot.route(Box::new(server)).is_none());
         let mut writer = client.try_clone().unwrap();
-        let writing = std::thread::spawn(move || {
-            writer.write_all(&sent).unwrap();
-            writer.shutdown(std::net::Shutdown::Write).unwrap();
-        });
+        let writing = std::thread::Builder::new()
+            .name("parked-after-writer".into())
+            .spawn(move || {
+                writer.write_all(&sent).unwrap();
+                writer.shutdown(std::net::Shutdown::Write).unwrap();
+            })
+            .unwrap();
         let mut stream = parked(&slot).expect("the long line parked the connection");
         stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
         let mut buffer = vec![0_u8; 1 << 20];
