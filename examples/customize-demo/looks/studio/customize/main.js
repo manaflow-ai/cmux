@@ -288,6 +288,11 @@ function renderStart() {
     Spacer(),
     HStack({ spacing: 8 }, [
       Text("Studio").font("title").weight("semibold").fixedSize("horizontal"),
+      Menu("Create", [
+        Button("New Tab in Session", () => run("newSurface")),
+        Button("New Workspace", () => run("newTab")),
+        Button("Add Remote Host…", () => run("remote.connect"))
+      ]),
       Spacer(),
       Text(() => `${counts().working} working · ${counts().input} need you · ${counts().done} done`).font("caption").monospaced().color(cmux.theme.text.secondary)
     ]),
