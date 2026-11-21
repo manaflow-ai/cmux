@@ -83,6 +83,7 @@ import { sentMessageLook } from "../agent-session/acpmux/conversation/sentMessag
 import { readingLook } from "../agent-session/acpmux/readingLook.experiment";
 import { highContrastLook } from "../agent-session/acpmux/highContrastLook.experiment";
 import { contextRingLook } from "../agent-session/acpmux/contextRingLook.experiment";
+import { shortcutKeycaps } from "../agent-session/acpmux/shortcutKeycaps.experiment";
 import { contextRingMotion } from "../agent-session/acpmux/contextRingMotion.experiment";
 import { planUsageLook } from "../agent-session/acpmux/planUsageLook.experiment";
 import { emojiShortcodeLook } from "../agent-session/acpmux/emojiShortcodeLook.experiment";
@@ -199,6 +200,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   composerDockMotion,
   teamAudit,
   jumpPairLook,
+  shortcutKeycaps,
 ];
 
 export function experimentById(id: string): Experiment | undefined {
