@@ -53,11 +53,15 @@ SHARED_NIGHTLY_GROUPS = {
 # The nightly-next push slot with the one job on (docs/ci/nightly-workflow-notes.md#note-19): the
 # workflow-level push group moved to the one job, with the same rule. A newer loop run replaces only a pending
 # one, and main's tick promotes nothing while one is pending (run_holds_group), so none is ever replaced; other
-# runs' nightly-next-one stays run-scoped. tests/test_nightly_next_push_slot_at_build.py evaluates it.
+# runs' nightly-next-one stays run-scoped. With vars.NIGHTLY_NEXT_SIGNER_SLOTS 2 each signer Mac is its own push
+# slot (nightly-next-one-push-<mac>, scripts/ci/nightly_next_signer_slot.py), with the same rule per slot (main's
+# tick counts holders against the slots). tests/test_nightly_next_push_slot_at_build.py evaluates it.
 PUSH_SLOT_JOBS = {
     "nightly-next-one": "${{ github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || "
-                        "inputs.nightly_next_loop_retry != '') && 'nightly-next-one-push' || "
-                        "format('nightly-next-one-{0}', github.run_id) }}",
+                        "inputs.nightly_next_loop_retry != '') && (github.run_attempt == 1 && "
+                        "needs.resolve-nightly-cmux-tui-client.outputs.signer_slot != '' && "
+                        "format('nightly-next-one-push-{0}', needs.resolve-nightly-cmux-tui-client.outputs.signer_slot) || "
+                        "'nightly-next-one-push') || format('nightly-next-one-{0}', github.run_id) }}",
 }
 
 
