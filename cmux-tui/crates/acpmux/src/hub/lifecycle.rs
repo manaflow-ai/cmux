@@ -1210,6 +1210,7 @@ impl Hub {
                 let mut m = session.meta.lock().unwrap();
                 m.set_agent_session_id(None, "claude");
                 m.claude_unstored = false;
+                m.claude_unstored_work = false;
             }
             if !untouched {
                 session.rehydrate.store(true, Ordering::SeqCst);
@@ -1485,6 +1486,7 @@ impl Hub {
                 };
                 m.set_agent_session_id(sid.clone(), "claude");
                 m.claude_unstored = level == "new";
+                m.claude_unstored_work = false;
                 if level != "exact" {
                     m.claude_profile = Some(m.harness.clone());
                 }
