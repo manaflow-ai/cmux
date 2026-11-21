@@ -234,7 +234,7 @@ import { noteKeptPrefix } from "./conversation/prefixFlatMap";
 import { RowUpdates } from "./rowUpdates";
 import { parseHarnessIconSpec, rememberHarnessIcons } from "../shared/harnessIcons";
 import { liveModes, permissionModes, reportsModes, reportsNoModes } from "./permissionModes";
-import { handoffPromptId, namesHandoffTurn } from "./cloudHandoffTurn";
+import { handoffPromptId, namesHandoffTurn, TURN_WAIT_MS } from "./cloudHandoffTurn";
 import { STALL_CHECK_MS, type StallCause, quietDelay, stallLine, stallTiming } from "./stallLog";
 import { hostTurn, hostTurnState } from "./hostTurnState";
 import { bridgedWatch } from "./watchBannerModel";
@@ -11991,8 +11991,14 @@ export class AcpmuxDirectClient {
   /// 1.5 to 1.9 s and the attach 0.7 to 1.6 s of a start, one after the other, 2026-11-21). Only for
   /// that chat while it stays the one shown, and only for `HANDOFF_AHEAD_KEEP_MS`: another selection
   /// since, or a send that comes later than that, asks again, as an ask from before does. One that
-  /// named no turn (the app may not show the new chat on its tab yet) is asked again by the send.
-  private handoffAhead?: { sessionId: string; generation: number; asked: number; ask: Promise<number | undefined> };
+  /// named no turn (the app may not show the new chat on its tab yet) is asked again by the send,
+  /// unless it ran out its wait (`took`, ms): an app that did not answer is not waited on twice.
+  private handoffAhead?: {
+    sessionId: string;
+    generation: number;
+    asked: number;
+    ask: Promise<{ turn: number | undefined; took: number }>;
+  };
   /// The newest hand-off turn each chat sent a prompt under: the store may still say it is `starting`
   /// (the machine's reports go on their own time), and another prompt never names it.
   private handoffTurnsSent = new Map<string, number>();
@@ -12281,7 +12287,11 @@ export class AcpmuxDirectClient {
             ? ahead.ask
             : undefined;
         const ask = () => this.handoffTurn?.(sessionId) ?? Promise.resolve(undefined);
-        const entry = { generation, ask: early ? early.then((turn) => turn ?? ask()) : ask() };
+        const again = (took: number) => took < TURN_WAIT_MS && generation === this.selectionGeneration;
+        const entry = {
+          generation,
+          ask: early ? early.then(({ turn, took }) => turn ?? (again(took) ? ask() : undefined)) : ask(),
+        };
         this.handoffAsks.set(sessionId, entry);
         let turn: number | undefined;
         try {
@@ -14326,7 +14336,10 @@ export class AcpmuxDirectClient {
       const asked = Date.now();
       const ahead =
         forSend && this.handoffTurn && this.startsOnSend
-          ? this.handoffTurn(sessionId).catch(() => undefined)
+          ? this.handoffTurn(sessionId).then(
+              (turn) => ({ turn, took: Date.now() - asked }),
+              () => ({ turn: undefined, took: 0 }),
+            )
           : undefined;
       const selected = await this.select(sessionId);
       if (ahead && selected === sessionId && this.selectedSessionId === sessionId && !this.closed)

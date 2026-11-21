@@ -368,6 +368,37 @@ test("an ask at the start that fails is asked again by the send, which goes on a
   }
 });
 
+test("an ask at the start that ran out its wait is not asked again: the app is not waited on twice", async () => {
+  const run = await cloudStart();
+  try {
+    let asks = 0;
+    run.chat.handoffTurn = async () => {
+      asks += 1;
+      setSystemTime(new Date(Date.now() + 2_500));
+      return undefined;
+    };
+    await run.chat.send("fix the build", [], "p-1");
+    expect(asks).toBe(1);
+    expect(promptIdOf(run.prompts[0])).toBe("p-1");
+  } finally {
+    setSystemTime();
+    run.chat.close();
+  }
+});
+
+test("two sends while the chat starts: the first takes the ask made at the start, the second goes under its own id", async () => {
+  const run = await cloudStart();
+  try {
+    let asks = 0;
+    run.chat.handoffTurn = async () => ((asks += 1), 1);
+    await Promise.all([run.chat.send("fix the build", [], "p-1"), run.chat.send("and the tests", [], "p-2")]);
+    expect(asks).toBe(1);
+    expect(new Set(run.prompts.map(promptIdOf))).toEqual(new Set(["handoff-1-p-1", "p-2"]));
+  } finally {
+    run.chat.close();
+  }
+});
+
 test("a page with no hand-off ask starts a Cloud chat as before", async () => {
   const run = await cloudStart();
   try {
