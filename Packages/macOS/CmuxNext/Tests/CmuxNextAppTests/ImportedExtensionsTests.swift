@@ -7,8 +7,8 @@ import Testing
 /// extensions workspace opens, and the copy of an unpacked folder. Which extensions a profile lacks
 /// is the cmux-browser-import crate's `extension_plan` tests.
 @Suite struct ImportedExtensionsTests {
-    private static let storeID = String(repeating: "a", count: 32)
-    private static let unpackedID = String(repeating: "c", count: 32)
+    private nonisolated static let storeID = String(repeating: "a", count: 32)
+    private nonisolated static let unpackedID = String(repeating: "c", count: 32)
 
     private static func temporary(_ name: String) throws -> URL {
         let url = FileManager.default.temporaryDirectory.appending(path: "\(name)-\(UUID().uuidString)", directoryHint: .isDirectory)
@@ -23,13 +23,14 @@ import Testing
 
     @Test func thePlanReadSendsTheExtensionsAndDecodesItsReply() async throws {
         let sent = Sent()
+        let (storeID, unpackedID) = (Self.storeID, Self.unpackedID)
         let reader = BrowserDataReader { data in
             await sent.keep(data)
             let reply: [String: Any] = ["ok": [
-                "store": [["id": Self.storeID, "name": "Store", "enabled": true, "fromWebStore": true]],
-                "unpacked": [["extension": ["id": Self.unpackedID, "name": "Mine", "enabled": true, "fromWebStore": false,
+                "store": [["id": storeID, "name": "Store", "enabled": true, "fromWebStore": true]],
+                "unpacked": [["extension": ["id": unpackedID, "name": "Mine", "enabled": true, "fromWebStore": false,
                                             "unpackedPath": "/Users/me/ext"],
-                              "copy": "/copies/\(Self.unpackedID)"]],
+                              "copy": "/copies/\(unpackedID)"]],
                 "installed": 2,
             ]]
             return try JSONSerialization.data(withJSONObject: reply)
