@@ -2114,7 +2114,8 @@ except probe.OutOfTime as cut:
     }
   });
 
-  test("a text file of one huge line is read in pieces: bounded memory, and a key across a piece's edge is found", () => {
+  // 76 MiB of reads: bun's 5 s default killed it on a loaded shared pool runner (base run 44851992457, 2026-11-21).
+  test("a text file of one huge line is read in pieces: bounded memory, and a key across a piece's edge is found", { timeout: 60_000 }, () => {
     const dir = mkdtempSync(join(tmpdir(), "key-probe-line-"));
     const big = join(dir, "one-line.txt");
     // 64 MiB with no line break: a key's name across the first read's edge, and one deeper in. The first piece ends
@@ -2149,26 +2150,39 @@ except MemoryError:
     }
   });
 
-  test("a line of many escapes that spell no key is read in linear time", () => {
+  test("a line of many escapes that spell no key is read in linear time", { timeout: 60_000 }, () => {
     const dir = mkdtempSync(join(tmpdir(), "key-probe-escapes-"));
     const file = join(dir, "strings.json");
     // 400,000 escaped spaces on one line: each was a reading of the whole line, then a search back to its start
     // (4.7 s at this size, four times that at twice it). Then a key after 20,000 short lines of escapes, on its own line.
     writeFileSync(file, `{"s": "${"\\u0020".repeat(400_000)}"}\n` + `{"s": "${"\\u0020".repeat(50)}"}\n`.repeat(20_000) + `MISTRAL_API_KEY=Ab3Qx7Hw4Kd9Lm2Px7Zq8\n`);
+    // The same file at half its size: the bound is this machine's own scan of it, not a fixed number of seconds a
+    // loaded runner misses (2.27 s against 1.5 s on a shared pool runner, base run 44851992457). Twice the input
+    // takes about twice the time when linear (1.6-2.1x measured) and four times when quadratic (3.8x before #41283).
+    const half = join(dir, "half.json");
+    writeFileSync(half, `{"s": "${"\\u0020".repeat(200_000)}"}\n` + `{"s": "${"\\u0020".repeat(50)}"}\n`.repeat(10_000) + `MISTRAL_API_KEY=Ab3Qx7Hw4Kd9Lm2Px7Zq8\n`);
     const script = `
 import importlib.util, json, sys, time
 spec = importlib.util.spec_from_file_location("probe", sys.argv[1])
 probe = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(probe)
-t0 = time.monotonic()
-hits = probe.scan_file(sys.argv[2])
-print(json.dumps({"hits": hits, "s": time.monotonic() - t0}))
+def timed(path):
+    best = None
+    for _ in range(2):
+        t0 = time.monotonic()
+        hits = probe.scan_file(path)
+        took = time.monotonic() - t0
+        best = took if best is None else min(best, took)
+    return hits, best
+_, half = timed(sys.argv[3])
+hits, full = timed(sys.argv[2])
+print(json.dumps({"hits": hits, "s": full, "half": half}))
 `;
     try {
-      const r = spawnSync("python3", ["-I", "-c", script, KEY_PROBE_PY, file], { encoding: "utf8" });
+      const r = spawnSync("python3", ["-I", "-c", script, KEY_PROBE_PY, file, half], { encoding: "utf8" });
       const answer = JSON.parse(r.stdout || "{}");
       expect(answer.hits).toEqual([[20_002, "MISTRAL_API_KEY"]]);
-      expect(answer.s).toBeLessThan(1.5);
+      expect(answer.s / answer.half).toBeLessThan(3);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -2195,7 +2209,7 @@ print(time.monotonic() - t0)
     }
   });
 
-  test("a huge login file is read only in part, and still names its kind", () => {
+  test("a huge login file is read only in part, and still names its kind", { timeout: 60_000 }, () => {
     const root = plant({
       "proc/5/comm": "bash\n",
       "proc/5/environ": "HOME=/root\0",
