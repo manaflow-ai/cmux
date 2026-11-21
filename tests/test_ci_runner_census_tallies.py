@@ -44,7 +44,7 @@ MINI = {"id": 10, "name": "cmux-mini-1-glaeda", "os": "macOS", "status": "online
 
 
 def tally(idle: int, busy: int, offline: int, labels=None, os_name: str = "Linux") -> dict:
-    return {"os": os_name, "labels": list(labels or LINUX_LABELS), "idle": idle, "busy": busy, "offline": offline}
+    return {"os": os_name, "labels": list(LINUX_LABELS if labels is None else labels), "idle": idle, "busy": busy, "offline": offline}
 
 
 def document(tallies: dict | None, groups: dict | None = None) -> dict:
@@ -92,7 +92,9 @@ class CensusTallies(unittest.TestCase):
         doc = document({LINUX: [tally(idle=1, busy=3000, offline=0)]})
         rows = self.runners(doc)
         self.assertEqual(fast_checks.idle_runner(rows), FLEET)
-        env = {"CI_RUNNER_STATE": encode(doc), "GITHUB_REPOSITORY": "manaflow-ai/cmux"}
+        # A Linux-only picker (the cmux-tui daemon marker's shape) reads the Linux group from the census alone.
+        env = {"CI_RUNNER_STATE": encode(doc), "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+               "JOBS": "checks", "LINUX_ONLY": "checks"}
         runners, _ = placement.read(env, NOW)
         self.assertIsNotNone(runners)
         self.assertEqual(fast_checks.idle_runner(runners), FLEET)
