@@ -369,12 +369,15 @@ def remote_branches(names: set[str]) -> set[str]:
 
 def still_quiet(repo: str, pr: dict, since: dt.datetime) -> bool:
     """Re-read the PR right before closing: another session may have pushed, commented or labelled it."""
-    now = gh_json("pr", "view", str(pr["number"]), "-R", repo, "--json", "state,headRefOid,labels,isDraft,comments")
+    now = gh_json("pr", "view", str(pr["number"]), "-R", repo, "--json", "state,headRefOid,labels,isDraft,comments,reviews")
     if now["state"] != "OPEN" or now["headRefOid"] != pr["headRefOid"] or now.get("isDraft"):
         return False
     if {label["name"].lower() for label in now["labels"]} & KEEP_LABELS:
         return False
-    return all(parse_time(c["createdAt"]) <= since for c in now["comments"] if not is_bot((c.get("author") or {}).get("login")))
+    # Same activity last_activity counts: human comments and human reviews.
+    times = [c["createdAt"] for c in now["comments"] if not is_bot((c.get("author") or {}).get("login"))]
+    times += [r["submittedAt"] for r in now.get("reviews") or [] if r.get("submittedAt") and not is_bot((r.get("author") or {}).get("login"))]
+    return all(parse_time(t) <= since for t in times)
 
 
 def main() -> int:

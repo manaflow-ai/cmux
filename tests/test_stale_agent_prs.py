@@ -207,5 +207,25 @@ class SuccessorTests(unittest.TestCase):
         self.assertEqual(module.successors(merged, "manaflow-ai/cmux"), {101: 200, 102: 200, 103: 201})
 
 
+class StillQuietTests(unittest.TestCase):
+    # The re-read right before a close (#41139).
+    def still_quiet(self, reviews):
+        fresh = {"state": "OPEN", "headRefOid": "abc", "isDraft": False, "labels": [], "comments": [], "reviews": reviews}
+        original, module.gh_json = module.gh_json, lambda *args: fresh
+        try:
+            return module.still_quiet("o/r", {"number": 1, "headRefOid": "abc"}, NOW - dt.timedelta(hours=12))
+        finally:
+            module.gh_json = original
+
+    def test_a_review_after_the_scan_keeps_the_pr_open(self):
+        self.assertFalse(self.still_quiet([{"author": {"login": "someone"}, "submittedAt": ago(hours=1)}]))
+
+    def test_older_and_bot_reviews_do_not_count(self):
+        self.assertTrue(self.still_quiet([
+            {"author": {"login": "someone"}, "submittedAt": ago(days=2)},
+            {"author": {"login": "greptile-apps"}, "submittedAt": ago(hours=1)},
+        ]))
+
+
 if __name__ == "__main__":
     unittest.main()
