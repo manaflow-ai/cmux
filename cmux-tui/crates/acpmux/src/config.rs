@@ -1489,6 +1489,13 @@ pub struct Config {
     /// the normal peer route and send behavior unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub machine_wake: Option<MachineWakeConfig>,
+    /// `peerWake`: `{"argv": [...]}`, the command run once when a message for a session on a
+    /// peer finds its link down (`Peer::wake`), with the peer's name appended: the machine
+    /// layer's resume for whatever provider the peer's machine is on (a paused VM, a
+    /// stopped VM). Unset (the default): only the route's own ProxyCommand sees the wake
+    /// mark (`peer_wanted.rs` WAKE_ENV), as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer_wake: Option<PeerWake>,
     /// The read replica and write journal for paused machines (`crate::write_journal`). Off
     /// unless `writeJournal.enabled` is true; off changes nothing.
     #[serde(default, skip_serializing_if = "WriteJournalConfig::is_default")]
@@ -1666,6 +1673,11 @@ pub struct Config {
     /// default): such a send is refused as before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub send_relay: Option<SendRelay>,
+    /// `newRelay`: `{"argv": [...]}`, the command `acpmux new --machine HOST` hands the start to
+    /// when this daemon refuses it because HOST names no peer (`cli/new_relay.rs`). Unset (the
+    /// default): such a start is refused as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_relay: Option<NewRelay>,
     /// `meshRelay`: `{"url", "tokenCommand", "controlFrom", "teamMessaging"}`, the team hub this
     /// daemon heartbeats its sessions to, takes messages for them from, and sends a message to a
     /// name nobody here resolves through (`mesh_http.rs`, `server/mesh_relay.rs`). Unset (the
@@ -1767,6 +1779,13 @@ impl WriteJournalConfig {
     }
 }
 
+/// `peerWake`: the wake command's argv; `Peer::wake` appends the peer's name.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PeerWake {
+    pub argv: Vec<String>,
+}
+
 /// `sendRelay`: the relay command's argv; the CLI appends the session and `-`. `lsArgv`, when
 /// set, prints the other machines' live sessions as `{"sessions": [...]}` (see the module doc of
 /// `cli/send_relay.rs`, which re-exports it).
@@ -1776,6 +1795,14 @@ pub struct SendRelay {
     pub argv: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ls_argv: Option<Vec<String>>,
+}
+
+/// `newRelay`: the relay command's argv; the CLI appends `--machine HOST` and the caller's other
+/// `new` words (see the module doc of `cli/new_relay.rs`, which re-exports it).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct NewRelay {
+    pub argv: Vec<String>,
 }
 
 mod config_impl;

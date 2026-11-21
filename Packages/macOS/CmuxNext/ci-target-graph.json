@@ -8,6 +8,7 @@
     "CmuxAgentQuestion": "Packages/Shared/CmuxAgentQuestion",
     "CmuxAppAttest": "Packages/Shared/CmuxAppAttest",
     "CmuxAuthRuntime": "Packages/Shared/CmuxAuthRuntime",
+    "CmuxChiefList": "Packages/Shared/CmuxChiefList",
     "CmuxFeedPushCore": "Packages/Shared/CmuxFeedPushCore",
     "CmuxGhosttyKit": "Packages/Shared/CmuxGhosttyKit",
     "CmuxHomeCore": "Packages/Shared/CmuxHomeCore",
@@ -1460,6 +1461,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextHomeEngineTests",
       "targets": [
+        "CmuxNextCompat",
         "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextDictation",
@@ -1486,6 +1488,7 @@
         "CmuxNextIcons"
       ],
       "packages": [
+        "CmuxChiefList",
         "CmuxHomeCore",
         "CmuxHomeRender"
       ]
@@ -1514,7 +1517,9 @@
         "CmuxNextHomeEngine",
         "CmuxNextRemote"
       ],
-      "packages": []
+      "packages": [
+        "CmuxChiefList"
+      ]
     },
     "CmuxNextIcons": {
       "kind": "regular",
