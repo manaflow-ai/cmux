@@ -103,7 +103,9 @@ def render_swift(works: list[dict]) -> str:
         "",
         "/// A public-domain artwork for the window backdrop (cx-t2x.7): well-known paintings and prints",
         "/// from Wikimedia Commons, each cleared as public domain in the US (the artist died 70+ years ago",
-        "/// and the work was published before 1931). Sources and licenses: art/manifest.json.",
+        "/// and the work was published before 1931), and the Frutiger Aero backdrops (`aero-*`), original works",
+        "/// drawn from a seed by cmux-tui/crates/cmux-backdrop-gen and dedicated to the public domain.",
+        "/// Sources and licenses: art/manifest.json.",
         "public nonisolated enum BackdropArt: String, CaseIterable, Sendable {",
     ]
     for work in works:
