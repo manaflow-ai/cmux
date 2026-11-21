@@ -35,6 +35,11 @@ concurrency:
   group: backend-migrations-${{ github.event.pull_request.number || github.event.merge_group.head_sha }}
   cancel-in-progress: false
 
+env:
+  # Temporary REST budget attribution until 2026-11-22 00:00 UTC: one gh-call line per GitHub API call
+  # (scripts/ci/api_call_log/env.sh). GitHub runs this file from main, and it had no attribution.
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/trusted/scripts/ci/api_call_log/env.sh
+
 jobs:
   # Every job here leads with cmux-gcp-gate-jit-x64, the required gates' reserved label: one-job VMs that only
   # the jobs behind main's required checks name, so "backend migrations applied" never queues behind the PR backlog
