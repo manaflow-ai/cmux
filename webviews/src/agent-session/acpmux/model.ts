@@ -40,6 +40,7 @@ import type { PermissionClientState } from "./permissions/protocol";
 import type { AgentQuestion } from "./question/model";
 import type { NextStepAsk } from "./conversation/nextStepAsk";
 import { webSources } from "./conversation/webSourceList";
+import { isRunPart } from "./conversation/runPartId";
 import { outputTail, stripAnsi } from "./conversation/toolOutputModel";
 import type { WatchedAsk } from "./needsYou/model";
 import type { PermissionDecision } from "./permissions/record";
@@ -1794,6 +1795,9 @@ const TOOL_ROW_PT = TRANSCRIPT_LINE_ROW;
 /// conversation.css `.cv-worked.has-divider.is-toggle`; no stack gap follows (MARK_WORKED).
 const WORKED_GAP_PT = gridLength("gap-foot") + gridLength("gap");
 const toolRowHeight = () => TOOL_ROW_PT * chromeScale;
+/// A later part of a running turn's long run keeps the room the run's flex gap gave its first entry
+/// (conversation/runParts.ts; conversation.css `.acpmux-row--run-part`).
+const runPartTop = (row: AcpmuxRow) => (isRunPart(row) ? gridLength("base") * chromeScale : 0);
 const TOOL_RUN_BOTTOM = 0;
 /// A one-line row that is not a tool run (`isLineRow`) draws one tool row's line, as a one-call run
 /// does (#29965; Leo, 2026-11-01: "doesn't make sense for these to be spaced differently"). On the
@@ -2590,14 +2594,17 @@ function fallbackRowHeight(
       // A run line open from the start (`runOpen`) draws each stretch's line over its steps; one the
       // reader opened draws them too.
       if (row.runOpen || groups.some(staysInSight) || isFoldedRun(items))
-        return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + foldedRunSteps(row, groups, width, sessionId));
+        return finish(runPartTop(row) + TOOL_RUN_TOP + TOOL_RUN_BOTTOM + foldedRunSteps(row, groups, width, sessionId));
     }
-    if (!items.length) return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + toolRowHeight());
+    if (!items.length) return finish(runPartTop(row) + TOOL_RUN_TOP + TOOL_RUN_BOTTOM + toolRowHeight());
     // Any other row draws its entries as ToolRows does (TurnRows.tsx): one node per group, so a run of
     // commands is one "Ran N commands" group, open by default in its scroll box (`openRunBody`), not a
     // line per call (Leo, 2026-11-17: a gap under the row, and rows shifting when it was measured).
     return finish(
-      TOOL_RUN_TOP + TOOL_RUN_BOTTOM + foldedRunSteps(row, toolGroups(items), width, sessionId, row.live === true),
+      runPartTop(row) +
+        TOOL_RUN_TOP +
+        TOOL_RUN_BOTTOM +
+        foldedRunSteps(row, toolGroups(items), width, sessionId, row.live === true),
     );
   }
   // A subagent group's 48px line with 8px above it, and in an open group a 48px line per
