@@ -9,6 +9,8 @@ public nonisolated struct AgentPaneCloudReservationRequest: Equatable, Sendable 
     public let release: Bool
     public let params: JSONValue
     public let composeKey: String?
+    /// The folder the Send would start with, read before a machine is reserved: this Mac's trust of it is checked first.
+    public let cwd: String?
     /// The page's empty local chat the compose's Send would replace (webviews App.tsx `emptyLocalChat`, the
     /// same id `cloud.startChat` sends as `replacesChat`): the pane reserves for it only while it shows that
     /// chat (``AgentPaneModel/reserveReplaces(_:)``). Nil: a compose with no chat. Never forwarded to Rust.
@@ -20,21 +22,31 @@ public nonisolated struct AgentPaneCloudReservationRequest: Equatable, Sendable 
         if let replaces, !((replaces as? String).map { !$0.isEmpty && $0.count <= 128 } ?? false) { return nil }
         guard Self.methods.contains(method),
               let data = try? JSONSerialization.data(withJSONObject: object),
-              let params = try? JSONDecoder().decode(JSONValue.self, from: data) else { return nil }
+              var params = try? JSONDecoder().decode(JSONValue.self, from: data) else { return nil }
         release = method == "cloud.releaseReservation"
-        self.params = params
         composeKey = params["composeKey"]?.stringValue
+        cwd = params["cwd"]?.stringValue.flatMap { $0.hasPrefix("/") ? $0 : nil }
+        if case .object(let fields) = params { params = .object(fields.filter { !["cwd", "harness", "model"].contains($0.key) }) } // the app's checks only, never Rust's request
+        self.params = params
         replacesChat = replaces as? String
     }
 
     /// Supplies only the native client's trusted platform and human-session credentials to Rust. `install` is the
     /// install token: Rust names the reservation in its team, the one the machine list reads and the spare warm uses.
     /// `reserved`: told the machine a reserve answered, so its login copy starts on that exact machine.
+    /// No machine is reserved for a Send that will be refused (the App checks it again at Send): `cwd` this Mac
+    /// doesn't trust (`link start-chat trust` from the acpmux at `acpmuxHome`, the copy's).
+    /// The page then sends without a reservation, and the Send says why.
     @MainActor
     public func run(allowed: Bool, binary: URL?, configuration: CloudConfiguration, auth: CloudAuth,
-                    install: () async throws -> String?, reserved: (@MainActor (String) -> Void)? = nil) async -> [String: Any] {
+                    install: () async throws -> String?, reserved: (@MainActor (String) -> Void)? = nil,
+                    acpmuxHome: String? = nil) async -> [String: Any] {
         guard allowed, let binary, let platform = configuration.artifactsAPIBaseURL() else {
             return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled")
+        }
+        if !release, let code = await refusal(binary: binary, acpmuxHome: acpmuxHome) {
+            Self.log.notice("cloud reserve: none, the Send would be refused (\(code, privacy: .public))")
+            return AgentPaneReply.failure(code: code, message: code)
         }
         // One line as it begins and one as it ends, with its time and outcome: a Send waits on the reserve
         // (cloudComposeReservation.ts), and a slow one used to leave nothing at all in the app log.
@@ -47,6 +59,16 @@ public nonisolated struct AgentPaneCloudReservationRequest: Equatable, Sendable 
         Self.log.notice("cloud \(verb, privacy: .public): end \(ms, privacy: .public) ms \(outcome, privacy: .public)")
         return reply
     }
+
+    /// The code of ``run(allowed:binary:configuration:auth:install:reserved:acpmuxHome:)``'s refusal, or nil.
+    private func refusal(binary: URL, acpmuxHome: String?) async -> String? {
+        guard let cwd, let acpmuxHome, let level = await CloudMoveCLI(binary: binary, timeout: .seconds(15)).startChatTrust(folder: cwd, acpmuxHome: acpmuxHome),
+              level != "trusted" else { return nil }
+        return Self.untrustedSource
+    }
+
+    /// AgentRemoteStartRefusal.untrustedSourceCode (CmuxNextDaemonService, which this package sits under).
+    static let untrustedSource = "app.untrusted_source"
 
     nonisolated static let log = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
 

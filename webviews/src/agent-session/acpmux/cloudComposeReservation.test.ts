@@ -396,6 +396,25 @@ test("a reserve the platform refuses for the team's plan never holds the Send: i
   expect(await answer).toEqual({ ok: true });
 });
 
+test("a reserve names the folder and agent a Send would start with, read at each reserve", async () => {
+  const calls: [string, Record<string, unknown>][] = [];
+  let context: { cwd?: string; harness?: string } = { cwd: "/tmp/one", harness: "claude" };
+  const reservation = new CloudComposeReservation(
+    async (method, params) => (calls.push([method, params]), {}),
+    { now: () => 0, schedule: () => () => undefined },
+    () => "compose-1",
+    () => context,
+  );
+  reservation.selected();
+  await settle();
+  expect(calls).toEqual([["cloud.reserve", { cwd: "/tmp/one", harness: "claude", composeKey: "compose-1" }]]);
+  context = {};
+  reservation.reset();
+  reservation.selected();
+  await settle();
+  expect(calls.at(-1)).toEqual(["cloud.reserve", { composeKey: "compose-1" }]);
+});
+
 // Composer journey run 43021965230: a Cloud start from a too-big folder was refused after it bound
 // the compose's reservation; the next Send from the same page (no folder) named that reservation
 // with its own start key and the platform refused it, "409 reservation.bound", in 3 s.

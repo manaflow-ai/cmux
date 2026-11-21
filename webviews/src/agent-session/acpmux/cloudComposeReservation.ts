@@ -61,6 +61,9 @@ export class CloudComposeReservation {
     private readonly call: Native,
     private readonly clock: SwitchClock,
     private readonly newKey: () => string = () => crypto.randomUUID(),
+    /// The folder a Send would start with now: the host refuses to reserve a machine for
+    /// a start it would refuse (a folder this Mac doesn't trust), before any lease.
+    private readonly context: () => { cwd?: string; harness?: string; model?: string } = () => ({}),
   ) {}
 
   /// `replacesChat`: the empty local chat the Send would replace (the host reserves for a pane with a chat only
@@ -109,6 +112,7 @@ export class CloudComposeReservation {
     attempt.ready = after
       .then(() =>
         this.call("cloud.reserve", {
+          ...this.context(),
           composeKey: attempt.key,
           ...(attempt.replacesChat ? { replacesChat: attempt.replacesChat } : {}),
         }),

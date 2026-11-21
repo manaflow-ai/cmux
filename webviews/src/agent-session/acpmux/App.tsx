@@ -109,7 +109,6 @@ import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./ha
 import {
   injectedNewTabContext,
   useEarlyNewTabContext,
-  useLostSharedPart,
   useNewTabAdoption,
   useNewTabPlaces,
   adoptionPlan,
@@ -118,12 +117,13 @@ import {
   useSessionAdoption,
   type SessionAdoption,
   withHandshakeNewTab,
+  useLostSharedPart,
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import {
   heldPick,
-  withCloudStartFolder,
   withDraftFolder,
+  withCloudStartFolder,
   shownCloudStartPick,
   withCloudStartPick,
 } from "./newtab/draftFolder";
@@ -232,7 +232,7 @@ import { PICKER_LABELS } from "./composerPickerModel";
 import { openComposerControl } from "./composerControls";
 import { chatAccessGrants, revokeAccessRows } from "./header/grantsMenu";
 import { openPicker } from "./pickerOpeners";
-import { SIGN_IN_REQUIRED, startRefusalRoute } from "./startRefusal";
+import { startRefusalRoute, SIGN_IN_REQUIRED } from "./startRefusal";
 import { EmptyState, type EmptyStateProjects } from "./EmptyState";
 import { isNewChat, projectName } from "./emptyStateModel";
 import { TourStartContext } from "./repoTour/TourBlock";
@@ -278,12 +278,12 @@ import { PeerCopyBanner } from "./PeerCopyBanner";
 import { chatCloudMachine, cloudMachineRows, createStopWaiter } from "./cloudMachineMenu";
 import {
   cloudMachineAsleep,
-  currentCloudPlan,
-  readCloudPlanFresh,
   readUntilMoved,
   refreshCloudMachines,
   useCloudMachines,
   type CloudMachine,
+  currentCloudPlan,
+  readCloudPlanFresh,
 } from "./cloudMachines";
 import { usePeerCloudMachine } from "./peerCloudMachine";
 import { inThisVisit, useFolderTrustAsk, visitOf } from "./useFolderTrustAsk";
@@ -593,12 +593,12 @@ import {
   cloudStartTeam,
   makeCloudSignInRetry,
   grantedCloudStart,
-  pickedChatCloudCall,
-  pickOnlyNewChat,
   newTabProjectPick,
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
   type CloudStartAnswer,
+  pickedChatCloudCall,
+  pickOnlyNewChat,
   cloudSendAfterCheck,
   heldPromptShown,
   cloudPickExtras,
@@ -619,12 +619,12 @@ import { harnessLabel } from "./subagents/agentRuns";
 import {
   cloudStartBegun,
   cloudStartEnded,
-  cloudStartPlanHeld,
   cloudStartPushed,
   cloudStartStalled,
   watchCloudStartStall,
   cloudStartSignedIn,
   type CloudStartProgress,
+  cloudStartPlanHeld,
 } from "./cloudStartProgress";
 import { CloudStartView } from "./CloudStartView";
 import { createCloudPlanSubscribe } from "./cloudPlanSubscribe";
@@ -1889,7 +1889,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           ),
       }),
   );
-  const [cloudReservation] = useState(() => new CloudComposeReservation(callNative, browserSwitchClock));
+  // What a Send would start with now (the onSend Cloud branch's own words): the host checks it before it reserves.
+  const cloudReserveContext = useRef<() => { cwd?: string; harness?: string; model?: string }>(() => ({}));
+  const [cloudReservation] = useState(
+    () => new CloudComposeReservation(callNative, browserSwitchClock, undefined, () => cloudReserveContext.current()),
+  );
   /// Whether this compose reserves a machine ahead, and then the empty local chat its reserve names as the one
   /// its Send would replace (`emptyLocalChat`); `replaces` undefined: a compose with no chat.
   const cloudComposeEligible = useRef<false | { replaces: string | undefined }>(false);
@@ -5035,6 +5039,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// picking Cloud never races the grant into path_outside_roots and a grant that never answers
   /// never holds the composer.
   const [cloudFolderGrant] = useState(() => cloudFolderGrants());
+  useLayoutEffect(() => {
+    cloudReserveContext.current = () => {
+      const folder = cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd);
+      return { ...("cwd" in folder ? { cwd: folder.cwd } : {}), ...heldPick(composerSnapshot) };
+    };
+  });
   const pickComposerMode = (mode: RunMode) => {
     if (mode === "cloud") {
       const folder = composerCloudStartFolder(composerSnapshot.summary);
