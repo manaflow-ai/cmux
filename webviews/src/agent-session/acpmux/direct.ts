@@ -7437,7 +7437,9 @@ export class AcpmuxDirectClient {
 
   /// Whether `message` is one only the daemon makes (`daemonFrameAt`).
   private fromDaemon(message: Reply | Notification): boolean {
-    if (!("id" in message) || message.id === undefined || message.id === null) return "method" in message;
+    if (!("id" in message) || message.id === undefined || message.id === null) {
+      return "method" in message && !hostNotification(message as Notification);
+    }
     if (!("result" in message) || message.error) return false;
     const request = this.pending.get(message.id as number | string);
     return request !== undefined && request.method !== "_acpmux/status";
@@ -17241,6 +17243,15 @@ function warnIfNotAllowlisted(method: string, error: unknown): void {
   if (notAllowlisted.has(method)) return;
   notAllowlisted.add(method);
   console.warn(`cmux: the host refused ${method}: it is not on the agent pane's relay allowlist`);
+}
+
+/// Whether `notification` is one the app's host made, not the daemon: its question key requests
+/// (`_cmux/*`, AgentPaneTransport+QuestionKeys.swift) and the lag notice it writes when its own queue
+/// to the page fills (AcpmuxPaneShedding.swift, `host_queue_full`). Neither proves a daemon alive.
+function hostNotification(notification: Notification): boolean {
+  const method = notification.method;
+  if (typeof method !== "string" || method.startsWith("_cmux/")) return true;
+  return method === "_acpmux/lagged" && notification.params?.reason === "host_queue_full";
 }
 
 /// The host's refusals of the liveness probe's method itself (`probeAnswered`): no daemon saw it.
