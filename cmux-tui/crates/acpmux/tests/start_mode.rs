@@ -899,6 +899,39 @@ async fn the_unix_socket_starts_the_codex_bridge_in_read_only_or_ask() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Lawrence 2026-11-20: "we need to support auto mode for cloud mode for claude harness". A Cloud
+/// start reaches the machine's acpmux over its unix socket, never as the person, and a Claude chat
+/// picked into Auto there was refused (`permission.person_required`): only the full-access mode a
+/// start with no mode gets passed the gate. Claude Code's own Auto asks more than that mode, and a
+/// running chat already moves to it without the person under a full-access or `standard` start
+/// level (`may_move_without_person`), so a start may name it under the same levels. Under `ask` it
+/// stays the person's, and so does any other mode that does not ask (Accept edits).
+#[tokio::test]
+async fn the_unix_socket_starts_claude_in_auto_under_a_level_that_covers_it() {
+    let start = |dir: &Path, mode: &str| {
+        json!({"cwd": dir.join("work"), "mcpServers": [],
+            "_meta": {"acpmux": {"harness": "claude", "mode": mode}}})
+    };
+    for level in ["fullAccess", "standard"] {
+        let dir = home(&format!("auto-start-{level}"), json!({"defaultPermissionMode": level}));
+        let daemon = hub(&dir);
+        let mut agent = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+        let r = agent.call("session/new", start(&dir, "auto")).await;
+        let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{level}: {r}"));
+        let id = id.to_owned();
+        assert_eq!(agent.mode(&id).await, "auto", "{level}");
+        let r = agent.call("session/new", start(&dir, "acceptEdits")).await;
+        assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{level}: {r}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    let dir = home("auto-start-ask", json!({"defaultPermissionMode": "ask"}));
+    let daemon = hub(&dir);
+    let mut agent = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+    let r = agent.call("session/new", start(&dir, "auto")).await;
+    assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "ask: {r}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The reviewer of cmux#(this PR), 2026-10-25: "creation-time argv can authorize a different
 /// harness after adoption/respawn". An adopt may find a session already running, created on
 /// another profile than the one it names now, so it never takes the Codex bridge's `read-only`
