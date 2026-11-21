@@ -172,13 +172,14 @@ CEF_DELTAS = [("pump_runs", "pump", "work_runs"), ("pump_ms", "pump", "work_ms")
               ("trk_clip_reads", "tracker", "clip_reads"), ("trk_occl_reads", "tracker", "occlusion_reads"),
               ("trk_clip_builds", "tracker", "clip_builds"), ("trk_clip_hits", "tracker", "clip_hits"),
               ("trk_clip_ms", "tracker", "clip_ms"),
-              ("trk_posts", "tracker", "geometry_posts"), ("trk_skips", "tracker", "geometry_skips")]
+              ("trk_posts", "tracker", "geometry_posts"), ("trk_skips", "tracker", "geometry_skips"),
+              ("trk_fence_joined", "tracker", "fence_joined"), ("trk_fence_ms", "tracker", "fence_join_ms")]
 # --browser: per action, the change of `debug.layers` counters of the first window (divider catcher panel moves, child
 # window reorders); None on builds without them.
 LAYER_DELTAS = [("catcher_updates", "divider_catcher_updates"), ("reorders", "reorders")]
 BROWSER_KEYS = [key for key, _, _ in CEF_DELTAS] + ["page_frames"] + [key for key, _ in LAYER_DELTAS] + ["posts_per_frame"]
 BROWSER_HEADS = ["pump", "pumpms", "long", "nowreq", "dlyreq", "clipr", "occlr", "clipb", "cliph", "clipms", "posts", "skips",
-                 "rAF", "catch", "reord", "post/f"]
+                 "fencej", "fencems", "rAF", "catch", "reord", "post/f"]
 WINDOW_ACTIONS = ("window-zoom", "window-unzoom")
 STILL = ("drag", "scroll", "idle", *WINDOW_ACTIONS)  # actions that move no layout spring
 WINDOW_RESTORE = None  # before each window-zoom, checked after its paired window-unzoom
