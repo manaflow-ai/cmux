@@ -149,22 +149,46 @@ fn started(daemon: u32, scratch: &Path) -> BTreeMap<u32, Proc> {
 /// - its harness inventory's version read (`harness_health/probe.rs`): `cmux-tui --version`.
 ///
 /// `procs` is the set `p` came from (what [`started`] found), so its agent hosts are in it.
-fn startup_one_shot(p: &Proc, procs: &BTreeMap<u32, Proc>) -> bool {
-    if p.argv.ends_with(" chief acp") || p.argv.ends_with("cmux-tui --version") {
-        return true;
+/// The kind it is, or `None` for anything else.
+fn startup_one_shot(p: &Proc, procs: &BTreeMap<u32, Proc>) -> Option<&'static str> {
+    if p.argv.ends_with(" chief acp") {
+        return Some("chief probe");
+    }
+    if p.argv.ends_with("cmux-tui --version") {
+        return Some("version read");
     }
     if !p.argv.contains("fake_agent.py") {
-        return false;
+        return None;
     }
     let mut at = p.ppid;
     for _ in 0..16 {
         match procs.get(&at) {
-            Some(up) if up.argv.contains("__agent-host") => return false,
+            Some(up) if up.argv.contains("__agent-host") => return None,
             Some(up) if at > 1 => at = up.ppid,
             _ => break,
         }
     }
-    true
+    Some("fake probe")
+}
+
+/// The start-up one-shots the run has excused, by kind: the daemon starts each kind once for
+/// the whole run, never per chat, so only the first process of each kind ever seen is excused.
+/// A second one (a probe started for a chat, a harness started outside its host) counts against
+/// the chats' budget like anything else the daemon runs.
+#[derive(Default)]
+struct OneShots(BTreeMap<&'static str, u32>);
+
+impl OneShots {
+    /// How many of `procs` count against the budget: all but the excused one-shots.
+    fn lasting(&mut self, procs: &BTreeMap<u32, Proc>) -> usize {
+        procs
+            .iter()
+            .filter(|(pid, p)| match startup_one_shot(p, procs) {
+                Some(kind) => *self.0.entry(kind).or_insert(**pid) != **pid,
+                None => true,
+            })
+            .count()
+    }
 }
 
 /// `pid`, its argv and state, then its parents up to the daemon (or up to pid 1 for a process
@@ -375,6 +399,9 @@ fn every_chat_runs_within_its_process_budget_and_leaves_none_behind() {
         report(&baseline, daemon.pid())
     );
 
+    let mut one_shots = OneShots::default();
+    let base_lasting = one_shots.lasting(&baseline);
+
     let mut rpc = Rpc::connect(&daemon.socket);
     rpc.call("initialize", json!({"protocolVersion": 1}));
     let mut ids = Vec::new();
@@ -403,14 +430,11 @@ fn every_chat_runs_within_its_process_budget_and_leaves_none_behind() {
             report(&chat, daemon.pid())
         );
         // Nothing the daemon starts per chat outside the chat's host either.
-        let lasting = |procs: &BTreeMap<u32, Proc>| {
-            procs.values().filter(|p| !startup_one_shot(p, procs)).count()
-        };
-        let grown = lasting(&all).saturating_sub(lasting(&baseline));
+        let grown = one_shots.lasting(&all).saturating_sub(base_lasting);
         assert!(
             grown <= PER_CHAT * (i + 1),
-            "after {} chats the daemon runs {grown} processes over its baseline, not counting its \
-             startup one-shots (budget {}):\n{}",
+            "after {} chats the daemon runs {grown} processes over its baseline, not counting the \
+             one start-up one-shot of each kind (budget {}):\n{}",
             i + 1,
             PER_CHAT * (i + 1),
             report(&all, daemon.pid())
