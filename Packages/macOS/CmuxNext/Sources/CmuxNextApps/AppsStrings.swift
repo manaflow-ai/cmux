@@ -102,7 +102,10 @@ nonisolated enum AppsStrings {
     static var cloudFeatureOpen: String { t("store.cloud.open", "Explore Cloud") }
     static var installedBadge: String { t("store.badge.installed", "Installed") }
     static var disabledBadge: String { t("store.badge.disabled", "Disabled") }
-    static var localBadge: String { t("store.badge.local", "Local") }
+    /// A `cmux ext dev` app on Installed (the App Store page's badge).
+    static var localBadge: String { t("store.badge.local", "Local (dev)") }
+    /// The App Store page's filter for the SDK examples (developer mode or `cmux ext dev` only).
+    static var examplesShelf: String { t("store.shelf.examples", "Examples") }
     static var hiddenBadge: String { t("apps.store.badge.hidden", "Hidden") }
     static var installedForEveryone: String { t("apps.store.badge.default", "Installed for everyone") }
     static var installedForEveryoneHelp: String {
