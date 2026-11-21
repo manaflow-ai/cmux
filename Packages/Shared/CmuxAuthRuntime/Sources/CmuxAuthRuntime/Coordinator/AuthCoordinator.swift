@@ -211,13 +211,12 @@ public final class AuthCoordinator {
             hasTokens: sessionCache.hasTokens,
             selectedTeamID: teamSelection.selectedTeamID
         )
-        do {
-            let made = try reducer(JSONEncoder().encode(reducerConfig))
-            engine = made
-            snapshot = try JSONDecoder().decode(AuthReducerSnapshot.self, from: made.snapshot())
-        } catch {
-            preconditionFailure("The auth reducer refused its config: \(error)")
-        }
+        // A reducer that refuses the config leaves the app signed out (and logged),
+        // never crashed: every event then fails the same way in ``feed(_:)``.
+        let made = (try? JSONEncoder().encode(reducerConfig)).flatMap { try? reducer($0) }
+        if made == nil { authLog.error("auth: the reducer refused its config; staying signed out") }
+        engine = made ?? RefusedAuthReducer()
+        snapshot = (made.flatMap { try? JSONDecoder().decode(AuthReducerSnapshot.self, from: $0.snapshot()) }) ?? .signedOut
         // The reducer primed the session from its config; its first effects
         // (clears the launch asked for) are already queued.
         drain()

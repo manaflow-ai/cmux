@@ -14,7 +14,8 @@ extension AuthCoordinator {
         do {
             try engine.feed(JSONEncoder().encode(event))
         } catch {
-            preconditionFailure("The auth reducer refused \(event.variant.tag): \(error)")
+            authLog.error("auth: the reducer refused \(event.variant.tag, privacy: .public): \(String(describing: error), privacy: .public)")
+            return
         }
         refreshSnapshot()
         drain()
@@ -39,7 +40,7 @@ extension AuthCoordinator {
         do {
             snapshot = try JSONDecoder().decode(AuthReducerSnapshot.self, from: engine.snapshot())
         } catch {
-            preconditionFailure("The auth reducer's snapshot did not decode: \(error)")
+            authLog.error("auth: the reducer's snapshot did not decode, keeping the last: \(String(describing: error), privacy: .public)")
         }
     }
 
