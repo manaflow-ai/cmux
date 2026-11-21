@@ -212,6 +212,7 @@ async fn surge_hold_at_the_prompt_entry_point_has_no_second_chat_row_on_retry() 
     let opts = PromptOptions {
         prompt_id: Some("already-admitted".into()),
         inbox: true,
+        skip_surge_admission: true,
         on_accepted: Some(Box::new(move |v| {
             let _ = tx.send(v);
         })),
