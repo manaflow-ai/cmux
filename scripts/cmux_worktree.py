@@ -59,6 +59,7 @@ import hashlib
 import json
 import os
 import shutil
+import signal
 import struct
 import subprocess
 import sys
@@ -656,56 +657,19 @@ def dedupe_worktree(worktree: Path, seed: Seed, seed_entries: Dict[bytes, IndexE
         index_mtime_s = index_stat.st_mtime_ns // 1_000_000_000
         index = read_index(index_path, oid_size)
         check_index_rewritable(index, worktree)
-        changed = False
-        for entry in index.entries:
-            seed_entry = seed_entries.get(entry.path)
-            mode = entry.mode
-            if (seed_entry is None or entry.stage != 0 or mode & 0o170000 != 0o100000
-                    or entry.flags & 0x8000 or entry.extended & 0x4000
-                    or seed_entry.oid != entry.oid or seed_entry.mode != mode or entry.stat[9] == 0):
-                continue
-            file_path = worktree / os.fsdecode(entry.path)
-            try:
-                st = os.lstat(file_path)
-            except OSError:
-                continue
-            if not same_stat(stat_fields(st, mode), entry.stat):
-                continue  # changed (or only stat-dirty) since git last looked: leave it
-            if st.st_mtime_ns // 1_000_000_000 >= index_mtime_s:
-                continue  # racily clean: git itself would read it again
-            seed_file = seed.root / os.fsdecode(entry.path)
-            if entry.path not in seed_offsets:
-                seed_offsets[entry.path] = physical_offset(seed_file)
-            seed_offset = seed_offsets[entry.path]
-            if seed_offset is not None and seed_offset == physical_offset(file_path):
-                continue  # already a clone of the seed's
-            report.files += 1
-            report.bytes += st.st_size
-            if not apply:
-                continue
-            temp = file_path.with_name(f".{file_path.name}.cmux-dedupe")
-            try:
-                temp.unlink()
-            except FileNotFoundError:
-                pass
-            clone_path(seed_file, temp)
-            os.utime(temp, ns=(st.st_atime_ns, st.st_mtime_ns), follow_symlinks=False)
-            if not same_stat(stat_fields(os.lstat(file_path), mode), entry.stat):  # written meanwhile
-                temp.unlink()
-                report.files -= 1
-                report.bytes -= st.st_size
-                continue
-            os.replace(temp, file_path)
-            entry.stat = stat_fields(os.lstat(file_path), mode)
-            changed = True
-        if apply and changed:
-            with os.fdopen(lock_fd, "wb") as handle:
-                lock_fd = -1
-                handle.write(serialize_index(index))
-            os.replace(lock_path, index_path)
-            # Keep the index's times: `gc` reads them as when the worktree was last used, and
-            # every file kept its mtime, older than this, so none becomes racily clean.
-            os.utime(index_path, ns=(index_stat.st_atime_ns, index_stat.st_mtime_ns))
+        try:
+            _dedupe_entries(worktree, seed, seed_entries, index, index_mtime_s, apply, seed_offsets, report)
+        finally:
+            # Also when stopped part way (SIGTERM unwinds as SystemExit): the files already
+            # replaced get their new stat data, so git need not read them again.
+            if apply and report.files:
+                with os.fdopen(lock_fd, "wb") as handle:
+                    lock_fd = -1
+                    handle.write(serialize_index(index))
+                os.replace(lock_path, index_path)
+                # Keep the index's times: `gc` reads them as when the worktree was last used, and
+                # every file kept its mtime, older than this, so none becomes racily clean.
+                os.utime(index_path, ns=(index_stat.st_atime_ns, index_stat.st_mtime_ns))
     except (OSError, ValueError, GitError) as error:
         report.status = f"skipped: {error}"
     finally:
@@ -719,7 +683,62 @@ def dedupe_worktree(worktree: Path, seed: Seed, seed_entries: Dict[bytes, IndexE
     return report
 
 
-def dedupe(repo: Path, seed_dir: Path, apply: bool, idle_hours: float, only: Optional[List[str]]) -> List[DedupeReport]:
+def _dedupe_entries(worktree: Path, seed: Seed, seed_entries: Dict[bytes, IndexEntry], index: Index,
+                    index_mtime_s: int, apply: bool, seed_offsets: Dict[bytes, Optional[int]],
+                    report: DedupeReport) -> None:
+    """Count (and with `apply`, clone the seed's file over) each unchanged file. With
+    `apply`, report.files counts only the files already replaced, at any point."""
+    for entry in index.entries:
+        seed_entry = seed_entries.get(entry.path)
+        mode = entry.mode
+        if (seed_entry is None or entry.stage != 0 or mode & 0o170000 != 0o100000
+                or entry.flags & 0x8000 or entry.extended & 0x4000
+                or seed_entry.oid != entry.oid or seed_entry.mode != mode or entry.stat[9] == 0):
+            continue
+        file_path = worktree / os.fsdecode(entry.path)
+        try:
+            st = os.lstat(file_path)
+        except OSError:
+            continue
+        if not same_stat(stat_fields(st, mode), entry.stat):
+            continue  # changed (or only stat-dirty) since git last looked: leave it
+        if st.st_mtime_ns // 1_000_000_000 >= index_mtime_s:
+            continue  # racily clean: git itself would read it again
+        seed_file = seed.root / os.fsdecode(entry.path)
+        if entry.path not in seed_offsets:
+            seed_offsets[entry.path] = physical_offset(seed_file)
+        seed_offset = seed_offsets[entry.path]
+        if seed_offset is not None and seed_offset == physical_offset(file_path):
+            continue  # already a clone of the seed's
+        report.files += 1
+        report.bytes += st.st_size
+        if not apply:
+            continue
+        temp = file_path.with_name(f".{file_path.name}.cmux-dedupe")
+        report.files -= 1  # counted again once the clone is in place
+        report.bytes -= st.st_size
+        try:
+            temp.unlink()
+        except FileNotFoundError:
+            pass
+        try:
+            clone_path(seed_file, temp)
+            os.utime(temp, ns=(st.st_atime_ns, st.st_mtime_ns), follow_symlinks=False)
+            if not same_stat(stat_fields(os.lstat(file_path), mode), entry.stat):  # written meanwhile
+                continue
+            os.replace(temp, file_path)
+        finally:
+            try:
+                temp.unlink()
+            except FileNotFoundError:
+                pass
+        entry.stat = stat_fields(os.lstat(file_path), mode)
+        report.files += 1
+        report.bytes += st.st_size
+
+
+def dedupe(repo: Path, seed_dir: Path, apply: bool, idle_hours: float, only: Optional[List[str]],
+           jobs: int = 1) -> List[DedupeReport]:
     if not can_clone_cheaply():
         raise SystemExit("cmux-worktree dedupe: needs APFS clones (macOS)")
     seed = Seed(seed_dir)
@@ -732,6 +751,7 @@ def dedupe(repo: Path, seed_dir: Path, apply: bool, idle_hours: float, only: Opt
         seed_entries = {entry.path: entry for entry in seed_index.entries if entry.stage == 0}
         now = time.time()
         seed_offsets: Dict[bytes, Optional[int]] = {}
+        todo: List[Path] = []
         for wt in list_worktrees(repo):
             root = Path(wt["worktree"])
             if only and str(root) not in only and str(root.resolve()) not in only:
@@ -745,7 +765,15 @@ def dedupe(repo: Path, seed_dir: Path, apply: bool, idle_hours: float, only: Opt
             if not only and (used is None or now - used < idle_hours * 3600):
                 reports.append(DedupeReport(str(root), "in use"))
                 continue
-            reports.append(dedupe_worktree(root, seed, seed_entries, oid_size, apply, seed_offsets))
+            todo.append(root)
+
+        def one(root: Path) -> DedupeReport:
+            report = dedupe_worktree(root, seed, seed_entries, oid_size, apply, seed_offsets)
+            log(f"dedupe: {report.status} {report.files} files {report.bytes / 2**30:.2f} GiB {root}")
+            return report
+
+        with ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
+            reports += list(pool.map(one, todo))
     return reports
 
 
@@ -857,6 +885,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_dedupe.add_argument("--apply", action="store_true")
     p_dedupe.add_argument("--idle-hours", type=float, default=24.0)
     p_dedupe.add_argument("--only", action="append", help="just this worktree (any idle time)")
+    p_dedupe.add_argument("--jobs", type=int, default=1, help="worktrees at once (default 1)")
     p_dedupe.add_argument("--json", action="store_true")
 
     p_gc = sub.add_parser("gc", help="list (or --apply: remove) landed, clean, idle worktrees")
@@ -866,6 +895,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_gc.add_argument("--json", action="store_true")
 
     args = parser.parse_args(argv)
+    # A stop (SIGTERM) unwinds like an exception, so each `finally` lets go of a git index
+    # lock and removes a half-made clone.
+    signal.signal(signal.SIGTERM, lambda number, frame: sys.exit(128 + number))
     repo = Path(args.repo).resolve()
     seed_dir = Path(args.seed_dir) if args.seed_dir else default_seed_dir(repo)
 
@@ -897,7 +929,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"{seed_dir}: seed at {seed.commit()[:12]}")
         return 0
     if args.command == "dedupe":
-        reports = dedupe(repo, seed_dir, args.apply, args.idle_hours, args.only)
+        reports = dedupe(repo, seed_dir, args.apply, args.idle_hours, args.only, args.jobs)
         if args.json:
             print(json.dumps([report.__dict__ for report in reports], indent=2))
         else:

@@ -144,7 +144,7 @@ enum BrowserToolbarHandlers {
     }
 
     /// The More menu (cx-6qwm): buttons not in the toolbar (and Extensions while none is pinned), new
-    /// tab and windows, zoom, the browser's own pages, page tools, more tools, Settings, Help, then
+    /// tab and windows, zoom, the browser's own pages and import, page tools, more tools, Settings, Help, then
     /// Show in Toolbar (cx-d0d.81). Catalog rows the tab cannot run drop out; no engine prints yet.
     static func overflowMenu(for entry: BrowserEntry, registry: ActionRegistry, settings: SettingsController?) -> NSMenu {
         var entries: [ContextMenuEntry] = []
@@ -168,12 +168,12 @@ enum BrowserToolbarHandlers {
             .action("browserZoomOut"), .action("browserZoomIn"), .action("browserZoomReset"), .action("toggleFullScreen"), .separator,
             .action("bookmark.manager"), .action("browserShowHistory"),
             .folder(.group, [.action("tabGroup.create"), .action("tabGroup.addTab")]),
-            .action("browser.downloads.show"), .action("browser.extensions.manage"), .action("passwords.open"),
+            .action("browser.downloads.show"), .action("browser.extensions.manage"), .action("passwords.open"), .action("importFromBrowser"),
             .action("history.clear"), .separator,
             .action("splitBrowserRight"), .action("browserScreenshotPage"), .action("browserScreenshotSection"), .action("find"), .separator,
             .folder(.tools, [
                 .action("toggleBrowserFocusMode"), .action("palette.browserOpenDefault"),
-                .action(entry.tab.engineKind == .cef ? "browser.openInWebKit" : "browser.openInChromium"), .action("importFromBrowser"),
+                .action(entry.tab.engineKind == .cef ? "browser.openInWebKit" : "browser.openInChromium"),
             ]), .separator,
             .action("openSettings"), .action("help.documentation"),
         ]
