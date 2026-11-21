@@ -503,7 +503,19 @@ async fn hub_carrier_a_dial_to_a_machine_whose_carrier_is_off_says_so_fast() {
             Err(said) => said,
         };
     assert!(started.elapsed() < Duration::from_secs(5), "the dial waited {:?}", started.elapsed());
-    assert!(said.contains("hub carrier") && said.contains("not serving"), "{said}");
+    assert!(said.contains("hub carrier is off"), "{said}");
+    assert!(said.contains("carrier.not_serving"), "{said}");
+    // The hub's own 404 (`machine.not_found`: FixedTickets knows no such machine) ends the same
+    // way, at once: it is no relay wait at all.
+    let started = std::time::Instant::now();
+    let said = match dialer
+        .dial_service(&public(&random_key()), CircuitService::CmuxTui { port: 7781 })
+        .await
+    {
+        Ok(_) => panic!("a dial reached a machine the hub does not know"),
+        Err(said) => said,
+    };
+    assert!(started.elapsed() < Duration::from_secs(2), "the dial waited {:?}", started.elapsed());
     assert!(said.contains("carrier.not_serving"), "{said}");
 }
 

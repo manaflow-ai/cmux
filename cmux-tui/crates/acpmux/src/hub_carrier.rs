@@ -495,7 +495,7 @@ impl HubCarrier {
         if !self.key_current() {
             return Err("the node key was replaced; this carrier is stopped".into());
         }
-        let answer = self.tickets.connect(daemon).await?;
+        let answer = self.tickets.connect(daemon).await.map_err(ticket_refusal)?;
         let pinned = key_bytes(answer.peer_key.as_deref().ok_or("the hub named no key to pin")?)
             .ok_or("the hub's peer key is not 32 bytes of base64")?;
         if pinned != key_bytes(daemon).unwrap_or(pinned) {
@@ -1067,17 +1067,33 @@ fn random_16() -> Result<[u8; 16], String> {
     Ok(bytes)
 }
 
-/// What a dial says when the far machine never joined the circuit: its hub carrier is not
-/// serving, which the relay cannot tell apart from a slow machine, so the words name both the
-/// wait and the fixes.
-pub(crate) fn carrier_not_serving(waited: Duration) -> String {
+/// What a dial says when the far machine's hub carrier is not serving, whatever told it so (the
+/// hub's 404 `machine.not_found` on the connect ticket, the relay's `slot-offline`, or a far
+/// machine that never joined the circuit): the machine's own fix, with a reason the CLI ends on
+/// ([`cmux_remote::provider::TERMINAL_REFUSALS`]), where a redial only waits out its timeout.
+pub(crate) fn carrier_off(how: &str) -> String {
     format!(
-        "that machine's hub carrier did not answer on the relay within {}s: it is not serving. \
-         Its acpmux may be stopped or not joined to this account, or its acpmux is older than the \
-         build that serves beside the cmux link (the carrier stays off there): update cmux on \
-         that machine, then `acpmux machine status --json` there shows the carrier. (carrier.not_serving)",
-        waited.as_secs().max(1)
+        "that machine's hub carrier is off ({how}): its acpmux is stopped or not joined to this \
+         account, or it runs a build from before the carrier served beside the cmux link (its \
+         app's link holds the node key and the older carrier stays off there). Update cmux on \
+         that machine and restart its acpmux; `acpmux machine status --json` there shows the \
+         carrier. (carrier.not_serving)"
     )
+}
+
+/// The far machine never joined the circuit within `waited`.
+pub(crate) fn carrier_not_serving(waited: Duration) -> String {
+    carrier_off(&format!("it did not answer on the relay within {}s", waited.as_secs().max(1)))
+}
+
+/// A refused connect ticket, as the dialer words it: the hub's `machine.not_found` names a
+/// machine with no carrier to connect to ([`carrier_off`]); any other refusal keeps its text.
+pub(crate) fn ticket_refusal(text: String) -> String {
+    if text.contains("machine.not_found") {
+        carrier_off("the hub has no carrier registered for it")
+    } else {
+        text
+    }
 }
 
 /// A relay's refusal of a dial, as the dialer words it: the relay's `slot-offline` (no daemon
@@ -1484,10 +1500,16 @@ mod key_lock_tests {
             "daemon registration lease has expired",
         ] {
             let said = relay_refusal(relay_says.to_owned(), wait);
-            assert!(said.contains("hub carrier") && said.contains("not serving"), "{said}");
-            assert!(said.contains("update cmux") && said.contains("carrier.not_serving"), "{said}");
+            assert!(said.contains("hub carrier is off"), "{said}");
+            assert!(said.contains("Update cmux") && said.contains("carrier.not_serving"), "{said}");
         }
         assert_eq!(relay_refusal("ticket expired".to_owned(), wait), "ticket expired");
+        let said = ticket_refusal("the hub answered 404 machine.not_found".to_owned());
+        assert!(
+            said.contains("hub carrier is off") && said.contains("carrier.not_serving"),
+            "{said}"
+        );
+        assert_eq!(ticket_refusal("the hub answered 503".to_owned()), "the hub answered 503");
         assert!(carrier_not_serving(Duration::from_millis(10)).contains("within 1s"));
     }
 
