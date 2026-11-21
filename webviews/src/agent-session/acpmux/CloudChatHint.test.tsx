@@ -22,6 +22,7 @@ import {
   useCloudChatHintClaim,
   type CloudChatHintState,
 } from "./cloudChatHintModel";
+import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -50,6 +51,7 @@ afterEach(async () => {
   root = undefined;
   pageCleanup?.();
   pageCleanup = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

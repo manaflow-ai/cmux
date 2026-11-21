@@ -28,6 +28,22 @@ final class PaletteSearchSectionedProvider: PaletteProvider {
 
     func items() async -> [PaletteItem] { sectioned(await base.items()) }
 
+    /// Each list of a base that gives its rows in more than one list (a History list that is not complete yet), in ``section``.
+    func itemUpdates() -> AsyncStream<[PaletteItem]>? {
+        guard let updates = base.itemUpdates() else { return nil }
+        let (stream, continuation) = AsyncStream.makeStream(of: [PaletteItem].self, bufferingPolicy: .bufferingNewest(1))
+        // task-owner: one open's lists of the base provider; ends with the base's stream or with this stream's consumer
+        // main-hop-allow: not an action's work: it awaits the base's stream and sets the section on each list it gives (one map of that list), as `items()` does for a single read
+        let task = Task { @MainActor in
+            for await items in updates {
+                if case .terminated = continuation.yield(self.sectioned(items)) { break }
+            }
+            continuation.finish()
+        }
+        continuation.onTermination = { _ in task.cancel() }
+        return stream
+    }
+
     private func sectioned(_ items: [PaletteItem]) -> [PaletteItem] {
         guard let section else { return items }
         return items.map { item in

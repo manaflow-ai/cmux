@@ -368,12 +368,16 @@ pub(crate) struct ClientRegistry {
     pub(super) origin_clock: crate::request_origin::OriginClock,
     pub(crate) browser_host: crate::browser_host::BrowserHostSupervisor,
     pub(crate) remote_host: crate::remote_host::RemoteHostSupervisor,
+    /// The Linux and Windows Computer Use worker (computer_use_host.rs).
+    pub(crate) computer_use: crate::computer_use_host::ComputerUseHost,
     pub(super) app_trust: app_trust::AppTrust,
     /// The binary's page listener opener (`ws-listen-v1`).
     pub(super) page_listener: Mutex<Option<super::PageListenerOpener>>,
     pub(super) next_id: AtomicU64,
     pub(super) resource_stream_admission: Arc<ResourceWorkerAdmission>,
     pub(super) resource_wait_admission: Arc<ResourceWorkerAdmission>,
+    /// Where the git requests of every connection wait and run (server/git_lane.rs).
+    pub(super) git_lane: super::git_lane::GitLane,
     /// One permit per open v1 `subscribe` stream, held by its thread.
     pub(super) event_subscription_admission: Arc<ResourceWorkerAdmission>,
     /// Every connection's record. A change publishes the [`ClientFacts`] projection, which a connection's
@@ -445,6 +449,7 @@ impl ClientRegistry {
             origin_clock: Default::default(),
             browser_host: Default::default(),
             remote_host: Default::default(),
+            computer_use: Default::default(),
             app_trust: app_trust::AppTrust::default(),
             page_listener: Mutex::new(None),
             resource_stream_admission: ResourceWorkerAdmission::new(
@@ -455,6 +460,7 @@ impl ClientRegistry {
                 RESOURCE_WAITS_PER_CLIENT_CAPACITY,
                 RESOURCE_WAITS_SERVER_CAPACITY,
             ),
+            git_lane: Default::default(),
             event_subscription_admission: ResourceWorkerAdmission::new(
                 EVENT_SUBSCRIPTIONS_PER_CLIENT_CAPACITY,
                 EVENT_SUBSCRIPTIONS_SERVER_CAPACITY,
@@ -525,6 +531,11 @@ impl ClientRegistry {
                 started_tabs: HashSet::new(),
             },
         );
+        // Opt-in usage patterns: connections by transport, and the most open at once.
+        if cmux_usage_patterns::enabled() {
+            cmux_usage_patterns::count("connection", transport.as_str());
+            cmux_usage_patterns::peak("connections.open", state.clients.len() as u64);
+        }
         drop(state);
         self.notify_client_presence();
         client
@@ -733,6 +744,8 @@ impl ClientRegistry {
             record.name = Some(clamp_client_label(name));
         }
         if let Some(kind) = kind {
+            // Opt-in usage patterns: which kinds of client connect (`cmux-next`, `cli`, ...).
+            cmux_usage_patterns::count("client", &kind);
             record.kind = Some(clamp_client_label(kind));
         }
         if let Some(capabilities) = capabilities {
@@ -743,10 +756,18 @@ impl ClientRegistry {
                     || capability == SHARED_SIZING_CAPABILITY
                     || capability == SIZING_VIEW_DETACH_CAPABILITY
                     || capability == super::SIZE_LEASE_CAPABILITY
+                    || capability == super::SIZE_LEASE_V2_CAPABILITY
                     || capability == HOST_GRID_VIEW_CAPABILITY
                     || capability == OPEN_DEVICE_KINDS_CAPABILITY
                     || capability == TERMINAL_COLOR_OVERRIDES_CAPABILITY
                     || capability == TERMINAL_PENDING_SEQUENCE_CAPABILITY
+                    // `output` at most once per frame (server/attach_output_coalesce.rs).
+                    || capability == super::ATTACH_OUTPUT_COALESCE_CAPABILITY
+                    // Agent CLI terminals as cell deltas (server/agent_cli_hybrid.rs).
+                    || capability == super::AGENT_CLI_HYBRID_CAPABILITY
+                    || capability == super::AGENT_CLI_HYBRID_LEAN_CAPABILITY
+                    || capability == super::TERMINAL_SHELL_LINES_CAPABILITY
+                    || capability == super::ATTACH_REPLAY_HISTORY_WINDOW_CAPABILITY
                     || capability == CREATION_RECEIPTS_CAPABILITY
                     || capability == super::TERMINAL_PUBLIC_IDS_CAPABILITY
                     || capability == CREATION_ATTEMPT_KEYS_CAPABILITY

@@ -137,7 +137,7 @@ const variant = (
 function mixedVariant(harness: "claude" | "codex", working: boolean): AgentPaneVariant {
   return {
     note: working
-      ? `${harness}, live: the same raw rows while the turn runs. As the shipped live-turn-work \`line\` draws a running turn, the prompt stays in sight with the one live line under it and none of the finished steps; they project into mixed steps once the turn ends.`
+      ? `${harness}, live: the same raw rows while the turn runs. Under live-turn-work \`line\` (pinned), the prompt stays in sight with the one live line under it and none of the finished steps; they project into mixed steps once the turn ends.`
       : `${harness}, finished: raw turn rows project through the app into mixed steps, with discovery noise omitted.`,
     snapshot: chat(mixedToolTurnFixture(working), {
       title: "Mixed tool steps",
@@ -145,6 +145,8 @@ function mixedVariant(harness: "claude" | "codex", working: boolean): AgentPaneV
       model: harness === "codex" ? "gpt-6-astra" : "claude-opus-5-5",
       isWorking: working,
     }),
+    // The live case is about the `line` arm's look; the finished turn draws the same under either.
+    ...(working ? { experiments: { "live-turn-work": "line" } } : {}),
     play: async (ctx) => {
       // A running turn is its prompt and one live line (liveTurnWork.experiment.ts `line`): its
       // finished steps draw no row until the turn ends.

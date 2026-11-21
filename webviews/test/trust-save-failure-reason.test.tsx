@@ -4,6 +4,7 @@
 // flaky save from one that can never work (remote GUI proof, 2026-11-10). The failed card now says
 // why the save failed, beside the question it keeps asking.
 import { afterAll, expect, test } from "bun:test";
+import { settleReact } from "./support/domTeardown";
 import { JSDOM, VirtualConsole } from "jsdom";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -34,8 +35,9 @@ type TrustSource = import("../src/agent-session/acpmux/folderTrust").TrustSource
 
 const host = dom.window.document.getElementById("root")!;
 const root = createRoot(host);
-afterAll(() => {
+afterAll(async () => {
   act(() => root.unmount());
+  await settleReact();
   dom.window.close();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
@@ -44,7 +46,12 @@ afterAll(() => {
 });
 
 const folder = "/tmp/acpmux-peer-scratch-501-01a1/session-01a1c74c14be71d3964c4924a96cd844";
-const refusal = "cwd is outside the folders this machine serves (webRoots)";
+/// acpmux's refusal as direct.ts rejects it (server/remote_guard.rs `outside_roots`): its CLI
+/// message, and `data.reason`, which the pane words (Leo, 2026-11-12: "we want good error states.
+/// We don't want busted errors.").
+const raw =
+  "cwd is refused: a remote WebSocket connection may use only a known project or a configured webRoots folder";
+const refusal = "This folder is outside the folders this machine serves.";
 
 /// A host that reads the folder as unanswered and refuses every save with `error`.
 function refusingHost(error: unknown): TrustSource {
@@ -69,13 +76,16 @@ function Chat(props: { trust: TrustSource }) {
 }
 
 test("a refused Trust says why it failed and keeps the question", async () => {
-  await act(async () => root.render(<Chat trust={refusingHost(new Error(refusal))} />));
+  await act(async () =>
+    root.render(<Chat trust={refusingHost(Object.assign(new Error(raw), { reason: "remote.cwd_outside_roots" }))} />),
+  );
   expect(latest!.ask?.state).toBe("ask");
   await act(async () => latest!.trust());
   expect(latest!.ask).toMatchObject({ state: "failed", cwd: folder, reason: refusal });
   const card = host.querySelector(".acpmux-trust-ask")!;
   expect(card.textContent).toContain("Couldn't save that. Try again.");
   expect(host.querySelector(".acpmux-trust-ask [role=alert]")?.textContent).toBe(refusal);
+  expect(card.textContent).not.toContain("WebSocket");
   // Trust stays offered: a later save may work.
   const buttons = [...card.querySelectorAll("button")].map((button) => button.textContent);
   expect(buttons).toContain("Trust folder");

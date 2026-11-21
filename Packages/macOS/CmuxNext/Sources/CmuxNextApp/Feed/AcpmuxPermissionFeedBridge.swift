@@ -88,16 +88,15 @@ final class AcpmuxPermissionFeedBridge {
     private(set) var posted: [String: Posted] = [:]
     /// Permission ids being posted or posted (one item per prompt).
     private var postedPermissions: Set<String> = []
+    /// `_acpmux/permission_pending` notices handled to the end (posted or skipped): a test's wait before it reads ``posted``.
+    private(set) var pendingNoticesHandled = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "acpmux.feed-bridge")
 
     init(environment: AcpmuxEnvironment, owner: @escaping Owner, isSignedIn: @escaping @MainActor () -> Bool,
          ownInstall: @escaping @Sendable () async -> String?,
          presenceKeys: @escaping PresenceKeys, pendingReads: AcpmuxPendingReads = .feed) {
-        (self.environment, self.pendingReads) = (environment, pendingReads)
-        self.owner = owner
-        self.isSignedIn = isSignedIn
-        self.ownInstall = ownInstall
-        self.presenceKeys = presenceKeys
+        (self.environment, self.pendingReads, self.owner) = (environment, pendingReads, owner)
+        (self.isSignedIn, self.ownInstall, self.presenceKeys) = (isSignedIn, ownInstall, presenceKeys)
     }
 
     /// Starts the watch (idempotent).
@@ -198,7 +197,7 @@ final class AcpmuxPermissionFeedBridge {
         case "_acpmux/permission_pending":
             guard let session = AcpmuxPendingReads.sessionKey(params), let permission = params["permissionId"] as? String,
                   let request = params["request"] as? [String: Any] else { return }
-            Task { await self.post(session: session, permission: permission, request: request) }
+            Task { await self.post(session: session, permission: permission, request: request); self.pendingNoticesHandled += 1 }
         case "_acpmux/session_changed":
             let kind = params["kind"] as? String
             if kind == "permission_decision" || kind == "permission_resolved",

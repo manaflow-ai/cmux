@@ -6,8 +6,12 @@ import { bezierAt, type CubicBezier } from "../../../ui/cubicBezier";
 import { HIGHLIGHT_EASING, HIGHLIGHT_MS } from "./model";
 import { railOwnsWheel } from "./railWheel";
 import { userScrollIntent } from "../conversation/userScroll";
+import { holdMomentum } from "./momentumHold";
 
 const running = new WeakMap<HTMLElement, () => void>();
+
+/// Whether a scroll from code is running on `node` (the momentum hold leaves the offset to it).
+export const scrollRunning = (node: HTMLElement) => running.has(node);
 
 /// Sent (not bubbling) on a scroller right after this module's motion writes its offset from a frame
 /// callback. The browser's own `scroll` event for that write comes on the next frame, after this one
@@ -86,6 +90,8 @@ export function animateScroll(
     options.explicit,
     options.paced,
   );
+  // After any `then`: the ride's landing is where the fling's momentum is held.
+  if (running.has(node) || duration <= 0) holdMomentum(node, target);
 }
 
 /// An explicit mouse-wheel distance on the same clock as jumps. Each step adds only its own delta

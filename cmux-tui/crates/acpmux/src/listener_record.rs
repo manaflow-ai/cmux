@@ -175,7 +175,7 @@ fn remove_if_owned(home: &Path) {
     if read(home).is_some_and(|record| {
         record.pid == std::process::id() && Some(&record.key) == ours.as_ref()
     }) {
-        let _ = std::fs::remove_file(home.join(FILE_NAME));
+        let _ = crate::home_fs::remove_file(home.join(FILE_NAME));
     }
 }
 

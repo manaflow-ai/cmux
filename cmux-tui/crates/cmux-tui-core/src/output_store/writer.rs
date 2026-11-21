@@ -1,4 +1,5 @@
-//! The output store's writer thread: it sleeps until a terminal prints or asks for a measurement,
+//! The output store's writer thread: it sleeps until a terminal prints or asks for a measurement
+//! (or until the tail files written since their last sync are due for it, `snapshot.rs` `sync_due_tails`),
 //! then runs the turn that is due: the measurement of the terminals whose history grew
 //! (`memory_budget.rs`), the snapshot and tail pass (`snapshot.rs`), or both.
 

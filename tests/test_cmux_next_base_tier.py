@@ -33,6 +33,8 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import cmux_next_base_tier as tier  # noqa: E402
 import cmux_next_tree_notify as notify  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 import github_quota_client as quota  # noqa: E402
 import deadline_http  # noqa: E402
 
@@ -1074,7 +1076,7 @@ class PushPaths(unittest.TestCase):
 
 class Defer(unittest.TestCase):
     ROUTED = ["native=true", "macos=true", "scheme=true", "generated=true", "swift=false", "daemon=true",
-              "fast_tier=true", "swift_targets="]
+              "fast_tier=true", "swift_targets=", "swift_canary=true", "swift_canary_targets=CmuxNextTests"]
 
     def test_a_push_leaves_only_the_base_tier_to_the_kick(self):
         out = dict(line.split("=", 1) for line in tier.defer(self.ROUTED))
@@ -1083,6 +1085,10 @@ class Defer(unittest.TestCase):
         self.assertEqual((out["native"], out["macos"], out["fast_tier"]), ("true", "true", "true"))
         self.assertEqual(out["base_tier"], "deferred")
         self.assertEqual(out["base_tier_deferred"], "scheme,generated,daemon")
+
+    def test_a_push_leaves_the_swift_canary_to_the_tip_suite(self):
+        out = dict(line.split("=", 1) for line in tier.defer(self.ROUTED))
+        self.assertEqual((out["swift_canary"], out["swift_canary_targets"]), ("false", ""))
 
     def test_the_scheme_compile_stays_when_it_is_the_dev_landing_build(self):
         out = dict(line.split("=", 1) for line in tier.defer(self.ROUTED, ("scheme",)))
@@ -1217,7 +1223,10 @@ class Workflows(unittest.TestCase):
     def test_sleeping_dispatcher_reads_the_linux_pool(self):
         # A pure Python timer/API call reads the reconciled Linux pool, never a fixed
         # Blacksmith size that can stall (tests/test_ci_linux_single_size.py).
-        expression = yaml.safe_load(KICK.read_text())["jobs"]["kick"]["runs-on"]
+        cells = workflow_jobs.runs_on_cells(workflow_jobs.jobs(KICK)["kick"])
+        self.assertIsNotNone(cells, "kick runs-on reads a matrix value nothing resolves")
+        self.assertEqual(len(cells), 1, cells)
+        expression = cells[0]
         self.assertIn("'ubuntu-24.04'", expression)
         self.assertNotIn("32vcpu", expression)
         self.assertNotIn("vars.LINUX_RUNNER", expression)

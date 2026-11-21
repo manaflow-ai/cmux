@@ -316,6 +316,8 @@ class ExportsAreComparedWithAFreshExport(unittest.TestCase):
             '  1settings-head-exports) echo "the export blew up" >&2; exit 7 ;;\n'
             "esac\n"
             'list="${CMUX_SETTINGS_EXPORTS_LIST:-scripts/cmux-next/settings-exports.txt}"\n'
+            # Which call built the package last, as the real export's build leaves its products.
+            'mkdir -p Packages/macOS/CmuxNext/.build/debug && echo "${1##*/}" > Packages/macOS/CmuxNext/.build/debug/built-by\n'
             'cp "$src/A.swift" schemas/settings/settings-schema.json\n'
             'cp "$src/B.swift" docs/mdm/managed-preferences.md\n'
             'written="schemas/settings/settings-schema.json docs/mdm/managed-preferences.md"\n'
@@ -495,6 +497,36 @@ class TheCheckoutIsHeadsAfterwards(ExportsAreComparedWithAFreshExport):
         self.assertFalse((result.repo / self.PRODUCTS).exists(),
                          "the base export's built products are still there for a --skip-build suite")
         self.assertIn("removing its built products", result.stderr)
+
+
+class TheJobsBuildIsKeptNotRebuilt(TheCheckoutIsHeadsAfterwards):
+    """In CI the job built HEAD's package before this step (CMUX_NEXT_JOB_BUILT=plain). The check
+    keeps a clone of that build and HEAD's fresh exports before the base export and puts them back,
+    instead of re-exporting (one more build) from HEAD's sources: with the job's cold build that
+    third build ran past the 40 min cap on every settings change (cmuxterm-hq#9678, cmux#41472)."""
+
+    def test_the_restore_puts_heads_build_and_exports_back_without_exporting_again(self):
+        result = self.run_step_on_merge(
+            self.write("Packages/macOS/CmuxNext/Sources/CmuxNextSettings/A.swift", "v2\n"),
+            self.pr_edits_the_docs_source(), keep=(self.SCHEMA,), build_products=True,
+            # A re-export from HEAD's sources would fail: the step passing proves none ran.
+            env_extra={"CMUX_NEXT_JOB_BUILT": "plain", "CMUX_TEST_EXPORT_FAILS_ON_RESTORE": "1"})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        after = self.exports_after(result)
+        self.assertEqual(after[self.DOCS], "w2\n", "the docs export holds the base export's bytes")
+        self.assertEqual(after[self.SCHEMA], "v2\n", "the schema is not HEAD's fresh export")
+        built = result.repo / self.PRODUCTS / "debug/built-by"
+        self.assertEqual(built.read_text(), "settings-exports\n", "the package build is the base export's")
+        self.assertFalse((result.repo / "Packages/macOS/CmuxNext/.build-cmux-settings-head").exists(),
+                         "the kept clone of HEAD's build was left behind")
+
+    def test_without_the_jobs_build_the_restore_exports_again(self):
+        result = self.run_step_on_merge(
+            self.write("Packages/macOS/CmuxNext/Sources/CmuxNextSettings/A.swift", "v2\n"),
+            self.pr_edits_the_docs_source(), keep=(self.SCHEMA,), build_products=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        built = result.repo / self.PRODUCTS / "debug/built-by"
+        self.assertEqual(built.read_text(), "settings-head-exports\n")
 
 
 if __name__ == "__main__":

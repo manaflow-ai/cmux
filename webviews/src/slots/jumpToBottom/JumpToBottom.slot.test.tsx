@@ -3,6 +3,7 @@
 // the markup the button drew before the slot, element for element, so the default look is unchanged;
 // each built-in variant draws inside the same button, hidden from readers, and the button keeps its label.
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { settleReact } from "../../../test/support/domTeardown";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -39,10 +40,11 @@ beforeEach(() => {
   registerJumpToBottomVariants();
 });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   configureThemeSlots(undefined);
   root = undefined;
+  await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;

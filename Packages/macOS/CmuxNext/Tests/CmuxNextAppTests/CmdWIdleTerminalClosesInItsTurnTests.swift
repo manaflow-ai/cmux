@@ -341,6 +341,74 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
         }
     }
 
+    /// Aziz, 2026-11-13: "closing a horizontal tab closes it in the UI temporarily before showing the confirmation alert".
+    /// A terminal whose shell reported a running command (OSC 133 C) is known to ask before the daemon's read: its tab
+    /// never leaves the strip. It stays, selected, through the read and the question, and leaves only on Close.
+    @Test func cmdWOnACommandTheShellReportedKeepsTheTabUntilTheAnswer() async throws {
+        try await Self.withFocusedTerminal(before: 1) { t in
+            // The integrated shell's reports: a prompt, then the command it runs.
+            try await Self.input("printf '\\033]133;A\\007'; printf '\\033]133;C\\007'; sleep 600\r", t)
+            try await Self.waitRunning("sleep", t)
+            try await PinnedPageTests.until({ t.tab.commandSinceMs != nil }, report: { "the shell's running command never reached the store" })
+            t.pane.select(TabID(t.tab.id))
+            try await PinnedPageTests.until({ t.pane.stripModel.selectedID?.rawValue == t.tab.id })
+            let hold = t.services.daemon.closeReadHold
+            hold.arm()
+            defer { hold.release() }
+            #expect(t.services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user)))
+            try await PinnedPageTests.until({ hold.held == 1 }, report: { "the close did not read" })
+            #expect(t.pane.orderedIDs.map(\.rawValue).contains(t.tab.id), "the tab left the strip before its question")
+            #expect(t.pane.stripModel.selectedID?.rawValue == t.tab.id, "the pane showed another tab before the question")
+            // A quick second Cmd-W is behind the question already: it closes nothing (the neighbour is not on screen).
+            let strip = t.pane.orderedIDs
+            _ = t.services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user))
+            #expect(t.pane.orderedIDs == strip, "a second Cmd-W during the read closed a tab that was not on screen")
+            try await Self.turns()
+            #expect(t.pane.orderedIDs.map(\.rawValue).contains(t.tab.id), "the tab left the strip during the read")
+            hold.release()
+            try await PinnedPageTests.until({ Self.question(t) != nil }, report: { "no close question" })
+            #expect(t.pane.orderedIDs.map(\.rawValue).contains(t.tab.id), "the tab is not in its strip while its question shows")
+            _ = CmuxDialogCenter.shared.press(try #require(Self.question(t)).id, button: "cancel")
+            try await PinnedPageTests.until({ !TabCloseGuard.asking.contains(t.tab.id) }, report: { "the cancelled close still asks" })
+            #expect(t.pane.orderedIDs.map(\.rawValue).contains(t.tab.id), "Cancel closed the terminal")
+            try await Self.waitRunning("sleep", t)
+            // Close this time: the tab leaves only now.
+            #expect(t.services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user)))
+            try await PinnedPageTests.until({ Self.question(t) != nil }, report: { "no second close question" })
+            #expect(t.pane.orderedIDs.map(\.rawValue).contains(t.tab.id), "the tab left before the second question")
+            #expect(CmuxDialogCenter.shared.press(try #require(Self.question(t)).id, button: DestructiveConfirmation.confirmID))
+            try await PinnedPageTests.until({ !t.pane.orderedIDs.map(\.rawValue).contains(t.tab.id) }, report: { "Close did not close the tab" })
+        }
+    }
+
+    /// Aziz, 2026-11-14: "when closing a terminal with an agent i still get an alert with the tab half closed". An agent
+    /// terminal reports no shell command (its agent runs as the terminal's program, or no integration marks it): the
+    /// agent's own report (`report-agent`, here idle between turns) says a program runs in front, so the tab stays, selected,
+    /// through the read and the question.
+    @Test func cmdWOnATerminalWithAnIdleAgentKeepsTheTabUntilTheAnswer() async throws {
+        try await Self.withFocusedTerminal(before: 1) { t in
+            try await Self.input("sleep 600\r", t) // no OSC 133 marks: the harness's /bin/sh reports no command
+            try await Self.waitRunning("sleep", t)
+            _ = try await t.connection.request(ReportAgentRequest(surface: t.tab.surface, state: .idle))
+            try await PinnedPageTests.until({ t.tab.agent != nil }, report: { "the agent's report never reached the store" })
+            #expect(t.tab.commandSinceMs == nil && t.tab.promptSinceMs == nil, "the shell reported a command or a prompt")
+            t.pane.select(TabID(t.tab.id))
+            try await PinnedPageTests.until({ t.pane.stripModel.selectedID?.rawValue == t.tab.id })
+            let hold = t.services.daemon.closeReadHold
+            hold.arm()
+            defer { hold.release() }
+            #expect(t.services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user)))
+            try await PinnedPageTests.until({ hold.held == 1 }, report: { "the close did not read" })
+            #expect(t.pane.orderedIDs.map(\.rawValue).contains(t.tab.id), "the agent's tab left the strip before its question")
+            #expect(t.pane.stripModel.selectedID?.rawValue == t.tab.id, "the pane showed another tab before the question")
+            hold.release()
+            try await PinnedPageTests.until({ Self.question(t) != nil }, report: { "no close question" })
+            #expect(t.pane.orderedIDs.map(\.rawValue).contains(t.tab.id), "the tab is not in its strip while its question shows")
+            #expect(CmuxDialogCenter.shared.press(try #require(Self.question(t)).id, button: DestructiveConfirmation.confirmID))
+            try await PinnedPageTests.until({ !t.pane.orderedIDs.map(\.rawValue).contains(t.tab.id) }, report: { "Close did not close the tab" })
+        }
+    }
+
     // MARK: Fixture
 
     /// A new terminal tab at the end of `t`'s pane, once its strip lists it.

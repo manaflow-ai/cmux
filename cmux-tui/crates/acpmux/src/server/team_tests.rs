@@ -123,7 +123,7 @@ fn setup(enabled: bool) -> (Arc<Hub>, Arc<FakeHub>) {
     let hub = Hub::new(config, store);
     assert!(hub.resolve(OWN).is_ok());
     let fake = Arc::new(FakeHub::default());
-    assert!(hub.mesh.set(fake.clone()).is_ok());
+    hub.mesh.set(fake.clone());
     (hub, fake)
 }
 
@@ -459,7 +459,8 @@ async fn team_receipt_origin_survives_restart_and_gates_owner_sends_without_wire
     fake.omit_start_work.store(true, std::sync::atomic::Ordering::SeqCst);
     let (restarted, restarted_fake) = setup(true);
     assert!(restarted.outbox.open(&path).is_empty(), "receipt metadata never resumes as a prompt");
-    let origin = restarted.outbox.team_receipt(OWN_MESSAGE).unwrap();
+    let origin = restarted.outbox.mesh_origin(OWN_MESSAGE).unwrap();
+    assert!(origin.team_origin(), "a team send is recorded as a team origin");
     assert_eq!(origin.target, "@team/reviewer");
     assert!(origin.caller.is_none());
     assert!(restarted.outbox.get(&format!("mesh:{OWN_MESSAGE}")).is_none());
@@ -477,6 +478,9 @@ async fn team_receipt_origin_survives_restart_and_gates_owner_sends_without_wire
             attempts: 0,
             never_sent: false,
             relay_post: None,
+            open_on_peer: false,
+            pin: None,
+            proof: None,
             error: None,
             accepted: None,
             created_at: crate::store::now_ms(),

@@ -3,11 +3,11 @@
 2026-10-07: three source changes on feat-cmux-next without a re-pin (2914fa52,
 d7167cb6, 45845b2d) each made `swift test` red on every pull request into it.
 """
-import importlib.util
 import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -23,9 +23,10 @@ _git_fixture_spec.loader.exec_module(git_fixture_env)
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/cmux-next/check-app-ffi-pin.sh"
 PIN_READER = ROOT / "scripts/ci/app_ffi_pin.py"
-_spec = importlib.util.spec_from_file_location("app_ffi_pin", PIN_READER)
-app_ffi_pin = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(app_ffi_pin)
+# Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+if str(PIN_READER.parent) not in sys.path:
+    sys.path.insert(0, str(PIN_READER.parent))
+import app_ffi_pin  # noqa: E402
 SOURCE = "cmux-tui/crates/cmux-rd-core/src/lib.rs"
 CHECKSUM = "c" * 64
 
@@ -170,6 +171,120 @@ class PullRequestScope(unittest.TestCase):
         result = self.check("--base", "f" * 40)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("checking against the pin only", result.stderr)
+
+    # A crate's tests/, benches/ and examples/ never reach the archive (app_ffi_pin.NOT_BUILT). 2026-11-11: a cargo
+    # fmt of cmux-layout-reducer-ffi/tests/sidebar_caps.rs (cmux#41522) and two tests/ files of
+    # cmux-agent-pane-policy and cmux-layout-reducer-ffi (cmux#41508) failed the pin check.
+    NOT_BUILT_FILES = ("cmux-tui/crates/cmux-rd-core/tests/sidebar_caps.rs",
+                       "cmux-tui/crates/cmux-rd-core/benches/ffi_bench.rs",
+                       "cmux-tui/crates/cmux-rd-core/examples/demo.rs",
+                       "cmux-tui/crates/cmux-app-ffi/tests/drag_handle.rs")
+    BUILT_FILES = (SOURCE, "cmux-tui/crates/cmux-rd-core/build.rs", "cmux-tui/crates/cmux-rd-core/Cargo.toml",
+                   "cmux-tui/crates/cmux-rd-core/src/tests/mod.rs")
+
+    def test_a_change_to_a_crates_tests_benches_or_examples_is_not_an_ffi_change(self):
+        for path in self.NOT_BUILT_FILES:
+            with self.subTest(path=path):
+                base = self.git("rev-parse", "HEAD")
+                self.write(path, f"// {path}\n")
+                self.commit(f"the pull request changes {path}")
+                for args in ((), ("--base", base)):
+                    result = self.check(*args)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("app FFI pin: sources match", result.stdout)
+
+    def test_a_change_to_src_build_rs_or_the_manifest_still_is(self):
+        base = self.git("rev-parse", "HEAD")
+        for path in self.BUILT_FILES:
+            with self.subTest(path=path):
+                self.git("reset", "-q", "--hard", base)
+                old = (self.root / path).read_text() if (self.root / path).exists() else ""
+                self.write(path, old + "# changed\n")
+                self.commit(f"the pull request changes {path}")
+                result = self.check("--base", base)
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("changed since the pinned source", result.stderr)
+                self.assertIn(path.rsplit("/", 1)[-1], result.stderr)
+
+    def test_a_tests_folder_a_library_file_names_stays_an_input(self):
+        # cmux-rd-ffi's line reader test includes cmux-rd-proto/tests/vectors/app_lines.json; a build script may
+        # compute such a path, so one that names the folder keeps it too.
+        cases = (
+            (SOURCE, 'const V: &str = include_str!("../tests/vectors/a.json");\n',
+             "cmux-tui/crates/cmux-rd-core/tests/vectors/a.json"),
+            ("cmux-tui/crates/cmux-app-ffi/build.rs", 'fn main() { let _ = std::path::Path::new("benches"); }\n',
+             "cmux-tui/crates/cmux-app-ffi/benches/x.rs"),
+        )
+        start = self.git("rev-parse", "HEAD")
+        for library, text, named in cases:
+            with self.subTest(named=named):
+                self.git("reset", "-q", "--hard", start)
+                self.write(library, text)
+                self.write(named, "v1\n")
+                self.pin(self.commit("a library file names a tests folder"))
+                base = self.commit("re-pin")
+                self.write(named, "v2\n")
+                self.commit("the pull request changes the named file")
+                result = self.check("--base", base)
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn(named.rsplit("/", 1)[-1], result.stderr)
+
+
+class EveryReaderAgrees(unittest.TestCase):
+    """check-app-ffi-pin.sh, the router (and build_class.py, the dev-loop apply tools through it) and
+    base_red_excuse.py read one definition of what is not an input: app_ffi_pin.NOT_BUILT."""
+
+    @classmethod
+    def setUpClass(cls):
+        import sys  # noqa: PLC0415
+        if str(ROOT / "scripts/ci") not in sys.path:
+            sys.path.insert(0, str(ROOT / "scripts/ci"))
+        import base_red_excuse  # noqa: PLC0415
+        import build_class  # noqa: PLC0415
+        import cmux_next_route  # noqa: PLC0415
+        cls.excuse, cls.build_class, cls.route = base_red_excuse, build_class, cmux_next_route
+
+        def listed(flag):
+            return subprocess.run(["bash", str(SCRIPT), flag], check=True, capture_output=True, text=True).stdout.split()
+        cls.inputs, cls.excluded = listed("--list-inputs"), listed("--list-excluded")
+        cls.crates = [i for i in cls.inputs if (ROOT / i / "Cargo.toml").is_file()]
+
+    def verdicts(self, path):
+        return {
+            "check-app-ffi-pin.sh": app_ffi_pin.is_input(path, self.inputs, self.excluded),
+            "cmux_next_route.app_ffi_input": self.route.app_ffi_input(ROOT, path),
+            "build_class.classify_path": "CCmuxAppFFI source" in self.build_class.classify_path(ROOT, path)[1],
+            "base_red_excuse.ffi_input": self.excuse.ffi_input(path),
+        }
+
+    def test_the_router_excludes_what_the_pin_check_excludes(self):
+        self.assertEqual(self.route.app_ffi_excluded(ROOT), self.excluded)
+        self.assertIn("cmux-tui/crates/cmux-layout-reducer-ffi/tests", self.excluded)
+        self.assertIn("cmux-tui/crates/cmux-agent-pane-policy/tests", self.excluded)
+
+    def test_the_red_prs_test_files_are_no_input_for_any_reader(self):
+        for path in ("cmux-tui/crates/cmux-layout-reducer-ffi/tests/sidebar_caps.rs",
+                     "cmux-tui/crates/cmux-agent-pane-policy/tests/ffi_bench.rs",
+                     "cmux-tui/crates/cmux-layout-reducer-ffi/tests/drag_handle.rs",
+                     "cmux-tui/crates/cmux-app-ffi/benches/new.rs",
+                     "cmux-tui/bindings/rust/examples/new.rs"):
+            with self.subTest(path=path):
+                self.assertEqual(set(self.verdicts(path).values()), {False}, self.verdicts(path))
+        for directory in self.excluded:
+            with self.subTest(directory=directory):
+                self.assertFalse(any(self.verdicts(directory + "/x.rs").values()), self.verdicts(directory + "/x.rs"))
+
+    def test_src_build_rs_and_the_manifest_are_inputs_for_every_reader(self):
+        for crate in self.crates:
+            for name in ("src/lib.rs", "src/tests/mod.rs", "src/x_tests.rs", "build.rs", "Cargo.toml"):
+                path = f"{crate}/{name}"
+                with self.subTest(path=path):
+                    self.assertEqual(set(self.verdicts(path).values()), {True}, self.verdicts(path))
+        for path in ("cmux-tui/rust-toolchain.toml", "scripts/cmux-next/build-app-ffi.sh"):
+            with self.subTest(path=path):
+                verdicts = self.verdicts(path)
+                del verdicts["build_class.classify_path"]  # outside the crates: its own rule, before the inputs
+                self.assertEqual(set(verdicts.values()), {True}, verdicts)
 
 
 # The checks job's pin step and its pull request scope (the base's copy, --base the merge commit's first parent) are

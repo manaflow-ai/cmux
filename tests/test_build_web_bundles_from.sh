@@ -13,7 +13,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../scripts/cmux-next/tests/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+git_fixture_trap_exit 'rm -rf "$WORK"'
 
 REPO="$WORK/repo"
 mkdir -p "$REPO/scripts/cmux-next"

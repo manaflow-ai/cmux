@@ -42,7 +42,7 @@ fn linked() -> (Arc<Hub>, Vec<Arc<Peer>>) {
         let peer = Peer::new(&name, "ws://127.0.0.1:9", None, None, hub.peer_notices.clone());
         hub.peers.lock().unwrap().insert(name.clone(), peer.clone());
         let list = (0..PER_PEER).map(|s| row(p, s, s + 1)).collect();
-        hub.apply_peer_notice(&name, peer.generation, PeerNotice::Sessions(list));
+        hub.apply_peer_notice(&name, peer.generation, PeerNotice::sessions_from_values(list));
         peers.push(peer);
     }
     assert_eq!(hub.remote_sessions().len(), PEERS * PER_PEER);
@@ -164,6 +164,10 @@ fn a_peer_notice_lands_while_a_reader_is_parked_mid_walk() {
     let (release, release_rx) = mpsc::channel::<()>();
     let (landed_tx, landed) = mpsc::channel();
     std::thread::scope(|scope| {
+        // Owned by this closure (#41627 F1): a panic below drops it as the closure unwinds,
+        // which ends the parked reader's wait, before the scope joins that reader. Held outside,
+        // it outlived the join, and a failed assert hung the test instead of failing it.
+        let release = release;
         scope.spawn(move || {
             let rows = hub.remote_sessions.read();
             // Half way through a walk over every row, then parked until released.
@@ -172,7 +176,10 @@ fn a_peer_notice_lands_while_a_reader_is_parked_mid_walk() {
             release_rx.recv().unwrap();
             std::hint::black_box(rows.iter().count());
         });
-        assert_eq!(parked.recv().unwrap(), PEERS * PER_PEER / 2);
+        let walked = parked
+            .recv_timeout(Duration::from_secs(30))
+            .expect("the reader never parked half way through its walk");
+        assert_eq!(walked, PEERS * PER_PEER / 2);
         scope.spawn(move || {
             let session = row(PEERS - 1, 0, 1_000_000);
             hub.apply_peer_notice(

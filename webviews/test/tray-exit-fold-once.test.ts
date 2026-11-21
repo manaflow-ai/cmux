@@ -12,7 +12,9 @@
 // hands: each frame is given its time, and the copy's clock is read after each frame's callbacks, which
 // is the value that frame paints.
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import { settleReact } from "./support/domTeardown";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { MOTION_SETTLE_MS } from "../src/motion/scale.generated";
 
 const dom = new JSDOM("<!doctype html><div id=host></div>", {
   url: "http://localhost/",
@@ -29,7 +31,8 @@ const replacements: Record<string, unknown> = {
 };
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
     else delete scope[key];
@@ -38,7 +41,7 @@ afterAll(() => {
 
 const GHOST = "acpmux-running-tray--ghost";
 /// The house settle, as the stylesheet resolves it on the copy (subagents.css `--acpmux-tray-leave`).
-const LEAVE_MS = 180;
+const LEAVE_MS = MOTION_SETTLE_MS;
 const FRAME_MS = 1000 / 60;
 
 const proto = dom.window.HTMLElement.prototype as unknown as Record<string, unknown>;
@@ -53,7 +56,7 @@ proto.animate = () => ({ cancel() {} });
 const computed = dom.window.getComputedStyle.bind(dom.window);
 dom.window.getComputedStyle = ((node: Element) =>
   node.classList.contains(GHOST)
-    ? ({ animationName: "acpmux-tray-leave", animationDuration: "0.18s" } as CSSStyleDeclaration)
+    ? ({ animationName: "acpmux-tray-leave", animationDuration: `${MOTION_SETTLE_MS / 1000}s` } as CSSStyleDeclaration)
     : computed(node)) as typeof dom.window.getComputedStyle;
 
 /// The page's clock and its frame callbacks, both driven by `paint`.

@@ -229,7 +229,6 @@ fn a_chat_tab_create_restates_no_other_chat_tab_of_its_pane() {
 /// lock, which a person's next click waits on (this file's first test).
 #[test]
 fn a_chat_tab_create_validates_only_the_tabs_it_changed() {
-    use std::sync::atomic::Ordering::Relaxed;
     let session = Session::new("chat-tab-validates");
     let mux = session.open();
     let sidebar = sidebar(&mux);
@@ -237,10 +236,14 @@ fn a_chat_tab_create_validates_only_the_tabs_it_changed() {
     for index in 0..30 {
         open_chat_tab(&mux, workspace, format!("before-{index}"));
     }
-    let before = crate::workspace_registry::resource_store::TABS_VALIDATED.load(Relaxed);
+    // This registry's own count: the tabs that tests running beside this one validate are not in it.
+    let validated_here = || {
+        let registry = mux.workspace_registry.lock().unwrap();
+        crate::workspace_registry::resource_store::tabs_validated(&registry.connection.get())
+    };
+    let before = validated_here();
     open_chat_tab(&mux, workspace, "the-person".into());
-    let validated =
-        crate::workspace_registry::resource_store::TABS_VALIDATED.load(Relaxed) - before;
+    let validated = validated_here() - before;
     mux.shutdown();
     assert!(validated <= 4, "one chat tab create in a 31-tab pane validated {validated} tabs");
 }

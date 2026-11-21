@@ -836,6 +836,12 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         return Some(super::cloud_client_session::run_words(&global, &words));
     }
     let env = |name: &str| std::env::var(name).ok();
+    if scope == Scope::Vm
+        && let [verb, tail @ ..] = rest
+        && verb == "pool"
+    {
+        return Some(run_pool(tail, global.output, &env));
+    }
     if let [verb, tail @ ..] = rest
         && matches!(verb.as_str(), "new" | "create")
     {
@@ -879,6 +885,23 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         return Some(mint_through_app(&global, &plan));
     }
     Some(run_in_process(plan, scope, &env))
+}
+
+/// `cmux vm pool …`: the CI runner pool's surge, idle pause and scheduler (crate cmux-vm-pool). It talks to
+/// Freestyle, GCE and GitHub with their own credentials (`cmux vm pool --help`), not the VM API's.
+fn run_pool(tail: &[String], output: OutputMode, env: &dyn Fn(&str) -> Option<String>) -> i32 {
+    let runtime = match client_runtime() {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            eprintln!("cmux: cannot start the pool client: {error}");
+            return 1;
+        }
+    };
+    let mut words = tail.to_vec();
+    if output == OutputMode::Json {
+        words.push("--json".to_owned());
+    }
+    runtime.block_on(cmux_vm_pool::cli::run(&words, env, &mut std::io::stdout().lock()))
 }
 
 /// Runs the cmux-vm CLI on its own runtime, with this process's stdio.
@@ -934,11 +957,10 @@ pub(super) fn has_own_credential(env: &dyn Fn(&str) -> Option<String>) -> bool {
     if set("CMUX_VM_API_KEY") || set("CMUX_VM_CONFIG") {
         return true;
     }
-    let base = env("XDG_CONFIG_HOME")
-        .filter(|value| !value.is_empty())
-        .map(std::path::PathBuf::from)
-        .or_else(|| env("HOME").map(|home| std::path::PathBuf::from(home).join(".config")));
-    let Some(text) = base.and_then(|base| std::fs::read(base.join("cmux").join("vm.json")).ok())
+    // cmux-vm's own default (a DEV build's `CMUX_VM_DEFAULT_CONFIG`, else `vm.json` in the config folder).
+    let empty_is_unset = |name: &str| env(name).filter(|value| !value.is_empty());
+    let Some(text) =
+        cmux_vm::default_config_path(&empty_is_unset).and_then(|path| std::fs::read(path).ok())
     else {
         return false;
     };

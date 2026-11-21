@@ -2,6 +2,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { afterDeleteDismiss } from "./deleteDismiss";
 import { deleteClosesTab } from "./archiveClose";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -10,7 +11,8 @@ beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const key of ["window", "document"] as const)
     if (saved[key] === undefined) delete scope[key];
     else scope[key] = saved[key];

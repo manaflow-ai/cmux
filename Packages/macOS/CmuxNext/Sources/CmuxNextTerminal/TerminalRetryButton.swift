@@ -45,9 +45,10 @@ final class TerminalRetryButton: ClickableButton {
     }
 
     /// Visible only while the view is disconnected and its attach kept failing
-    /// (never for an administrator's block: it cannot reconnect).
-    func show(_ status: TerminalConnectionStatus) {
-        isHidden = !Self.shows(status)
+    /// (never for an administrator's block: it cannot reconnect), and not while the
+    /// label under it still `waiting` out its reveal delay.
+    func show(_ status: TerminalConnectionStatus, waiting: Bool = false) {
+        isHidden = waiting || !Self.shows(status)
     }
 
     /// Whether `status` shows the button (the host builds it the first time one does).

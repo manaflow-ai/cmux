@@ -11,6 +11,7 @@ import { minutesAgo } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
 import { trayOpenLook } from "./trayOpen.experiment";
+import { RUNNING_TRAY_LIST_LINE } from "./subagentSelectors";
 
 const running = (task: string, minutes: number, action: string): Subagent => ({
   id: `agent-${task.toLowerCase().replaceAll(/[^a-z]+/g, "-")}`,
@@ -43,6 +44,32 @@ const snapshot = chat([
   summary(1, { status: "completed", durationMs: 600_000, toolCount: 3 }),
 ]);
 
+// More lines than the hat's list holds (five), so the open list scrolls: under the "Always" scroll
+// bars setting it takes a scrollbar, and the header keeps its place (Leo, 2026-11-14: "the alignment
+// changes in the expanded mode for some reason. don't do that for the composer hat").
+const many = chat([
+  user("Fan the review out and keep the checks running while I look", 12),
+  row(SUBAGENTS, 12, {
+    subagents: [
+      running("Add rail spec section", 9, "Read running-tray.md"),
+      running("Review the fold", 8, "Grep useFold"),
+      running("Check the hat's columns", 7, "Read subagents.css"),
+      running("Measure the dock", 6, "Run the dock test"),
+      running("Audit the tuck", 5, "Read TrayPullTab.tsx"),
+      running("Trace the gutter", 4, "Grep tray-gutter"),
+    ],
+  }),
+  activity(
+    [
+      command("cd ~/Projects/app && bun run dev", "Run the dev server", 8),
+      command("bun test --watch", "Watch the tests", 6),
+    ],
+    11,
+  ),
+  assistant("The reviewers and the dev server keep running in the background.", 1),
+  summary(1, { status: "completed", durationMs: 600_000, toolCount: 3 }),
+]);
+
 const head = (ctx: PlayContext) => ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head");
 const folded = async (ctx: PlayContext) => {
   await ctx.waitFor(() => head(ctx));
@@ -60,7 +87,7 @@ const opened = async (ctx: PlayContext) => {
 const expanded = async (ctx: PlayContext) => {
   await folded(ctx);
   await ctx.click({ selector: ".acpmux-running-tray__head" });
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__list .acpmux-agent-line"));
+  await ctx.waitFor(() => ctx.document.querySelector(RUNNING_TRAY_LIST_LINE));
 };
 
 export default agentPaneEntry({
@@ -90,6 +117,16 @@ export default agentPaneEntry({
       note: "A click on the header still expands the tray in place; the panel button stays on the header.",
       play: expanded,
       snapshot,
+    },
+    "many-folded": {
+      note: "Eight lines, more than the list holds: folded, the header's panel button and chevron sit where they sit open.",
+      play: folded,
+      snapshot: many,
+    },
+    "many-expanded": {
+      note: "Eight lines open: the list scrolls, and the header's panel button and chevron keep their folded place (Leo, 2026-11-14: \"don't do that for the composer hat\").",
+      play: expanded,
+      snapshot: many,
     },
     "opens-panel": {
       note: "The panel button opens the full Background tasks panel in the chat's right column, Running and Finished.",

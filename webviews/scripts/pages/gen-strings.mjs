@@ -69,10 +69,6 @@ export function schemaKeys(schemaFile) {
 
 // Page -> output and catalogs. `keys(catalogKeys)` picks the keys the page uses (all by default).
 export const PAGES = {
-  "import-history": {
-    out: "webviews/src/pages/import-history/generated/strings.json",
-    catalogs: [{ file: "webviews/src/pages/import-history/Localizable.xcstrings" }],
-  },
   // The onboarding tool window (Agents, Import from Browsers, Computer Use): the page's own table,
   // its keys and translations the Swift steps' (CmuxNextOnboarding) it replaces.
   onboarding: {
@@ -105,6 +101,12 @@ export const PAGES = {
           ),
       },
     ],
+  },
+  // The sentences every page shows for a failure it has no sentence of its own for
+  // (pages/shared/userMessage.ts): never the error's own text.
+  pageErrors: {
+    out: "webviews/src/pages/shared/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/shared/Localizable.xcstrings" }],
   },
   variantPick: {
     out: "webviews/src/ui/variant-pick/generated/strings.json",
@@ -145,6 +147,10 @@ export const PAGES = {
       {
         file: `${sources}/CmuxNextActions/ActionCatalog.xcstrings`,
         keys: () => ["action.reloadConfiguration"],
+      },
+      {
+        file: `${sources}/CmuxNextActions/RemoteActions.xcstrings`,
+        keys: () => ["action.remote.newGroup"],
       },
       {
         // Agents > Chiefs (u2586) draws the channels Home's Chief editor (ChiefPage.tsx).
@@ -270,25 +276,17 @@ export const PAGES = {
       },
     ],
   },
-  // The server cards (cmux-page://cmux.server-cards/) share the tables of the Swift they replaced:
-  // Pair Another Machine's own, and the server surfaces' (which Pair Another Machine reuses).
+  // The server page (cmux-page://cmux.server-cards/): the menu bar popover's routes. Every card (Add Server, Pair
+  // Another Machine, Add Machine, app health) is native (AddServerDialog, PairInviteDialog, AddMachineDialog).
   "server-cards": {
     out: "webviews/src/pages/server-cards/generated/strings.json",
     catalogs: [
-      { file: `${sources}/CmuxNextServer/Resources/PairInvite.xcstrings` },
-      // Add Machine's card shares its table with the Machines section (`addMachine.` keys only).
-      {
-        file: `${sources}/CmuxNextServer/Resources/AddMachine.xcstrings`,
-        keys: (all) => all.filter((key) => key.startsWith("addMachine.")),
-      },
-      // The server surfaces' own table (the menu bar panel, Health, pairing, Add Server); the app's
-      // refusals (`refusal.*`) stay native.
+      // The server surfaces' own table (the menu bar panel, Health, pairing); the app's refusals (`refusal.*`) and
+      // Add Server's words (`approver.*`) stay native.
       {
         file: `${sources}/CmuxNextServer/Resources/Localizable.xcstrings`,
-        keys: (all) => all.filter((key) => !key.startsWith("refusal.")),
+        keys: (all) => all.filter((key) => !key.startsWith("refusal.") && !key.startsWith("approver.")),
       },
-      // App health's popover (`#/app-health`, webviews/src/app-health), hosted as Health is.
-      { file: "webviews/src/app-health/Localizable.xcstrings" },
     ],
   },
   // The right sidebar's Machines section (cmux-page://cmux.machines/) shares the Swift card's table:
@@ -335,8 +333,8 @@ export const PAGES = {
     out: "webviews/src/pages/tasks/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/tasks/Localizable.xcstrings" }],
   },
-  // The browser's Page Info bubble (cmux-page://cmux.page-info/); its table lives next to its
-  // component in webviews/src/browser-chrome/page-info.
+  // The browser's Page Info windows (site settings, site data, the certificate viewer); their table
+  // lives next to their components in webviews/src/browser-chrome/page-info.
   "browser-chrome-page-info": {
     out: "webviews/src/browser-chrome/page-info/generated/strings.json",
     catalogs: [{ file: "webviews/src/browser-chrome/page-info/Localizable.xcstrings" }],

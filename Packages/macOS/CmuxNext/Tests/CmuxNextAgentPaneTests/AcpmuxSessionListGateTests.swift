@@ -64,6 +64,24 @@ struct AcpmuxSessionListGateTests {
         #expect(rows.count == 1)
     }
 
+    /// More chats with an ask than one reply holds (past 1 MiB) come in pages: each `nextCursor`
+    /// is read with `pendingOnly` again, and every page's chats are kept.
+    @Test func pendingOnlyPagesAreFollowedToTheLast() async throws {
+        var sent: [[String: Any]] = []
+        let rows = try #require(await AcpmuxSessionListGate(
+            capabilities: [AcpmuxSessionListGate.pendingCapability]).pendingSessions { _, params in
+                sent.append(params)
+                switch params["cursor"] as? String {
+                case nil: return ["sessions": [["sessionId": "a", "pendingPermissions": 1]], "nextCursor": "c1"]
+                case "c1": return ["sessions": [["sessionId": "b", "pendingPermissions": 1]], "nextCursor": "c2"]
+                default: return ["sessions": [["sessionId": "c", "pendingPermissions": 1]]]
+                }
+            })
+        #expect(sent.count == 3)
+        #expect(sent.allSatisfy { $0["pendingOnly"] as? Bool == true && $0["limit"] == nil })
+        #expect(rows.compactMap { $0["sessionId"] as? String } == ["a", "b", "c"])
+    }
+
     @Test func aFailedPageIsNoList() async {
         let rows = await AcpmuxSessionListGate(capabilities: []).pendingSessions { _, _ in nil }
         #expect(rows == nil)

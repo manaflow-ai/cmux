@@ -38,8 +38,8 @@ class FixtureTests(unittest.TestCase):
         for kind in matrix.WORKSPACES:
             if kind == "big-plain":
                 continue  # 128 MiB of random blobs; its shape is the plain folder's
-            if kind in matrix.REFUSED_CELLS:
-                continue  # refused before any copy: no manifest is compared, and 21 GiB of zeros is no fixture to hash
+            if kind in matrix.FIRST_PASS_CELLS:
+                continue  # a first pass: no manifest is compared, and 21 GiB of zeros is no fixture to hash
             folder, note = matrix.build_fixture(kind, self.root, self.args, "cmxcanarytest")
             if folder is None:
                 self.assertTrue(note.startswith("skipped"), kind)
@@ -55,7 +55,38 @@ class FixtureTests(unittest.TestCase):
             for name in matrix.PARENT_REPOS:
                 self.assertTrue((folder / name / ".git").is_dir(), (kind, name))
         self.assertEqual((self.root / "huge-parent-repos/disk.img").stat().st_size, matrix.HUGE_PLAIN_BYTES)
-        self.assertEqual(set(matrix.REFUSED_CELLS), {"huge-plain", "huge-parent-repos"})
+        self.assertEqual(set(matrix.FIRST_PASS_CELLS), {"huge-plain", "huge-repo", "huge-parent-repos"})
+
+    def test_a_huge_repo_is_one_repository_with_its_big_file_untracked(self):
+        folder, _ = matrix.build_fixture("huge-repo", self.root, self.args, "")
+        self.assertTrue((folder / ".git").is_dir())
+        self.assertEqual((folder / matrix.FIRST_PASS_LEFT).stat().st_size, matrix.HUGE_PLAIN_BYTES)
+
+    def test_a_first_pass_cell_must_leave_its_big_file_on_the_mac(self):
+        cell = {"workspace": "huge-repo", "agent": "claude", "start_exit": 0, "hash_match": True,
+                "reply": {"form_ok": True, "word_ok": True, "canary_in_reply": False, "text": "MATRIX_OK"},
+                "create_to_reply_s": 20, "machine_killed": True, "left_on_mac": 0,
+                "estimate": {"mode": "seed", "copy_mode": "first_pass"}}
+        self.assertIn("nothing left on the Mac", matrix.verdict(cell, "c"))
+        cell["left_on_mac"] = 1
+        self.assertEqual(matrix.verdict(cell, "c"), "pass")
+
+    def test_every_start_names_its_copy_before_the_lease(self):
+        cell = {"workspace": "huge-parent-repos", "agent": "claude", "start_exit": 0, "hash_match": None,
+                "reply": {"form_ok": True, "word_ok": True, "canary_in_reply": False, "text": "MATRIX_OK"},
+                "create_to_reply_s": 20, "machine_killed": True, "left_on_mac": 3}
+        cell["hash_match"] = True
+        self.assertIn("no copy estimate before the lease", matrix.verdict(cell, "c"))
+        cell["estimate"] = {"mode": "whole"}
+        self.assertIn("estimate said whole", matrix.verdict(cell, "c"))
+        cell["estimate"] = {"mode": "first_pass"}
+        self.assertEqual(matrix.verdict(cell, "c"), "pass")
+        # A cell under the limits that a slow link made a first pass: its partial tree is no failure.
+        slow = dict(cell, workspace="big-plain", hash_match=False, left_on_mac=4,
+                    estimate={"mode": "first_pass", "why": "time"})
+        self.assertEqual(matrix.verdict(slow, "c"), "pass")
+        whole = dict(slow, estimate={"mode": "whole"})
+        self.assertIn("tree differs", matrix.verdict(whole, "c"))
 
     def test_secrets_are_left_out_and_the_canary_is_found_where_it_is(self):
         folder, _ = matrix.build_fixture("secrets", self.root, self.args, "cmxcanarytest")
@@ -136,6 +167,111 @@ class GrantTests(unittest.TestCase):
         self.assertNotIn(".config/cmux", str(config))
         m.quit()
         self.assertFalse(config.exists())
+
+    def test_cache_claude_login_stores_for_the_signed_in_account_and_removes_at_quit(self):
+        from unittest.mock import patch
+        token = "sk-ant-oat01-" + "x" * 40
+        with self.assertRaises(SystemExit):
+            matrix.parse_args(["--cli", "/bin/true", "--out", "/tmp/x", "--cache-claude-login"])
+        with patch.dict("os.environ", {"CLAUDE_CODE_OAUTH_TOKEN": "not-a-login"}), self.assertRaises(SystemExit):
+            matrix.parse_args([*self.APP, "--cache-claude-login"])
+        with patch.dict("os.environ", {"CLAUDE_CODE_OAUTH_TOKEN": token}):
+            m = matrix.Matrix(matrix.parse_args([*self.APP, "--grant-claude-login", "--cache-claude-login",
+                                                 "--login", "pass"]))
+        # No CLI call inherits the token; it goes to `cloud secret set` on stdin only.
+        self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", m.env)
+        status = {"pid": 1, "app_bundle_path": "/Applications/cmux.app", "signed_in": True,
+                  "cloud_environment": "staging", "backend": "https://example.invalid",
+                  "user_id": "stack-user-1", "team_id": "team-1", "account": {"signed_in": True}, "loaded": True}
+        calls = []
+
+        def run(command, *, env, input=None, capture_output, text, timeout):
+            calls.append((command[1:], input))
+            self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", env)
+            self.assertNotIn(token, " ".join(command))
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        with patch.object(m, "cmux", return_value=(0, json.dumps({"result": status}), "")), \
+                patch("subprocess.Popen"), patch("subprocess.run", side_effect=run):
+            self.assertEqual(m.launch(), "")
+            entries = [matrix.claude_login_cache.name("stack-user-1", "team-1"),
+                       matrix.claude_login_cache.name("stack-user-1", None)]
+            self.assertEqual([words for words, _ in calls], [["cloud", "secret", "set", e] for e in entries])
+            self.assertTrue(all(json.loads(stdin)["credential"] for _, stdin in calls))
+            calls.clear()
+            m.launcher = None
+            m.quit()
+            self.assertEqual(sorted(words for words, _ in calls), sorted(["cloud", "secret", "rm", e] for e in entries))
+        self.assertEqual(matrix.start_login("claude", "pass"), ["--login", "pass"])
+
+
+class TrustTests(unittest.TestCase):
+    """A fixture is trusted on this Mac before its cell, as a person does: an untrusted folder's Cloud start is
+    refused before any machine (#41079), which turned every cell red at 0.0 s. Every decision the run writes is
+    put back at teardown, so the person's trust.json is as it was (#41547 review F1)."""
+
+    # `cmux --json setup trust FOLDER [--level L]` over a JSON record at $FAKE_TRUST, answering as the real one
+    # does: `recorded` (the level before), `written` (the folder whose record changed; absent when it held it).
+    FAKE = """#!/usr/bin/env python3
+import json, os, sys
+args = sys.argv[1:]
+store = os.environ["FAKE_TRUST"]
+if os.environ.get("FAKE_FAIL"):
+    print(json.dumps({"code": "failed", "message": "no daemon"})); sys.exit(1)
+assert args[:3] == ["--json", "setup", "trust"], args
+folder = args[3]
+level = args[args.index("--level") + 1] if "--level" in args else "trusted"
+record = json.load(open(store)) if os.path.exists(store) else {}
+before = record.get(folder)
+report = {"folder": folder, "recorded": before}
+if before != (None if level == "unknown" else level):
+    if level == "unknown":
+        record.pop(folder, None)
+    else:
+        record[folder] = level
+    with open(store, "w") as f:
+        json.dump(record, f, sort_keys=True)
+    report["written"] = folder
+print(json.dumps({"ok": True, "result": report}))
+"""
+
+    def matrix_with_fake(self, folder: Path, **env) -> "matrix.Matrix":
+        cli = folder / "cmux"
+        cli.write_text(self.FAKE)
+        cli.chmod(0o755)
+        m = matrix.Matrix(matrix.parse_args(["--cli", str(cli), "--out", "/tmp/x"]))
+        m.env.update({"FAKE_TRUST": str(folder / "trust.json"), **env})
+        return m
+
+    def test_a_run_leaves_trust_json_as_it_was(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store = Path(folder) / "trust.json"
+            store.write_text(json.dumps({"/kept": "trusted", "/fixtures/dirty": "untrusted"}, sort_keys=True))
+            before = store.read_bytes()
+            m = self.matrix_with_fake(Path(folder))
+            for name in ("small-repo", "dirty", "secrets"):
+                self.assertEqual(m.trust(Path("/fixtures") / name), "")
+            self.assertEqual(json.loads(store.read_text())["/fixtures/small-repo"], "trusted")
+            self.assertEqual(m.forget_trust(), [])
+            self.assertEqual(json.loads(store.read_bytes()), json.loads(before))
+            self.assertEqual(m.trusted, [])
+
+    def test_a_folder_already_trusted_is_left_trusted(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store = Path(folder) / "trust.json"
+            store.write_text(json.dumps({"/fixtures/small-repo": "trusted"}))
+            m = self.matrix_with_fake(Path(folder))
+            self.assertEqual(m.trust(Path("/fixtures/small-repo")), "")
+            m.forget_trust()
+            self.assertEqual(json.loads(store.read_text()), {"/fixtures/small-repo": "trusted"})
+
+    def test_a_trust_that_fails_is_the_cells_failure_and_records_nothing(self):
+        with tempfile.TemporaryDirectory() as folder:
+            m = self.matrix_with_fake(Path(folder), FAKE_FAIL="1")
+            note = m.trust(Path(folder) / "small-repo")
+            self.assertTrue(note.startswith("fail: trust: "), note)
+            self.assertIn("no daemon", note)
+            self.assertEqual(m.trusted, [])
 
 
 class StopTests(unittest.TestCase):

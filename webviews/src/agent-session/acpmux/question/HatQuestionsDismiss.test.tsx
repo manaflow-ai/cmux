@@ -2,6 +2,7 @@
 // shown question away through `actions.dismiss`, the × holds its room in the head at rest (so a
 // hover moves nothing), and a started chat's name keeps the head's line, its question under it.
 import { afterEach, expect, test } from "bun:test";
+import { settleReact } from "../../../../test/support/domTeardown";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -29,6 +30,7 @@ const GLOBALS = [
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

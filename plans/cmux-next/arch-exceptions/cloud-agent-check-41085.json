@@ -1,1 +1,11 @@
-{"date": "2026-11-11", "row": "app_lines", "allow": 139, "why": "Two rules meet here. The language boundary (.github/language-boundaries.toml, cloud-core-swift-minimal) refuses a new Swift file in CmuxNextCloud and CmuxNextCloudCredentials, the Cloud domain packages. The rule itself is already Rust (cmux-cloud-start-core agent_check, #41135). What is left is app-side glue that Rust cannot do without a network stack in the app FFI: a Keychain read, one URLSession probe, and a per-person cache of the rule's answer. So that glue sits in CmuxNextApp/Cloud. The independent review at the previous head covered the same code, before it moved.", "author": "red1 cloud-composer lane (claude opus)", "owner": "red1 cloud-composer lane: move the probe and cache into Rust once the app FFI can send HTTP, or into the Cloud package if the boundary allows it", "receipt": "Review (claude, independent subagent): SHIP at 9a4318089e4768dd22db203aa5497c9c0deeeb76", "expiry": "2026-12-11"}
+{
+  "date": "2026-11-11",
+  "row": "app_lines",
+  "allow": 139,
+  "why": "Two rules meet here. The language boundary (.github/language-boundaries.toml, cloud-core-swift-minimal) refuses a new Swift file in CmuxNextCloud and CmuxNextCloudCredentials, the Cloud domain packages. The rule itself is already Rust (cmux-cloud-start-core agent_check, #41135). What is left is app-side glue that Rust cannot do without a network stack in the app FFI: a Keychain read, one URLSession probe, and a per-person cache of the rule's answer. So that glue sits in CmuxNextApp/Cloud. The independent review at the previous head covered the same code, before it moved.",
+  "author": "red1 cloud-composer lane (claude opus)",
+  "owner": "red1 cloud-composer lane: move the probe and cache into Rust once the app FFI can send HTTP, or into the Cloud package if the boundary allows it",
+  "receipt": "Review (claude, independent subagent): SHIP at 9a4318089e4768dd22db203aa5497c9c0deeeb76",
+  "expiry": "2026-12-11",
+  "applied_sha": "2bb3ce00e99e3c1bd9e33c5b71941ff38825db9f"
+}

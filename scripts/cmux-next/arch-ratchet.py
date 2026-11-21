@@ -74,8 +74,8 @@ When a count drops, it passes, and prints `lower plans/cmux-next/arch-ratchet.js
 scripts/cmux-next/arch-ratchet.py --update` with the rows the pushed json leaves stale, judged over the
 range (none when the push carries an `--update` measured after the drop; see
 stale_rows for the one case it can still name wrongly). An internal error prints a warning and lets the
-push through (fail open). Never runs
-under GitHub Actions (Lawrence 2026-10-23: no new CI gates, nothing that slows pushes). Its cost is the files
+push through (fail open). Never runs under GitHub Actions (Lawrence 2026-10-23: no new CI gates and nothing that slows
+pushes; the CI part was lifted 2026-11-18). Its cost is the files
 it reads: the changed files, and for a type lookup the declaring and mentioning files, each analyzed once per
 content (arch_counts.FactsCache); the report prints the count. Measured 2026-10-23 at load 50-70 (method v3,
 before the v4 observer count): an 80-file cross-package move about 2 s warm, 8 s on the first run after
@@ -103,7 +103,8 @@ ran the installer (a `wt` mirror, a lane VM, whose `git push` goes through lane-
 landed on feat-cmux-next: 60 "base red" arch fixes in the 7 days to 2026-11-05, each a lane moving another PR's
 App lines out (#35386 took back +26 from #35294, pushed from a lane VM; the ratchet refuses that commit in 7 s).
 The fleet's global pre-push hook (leo-workspace tools/git-hooks/pre-push) runs `--pre-push` for a push to
-manaflow-ai/cmux when the clone has no cmux pre-push hook of its own. Still no CI job (Lawrence 2026-10-23).
+manaflow-ai/cmux when the clone has no cmux pre-push hook of its own. Still no CI job (Lawrence 2026-10-23,
+since lifted).
 """
 
 from __future__ import annotations
@@ -123,7 +124,16 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 RULES_DIR = HERE / "arch_rules"
-UPSTREAM = "origin/feat-cmux-next"
+# The full remote-tracking name, never `origin/feat-cmux-next`: git reads a short name as a local branch of that
+# name (refs/heads/origin/feat-cmux-next, which some tool creates) when one exists (push_range.UPSTREAM).
+UPSTREAM = "refs/remotes/origin/feat-cmux-next"
+
+
+def shown(ref: str) -> str:
+    """REF as messages print it: `refs/remotes/origin/x` -> `origin/x`."""
+    return ref.removeprefix("refs/remotes/")
+
+
 UPDATE_HINT = "lower plans/cmux-next/arch-ratchet.json: scripts/cmux-next/arch-ratchet.py --update"
 RECORD_ROW = "arch_ratchet_json"  # the refusal id of rule 2 (the record's own totals)
 # One dated exception per file (<id>.json), read with the json's `exceptions` list as one list: two pushes that each
@@ -1073,7 +1083,8 @@ def audit(repo: Path, rev: str = "HEAD") -> dict:
         # An orphaned measured_sha names no commits and refuses every --update: say so whether or not a row is over,
         # and count from where --update would anchor (its first candidate).
         result["orphaned"] = True
-        since = result["anchored_at"] = next(iter(anchor_candidates(repo, since, UPSTREAM)), (None, ""))[0]
+        orphan, result["anchored_at"] = since, next(iter(anchor_candidates(repo, since, UPSTREAM)), (None, ""))[0]
+        since = anchor_boundary(repo, orphan, result["anchored_at"]) if result["anchored_at"] else None
     culprits = raised_by(repo, since, sha, set(over)) if over and since else {}
     for row_id, (was, n) in over.items():
         result["over"][row_id] = {"recorded": was, "now": n,
@@ -1088,7 +1099,7 @@ def audit_lines(result: dict) -> list[str]:
     if result.get("orphaned"):
         anchor = result.get("anchored_at")
         escapes = [f"arch-ratchet audit at {result['sha'][:11]}: measured_sha {str(result['recorded_sha'])[:11]} is not "
-                   f"on {UPSTREAM} (a squash orphaned it), so --update refuses; rerun it with "
+                   f"on {shown(UPSTREAM)} (a squash orphaned it), so --update refuses; rerun it with "
                    + (f"--anchor {anchor}" if anchor else "an --anchor it names")] + escapes
     if not result["over"]:
         return [f"arch-ratchet audit at {result['sha'][:11]}: every ratcheted row is at or under arch-ratchet.json "
@@ -1099,7 +1110,7 @@ def audit_lines(result: dict) -> list[str]:
         lines.append(f"arch-ratchet audit at {result['sha'][:11]}: {row_id} {entry['now']} over the recorded "
                      f"{entry['recorded']} (+{entry['now'] - entry['recorded']} since "
                      f"{str(result['recorded_sha'])[:11]}"
-                     + (f", not on {UPSTREAM}: counted from {result['anchored_at'][:11]}" if result.get("anchored_at") else "")
+                     + (f", not on {shown(UPSTREAM)}: counted from {result['anchored_at'][:11]}" if result.get("anchored_at") else "")
                      + f"); raised by {by}")
     return lines
 
@@ -1168,17 +1179,30 @@ def valid_anchor(repo: Path, since: str, anchor: str, upstream_ref: str) -> bool
     return recorded_at(repo, anchor) == since or merge_base_of(repo, since, upstream_ref) == anchor
 
 
+def anchor_boundary(repo: Path, since: str, anchor: str) -> str:
+    """The commit attribution counts from (raised_by's SINCE..) for ANCHOR standing in for the orphaned SINCE: ANCHOR's
+    first parent when ANCHOR is a commit whose json records SINCE (the squash or rebase that carried the record, which
+    may change counted code too: its own rise is then attributed, not lost), else ANCHOR itself (the merge base). A
+    root commit has no parent: ANCHOR."""
+    if recorded_at(repo, anchor) != since:
+        return anchor
+    code, parent = git(repo, "rev-parse", "--verify", "--quiet", f"{anchor}^1")
+    return parent if code == 0 and parent else anchor
+
+
 def record_anchor(repo: Path, old: dict, new: dict, upstream_ref: str) -> str | None:
     """The commit OLD's totals count from in a push from OLD to NEW: OLD's measured_sha while it is on
-    UPSTREAM_REF; when it is not (orphaned), the anchor NEW's `reanchor` names ({"measured_sha": OLD's, "at":
+    UPSTREAM_REF or in the history of NEW's measured_sha (a branch's own earlier --update, as unreachable_record
+    accepts it); when it is neither (orphaned), the anchor NEW's `reanchor` names ({"measured_sha": OLD's, "at":
     anchor}, what --update --anchor writes) once valid_anchor re-checks it, else None (nothing bounds the
     commits, so no generated entry counts, and the orphan is never looked up: in_history)."""
-    since, moved = old.get("measured_sha"), new.get("reanchor")
-    if not isinstance(since, str) or in_history(repo, since, upstream_ref):
+    since, moved, until = old.get("measured_sha"), new.get("reanchor"), new.get("measured_sha")
+    measured = [until] if isinstance(until, str) and load_counts().SHA.fullmatch(until) else []
+    if not isinstance(since, str) or in_history(repo, since, upstream_ref, *measured):
         return since
     if isinstance(moved, dict) and moved.get("measured_sha") == since and valid_anchor(repo, since, moved.get("at"),
                                                                                        upstream_ref):
-        return moved["at"]
+        return anchor_boundary(repo, since, moved["at"])
     return None
 
 
@@ -1259,27 +1283,27 @@ def update(repo: Path, rev: str = "HEAD", upstream_ref: str = UPSTREAM, anchor: 
     reanchor = None
     if anchor is not None or unreachable_record(repo, since, sha, upstream_ref):
         if not since or not unreachable_record(repo, since, sha, upstream_ref):
-            print(f"arch-ratchet: --update refused: --anchor is only for a measured_sha that is not on {upstream_ref}; "
+            print(f"arch-ratchet: --update refused: --anchor is only for a measured_sha that is not on {shown(upstream_ref)}; "
                   f"{str(since)[:11]} is (or there is no record): rerun without --anchor")
             return 1
         if anchor is not None and not counts.SHA.fullmatch(anchor):  # a ref name; a full sha is never looked up
             anchor = git(repo, "rev-parse", "--verify", "--quiet", f"{anchor}^{{commit}}")[1] or anchor
         if anchor is None or not valid_anchor(repo, since, anchor, upstream_ref):
             print(f"arch-ratchet: --update refused: {path.name} not written. Its measured_sha {since} is not a "
-                  f"commit of {upstream_ref} (a squash or rebase orphaned the commit --update measured), so no rise "
-                  "since it can be attributed" + (f"; --anchor {anchor} is not a commit of {upstream_ref} whose json "
+                  f"commit of {shown(upstream_ref)} (a squash or rebase orphaned the commit --update measured), so no rise "
+                  "since it can be attributed" + (f"; --anchor {anchor} is not a commit of {shown(upstream_ref)} whose json "
                                                    "records it, nor their merge base" if anchor else "") + ". Recover "
                   "by counting from a commit that carries those totals:")
             options = anchor_candidates(repo, since, upstream_ref)
             for candidate, why in options:
                 print(f"  scripts/cmux-next/arch-ratchet.py --update --rev {rev} --anchor {candidate}   # {why}")
             if not options:
-                print(f"  none found: no commit of {upstream_ref} records it. Fetch {upstream_ref} and retry; failing "
+                print(f"  none found: no commit of {shown(upstream_ref)} records it. Fetch {shown(upstream_ref)} and retry; failing "
                       "that, tell the Performance Lead (the record must be re-measured by hand review)")
             return 1
-        print(f"arch-ratchet: measured_sha {since[:11]} is not on {upstream_ref}: counting from {anchor[:11]} "
+        print(f"arch-ratchet: measured_sha {since[:11]} is not on {shown(upstream_ref)}: counting from {anchor[:11]} "
               "(--anchor), recorded in `reanchor`")
-        reanchor, since = {"measured_sha": since, "at": anchor}, anchor
+        reanchor, since = {"measured_sha": since, "at": anchor}, anchor_boundary(repo, since, anchor)
     # A blocking escape is never recorded as someone else's debt: a rise needs a reviewed exception, wherever it landed.
     upstream_rows = set(uncovered) - {ESCAPE_ROW}
     landed, named = upstream_rises(repo, since, sha, upstream_rows, before, upstream_ref) if upstream_rows else ({}, {})
@@ -1288,11 +1312,11 @@ def update(repo: Path, rev: str = "HEAD", upstream_ref: str = UPSTREAM, anchor: 
     if local:
         culprits = raised_by(repo, since, sha, set(local)) if since else {}
         print(f"arch-ratchet: --update refused: {path.name} not written. These ratcheted totals rose past "
-              f"the pending exceptions in commits that are not on {upstream_ref}:")
+              f"the pending exceptions in commits that are not on {shown(upstream_ref)}:")
         for row_id, n in sorted(local.items()):
             was, total = uncovered[row_id]
             print(f"  {row_id}: recorded {was} at {str(since)[:11]}, now {total} (+{total - was}; pending exceptions "
-                  f"allow {allow.get(row_id, 0)}" + (f", {landed[row_id]} already on {upstream_ref}" if landed.get(row_id) else "")
+                  f"allow {allow.get(row_id, 0)}" + (f", {landed[row_id]} already on {shown(upstream_ref)}" if landed.get(row_id) else "")
                   + ")")
             for c, r, t in culprits.get(row_id, []):
                 print(f"    raised by {c[:11]} +{r} {t}")
@@ -1304,11 +1328,11 @@ def update(repo: Path, rev: str = "HEAD", upstream_ref: str = UPSTREAM, anchor: 
     today = datetime.date.today().isoformat()
     for row_id, n in sorted(excess.items()):
         shas = [c for c, _, _ in named[row_id]]
-        print(f"arch-ratchet: WARNING: {row_id} rose {n} past the record in commits already on {upstream_ref} "
+        print(f"arch-ratchet: WARNING: {row_id} rose {n} past the record in commits already on {shown(upstream_ref)} "
               f"(not this push's debt; recorded with a generated entry): "
               + "; ".join(f"{c[:11]} +{r} {t[:60]}" for c, r, t in named[row_id]))
         exceptions.append({"date": today, "row": row_id, "allow": n,
-                           "why": f"generated by --update: the rise landed on {upstream_ref} past the hook",
+                           "why": f"generated by --update: the rise landed on {shown(upstream_ref)} past the hook",
                            "raised_by": shas, "applied_sha": sha})
     data = counts.record(sha, now, lay, exceptions, escape_reviews_of(old))
     if reanchor:
@@ -1341,6 +1365,8 @@ def pre_push(repo: Path, remote: str, lines: list[str], upstream_ref: str = UPST
         return 0
     for error in errors:
         print(f"arch-ratchet: WARNING: not judged: {error}", file=sys.stderr)
+    for own in ranges:  # the note names a base the refresh could not fetch (push_range.refresh_upstream)
+        print(f"arch-ratchet: judging {own.describe()}", file=sys.stderr)
     if not ranges:
         return 0
     return 1 if run_push(repo, ranges, upstream_ref) else 0
@@ -1363,6 +1389,10 @@ def main(argv: list[str] | None = None) -> int:
                         help="judge the refs of git's pre-push stdin (REMOTE: the hook's first argument)")
     args = parser.parse_args(argv)
     repo = Path(args.repo).resolve() if args.repo else Path(git(Path.cwd(), "rev-parse", "--show-toplevel")[1])
+    # `--upstream origin/x` names the remote-tracking ref even beside a local branch `origin/x` (see UPSTREAM).
+    if not args.upstream.startswith("refs/") and git(
+            repo, "rev-parse", "--verify", "--quiet", f"refs/remotes/{args.upstream}^{{commit}}")[0] == 0:
+        args.upstream = f"refs/remotes/{args.upstream}"
     if args.list_rules:
         counts = load_counts()
         for row in counts.ROWS:
@@ -1392,7 +1422,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         push_range = load_push_range()
         own = (push_range.given_range(repo, args.base, head) if args.base
-               else push_range.own_range(repo, head, [], args.upstream))
+               else push_range.manual_range(repo, head, args.upstream))
     except ValueError as error:
         print(f"arch-ratchet: {error}", file=sys.stderr)
         return 2

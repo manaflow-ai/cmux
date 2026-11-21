@@ -9,6 +9,7 @@ only for a non-diagnostic run with no failure, no speed red and enough fuzz time
 seed and shrunk sequence, replayed in a fresh lease and written as a regression journey. The journey loads
 (`run.py --check`).
 """
+import importlib.util
 import json
 import os
 import subprocess
@@ -24,10 +25,18 @@ sys.path.insert(0, str(HERE.parent / "cmux-next"))  # build_names.py, as run.py 
 import ext_fuzz  # noqa: E402
 import fuzz  # noqa: E402
 
+# tests/known_red.py: a skip against an issue that fails once its checked-in date passes.
+_known_red_spec = importlib.util.spec_from_file_location(
+    "known_red", Path(__file__).resolve().parents[2] / "tests" / "known_red.py")
+_known_red = importlib.util.module_from_spec(_known_red_spec)
+_known_red_spec.loader.exec_module(_known_red)
+known_red = _known_red.known_red
+
 # A stand-in for run.py: writes the round's results.jsonl and action-fuzz/fuzz.json from FUZZ_PLAN (JSON:
 # {"<side>": {"fail_seeds": [...], "typeable_ms": N}}), the side read from the --build job id.
 FAKE = r'''
 import json, os, sys
+
 args = sys.argv[1:]
 out = args[args.index("--out") + 1]
 build = args[args.index("--build") + 1]
@@ -277,7 +286,7 @@ class Verdicts(unittest.TestCase):
         self.assertTrue(all(c["hosts"] == "cmux18" and c.get("whole_host") for c in calls), calls[:2])
         self.assertTrue(all("fuzz_mode" not in c["opts"] for c in calls))
 
-    @unittest.skip("flaky on feat-cmux-next (red in 1 of 2 Linux runs), line 302: 1 not greater than or equal to 2 (https://github.com/manaflow-ai/cmux/issues/41322)")
+    @known_red(41322, "2026-12-02", "flaky on feat-cmux-next (red in 1 of 2 Linux runs), line 302: 1 not greater than or equal to 2")
     def test_go_dir_gates_each_round(self):
         import threading
         tmp = Path(tempfile.mkdtemp())

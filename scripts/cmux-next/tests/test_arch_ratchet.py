@@ -17,7 +17,7 @@ full counts, and the hook must stay under 1 s on a 30-file push and on a warm 80
 (which reads no file twice: the facts cache). The installed-hook path (install-git-hooks.sh
 copying arch_rules/, guardrails running the ratchet) is in tests/test_cmux_next_guardrails.py.
 
-Not a CI job (Lawrence 2026-10-23: no new CI gates): run it yourself after a change to the ratchet:
+Not a CI job (Lawrence 2026-10-23: no new CI gates, lifted 2026-11-18): run it yourself after a change to the ratchet:
   python3 -I scripts/cmux-next/tests/test_arch_ratchet.py
 """
 
@@ -1680,6 +1680,30 @@ class RatchetTests(Repo):
         self.commit("the runner's own commit")
         return orphan, recording, landed
 
+    def test_the_anchor_commit_s_own_rise_is_attributed(self):
+        # The squash that carries the orphaned record also adds a singleton: anchoring there must name it (review F1).
+        self.assertEqual(self.update()[0], 0)
+        data = self.recorded()
+        orphan = "9c4b1ccc1285b2b9078289302ea8aef7fc9122b4"
+        before = data["totals"]["stateful_singletons"]
+        data["measured_sha"] = orphan
+        self.write(counts.RATCHET_JSON, json.dumps(data))
+        self.write(f"{SRC}/CmuxNextDomain/Store+Shared.swift", "extension Store {\n    static let shared = Store()\n}\n")
+        recording = self.commit("the squash carries the record and a singleton")
+        self.git("branch", "upstream", recording)
+        self.write("README", "the runner's own commit\n")
+        self.commit("the runner's own commit")
+        self.assertEqual(ratchet.anchor_boundary(self.repo, orphan, recording), self.git("rev-parse", f"{recording}^1"))
+        code, out = self.update_at(anchor=recording)
+        self.assertEqual(code, 0, out)
+        data = self.recorded()
+        entry = data["exceptions"][-1]
+        self.assertEqual((data["totals"]["stateful_singletons"], entry["row"], entry["raised_by"]),
+                         (before + 1, "stateful_singletons", [recording]))
+        update = self.commit("--update --anchor")
+        refusals, notes = ratchet.check_range(self.repo, recording, update, [], upstream_ref="upstream")
+        self.assertEqual(refusals, [], notes)
+
     def update_at(self, **kwargs):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
@@ -1757,13 +1781,24 @@ class RatchetTests(Repo):
         old = self.recorded()
         new = dict(old, reanchor={"measured_sha": old["measured_sha"], "at": record})
         self.assertEqual(ratchet.record_anchor(self.repo, old, new, "upstream"), old["measured_sha"])
+        # A record measured on a branch off upstream still bounds the commits when the new record's history has it
+        # (a branch's own earlier --update, which --update accepts too).
+        self.git("checkout", "--quiet", "-b", "perf")
+        self.write("README", "a perf branch\n")
+        branch = self.commit("measured on a branch")
+        self.write("README", "later on the branch\n")
+        later = self.commit("the next --update's commit")
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        measured = dict(old, measured_sha=branch)
+        self.assertEqual(ratchet.record_anchor(self.repo, measured, dict(old, measured_sha=later), "upstream"), branch)
+        self.assertIsNone(ratchet.record_anchor(self.repo, measured, old, "upstream"))
         # An orphan with no valid reanchor bounds nothing (and is never looked up).
         orphan = dict(old, measured_sha="9c4b1ccc1285b2b9078289302ea8aef7fc9122b4")
         self.assertIsNone(ratchet.record_anchor(self.repo, orphan, old, "upstream"))
 
     def test_the_audit_counts_an_orphaned_record_from_its_recording_commit(self):
         orphan, recording, landed = self.orphaned_record()
-        self.git("branch", "--force", "origin/feat-cmux-next", "upstream")
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", "upstream")
         result = ratchet.audit(self.repo)
         self.assertTrue(result["orphaned"])
         self.assertEqual(result["anchored_at"], recording)

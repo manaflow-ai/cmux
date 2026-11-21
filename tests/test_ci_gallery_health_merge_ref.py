@@ -16,6 +16,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import sys
+
 import yaml
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
@@ -27,6 +29,8 @@ _git_fixture_spec.loader.exec_module(git_fixture_env)
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 WORKFLOW = ROOT / ".github" / "workflows" / "gallery-health.yml"
 
 
@@ -136,12 +140,12 @@ class GalleryHealthBaseReds(unittest.TestCase):
     def test_every_health_run_may_render(self) -> None:
         # health.ts refuses to render without CMUX_GALLERY_IN_VM=1 and writes no verdict; the base replay
         # first ran without it, so no base result ever existed and every red failed (review of #27100).
-        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-        job_env = workflow["jobs"]["health"].get("env") or {}
-        runs = [entry for entry in steps() if "bun health.ts" in str(entry.get("run", ""))]
+        workflow = workflow_jobs.document(WORKFLOW)
+        job = workflow["jobs"]["health"]
+        runs = [entry for entry in job["steps"] if "bun health.ts" in str(entry.get("run", ""))]
         self.assertEqual(len(runs), 2)
         for entry in runs:
-            env = {**job_env, **(entry.get("env") or {})}
+            env = workflow_jobs.effective_env(workflow, job, entry)
             self.assertEqual(str(env.get("CMUX_GALLERY_IN_VM")), "1", entry.get("name"))
 
     def test_a_base_replay_with_no_verdict_fails_loudly(self) -> None:
@@ -177,8 +181,9 @@ class GalleryHealthBaseReds(unittest.TestCase):
         self.assertIn("head.repo.full_name == github.repository", job["if"])
         self.assertNotIn("needs", job, "it runs beside the shards, not before them")
         self.assertNotIn("needs", workflow["jobs"]["health"])
-        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", job["runs-on"])
-        self.assertNotIn("blacksmith", job["runs-on"])
+        runs_on = "\n".join(workflow_jobs.runs_on_cells(job) or ["<unresolved matrix>"])
+        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", runs_on)
+        self.assertNotIn("blacksmith", runs_on)
         # It checks out what the shards check out, and restores the base by the judge step's own command.
         self.assertEqual(job["steps"][0]["with"], step("Checkout")["with"])
         build = next(entry for entry in job["steps"] if entry.get("name") == "Build the base gallery")["run"]
@@ -402,13 +407,17 @@ class GalleryHealthPathRouting(unittest.TestCase):
     the same time, like doing a lot of goofy stuff and, like, keeping around a lot of baggage."
     """
 
-    def test_a_pull_request_and_a_push_route_on_the_same_paths(self) -> None:
+    def test_it_renders_feat_cmux_next_pushes_and_dispatches_not_pull_requests(self) -> None:
+        # 2026-11-21 CI time map: ~75,000 runner-minutes a day, 89% on pull requests at a 3% miss rate
+        # (cmuxterm-hq#16094), so the render runs after the merge, on the base. Putting `pull_request:` back with
+        # the push's paths is the revert; the path tests below read the push list.
         on = triggers()
-        self.assertEqual(on["pull_request"]["paths"], on["push"]["paths"])
-        self.assertEqual(on["pull_request"]["branches"], ["feat-cmux-next"])
+        self.assertNotIn("pull_request", on)
+        self.assertEqual(on["push"]["branches"], ["feat-cmux-next"])
+        self.assertIn("workflow_dispatch", on)
 
     def test_what_the_render_reads_triggers_it(self) -> None:
-        paths = triggers()["pull_request"]["paths"]
+        paths = triggers()["push"]["paths"]
         for path in (
             "webviews/src/agent-session/acpmux/conversation/conversation.css",
             "webviews/src/gallery/frame/main.ts",
@@ -430,7 +439,7 @@ class GalleryHealthPathRouting(unittest.TestCase):
             self.assertTrue(triggered(path, paths), path)
 
     def test_what_the_render_never_reads_does_not_trigger_it(self) -> None:
-        paths = triggers()["pull_request"]["paths"]
+        paths = triggers()["push"]["paths"]
         for path in (
             "webviews/src/agent-session/acpmux/conversation/scrollAnchor.test.ts",
             "webviews/test/transcript-cohesion.browser.test.ts",
@@ -460,7 +469,7 @@ class GalleryHealthPathRouting(unittest.TestCase):
         block = source[source.index("const EVERYTHING"):source.index("];", source.index("const EVERYTHING"))]
         broad = [re.compile(body) for body in re.findall(r"^\s*/(.+)/,\s*$", block, re.M)]
         self.assertGreater(len(broad), 5)
-        paths = triggers()["pull_request"]["paths"]
+        paths = triggers()["push"]["paths"]
         files = [path for path in tracked(".") if any(pattern.search(path) for pattern in broad)]
         # A unit test beside the gallery (`*.test.ts`) is never bundled, so it renders nothing either.
         # A matrix tool or a gallery script no render runs (geometry-audit.ts, capture-window-chrome.ts) and a doc
@@ -475,7 +484,7 @@ class GalleryHealthPathRouting(unittest.TestCase):
     def test_every_script_a_render_runs_triggers_it(self) -> None:
         # The scripts folders are routed file by file; a module the build or the checker starts importing must
         # join the list, or a change to it would skip the check.
-        paths = triggers()["pull_request"]["paths"]
+        paths = triggers()["push"]["paths"]
         reached = render_script_closure()
         self.assertGreater(len(reached), 20)
         self.assertIn("scripts/gallery-matrix/shift-baseline.json", reached)
@@ -485,7 +494,7 @@ class GalleryHealthPathRouting(unittest.TestCase):
     def test_every_routed_script_is_one_a_render_runs(self) -> None:
         # The other way round: a file listed by name under the scripts folders is one a render reaches, so the
         # list keeps no file nothing reads.
-        paths = triggers()["pull_request"]["paths"]
+        paths = triggers()["push"]["paths"]
         reached = render_script_closure()
         folders = ("scripts/gallery-matrix/", "webviews/scripts/agent-pane/", "webviews/scripts/pages/",
                    "webviews/scripts/gallery/", "webviews/scripts/lint/")
@@ -496,7 +505,7 @@ class GalleryHealthPathRouting(unittest.TestCase):
     def test_a_markdown_file_a_gallery_source_imports_triggers_it(self) -> None:
         # webviews/src Markdown is routed only under src/gallery/fixtures/; a page that imports one from
         # elsewhere (`?raw`) must still start the check.
-        paths = triggers()["pull_request"]["paths"]
+        paths = triggers()["push"]["paths"]
         pattern = re.compile(r"""["'](\.{1,2}/[^"'?]+\.md)(?:\?raw)?["']""")
         missed = set()
         for name in tracked("webviews/src"):
@@ -512,7 +521,7 @@ class GalleryHealthPathRouting(unittest.TestCase):
     def test_every_file_the_gallery_imports_from_outside_webviews_triggers_it(self) -> None:
         # A gallery file, a component or a stylesheet that imports a fixture, a schema or a font from outside
         # webviews/: that file changes what renders, so it must start the workflow.
-        paths = triggers()["pull_request"]["paths"]
+        paths = triggers()["push"]["paths"]
         pattern = re.compile(r"""(?:\bfrom\s*|\bimport\s*\(?\s*|@import\s+(?:url\()?|new URL\(\s*)["'](\.{1,2}/[^"'?]+)""")
         missed = set()
         for name in tracked("webviews/src", "webviews/dev-server", "webviews/scripts/gallery",
@@ -535,7 +544,7 @@ class GalleryHealthPathRouting(unittest.TestCase):
 
     def test_the_string_catalogs_the_gallery_build_reads_trigger_it(self) -> None:
         # gallery:build runs gen-strings.mjs, which reads these catalogs into the pages' strings.
-        paths = triggers()["pull_request"]["paths"]
+        paths = triggers()["push"]["paths"]
         source = (ROOT / "webviews/scripts/pages/gen-strings.mjs").read_text(encoding="utf-8")
         sources = re.search(r'const sources = "([^"]+)"', source).group(1)
         files = {f.replace("${sources}", sources) for f in re.findall(r'file: [`"]([^`"]+)[`"]', source)}
@@ -546,7 +555,7 @@ class GalleryHealthPathRouting(unittest.TestCase):
     def test_the_design_scale_and_feature_tips_the_build_writes_trigger_it(self) -> None:
         # gen-strings.mjs (gallery:build) also writes the design scale (gen-design-scale.mjs) and the feature
         # tips (gen-feature-tips.mjs); their sources must start the workflow.
-        paths = triggers()["pull_request"]["paths"]
+        paths = triggers()["push"]["paths"]
         scale = (ROOT / "webviews/scripts/pages/gen-design-scale.mjs").read_text(encoding="utf-8")
         sources = re.findall(r'_?SOURCE = "([^"]+)"', scale)
         self.assertGreaterEqual(len(sources), 3)
@@ -556,12 +565,12 @@ class GalleryHealthPathRouting(unittest.TestCase):
 
     def test_the_tool_reads_the_same_paths_yaml_does(self) -> None:
         self.assertEqual(unplaced_tool.pull_request_paths(WORKFLOW.read_text(encoding="utf-8")),
-                         triggers()["pull_request"]["paths"])
+                         triggers()["push"]["paths"])
 
     def test_a_global_input_no_entry_imports_renders_every_entry(self) -> None:
         # A theme, a font or a string catalog is global to every page: touched.ts names no entry for it, and
         # rendering nothing would pass with no verdict (review of #36741).
-        paths = triggers()["pull_request"]["paths"]
+        paths = triggers()["push"]["paths"]
         touched = {"all": False, "entries": ["a"], "reasons": {"a": [
             "Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/cancelled.json"]}}
         for path in ("Resources/ghostty/themes/Token Dark", "webviews/bun.lock", "scripts/ci/test_reds.py",
@@ -578,7 +587,7 @@ class GalleryHealthPathRouting(unittest.TestCase):
     def test_an_untraced_webviews_asset_or_string_catalog_renders_every_entry(self) -> None:
         # A string catalog gen-strings.mjs compiles and an asset no import traces reach no entry, but they
         # change what pages show, so they render every entry; a placed asset renders only its entries.
-        paths = triggers()["pull_request"]["paths"]
+        paths = triggers()["push"]["paths"]
         placed = "webviews/src/agent-session/acpmux/mascots/ChiefMascotFox.png"
         touched = {"all": False, "entries": ["a"], "reasons": {"a": [placed]}}
         for path in ("webviews/src/agent-session/acpmux/Localizable.xcstrings",
@@ -628,7 +637,7 @@ class GalleryHealthTime(unittest.TestCase):
         self.assertIs(checkout["sparse-checkout-cone-mode"], False)
         self.assertEqual(str(checkout["filter"]), "blob:none")
         self.assertFalse(any(p.startswith("!") for p in patterns), "an allow-list: name what the job reads")
-        routed = triggers()["pull_request"]["paths"]
+        routed = triggers()["push"]["paths"]
         missing = [path for path in tracked() if triggered(path, routed) and not in_sparse(path, patterns)]
         self.assertEqual(missing, [], "add these to the Checkout step's sparse-checkout")
         for path in ("scripts/ci/api_call_log/env.sh", "scripts/ci/test_reds.py", "scripts/ci/ensure-system-chrome.sh",

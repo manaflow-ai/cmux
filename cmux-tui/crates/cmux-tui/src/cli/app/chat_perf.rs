@@ -3,7 +3,9 @@
 //! selecting or showing the tab. The app's `agent.chat.perf` runs the page's own capture
 //! (webviews chatPerfCapture.ts) and returns its report; `--json` prints it, the default prints a
 //! short summary. A hidden or covered chat draws no frames: the report says it measured nothing
-//! (`measured: false`, `unmeasured_reason`), and so does the summary.
+//! (`measured: false`, `unmeasured_reason`), and so does the summary. The frame count is the
+//! capture's own frame loop (the display's rate); `owners` names the page code that asked for
+//! frames, frame-paced timers and animations meanwhile, by source file (webviews frameOwners.ts).
 
 use std::fmt::Write as _;
 use std::os::unix::net::UnixStream;
@@ -131,6 +133,7 @@ pub(super) fn human(report: &Value, catalog: &AppControlMessages) -> String {
             ],
         )
     );
+    owners(&mut out, report, catalog);
     let long = &report["long_tasks"];
     match long["source"].as_str() {
         Some(source) => {
@@ -215,6 +218,78 @@ pub(super) fn human(report: &Value, catalog: &AppControlMessages) -> String {
         );
     }
     out
+}
+
+/// The most call sites and animations the summary prints per kind; `--json` has the page's full list.
+const OWNER_LINES: usize = 5;
+
+/// The page's frame owners (webviews frameOwners.ts): which code asked for frames, frame-paced
+/// timers and animations during the window, by source file and bundle position. The frame count
+/// above is the capture's own loop, so this is what says whether the page itself is busy.
+fn owners(out: &mut String, report: &Value, catalog: &AppControlMessages) {
+    let messages = &catalog.chat_perf;
+    let owners = &report["owners"];
+    if !owners.is_object() {
+        let _ = writeln!(out, "{}", messages.owners_unsupported);
+        return;
+    }
+    let _ = writeln!(
+        out,
+        "{}",
+        fill(
+            messages.owners,
+            &[
+                ("page", number(owners, &["page_frames"])),
+                ("count", number(report, &["frames", "count"])),
+            ],
+        )
+    );
+    let mut any = false;
+    for (key, kind) in [("frames", "frame"), ("timers", ""), ("animate", "animate")] {
+        for site in owners[key].as_array().into_iter().flatten().take(OWNER_LINES) {
+            any = true;
+            let raw = number(site, &["at"]);
+            // A timer's `at` starts with its kind (`timeout`, `interval`).
+            let (kind, at) = match (kind, raw.split_once(' ')) {
+                ("", Some((timer, at))) => (timer.to_owned(), at.to_owned()),
+                _ => (kind.to_owned(), raw),
+            };
+            let file = site["file"].as_str().unwrap_or("?").to_owned();
+            let _ = writeln!(
+                out,
+                "{}",
+                fill(
+                    messages.owner,
+                    &[
+                        ("kind", kind),
+                        ("per_s", number(site, &["per_s"])),
+                        ("count", number(site, &["count"])),
+                        ("file", file),
+                        ("at", at),
+                    ],
+                )
+            );
+        }
+    }
+    for animation in owners["animations"].as_array().into_iter().flatten().take(OWNER_LINES) {
+        any = true;
+        let _ = writeln!(
+            out,
+            "{}",
+            fill(
+                messages.owner_animation,
+                &[
+                    ("name", number(animation, &["name"])),
+                    ("target", number(animation, &["target"])),
+                    ("count", number(animation, &["count"])),
+                    ("iterations", number(animation, &["iterations"])),
+                ],
+            )
+        );
+    }
+    if !any {
+        let _ = writeln!(out, "{}", messages.owners_none);
+    }
 }
 
 #[cfg(test)]

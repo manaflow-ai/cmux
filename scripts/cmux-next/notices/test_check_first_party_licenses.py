@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
 import sys
@@ -15,6 +16,13 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import check_first_party_licenses as gate  # noqa: E402
+
+# tests/known_red.py: a skip against an issue that fails once its checked-in date passes.
+_known_red_spec = importlib.util.spec_from_file_location(
+    "known_red", Path(__file__).resolve().parents[3] / "tests" / "known_red.py")
+_known_red = importlib.util.module_from_spec(_known_red_spec)
+_known_red_spec.loader.exec_module(_known_red)
+known_red = _known_red.known_red
 
 REPO = HERE.parents[2]
 GPL_POINTER = "Copyright (c) 2024-present Manaflow, Inc.\n\nThis program is licensed under the GNU General Public License v3.0 or later (GPL-3.0-or-later).\n"
@@ -120,7 +128,7 @@ class FirstPartyLicenseTests(unittest.TestCase):
         files["libs/integrations-core/package.json"] = pkg(private=True, license="GPL-3.0-or-later")
         self.assertEqual(len(Tree(files).problems()), 1)
 
-    @unittest.skip("red on feat-cmux-next, line 126: 23 first-party declarations say MIT (https://github.com/manaflow-ai/cmux/issues/41322)")
+    @known_red(41322, "2026-12-02", "red on feat-cmux-next, line 126: 23 first-party declarations say MIT")
     def test_repository_first_party_declarations_are_gpl(self):
         """The product rule on this checkout: every first-party declaration is GPL."""
         problems = gate.check(REPO, gate.tracked_files(REPO))

@@ -9,36 +9,42 @@ public nonisolated struct AgentPaneCloudReservationRequest: Equatable, Sendable 
     public let release: Bool
     public let params: JSONValue
     public let composeKey: String?
-    /// The folder, agent and model the Send would start with, read before a machine is reserved (+BeforeLease).
-    public let cwd: String?, harness: String?, model: String?
+    /// The folder the Send would start with, read before a machine is reserved: this Mac's trust of it is checked first.
+    public let cwd: String?
+    /// The page's empty local chat the compose's Send would replace (webviews App.tsx `emptyLocalChat`, the
+    /// same id `cloud.startChat` sends as `replacesChat`): the pane reserves for it only while it shows that
+    /// chat (``AgentPaneModel/reserveReplaces(_:)``). Nil: a compose with no chat. Never forwarded to Rust.
+    public let replacesChat: String?
 
     init?(method: String, params: [String: Any]?) {
+        var object = params ?? [:]
+        let replaces = object.removeValue(forKey: "replacesChat")
+        if let replaces, !((replaces as? String).map { !$0.isEmpty && $0.count <= 128 } ?? false) { return nil }
         guard Self.methods.contains(method),
-              let data = try? JSONSerialization.data(withJSONObject: params ?? [:]),
+              let data = try? JSONSerialization.data(withJSONObject: object),
               var params = try? JSONDecoder().decode(JSONValue.self, from: data) else { return nil }
         release = method == "cloud.releaseReservation"
         composeKey = params["composeKey"]?.stringValue
         cwd = params["cwd"]?.stringValue.flatMap { $0.hasPrefix("/") ? $0 : nil }
-        harness = params["harness"]?.stringValue
-        model = params["model"]?.stringValue
-        if case .object(let object) = params { params = .object(object.filter { !["cwd", "harness", "model"].contains($0.key) }) } // the app's checks only, never Rust's request
+        if case .object(let fields) = params { params = .object(fields.filter { !["cwd", "harness", "model"].contains($0.key) }) } // the app's checks only, never Rust's request
         self.params = params
+        replacesChat = replaces as? String
     }
 
     /// Supplies only the native client's trusted platform and human-session credentials to Rust. `install` is the
     /// install token: Rust names the reservation in its team, the one the machine list reads and the spare warm uses.
     /// `reserved`: told the machine a reserve answered, so its login copy starts on that exact machine.
-    /// No machine is reserved for a Send that will be refused (the App's +Machine checks it again at Send): `cwd` this Mac
-    /// doesn't trust (`link start-chat trust` from the acpmux at `acpmuxHome`, the copy's), or an agent `agentRefused`
-    /// says cannot run (a used-up Claude limit). The page then sends without a reservation, and the Send says why.
+    /// No machine is reserved for a Send that will be refused (the App checks it again at Send): `cwd` this Mac
+    /// doesn't trust (`link start-chat trust` from the acpmux at `acpmuxHome`, the copy's).
+    /// The page then sends without a reservation, and the Send says why.
     @MainActor
     public func run(allowed: Bool, binary: URL?, configuration: CloudConfiguration, auth: CloudAuth,
                     install: () async throws -> String?, reserved: (@MainActor (String) -> Void)? = nil,
-                    acpmuxHome: String? = nil, agentRefused: ((String?, String?) async -> Bool)? = nil) async -> [String: Any] {
+                    acpmuxHome: String? = nil) async -> [String: Any] {
         guard allowed, let binary, let platform = configuration.artifactsAPIBaseURL() else {
             return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled")
         }
-        if !release, let code = await refusal(binary: binary, acpmuxHome: acpmuxHome, agentRefused: agentRefused) {
+        if !release, let code = await refusal(binary: binary, acpmuxHome: acpmuxHome) {
             Self.log.notice("cloud reserve: none, the Send would be refused (\(code, privacy: .public))")
             return AgentPaneReply.failure(code: code, message: code)
         }
@@ -54,11 +60,11 @@ public nonisolated struct AgentPaneCloudReservationRequest: Equatable, Sendable 
         return reply
     }
 
-    /// The code of ``run(allowed:binary:configuration:auth:install:reserved:acpmuxHome:agentRefused:)``'s refusal, or nil.
-    private func refusal(binary: URL, acpmuxHome: String?, agentRefused: ((String?, String?) async -> Bool)?) async -> String? {
-        if let cwd, let acpmuxHome, let level = await CloudMoveCLI(binary: binary, timeout: .seconds(15)).startChatTrust(folder: cwd, acpmuxHome: acpmuxHome),
-           level != "trusted" { return Self.untrustedSource }
-        return await agentRefused?(harness, model) == true ? "agent_unavailable" : nil
+    /// The code of ``run(allowed:binary:configuration:auth:install:reserved:acpmuxHome:)``'s refusal, or nil.
+    private func refusal(binary: URL, acpmuxHome: String?) async -> String? {
+        guard let cwd, let acpmuxHome, let level = await CloudMoveCLI(binary: binary, timeout: .seconds(15)).startChatTrust(folder: cwd, acpmuxHome: acpmuxHome),
+              level != "trusted" else { return nil }
+        return Self.untrustedSource
     }
 
     /// AgentRemoteStartRefusal.untrustedSourceCode (CmuxNextDaemonService, which this package sits under).
@@ -88,5 +94,16 @@ public nonisolated struct AgentPaneCloudReservationRequest: Equatable, Sendable 
         } catch {
             return AgentPaneReply.failure(code: "unavailable", message: "unavailable")
         }
+    }
+}
+
+extension AgentPaneModel {
+    /// A reserve for the pane's empty local chat (``AgentPaneCloudReservationRequest/replacesChat``), taken under
+    /// the checks `cloud.startChat` applies to a start replacing that chat (``AgentPaneHandOff``'s `cloudChecked`
+    /// and `held`): a Cloud start runner, a chat on this Mac, the pane showing that very chat, and no start or open
+    /// of another chat out in it (a harness switch), whose session would replace the chat the reserve names.
+    func reserveReplaces(_ chat: String?) -> Bool {
+        guard let chat, chat == sessionId, onCloudStartChat != nil, !chatIsElsewhere else { return false }
+        return transport.replacements.admits(replacingOpened: true)
     }
 }

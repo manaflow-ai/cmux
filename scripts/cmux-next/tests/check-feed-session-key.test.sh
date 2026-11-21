@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # check-feed-session-key.py (review of #41240, F1): on the feed path a raw
-# sessionId read or a hand-made peer/id key fails; writing sessionId into a
+# sessionId read or a hand-made peer/id key fails, also when its statement spans
+# lines (review of #41471, F1); writing sessionId into a
 # request, a comment, an allowed line and files off the feed path pass.
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
@@ -52,12 +53,42 @@ fail "the recovery list's dedupe key built by hand" \
 fail "a raw read after code on a line with a string holding //" \
   "$BRIDGE=let u = \"a//b\"; let s = params[\"sessionId\"] as? String"
 
+# Review of #41471, F1: the guard reads whole statements, not physical lines.
+fail "a subscript split across lines" \
+  "$BRIDGE=let session = params[
+    \"sessionId\"
+] as? String"
+fail "a peer/id key in a multi-line string's interpolation" \
+  "$GATE=let key = \"\"\"
+\\(row[
+  \"peer\"] as? String ?? \"\")/\\(id)
+\"\"\""
+fail "a peer/id key built over three lines" \
+  "$GATE=let key =
+    \"\\(row[\"peer\"] as? String ?? \"\")\"
+    + \"/\\(id)\""
+fail "a raw read inside an interpolation that spans lines" \
+  "$BRIDGE=let s = \"\\(params[
+  \"sessionId\"] ?? \"\")\""
+
 pass "the shared key" "$BRIDGE=guard let session = AcpmuxPendingReads.sessionKey(params) else { return }"
 pass "sessionId written into a request" "$BRIDGE=await call(\"_acpmux/info\", [\"sessionId\": session])"
 pass "a comment" "$BRIDGE=    // params[\"sessionId\"] named no peer"
 pass "a trailing comment" "$BRIDGE=let x = 1 // not params[\"sessionId\"]"
 pass "an allowed line (sessionKey's own body)" \
   "$READS=        guard let id = row[\"sessionId\"] as? String else { return nil } // feed-key-allow: the one key"
+pass "comments and strings that only mention sessionId or a peer key" \
+  "$BRIDGE=// params[
+//   \"sessionId\"] named no peer
+/* row[\"peer\"] and
+   \"/\\(id)\" */
+let note = \"params[\\\"sessionId\\\"] named no peer\"
+let doc = \"\"\"
+  x[\"sessionId\"] and row[\"peer\"]/\\(id)
+  \"\"\""
+pass "an allowed statement over two lines" \
+  "$READS=guard let id = row[
+  \"sessionId\"] as? String else { return nil } // feed-key-allow: the one key"
 pass "a file off the feed path" "$PANE=guard let session = params[\"sessionId\"] as? String else { return false }"
 pass "no feed files at all"
 
