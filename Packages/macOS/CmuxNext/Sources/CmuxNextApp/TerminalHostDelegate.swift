@@ -76,7 +76,7 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     func terminalSession(_ session: TerminalSession, open url: URL) -> Bool {
         guard case .url(let safeURL)? = TerminalLinkResolver().resolve(url.absoluteString, cwd: nil, allowsLocalFiles: false) else { return false }
         let request = linkRequest(session)
-        Task { @MainActor [weak self] in self?.openWeb(safeURL, request) }
+        Task { @MainActor [weak self] in await self?.openWeb(safeURL, request) }
         return true
     }
 
@@ -97,7 +97,7 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
                 TerminalLinkResolver().resolve(text, cwd: cwd, allowsLocalFiles: canOpenLocalFiles)
             }.value
             switch target {
-            case .url(let url)?: self?.openWeb(url, request)
+            case .url(let url)?: await self?.openWeb(url, request)
             case .file(let url, isDirectory: true)?: LinkRouter.shared.showInFinder(url)
             case .file(let url, isDirectory: false)?:
                 // `src/app.ts:3:5` opens the editor at line 3, column 5.
@@ -132,7 +132,7 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
                                          at: position)
             return
         }
-        if case .url(let url)? = TerminalLinkResolver().resolve(text, cwd: nil, allowsLocalFiles: false) { openWeb(url, request) }
+        if case .url(let url)? = TerminalLinkResolver().resolve(text, cwd: nil, allowsLocalFiles: false) { await openWeb(url, request) }
     }
 
     /// The daemon of the machine whose files `session`'s output names, when that is not this Mac: a
@@ -184,7 +184,9 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
 
     /// Cmd-Option asks for cmux (a profile), so only the external rules and host list route it out;
     /// every other link goes through the shared rule (``LinkRouter``).
-    private func openWeb(_ url: URL, _ request: (option: Bool, other: Bool, tab: ActionTargetRef?)) {
+    private func openWeb(_ url: URL, _ request: (option: Bool, other: Bool, tab: ActionTargetRef?)) async {
+        // An app whose opener takes the link (`cmux.opener/1`; the daemon picks it) opens it instead.
+        if !request.option, let apps = services?.apps.client, await apps.openLink(url) != nil { return }
         if let services, url.scheme == "http" || url.scheme == "https", request.option, services.browserProfiles.ordered.count > 1,
            LinkRouter.shared.target(for: url, explicit: true) == .cmuxBrowser {
             services.registry.perform("browserProfile.openLink", invocation: ActionInvocation(

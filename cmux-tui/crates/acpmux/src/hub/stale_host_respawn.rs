@@ -47,15 +47,58 @@ impl Hub {
                 hosts.push((session.id.clone(), running_file(pid), launched_file(pid)));
             }
         }
-        let stale = stale_hosts(hosts);
+        let mut stale = stale_hosts(hosts);
         if stale.is_empty() {
             return HarnessRestarts::default();
         }
+        // An idle one ends and stays asleep: its next open or prompt starts it on the installed
+        // binary, as a hibernated chat wakes (`idle.rs`). Restarting it at once started an agent
+        // for every chat that was up at an update, the idle Chief sub-sessions among them: 30 at
+        // one cmux NIGHTLY relaunch (2026-11-15), each a Claude process for its two idle minutes.
+        let mut slept = 0;
+        for id in stale.clone() {
+            if let Ok(session) = self.resolve(&id)
+                && self.end_idle_stale(&session).await
+            {
+                stale.remove(&id);
+                slept += 1;
+            }
+        }
         tracing::info!(
             count = stale.len(),
-            "agent hosts run a binary that was moved or replaced since they started: restarting them between turns"
+            slept,
+            "agent hosts run a binary that was moved or replaced since they started: the idle \
+             ones ended and start on the installed one when opened or sent to; the rest restart \
+             between turns"
         );
+        if stale.is_empty() {
+            return HarnessRestarts::default();
+        }
         self.restart_harnesses(None, Some(&stale)).await
+    }
+
+    /// Ends `session`'s agent when it is idle as the idle pass judges it (`idle.rs`
+    /// `idle_eligible`, under the same leases) and marks the chat hibernated, so a person's open
+    /// wakes it. A turn, a queued prompt, a question, a background process or subagent, or any
+    /// start under way keeps it for the restart between turns.
+    async fn end_idle_stale(&self, session: &Arc<Session>) -> bool {
+        let turn = session.turn_lock.try_lock();
+        let using = session.harness_use.try_write();
+        let spawning = session.spawn_lock.try_lock();
+        if turn.is_err() || using.is_err() || spawning.is_err() || !self.idle_eligible(session) {
+            return false;
+        }
+        session.hibernated_at.store(self.clock_now().max(1), Ordering::SeqCst);
+        self.detach_child(session).await;
+        if session.status() == SessionStatus::Closed {
+            self.clear_hibernation(session);
+            return true;
+        }
+        session.meta.lock().unwrap_or_else(|e| e.into_inner()).hibernated_ms =
+            crate::store::now_ms().max(1);
+        self.save_meta(session);
+        tracing::info!(session = %session.id, cause = "stale-binary", "hibernated: its agent ran a replaced binary and was idle; it starts on the installed one when opened or sent to");
+        true
     }
 
     /// Once the agents the previous daemon left are adopted, on a task of its own: an agent whose

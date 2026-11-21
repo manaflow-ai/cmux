@@ -201,7 +201,7 @@ export function noteSendOrigins(
 /// hidden page) and a page whose first frame back has not passed (entranceAllowed).
 function sendMs(node: Element): number {
   const doc = node.ownerDocument;
-  if (motionMode(doc) !== "full" || !entranceAllowed(doc)) return 0;
+  if (motionMode(doc, node) !== "full" || !entranceAllowed(doc)) return 0;
   return cssTimeMs(getComputedStyle(node).getPropertyValue("--agent-motion-send")) ?? MOTION_SEND_MS;
 }
 

@@ -83,7 +83,7 @@ struct DevicesPage: View {
         // Once per pass, not once per row (each row's subtitle rebuilt the Mac
         // rows and the same-name tags).
         let macs = macs
-        let rows = DeviceRowContext(sameNames: sameNames, otherBuilds: SettingsDeviceRows.otherBuilds(macs))
+        let rows = DeviceRowContext(sameNames: sameNames, otherBuilds: SettingsDeviceRows.otherBuilds(macs, picked: SettingsDeviceRows.picks(store.teams)))
         List {
             if let relay = directory?.relayAvailable, !relay {
                 Section {
@@ -371,7 +371,7 @@ struct DevicesPage: View {
             removalError = failure
             theme.haptics.error()
         } catch {
-            removalError = ServiceFailureMessage(text: "Couldn't remove \(displayName(device)): \(error.localizedDescription)")
+            removalError = ServiceFailureMessage(text: "Couldn't remove \(displayName(device)). \(UserFacingError.message(error))")
             theme.haptics.error()
         }
     }

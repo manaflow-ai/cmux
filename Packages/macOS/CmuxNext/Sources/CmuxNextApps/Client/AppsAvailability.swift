@@ -51,3 +51,15 @@ public nonisolated struct AppsTransportError: Error, Sendable, Hashable, CustomS
 
     public var description: String { code.map { "\(message) [\($0)]" } ?? message }
 }
+
+nonisolated extension AppsUnavailableReason {
+    /// The supervisor's daemon capability: cmux-tui advertises it only when the `cmux-app-host` binary exists.
+    public static let daemonCapability = "apps-v1"
+
+    /// Why the supervisor cannot be used: `capabilities` of the connected
+    /// daemon, nil when none is connected (`cause`: the daemon service's reason).
+    public static func daemon(capabilities: [String]?, cause: String? = nil) -> AppsUnavailableReason? {
+        guard let capabilities else { return cause.map(AppsUnavailableReason.notReady) ?? .notConnected }
+        return capabilities.contains(daemonCapability) ? nil : .noAppHost
+    }
+}

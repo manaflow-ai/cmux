@@ -6,7 +6,9 @@
 // repeated "Ask parent to retry", and "13ms" at rest, and on the edited-files card's Second opinion:
 // "this is kind of weird tbh", "why were all these added in the first place?", "holy f*** it's so
 // sh***y to look at the transcript right now". Each control was added at rest by its own change and
-// nothing counted them; this is the count.
+// nothing counted them; this is the count. "Ask parent to retry" is gone since (Leo, 2026-11-14:
+// "we maybe want to remove the "ask parent to retry" if we haven't already"): a failed row offers
+// only acpmux's Retry, where acpmux can retry it.
 
 /** A row type of the transcript, the CSS that finds it, and how many controls it may show at rest. */
 export type RowType = { name: string; selector: string; budget: number; why: string };

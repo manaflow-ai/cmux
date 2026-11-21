@@ -1,0 +1,15 @@
+[package]
+name = "acpmux-list-types"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Shared agent list records and their bounds"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true, features = ["rc"] }
+serde_json = { workspace = true, features = ["raw_value"] }

@@ -319,6 +319,7 @@ fn resized_replay_payload_is_shared_across_attach_taps() {
         kitty_state: KittyReplayState::disabled(),
         colors: Box::new(TerminalColors::default()),
         pending_sequence: Arc::from([]),
+        history_rows_omitted: None,
     });
 
     let first_replay = match first.stream.recv_timeout(Duration::from_secs(1)).unwrap() {

@@ -42,6 +42,16 @@ export function turnCopyParts(rows: readonly AcpmuxRow[]): TurnCopyPart[] | unde
   return said ? parts : undefined;
 }
 
+/// The calls of a turn that ran calls and said nothing, as its pieces (a run of calls between
+/// replies, as `turnCopyParts` gives them), or undefined when it ran none: what the row of a turn the
+/// agent ran on its own copies when it ended on its calls (turns.ts `backgroundFooters`).
+export function turnCallParts(rows: readonly AcpmuxRow[]): TurnCopyPart[] | undefined {
+  const tools = rows.flatMap((row) =>
+    row.kind === "activity" ? (row.items ?? []).filter((item) => item.tool && !isDraftCall(item.tool)) : [],
+  );
+  return tools.length ? [{ tools }] : undefined;
+}
+
 /// The text the footer's Copy puts on the clipboard: the pieces as blocks, a run as its row's title
 /// (a lone call's own label, else the run's summary line, as the transcript draws them).
 export function turnCopyText(t: Translate, parts: readonly TurnCopyPart[]): string {
