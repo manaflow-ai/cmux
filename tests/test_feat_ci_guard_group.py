@@ -265,9 +265,12 @@ class TheGuardGroupRunsOnItsMeasuredSize(unittest.TestCase):
         # Linux only: the one Linux label (scripts/ci/one_linux_label.py), no size. On a mini 24 of its steps red (no
         # python3.9 or node, temp-cwd scripts), so portable-placement never places it.
         import one_linux_label
-        # Only the window gate (base-coalesce.yml): no other job holds it back.
-        self.assertEqual(self.job()["needs"], "coalesce")
-        self.assertEqual(self.job()["if"], "${{ !cancelled() && needs.coalesce.outputs.run != 'false' }}")
+        # The window gate (base-coalesce.yml) and the 2-vCPU path route (fast_check_route.py): a pull request that
+        # touches nothing a guard group reads skips it; an empty route (a push, a router failure) runs it.
+        self.assertEqual(self.job()["needs"], ["coalesce", "fast-check-route"])
+        self.assertEqual(self.job()["if"],
+                         "${{ !cancelled() && needs.coalesce.outputs.run != 'false' && "
+                         "needs.fast-check-route.outputs.ci_guard_group != 'false' }}")
         self.assertEqual(workflow_jobs.single_runs_on(self.job()), one_linux_label.CANONICAL)
 
     def test_each_guard_pass_uses_a_worker_per_core(self):
