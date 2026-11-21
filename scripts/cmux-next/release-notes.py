@@ -557,8 +557,12 @@ def reannounced(since, head, added):
 # file merges, and a nightly cut in between shows it with none. A highlight of the last LATE_PICTURE_DAYS
 # whose newest published notes (the public feed, newest LATE_PICTURE_BUILDS builds) showed it without its
 # pictures rides along with the next build that finds them, once: that build's notes show it pictured.
+# An older one (of the last CLIP_REANNOUNCE_DAYS) rides along too while its showing is one of the newest
+# LATE_PICTURE_WINDOW builds, the window NOW whats_new judges: nightlies stalled for a day (2026-11-18), and
+# new-tab-run-command aged past LATE_PICTURE_DAYS before a nightly could carry its late before.
 LATE_PICTURE_DAYS = 2
 LATE_PICTURE_BUILDS = 30
+LATE_PICTURE_WINDOW = 10
 NOTES_FEED = os.environ.get("CMUX_RELEASE_NOTES_FEED", "https://files-next.cmux.com/nightly-next/notes/")
 
 
@@ -574,14 +578,15 @@ def pictured(highlight):
 def late_pictures(head, skip, deadline, fixture):
     """{path: whether its newest appearance had media} of the New and Improved highlights not in `skip`, with
     no clip line, whose newest appearance in the published notes was not pictured (one of the last
-    LATE_PICTURE_DAYS), or did not show a recorded clip that is published now (one with a spec, of the last
+    LATE_PICTURE_DAYS, or of the last CLIP_REANNOUNCE_DAYS shown in one of the newest LATE_PICTURE_WINDOW
+    builds), or did not show a recorded clip that is published now (one with a spec, of the last
     CLIP_REANNOUNCE_DAYS: a clip recorded after the highlight shipped with its gallery stills, or with none,
     replaces them; late_clip). An Improved one with a clip line and a spec counts too, for its recorded
     before alone. A feed read that fails gives none."""
     head_time = int(git("show", "-s", "--format=%ct", head).strip())
     days = max(LATE_PICTURE_DAYS, CLIP_REANNOUNCE_DAYS)
     since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(head_time - days * 86400))
-    wanted, metas, recent, specs, born = {}, {}, set(), set(), head_time
+    wanted, metas, recent, specs, windowed, born = {}, {}, set(), set(), set(), head_time
     for line in git("log", "--diff-filter=A", "--name-only", "--format=time %ct", f"--since={since}", head,
                     "--", HIGHLIGHTS).splitlines():
         if line.startswith("time "):
@@ -603,7 +608,7 @@ def late_pictures(head, skip, deadline, fixture):
         has_spec = subprocess.run(["git", "cat-file", "-e", f"{head}:{CLIPS}/{highlight['id']}.json"],
                                   capture_output=True).returncode == 0
         is_recent = head_time - born <= LATE_PICTURE_DAYS * 86400 and not clip_line
-        if not (is_recent or has_spec):
+        if not (is_recent or has_spec or not clip_line):
             continue
         wanted[highlight["id"]] = path
         metas[highlight["id"]] = front_matter(text)[0]
@@ -611,16 +616,23 @@ def late_pictures(head, skip, deadline, fixture):
             recent.add(highlight["id"])
         if has_spec:
             specs.add(highlight["id"])
+        if not clip_line and not is_recent:
+            windowed.add(highlight["id"])
+    # One that counts only when shown in the window is not looked for past it.
+    dated = set(wanted) - (windowed - specs)
     shown = {}
     try:
         index = json.loads(pr_download(NOTES_FEED + "index.json", fixture) or b"{}")
-        for entry in (index.get("builds") or [])[:LATE_PICTURE_BUILDS]:
-            if len(shown) == len(wanted) or time.monotonic() > deadline:
+        for position, entry in enumerate((index.get("builds") or [])[:LATE_PICTURE_BUILDS]):
+            looked_for = set(wanted) if position < LATE_PICTURE_WINDOW else dated
+            if looked_for <= shown.keys() or time.monotonic() > deadline:
                 break
             notes = json.loads(pr_download(f"{NOTES_FEED}{entry['build']}.json", fixture) or b"{}")
             for highlight in notes.get("highlights") or []:
-                if isinstance(highlight, dict) and highlight.get("id") in wanted:
-                    shown.setdefault(highlight["id"], highlight)
+                if isinstance(highlight, dict) and highlight.get("id") in looked_for and highlight["id"] not in shown:
+                    shown[highlight["id"]] = highlight
+                    if highlight["id"] in windowed and position < LATE_PICTURE_WINDOW:
+                        recent.add(highlight["id"])
     except Exception as error:
         print(f"late pictures: {type(error).__name__}: {error}; none ride along", file=sys.stderr)
         return {}
