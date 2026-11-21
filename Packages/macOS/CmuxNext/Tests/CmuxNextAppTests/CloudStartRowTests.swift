@@ -78,7 +78,9 @@ struct CloudStartRowTests {
     /// A start that replaced the page's empty chat (`AgentPaneCloudStart.replacesChat`) began with that chat's session:
     /// its failure still reads as Cloud, and only a chat other than that one ends it.
     @Test func aFailedStartThatReplacedAnEmptyChatStillReadsAsCloud() throws {
-        let titles = AgentCloudStartTitles(), store = DaemonStore()
+        let turns = AgentTurnStateStore()
+        turns.localHost = "install:this-mac"
+        let titles = AgentCloudStartTitles(turns: turns), store = DaemonStore()
         func chat(_ session: String) throws -> TabModel {
             var tab = TabSnapshot(surface: SurfaceID(rawValue: 66), kind: .conversation, title: "1+1", url: "about:blank")
             tab.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "install:this-mac", session: session, harness: "claude"))
@@ -93,6 +95,17 @@ struct CloudStartRowTests {
                 "the failed start of a page that had an empty chat read as a local chat")
         let sent = try chat("chat-local")
         #expect(!titles.startsInCloud(sent) && titles.failedStart(of: sent) == nil, "a new local chat after the failure read as Cloud")
+
+        // Run on This Mac after the failure sends in that same empty chat: once it takes the prompt, it is a local chat.
+        let again = try chat("chat-empty")
+        titles.begin(again, task: "1+1", untitled: AgentPaneModel.tabTitle)
+        titles.ended(again, opened: false, row: CloudMoveStrings.startFailedRow(machine: "cloud-chats-12"))
+        #expect(titles.failedStart(of: again) != nil, "fixture: the failed start reads as Cloud")
+        turns.setState(.working, session: "chat-empty")
+        #expect(!titles.startsInCloud(again) && titles.failedStart(of: again) == nil,
+                "the replaced empty chat kept the Cloud failure after it ran a prompt on this Mac")
+        turns.apply(session: "chat-empty", state: nil, lastMessage: "2", muted: false, title: "1+1", detail: nil)
+        #expect(titles.failedStart(of: again) == nil, "the failure came back when the local turn ended")
     }
 
     /// cmux#45947: New Cloud Chat opens a workspace of its own whose row reads as Cloud from the click, before any Send,

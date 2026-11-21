@@ -26,8 +26,10 @@ public final class AgentCloudStartTitles {
     private var titles: [ObjectIdentifier: Entry] = [:]
     /// New Cloud Chat's own workspaces (cmux#45947): each row reads as Cloud from the click, before a Send names its chat.
     private var cloudWorkspaces: Set<String> = []
+    /// The chats' turns: a failed start's page whose own chat ran a prompt on this Mac reads as that chat again.
+    private let turns: AgentTurnStateStore
 
-    public init() {}
+    public init(turns: AgentTurnStateStore = .shared) { self.turns = turns }
 
     /// The title `tab` reads while it starts a Cloud chat, shows the chat one started, or reads after its start failed;
     /// nil for any other tab.
@@ -43,11 +45,19 @@ public final class AgentCloudStartTitles {
     /// any other tab. Built once when the start failed, never on a redraw.
     public func failedStart(of tab: TabModel) -> String? { entry(of: tab)?.failedRow }
 
-    /// The entry of `tab`; a failed start's only until its page has a chat session other than the one it began with
-    /// (a local chat sent after it; the empty chat a start replaces keeps it).
+    /// The entry of `tab`; a failed start's only until the page runs a chat on this Mac: one other than the session it
+    /// began with, or that same session (the empty chat a start replaces) once it took a prompt here.
     private func entry(of tab: TabModel) -> Entry? {
         guard let entry = titles[ObjectIdentifier(tab)], entry.tab === tab else { return nil }
-        return entry.failedRow != nil && tab.agentSession?.session != entry.session ? nil : entry
+        guard entry.failedRow != nil, let ref = tab.agentSession else { return entry }
+        return ref.session != entry.session || ranHere(ref) ? nil : entry
+    }
+
+    /// Whether the chat `ref` took a prompt on this Mac: it has a turn state (running, waiting, ended), a running
+    /// prompt, a title or a reply. An empty chat has none of them.
+    private func ranHere(_ ref: AgentSessionRef) -> Bool {
+        turns.state(for: ref) != nil || turns.detail(for: ref)?.prompt != nil || turns.title(for: ref) != nil
+            || turns.lastMessage(for: ref) != nil
     }
 
     /// Whether workspace `id` is one New Cloud Chat opened for its chat (``beginWorkspace(_:)``), until its start ends.
