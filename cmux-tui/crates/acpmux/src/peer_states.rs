@@ -145,6 +145,7 @@ pub struct Observed {
     pub reason: Option<OfflineReason>,
     /// When `link` took its value.
     pub since: u64,
+    pub down_since: Option<u64>,
     pub next_retry_at: Option<u64>,
     pub last_seen: Option<u64>,
     pub error: Option<String>,
@@ -152,10 +153,17 @@ pub struct Observed {
 
 /// What makes a note news: a change of any of these sends one; `since`, `lastSeen` and
 /// `error` ride along.
-type Key = (MachineLink, Option<Carrier>, Option<DownCause>, Option<OfflineReason>, Option<u64>);
+type Key = (
+    MachineLink,
+    Option<Carrier>,
+    Option<DownCause>,
+    Option<OfflineReason>,
+    Option<u64>,
+    Option<u64>,
+);
 
 fn key(note: &PeerStateChanged) -> Key {
-    (note.link, note.carrier, note.cause, note.reason, note.next_retry_at)
+    (note.link, note.carrier, note.cause, note.reason, note.next_retry_at, note.down_since)
 }
 
 impl Observed {
@@ -167,6 +175,7 @@ impl Observed {
             cause: None,
             reason: None,
             since: 0,
+            down_since: None,
             next_retry_at: None,
             last_seen,
             error,
@@ -174,7 +183,7 @@ impl Observed {
     }
 
     fn key(&self) -> Key {
-        (self.link, self.carrier, self.cause, self.reason, self.next_retry_at)
+        (self.link, self.carrier, self.cause, self.reason, self.next_retry_at, self.down_since)
     }
 
     fn note(self, name: &str) -> PeerStateChanged {
@@ -186,6 +195,7 @@ impl Observed {
             carrier: self.carrier,
             cause: self.cause,
             since: if self.since == 0 { at } else { self.since },
+            down_since: self.down_since,
             next_retry_at: self.next_retry_at,
             reason: self.reason,
             action: self.reason.map(OfflineReason::action),
@@ -207,6 +217,25 @@ mod tests {
 
     fn seen(link: MachineLink) -> Observed {
         Observed::new(link, Some(1), None)
+    }
+
+    #[test]
+    fn outage_start_survives_retry_notes_and_clears_when_ready() {
+        let states = PeerStates::default();
+        let mut rx = states.subscribe();
+        states.register("box", 1, seen(Connected));
+        let _ = rx.try_recv().unwrap();
+        for link in [Reconnecting, Offline, Reconnecting] {
+            let mut now = seen(link);
+            now.since = 200;
+            now.down_since = Some(100);
+            states.changed("box", 1, now);
+            let note = rx.try_recv().unwrap();
+            assert_eq!(note[STATE_NOTE]["downSince"], 100);
+            assert_eq!(note[STATE_NOTE]["since"], 200);
+        }
+        states.changed("box", 1, seen(Connected));
+        assert!(rx.try_recv().unwrap()[STATE_NOTE]["downSince"].is_null());
     }
 
     fn drain(rx: &mut broadcast::Receiver<Value>) -> Vec<(String, MachineLink, Option<String>)> {

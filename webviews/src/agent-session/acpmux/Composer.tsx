@@ -5,14 +5,14 @@ import { chatPlace } from "./chatMachine";
 import React, {
   useCallback,
   useEffect,
-  useId,
   useImperativeHandle,
-  useInsertionEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
+  useInsertionEffect,
+  useId,
 } from "react";
 import type { ExtraFolderControl } from "./extraFolders";
 import { createPortal } from "react-dom";
@@ -623,7 +623,6 @@ function ComposerFrame({
   const heldForHost = useSyncExternalStore(sendsHeldForHost.subscribe, sendsHeldForHost.get);
   // The chat's peer link for the quiet row, as acpmux reports it; null for a chat on this Mac
   // (peerLink.ts).
-  const machineLink = peerLink(snapshot);
   const chrome = useComposerChrome();
   // Off (a queued row's ⋯ menu, queueing.ts), what is sent mid-turn steers on every key.
   const queueing = useQueueing();
@@ -765,8 +764,16 @@ function ComposerFrame({
   // Resetting on a session key prevents a reopened chat from inheriting that reserved space.
   const [locationSlot, setLocationSlot] = useState<StripSlot>({});
   const sendButton = useRef<HTMLButtonElement>(null);
-  const { showContextUsage, composerRing, spellChecking, scrollToBottomOnSend, plainFooter, attachmentView } =
-    useComposerSettings();
+  const {
+    showContextUsage,
+    composerRing,
+    spellChecking,
+    scrollToBottomOnSend,
+    plainFooter,
+    attachmentView,
+    showPeerReconnectStatus,
+  } = useComposerSettings();
+  const machineLink = peerLink(snapshot, showPeerReconnectStatus);
   // Claude's look draws Claude desktop's draft-sensitive ↵ slot before the mic; Codex's draws
   // Codex's ↑ after the mic, always there, so the mic never steps (composerLook.ts; Leo
   // 2026-11-04: "our codex style composer should look like codex's/chatgpt's").

@@ -10,7 +10,6 @@ import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
 import { Spinner } from "./conversation/icons";
 import {
-  DevicesIcon,
   EnvironmentIcon,
   EnvironmentPicker,
   ServerIcon,
@@ -18,6 +17,7 @@ import {
   type EnvironmentFaceStyle,
   type SavedEnvironmentRows,
   type MoveTarget,
+  DevicesIcon,
 } from "./EnvironmentPicker";
 import { SECTION_LABELS, environmentStateLabel, useMachineRefresh } from "./environmentPickerModel";
 import { machineColor } from "./machineColor";
@@ -33,6 +33,7 @@ import {
 } from "./cloudMachines";
 import {
   environmentReady,
+  environmentQueuesStart,
   environmentSections,
   knownMachines,
   orderEnvironments,
@@ -78,14 +79,14 @@ import { CONTEXT_LABELS, splitForMiddleTruncation } from "./composerContextModel
 import {
   FOLDER_CHIP_LABELS,
   FOLDERLESS_CLOUD_LABELS,
+  folderChipState,
+  type FolderChipState,
   chatFolderChoices,
   shownChatFolder,
-  folderChipState,
   startedCloudFolderName,
   folderMenu,
-  type FolderChipState,
 } from "./folderlessCloud";
-import { chatComputerId, ownMachineName, routeOnOwnCloud, type ChatPlace } from "./chatMachine";
+import { chatComputerId, ownMachineName, type ChatPlace, routeOnOwnCloud } from "./chatMachine";
 import { useMachineCard } from "./MachineCard";
 /// How a new chat's strip asks where it runs (gallery seam; `where-machine` ships). Leo, 2026-11-03,
 /// on Codex desktop's strip: "chatgpt codex has nicer ways to deal with stuff".
@@ -370,6 +371,7 @@ export function ComposerContext({
         peerStates,
         peerResources,
         peerLinks,
+        composerSettings.showPeerReconnectStatus,
       ),
       shownMachines,
       newChat,
@@ -388,6 +390,7 @@ export function ComposerContext({
     peerStates,
     peerResources,
     peerLinks,
+    composerSettings.showPeerReconnectStatus,
     ownName,
     newChat,
     shownMachines,
@@ -421,8 +424,13 @@ export function ComposerContext({
       const warning = machineLoadWarning(resources, loadWarnings);
       if (!warning) return undefined;
       return warning.kind === "load"
-        ? t("composer.machineHighLoad", { busy: warning.busy, cores: warning.cores })
-        : t("composer.machineLowMemory", { free: formatFreeMemory(warning.freeGB) });
+        ? t("composer.machineHighLoad", {
+            busy: warning.busy,
+            cores: warning.cores,
+          })
+        : t("composer.machineLowMemory", {
+            free: formatFreeMemory(warning.freeGB),
+          });
     },
     [loadWarnings, t],
   );
@@ -447,20 +455,25 @@ export function ComposerContext({
         ...(ready
           ? {}
           : {
-              ...(isCloudMachineRow(computer) ? {} : { disabled: true }),
-              detail: environmentStateLabel(computer),
+              ...(isCloudMachineRow(computer) ||
+              environmentQueuesStart(computer, composerSettings.showPeerReconnectStatus)
+                ? {}
+                : { disabled: true }),
+              detail: environmentStateLabel(computer, composerSettings.showPeerReconnectStatus),
             }),
         ...(ready && warning ? { warning: true, detail: warning } : {}),
       };
     });
-  }, [computers, t, warningText]);
+  }, [computers, composerSettings.showPeerReconnectStatus, t, warningText]);
   const initialComputer = computerId(summary);
   // A pick in the Computer menu holds until the chat or its computer changes; then the new chat's
   // own computer shows in the render that shows it (it followed in an effect, a frame late: the
   // wrong computer and no folder for one frame on a local/peer switch). Each change clears the pick,
   // so a pick on one new chat never carries into the next.
   const pickKey = `${summary?.sessionId ?? ""}\u0000${initialComputer}`;
-  const [picked, setPicked] = useState<{ key: string; computer?: string }>({ key: pickKey });
+  const [picked, setPicked] = useState<{ key: string; computer?: string }>({
+    key: pickKey,
+  });
   const [browseError, setBrowseError] = useState<string>();
   // The browse that failed, so Retry runs the same one.
   const browseRetry = useRef<() => void>(undefined);
@@ -834,7 +847,11 @@ export function ComposerContext({
           folders: extraShown,
           onAdd: (path) => {
             const next = addExtraFolder(extraShown, path, currentFolder);
-            if (next !== extraShown) extraFolders.onChange({ machine: selectedComputer, folders: next });
+            if (next !== extraShown)
+              extraFolders.onChange({
+                machine: selectedComputer,
+                folders: next,
+              });
           },
           onRemove: (path) => {
             const next = removeExtraFolder(extraShown, path);
@@ -1255,7 +1272,11 @@ export function ComposerContext({
                               },
                             ]
                           : []),
-                        { id: "ssh", label: t(CONTEXT_LABELS.connectSSH), onSelect: () => onConnect("ssh") },
+                        {
+                          id: "ssh",
+                          label: t(CONTEXT_LABELS.connectSSH),
+                          onSelect: () => onConnect("ssh"),
+                        },
                         {
                           id: "cloud",
                           label: t(CONTEXT_LABELS.newCloudMachine),
@@ -1353,6 +1374,7 @@ function availableComputers(
   peerStates: Record<string, string>,
   peerResources: Record<string, MachineResources>,
   peerLinks: Record<string, PeerLinkDetail>,
+  showPeerReconnectStatus = false,
 ): Computer[] {
   const localLabel =
     localName || (summary?.hostKind === "local" && summary.host ? summary.host : t(CONTEXT_LABELS.local));
@@ -1361,7 +1383,13 @@ function availableComputers(
   for (const machine of knownMachines(peers, sessions, peerKinds, current, peerConnected, peerStates)) {
     const detail = t(machine.kind === "ssh" ? "composer.envSSH" : CONTEXT_LABELS.cloud);
     const link = peerLinks[machine.id];
-    const downSince = link && link.link !== "connected" ? link.since : undefined;
+    // Opt-in only: the outage's start. Off (the default), the link's `since`, as before.
+    const downSince =
+      link && link.link !== "connected"
+        ? showPeerReconnectStatus
+          ? (link.downSince ?? link.since)
+          : link.since
+        : undefined;
     computers.push({
       ...machine,
       detail,

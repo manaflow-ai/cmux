@@ -45,7 +45,10 @@ afterAll(async () => {
 
 const shown = () => host.querySelector<HTMLElement>(".acpmux-peer-copy-slot")?.dataset.shown === "true";
 
-async function mount(machine: "paused" | "starting" | undefined, extra: { asked?: boolean } = {}) {
+async function mount(
+  machine: "paused" | "starting" | undefined,
+  extra: { asked?: boolean; progress?: { machine: string; since?: number } } = {},
+) {
   jest.useFakeTimers();
   const { createRoot } = await import("react-dom/client");
   const { PeerCopyBanner } = await import("../src/agent-session/acpmux/PeerCopyBanner");
@@ -88,4 +91,26 @@ test("a paused machine, and a start the person asked for, keep the short delay",
   await mount("starting", { asked: true });
   await advance(1_500);
   expect(shown()).toBe(true);
+});
+
+test("with reconnect status off (the default), a reconnecting peer's banner still waits 10 s", async () => {
+  const { setComposerSettings } = await import("../src/agent-session/acpmux/composerSettings");
+  setComposerSettings({ showPeerReconnectStatus: false });
+  await mount(undefined, { progress: { machine: "dev-vm", since: Date.now() } });
+  await advance(9_999);
+  expect(shown()).toBe(false);
+  await advance(1);
+  expect(shown()).toBe(true);
+});
+
+test("with reconnect status on, a reconnecting peer's banner shows at once", async () => {
+  const { setComposerSettings } = await import("../src/agent-session/acpmux/composerSettings");
+  setComposerSettings({ showPeerReconnectStatus: true });
+  try {
+    await mount(undefined, { progress: { machine: "dev-vm", since: Date.now() } });
+    await advance(0);
+    expect(shown()).toBe(true);
+  } finally {
+    setComposerSettings({ showPeerReconnectStatus: false });
+  }
 });

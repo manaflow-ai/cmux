@@ -189,3 +189,65 @@ test("a start with no connection to acpmux says the agent service is unreachable
   expect(card.details).toContain("code native.not_connected");
   expect(logged.some((entry) => entry.includes("code native.not_connected"))).toBe(true);
 });
+
+/// A start the host could not send: the pane had no link (`native.not_connected`) and acpmux says
+/// the chat's machine is unreachable and the frame unsent. Both retry conditions hold.
+function unsentStart(): Error {
+  return Object.assign(new Error("not connected"), {
+    code: "native.not_connected",
+    data: { code: "native.not_connected", reason: "peer_unreachable", retryable: true },
+  });
+}
+
+test("with reconnect status off (the default), a start that hits host-not-ready fails fast: no hold, no retry", async () => {
+  const { setComposerSettings } = await import("../src/agent-session/acpmux/composerSettings");
+  const { sendsHeldForHost } = await import("../src/agent-session/acpmux/sendWhenReady");
+  setComposerSettings({ showPeerReconnectStatus: false });
+  let starts = 0;
+  let held = false;
+  const unsubscribe = sendsHeldForHost.subscribe(() => {
+    if (sendsHeldForHost.get()) held = true;
+  });
+  const { client, harnessSwitch } = await startPath((method) => {
+    if (method !== "session/new") return undefined;
+    starts += 1;
+    return unsentStart();
+  });
+  captureLog();
+  try {
+    await harnessSwitch.switchTo("claude", "/tmp/project");
+    expect(harnessSwitch.view().intent?.phase).toBe("failed");
+    expect(starts).toBe(1);
+    expect(held).toBe(false);
+    expect(sendsHeldForHost.get()).toBe(false);
+  } finally {
+    unsubscribe();
+    client.close();
+  }
+});
+
+test("with reconnect status on, the same start is held and goes once acpmux can send it", async () => {
+  const { setComposerSettings } = await import("../src/agent-session/acpmux/composerSettings");
+  const { sendsHeldForHost } = await import("../src/agent-session/acpmux/sendWhenReady");
+  setComposerSettings({ showPeerReconnectStatus: true });
+  let starts = 0;
+  let held = false;
+  const unsubscribe = sendsHeldForHost.subscribe(() => {
+    if (sendsHeldForHost.get()) held = true;
+  });
+  const { client, harnessSwitch } = await startPath((method) => {
+    if (method !== "session/new") return undefined;
+    starts += 1;
+    return starts === 1 ? unsentStart() : undefined;
+  });
+  try {
+    await harnessSwitch.switchTo("claude", "/tmp/project");
+    expect(starts).toBe(2);
+    expect(held).toBe(true);
+    expect(sendsHeldForHost.get()).toBe(false);
+  } finally {
+    setComposerSettings({ showPeerReconnectStatus: false });
+    unsubscribe();
+    client.close();
+  }
+});

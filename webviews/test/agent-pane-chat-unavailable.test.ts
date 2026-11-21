@@ -156,7 +156,12 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     const hash = new URLSearchParams({ endpoint, token: "t", session: chat, must: "" });
     if (machine) hash.set("machine", machine);
     await page.goto(`http://127.0.0.1:${port}/#${hash.toString()}`);
+    await enableReconnectStatus(page);
     return page;
+  }
+  async function enableReconnectStatus(page: Page) {
+    await page.waitForFunction(() => typeof (window as any).cmuxAcpmuxComposer === "function");
+    await page.evaluate(() => (window as any).cmuxAcpmuxComposer({ showPeerReconnectStatus: true }));
   }
   const state = (page: Page) => page.evaluate(() => (window as any).cmuxAcpmuxDebug.chatState() as Record<string, any>);
   const notify = (method: string, params: Record<string, unknown>) =>
@@ -333,12 +338,14 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     await page.goto(
       `http://127.0.0.1:${port}/#${new URLSearchParams({ endpoint, token: "t", session: "chat-on-box", must: "" })}`,
     );
+    await enableReconnectStatus(page);
     await page.getByText("Kept chat-on-box", { exact: true }).waitFor({ timeout: 25_000 });
     const line = page.locator('.acpmux-unavailable-line[data-unavailable="offline"]');
     await line.waitFor({ timeout: 25_000 });
     // One state: the line over the rows, never the centered state as well.
     expect(await page.locator("[data-unavailable]").count()).toBe(1);
-    expect(await line.innerText()).toContain("Reconnecting…");
+    expect(await line.innerText()).toContain("Reconnecting to");
+    expect(await line.innerText()).toContain("build-box");
     expect((await state(page)).isWorking).toBe(false);
     for (const action of ["reconnect", "resume", "close"])
       expect(await line.locator(`[data-action="${action}"]`).count()).toBe(1);
@@ -435,8 +442,8 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     notify("_acpmux/lagged", { watch: true, dropped: 1 });
     const shown = page.locator('[data-unavailable="offline"]');
     await shown.waitFor({ timeout: 60_000 });
-    // Neutral, as connecting (86ebb89edfcf, #26115): "Reconnecting…", when it was last seen, and Reconnect.
-    expect(await shown.locator("h2").innerText()).toBe("Reconnecting…");
+    // The timed status names the peer from the first second, then reports when it was last seen.
+    expect(await shown.locator("h2").innerText()).toMatch(/Reconnecting to\s+build-box/);
     expect(await shown.getAttribute("role")).toBe("status");
     const offlineSpinnerColors = await shown.locator(".acpmux-unavailable-spinner").evaluate((node) => {
       const probe = document.createElement("span");

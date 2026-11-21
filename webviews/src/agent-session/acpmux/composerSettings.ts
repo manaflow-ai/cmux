@@ -42,6 +42,9 @@
 // AgentPaneCloudEnvironmentsFlag, read from the bundle's LSEnvironment, else the launch
 // environment; no cmux.json key): on, picking Cloud in a new
 // chat's strip adds the Environment chip (CloudEnvironmentChip.tsx). Off unless the host says true.
+// `showPeerReconnectStatus` is an opt-in for the timed machine-link outage line. It is off by
+// default so existing chats keep their quiet composer row; a host composer snapshot can enable it
+// while the reconnect status rollout is evaluated.
 import { useSyncExternalStore } from "react";
 
 // `symbols`: one row of harness symbols at the top of the model picker, each name on hover (Leo
@@ -72,6 +75,7 @@ export type ComposerSettings = {
   newChatsIn: NewChatPlace;
   composerRing: ComposerRing;
   cloudEnvironments: boolean;
+  showPeerReconnectStatus: boolean;
 };
 
 export const DEFAULT_COMPOSER: ComposerSettings = {
@@ -91,6 +95,7 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   newChatsIn: "local",
   composerRing: "context",
   cloudEnvironments: false,
+  showPeerReconnectStatus: false,
 };
 const KEYS = Object.keys(DEFAULT_COMPOSER) as (keyof ComposerSettings)[];
 type ComposerFlag =
@@ -102,7 +107,8 @@ type ComposerFlag =
   | "harnessSwitch"
   | "scrollToBottomOnSend"
   | "showMachineLoadWarnings"
-  | "cloudEnvironments";
+  | "cloudEnvironments"
+  | "showPeerReconnectStatus";
 
 /// The host's value; anything it does not know keeps the default.
 export function readComposerSettings(value: unknown): ComposerSettings {
@@ -133,6 +139,7 @@ export function readComposerSettings(value: unknown): ComposerSettings {
     newChatsIn: raw.newChatsIn === "cloud" ? "cloud" : "local",
     composerRing: raw.composerRing === "planUsage" ? "planUsage" : "context",
     cloudEnvironments: flag("cloudEnvironments"),
+    showPeerReconnectStatus: flag("showPeerReconnectStatus"),
   };
 }
 

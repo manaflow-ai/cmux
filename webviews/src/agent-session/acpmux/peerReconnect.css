@@ -1,0 +1,16 @@
+/* Keep the outage state and elapsed time readable when the composer's free space is narrow.
+   Only the machine name truncates, in the same row and inherited type as the existing status. */
+.acpmux-peer-reconnecting {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  white-space: pre;
+}
+.acpmux-peer-reconnecting-part {
+  flex: none;
+}
+.acpmux-peer-reconnecting-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

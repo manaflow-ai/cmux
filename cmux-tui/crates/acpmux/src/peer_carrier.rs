@@ -65,6 +65,7 @@ impl super::Peer {
             cause: cause(whole, error.as_deref()),
             reason,
             since,
+            down_since: link.down_since,
             next_retry_at: link.retry_at.filter(|_| !link.is_ready()),
             last_seen: link.last_seen,
             error,

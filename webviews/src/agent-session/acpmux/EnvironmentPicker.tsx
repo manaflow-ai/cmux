@@ -15,6 +15,7 @@ import {
   environmentDigit,
   environmentForDigit,
   environmentReady,
+  environmentQueuesStart,
   environmentSections,
   environmentUnavailable,
   numberedEnvironments,
@@ -23,6 +24,7 @@ import {
   savedEnvironmentLabel,
 } from "./environments";
 import { isCloudMachineRow } from "./cloudMachines";
+import { useComposerSettings } from "./composerSettings";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { machineColor } from "./machineColor";
 import type { PickerCard } from "./machineCardModel";
@@ -193,6 +195,7 @@ export function EnvironmentPicker({
   /// 2026-11-12). Needs `onConnect`; a started chat's list is its move instead.
   otherDevices?: boolean;
 }) {
+  const { showPeerReconnectStatus } = useComposerSettings();
   // A picked saved environment is the current row: every machine row is then a change. One that is
   // only a folder on this computer leaves This Mac the current row.
   const listedSaved = useMemo(
@@ -394,7 +397,12 @@ export function EnvironmentPicker({
       }))
     : [];
   const move: Action | undefined = opensMoves
-    ? { value: MOVE_MENU, text: t("composer.moveToMenu"), kind: "cloud", run: () => undefined }
+    ? {
+        value: MOVE_MENU,
+        text: t("composer.moveToMenu"),
+        kind: "cloud",
+        run: () => undefined,
+      }
     : offload && onOffload
       ? {
           value: ACTION + offload,
@@ -497,13 +505,25 @@ export function EnvironmentPicker({
         ["addMachine", "composer.addMachine"],
         ["phone", "composer.connectPhone"],
       ] as const) {
-        items.push({ id: kind, label: t(key), onSelect: () => onConnect(kind) });
+        items.push({
+          id: kind,
+          label: t(key),
+          onSelect: () => onConnect(kind),
+        });
       }
     }
     if (saved) {
-      items.push({ id: "create", label: t("environment.create"), onSelect: saved.onCreate });
+      items.push({
+        id: "create",
+        label: t("environment.create"),
+        onSelect: saved.onCreate,
+      });
       if (editing !== undefined)
-        items.push({ id: "edit", label: t("environment.edit"), onSelect: () => saved.onEdit(editing) });
+        items.push({
+          id: "edit",
+          label: t("environment.edit"),
+          onSelect: () => saved.onEdit(editing),
+        });
     }
     return items;
   })();
@@ -683,10 +703,15 @@ export function EnvironmentPicker({
       return;
     }
     const action = actions.find((candidate) => candidate.value === value);
-    // A machine still connecting or down is listed, greyed, in its place, but is no pick: the list
-    // stays open.
+    // Offline SSH starts can wait for the peer. Refusals that need a person remain unpickable.
     const machine = positions.get(value)?.environment;
-    if (machine && !environmentReady(machine) && !isCloudMachineRow(machine)) return;
+    if (
+      machine &&
+      !environmentReady(machine) &&
+      !environmentQueuesStart(machine, showPeerReconnectStatus) &&
+      !isCloudMachineRow(machine)
+    )
+      return;
     // A move that would refuse is no pick either: its row already says why.
     if (action?.reason) return;
     // Move to… opens its targets in place, as Machines… does; the list stays open.
@@ -875,7 +900,8 @@ export function EnvironmentPicker({
     const number = numbers.get(environment.id);
     const ready = environmentReady(environment);
     // An account Cloud machine acpmux does not list is a pick (it resumes or opens), not greyed.
-    const greyed = !ready && !isCloudMachineRow(environment);
+    const greyed =
+      !ready && !environmentQueuesStart(environment, showPeerReconnectStatus) && !isCloudMachineRow(environment);
     return (
       <span
         className="acpmux-location-row acpmux-env-row"
@@ -897,7 +923,9 @@ export function EnvironmentPicker({
         </span>
         {/* A machine a chat cannot start on yet says why, greyed; one that can shows a status dot.
             Only an SSH or Cloud machine acpmux lists has a status; this Mac never shows one. */}
-        {!ready && <span className="acpmux-env-state">{environmentStateLabel(environment)}</span>}
+        {!ready && (
+          <span className="acpmux-env-state">{environmentStateLabel(environment, showPeerReconnectStatus)}</span>
+        )}
         {ready && environment.loadWarning && (
           <span className="acpmux-env-state" data-warning="true">
             {environment.loadWarning}

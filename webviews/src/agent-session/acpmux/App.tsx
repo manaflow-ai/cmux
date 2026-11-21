@@ -109,7 +109,6 @@ import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./ha
 import {
   injectedNewTabContext,
   useEarlyNewTabContext,
-  useLostSharedPart,
   useNewTabAdoption,
   useNewTabPlaces,
   adoptionPlan,
@@ -118,12 +117,13 @@ import {
   useSessionAdoption,
   type SessionAdoption,
   withHandshakeNewTab,
+  useLostSharedPart,
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import {
   heldPick,
-  withCloudStartFolder,
   withDraftFolder,
+  withCloudStartFolder,
   shownCloudStartPick,
   withCloudStartPick,
 } from "./newtab/draftFolder";
@@ -141,7 +141,7 @@ import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from ".
 import { TaskGoalStrip } from "./TaskGoalStrip";
 import { hatPlanOf } from "./chatTaskList";
 import { goalHatPlace } from "./goalHat.experiment";
-import { githubFolder, githubFolderRepo } from "./githubRepos";
+import { githubFolderRepo, githubFolder } from "./githubRepos";
 import { StyleSwitch } from "./newtab/StyleSwitch";
 import { useSessionCommands } from "./newtab/useSessionCommands";
 import { screenTemplate, shownTemplate, pageStyle, pickNewTabStyle } from "./newtab/templates";
@@ -279,12 +279,12 @@ import { PeerCopyBanner } from "./PeerCopyBanner";
 import { chatCloudMachine, cloudMachineRows, createStopWaiter } from "./cloudMachineMenu";
 import {
   cloudMachineAsleep,
-  currentCloudPlan,
-  readCloudPlanFresh,
   readUntilMoved,
   refreshCloudMachines,
   useCloudMachines,
   type CloudMachine,
+  currentCloudPlan,
+  readCloudPlanFresh,
 } from "./cloudMachines";
 import { usePeerCloudMachine } from "./peerCloudMachine";
 import { inThisVisit, useFolderTrustAsk, visitOf } from "./useFolderTrustAsk";
@@ -594,8 +594,6 @@ import {
   cloudStartTeam,
   makeCloudSignInRetry,
   grantedCloudStart,
-  pickedChatCloudCall,
-  pickOnlyNewChat,
   newTabProjectPick,
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
@@ -604,6 +602,8 @@ import {
   heldPromptShown,
   cloudPickExtras,
   composerCloudStartFolder,
+  pickedChatCloudCall,
+  pickOnlyNewChat,
   pageOnOtherMachine,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
@@ -620,12 +620,12 @@ import { harnessLabel } from "./subagents/agentRuns";
 import {
   cloudStartBegun,
   cloudStartEnded,
-  cloudStartPlanHeld,
   cloudStartPushed,
   cloudStartStalled,
   watchCloudStartStall,
   cloudStartSignedIn,
   type CloudStartProgress,
+  cloudStartPlanHeld,
 } from "./cloudStartProgress";
 import { CloudStartView } from "./CloudStartView";
 import { createCloudPlanSubscribe } from "./cloudPlanSubscribe";
@@ -709,6 +709,7 @@ import { type ChatAccounts, ChatAccountsContext, ownRouteOf, readChatAccounts } 
 import { ForkPendingLine } from "./ForkPendingLine";
 import { HostError, HostRecoveringLine, HostUnavailableLine, HostWaitingLine } from "./HostError";
 import { hostLineText } from "./hostLine";
+import { peerReconnect } from "./peerReconnect";
 import {
   AcpmuxRestartGate,
   type HostRestoring,
@@ -880,7 +881,7 @@ import { ChildAsk } from "./subagents/ChildAsk";
 import { childAsks } from "./subagents/childAsks";
 import { HatQuestions, type HatQuestionActions } from "./question/HatQuestions";
 import { hatQuestions, hatShows, sameHatQuestions, type HatQuestion } from "./question/hatModel";
-import { hatSeenKey, hatQuestionsShown, stackCardKeys } from "./question/hatSeen";
+import { hatQuestionsShown, hatSeenKey, stackCardKeys } from "./question/hatSeen";
 import { declineReply, isPending, reply as questionReply, replyParams, selection } from "./question/model";
 
 import { defaultRegistry } from "./rows/registry";
@@ -13594,6 +13595,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The line is plain words: a chat's machine that is not reachable says so, and acpmux's own codes
   // and commands go behind Details (hostLine.ts).
   const hostWords = hostLineText(hostFailure, hostError ?? "", t, machineName);
+  const reconnectingPeer =
+    snapshot.summary?.peer ??
+    snapshot.peerCopy?.peer ??
+    (cloudUnavailable && "machine" in cloudUnavailable ? cloudUnavailable.machine : undefined);
+  const reconnectingProgress = peerReconnect(
+    reconnectingPeer,
+    reconnectingPeer ? snapshot.peerLinks?.[reconnectingPeer] : undefined,
+    reconnectingPeer ? snapshot.peerStates?.[reconnectingPeer] : undefined,
+  );
   const hostErrorCard = (
     <Notice id="host-error" tier="error" when={hostErrorSaid}>
       <HostUnavailableLine
@@ -14475,6 +14485,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   <ChatUnavailableState
                     line
                     unavailable={cloudUnavailable}
+                    progress={reconnectingProgress}
                     onResumeMachine={cloudRecovery.resume}
                     resuming={cloudRecovery.resuming}
                     error={cloudRecovery.error}
@@ -14492,6 +14503,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   <PeerCopyBanner
                     key={`${snapshot.sessionId ?? ""}:${snapshot.peerCopy.peer}`}
                     copy={snapshot.peerCopy}
+                    progress={reconnectingProgress}
                     machine={peerMachine.state}
                     onResume={peerMachine.resume}
                     asked={peerMachine.asked}
@@ -14557,6 +14569,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   // The tab's chat is not here: which case it is, centered where the chat would be.
                   <ChatUnavailableState
                     unavailable={cloudUnavailable}
+                    progress={reconnectingProgress}
                     onResumeMachine={cloudRecovery.resume}
                     resuming={cloudRecovery.resuming}
                     error={cloudRecovery.error}

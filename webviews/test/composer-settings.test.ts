@@ -15,6 +15,13 @@ test("machine load warnings are on by default and accept an explicit off value",
   expect(readComposerSettings({ showMachineLoadWarnings: "false" }).showMachineLoadWarnings).toBe(true);
 });
 
+test("peer reconnect status is opt-in and validates booleans", () => {
+  expect(DEFAULT_COMPOSER.showPeerReconnectStatus).toBe(false);
+  expect(readComposerSettings({}).showPeerReconnectStatus).toBe(false);
+  expect(readComposerSettings({ showPeerReconnectStatus: true }).showPeerReconnectStatus).toBe(true);
+  expect(readComposerSettings({ showPeerReconnectStatus: "true" }).showPeerReconnectStatus).toBe(false);
+});
+
 test("attachments show inline by default; strip and both are the other views", () => {
   expect(DEFAULT_COMPOSER.attachmentView).toBe("inline");
   expect(readComposerSettings({}).attachmentView).toBe("inline");

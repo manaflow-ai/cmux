@@ -7,6 +7,9 @@ import { currentLanguage, useT } from "./i18n";
 import type { PeerCopyState } from "./peerCopy";
 import type { PeerMachineState } from "./peerCloudMachine";
 import { pausedMachineResume } from "./pausedMachine.experiment";
+import type { PeerReconnect } from "./peerReconnect";
+import { PeerReconnectText } from "./PeerReconnectText";
+import { useComposerSettings } from "./composerSettings";
 
 /// A peer chat drawn from the Mac's copy while its machine does not answer (peerCopy.ts): the
 /// transcript is what the Mac last saw and may be out of date, until the machine is back and the
@@ -31,7 +34,14 @@ export function PeerCopyBanner(
   // wakes on its own (opening the chat, a send) that reads "starting". A paused machine (it has a
   // Resume) and a start the person asked for here keep `noteDelayMs`.
   const quiet = body.machine === undefined || (body.machine === "starting" && !asked);
-  const shown = useAfterDelay(true, quiet && noteDelayMs > 0 ? Math.max(noteDelayMs, LINK_DOWN_SAID_MS) : noteDelayMs);
+  // Opt-in (`showPeerReconnectStatus`): the timed reconnect line shows at once. Off (the
+  // default), the banner keeps its delays exactly as before.
+  const { showPeerReconnectStatus } = useComposerSettings();
+  const reconnecting = showPeerReconnectStatus && body.progress !== undefined && body.machine === undefined;
+  const shown = useAfterDelay(
+    true,
+    reconnecting ? 0 : quiet && noteDelayMs > 0 ? Math.max(noteDelayMs, LINK_DOWN_SAID_MS) : noteDelayMs,
+  );
   return (
     <div className="acpmux-peer-copy-slot" data-shown={shown || undefined}>
       <PeerCopyBannerBody {...body} />
@@ -45,18 +55,26 @@ function PeerCopyBannerBody({
   machine,
   onResume,
   onReconnect,
+  progress,
 }: {
   copy: PeerCopyState;
   now?: number;
   machine?: PeerMachineState;
   onResume?(): void;
   onReconnect?(peer: string): Promise<unknown>;
+  progress?: PeerReconnect;
 }) {
   const t = useT();
-  const [reconnect, setReconnect] = useState<{ state: "idle" | "reconnecting" | "failed" }>({ state: "idle" });
+  const { showPeerReconnectStatus } = useComposerSettings();
+  const visibleProgress = showPeerReconnectStatus ? progress : undefined;
+  const [reconnect, setReconnect] = useState<{ state: "idle" | "reconnecting" | "failed" }>({
+    state: "idle",
+  });
   const detail =
     copy.capturedAt !== undefined
-      ? t("peerCopy.offline.savedAt", { time: relativeTime(copy.capturedAt, now, currentLanguage()) })
+      ? t("peerCopy.offline.savedAt", {
+          time: relativeTime(copy.capturedAt, now, currentLanguage()),
+        })
       : t("peerCopy.offline.saved");
   const paused = machine === "paused" && onResume !== undefined;
   const arm = experimentArm(pausedMachineResume);
@@ -119,7 +137,11 @@ function PeerCopyBannerBody({
   return (
     <div className="acpmux-link-missing acpmux-peer-copy" data-enter="top">
       <p className="acpmux-peer-copy-title">
-        <span>{t("peerCopy.offline.title", { machine: copy.peer })}</span>
+        {visibleProgress ? (
+          <PeerReconnectText progress={visibleProgress} />
+        ) : (
+          <span>{t("peerCopy.offline.title", { machine: copy.peer })}</span>
+        )}
         {reconnectButton}
       </p>
       <p className="acpmux-watch-hint">{detail}</p>

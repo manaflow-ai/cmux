@@ -222,6 +222,8 @@ pub struct PeerStateChanged {
     pub cause: Option<DownCause>,
     /// When `link` took its value, ms since the epoch.
     pub since: u64,
+    /// First failure of this outage, ms since the epoch; unchanged across retries, null at ready.
+    pub down_since: Option<u64>,
     /// When acpmux dials again on its own, ms since the epoch; null while it is not waiting.
     pub next_retry_at: Option<u64>,
     /// Why a down link is `offline` (or `authFailed`) and will not heal by retrying alone;

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { translate as t, type StringKey } from "./i18n";
-import { type Environment, type EnvironmentSection } from "./environments";
+import { environmentQueuesStart, type Environment, type EnvironmentSection } from "./environments";
 import { type CloudMachine, isCloudMachineRow } from "./cloudMachines";
 
 /// The sections (environments.ts `environmentSections`): This Mac, My machines, Cloud and VMs.
@@ -19,8 +19,14 @@ const STATE_LABELS: Record<string, StringKey> = {
   paused: "composer.envPaused",
   resuming: "composer.envResuming",
 };
-export function environmentStateLabel(environment: Environment): string {
+export function environmentStateLabel(environment: Environment, showPeerReconnectStatus = false): string {
   if (isCloudMachineRow(environment)) return cloudMachineLabel(environment.cloudMachine);
+  if (
+    environmentQueuesStart(environment, showPeerReconnectStatus) &&
+    environment.state !== "connecting" &&
+    environment.state !== "degraded"
+  )
+    return t("environment.offlineQueued");
   return t(STATE_LABELS[environment.state ?? ""] ?? "composer.envNotConnected");
 }
 /// An account Cloud machine acpmux does not list (cloudMachines.ts): its stage, and what a pick does.
