@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAppInstallLink
 import CmuxNextDaemon
 import Foundation
 
@@ -16,12 +17,11 @@ enum LinkHandlers {
             // start (a script, an agent) still navigates, as it asked, but
             // never takes the key window.
             let background = invocation["background"]?.boolValue == true || !ActionRunScope.viewChangeAllowed()
-            // `<scheme>://stashed` (opened from another app, Open Link…) is the Stashed Tabs page.
-            if let url = URL(string: trimmed), url.scheme?.caseInsensitiveCompare(services.linkScheme) == .orderedSame,
-               url.host()?.lowercased() == "stashed" {
-                _ = try StashHandlers.show(services, focus: !background)
-                return
+            // `<scheme>://stashed` (from another app, Open Link…) is Stashed Tabs; cmux.com's Open in cmux (`<scheme>://apps/install?…`) asks, then installs.
+            if let url = URL(string: trimmed), url.scheme?.caseInsensitiveCompare(services.linkScheme) == .orderedSame, url.host()?.lowercased() == "stashed" {
+                _ = try StashHandlers.show(services, focus: !background); return
             }
+            if let url = URL(string: trimmed), AppInstallLink.matches(url, linkScheme: services.linkScheme) { return AppInstallLink.open(trimmed, bundled: services.bundledCLI, window: services.windows.active?.window ?? services.keyWindowSource()) }
             if let url = URL(string: trimmed), let reference = DeepLink.agentReference(url, linkScheme: services.linkScheme) { // a footer's `cmux://agent?id=aid-…`
                 return try DeepLinkNavigator(services: services).openAgentLink(nil, bare: reference, background ? .bringForward : .raise, asking: true)
             }
