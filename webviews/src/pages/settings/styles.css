@@ -2893,3 +2893,29 @@ button.menu-disclosure {
   background: transparent;
   text-decoration: underline;
 }
+
+/* Settings > General's Text Size card (TextSizeCard): the picker on a card of its own, ahead of every row. */
+.text-size-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-3);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--ds-radius-control) + var(--ds-space-3));
+}
+
+.text-size-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-2);
+}
+
+.text-size-card__head .group-title {
+  margin: 0;
+}
+
+.text-size-card__detail {
+  margin: 0;
+  color: var(--muted-text);
+}
