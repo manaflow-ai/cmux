@@ -193,6 +193,8 @@ final class SidebarListView: NSView {
     /// Main-thread milliseconds of the last drag move (`SidebarMotionFrame.dragWorkMs`).
     var lastDragWorkMs: Double = 0
     var external: ExternalDrag?
+    /// The trackpad taps of this list's drags (`sidebar.reorderHaptics`).
+    var reorderHaptics = SidebarReorderHaptics()
     /// The selection the last reload or selection patch revealed (`selectionRevealKey`; close-focus.md: reveal on change).
     var revealedActive: SidebarRowKey?
     /// The row that stands for the selection (`SidebarLayout.selectedRowKey`).

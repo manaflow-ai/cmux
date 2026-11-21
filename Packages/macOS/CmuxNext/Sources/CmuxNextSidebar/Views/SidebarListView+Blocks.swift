@@ -246,6 +246,7 @@ extension SidebarListViewComponents {
             drag.docItems = [id.rawValue]
             drag.docAcceptance = keepingFixed(doc.begin([id.rawValue]))
             self.drag = drag
+            reorderHaptics.begin(at: nil) // a tile's first gap is where it starts
             setHovered(nil)
             SidebarEmptyZones.keepPinned(self, drag)
             showDragLayout() // the tile's slot closes on the drag's spring

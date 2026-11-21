@@ -87,6 +87,16 @@ extension SidebarSettingsSchema {
                 keywords: ["sidebar", "sections", "pinned", "scroll"]
             ),
             SettingDescriptor(
+                SidebarSectionsSetting.reorderHapticsPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.reorderHaptics", "Haptic Feedback When Reordering"),
+                help: SettingsText.keyed("settings.sidebar.reorderHaptics.help", "A Force Touch trackpad taps as a dragged workspace, group or item moves to a new place in the sidebar, and once more as it drops."),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.reorderHapticsDefault),
+                keywords: ["sidebar", "haptic", "haptics", "trackpad", "force touch", "drag", "reorder", "feedback", "vibration"]
+            ),
+            SettingDescriptor(
                 SidebarSectionsSetting.showChatsPath,
                 section: .appearance,
                 group: group,
@@ -366,16 +376,6 @@ extension SidebarSettingsSchema {
                 kind: .toggle,
                 default: .bool(SidebarSectionsSetting.groupHeaderMemberCountDefault),
                 keywords: ["sidebar", "group", "groups", "count", "members", "workspaces", "number", "header"]
-            ),
-            SettingDescriptor(
-                SidebarSectionsSetting.groupHeaderUnreadCountPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.groupHeader.unreadCount", "Show Group Unread Count"),
-                help: SettingsText.keyed("settings.sidebar.groupHeader.unreadCount.help", "A collapsed group shows its unread notification count."),
-                kind: .toggle,
-                default: .bool(SidebarSectionsSetting.groupHeaderUnreadCountDefault),
-                keywords: ["sidebar", "group", "groups", "unread", "badge", "notifications", "count", "header"]
             ),
         ]
     }

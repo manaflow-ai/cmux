@@ -356,6 +356,7 @@
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
         "sidebar.pinnedBandsScroll",
+        "sidebar.reorderHaptics",
         "sidebar.noFade",
         "sidebar.showChats",
         "sidebar.sessionTree",

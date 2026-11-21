@@ -40,6 +40,7 @@ import AppKit
         list.drag = nil
         list.leaving.formUnion(ids)
         list.model.send(.dropOnLayoutSection(ids, section: pin.section, index: pin.index))
+        list.reorderHaptics.dropped()
         list.suppressed = drag.hiddenKeys
         list.reload(animated: true, adopt: true)
         list.land(drag, at: slot) { [weak list] in

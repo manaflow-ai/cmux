@@ -4358,6 +4358,14 @@
           "group": "Sidebar"
         },
         {
+          "key": "sidebar.reorderHaptics",
+          "title": "Haptic Feedback When Reordering",
+          "help": "A Force Touch trackpad taps as a dragged workspace, group or item moves to a new place in the sidebar, and once more as it drops.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Sidebar"
+        },
+        {
           "key": "sidebar.sectionLook",
           "title": "Section Look",
           "help": "How the sections above and below the workspace list draw.",

@@ -5247,6 +5247,12 @@
       "title" : "Show Priority View",
       "type" : "boolean"
     },
+    "sidebar.reorderHaptics" : {
+      "default" : true,
+      "description" : "A Force Touch trackpad taps as a dragged workspace, group or item moves to a new place in the sidebar, and once more as it drops.",
+      "title" : "Haptic Feedback When Reordering",
+      "type" : "boolean"
+    },
     "sidebar.sectionLook" : {
       "default" : "quiet",
       "description" : "How the sections above and below the workspace list draw.",

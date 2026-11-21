@@ -35,6 +35,9 @@ extension SidebarSectionsSetting {
     /// `sidebar.pinnedBandsScroll`.
     public nonisolated static let scrollPath = ["sidebar", "pinnedBandsScroll"]
     public nonisolated static let scrollDefault = true
+    /// `sidebar.reorderHaptics`.
+    public nonisolated static let reorderHapticsPath = ["sidebar", "reorderHaptics"]
+    public nonisolated static let reorderHapticsDefault = true
     /// `sidebar.showChats`.
     public nonisolated static let showChatsPath = ["sidebar", "showChats"]
     public nonisolated static let showChatsDefault = true

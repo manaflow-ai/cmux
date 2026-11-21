@@ -262,6 +262,34 @@
           }
         },
         {
+          "key": "sidebar.reorderHaptics",
+          "title": {
+            "key": "settings.sidebar.reorderHaptics",
+            "text": "Haptic Feedback When Reordering"
+          },
+          "help": {
+            "key": "settings.sidebar.reorderHaptics.help",
+            "text": "A Force Touch trackpad taps as a dragged workspace, group or item moves to a new place in the sidebar, and once more as it drops."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "sidebar",
+            "haptic",
+            "haptics",
+            "trackpad",
+            "force touch",
+            "drag",
+            "reorder",
+            "feedback",
+            "vibration"
+          ],
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
           "key": "sidebar.showChats",
           "title": {
             "key": "settings.sidebar.showChats",
