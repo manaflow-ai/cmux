@@ -108,9 +108,11 @@ async fn three_hundred_agent_messages_go_in_as_one_notice_at_the_next_tool_step(
     c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "before-gate").await;
     let running = hub.resolve(&id).unwrap().turn().unwrap().turn_id;
 
-    // The first message goes in as a notice at once; the agent reads it at its next tool step.
+    // The first message, a blocker, goes in as a notice at once; the agent reads it at its next
+    // tool step. (Results alone would wait `STEER_COALESCE_MS` to go in together.)
+    let blocker = json!({"class": "blocker"});
     let first = c
-        .send(method::SESSION_PROMPT, from_agent(&id, "m-first", "lane-0", "merged #1", json!({})))
+        .send(method::SESSION_PROMPT, from_agent(&id, "m-first", "lane-0", "merged #1", blocker))
         .await;
     until(&hub, &id, "the first notice", |p| p.iter().any(|m| m["steer"] == true)).await;
     let mut sent = vec![first];
@@ -120,7 +122,8 @@ async fn three_hundred_agent_messages_go_in_as_one_notice_at_the_next_tool_step(
             &format!("m-{i}"),
             &format!("lane-{i}"),
             &format!("result {i}"),
-            json!({}),
+            // The last is a question: it brings the 299 results before it at once.
+            if i == 300 { json!({"class": "question"}) } else { json!({}) },
         );
         sent.push(c.send(method::SESSION_PROMPT, msg).await);
     }
