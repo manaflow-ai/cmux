@@ -14,7 +14,7 @@
 // listed process is that process.
 import { acpmuxSend } from "../conversation/acpmuxSends";
 import type { Translate } from "../i18n";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { SummaryBackgroundTask } from "../summary/sessionSummary";
 import { replayProcessUpdates } from "./processUpdateReplay";
 import { commandWorkLabel } from "./commandWorkLabel";
@@ -156,20 +156,25 @@ export function useProcessRegistry(
   live: boolean,
   all = true,
 ): ProcessRegistry {
-  const [state, setState] = useState<ProcessRegistry & { sessionId?: string }>(NO_PROCESSES);
-  const running = state.sessionId === sessionId && state.processes.some((process) => process.state === "running");
-  const on = live || running;
+  // This visit of the chat: records an earlier visit kept (a switch away no longer resets them) are
+  // not current. A visit back reads none of them and lists the chat again, as a first visit does.
+  const visit = useMemo(() => ({ sessionId }), [sessionId]);
+  const [state, setState] = useState<ProcessRegistry & { sessionId?: string; visit?: object }>(NO_PROCESSES);
+  const current = state.sessionId === sessionId && state.visit === visit;
+  const stale = state.sessionId === sessionId && !current;
+  const running = current && state.processes.some((process) => process.state === "running");
+  const on = live || running || stale;
   useEffect(() => {
     // Closing the history releases its older rows even when an idle chat needs no subscription.
     if (!all) {
       setState((known) => {
-        if (known.sessionId !== sessionId) return known;
+        if (known.sessionId !== sessionId || known.visit !== visit) return known;
         const processes = recentProcesses(known.processes);
         return processes === known.processes ? known : { ...known, processes };
       });
     }
     if (!source || !sessionId || !on) return;
-    let current = true;
+    let subscribed = true;
     // This subscription's updates: newer than the list's records.
     // Retain only the latest update per process ID while the list is pending.
     const pending = new Map<string, SessionInfoProcess>();
@@ -182,16 +187,17 @@ export function useProcessRegistry(
         if (process) pending.set(process.id, process);
       }
       setState((known) => {
-        const processes = known.sessionId === sessionId ? known.processes : [];
-        const listed = known.sessionId === sessionId && known.listed;
+        const mine = known.sessionId === sessionId && known.visit === visit;
+        const processes = mine ? known.processes : [];
+        const listed = mine && known.listed;
         const merged = mergeProcess(processes, value, sessionId);
         const next = all || merged === processes ? merged : recentProcesses(merged);
-        return next === processes && known.sessionId === sessionId ? known : { sessionId, processes: next, listed };
+        return next === processes && mine ? known : { sessionId, visit, processes: next, listed };
       });
     });
     source.listProcesses(sessionId, all ? undefined : PROCESS_LIST_RECENT).then(
       (reply) => {
-        if (!current) return;
+        if (!subscribed) return;
         const listed = processesOf(reply, sessionId);
         // Buffered updates win over the stale list snapshot.
         const replayed = replayProcessUpdates(listed, pending);
@@ -200,6 +206,7 @@ export function useProcessRegistry(
         pending.clear();
         setState({
           sessionId,
+          visit,
           processes: reconciled,
           // A reply without its list (a daemon that does not keep one) lists nothing.
           listed: Array.isArray((reply as { processes?: unknown } | undefined)?.processes),
@@ -211,13 +218,13 @@ export function useProcessRegistry(
       },
     );
     return () => {
-      current = false;
+      subscribed = false;
       awaitingList = false;
       pending.clear();
       stop();
     };
-  }, [source, sessionId, on, all]);
-  return state.sessionId === sessionId ? state : NO_PROCESSES;
+  }, [source, sessionId, visit, on, all]);
+  return current ? state : NO_PROCESSES;
 }
 
 /// Chat `sessionId`'s background processes while `live` (Session Info shows), kept current from
