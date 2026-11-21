@@ -28,7 +28,7 @@ jobs:
   preflight:
     outputs:
       source_sha: ${{ steps.source.outputs.sha }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 15
     defaults:
       run:
@@ -56,7 +56,7 @@ jobs:
 
   migrate-staging:
     if: ${{ inputs.target == 'staging' || inputs.target == 'production' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 60
     needs: preflight
     environment: cloud-vm-staging
@@ -100,7 +100,7 @@ jobs:
 
   migrate-production:
     if: ${{ inputs.target == 'production' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 60
     needs: [preflight, migrate-staging]
     environment: cloud-vm-production

@@ -648,6 +648,16 @@ def _ends_in_pool(node: tuple) -> bool:
     return False
 
 
+def _guarded_fork_first(node: tuple) -> bool:
+    """`<condition> && (<fork pull-request branch> || ...)`: a fork pull request that meets the condition takes the
+    fork branch's literal (cmux-next.yml swift-canary's `verdict == 'pass' && (fork && 'blacksmith-…' ||
+    vars.CI_OVERFLOW_LINUX || 'cmux-linux')`, c-ab6690acae)."""
+    if node[0] != "and" or not node[1]:
+        return False
+    inner = node[1][-1]
+    return inner[0] == "or" and bool(inner[1]) and _is_fork_pull_request_branch(inner[1][0])
+
+
 def _runner_value_error(
     node: tuple, selector: re.Pattern[str], dispatch_inputs_are_empty: bool
 ) -> str | None:
@@ -667,7 +677,7 @@ def _runner_value_error(
     for disjunct in disjuncts:
         if _is_fork_pull_request_branch(disjunct):
             return None
-        if _ends_in_pool(disjunct):
+        if _ends_in_pool(disjunct) or _guarded_fork_first(disjunct):
             continue
         early = _owned(disjunct, selector)
         if early:

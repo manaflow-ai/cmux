@@ -18,7 +18,7 @@ from pathlib import Path
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from runs_on_labels import EMPTY, Unknown, disallowed_labels, linux_runner_values, resolve_labels  # noqa: E402
+from runs_on_labels import EMPTY, Unknown, disallowed_labels, linux_runner_values, overflow_linux_values, resolve_labels  # noqa: E402
 # The personal Linux workstation's label, from the fleet rule lint: the one file allowed to spell it.
 from test_ci_fleet_rule_lints import CANDIDATE_WORDS_ANY_CASE  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
@@ -64,7 +64,7 @@ def mutate(text: str, node, key: str, value: str) -> str:
 # (workflow, how to read the runs-on, where it lives, the values each described variable may hold)
 SITES = (
     ("cmux-tui-artifacts.yml", daemon_runs_on, (_daemon_job, "runs-on"), {}),
-    ("cmux-tui.yml", lint_runner, (_lint_row, "runner"), {"LINUX_RUNNER": linux_runner_values()}),
+    ("cmux-tui.yml", lint_runner, (_lint_row, "runner"), {"CI_OVERFLOW_LINUX": overflow_linux_values()}),
 )
 
 
