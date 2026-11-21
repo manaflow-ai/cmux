@@ -193,6 +193,36 @@ extension AgentPaneDisplaySettingsSchema {
                 keywords: ["agent", "chat", "acp", "display", "reading", "font", "interface", "ui", "typeface", "verdana", "roboto", "inter", "plex", "geist", "source sans", "cmux sans", "hanken", "atkinson", "system"]
             ),
             SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.uiFamilyPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.uiFamily", "Chat Interface Font Family"),
+                help: SettingsText.keyed("settings.agentPane.display.uiFamily.help", "A font family or a comma list of them. When set, it replaces the Chat Interface Font."),
+                kind: .fontFamily,
+                default: nil,
+                keywords: ["agent", "chat", "acp", "display", "font", "interface", "ui", "family", "typeface", "custom"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.proseFamilyPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.proseFamily", "Chat Reply Font Family"),
+                help: SettingsText.keyed("settings.agentPane.display.proseFamily.help", "The font of the agent's replies. When set, it replaces the Chat Font."),
+                kind: .fontFamily,
+                default: nil,
+                keywords: ["agent", "chat", "acp", "display", "reading", "font", "reply", "prose", "family", "serif", "typeface", "custom"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.facesPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.fontFaces", "Chat Font Files"),
+                help: SettingsText.keyed("settings.agentPane.display.fontFaces.help", "A font file for each family, such as \"Lora:italic\": \"file:~/Fonts/Lora-Italic.woff2\"."),
+                kind: .stringMap,
+                default: nil,
+                keywords: ["agent", "chat", "display", "font", "file", "woff2", "ttf", "otf", "face", "typeface", "custom"]
+            ),
+            SettingDescriptor(
                 AgentPaneDisplaySettingsSchema.fontSizePath,
                 section: .appearance,
                 group: group,
@@ -353,29 +383,6 @@ extension AgentPaneDisplaySettingsSchema {
                 kind: .number(SettingNumber(AgentPaneDisplaySettingsSchema.thinkingShimmerPeriodRange, step: 50, unit: .milliseconds, placeholder: AgentPaneDisplaySettingsSchema.thinkingShimmerPeriodPlaceholder)),
                 default: .number(AgentPaneDisplaySettingsSchema.thinkingShimmerPeriodDefault),
                 keywords: ["agent", "chat", "acp", "display", "thinking", "shimmer", "speed", "period", "duration", "animation", "claude"]
-            ),
-            SettingDescriptor(
-                AgentPaneDisplaySettingsSchema.thinkingShimmerBandPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.agentPane.display.thinking.shimmerBand", "Shimmer Width"),
-                help: SettingsText.keyed("settings.agentPane.display.thinking.shimmerBand.help", "The width of the shimmer's light band. 0 uses half the line."),
-                kind: .number(SettingNumber(AgentPaneDisplaySettingsSchema.thinkingShimmerBandRange, step: 4, unit: .points, placeholder: AgentPaneDisplaySettingsSchema.thinkingShimmerBandPlaceholder)),
-                default: .number(AgentPaneDisplaySettingsSchema.thinkingShimmerBandDefault),
-                keywords: ["agent", "chat", "acp", "display", "thinking", "shimmer", "band", "width", "animation", "claude"]
-            ),
-            SettingDescriptor(
-                AgentPaneDisplaySettingsSchema.thinkingJumpButtonPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.agentPane.display.thinking.jumpButton", "Jump to Latest While Working"),
-                help: SettingsText.keyed("settings.agentPane.display.thinking.jumpButton.help", "What the Jump to latest button shows while the agent works."),
-                kind: .choice([
-                    SettingChoice("arrow", SettingsText.keyed("settings.choice.thinkingJumpArrow", "Arrow")),
-                    SettingChoice("dots", SettingsText.keyed("settings.choice.dots", "Dots")),
-                ]),
-                default: .string(AgentPaneDisplaySettingsSchema.thinkingJumpButtonDefault),
-                keywords: ["agent", "chat", "acp", "display", "thinking", "jump", "latest", "scroll", "button", "arrow", "dots", "claude"]
             ),
         ]
     }
