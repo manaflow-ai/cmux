@@ -50,6 +50,7 @@ import {
   type AgentsRun,
   type AgentsState,
   type AppUpdateAction,
+  type PreviousBuild,
   type ChannelsState,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
@@ -688,6 +689,18 @@ export class SettingsStore {
     const reply = await this.request("cmux.settings.app_update.run", { action });
     await this.refreshHost();
     return reply.ok;
+  }
+
+  /** Updates > App Update's Go Back to Previous Build row; null when nothing is kept or the host has no updater. */
+  async previousBuild(): Promise<PreviousBuild | null> {
+    const reply = await this.request("cmux.settings.app_update.previous", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** That row's Go Back: the app restarts into the kept build; else the host's reason. */
+  async goBackToPreviousBuild(build: string): Promise<string | null> {
+    const reply = await this.request("cmux.settings.app_update.rollback", { build });
+    return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
   }
 
   /** Updates > Web UI: Check Now or Roll Back, then re-read the host lists; false when the host refused. */

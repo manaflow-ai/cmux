@@ -2993,3 +2993,24 @@ button.menu-disclosure {
   margin: 0;
   color: var(--muted-text);
 }
+
+/* Updates > App Update's Go Back to Previous Build (PreviousBuildRow). `line`: an inline link-weight
+   button after the sentence; `panel`: the build in a box of its own. */
+.previous-build-line .previous-build-link {
+  min-height: 0;
+  padding: 0 var(--ds-space-1);
+  vertical-align: baseline;
+  color: var(--accent-text);
+  background: transparent;
+}
+
+.previous-build-panel .previous-build-box {
+  padding: var(--ds-space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-md);
+  background: var(--input-bg);
+}
+
+.previous-build-version {
+  font-variant-numeric: tabular-nums;
+}

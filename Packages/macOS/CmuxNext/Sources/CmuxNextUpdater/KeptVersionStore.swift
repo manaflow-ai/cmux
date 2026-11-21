@@ -62,7 +62,7 @@ nonisolated public struct KeptVersionStore: Sendable {
                 ?? Self.recordedSchemas(in: folder, bundle: bundle)
             return KeptVersion(build: info["CFBundleVersion"] as? String ?? build,
                                shortVersion: info["CFBundleShortVersionString"] as? String ?? build,
-                               bundle: bundle, storeSchemas: schemas, teamID: nil)
+                               bundle: bundle, storeSchemas: schemas, teamID: nil, commit: info["CMUXCommit"] as? String)
         }
         .sorted { Self.isNewer($0.build, than: $1.build) }
     }

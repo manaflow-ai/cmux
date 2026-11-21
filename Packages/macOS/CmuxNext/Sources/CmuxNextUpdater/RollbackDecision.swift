@@ -10,13 +10,17 @@ nonisolated public struct KeptVersion: Equatable, Sendable {
     /// build predates rollback support.
     public var storeSchemas: [String: Int]?
     public var teamID: String?
+    /// The commit it was built from (`CMUXCommit` in its Info.plist); nil for a build without it.
+    public var commit: String?
 
-    public init(build: String, shortVersion: String, bundle: URL, storeSchemas: [String: Int]?, teamID: String?) {
+    public init(build: String, shortVersion: String, bundle: URL, storeSchemas: [String: Int]?, teamID: String?,
+                commit: String? = nil) {
         self.build = build
         self.shortVersion = shortVersion
         self.bundle = bundle
         self.storeSchemas = storeSchemas
         self.teamID = teamID
+        self.commit = commit
     }
 }
 
