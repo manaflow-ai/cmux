@@ -126,6 +126,15 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 240_000,
     ownPart: true,
   },
+  // Time to a settled page against its derived bound (goal settled-page-ceiling in cmuxterm-hq's NOW): chat switch,
+  // workspace switch, open recent and restart, idle and streaming. perf-cron.py's web-ui-settled part runs it.
+  {
+    name: "settled-page",
+    file: "settled-page.bench.ts",
+    args: ["3", "120"],
+    timeoutMs: 900_000,
+    ownPart: true,
+  },
   // A 1,000,000-event chat (CMUX-571, cmux#37713): the pane client's open, one older page and its heap, for long turns
   // and for 4-record turns. perf-cron.py's web-ui-million part runs both (about 2 minutes on a lane VM).
   {

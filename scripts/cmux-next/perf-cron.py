@@ -223,6 +223,10 @@ PARTS = [
     # that should keep nothing (sessions made and closed, chats reopened, reconnects mid-stream, a shell's output
     # streaming), small and god side by side, after warm-up. Its own part (about 2 minutes).
     {"name": "web-ui-growth", "where": "linux", "kind": "webui", "needs": "web-ui-growth"},
+    # Time to a settled page (webviews/bench/settled-page.bench.ts, goal settled-page-ceiling in cmuxterm-hq's NOW): chat
+    # switch, workspace switch, open recent and restart, idle and streaming, each against the time to draw its settled
+    # DOM with no app code; settled_page.score_max is the worst ratio plus shifted frames. Its own part.
+    {"name": "web-ui-settled", "where": "linux", "kind": "webui", "needs": "web-ui-settled"},
     # The chat benches on the god session (webviews/bench/godFixture.ts) beside their ordinary run, on one runner at one
     # commit: each god row, and its god_ratio row (god p95 / ordinary p95, target GOD_RATIO_MAX). Its own part: the
     # six benches take about 13 minutes. Then the paired transcript-replay rounds (GOD_PAIRED_*): the god and small
@@ -267,6 +271,7 @@ ROW_PARTS = [
     (r"^terminal\.throughput\.", "throughput"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"),
     (r"^webui\.state_growth\.", "web-ui-growth"),
+    (r"^webui\.settled_page\.", "web-ui-settled"),
     # chat-open-god's paired rows (chat-open.bench.ts PAIRED=1), the small chat's too: the part that ran them keeps them.
     (r"^webui\.chat_open_paired\.", "web-ui-god"),
     (r"^webui\.(god_ratio\.|[a-z0-9_]+\.god\.)", "web-ui-god"), (r"^webui\.infinite_items\.", "infinite-items"),
@@ -971,6 +976,8 @@ def linux_bench_runs(root, part="diff-viewer"):
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "update-one"], os.path.join(root, "webviews"), {})}
     if part == "web-ui-growth":
         return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "state-growth"], os.path.join(root, "webviews"), {})}
+    if part == "web-ui-settled":
+        return {"suite": (["bun", "bench/web-ui-suite.ts", "--only", "settled-page"], os.path.join(root, "webviews"), {})}
     if part == "web-ui-god":
         only = ",".join([b for b in GOD_BENCHES if b not in GOD_SELF_PAIRED] + [f"{b}-god" for b in GOD_BENCHES])
         # `paired` runs in rounds (run_paired_rounds): the god and small chats at once, as god-ratio-ab.sh plays them.
@@ -1948,6 +1955,8 @@ def supported_parts_at(sha):
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{GOD_FIXTURE}"], capture_output=True).returncode == 0
         elif need == "web-ui-growth":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{STATE_GROWTH_BENCH}"], capture_output=True).returncode == 0
+        elif need == "web-ui-settled":
+            ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{SETTLED_PAGE_BENCH}"], capture_output=True).returncode == 0
         elif need == "web-ui-flat":
             ok = subprocess.run(["git", "-C", ROOT, "cat-file", "-e", f"{sha}:{FLAT_100K_BENCH}"], capture_output=True).returncode == 0
         elif need == "web-ui-typing":
@@ -2010,6 +2019,7 @@ DIFF_LEGACY_VERSION = 1
 WEBUI_SUITE = "webviews/bench/web-ui-suite.ts"
 UPDATE_ONE_BENCH = "webviews/bench/update-one.bench.ts"
 STATE_GROWTH_BENCH = "webviews/bench/state-growth.bench.ts"
+SETTLED_PAGE_BENCH = "webviews/bench/settled-page.bench.ts"
 MILLION_EVENT_BENCH = "webviews/bench/million-event-chat.bench.ts"
 FLAT_100K_BENCH = "webviews/bench/chat-100k-flat.bench.ts"
 # The web-ui-typing part needs the load modes (composer-load.ts) and their rows (composerTypingRows.ts).
