@@ -58,6 +58,13 @@ enum HomeThemePalette {
         return palette
     }
 
+    /// The theme's window and text colours (accent and failure are not read), for callers that need
+    /// only the surface (`composerSurfaceOverGlass`). Callers run inside `performWithTheme`.
+    static func baseThemeInScope() -> HomePalette.Theme { // theme-scoped
+        HomePalette.Theme(background: color(Palette.windowBackground, opaque: true), foreground: color(Palette.textPrimary, opaque: true),
+                          accent: color(Palette.accentFill, opaque: true), failure: color(Palette.statusError, opaque: true))
+    }
+
     /// The glass chrome level's tint (`--ds-glass-chrome-tint`, webviews pages/shared/desktop.css).
     static let glassChromeTint: CGFloat = 0.62
 
