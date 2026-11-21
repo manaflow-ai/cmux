@@ -1,0 +1,6 @@
+/* The chat's paint. Only cmux.agentPane.style/1 tokens, on :root, so nothing in the transcript
+   moves when this applies or reloads. `cmux setup check .` names any token it does not know. */
+:root {
+  --cv-user-bubble-radius: 10px;
+  --cv-text-muted: #a1a1aa;
+}
