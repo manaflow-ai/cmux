@@ -49,6 +49,8 @@ impl Fixture {
                 ..Output::default()
             },
         );
+        // launchd has no com.cmux.server loaded here.
+        runner.answer_always("launchctl print", Output { code: Some(113), ..Output::default() });
         Self {
             home,
             layout,
