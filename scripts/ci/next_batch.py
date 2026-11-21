@@ -1878,7 +1878,7 @@ class Controller:
             if item.get("event") != "push" or item.get("conclusion") not in ("cancelled", "success"):
                 return False
             jobs = self.gh.api(f"repos/{self.args.repo}/actions/runs/{item['id']}/jobs?per_page=100&filter=latest")["jobs"]
-            return all(job.get("name") == "coalesce" or (job.get("conclusion") or "") in ("cancelled", "skipped")
+            return all(job.get("name") in ("coalesce", "coalesce / coalesce") or (job.get("conclusion") or "") in ("cancelled", "skipped")
                        for job in jobs)
 
         # A coalesced run is no verdict for its commit: the newest run on an ancestor stands in.

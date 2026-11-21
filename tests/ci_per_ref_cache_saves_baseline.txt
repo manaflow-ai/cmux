@@ -39,7 +39,6 @@ cmux-next-react-doctor.yml: react-doctor: Cache Bun package cache
 cmux-next-skew-matrix.yml: skew-matrix: Cache cargo build
 cmux-next-web-lint.yml: web-lint: Cache Bun package cache
 cmux-next-web-perf.yml: measure: Cache Bun package cache
-cmux-next-web.yml: coalesce: Record this push as the last covered one
 cmux-next-web.yml: web-bisect: Cache Bun package cache
 cmux-next-web.yml: web-bisect: Cache Playwright browsers
 cmux-next.yml: cmux-scheme-compile: Save the DEV compile cache (Blacksmith)
