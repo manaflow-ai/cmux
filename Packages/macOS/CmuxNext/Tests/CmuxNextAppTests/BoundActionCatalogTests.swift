@@ -25,6 +25,9 @@ struct BoundActionCatalogTests {
         // which adds these rows to the Rust catalog: until it lands and re-pins, they do nothing.
         "macScreen.viewOnly", "macScreen.fullControl", "macScreen.fullScreen", "macScreen.sendSwitchApp",
         "macScreen.sendSpotlight", "macScreen.reconnect", "macScreen.stopAllViewing",
+        // Debug > Tooltip Gallery: the Rust catalog has its row (cmux-action-catalog, settings.rs); the pinned app FFI
+        // gains it on re-pin. Until then the Toast Playground's button opens the gallery.
+        "debug.tooltipGallery",
     ]
 
     @Test func everyBoundActionIsInTheCatalog() {

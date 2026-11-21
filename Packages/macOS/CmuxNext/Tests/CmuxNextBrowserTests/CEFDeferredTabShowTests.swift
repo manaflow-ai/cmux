@@ -239,6 +239,27 @@ import Testing
         #expect(!TabSpyShim.resizeSyncs.contains { $0.timeoutMs > 0 }, "a page waited at the drag's end: \(TabSpyShim.resizeSyncs)")
     }
 
+    /// A zoom of the pane shows in one commit: the shown page takes part in it (``PaneCommitSurface``), so the resize
+    /// that shows the zoom joins the window's resize fence and the frame that shows it has the page's frame at the
+    /// zoomed size. It is ready for the layout in the call: the fence waits in the render server, not the layout.
+    /// Before, the page took no part and showed its old frame at the old size beside its white backdrop for two
+    /// frames, then laid out again (Lawrence 2026-11-20, the AWS console in a zoom).
+    @Test func theShownPageTakesPartInItsPanesCommitAndIsReadyAtOnce() throws {
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (_, first, container) = try Self.liveHost(runtime)
+        let window = NSWindow(contentRect: container.frame, styleMask: .borderless, backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.closeAfterTest() }
+        window.contentView?.addSubview(first.container)
+
+        let surfaces = (first.container as NSView).paneCommitSurfaces()
+        #expect(surfaces.count == 1 && surfaces.first === first.container, "the shown page takes no part in its pane's commit: \(surfaces)")
+        var ready = 0
+        for surface in surfaces { surface.commitWillResize(by: CGSize(width: 480, height: 0)) { ready += 1 } }
+        #expect(ready == surfaces.count, "the page is not ready for the layout in the call: \(ready) of \(surfaces.count) reports")
+    }
+
     /// Review 1 of cmux#26037: a container that leaves its window mid-drag (its tab closed or moved) may never hear
     /// the drag's end, which the listener holds weakly; it hands its share back as it leaves.
     @Test func aContainerLeavingItsWindowMidDragEndsItsWait() throws {

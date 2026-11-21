@@ -65,6 +65,7 @@ extension UpdaterService {
     /// Restart to Update (the Update Ready card, the footer pill): install and relaunch, at once
     /// or when the download finishes. `willRelaunch` records keep sessions.
     public func installClicked() {
+        if relaunchIntoInstalledBuild() { return }
         syncFlowPhase()
         log.append("restart to update clicked (\(flow.phase))")
         #if DEBUG || CMUX_BENCH_HOOKS
@@ -87,6 +88,11 @@ extension UpdaterService {
     @discardableResult
     public func prepareForQuit() -> UpdateQuitAction {
         syncFlowPhase()
+        if case .downloading(let transfer) = flow.phase,
+           transfer.stage != .preparing,
+           cancelDownloadNow() {
+            log.append("quit: cancelling the active update download")
+        }
         var action = flow.handle(.quitRequested, preferences: preferences).lazy.compactMap { effect -> UpdateQuitAction? in
             if case .quit(let action) = effect { action } else { nil }
         }.first ?? .proceed
