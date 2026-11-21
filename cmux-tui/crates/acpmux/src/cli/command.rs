@@ -16,6 +16,44 @@ pub struct AppOpenArgs {
     pub options: Vec<String>,
 }
 
+/// `session move` (and its flat spelling `move-sessions`): which chats move, and where.
+#[derive(Args, Debug, Clone, PartialEq, Eq)]
+pub struct MoveSessionsArgs {
+    /// The chats to move (ids or names); none with --all-idle.
+    #[arg(required_unless_present = "all_idle")]
+    pub sessions: Vec<String>,
+    /// The machine to move them to, or `auto`: `machine pick`'s choice among your machines
+    /// (never a reserved one), one machine per checkout. `--host` still works.
+    #[arg(long = "machine", alias = "host", value_name = "MACHINE")]
+    pub host: String,
+    /// Every open chat here that is between turns.
+    #[arg(long, conflicts_with = "sessions")]
+    pub all_idle: bool,
+    /// Stop a running turn instead of refusing the move.
+    #[arg(long)]
+    pub interrupt: bool,
+    /// Move a chat whose checkout has uncommitted changes; they stay on this machine.
+    #[arg(long)]
+    pub leave_dirty: bool,
+    /// Carry a chat's uncommitted changes with it: tracked edits, deletions and untracked files
+    /// that are not ignored arrive uncommitted in its worktree there. Likely secrets (`.env`,
+    /// keys) stay on this machine.
+    #[arg(long, conflicts_with = "leave_dirty")]
+    pub carry_changes: bool,
+    /// Run the moved chats in this folder on the machine, as it is there: no worktree is made
+    /// and no branch pushed. For a folder outside this machine's home.
+    #[arg(long, value_name = "PATH")]
+    pub cwd: Option<String>,
+    /// Say where each chat would go and change nothing.
+    #[arg(long)]
+    pub dry_run: bool,
+    /// The machine the chats are on, when not this one: this machine drives the move over
+    /// ssh to it and to the target, so two machines that cannot reach each other trade
+    /// chats. With it, `--machine local` brings them here.
+    #[arg(long, value_name = "MACHINE")]
+    pub from: Option<String>,
+}
+
 #[derive(Parser)]
 #[command(name = "acpmux", version = crate::hub::version_line(), about = "tmux for coding-agent harnesses: Claude Code, Codex, OpenCode, pi, Gemini", long_about = None, after_help = "Agents: `acpmux guide` (also --guide, --skill) prints the full guide for driving acpmux from a script or another agent.")]
 pub struct Cli {
@@ -750,18 +788,10 @@ pub enum Command {
         #[arg(long, short)]
         name: Option<String>,
     },
+    /// `session move`'s flat form, also typed as `acpmux move-sessions`: the same grammar, one
+    /// struct, so the two spellings cannot drift apart again.
     #[command(hide = true)]
-    MoveSessions {
-        sessions: Vec<String>,
-        host: String,
-        all_idle: bool,
-        interrupt: bool,
-        leave_dirty: bool,
-        carry_changes: bool,
-        cwd: Option<String>,
-        dry_run: bool,
-        from: Option<String>,
-    },
+    MoveSessions(MoveSessionsArgs),
     #[command(hide = true)]
     Transfer {
         session: String,
@@ -1202,41 +1232,7 @@ pub enum SessionCmd {
     /// draft: the branch of a chat's worktree is pushed and checked out there as a fresh
     /// worktree, a plain folder under the home maps to the same path under the machine's home. The
     /// chat here never runs again, and `resolve` and agent links lead to its new place.
-    Move {
-        /// The chats to move (ids or names); none with --all-idle.
-        #[arg(required_unless_present = "all_idle")]
-        sessions: Vec<String>,
-        /// The machine to move them to, or `auto`: `machine pick`'s choice among your machines
-        /// (never a reserved one), one machine per checkout. `--host` still works.
-        #[arg(long = "machine", alias = "host", value_name = "MACHINE")]
-        host: String,
-        /// Every open chat here that is between turns.
-        #[arg(long, conflicts_with = "sessions")]
-        all_idle: bool,
-        /// Stop a running turn instead of refusing the move.
-        #[arg(long)]
-        interrupt: bool,
-        /// Move a chat whose checkout has uncommitted changes; they stay on this machine.
-        #[arg(long)]
-        leave_dirty: bool,
-        /// Carry a chat's uncommitted changes with it: tracked edits, deletions and untracked files
-        /// that are not ignored arrive uncommitted in its worktree there. Likely secrets (`.env`,
-        /// keys) stay on this machine.
-        #[arg(long, conflicts_with = "leave_dirty")]
-        carry_changes: bool,
-        /// Run the moved chats in this folder on the machine, as it is there: no worktree is made
-        /// and no branch pushed. For a folder outside this machine's home.
-        #[arg(long, value_name = "PATH")]
-        cwd: Option<String>,
-        /// Say where each chat would go and change nothing.
-        #[arg(long)]
-        dry_run: bool,
-        /// The machine the chats are on, when not this one: this machine drives the move over
-        /// ssh to it and to the target, so two machines that cannot reach each other trade
-        /// chats. With it, `--machine local` brings them here.
-        #[arg(long, value_name = "MACHINE")]
-        from: Option<String>,
-    },
+    Move(MoveSessionsArgs),
     /// Move a chat, with its history, queue and draft, to the daemon at another socket.
     Transfer {
         session: String,
@@ -1639,27 +1635,7 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Transfer { session, to, cwd, name, interrupt } => {
                 Command::Transfer { session, to, cwd, name, interrupt }
             }
-            SessionCmd::Move {
-                sessions,
-                host,
-                all_idle,
-                interrupt,
-                leave_dirty,
-                carry_changes,
-                cwd,
-                dry_run,
-                from,
-            } => Command::MoveSessions {
-                sessions,
-                host,
-                all_idle,
-                interrupt,
-                leave_dirty,
-                carry_changes,
-                cwd,
-                dry_run,
-                from,
-            },
+            SessionCmd::Move(args) => Command::MoveSessions(args),
             SessionCmd::Tail { session, last, follow, since } => {
                 Command::Tail { session, last, follow, since }
             }
@@ -2062,6 +2038,91 @@ mod help_contract_tests {
              --machine:\n{}",
             stale.join("\n")
         );
+    }
+
+    /// `acpmux move-sessions` is `session move` spelled flat: both take `--machine` (`--host`)
+    /// and the same flags. The flat form had lost every `#[arg]`, so all nine fields became
+    /// positionals and `move-sessions CHAT --host H` failed with "HOST not provided".
+    #[test]
+    fn move_sessions_takes_the_same_flags_as_session_move() {
+        use super::{Command, MoveSessionsArgs, flatten};
+        let parse = |argv: &[&str]| Cli::try_parse_from(argv).map(|c| flatten(c.command.unwrap()));
+        let want = MoveSessionsArgs {
+            sessions: vec!["a".into(), "b".into()],
+            host: "huge-blue".into(),
+            all_idle: false,
+            interrupt: true,
+            leave_dirty: false,
+            carry_changes: true,
+            cwd: None,
+            dry_run: true,
+            from: Some("mini-3".into()),
+        };
+        for verb in [&["move-sessions"][..], &["session", "move"][..]] {
+            for machine in ["--machine", "--host"] {
+                let argv: Vec<&str> = ["acpmux"]
+                    .into_iter()
+                    .chain(verb.iter().copied())
+                    .chain(["a", "b", machine, "huge-blue", "--interrupt", "--carry-changes"])
+                    .chain(["--dry-run", "--from", "mini-3"])
+                    .collect();
+                match parse(&argv) {
+                    Ok(Command::MoveSessions(got)) => assert_eq!(got, want, "{argv:?}"),
+                    other => panic!("{argv:?} parsed as {:?}", other.map(|_| ()).err()),
+                }
+            }
+            let idle: Vec<&str> = ["acpmux"]
+                .into_iter()
+                .chain(verb.iter().copied())
+                .chain(["--all-idle", "--machine", "auto"])
+                .collect();
+            assert!(
+                matches!(
+                    parse(&idle),
+                    Ok(Command::MoveSessions(MoveSessionsArgs { all_idle: true, .. }))
+                ),
+                "{idle:?}"
+            );
+            let no_machine: Vec<&str> =
+                ["acpmux"].into_iter().chain(verb.iter().copied()).chain(["a"]).collect();
+            assert!(parse(&no_machine).is_err(), "{no_machine:?} parsed without a machine");
+        }
+    }
+
+    /// The class behind `move-sessions`' "HOST not provided": a command field with no `#[arg]`
+    /// is a positional, so a `bool` becomes a positional switch nobody can type and a value after
+    /// a list positional can never be reached. No command, hidden or shown, may have either.
+    #[test]
+    fn no_command_has_a_flag_shaped_positional_or_one_after_a_list() {
+        use clap::CommandFactory as _;
+        fn walk(cmd: &clap::Command, path: &str, bad: &mut Vec<String>) {
+            let mut after_list: Option<String> = None;
+            for arg in cmd.get_positionals() {
+                let id = arg.get_id().to_string();
+                if matches!(
+                    arg.get_action(),
+                    clap::ArgAction::SetTrue | clap::ArgAction::SetFalse | clap::ArgAction::Count
+                ) {
+                    bad.push(format!("{path}: positional switch <{id}>"));
+                }
+                if let Some(list) = &after_list
+                    && !arg.is_last_set()
+                {
+                    bad.push(format!("{path}: <{id}> follows the list <{list}>"));
+                }
+                if arg.get_num_args().is_some_and(|n| n.max_values() > 1) {
+                    after_list = Some(id);
+                }
+            }
+            for sub in cmd.get_subcommands() {
+                walk(sub, &format!("{path} {}", sub.get_name()), bad);
+            }
+        }
+        let mut cmd = Cli::command();
+        cmd.build();
+        let mut bad = Vec::new();
+        walk(&cmd, "acpmux", &mut bad);
+        assert!(bad.is_empty(), "commands whose fields lost their #[arg]:\n{}", bad.join("\n"));
     }
 
     /// `send --class`: the four classes only (`prompt_class.rs`).
