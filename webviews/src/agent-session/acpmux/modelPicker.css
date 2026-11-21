@@ -193,7 +193,7 @@
   height: var(--ui-row-height);
   min-height: 0;
   padding-block: 0;
-  border-radius: var(--menu-hover-radius, 5px);
+  border-radius: var(--menu-hover-radius, var(--cmux-menu-highlight-radius));
   color: var(--agent-text);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);

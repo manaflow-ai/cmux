@@ -12,9 +12,16 @@ import Foundation
 /// (URL.isHomePathLink) become links; another scheme shows its label as text.
 /// Bare paths, cmux ids and web URLs in plain text (or a whole code span)
 /// link too (HomeAutoLinks).
-/// Anything else (HTML, tables, images) stays as written. Offsets are UTF-16,
+/// An inline picture (`![alt](source)`) shows as written, its alt a link when its source is one,
+/// with its runs tagged (`imageMark`, `imageAlt`) so a preview can leave it out.
+/// Anything else (HTML, tables) stays as written. Offsets are UTF-16,
 /// like MessagesLab's runs.
 enum HomeMarkdown {
+    /// The run style of an inline picture's "!" (one per picture; `TextLayout` draws no style for it).
+    static let imageMark = "cmux.image"
+    /// The run style of an inline picture's alt text.
+    static let imageAlt = "cmux.imageAlt"
+
     /// `chips`: links to cmux objects, files and GitHub objects show as chips (HomeLinkChip):
     /// the transcript passes true; a plain-text use (the sidebar preview) keeps the default.
     static func render(_ source: String, chips: Bool = false) -> (text: String, runs: [TextRun]) {
@@ -168,6 +175,14 @@ enum HomeMarkdown {
                         i = close + ticks; continue
                     }
                     plain += String(repeating: "`", count: ticks); i += ticks; continue
+                }
+                // `![alt](source)`: a picture. It shows as before ("!", then its alt, a link when the source is
+                // one), with each piece tagged so a preview of the text leaves the picture out (HomeQuotePreview).
+                if ch == "!", i + 1 < c.count, c[checked: i + 1] == "[", let (label, url, end) = linkAt(c, i + 1) {
+                    flush()
+                    out.append("!", add(HomeMarkdown.imageMark, to: styles))
+                    parse(label, into: &out, styles: add(HomeMarkdown.imageAlt, to: styles), link: link ?? safe(url))
+                    i = end; continue
                 }
                 if ch == "[", link == nil, let (label, url, end) = linkAt(c, i) {
                     flush()

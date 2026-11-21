@@ -130,7 +130,7 @@
 
 .ui-menu-item[data-disabled],
 .ui-menu-item:disabled {
-  opacity: var(--menu-disabled-opacity, 0.45);
+  opacity: var(--menu-disabled-opacity, var(--ds-disabled-opacity, 0.6));
 }
 
 .ui-menu-item-destructive {
@@ -314,7 +314,7 @@
 }
 
 .ui-toolbar-button[data-disabled] {
-  opacity: 0.4;
+  opacity: var(--ds-disabled-opacity, 0.6);
 }
 
 .ui-sheet {
