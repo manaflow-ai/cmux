@@ -7,9 +7,10 @@
 # file, or "left: ..." when the crates do not build (their errors are a
 # person's to fix).
 #
-# --affected (the base autofix, base-autofix-repair.sh): the crates the required
-# clippy gate checks for those paths instead (scripts/ci/cargo_affected.py: the
-# owners and every crate that depends on them), so a machine-applicable base
+# --affected (the base autofix, base-autofix-repair.sh): the crates those paths can
+# affect instead (scripts/ci/cargo_affected.py: the owners and every crate that
+# depends on them, or the workspace), close to what the required clippy gate
+# checks (.github/scripts/cmux-tui-clippy-changed.py), so a machine-applicable base
 # clippy red is repaired on feat-cmux-next once, not by hand in every pull
 # request it blocks (#48173, #48184 and #48186 each removed the same
 # std::time:: qualification on 2026-11-20).
@@ -44,7 +45,7 @@ if (( status != 0 )); then
   exit 1  # as before, when the package lookup read cargo metadata's empty output
 fi
 if (( affected )); then
-  # One package (or --workspace) per line; the gate's own selection, from the metadata read above.
+  # One package (or --workspace) per line (cargo_affected.py), from the metadata read above.
   packages="$(python3 -I "$here/../ci/cargo_affected.py" --root "$repo" --metadata "$metadata" --files - --format lines <<<"$changed")" || {
     echo "left: cargo clippy --fix did not run: scripts/ci/cargo_affected.py could not select the crates (see the job log)"
     exit 0

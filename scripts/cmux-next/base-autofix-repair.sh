@@ -25,7 +25,7 @@
 # and app platform stayed red.
 #
 # CLIPPY=true runs cargo clippy --fix first (autofix-clippy.sh --affected: machine-applicable lints
-# only, on the crates the required clippy gate checks for the changed paths in the file
+# only, on the crates the changed paths in the file can affect (cargo_affected.py), from
 # CLIPPY_CHANGED), so the cargo fmt after it sees its edits. A round on a moved tip makes it again
 # from the same paths. Until 2026-11-20 only the pull request job ran it, and a base clippy red was
 # fixed by hand in every pull request it blocked (#48173, #48184, #48186).

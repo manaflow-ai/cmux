@@ -243,6 +243,13 @@ none" >/dev/null; then
     tip="$(git rev-parse FETCH_HEAD)"
     git checkout --quiet --force --detach "$tip"
     git clean --quiet -fd
+    # ghostty-next, when this job initialized it for cargo clippy --fix, follows the tip's gitlink, so
+    # the remade clippy repair builds against that tip's libghostty-vt. A failed update leaves the
+    # remade clippy repair to report "left:"; it never stops the other repairs.
+    if [[ -e ghostty-next/.git ]]; then
+      bash scripts/ci/init-submodule.sh ghostty-next >/dev/null 2>&1 \
+        || echo "::warning::could not move ghostty-next to ${tip:0:12}'s gitlink" >&2
+    fi
     actions_current=0 settings_current=0
     if exports_landed "$held"$'\n'"$waits"; then
       actions_current=1
