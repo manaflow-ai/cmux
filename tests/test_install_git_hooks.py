@@ -61,31 +61,36 @@ class InstallGitHooksTests(unittest.TestCase):
         self.git("init", "--quiet", "--initial-branch=main")
         self.copy_installer(self.repo)
 
+    # What a fixture repository gets of this checkout: the installer and every file it installs
+    # (test_the_fixture_has_every_file_the_installer_installs keeps the two in step).
+    INSTALLER_FILES = (
+        "scripts/git-hooks",
+        INSTALLER,
+        "scripts/merge-xcstrings.py",
+        "scripts/merge-pbxproj.py",
+        "scripts/merge-baseline.py",
+        "scripts/merge-daemon-capabilities.py",
+        "scripts/merge-insertions.py",
+        "scripts/ci/merge_main_resolver.py",
+        "scripts/ci/validate_test_execution_registry.py",
+        "scripts/ci/test_execution_registry.py",
+        "scripts/ci/workload_entrypoints.py",
+        "scripts/normalize-pbxproj.py",
+        "scripts/lint_swift_namespaces.py",
+        "scripts/swift_source_mask.py",
+        "scripts/web_lint_prepush.py",
+        "scripts/cmux-next/prepush-gate.py",
+        "scripts/cmux-next/git_batch.py",
+        "scripts/ci/base_merge_warning.py",
+        "scripts/ci/github_release_download.py",
+        "scripts/ci/deadline_http.py",
+        "scripts/ci/workflow_job_bounds.py",
+        "scripts/webviews_bun_version.py",
+        "scripts/check-webviews-bun-version.sh",
+    )
+
     def copy_installer(self, root):
-        for relative in (
-            "scripts/git-hooks",
-            INSTALLER,
-            "scripts/merge-xcstrings.py",
-            "scripts/merge-pbxproj.py",
-            "scripts/merge-baseline.py",
-            "scripts/merge-daemon-capabilities.py",
-            "scripts/merge-insertions.py",
-            "scripts/ci/merge_main_resolver.py",
-            "scripts/ci/validate_test_execution_registry.py",
-            "scripts/ci/test_execution_registry.py",
-            "scripts/ci/workload_entrypoints.py",
-            "scripts/normalize-pbxproj.py",
-            "scripts/lint_swift_namespaces.py",
-            "scripts/swift_source_mask.py",
-            "scripts/web_lint_prepush.py",
-            "scripts/cmux-next/prepush-gate.py",
-            "scripts/cmux-next/git_batch.py",
-            "scripts/ci/base_merge_warning.py",
-            "scripts/ci/github_release_download.py",
-            "scripts/ci/deadline_http.py",
-            "scripts/webviews_bun_version.py",
-            "scripts/check-webviews-bun-version.sh",
-        ):
+        for relative in self.INSTALLER_FILES:
             source, target = SOURCE / relative, root / relative
             if not source.exists():
                 continue  # a tree from before the file; the installer then fails on it if it needs it
@@ -94,6 +99,17 @@ class InstallGitHooksTests(unittest.TestCase):
                 shutil.copytree(source, target)
             else:
                 shutil.copyfile(source, target)
+
+    def test_the_fixture_has_every_file_the_installer_installs(self):
+        # #48396 had the installer install scripts/ci/workflow_job_bounds.py but left it out of
+        # INSTALLER_FILES: every fixture install then failed on `install: cannot stat`, 58 tests at once.
+        text = (SOURCE / INSTALLER).read_text(encoding="utf-8")
+        installed = set(re.findall(r"^\s*install\s+(?:-\S+\s+)*(scripts/\S+)", text, re.M))
+        self.assertIn("scripts/ci/workflow_job_bounds.py", installed, "the installer's install lines were not read")
+        covered = [path for path in self.INSTALLER_FILES if path != INSTALLER]
+        missing = sorted(path for path in installed
+                         if not any(path == have or path.startswith(have.rstrip("/") + "/") for have in covered))
+        self.assertEqual(missing, [], "add these to INSTALLER_FILES: a fixture install fails without them")
 
     def git(self, *args, check=True):
         return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env,
