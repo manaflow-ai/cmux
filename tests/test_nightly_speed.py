@@ -262,10 +262,15 @@ class PrAttribution(unittest.TestCase):
         self.assertEqual(result["attributed"], 2)
         self.assertEqual(result["reasons"], {ns.BEFORE_FEEDS: 1})
         self.assertEqual((result["p50"], result["p90"]), (ns.quantile([1500.0, 60.0], 0.5), ns.quantile([1500.0, 60.0], 0.9)))
-        self.assertIn(f"{ns.BEFORE_FEEDS}: 1", ns.render_verdict({
+        text = ns.render_verdict({
             "build": "n2", "sha": "h2", "merge_to_feed": 20.0, "verdict": "in budget", "budget_min": 30.0, "window": 1,
             "over": False, "p50": 20.0, "p95": 20.0, "feed_at": "2026-11-16T01:00:00Z", "slow": {}, "diff": None,
-            "bisect": [], "pr_attribution": result}))
+            "bisect": [], "pr_attribution": result})
+        self.assertIn(f"{ns.BEFORE_FEEDS}: 1", text)
+        self.assertIn("## PR merge to NIGHTLY (partial: observed window)", text)
+        self.assertNotIn("newest 7 days", text, "never labelled a full window")
+        self.assertIn("Observed window: 2026-11-14T12:00:00Z to 2026-11-20T00:00:00Z; "
+                      "1 merges before it unattributed (no feed observed). Coverage is partial", text)
 
     def test_a_sync_merge_brings_its_second_parent_landings_and_an_old_date_does_not_stop_the_walk(self):
         """c3d5d5742ca0 on 2026-11-21: a local branch merged origin/feat-cmux-next and was pushed, so the first-parent

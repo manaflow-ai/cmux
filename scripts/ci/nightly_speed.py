@@ -895,8 +895,19 @@ def render_verdict(c: Dict[str, Any], repo: str = REPO) -> str:
     if prs:
         prs = pr_summary(prs)
         reasons = "; ".join(f"{why}: {n}" for why, n in sorted(prs["reasons"].items(), key=lambda kv: -kv[1]))
-        out += ["", f"## PR merge to NIGHTLY (newest {prs.get('window') or PR_WINDOW_DAYS} days)",
-                f"Attributed {prs.get('attributed', 0)} of {prs.get('count', 0)} first-parent merges. "
+        window = prs.get("window") or PR_WINDOW_DAYS
+        oldest, since = prs.get("oldest_feed"), prs.get("since")
+        partial = not oldest or not since or (ts(oldest) or 0) > (ts(since) or 0)
+        out += ["", f"## PR merge to NIGHTLY ({'partial: ' if partial else ''}"
+                    f"{'observed window' if partial else f'newest {window} days'})"]
+        if oldest:
+            out.append(f"Observed window: {oldest} to {prs.get('until') or 'now'}; "
+                       f"{prs['reasons'].get(BEFORE_FEEDS, 0)} merges before it unattributed (no feed observed)."
+                       + (f" Coverage is partial: {window} days were asked for, from {since}, and no feed before "
+                          f"{oldest} is recorded." if partial else ""))
+        else:
+            out.append("Observed window: none, no published nightly is recorded; coverage is partial.")
+        out += [f"Attributed {prs.get('attributed', 0)} of {prs.get('count', 0)} first-parent merges. "
                 f"p50 {num(prs.get('p50'), ' min')}, p90 {num(prs.get('p90'), ' min')}."
                 + (f" Unattributed: {reasons}." if reasons else "")]
         if prs.get("rows"):
