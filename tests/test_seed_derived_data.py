@@ -778,6 +778,10 @@ def late_attempt_failure(workflow, name, job, runs_on, labels, side):
         if labels != [side]:
             return f"{name} is owned-only, but its last attempt takes {labels}"
         return None
+    if (workflow, name) == ("fast-checks.yml", "checks-mac"):
+        # workflow_dispatch only (setup=kernel-free): no bot re-run ladder, the owned light label is its one route
+        # (tests/test_ci_fast_checks_kernel_free.py pins it), and the cmux-ci client's fallback leaves the minis.
+        return None
     if any(str(item).startswith("glaeda-") for item in labels):
         return f"{name}'s last attempt still takes a mini: {labels}"
     return None

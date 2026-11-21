@@ -155,8 +155,23 @@ impl Hub {
                 answer: Some(answer),
             },
         );
-        let servers =
-            crate::agent_tools::acp_servers_for(meta.remote_origin, &profile.env, id, all, codex);
+        let http = crate::agent_tools::takes_http(meta.agent_capabilities.as_ref());
+        let servers = crate::agent_tools::acp_servers_for(
+            meta.remote_origin,
+            &profile.env,
+            id,
+            all,
+            http,
+            &meta.cwd,
+            codex,
+        );
+        // A harness whose ACP server refuses per-session servers (OpenClaw's bridge) gets none:
+        // its `session/new` would fail whole.
+        let servers = if crate::agent_tools::takes_session_mcp(&meta.harness, profile) {
+            servers
+        } else {
+            json!([])
+        };
         *child.given_servers.lock().unwrap_or_else(|e| e.into_inner()) = Some(servers.clone());
         // The person's own stdio `cmux` entry learns which chat starts it, where cmux gives none.
         let entry_env = codex.and_then(|launch| {

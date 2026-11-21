@@ -514,10 +514,13 @@ public final class SidebarRowFeed {
         dirty.removeAll(keepingCapacity: true)
         var changed: [SidebarWorkspace] = []
         SidebarPerfCounters.timed {
-            for (entry, row) in map(ids.filter { id in entries[id].map { !$0.armed } ?? false }) where row != entry.row {
+            let mapped = map(ids.filter { id in entries[id].map { !$0.armed } ?? false })
+            SidebarPerfCounters.add(.rowFlushes)
+            for (entry, row) in mapped where row != entry.row {
                 entry.row = row
                 changed.append(row)
             }
+            SidebarPerfCounters.add(.rowMapsUnchanged, mapped.count - changed.count)
         }
         if !changed.isEmpty { onChange?(changed) }
     }

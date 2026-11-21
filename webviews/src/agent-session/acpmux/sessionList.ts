@@ -619,6 +619,10 @@ export const folderFields = (session: AcpmuxSessionEntry): readonly unknown[] =>
 /// This Mac's chat folders, newest chat first, each once: not a private agent-home folder, `~` or a
 /// chat on another machine. `mostRecentProject` picks from it; a New Tab page keeps it for the next
 /// page's first frame (newtab/recentProject.ts).
+/// One pass keeps each folder's newest chat (the first in the list among equals, as a stable sort
+/// leaves it), then only the folders are sorted: every page reads this on each change of a chat of
+/// this Mac, and sorting all of a large profile's chats there took the scrolled page's frames
+/// (bench/session-scale-scroll.bench.ts).
 export function recentLocalFolders(sessions: readonly AcpmuxSessionEntry[], limit = Infinity): string[] {
   return recentFolders(sessions, localFolder, limit);
 }
@@ -629,17 +633,16 @@ export function recentFolders(
   folderOf: (session: AcpmuxSessionEntry) => string | undefined,
   limit = Infinity,
 ): string[] {
-  const named = sessions.flatMap((session) => {
+  const newest = new Map<string, { at: number; index: number }>();
+  sessions.forEach((session, index) => {
     const folder = folderOf(session);
-    return folder === undefined ? [] : [{ folder, at: activityTime(session) ?? 0 }];
+    if (folder === undefined) return;
+    const at = activityTime(session) ?? 0;
+    const kept = newest.get(folder);
+    if (!kept || at > kept.at) newest.set(folder, { at, index });
   });
-  named.sort((l, r) => r.at - l.at);
-  const folders = new Set<string>();
-  for (const { folder } of named) {
-    folders.add(folder);
-    if (folders.size >= limit) break;
-  }
-  return [...folders];
+  const folders = [...newest].sort(([, left], [, right]) => right.at - left.at || left.index - right.index);
+  return folders.slice(0, limit).map(([folder]) => folder);
 }
 
 /// The folder `recentLocalFolders` lists a session under, or undefined when it lists none for it.
@@ -797,4 +800,17 @@ export function shortAge(updatedAt: number | undefined, now: number, t: Translat
   if (hours < 24) return t("age.hours", { n: hours });
   const days = Math.floor(hours / 24);
   return days < 14 ? t("age.days", { n: days }) : t("age.weeks", { n: Math.floor(days / 7) });
+}
+
+/** First shared wall-clock minute where shortAge's text changes (clock.ts useLabelClock), so its
+ *  label wakes then and not every minute. */
+export function nextShortAge(at: number, now: number): number {
+  if (!Number.isFinite(at)) return Infinity;
+  const minute = 60_000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  const elapsed = Math.max(0, now - at);
+  const size = elapsed < hour ? minute : elapsed < day ? hour : elapsed < 14 * day ? day : 7 * day;
+  const change = at + (Math.floor(elapsed / size) + 1) * size;
+  return Math.max(now + minute, Math.ceil(change / minute) * minute);
 }
