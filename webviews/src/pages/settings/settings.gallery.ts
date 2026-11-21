@@ -615,6 +615,39 @@ Object.assign(variants, {
     steps: [wait("[data-appearance-bar]"), click('[data-menu="appearance-presets"]'), wait('[role="menuitemradio"]')],
     note: "Presets at the bottom right beside Undo, Redo and Reset: one pick sets the window's Opacity and Material and every surface's opacity, as one undoable step; Frosted is checked.",
   }),
+  // Leo, 11-19: "make sure you can recover and stuff. for all customizations". Every other page's
+  // floating Undo, Redo and Reset <card> (CardResetBar.tsx), in the appearance bar's look and place.
+  "card-reset-menu": variant("notifications", {
+    options: {
+      values: {
+        "notifications.desktop": "always",
+        "notifications.timeoutSeconds": 12,
+        "notifications.attention.flash": false,
+      },
+    },
+    steps: [wait("[data-card-reset-bar]"), click('[data-menu="card-reset"]'), wait('[role="menuitem"]')],
+    note: "Notifications' Reset menu: Reset Banners and Reset Attention Ring (each has a value set), Reset Sounds and Reset Feed dimmed (nothing set). Each resets only its card, as one Undo step.",
+  }),
+  "card-reset-undo": variant("notifications", {
+    options: { values: { "notifications.desktop": "always", "notifications.timeoutSeconds": 12 } },
+    steps: [
+      wait("[data-card-reset-bar]"),
+      click('[data-menu="card-reset"]'),
+      click('[role="menuitem"][data-value="settings.group.banners"]'),
+      wait("[data-card-reset-bar] [data-undo]:not([disabled])"),
+      { selector: "[data-card-reset-bar] [data-undo]", action: "focus" },
+    ],
+    note: "After Reset Banners: the card's rows are back on their defaults and Undo names the step (Undo: Reset Banners).",
+  }),
+  "card-reset-managed": variant("browser", {
+    options: { values: { "browser.vimKeys": false, "browser.remoteLocalhost": false } },
+    steps: [wait("[data-card-reset-bar]"), click('[data-menu="card-reset"]'), wait('[role="menuitem"]')],
+    note: "Browser, where a profile manages Remote Localhost: Reset Opening Links resets Vim Keys and leaves the managed row as the team set it; a card with nothing set is dimmed.",
+  }),
+  "card-reset-nothing-set": variant("notifications", {
+    steps: [wait("[data-card-reset-bar]")],
+    note: "A page with nothing set: Undo, Redo and Reset rest dimmed at the bottom right.",
+  }),
   // The terminal font list open: recent fonts first under a Recent tag, every family in its own face.
   "font-picker-open": variant("terminal", {
     focus: "terminal.fontFamily",
