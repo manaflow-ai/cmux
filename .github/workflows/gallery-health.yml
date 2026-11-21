@@ -57,6 +57,7 @@ on:
       - "webviews/scripts/agent-pane/tailwind-css.mjs"
       - "webviews/scripts/agent-pane/tailwindCompile.mjs"
       - "webviews/scripts/bundle-metafile.mjs"
+      - "webviews/scripts/packed-shiki-data.mjs"
       - "webviews/scripts/pages/gen-design-scale.mjs"
       - "webviews/scripts/pages/gen-feature-tips.mjs"
       - "webviews/scripts/pages/gen-strings.mjs"
@@ -153,6 +154,7 @@ on:
       - "webviews/scripts/agent-pane/tailwind-css.mjs"
       - "webviews/scripts/agent-pane/tailwindCompile.mjs"
       - "webviews/scripts/bundle-metafile.mjs"
+      - "webviews/scripts/packed-shiki-data.mjs"
       - "webviews/scripts/pages/gen-design-scale.mjs"
       - "webviews/scripts/pages/gen-feature-tips.mjs"
       - "webviews/scripts/pages/gen-strings.mjs"
@@ -299,6 +301,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: Setup Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -313,7 +316,9 @@ jobs:
           git restore --source="$base" --staged --worktree -- . ':(exclude)scripts/gallery-matrix'
           cd webviews
           bun install --frozen-lockfile
-          CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/base-gallery" bun run gallery:build
+          # A base is only replayed to excuse the head's reds: a translation the base lacked (one a later
+          # push added) must not stop its build, or no red is excused (2026-11-21, base 22d99c7425).
+          CMUX_STRINGS_BEST_EFFORT=1 CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/base-gallery" bun run gallery:build
           echo "$base" > "$RUNNER_TEMP/base-gallery/base-sha.txt"
           echo "built the base gallery of $base: $(find "$RUNNER_TEMP/base-gallery" -type f | wc -l) files"
 
@@ -421,6 +426,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: Setup Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -626,7 +632,8 @@ jobs:
           else
             rm -rf "$RUNNER_TEMP/base-gallery"
             echo "::group::base gallery build"
-            CMUX_GALLERY_ENTRIES="$entries" CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/base-gallery" bun run gallery:build
+            # Best-effort strings, as in the base gallery job: a translation the base lacked fails no replay.
+            CMUX_STRINGS_BEST_EFFORT=1 CMUX_GALLERY_ENTRIES="$entries" CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/base-gallery" bun run gallery:build
             echo "::endgroup::"
           fi
           cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
