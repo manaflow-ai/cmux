@@ -35,10 +35,13 @@ beforeEach(() => {
     `<!doctype html><body><h1 id="title">Example Domain</h1><p class="lede">Some words</p><a href="#more">More</a></body>`,
     { runScripts: "outside-only", pretendToBeVisual: true },
   );
-  const window = dom.window as unknown as Window & {
+  // The jsdom window as the runtime sees it: the DOM, WebKit's message handler, and its own API.
+  const window = dom.window as unknown as {
     eval(source: string): unknown;
     webkit: unknown;
     __cmuxDesignMode: Api;
+    Element: typeof Element;
+    document: Document;
   };
   posted = [];
   roots = [];

@@ -109,7 +109,7 @@ test("a pick's chip reads its number and comment over the element", async () => 
   const { browserPickRows, isBrowserPick, parseBrowserPick } =
     await import("../src/agent-session/acpmux/composer/browserPickModel");
   const t = ((key: string, values?: Record<string, unknown>) =>
-    key === "composer.browserPick.kind" ? "Page element" : `“${values?.text ?? ""}”`) as never;
+    key === "composer.browserPick.kind" ? "Page element" : `“${String(values?.text ?? "")}”`) as never;
   expect(isBrowserPick({ id: "design-abc", text: card.text })).toBe(true);
   expect(isBrowserPick({ id: "other", text: card.text })).toBe(true);
   expect(isBrowserPick({ id: "other", text: "hello" })).toBe(false);
