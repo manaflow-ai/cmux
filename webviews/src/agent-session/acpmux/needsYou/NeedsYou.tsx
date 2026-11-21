@@ -10,21 +10,34 @@
 // WORKSPACE... OR OPEN ON RIGHT"): the one-line card; expanded, with the whole ask, every option
 // and a typed answer for a question, and the ways to open its chat (on the right, the default; the
 // workspace that shows it; a new workspace); and its context, the last turns before the ask.
-import { useEffect, useRef, useState, type RefObject } from "react";
+import {
+  createContext,
+  memo,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
+import { useStableCallback } from "../stableCallback";
 import { AgentMark } from "../../shared/AgentMark";
-import { useMinuteClock } from "../clock";
+import { useLabelClock } from "../clock";
 import { agentDisplayName } from "../agents";
 import { HEADER_GLYPH } from "../header/chatHeaderToolsModel";
 import { HeaderIcon } from "../header/HeaderIcon";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
+import { useAnswerHoldSet } from "../answerHold";
 import { Keycap } from "../Keycap";
-import { shortAge } from "../sessionList";
+import { nextShortAge, shortAge } from "../sessionList";
 import { Popover } from "../../../ui/Popover";
 import { usePopoverTrigger } from "../../../ui/popoverTrigger";
 import { onOpenNeedsYou } from "./links";
 import type { NeedsYouAnswer, NeedsYouItem, NeedsYouKind } from "./model";
 import type { AskContext } from "./context";
+import { sameItemRowProps } from "./rowProps";
 import { reply as questionReply, selection, type AgentQuestion, type QuestionReply } from "../question/model";
 import "./needsYou.css";
 import {
@@ -55,6 +68,15 @@ const KINDS: Record<NeedsYouKind, StringKey> = {
 };
 
 const CHIEF_AVATAR = new URL("../mascots/ChiefMascotOrb.png", import.meta.url).href;
+
+/// What a row calls on a press. The panel hands every row the same object, which calls the latest
+/// actions, so a parent's new `actions` draws no row.
+type RowActions = Pick<NeedsYouActions, "answer" | "goTo" | "ask" | "reply" | "open">;
+
+/// What the list's `actions` say during a draw (the turns before an ask, whether its chat opens
+/// elsewhere), read only by an expanded row's parts (AskContextTurns, OpenPlaces): they follow the
+/// chat while no row redraws for them.
+const RowSources = createContext<Pick<NeedsYouActions, "context" | "opensElsewhere">>({});
 
 /// The header's badge: the count of open asks; a press opens the list.
 export function NeedsYouButton({
@@ -106,8 +128,6 @@ export function NeedsYouButton({
         // A tooltip only names an icon-only control (test/tooltip-rules.ts): with asks open the
         // count shows, so the button keeps just its aria-label; with none it is the inbox icon alone.
         {...(count > 0 ? {} : { title: label })}
-        aria-haspopup="dialog"
-        aria-expanded={open}
         {...trigger}
       >
         <HeaderIcon name="inbox" size={HEADER_GLYPH} />
@@ -119,6 +139,7 @@ export function NeedsYouButton({
         )}
       </button>
       <Popover
+        id={trigger["aria-controls"]}
         open={open}
         onOpenChange={(next) => {
           if (!next) {
@@ -176,9 +197,10 @@ export function NeedsYouPanel({
   panelRef?: RefObject<HTMLDivElement | null>;
 }) {
   const t = useT();
-  const now = useMinuteClock();
-  // Asks answered here, hidden until acpmux's change takes them off the list.
-  const [sent, setSent] = useState<ReadonlySet<string>>(new Set());
+  // Asks answered here, hidden until acpmux's change takes them off the list, ANSWER_HOLD_MS at most
+  // (answerHold.ts): one acpmux never took off (the chat ended, the answer was dropped) shows again,
+  // so the list and the pill's count never disagree for long and the ask can be answered.
+  const { held: sent, add: holdSent, remove: releaseSent } = useAnswerHoldSet();
   const shown = items.filter((item) => !sent.has(item.id));
   const missing = focus !== undefined && !items.some((item) => item.id === focus);
   // y and n answer an approval as its card does: the row with focus, else the top one. The key
@@ -197,6 +219,25 @@ export function NeedsYouPanel({
     element.addEventListener("keydown", onKey);
     return () => element.removeEventListener("keydown", onKey);
   }, []);
+  // One set of row actions for the panel's life, each calling what `actions` holds now.
+  const answer = useStableCallback((item: NeedsYouItem, choice: NeedsYouAnswer) => actions.answer(item, choice));
+  const goTo = useStableCallback((item: NeedsYouItem) => actions.goTo(item));
+  const ask = useStableCallback((item: NeedsYouItem, question: string) => actions.ask(item, question));
+  const reply = useStableCallback((item: NeedsYouItem, sent: QuestionReply) => actions.reply!(item, sent));
+  const open = useStableCallback((item: NeedsYouItem, place: NeedsYouPlace) => actions.open?.(item, place));
+  const canReply = actions.reply !== undefined;
+  const canOpen = actions.open !== undefined;
+  const rowActions = useMemo<RowActions>(
+    () => ({ answer, goTo, ask, ...(canReply ? { reply } : {}), ...(canOpen ? { open } : {}) }),
+    [answer, goTo, ask, reply, open, canReply, canOpen],
+  );
+  const sources = useMemo(
+    () => ({
+      ...(actions.context ? { context: actions.context } : {}),
+      ...(actions.opensElsewhere ? { opensElsewhere: actions.opensElsewhere } : {}),
+    }),
+    [actions.context, actions.opensElsewhere],
+  );
   return (
     <div
       ref={(element) => {
@@ -218,47 +259,46 @@ export function NeedsYouPanel({
           <span>{t("needsYou.empty")}</span>
         </div>
       ) : (
-        <ul className="acpmux-needs-you-list">
-          {shown.map((item) => (
-            <NeedsYouRow
-              key={item.id}
-              item={item}
-              mode={mode}
-              now={now}
-              focused={item.id === focus}
-              actions={actions}
-              onSent={() => setSent((before) => new Set(before).add(item.id))}
-              onRefused={() =>
-                setSent((before) => {
-                  const next = new Set(before);
-                  next.delete(item.id);
-                  return next;
-                })
-              }
-            />
-          ))}
-        </ul>
+        <RowSources.Provider value={sources}>
+          <ul className="acpmux-needs-you-list">
+            {shown.map((item) => (
+              <NeedsYouRow
+                key={item.id}
+                item={item}
+                mode={mode}
+                focused={item.id === focus}
+                hasContext={actions.context !== undefined}
+                actions={rowActions}
+                onSent={holdSent}
+                onRefused={releaseSent}
+              />
+            ))}
+          </ul>
+        </RowSources.Provider>
       )}
     </div>
   );
 }
 
-function NeedsYouRow({
+/// One ask. Its own component, drawn again only when its props change: its item by value, the rest
+/// by identity (rowProps.ts), so another ask's change, a focus move or a minute draws no other row.
+const NeedsYouRow = memo(function NeedsYouRow({
   item,
   mode,
-  now,
   focused,
+  hasContext,
   actions,
-  onSent,
-  onRefused,
+  onSent: onSentId,
+  onRefused: onRefusedId,
 }: {
   item: NeedsYouItem;
   mode: NeedsYouMode;
-  now: number;
   focused: boolean;
-  actions: NeedsYouActions;
-  onSent(): void;
-  onRefused(): void;
+  /// The list can show the turns before an ask (NeedsYouActions `context`).
+  hasContext: boolean;
+  actions: RowActions;
+  onSent(id: string): void;
+  onRefused(id: string): void;
 }) {
   const t = useT();
   const row = useRef<HTMLLIElement>(null);
@@ -268,6 +308,9 @@ function NeedsYouRow({
   // The row's stage: the one-line card, expanded, or expanded with its context.
   const [stage, setStage] = useState<"row" | "expanded" | "context">("row");
   const expanded = stage !== "row";
+  const itemId = item.id;
+  const onSent = useCallback(() => onSentId(itemId), [onSentId, itemId]);
+  const onRefused = useCallback(() => onRefusedId(itemId), [onRefusedId, itemId]);
   useEffect(() => {
     if (focused) row.current?.scrollIntoView({ block: "nearest" });
   }, [focused]);
@@ -280,14 +323,16 @@ function NeedsYouRow({
     if (sending) return;
     setSending(choice.id);
     setFailed(false);
-    actions.answer(item, choice).then(onSent, () => {
-      setSending(undefined);
-      setFailed(true);
-      onRefused();
-    });
+    actions.answer(item, choice).then(
+      () => onSent(),
+      () => {
+        setSending(undefined);
+        setFailed(true);
+        onRefused();
+      },
+    );
   };
   const compact = mode === "compact" && !expanded;
-  const age = shortAge(item.at, now, t);
   // An expanded question takes its whole answer in the form; the one-click row is for the card.
   const form = expanded && item.question && item.permissionId && actions.reply ? item.question : undefined;
   const toggle = () => setStage((now) => (now === "row" ? "expanded" : "row"));
@@ -307,7 +352,7 @@ function NeedsYouRow({
         {/* The row's end: its age at rest; on hover or keyboard focus, its tools in the same slot,
             plain icons with no chrome of their own (Leo 2026-10-21). */}
         <span className="acpmux-needs-you-end">
-          {age && <span className="acpmux-needs-you-age">{age}</span>}
+          {item.at !== undefined && <NeedsYouAge at={item.at} />}
           <span className="acpmux-needs-you-tools">
             {/* A marked tab names no chat to ask about or open elsewhere: Go to is its one action. */}
             {item.kind !== "tab" && (
@@ -408,7 +453,7 @@ function NeedsYouRow({
       {failed && <p className="acpmux-needs-you-error">{t("needsYou.answerFailed")}</p>}
       {expanded && (
         <div className="acpmux-needs-you-more">
-          {actions.context && (
+          {hasContext && (
             <button
               type="button"
               className="acpmux-needs-you-more-button"
@@ -419,31 +464,49 @@ function NeedsYouRow({
             </button>
           )}
           {/* Another chat opens where the person picks; this chat's ask is already on screen. */}
-          {actions.open &&
-            actions.opensElsewhere?.(item) &&
-            PLACES.map(({ place, label }) => (
-              <button
-                key={place}
-                type="button"
-                className="acpmux-needs-you-more-button"
-                data-place={place}
-                onClick={() => actions.open?.(item, place)}
-              >
-                {t(label)}
-              </button>
-            ))}
+          {actions.open && <OpenPlaces item={item} open={actions.open} />}
         </div>
       )}
-      {stage === "context" && actions.context && <AskContextTurns item={item} context={actions.context(item)} />}
+      {stage === "context" && hasContext && <AskContextTurns item={item} />}
       {asking && !compact && <SideQuestion item={item} ask={actions.ask} onAsked={() => setAsking(false)} />}
     </li>
   );
+}, sameItemRowProps);
+
+/// The ways to open another chat's ask (on the right, its workspace, a new workspace), in an
+/// expanded row when the list says its chat opens elsewhere; this chat's ask is already on screen.
+function OpenPlaces({ item, open }: { item: NeedsYouItem; open: NonNullable<RowActions["open"]> }) {
+  const t = useT();
+  const { opensElsewhere } = useContext(RowSources);
+  if (!opensElsewhere?.(item)) return null;
+  return PLACES.map(({ place, label }) => (
+    <button
+      key={place}
+      type="button"
+      className="acpmux-needs-you-more-button"
+      data-place={place}
+      onClick={() => open(item, place)}
+    >
+      {t(label)}
+    </button>
+  ));
+}
+
+/// An ask's age ("5m"), on the pane's shared clock: it wakes only at a minute its text changes, and a
+/// tick draws this label, not its row.
+function NeedsYouAge({ at }: { at: number }) {
+  const t = useT();
+  const now = useLabelClock(at, nextShortAge);
+  const age = shortAge(at, now, t);
+  return age ? <span className="acpmux-needs-you-age">{age}</span> : null;
 }
 
 /// The context stage: the last turns before the ask, read-only, oldest first. Another chat's is
 /// only its latest message, and says so.
-function AskContextTurns({ item, context }: { item: NeedsYouItem; context: AskContext }) {
+function AskContextTurns({ item }: { item: NeedsYouItem }) {
   const t = useT();
+  const { context: contextOf } = useContext(RowSources);
+  const context: AskContext = contextOf?.(item) ?? { turns: [], partial: false };
   const agent = item.who.chief ? t("needsYou.chief") : item.who.name;
   return (
     <div className="acpmux-needs-you-context" aria-label={t("needsYou.context")}>

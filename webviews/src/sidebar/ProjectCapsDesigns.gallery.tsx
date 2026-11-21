@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
-// Leo, 2026-11-10: each project shows its 5 most recent chats, then "Show N more", expanding
+// Leo, 2026-11-10: each project shows its first 5 quiet chats, then "Show N more", expanding
 // inline 20 at a time in the one sidebar scroll; "Show less" once fully open.
-// Pick "text": the quiet secondary-ink "Show 31 more" with a chevron, ChatGPT's row: it names the
+// Pick "text": the quiet secondary-ink "Show 20 more" with a chevron, ChatGPT's row: it names the
 // count without a chip on the trail column (where a chip reads as an unread badge beside the blue
 // dot and spinner), and "Show less" is the same row with the chevron turned up.
 // Siblings: ProjectCapsSticky.gallery.tsx (sticky header), ProjectCapsNeedsYou.gallery.tsx.
@@ -29,7 +29,7 @@ export default componentEntry<ProjectCapsDesignsProps>({
   load,
   variants: {
     text: {
-      note: "Pick. 'Show 31 more' + chevron in the member text column, secondary ink (ChatGPT)",
+      note: "Pick. 'Show 20 more' + chevron in the member text column, secondary ink (ChatGPT)",
       props: { showMore: "text", projects: capped },
     },
     "text-less": {
@@ -52,7 +52,7 @@ export default componentEntry<ProjectCapsDesignsProps>({
       play: toEnd,
     },
     dots: {
-      note: "Compact '··· 31 more': the glyph in the icon column, tertiary ink",
+      note: "Compact '··· 20 more': the glyph in the icon column, tertiary ink",
       props: { showMore: "dots", projects: capped },
     },
     "dots-less": {

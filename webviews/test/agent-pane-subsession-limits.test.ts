@@ -4,8 +4,13 @@
 // attach asks for that kind, and the snapshot takes a record newer than the attach; one the page
 // replays (at or below the attach's lastSeq) never takes the limit back, so − and + always step
 // from the number acpmux holds.
-import { expect, test } from "bun:test";
+import { beforeEach, expect, test } from "bun:test";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
+import { resetKeptTailsForTests } from "../src/agent-session/acpmux/tailCache";
+
+// Each test is a fresh page: its chat starts at seq 1, so a tail an earlier test's (or file's)
+// client kept of the same chat id would stand in front of it (session ids are never reused in the app).
+beforeEach(() => resetKeptTailsForTests());
 
 const CHAT = "0190a000-0000-7000-8000-0000000000f7";
 const START = Date.UTC(2026, 9, 21, 9, 0, 0);

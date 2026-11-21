@@ -27,7 +27,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { chromium, webkit, type Browser, type Page } from "playwright";
+import { chromium, webkit } from "./browsers";
+import type { Browser, Page } from "playwright";
 import { scoreBoxFrames, type BoxFrame } from "../src/gallery/shift";
 import { installPaintedFrames } from "../test/support/paintedFrames";
 import { perfRow } from "./perfRow";
@@ -423,9 +424,6 @@ if (import.meta.main) {
       try {
         browser = isChromium
           ? await chromium.launch({
-              ...(process.env.CMUX_CHROME_HEADLESS_SHELL
-                ? { executablePath: process.env.CMUX_CHROME_HEADLESS_SHELL }
-                : { channel: "chrome" }),
               headless: true,
             })
           : await webkit.launch({ headless: true });

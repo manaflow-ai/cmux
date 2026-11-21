@@ -1,6 +1,4 @@
-import { useCallback } from "react";
 import { useEscapingList } from "../../ui/popupHost";
-import { useScrollEdges } from "../../ui/scrollEdges";
 import { useComposerListBox } from "./backdropLayerModel";
 import { type Run } from "./fileSearchModel";
 import { Icon } from "./icons/Icon";
@@ -31,15 +29,7 @@ export function MentionMenu({
   // Above the composer's box, or past the window's edge when the pane has no room there (cx-6k6cg).
   // The list draws out of the box (backdropLayer.tsx): the box is what it stands beside.
   const box = useComposerListBox();
-  const escape = useEscapingList("top", 6, undefined, box);
-  const listEdges = useScrollEdges();
-  const attachList = useCallback(
-    (node: HTMLDivElement | null) => {
-      escape?.(node);
-      listEdges(node);
-    },
-    [escape, listEdges],
-  );
+  const escape = useEscapingList("top", 6, undefined, box, true);
   // Chats can list before a word is typed; the files' state still says what the search is doing.
   const note = !state
     ? undefined
@@ -53,7 +43,7 @@ export function MentionMenu({
   return (
     <>
       <Listbox
-        listRef={attachList}
+        shellRef={escape}
         items={items}
         getKey={(item) => item.key}
         textValue={(item) => item.name.map((part) => part.text).join("")}
@@ -65,7 +55,7 @@ export function MentionMenu({
         aria-busy={state?.kind === "searching"}
         getItemId={(_, index) => `acpmux-mention-${index}`}
         itemAttributes={(item) => ({ "data-mention-kind": item.kind })}
-        className="ui-popup ui-glass acpmux-slash-menu acpmux-mention-menu"
+        shellClassName="ui-popup ui-glass acpmux-slash-menu acpmux-mention-menu"
         id="acpmux-mention-menu"
         rowClassName="acpmux-slash-row acpmux-mention-row"
         empty={state?.kind === "searching" && items.length === 0 ? <FileSearchLoading mention /> : undefined}
@@ -84,6 +74,8 @@ export function MentionMenu({
             <span className="acpmux-slash-name">{runs(item.name)}</span>
             {item.kind === "session" ? (
               item.project && <span className="acpmux-slash-description">{item.project}</span>
+            ) : item.kind === "extension" ? (
+              <span className="acpmux-slash-description">{item.mention.detail ?? item.mention.extension}</span>
             ) : item.kind === "harness" ? (
               <span className="acpmux-slash-description">{t("mention.readOnlyGuest")}</span>
             ) : (

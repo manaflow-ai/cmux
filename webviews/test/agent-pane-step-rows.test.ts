@@ -6,8 +6,9 @@
 // on one equal pitch of their own, and the rows outside cards keep the rhythm with no gap. A
 // finished thought is one quiet row like the others, its brain glyph and its words on one line, that
 // opens to its full text, wrapped, with no tooltip (Leo 2026-10-20; Codex parity). Inner tool rows
-// keep their chevron slot quiet until hover, then show it and light their words, never their glyph;
-// the group header keeps its own disclosure.
+// show their chevron at rest, as every row that opens does (design/chat-row-anatomy.md; Leo,
+// 2026-11-21: "inconsistent chevrons"), and hover lights their words, never their glyph; the group
+// header keeps its own disclosure.
 //
 // Before: the background task's end used a smaller font in a 22px row with its own margins, a
 // step in the next transcript row sat 10px further down than one in the same row, a thought was
@@ -15,10 +16,14 @@
 //
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux.
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
+//
+// This file tests the `runs` arm of live-turn-work, not the shipped `line` arm: its steps are finished
+// calls and thoughts of a turn that still runs, which only `runs` draws (support/liveTurnRuns.ts).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
+import { pinLiveTurnRuns } from "./support/liveTurnRuns";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -120,6 +125,7 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
   };
   const open = async (): Promise<Page> => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await pinLiveTurnRuns(page);
     await page.goto(url());
     await page.getByText("build-acpmux.sh").first().waitFor();
     // Rows place by their drawn heights a frame after they mount: two painted frames later they have.
@@ -176,6 +182,8 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
     for (let attempt = 1; ; attempt++) {
       const warm = await browser.newPage();
       try {
+        // The same look as the pages under test (it also passed with no pin: shards of 3aff677f6a5f).
+        await pinLiveTurnRuns(warm);
         await warm.goto(url());
         await warm.getByText("build-acpmux.sh").first().waitFor({ timeout: 25_000 });
         await warm.close();
@@ -295,9 +303,10 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
     await page.close();
   });
 
-  // Hover reveals the chevron and lights the step's words, never its glyph (Codex parity). Opened
-  // by a click, with the pointer gone, it keeps its chevron and its words go back to rest.
-  test("an inner step row reveals its chevron and lights only its words on hover", async () => {
+  // Its chevron is there at rest, as on every row that opens (design/chat-row-anatomy.md); hover
+  // lights the step's words, never its glyph (Codex parity). Opened by a click, with the pointer gone,
+  // it keeps its chevron and its words go back to rest.
+  test("an inner step row shows its chevron at rest and lights only its words on hover", async () => {
     const page = await open();
     await openRun(page);
     const row = page.locator(".cv-steps > .cv-step > .cv-tool").first();
@@ -320,9 +329,9 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
         return chevron && getComputedStyle(chevron).opacity === expected;
       }, opacity);
     await page.mouse.move(0, 0);
-    await waitForChevron("0");
+    await waitForChevron("1");
     const rest = await look();
-    expect(rest.chevron).toBe("0");
+    expect(rest.chevron).toBe("1");
     await row.hover();
     await waitForChevron("1");
     const hovered = await look();

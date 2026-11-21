@@ -7,9 +7,19 @@
 //! clone of the live state, projects it once, and commits the resource
 //! tombstones and the terminal host tombstones in one SQLite transaction,
 //! like a batch tab close. Hosts are signaled after the commit through the
-//! parallel host-close pool. A terminal without a catalog runtime (pending,
-//! or exited with dead views) is left to the per-terminal close, which owns
-//! those cases.
+//! parallel host-close pool.
+//!
+//! A terminal without a catalog runtime is in the same commit when the
+//! per-terminal close would take it: it ended (its tabs are dead, or it has
+//! none) or it is pending. After an app update that is every terminal of the
+//! session (826 workspaces: 628 parked, 170 dead, 0 live), and one close each
+//! made the stop 66 s. The per-terminal close keeps only what it must refuse
+//! or repair: no resource row, a changed host, a live row with no owner.
+//!
+//! Chromium's fast shutdown is the model: at quit the browser ends each
+//! renderer process with no cleanup pass and no wait for each one. Here the
+//! durable record of the end is one transaction for the session, and the
+//! hosts are told to go together with one bounded wait for all of them.
 
 use super::*;
 
@@ -17,14 +27,16 @@ use super::*;
 pub(crate) struct EndedTerminalBatch {
     /// Host ids the commit ended.
     pub ended: Vec<String>,
-    /// Host ids the batch did not take; the caller closes them one by one.
+    /// Host ids the batch did not take (no resource row, a changed host, a
+    /// live row with no owner); the caller closes them one by one.
     pub remaining: Vec<String>,
 }
 
 impl Mux {
-    /// End `terminal_ids` (host ids) in one commit. Emptied workspaces stay,
-    /// as with a per-terminal close from `end_terminals`. Nothing changes
-    /// unless the whole batch commits.
+    /// End `terminal_ids` (host ids) in one commit: each with a runtime, and
+    /// each ended or pending one with none. Emptied workspaces stay, as with
+    /// a per-terminal close from `end_terminals`. Nothing changes unless the
+    /// whole batch commits.
     pub(crate) fn end_terminals_in_one_commit(
         &self,
         terminal_ids: &[String],
@@ -45,19 +57,23 @@ impl Mux {
         let mut runtimes = Vec::new();
         let mut removed = Vec::new();
         let mut changed_screens = Vec::new();
+        // Pending terminals of the batch: a host may run with no runtime here.
+        let mut pending_hosts = Vec::new();
         for terminal_id in terminal_ids {
             let Some(public_id) = registry.terminal_resource_id(terminal_id)? else {
                 remaining.push(terminal_id.clone());
                 continue;
             };
-            let Some(runtime) = projected.terminal_catalog.get(&public_id).cloned() else {
-                remaining.push(terminal_id.clone());
-                continue;
-            };
-            if self
-                .resource_terminal_host_identity(&runtime)
-                .is_none_or(|host| &host.terminal_id != terminal_id)
-            {
+            let runtime = projected.terminal_catalog.get(&public_id).cloned();
+            if let Some(runtime) = runtime.as_ref() {
+                if self
+                    .resource_terminal_host_identity(runtime)
+                    .is_none_or(|host| &host.terminal_id != terminal_id)
+                {
+                    remaining.push(terminal_id.clone());
+                    continue;
+                }
+            } else if registry.terminal_host_id(&public_id)?.as_ref() != Some(terminal_id) {
                 remaining.push(terminal_id.clone());
                 continue;
             }
@@ -65,7 +81,25 @@ impl Mux {
                 remaining.push(terminal_id.clone());
                 continue;
             };
-            if record.lifecycle == TerminalLifecycle::Tombstoned {
+            if runtime.is_none() {
+                // The rule of the per-terminal close (`commit_legacy_terminal_close`):
+                // with no runtime, only an ended or a pending terminal closes
+                // here. A tombstoned row with a live resource and a live row
+                // with no owner stay with that close, which repairs or refuses.
+                if record.lifecycle != TerminalLifecycle::Exited
+                    && !self.pending_terminal_closable(terminal_id)
+                {
+                    remaining.push(terminal_id.clone());
+                    continue;
+                }
+                if self.terminal_is_pending(terminal_id) {
+                    pending_hosts.push((
+                        public_id.clone(),
+                        terminal_id.clone(),
+                        record.incarnation.clone(),
+                    ));
+                }
+            } else if record.lifecycle == TerminalLifecycle::Tombstoned {
                 // Closed meanwhile: ended, as the per-terminal close reports.
                 ended.push(terminal_id.clone());
                 continue;
@@ -79,7 +113,7 @@ impl Mux {
             let (removed_runtime, views, _) =
                 remove_terminal_content_from_state(self, &mut projected, &public_id);
             removed.extend(views);
-            runtimes.push(removed_runtime.unwrap_or(runtime));
+            runtimes.extend(removed_runtime.or(runtime));
             terminal_batch.push((terminal_id.clone(), record.incarnation));
             ended.push(terminal_id.clone());
             ended_public_ids.push(public_id);
@@ -123,6 +157,7 @@ impl Mux {
             None,
             true,
             None,
+            projection.restates_all,
         )?;
         anyhow::ensure!(
             !committed.resource.replayed,
@@ -143,6 +178,16 @@ impl Mux {
             self.forget_terminal_end(public_id.as_str());
         }
         self.notify_terminal_exit_waiters(ended_public_ids);
+        // A pending terminal has a host and no runtime: end the host by its
+        // record, as the per-terminal close does.
+        for (public_id, terminal_id, incarnation) in pending_hosts {
+            self.after_terminal_close(
+                &public_id,
+                &terminal_id,
+                &json!({ "incarnation": incarnation }),
+                true,
+            );
+        }
         for runtime in &runtimes {
             self.purge_terminal_runtime_side_tables(runtime);
         }
@@ -152,51 +197,5 @@ impl Mux {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::super::*;
-
-    fn host_id(mux: &Arc<Mux>, surface: &Arc<Surface>) -> String {
-        mux.resource_terminal_host_identity(surface).expect("test terminal is hosted").terminal_id
-    }
-
-    fn lifecycle(mux: &Arc<Mux>, terminal_id: &str) -> TerminalLifecycle {
-        mux.resolve_terminal(terminal_id).unwrap().unwrap().terminal.lifecycle
-    }
-
-    /// Ending N terminals one close at a time rebuilt and committed the whole
-    /// session projection N times: O(N^2) teardown (1,000 terminals took
-    /// 147 s). The teardown is one projection and one commit.
-    #[test]
-    fn end_all_terminals_commits_one_resource_revision() {
-        const TERMINALS: usize = 4;
-        let mux = Mux::new_for_test("terminal-end-batch", SurfaceOptions::default());
-        let mut terminal_ids = (0..TERMINALS)
-            .map(|index| {
-                let surface =
-                    mux.new_workspace(Some(format!("batch-{index}")), Some((80, 24))).unwrap();
-                host_id(&mux, &surface)
-            })
-            .collect::<Vec<_>>();
-        terminal_ids.sort();
-        let before = mux.with_state(|state| state.resource_revision);
-
-        let mut ended = mux.end_all_terminals().unwrap();
-
-        ended.sort();
-        assert_eq!(ended, terminal_ids);
-        let revisions = mux.with_state(|state| state.resource_revision) - before;
-        assert_eq!(
-            revisions, 1,
-            "ending {TERMINALS} terminals must commit one resource revision, got {revisions}"
-        );
-        for terminal_id in &terminal_ids {
-            assert_eq!(lifecycle(&mux, terminal_id), TerminalLifecycle::Tombstoned);
-        }
-        mux.with_state(|state| {
-            assert_eq!(state.workspaces.len(), TERMINALS, "emptied workspaces stay");
-            assert!(state.terminal_catalog.is_empty());
-            assert!(state.surfaces.is_empty());
-        });
-        assert_eq!(mux.terminal_host_closes.pending(), 0);
-    }
-}
+#[path = "end_terminals_batch_tests.rs"]
+mod tests;

@@ -132,14 +132,27 @@ pub(crate) fn dispatch(
     Ok(reply)
 }
 
-/// `history.entries.list` for a test, with no request envelope.
+/// `history.entries.list` for a test, with no request envelope. The answer
+/// passes the router's catalog check, so a test of the handler alone also
+/// fails on an answer that the router refuses to send.
 #[cfg(test)]
 pub(crate) fn list_for_test(
     mux: &Arc<Mux>,
     fields: &Map<String, Value>,
 ) -> Result<Value, ResourceError> {
     let now_ms = now_ms();
-    merged::list(mux, fields, now_ms, local_day_start_ms(now_ms))
+    crate::resource_router::validate_operation_outcome(
+        ResourceOperation::HistoryEntriesList,
+        merged::list(mux, fields, now_ms, local_day_start_ms(now_ms)),
+    )
+}
+
+/// Sets how long `history.entries.list` folds before it answers (`None`: the
+/// daemon's own budget). With zero the list answers while its fold is behind
+/// the journal head, as it does after a start on a large journal.
+#[cfg(test)]
+pub(crate) fn set_list_fold_budget_for_test(mux: &Mux, budget: Option<std::time::Duration>) {
+    mux.history.set_list_fold_budget_for_test(budget);
 }
 
 /// One `history.*` mutation for a test, with no request envelope.

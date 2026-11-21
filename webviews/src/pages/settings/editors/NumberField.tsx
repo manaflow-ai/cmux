@@ -36,9 +36,10 @@ export function NumberField({
   const unit = unitLabel(range);
   return (
     <span className="number-field">
-      {/* The hidden copy of the shown text (or the placeholder) in the same grid cell sets the
-          field's width, so a long default label ("Configurazione di Ghostty") is never cut. */}
-      <span className="number-sizer" data-value={shown || placeholder}>
+      {/* The hidden copy of the longer of the shown text and the placeholder in the same grid cell
+          sets the field's width, so a long default label ("Configurazione di Ghostty") is never
+          cut, and typing over it never shrinks the field and moves the slider beside it. */}
+      <span className="number-sizer" data-value={sizerText(shown, placeholder)}>
         <Input
           className="field number"
           data-inherited={draft === null && value === null && inherited !== null ? "" : undefined}
@@ -63,4 +64,9 @@ export function NumberField({
       {unit && <span className="unit">{unit}</span>}
     </span>
   );
+}
+
+/** The text the field sizes to: the longer of the two. */
+function sizerText(shown: string, placeholder: string): string {
+  return placeholder.length > shown.length ? placeholder : shown;
 }

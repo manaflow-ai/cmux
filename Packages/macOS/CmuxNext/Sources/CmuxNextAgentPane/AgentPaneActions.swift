@@ -111,11 +111,21 @@ extension ActionRegistry {
     }
 
     /// Binds every agent pane action. `openNewChat` opens an agent tab in
-    /// the invocation's pane (the focused pane when it has no target).
+    /// the invocation's pane (the focused pane when it has no target); Customize…
+    /// runs it too, with a `draft` argument.
     /// Returns false when a descriptor is missing from the catalog.
     @discardableResult
-    public func bindAgentPane(openNewChat: @escaping @MainActor (ActionInvocation) -> Void) -> Bool {
-        bind(.newAgentChat, invoke: openNewChat)
+    /// `customizeRows` says whether the right-click menus show Customize… (`customize.fromTheApp`,
+    /// off by default); the palette and the app menu always offer it.
+    public func bindAgentPane(customizeRows: @escaping @MainActor () -> Bool = { false },
+                              openNewChat: @escaping @MainActor (ActionInvocation) -> Void) -> Bool {
+        // Customize… opens the same new chat with `/customize ` in its composer (AgentPaneCustomize.swift).
+        let customize = bindEffect(.customizeOpen) { invocation in
+            openNewChat(invocation.customizing)
+            return .done
+        }
+        ActionTargetVisibility.hide(.customizeOpen, in: self) { _ in !customizeRows() }
+        return bind(.newAgentChat, invoke: openNewChat) && customize
     }
 
     /// Binds Show ACP Inspector. `toggle` toggles the inspector of the agent

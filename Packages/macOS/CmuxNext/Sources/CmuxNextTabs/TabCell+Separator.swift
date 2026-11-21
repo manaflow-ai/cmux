@@ -26,9 +26,9 @@ extension TabCell {
                                       width: line, height: height)
     }
 
-    /// The theme's separator tone, stronger than a pane hairline so a 1 pt line reads between tabs;
-    /// clear under `appearance.borders` none. Runs inside the cell's theme scope.
+    /// The chrome's divider colour at the tab separators' strength (`Palette.chromeDivider(opacity:)`), so the
+    /// strip draws no third line weight; clear under `appearance.borders` none. Runs inside the cell's theme scope.
     func applySeparatorColor() {
-        separatorLayer.backgroundColor = Borders.color(Palette.separator.withAlphaComponent(metrics.separatorOpacity)).cgColor
+        separatorLayer.backgroundColor = Borders.color(Palette.chromeDivider(opacity: metrics.separatorOpacity)).cgColor
     }
 }

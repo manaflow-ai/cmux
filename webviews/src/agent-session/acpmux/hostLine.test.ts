@@ -7,6 +7,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { translate } from "./i18n";
 import { AcpmuxRpcError } from "./handoff/protocol";
+import { NativeError } from "./nativeError";
 import { HOST_ERROR_DEADLINE_MS, hostErrorShows, hostIsReconnecting } from "./hostRetry";
 import { PEER_LINK_DEADLINE_MS, hostLineText, isRawDaemonText, peerLinkFailure } from "./hostLine";
 
@@ -86,14 +87,49 @@ test("the line never carries a daemon code, protocol text or a CLI command; Deta
   ).toBe("Can't reach this chat's machine.");
 });
 
-test("plain host words stay the line, with nothing behind Details", () => {
+test("the app's own localized refusal stays the line, with nothing behind Details", () => {
   for (const words of [
-    "acpmux did not answer in time.",
-    "acpmux belongs to cmux NIGHTLY, and this build may not use it. Quit that app, then try again.",
-    "cmux cannot reach acpmux: it exited before it was ready. Its log is at /Users/someone/Library/Application Support/com.cmuxterm.app.next/acpmux/daemon.log.",
+    "The agent service didn't answer in time.",
+    "cmux NIGHTLY is using the agent service, so this cmux can't. Quit cmux NIGHTLY, then try again.",
+    "cmux couldn't find its agent service. Reinstall cmux to fix this.",
   ]) {
-    expect(isRawDaemonText(words)).toBe(false);
-    expect(hostLineText(new Error(words), words, translate)).toEqual({ line: words });
+    const refusal = new NativeError({ code: "host_unavailable", userMessage: words });
+    expect(hostLineText(refusal, words, translate)).toEqual({ line: words });
+  }
+  // A chat too large to open is the pane's own words.
+  const tooLarge = translate("host.tooLarge");
+  expect(hostLineText(new Error("frame too large"), tooLarge, translate)).toEqual({ line: tooLarge });
+});
+
+// Audit 2026-11-12: a message that was not code-shaped ("Failed to fetch", "Error: …") was the line.
+test("any other failure's text reads as the plain line, its words behind Details", () => {
+  for (const words of [
+    "Failed to fetch",
+    "Error: socket hang up",
+    "acpmux did not answer in time.",
+    "TypeError: Cannot read properties of undefined (reading 'sessionId')",
+  ]) {
+    expect(hostLineText(new Error(words), words, translate)).toEqual({
+      line: translate("host.unavailable"),
+      detail: words,
+    });
+    // A native error with no code (pageHost.ts: a call that never got an answer) is not the app's words.
+    expect(hostLineText(new NativeError(undefined, words), words, translate)).toEqual({
+      line: translate("host.unavailable"),
+      detail: words,
+    });
+  }
+});
+
+// Review of #41975: pageHost.ts turns an unknown operation into a coded NativeError whose message is
+// the protocol's own text; a code is not the app's words unless it is the handshake refusal.
+test("a coded native error other than the app's refusal reads as the plain line, its text behind Details", () => {
+  const words = "unknown operation: agent.session.frobnicate";
+  for (const code of ["native.invalid_request", "native.not_connected", "machine.creator_or_admin"]) {
+    expect(hostLineText(new NativeError({ code, userMessage: words }), words, translate)).toEqual({
+      line: translate("host.unavailable"),
+      detail: words,
+    });
   }
 });
 

@@ -3,6 +3,7 @@
 // The host pushes the window's state on `cmux.site-settings.state`; the page sends its commands and
 // the height its content needs, which sizes the window.
 import "../shared/desktop";
+import "../shared/transientMaterial";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { mountChromePage } from "../../browser-chrome/page-info/mountChromePage";
 import { SiteSettingsWindow } from "../../browser-chrome/page-info/SiteSettingsWindow";

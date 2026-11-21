@@ -194,8 +194,8 @@ type SharedBatch = (Arc<Vec<SeqChange>>, (u64, u64, usize), Option<u64>, Arc<Cha
 
 #[cfg(test)]
 struct BuildPause {
-    entered: Arc<std::sync::Barrier>,
-    release: Arc<std::sync::Barrier>,
+    entered: std::sync::mpsc::Sender<()>,
+    release: std::sync::mpsc::Receiver<()>,
 }
 
 struct Built {
@@ -227,8 +227,8 @@ impl ActivityCache {
     #[cfg(test)]
     pub(crate) fn test_pause_next_build(
         &self,
-        entered: Arc<std::sync::Barrier>,
-        release: Arc<std::sync::Barrier>,
+        entered: std::sync::mpsc::Sender<()>,
+        release: std::sync::mpsc::Receiver<()>,
     ) {
         *lock(&self.build_pause) = Some(BuildPause { entered, release });
     }
@@ -377,8 +377,9 @@ impl Hub {
         });
         #[cfg(test)]
         if let Some(pause) = lock(&cache.build_pause).take() {
-            pause.entered.wait();
-            pause.release.wait();
+            let _ = pause.entered.send(());
+            // The hold's own park: it ends when the test sends, or drops its sender on an unwind.
+            let _ = pause.release.recv();
         }
         // A closed-session activity record or a map change while the index was being built
         // invalidates this result. Return it to this reader, but do not publish it; the mutation's

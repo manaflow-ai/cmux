@@ -10,7 +10,7 @@ import type { ProjectCapsDesignsProps } from "./ProjectCapsDesigns";
 
 const load = () => import("./ProjectCapsDesigns").then((module) => module.ProjectCapsDesigns);
 const covers = ["sidebar/ProjectCapsDesigns.tsx#ProjectCapsDesigns"];
-/** Mid-scroll through the cmux project with its first page open (26 rows), so its header sticks. */
+/** Mid-scroll through the cmux project with its first page open (31 rows), so its header sticks. */
 const midScroll: Play = (ctx) => ctx.scroll({ selector: ".pcd-scroll" }, 320);
 const expanded = { open: { cmux: 1 } };
 

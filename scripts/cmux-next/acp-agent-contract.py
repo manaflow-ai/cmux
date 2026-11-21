@@ -10,7 +10,7 @@ sign-in refusal (`auth_required`, -32000), which is what a signed-out Cloud mach
 its sign-in card. A cell whose program or credential is missing here is `skipped` with the reason.
 
   python3 scripts/cmux-next/acp-agent-contract.py --list
-  python3 scripts/cmux-next/acp-agent-contract.py --cells opencode-zen,gemini-signed-out,grok-signed-out --out /tmp/c
+  python3 scripts/cmux-next/acp-agent-contract.py --cells opencode-zen,gemini-signed-out --out /tmp/c
 
 Exit 0 when no selected cell failed, 1 when one did, 2 on bad arguments. --out DIR gets
 matrix.json and summary.md.
@@ -60,11 +60,6 @@ CELLS: list[Cell] = [
         note="OpenCode with no login: its free OpenCode Zen models",
     ),
     Cell(
-        "opencode-provider-key", "cloud-grok-gemini-opencode", "opencode", "api-key:OPENROUTER_API_KEY",
-        argv=("opencode", "acp"), expect="reply", env_needed=("OPENROUTER_API_KEY",),
-        note="OpenCode pointed at another provider's models through that provider's key",
-    ),
-    Cell(
         "gemini-signed-out", "cloud-grok-gemini-opencode", "gemini", "none",
         argv=("gemini", "--experimental-acp"), expect="auth_required",
         note="Gemini CLI with no Google login and no key: the ACP sign-in refusal the card answers",
@@ -80,22 +75,8 @@ CELLS: list[Cell] = [
         env=(("GEMINI_CLI_HOME", "${CMUX_MATRIX_GEMINI_HOME}"),),
         note="Gemini CLI signed in with a Google account (free or AI Pro): a home holding .gemini/oauth_creds.json",
     ),
-    Cell(
-        "grok-signed-out", "cloud-grok-gemini-opencode", "grok", "none",
-        argv=("grok", "agent", "stdio"), expect="auth_required",
-        note="xAI grok CLI with no login and no key: the ACP sign-in refusal",
-    ),
-    Cell(
-        "grok-api-key", "cloud-grok-gemini-opencode", "grok", "api-key:XAI_API_KEY",
-        argv=("grok", "agent", "stdio"), expect="reply", env_needed=("XAI_API_KEY",),
-        note="xAI grok CLI with an xAI API key",
-    ),
-    Cell(
-        "grok-supergrok", "cloud-grok-gemini-opencode", "grok", "subscription",
-        argv=("grok", "agent", "stdio"), expect="reply", env_needed=("CMUX_MATRIX_GROK_HOME",),
-        env=(("GROK_HOME", "${CMUX_MATRIX_GROK_HOME}"),),
-        note="xAI grok CLI signed in with `grok login --device-auth` (SuperGrok): a GROK_HOME holding auth.json",
-    ),
+    # No Grok (SuperGrok, xAI key) or third-party provider-key cells: Leo has none of those accounts (Leo,
+    # 2026-11-10: "I only have ChatGPT and Google ... Or else I ask the company to get me basic accounts later").
 ]
 
 
@@ -212,12 +193,25 @@ def expand(value: str) -> str:
     return os.path.expandvars(value)
 
 
+# What a cell inherits from this shell: the program path and locale only. Every login, key and config
+# home stays out, so a signed-out cell is signed out and a no-login cell cannot pass on a host login.
+INHERITED = ("PATH", "LANG", "LC_ALL", "TERM", "TMPDIR", "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS")
+
+
 def cell_env(cell: Cell, home: str) -> dict[str, str]:
-    env = dict(os.environ)
+    env = {k: os.environ[k] for k in INHERITED if k in os.environ}
+    env.update({
+        "HOME": home,
+        "XDG_CONFIG_HOME": os.path.join(home, ".config"),
+        "XDG_DATA_HOME": os.path.join(home, ".local/share"),
+        "XDG_CACHE_HOME": os.path.join(home, ".cache"),
+        "XDG_STATE_HOME": os.path.join(home, ".local/state"),
+        "NO_BROWSER": "true",
+        "BROWSER": "true",
+    })
+    # Only the login this cell asks for: its env_needed keys, and its own env (a login home).
+    env.update({k: os.environ[k] for k in cell.env_needed if k in os.environ and not k.startswith("CMUX_MATRIX_")})
     env.update({k: expand(v) for k, v in cell.env})
-    env.setdefault("HOME", home)
-    env["NO_BROWSER"] = "true"
-    env["BROWSER"] = "true"
     return env
 
 

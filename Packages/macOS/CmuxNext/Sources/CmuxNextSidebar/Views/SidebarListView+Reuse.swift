@@ -3,10 +3,11 @@ import AppKit
 // viewport, and leaving rows return to the pool.
 extension SidebarListViewComponents {
     /// `rebinding`: with no parked view of `key`, take another parked row's
-    /// view of the same kind (scroll realization only: the view is placed,
-    /// never animated, so nothing flies in from its old row, cx-ai79).
-    func dequeue(_ key: SidebarRowKey, rebinding: Bool = false) -> SidebarRowView {
-        let view = rowPool.take(for: key, rebinding: rebinding)
+    /// view of the same kind (the view is placed, never animated, so nothing
+    /// flies in from its old row, cx-ai79). `spareFirst`: a workspace row
+    /// takes a spare before another row's view (`SidebarRowViewPool.take`).
+    func dequeue(_ key: SidebarRowKey, rebinding: Bool = false, spareFirst: Bool = false) -> SidebarRowView {
+        let view = rowPool.take(for: key, rebinding: rebinding, spareFirst: spareFirst)
         view.isHidden = false
         view.clearFoldClip() // a fold's mask belongs to the row it clipped
         wire(view, key: key)
@@ -96,13 +97,21 @@ extension SidebarListViewComponents {
                 guard let self else { return false }
                 return SidebarFoldAction(list: self).toggle(key)
             }
+        case (.listHeader, let view as ListHeaderRowView):
+            view.screenButton.onPress = { [weak self] in self?.model.send(.shareScreen(.local)) }
         case let (.section(sectionID), view as SectionHeaderRowView):
             if case let .machine(machine) = sectionID {
                 view.allowsAdd = true
                 view.onAdd = { [weak self] in self?.model.send(.newWorkspace(machine: machine, group: nil)) }
+                // The header's own action at press time: a reused header may now head another kind of machine.
+                view.screenButton.onPress = { [weak self, weak view] in
+                    guard let intent = view?.screenAction else { return }
+                    self?.model.send(intent)
+                }
             } else {
                 view.allowsAdd = false
                 view.onAdd = nil
+                view.screenButton.onPress = nil
             }
         default:
             break

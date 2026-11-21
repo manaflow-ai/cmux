@@ -111,17 +111,22 @@ public struct BrowserTabSplitRequest {
     /// An agent asked for it (the CLI, MCP or a script): its pages are marked agent-driven before
     /// they exist, so no saved password fills and the agent's URL rules hold from the first load.
     public let agentDriven: Bool
+    /// The new tab shows in its split but takes no focus: the keyboard stays where it is (a terminal
+    /// program's link opened in the background).
+    public let keepsFocus: Bool
 
     /// - Parameters:
     ///   - direction: the side of the pane the split goes.
     ///   - insertion: Insert New at a divider's target, `around` and sizing; nil for a plain split.
     ///   - agentDriven: the CLI, MCP or a script asked for it (``agentDriven``).
+    ///   - keepsFocus: the new tab takes no focus (``keepsFocus``); false by default, as a person's open takes it.
     ///   - finished: runs with the new surface, or nil, once the daemon answered.
-    public init(direction: SplitDirection, insertion: DividerInsertion? = nil, agentDriven: Bool = false,
+    public init(direction: SplitDirection, insertion: DividerInsertion? = nil, agentDriven: Bool = false, keepsFocus: Bool = false,
                 finished: @escaping @MainActor (SurfaceID?) -> Void) {
         self.direction = direction
         self.insertion = insertion
         self.agentDriven = agentDriven
+        self.keepsFocus = keepsFocus
         self.finished = finished
     }
 }

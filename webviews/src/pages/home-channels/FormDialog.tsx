@@ -49,15 +49,7 @@ export function FormDialog({ title, lead, onClose, onSubmit, actions, busy, wide
       backdropClassName="lg-scrim"
       initialFocus={first}
     >
-      <form
-        ref={frame}
-        className="lg-form-frame"
-        // The form says why a field is wrong in its own status line: the browser's validation bubble
-        // (an email field's) would stop the submit before it, so it is off.
-        noValidate
-        onSubmit={submit}
-        aria-busy={busy || undefined}
-      >
+      <form ref={frame} className="lg-form-frame" onSubmit={submit} aria-busy={busy || undefined}>
         <KeyboardScope className="lg-form-keys" handleKeyDown={keys}>
           <header className="lg-form-head">
             <h2 className="lg-form-title">{title}</h2>

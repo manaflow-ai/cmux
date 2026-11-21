@@ -134,6 +134,7 @@ pub(super) fn remove_terminal_content_from_state(
     terminal_id: &TerminalPublicId,
 ) -> (Option<Arc<Surface>>, Vec<Arc<Surface>>, bool) {
     let runtime = state.remove_catalog_terminal(terminal_id);
+    mux.terminal_live.forget(terminal_id);
     let mut targets =
         state.placements_of_content(&ContentPublicId::Terminal(terminal_id.clone())).to_vec();
     if let Some(runtime_id) = runtime.as_ref().and_then(|runtime| runtime.terminal_runtime_id()) {
