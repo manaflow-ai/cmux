@@ -1457,7 +1457,26 @@ impl Brain {
         true
     }
 
+    /// A turn whose harness reported tokens but no dollars is priced from the shared table
+    /// (turn_price.rs): its engine's model, else a brain's home model.
+    fn price_unpriced(&self, outcome: &mut TurnOutcome) {
+        if outcome.stats.cost.is_some() {
+            return;
+        }
+        let Some((usage, _)) = outcome.stats.totals.as_ref() else {
+            return;
+        };
+        let engine = self.turn_engine.as_ref();
+        let model = engine.and_then(|e| e.model.clone()).or_else(|| {
+            engine
+                .filter(|e| self.settings.brains.get(&e.harness).is_some())
+                .and_then(|_| self.settings.brains.model.clone())
+        });
+        outcome.stats.cost = model.and_then(|m| crate::turn_price::price(&m, usage));
+    }
+
     pub(super) fn turn_ended(&mut self, key: &str, mut outcome: TurnOutcome) {
+        self.price_unpriced(&mut outcome);
         // A failed turn on an open-source brain is cut and runs again on the default harness
         // (turn_engine_choice), so the person's message still gets its answer.
         // A lost acpmux link is no fault of the brain: that cut runs again on the brain.
