@@ -14,10 +14,9 @@ use std::sync::Arc;
 
 pub(super) const TOOLS: [&str; 3] = ["goal_set", "goal_update", "goal_get"];
 /// What every chat with the tools is told.
-pub(super) const STEER: &str = "For work that should run until a condition holds (make the \
-suite pass, land the PR, finish the migration), call goal_set with the objective and a checkable \
-done-when; the chat keeps them across compaction. Call goal_update with status complete, with \
-the evidence as the note, only once done-when holds, and with blocked when you need the person.";
+pub(super) const STEER: &str = "For work that runs until a condition holds, call goal_set with \
+the objective and a checkable done-when; call goal_update with complete (evidence as the note) \
+only once it holds, or blocked when you need the person.";
 
 pub(super) fn tools() -> Vec<Value> {
     vec![
