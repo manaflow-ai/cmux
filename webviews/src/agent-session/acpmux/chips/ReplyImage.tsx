@@ -21,6 +21,7 @@ import { useT } from "../i18n";
 import { ImageIcon, Lock } from "../conversation/icons";
 import { knownImageSize, rememberImageSize } from "../conversation/imageEntries";
 import { useUnsettledHeight } from "../conversation/unsettledHeights";
+import { useViewportReach } from "../useNearViewport";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { callChipHost } from "./host";
 
@@ -121,10 +122,15 @@ export function OpenableImage({
   const [natural, setNatural] = useState(() => knownImageSize(src));
   // A thumbnail whose size is not known yet, or a reply image (its height is the image's) not loaded
   // yet, takes another height once it loads: an opening chat waits for it (unsettledHeights.ts).
+  // A lazy image a screen or more away (or in a hidden pane) loads only once the reader comes near it,
+  // so nothing waits on it then.
   const [ended, setEnded] = useState(false);
-  useUnsettledHeight(!ended && !natural);
+  const [element, setElement] = useState<HTMLImageElement | null>(null);
+  const reach = useViewportReach(element);
+  useUnsettledHeight(!ended && !natural && reach !== "far");
   const image = (
     <img
+      ref={setElement}
       className={thumb ? "cv-thumb__img" : "cv-img"}
       src={src}
       width={!thumb ? natural?.width : undefined}
@@ -302,7 +308,8 @@ function RemoteImage({
   const auto = policy.remoteImages === "always" || clickFree;
   const { state, load } = useImageLoad(src, auto, clickFree);
   // A web image that loads by itself is on its way: an opening chat waits for it, as for a file.
-  useUnsettledHeight(auto && (state.kind === "idle" || state.kind === "loading"));
+  // One the host declined to load without a click (`started` keeps it, idle) waits for its click.
+  useUnsettledHeight(auto && (state.kind === "loading" || (state.kind === "idle" && !started.has(src))));
   if (state.kind === "shown") return <OpenableImage src={state.src} alt={alt} thumb={thumb} />;
   if (policy.remoteImages === "never") return <>{fallback}</>;
   const placeholder = (

@@ -867,6 +867,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   // an opening chat waits for the editor (unsettledHeights.ts) only while the field holds one.
   const standIn = useRef<HTMLDivElement>(null);
   const [made, setMade] = useState(false);
+  const everMade = useRef(false);
   useUnsettledHeight(!made && value !== "");
   const attrs = useRef(attributes);
   attrs.current = attributes;
@@ -940,7 +941,9 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     (root: HTMLDivElement | null) => {
       if (!root) return;
       let disposed = false;
-      if (standIn.current) {
+      // A field remade (its literal mode changed) keeps the editor it had until the new one comes: the
+      // old one's lines are still in the root, so the stand-in shows only before the first editor.
+      if (standIn.current && !everMade.current) {
         standIn.current.textContent = known.current;
         standIn.current.hidden = false;
       }
@@ -1471,6 +1474,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           showPlaceholder(known.current);
           // In the task the editor's lines went in, so no frame draws both or neither.
           if (standIn.current) standIn.current.hidden = true;
+          everMade.current = true;
           setMade(true);
           applyAttributes();
           for (const quote of pendingQuotes.current.splice(0)) insertReplyQuote(made, view.current, quote);
@@ -1539,8 +1543,10 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     if (value === known.current) return;
     // Before the editor exists the new value becomes its default content.
     known.current = value;
-    if (!editor.current) return;
-    setDocument(value);
+    if (editor.current) return setDocument(value);
+    // Its stand-in and placeholder show it until then, at its height.
+    if (standIn.current && !everMade.current) standIn.current.textContent = value;
+    showPlaceholder(value);
   }, [value]);
   // Aria and role follow the composer's state on the editable element.
   useLayoutEffect(applyAttributes);

@@ -10,7 +10,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { cancelDiagram, DiagramLibraries, renderMermaid, renderVega } from "../../../pages/markdown/diagrams";
 import { useT } from "../i18n";
-import { useNearViewport } from "../useNearViewport";
+import { useViewportReach } from "../useNearViewport";
 import { postNative } from "../native";
 import { copyText } from "./clipboard";
 import { chartSpec } from "./chartSpec";
@@ -22,7 +22,8 @@ const libraries = new DiagramLibraries((name) => new URL(`__lib/${name}.js`, doc
 export function DiagramBlock({ lang, code, actions }: { lang: string; code: string; actions?: ReactNode }) {
   const t = useT();
   const [frame, setFrame] = useState<HTMLDivElement | null>(null);
-  const near = useNearViewport(frame);
+  const reach = useViewportReach(frame);
+  const near = reach === "near";
   const chart = useRef<HTMLDivElement>(null);
   const [showCode, setShowCode] = useState(false);
   const [failure, setFailure] = useState<string>();
@@ -33,8 +34,9 @@ export function DiagramBlock({ lang, code, actions }: { lang: string; code: stri
   const label = language === "chart" ? "chart" : mode;
   const spec = useMemo(() => (language === "chart" ? (chartSpec(code) ?? code) : code), [language, code]);
   // Until it is drawn (or refused) the chart's frame is not at the chart's height: an opening chat
-  // waits for it (unsettledHeights.ts).
-  useUnsettledHeight(!drawn && !failure && !showCode);
+  // waits for it (unsettledHeights.ts), while it is near enough to draw. One a screen or more away (or
+  // in a hidden pane) draws only once the reader comes near it, so nothing waits on it.
+  useUnsettledHeight(reach !== "far" && !drawn && !failure && !showCode);
 
   useEffect(() => {
     const target = chart.current;

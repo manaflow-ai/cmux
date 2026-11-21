@@ -7,9 +7,11 @@
 //   - a diagram, until Mermaid or Vega has drawn it (DiagramBlock.tsx: an empty frame first);
 //   - an image the host reads or fetches, until it answers (ReplyImage.tsx: the fixed waiting frame
 //     first, then the image in its own shape);
-//   - a code card, until its highlighter has painted (HighlightedCode.tsx: plain lines first).
+//   - the composer's draft, until its editor is made (MarkdownField.tsx: its text unformatted first).
+// A part that draws only once the reader comes near it (a diagram or lazy image a screen or more away,
+// or in a hidden pane) does not count while it is that far: nothing would settle it.
 // Each such part counts itself here while it is unsettled. The transcript holds an opening chat
-// unseen while any part counts, up to a short ceiling (VirtualTranscript.tsx `OPEN_SETTLE_MAX_MS`),
+// unseen while any part counts, up to a short ceiling (`OPEN_SETTLE_MAX_MS`),
 // placing it at its latest row under the hold as the parts settle, then shows it once, in place.
 // Once a chat is shown nothing waits on this: a part that settles later is a part the reader is
 // looking at, and the transcript keeps the latest row (or the reader's row) still as it does for any

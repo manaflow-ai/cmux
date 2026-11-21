@@ -295,16 +295,26 @@ await requireBrowserLane("chat-open-smooth.test.ts", async () => {
     composerHeights: number[];
     trace: string[];
   };
-  /// The frames the reader sees, judged: from the first one that showed the chat's newest prompt and,
-  /// for a page load, came after the page told its host it shows the chat (`pane.painted`, the dev
-  /// host's `cmuxDevPaintedAt`): the app covers the page until then. A frame recorded only when
-  /// something changed, so the last frame before that moment is what the reveal shows.
+  /// The frames the reader sees, judged from the one that first showed the opened chat. For a page
+  /// load that is the frame the reveal shows: the app covers the page until it tells its host it
+  /// shows the chat (`pane.painted`, the dev host's `cmuxDevPaintedAt`), and a frame is recorded only
+  /// when something changed, so the last frame before that moment is what the reveal shows (the first
+  /// after it when none came before). For a switch it is the first frame with rows that are not the
+  /// last chat's (the first recorded frame, before the switch). That frame must already be the latest
+  /// message (`atLatest`): a chat shown blank, at its top or mid-way that then moves there fails.
   const judge = (recorded: Recorded, page: boolean): Judged => {
-    const after = page ? (recorded.painted ?? Number.POSITIVE_INFINITY) : Number.NEGATIVE_INFINITY;
-    let from = recorded.frames.findIndex((frame) => frame.marker && frame.t >= after);
-    let before = -1;
-    for (const [index, frame] of recorded.frames.entries()) if (frame.t < after) before = index;
-    if (page && before >= 0 && recorded.frames[before]!.marker && (from < 0 || from > before)) from = before;
+    let from = -1;
+    if (page) {
+      const after = recorded.painted ?? Number.POSITIVE_INFINITY;
+      for (const [index, frame] of recorded.frames.entries()) if (frame.t < after) from = index;
+      if (from < 0 || recorded.frames[from]!.rows.length === 0)
+        from = recorded.frames.findIndex((frame) => frame.t >= after && frame.rows.length > 0);
+    } else {
+      const last = new Set(recorded.frames[0]?.rows.map((row) => row.id));
+      from = recorded.frames.findIndex(
+        (frame, index) => index > 0 && frame.rows.length > 0 && frame.rows.every((row) => !last.has(row.id)),
+      );
+    }
     const frames = (from < 0 ? [] : recorded.frames.slice(from)).map((frame) => ({
       ...frame,
       t: frame.t - recorded.started,
@@ -390,12 +400,12 @@ await requireBrowserLane("chat-open-smooth.test.ts", async () => {
             `window.addEventListener("DOMContentLoaded", () => (${recorder.toString()})(${JSON.stringify({ marker: c.latest, quietMs: QUIET_MS, limitMs: LIMIT_MS, rowSelector: TRANSCRIPT_ROW })}))`,
           );
           await tab.goto(url(c.id));
-          return judge(
-            (await tab.evaluate(
-              () => (window as unknown as { __smoothOpen: Promise<Recorded> }).__smoothOpen,
-            )) as Recorded,
-            true,
-          );
+          const recorded = (await tab.evaluate(
+            () => (window as unknown as { __smoothOpen: Promise<Recorded> }).__smoothOpen,
+          )) as Recorded;
+          // The page told its host it shows the chat: the reveal is judged, not the last frame.
+          expect(recorded.painted).not.toBeNull();
+          return judge(recorded, true);
         } finally {
           await tab.close();
         }
