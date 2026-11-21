@@ -21,7 +21,7 @@
 #                       the quit ended, and the app relaunched into the same scratch, checked to show that
 #                       workspace and not Home; that relaunch is settled and sampled. A plain launch shows Home
 #                       (FirstWorkspace.swift). relaunch=warm keeps what outlived the quit; 0 (default) is as before.
-#   env=NAME=VALUE      an environment variable for both arms' app (repeatable; chats= runs), e.g.
+#   env=NAME=VALUE      an environment variable for both arms' app (repeatable; chats= and cells= runs), e.g.
 #                       env=CMUX_NEXT_CHIEF_START=visible: a base that does not read it ignores it
 #   cells=C,C           in the place of chats= (the two together are refused): each cell is CHATS:REPOSITORY:MOTION, one launch for each arm and
 #                       round. CHATS agent chats at rest (1 or more); REPOSITORY small or large is a visible
@@ -98,6 +98,10 @@ for ((k = 1; k < ${#app_env[@]}; k += 2)); do
 done
 relaunch_args=()
 case "$relaunch" in 1|cold) relaunch_args=(--relaunch-restored cold) ;; warm) relaunch_args=(--relaunch-restored warm) ;; esac
+# relaunch= changes only the terminal launch (chats= with 0): refuse it where it would be silently ignored.
+if [ "$relaunch" != 0 ] && { [ -n "$cells" ] || ! [[ ",$chats," == *",0,"* ]]; }; then
+  echo "relaunch= needs chats= with 0 and no cells= (it changes only the terminal launch)" >&2; exit 2
+fi
 if [ -n "$cells" ]; then
   $chats_given && { echo "cells= is in the place of chats=: give one of the two" >&2; exit 2; }
   (( measure >= 4 && measure % 4 == 0 && unfocused >= 30 && unfocused % 30 == 0 )) || {

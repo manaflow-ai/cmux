@@ -65,7 +65,7 @@ Two ways to run (macOS only, a fleet or capture mini, never a laptop):
           --relaunch-restored [cold|warm]: a returning user's launch. The first
           launch opens and shows one terminal workspace and quits (the session
           saves); the measured launch is the relaunch into the same scratch,
-          checked to show that workspace and not Home (an empty launch lands
+          checked to show a terminal workspace and not Home (an empty launch lands
           on Home, FirstWorkspace.swift). cold ends what outlived the quit
           first. `relaunch` in the report. --env NAME=VALUE sets the app's env.
 
@@ -1737,7 +1737,8 @@ def relaunch_restored(bundle: str, config: dict, extra: dict, socket_path: str, 
     bench_relaunch_reconnect.py); then relaunched into the same scratch. `cold` (default) also ends every
     process of the bundle that outlived the quit (its daemons), as a login after a restart: no process of
     the first launch, which showed Home, is measured in the relaunch. `warm` leaves them running.
-    Refuses (SystemExit) a relaunch whose window does not show that terminal workspace."""
+    Refuses (SystemExit) a relaunch whose window shows Home or no terminal workspace (a restore may give
+    the workspace a new id, so any terminal workspace counts; `same_workspace` says whether it kept its id)."""
     app = App(bundle, socket_path)
     info: dict = {"mode": mode, "first_launch": shown_workspace(app)}
     workspace = open_workspace(app, "terminal", "", 0)
@@ -1758,12 +1759,18 @@ def relaunch_restored(bundle: str, config: dict, extra: dict, socket_path: str, 
     if left:
         print(f"   relaunch: the app was still up 20 s after quitKeepSessions; SIGTERM {sorted(left)}", file=sys.stderr)
         end_processes(left)
-    table = {p: cmd for p, _, cmd in process_table()}
-    survivors = sorted(kind_of(table[p], bundle) for p in bundle_pids(bundle) if p in table)
+    # By executable path too (bundle_processes): the holder and the daemon's children start with a bare
+    # argv[0], so a command-line match (bundle_pids) misses them, and the relaunch would reattach to them.
+    survivors = sorted(kind for kind, _ in bundle_processes(process_table(), bundle).values())
     info["after_quit"] = survivors
     print(f"== relaunch: after the quit (mode {mode}): {survivors}", flush=True)
     if mode == "cold":
         end_bundle(bundle)
+        end_processes(set(bundle_processes(process_table(), bundle)))
+        left = bundle_processes(process_table(), bundle)
+        if left:
+            raise SystemExit(f"bench-memory --relaunch-restored cold: processes of the first launch are still up "
+                             f"after the cleanup: {sorted((p, k) for p, (k, _) in left.items())}")
     pid, socket_path, _ = launch(bundle, config, extra, scratch=scratch)
     after = wait_terminal_shown(App(bundle, socket_path), None, 60)
     after["same_workspace"] = after["shown"] == workspace
@@ -1853,7 +1860,7 @@ def main():
                         help="each measured window also samples the GPU's counters (ioreg IOAccelerator)")
     parser.add_argument("--relaunch-restored", nargs="?", const="cold", choices=("cold", "warm"),
                         help="launch: open and show one terminal workspace, quit (the session saves), relaunch into "
-                             "the same scratch and check that the window shows that workspace, not Home, then "
+                             "the same scratch and check that the window shows a terminal workspace, not Home, then "
                              "sample: a returning user's launch (relaunch_restored). cold (default) ends the "
                              "processes that outlived the quit first; warm leaves them")
     parser.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
