@@ -15,6 +15,7 @@ import type * as Wire from "../../../../clients/ts/cloud/src/generated";
 type Result<Op extends Wire.CloudOpName> = Wire.CloudOps[Op]["result"];
 
 export const CloudOps = {
+  providerRehearse: "cmux.cloud.provider.rehearse",
   authStatus: "cmux.cloud.auth.status",
   /**
    * Event stream: the app's account changed (a sign-in or sign-out anywhere in the app, a restored

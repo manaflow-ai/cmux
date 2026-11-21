@@ -7,6 +7,7 @@ import { useLasting, useLoadingShown } from "../../ui/lasting";
 import { AccountPanel } from "./AccountPanel";
 import { ArchiveList } from "./ArchiveList";
 import { CreateSheet } from "./CreateSheet";
+import { ProviderRehearsal } from "./ProviderRehearsal";
 import { MachineDetailView } from "./MachineDetail";
 import { MachineList } from "./MachineList";
 import { MigrationBanner, PlanNotice, SpendCapBanner } from "./Notices";
@@ -174,6 +175,7 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
         <h1 className="cloud-title">{t(L.title)}</h1>
         {viewSwitch}
       </header>
+      <ProviderRehearsal store={store} strings={strings} />
       {snap.error && snap.connection !== "disconnected" && snap.connection !== "failed" && (
         <div className="cloud-error" role="alert">
           <span className="cloud-error-text">

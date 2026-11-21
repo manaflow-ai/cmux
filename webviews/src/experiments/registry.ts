@@ -17,6 +17,7 @@ import { backgroundTurnLook } from "../agent-session/acpmux/conversation/backgro
 import { cloudStartLook } from "../agent-session/acpmux/cloudStart.experiment";
 import { cloudStartComposerLook } from "../agent-session/acpmux/cloudStartComposer.experiment";
 import { cloudProgressLook } from "../pages/cloud-progress/cloudProgress.experiment";
+import { providerRehearsal } from "../pages/cloud/providerRehearsal.experiment";
 import { cloudStartAskLook } from "../agent-session/acpmux/cloudStartAsk.experiment";
 import { agentStartLook } from "../agent-session/acpmux/conversation/agentStart.experiment";
 import { liveLineTokens } from "../agent-session/acpmux/conversation/liveLineTokens.experiment";
@@ -96,6 +97,7 @@ import { jumpPairLook } from "../agent-session/acpmux/jumpPair.experiment";
 import type { Experiment } from "./experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
+  providerRehearsal,
   diffTreeDisclosure,
   treeNameFade,
   sessionReplay,

@@ -35,6 +35,7 @@ enum Kind {
 
 /// Every op of `catalog/cloud-catalog.json` this server serves.
 const OPS: &[(&str, Kind)] = &[
+    ("cloud.provider.rehearse", Kind::Read),
     ("cloud.auth.status", Kind::Read),
     ("cloud.machine.list", Kind::Read),
     ("cloud.machine.watch", Kind::Read),
@@ -507,6 +508,9 @@ impl<C: ControlPlane> Server<C> {
         key: Option<&str>,
     ) -> Result<Value, CloudError> {
         let origin = request.origin;
+        if name == "cloud.provider.rehearse" {
+            return crate::provider_rehearsal::run(args);
+        }
         if crate::link::ops::serves(name) {
             let token = request.open_token.as_ref();
             return crate::link::ops::run(self, name, args, origin, key, token);

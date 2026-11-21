@@ -172,3 +172,30 @@ Tests for the slice: a relay call does not block a link wake (a `cloud.link.chan
 
 1. `server: true` inside an `implements` entry and `kinds` on implementations, so `cmux.terminal.connector/1` and `cmux.terminal.backend/1` can be served by this server for `cloud-vm` and `cloud-vm-rescue` (C2 needs them).
 2. A `cache` data class (rebuildable state that may be dropped at any time); the projection uses `ephemeral` until then.
+
+## Provider lifecycle rehearsal (default off)
+
+The `cloud-provider-rehearsal` experiment adds a local simulation to the existing Cloud page.
+In that page's inspector, merge `"cloud-provider-rehearsal": "expanded"` (or `"collapsed"`)
+into the JSON object at localStorage key `cmux.experiments`, then reload. Remove that key
+from the object or select `off` to restore the default. The gallery entry
+`pages.cloud-provider-rehearsal` compares all three arms.
+
+Run lifecycle exercises create, same-key create replay, simulated daemon hello, stop, start,
+hello after restart, snapshot, unavailable cost estimate, delete, and same-key delete replay.
+Fail enrollment exercises cleanup; Fail cleanup leaves a typed simulated orphan. The
+`cloud.provider.rehearse` read requires `{ "enabled": true, "scenario": "lifecycle" }`;
+other scenarios are `enrollment_failure` and `cleanup_failure`. It is hidden from normal
+CLI discovery and MCP, rejects missing opt-in, and never calls the control plane or changes
+the machine projection. Inputs accept no project credentials or resource identifiers.
+
+All receipts identify the fake provider and simulated resources. The 30-minute idle grace
+is a proposed design value in the report; no guest timer or existing setting changes.
+The fake ledger lasts only for one rehearsal. This slice does not implement a real provider,
+persistent reconciliation, guest idle stopping, snapshot storage, or a billable estimate,
+and does not refactor the current provider. The native endpoint test compares all three
+responses with the UI fixtures and asserts zero backend calls, including while signed out.
+
+The UI follows the existing Cloud cleanup disclosure, buttons, spacing and type scale
+(`webviews/src/pages/cloud/Notices.tsx`, `styles.css`; design: `plans/cmux-next/cloud-app.md`).
+It introduces no motion or boxed tiles.
