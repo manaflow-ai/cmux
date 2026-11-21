@@ -638,5 +638,12 @@ class TriggerRunnerTests(unittest.TestCase):
         self.assertIn("contains(fromJSON('[\"cmux-fleet-linux-x64\",\"blacksmith-4vcpu-ubuntu-2404\",\"blacksmith-16vcpu-ubuntu-2404\"]'), fromJSON(vars.RUNNER_POOLS).linux) && fromJSON(vars.RUNNER_POOLS).linux", runs_on)
         self.assertTrue(runs_on.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_4 }}"), runs_on)
 
+    def test_a_persons_dispatch_is_not_replaced_by_the_next_push(self):
+        """Run 44328490608: a person's dispatch waited behind a running decide and the next push replaced it."""
+        workflow = (ROOT / ".github/workflows/ios-internal-nightly-trigger.yml").read_text()
+        group = next(line.strip() for line in workflow.splitlines() if line.strip().startswith("group:"))
+        self.assertIn("github.event_name == 'workflow_dispatch' && '-dispatch'", group)
+        self.assertIn("cancel-in-progress: false", workflow)
+
 if __name__ == "__main__":
     unittest.main()

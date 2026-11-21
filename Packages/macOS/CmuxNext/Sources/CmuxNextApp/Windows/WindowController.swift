@@ -10,6 +10,7 @@ import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
+import CmuxNextFocusUI
 import CmuxNextLayout
 import CmuxNextAppCore
 import CmuxNextSettings
@@ -529,6 +530,7 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
         super.addChildWindow(childWin, ordered: place)
         if WindowOverlayLayer.isContent(childWin) { overlayLayer.evaluate() }
         WindowOverlayHost.childWindowsDidChange(of: self)
+        if childWin.isChromiumPageWindow, let c = windowController as? WindowController { c.services.notifications.focusDidSettle(c.focus.state, in: c) } // a page window that took the keys first (a chat still loading) holds them only now, with no key change: look again (cmux#46908)
     }
 
     /// The display cycle's layout pass (`-[NSWindow layoutIfNeeded]`).
