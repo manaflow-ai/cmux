@@ -253,6 +253,7 @@
         "appearance.backgroundBlur",
         "appearance.inactiveWindowDim",
         "appearance.wallpaperTint",
+        "appearance.liveWallpaperFrameRate",
         "appearance.background",
         "appearance.backgroundRotation",
         "appearance.backgroundLight",
