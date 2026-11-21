@@ -363,7 +363,8 @@ impl std::fmt::Display for DesktopError {
                 f,
                 "the {p} permission is not granted; on a Mac open Computer Use setup for the person \
                  with `cmux action run palette.computerUse.setup` (elsewhere call \
-                 request_permission), tell them, and try again once they finish"
+                 request_permission; for a call that named another `machine`, setup is on that \
+                 machine), tell them, and try again once they finish"
             ),
             DesktopError::TargetNotFound(t) => write!(f, "not found: {t}"),
             DesktopError::StaleElement(e) => {

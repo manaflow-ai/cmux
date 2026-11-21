@@ -151,9 +151,13 @@ final class OnboardingService {
     /// person's own run. `byPerson` false (an agent's `cmux action run`): the window comes forward
     /// without the keys, bounces the Dock icon while another app is active, and starts nothing:
     /// Computer Use is never turned on, and System Settings never opens, without the person's Allow.
-    func showComputerUse(allowing pane: ComputerUsePermissionPane? = nil, byPerson: Bool) {
+    /// `inFront`: the run may change the view (the person's run, or one that asked for focus);
+    /// otherwise the window opens behind with a Dock bounce. `byPerson`: the person's own gesture
+    /// in this app (``ActionInvocation/isPersonsOwnRun``), never an agent's, a page's or a
+    /// `focus` request: only that starts the grant's Allow, which can turn Computer Use on.
+    func showComputerUse(allowing pane: ComputerUsePermissionPane? = nil, inFront: Bool, byPerson: Bool) {
         computerUseSetup.recheck()
-        presenter.show(step: .computerUse, quietly: !byPerson) { model, _ in
+        presenter.show(step: .computerUse, quietly: !inFront) { model, _ in
             if let pane, byPerson { model.computerUse.allowOnceKnown(pane) }
         }
     }

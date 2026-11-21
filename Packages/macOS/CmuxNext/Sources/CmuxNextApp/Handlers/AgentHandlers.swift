@@ -115,10 +115,10 @@ enum AgentHandlers {
         // Computer Use Setup: one model (`ComputerUseSetup`) behind the palette, the CLI, the
         // Settings card and the onboarding step. Every entry opens the guided window; the two grant
         // actions also start that grant's Allow there (System Settings with the drag panel) on the
-        // person's own run. An agent's run (`cmux action run palette.computerUse.setup` after a
+        // person's own run in this app (never a `focus` request, a page or the socket). An agent's run (`cmux action run palette.computerUse.setup` after a
         // tool call found Computer Use off) only opens the window, without the keys.
         registry.bindEffect("palette.computerUse.setup", effect: { invocation in
-            context.services.onboarding.showComputerUse(byPerson: invocation.allowsViewChange)
+            context.services.onboarding.showComputerUse(inFront: invocation.allowsViewChange, byPerson: invocation.isPersonsOwnRun)
             return .done
         })
         registry.bindEffect("palette.computerUse.restart", effect: { _ in
@@ -150,7 +150,7 @@ enum AgentHandlers {
         for (id, pane) in [("palette.computerUse.accessibility", .accessibility), ("palette.computerUse.screenRecording", .screenRecording)]
             as [(ActionID, ComputerUsePermissionPane)] {
             registry.bindEffect(id, effect: { invocation in
-                context.services.onboarding.showComputerUse(allowing: pane, byPerson: invocation.allowsViewChange)
+                context.services.onboarding.showComputerUse(allowing: pane, inFront: invocation.allowsViewChange, byPerson: invocation.isPersonsOwnRun)
                 return .done
             })
         }

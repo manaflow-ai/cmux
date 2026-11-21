@@ -35,7 +35,7 @@ const MAX_DAEMON_REPLY: u64 = 1 << 20;
 pub const ENDPOINT_CMD: &str = "computer-use-endpoint";
 
 /// What an agent does when Computer Use is off: open the guided setup for the person.
-const OFF_NEXT: &str = "Open its setup for the person with `cmux action run palette.computerUse.setup` (it turns Computer Use on and walks them through the two macOS permissions without taking their focus), tell them it is open, and try again once they finish.";
+const OFF_NEXT: &str = "Open its setup for the person with `cmux action run palette.computerUse.setup` (it opens without taking their focus; there the person turns Computer Use on and grants the two macOS permissions), tell them it is open, and try again once they finish.";
 
 /// Where the worker serves, from the daemon.
 #[derive(Clone, PartialEq, Eq)]

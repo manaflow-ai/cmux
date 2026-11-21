@@ -14023,6 +14023,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                           model: string | undefined,
                           attachments: ComposerAttachment[],
                         ) => {
+                          // A Cloud chat has no Computer Use tools: @computer holds here, with the notice (cmux#48541).
+                          if (holdsForComputerUseSetup(text, true, "cloud")) return false;
                           const folder = cloudStartFolder(cwd);
                           // New Tab sends use this callback directly, so record their complete folder too.
                           // Otherwise Retry would reuse the pane's previous folder.
@@ -14044,6 +14046,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                           );
                         },
                         onSandbox: (harness: string, text: string, attachments: ComposerAttachment[]) => {
+                          // A sandbox is another machine, with no Computer Use tools (cmux#48541).
+                          if (holdsForComputerUseSetup(text, true, "machine")) return false;
                           // Only a run this tab can make goes: a Sandboxed pick left over once a session opened here is refused.
                           const started = sandboxing ? startSandbox(text, attachments.length, harness) : sandboxNotNow;
                           if (started !== false) newTabSandboxSent.current = true;

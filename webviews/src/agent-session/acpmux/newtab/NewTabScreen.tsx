@@ -1146,7 +1146,7 @@ export function NewTabScreen(props: Props) {
   // What Return does when it is not the prompt (a command, an address, a tab, a search): said beside
   // Send before Return is pressed (David Beyer 2026-11-20 typed words that ran as a shell command), the
   // same row submit takes (screenModel returnRow).
-  const returns = returnRow(rows, suggested, current, {
+  const returns = returnRow(rows, offered, current, {
     address: isAddress(typed.trim(), home),
     attachments: attachments.length,
   });
