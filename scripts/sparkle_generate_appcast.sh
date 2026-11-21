@@ -35,9 +35,16 @@ if [[ -n "${SPARKLE_TOOLS_DIR:-}" ]]; then
 elif [[ "$SPARKLE_VERSION" == "2.8.1" ]]; then
   echo "Downloading Sparkle ${SPARKLE_VERSION} tools..."
   tarball="$work_dir/Sparkle-${SPARKLE_VERSION}.tar.xz"
-  curl --fail --silent --show-error --location --retry 3 --retry-delay 2 \
-    --connect-timeout 15 --max-time 300 -o "$tarball" \
-    "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-${SPARKLE_VERSION}.tar.xz"
+  sparkle_url="https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-${SPARKLE_VERSION}.tar.xz"
+  # The release asset mirror first (scripts/ci/release_asset_mirror.py): it
+  # waits out a busy upstream instead of failing. CMUX_RELEASE_MIRROR=off, a
+  # missing python3, or a failure leaves the direct download as it was.
+  mirror_script="$(dirname "$0")/ci/release_asset_mirror.py"
+  if [[ "${CMUX_RELEASE_MIRROR:-}" == off || ! -f "$mirror_script" ]] || ! command -v python3 >/dev/null 2>&1 ||
+    ! python3 -I "$mirror_script" fetch "$sparkle_url" --sha256 "$SPARKLE_281_TARBALL_SHA256" --out "$tarball"; then
+    curl --fail --silent --show-error --location --retry 3 --retry-delay 2 \
+      --connect-timeout 15 --max-time 300 -o "$tarball" "$sparkle_url"
+  fi
   actual_sha="$(shasum -a 256 "$tarball" | awk '{print $1}')"
   if [[ "$actual_sha" != "$SPARKLE_281_TARBALL_SHA256" ]]; then
     echo "Sparkle ${SPARKLE_VERSION} tarball checksum mismatch: $actual_sha" >&2
