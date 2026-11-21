@@ -1763,7 +1763,23 @@ mod unix {
             let deadline = Instant::now()
                 .checked_add(HOST_LAUNCH_ROLLBACK_WAIT)
                 .ok_or_else(|| anyhow::anyhow!("terminal-host termination timeout overflow"))?;
-            self.terminate().context("send terminal-host termination")?;
+            if let Err(error) = self.terminate() {
+                // A legacy host that already ended has closed the link, so its
+                // Terminate cannot be sent. Its Exit frame or exit record below still
+                // decides; a live host behind a closed link fails there instead.
+                let host_gone = !self.record.supports_terminate_ack
+                    && error.downcast_ref::<std_io::Error>().is_some_and(|error| {
+                        matches!(
+                            error.kind(),
+                            std_io::ErrorKind::BrokenPipe
+                                | std_io::ErrorKind::NotConnected
+                                | std_io::ErrorKind::ConnectionReset
+                        )
+                    });
+                if !host_gone {
+                    return Err(error.context("send terminal-host termination"));
+                }
+            }
             let identity = self.identity();
             let record_path = self.record_path.clone();
             let protocol_version = self.protocol_version;
@@ -7274,6 +7290,41 @@ mod unix {
             assert_eq!(record, TerminalHostExitRecord::new(&attachment.identity(), exit));
             let request = read_required_frame(&mut host, "terminate request").unwrap();
             assert_eq!(request.kind, MessageKind::Terminate);
+        }
+
+        #[test]
+        fn termination_reads_the_exit_of_a_host_that_already_ended() {
+            let (mut attachment, mut host) = input_ack_surface_fixture();
+            let exit = TerminalExit {
+                outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 17 },
+                exited_at_ms: 1,
+            };
+            // The host queues its exit and ends before the daemon sends the legacy
+            // Terminate: the link is fully closed, so that send fails with EPIPE.
+            write_frame(&mut host, &Frame::new(MessageKind::Exit, encode_terminal_exit(&exit)))
+                .unwrap();
+            drop(host);
+
+            let record = attachment
+                .terminate_and_wait_for_exit()
+                .expect("a host that ended after its exit frame still reports its exit");
+
+            assert_eq!(record, TerminalHostExitRecord::new(&attachment.identity(), exit));
+        }
+
+        #[test]
+        fn termination_through_a_link_the_daemon_closed_does_not_report_a_live_host_exited() {
+            let (mut attachment, _live_host) = input_ack_surface_fixture();
+            attachment.disconnect();
+
+            let error = attachment
+                .terminate_and_wait_for_exit()
+                .expect_err("a live host without an exit frame or record has not exited");
+
+            assert!(
+                error.to_string().contains("disconnected before its exit receipt"),
+                "{error:#}"
+            );
         }
 
         #[test]
