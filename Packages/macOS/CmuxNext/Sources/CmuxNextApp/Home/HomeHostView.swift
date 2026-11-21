@@ -49,6 +49,7 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
     private var agentsWatch: Task<Void, Never>?
     private var memoryOfferWatch: Task<Void, Never>?
     private var chiefIntroWatch: Task<Void, Never>?
+    private var chiefOnboardingWatch: Task<Void, Never>?
     /// UserDefaults: the first-run memory offer was clicked (it shows once).
     static let memoryOfferUsedKey = "home.firstRun.memoryOfferUsed"
     private var shortcutsWatch: Task<Void, Never>?
@@ -312,27 +313,14 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
         // flashes before the welcome.
         let intro = ChiefIntroStore(defaults: .standard)
         transcript.welcomesInChat = intro.welcomePending && !service.isCloudConversation(id)
-        chiefIntroWatch = Task { [weak self] in
-            for await kind in ObservationStream({ () -> ChiefIntroKind? in
-                guard let summary = store.rows.first(where: { $0.summary.id == id })?.summary,
-                      summary.lastSeq == 0, summary.participants.contains(where: { $0.agentClass == .chief }) else { return nil }
-                let me = store.me?.id
-                let others = HomeArchivedChiefs(service.directory.archivedChiefs, me: me).visible(store.rows)
-                    .filter { $0.kind == .chief && $0.id != id }.count
-                return intro.intro(for: id, otherChiefs: others)
-            }) {
-                guard let kind else { continue }
-                guard let self else { return }
-                // A cloud Chief (no local import) or an owner not connected yet keeps the first-run intro.
-                if kind == .welcome, service.chiefWelcome.play(in: id, source: service.homeSource,
-                                                               connection: service.isCloudConversation(id) ? nil : service.chief.connection,
-                                                               intro: intro, text: ChiefWelcome.text(services.registry, anyAppOn: services.settings?.snapshot.startAgentGlobalHotKey ?? false)) { return }
-                self.transcript.welcomesInChat = false
-                intro.markShown(kind, for: id)
-                self.transcript.showFirstRunIntro(kind)
-                return
-            }
+        // Meet Chief (ChiefOnboarding) comes first on a fresh install: the welcome waits until it ends.
+        let onboarding = services.onboarding.chief
+        let archived: @MainActor @Sendable () -> Set<String> = { service.directory.archivedChiefs }
+        chiefIntroWatch = intro.follow(in: transcript, conversation: id, store: store, archivedChiefs: archived, holds: { onboarding.holdsWelcome }) {
+            service.chiefWelcome.play(in: id, source: service.homeSource, connection: service.isCloudConversation(id) ? nil : service.chief.connection,
+                                      intro: intro, text: ChiefWelcome.text(services.registry, anyAppOn: services.settings?.snapshot.startAgentGlobalHotKey ?? false))
         }
+        chiefOnboardingWatch = onboarding.follow(in: transcript, conversation: id, store: store, archivedChiefs: archived, registry: services.registry)
         // The first-run rows' shortcuts and the Switching card follow rebinds
         // (Settings, cmux.json, keybindings.json) while the view lives.
         let switchKeys = services.homeSwitchKeys
@@ -403,7 +391,7 @@ final class HomeHostView: NSView, PaneCommitMotionPicture {
     // the app's claim registry and cancels its wake on the app's timer (both outlive this view). A guard that
     // returned off main skipped all of it.
     nonisolated deinit {
-        for task in [availability, engineWatch, avatarsWatch, hostWatch, agentsWatch, shortcutsWatch, spellCheckingWatch, headerPanelsWatch, needsYouWatch, setupCardWatch, firstPage, memoryOfferWatch, chiefIntroWatch] {
+        for task in [availability, engineWatch, avatarsWatch, hostWatch, agentsWatch, shortcutsWatch, spellCheckingWatch, headerPanelsWatch, needsYouWatch, setupCardWatch, firstPage, memoryOfferWatch, chiefIntroWatch, chiefOnboardingWatch] {
             task?.cancel()
         }
         let settings = settings, transcript = transcript, setupCard = setupCard
