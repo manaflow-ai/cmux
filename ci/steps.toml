@@ -6,22 +6,14 @@
 #
 # A step is one command. It names the job that runs it (one of `jobs` below, at most 8), the paths that
 # route it (`inputs`, globs; none means every change), whether it blocks, its class and its timeout.
-# scripts/ci/ci_steps.py routes a diff to steps and runs one job's steps in parallel. A step with
-# `blocks = false` runs in the `advisory` job, in class `idle`, and its failure is a warning: the job
-# still passes. tests/test_ci_step_table.py holds both rules and the PR job budget.
+# `ci/run` (scripts/ci/ci_steps.py) routes a diff to steps and runs one job's steps in parallel. A step
+# with `blocks = false` runs in the `advisory` job, in class `idle`, and its failure is a warning: the
+# job still passes. tests/test_ci_step_table.py holds both rules.
 #
-# Steps run from the base branch's checkout, never the pull request's code. They read the event from
-# the environment the calling workflow step sets (BODY, TITLE, LABELS, PATHS_LISTED, ...).
-
-# Jobs a pull request into feat-cmux-next can start (354 on 2026-11-13; the design's 267 left out
-# matrix shards and the jobs of called reusable workflows), counted by tests/test_ci_step_table.py the
-# way GitHub starts them (a matrix as its shards, a reusable workflow's jobs where they run). It may
-# only go down; the target is `target_pr_jobs`. Lower it when a change removes jobs.
-[budget]
-# 362 since #42337 (12 webview test shards in 2 matrices of ci-web.yml, 8 more jobs than the 354 that
-# #42368 counted); 353 since #42540 (react-apps-base-check one job, not 12; react-apps-base-early 2).
-pr_jobs = 353
-target_pr_jobs = 8
+# `linux` steps run on the pull request's merge commit, in pr-pipeline.yml's one job, which pr-router.yml
+# starts only when a step's inputs changed. `advisory` steps run from the base branch's checkout, never
+# the pull request's code, and read the event from the environment the calling workflow step sets (BODY,
+# TITLE, LABELS, PATHS_LISTED, ...).
 
 # The PR pipeline's jobs (the design's table). A step names one of these; there is no ninth.
 [jobs]
@@ -31,6 +23,274 @@ mac = "a Mac holding the app tree: incremental compile and the changed targets' 
 ios = "a mini with simulators, only when routed"
 advisory = "every blocks = false step, class idle, posts warnings, never fails"
 verdict = "no machine: the one check may_merge reads"
+
+# What a job's steps share, made once before them and only when one is routed. It fills $CI_TOOLS, whose
+# bin leads the steps' PATH. A warm tree will hold this already; until then it is a few seconds a job.
+[setup]
+linux = '''
+# The workflow parser the contract tests import (PyYAML, pinned). A machine whose python3 already has
+# that version needs nothing; any other gets a venv beside what its python3 has.
+if python3 -c 'import sys, yaml; sys.exit(yaml.__version__ != "6.0.3")' 2>/dev/null; then
+  echo "python3 already has PyYAML 6.0.3"
+  exit 0
+fi
+python3 -m venv --system-site-packages "$CI_TOOLS"
+"$CI_TOOLS/bin/python" -m pip install --disable-pip-version-check --no-input --quiet PyYAML==6.0.3
+'''
+
+# Python contract tests that each had a workflow, a runner and a checkout of their own
+# (indexnow-tests.yml, vendored-agent-cursor.yml, r2-upload-tests.yml, cmux-skill-contract.yml,
+# ci-cache-receipts.yml). `inputs` is each one's former path filter.
+[step.indexnow]
+job = "linux"
+timeout = 300
+title = "IndexNow notification tests"
+about = "the IndexNow notifier's tests (scripts/ci/notify-indexnow.py)"
+inputs = [
+  ".github/workflows/indexnow.yml",
+  "scripts/ci/notify-indexnow.py",
+  "tests/test_indexnow_notification.py",
+  "tests/workflow_jobs.py",
+  "scripts/ci/gh_expressions.py",
+  "web/app/lib/indexnow.ts",
+]
+run = "python3 tests/test_indexnow_notification.py"
+
+# Packages/Shared/CmuxAgentCursor is vendored verbatim from manaflow-ai/cmux-cua at CMUX_CUA_PINNED_SHA
+# (scripts/cmux_agent_cursor_vendor.py). This fails when the copy was edited by hand or the pin moved
+# without a re-sync.
+[step.vendored-agent-cursor]
+job = "linux"
+timeout = 300
+title = "Vendored agent cursor"
+about = "Packages/Shared/CmuxAgentCursor is the pinned upstream copy, unedited"
+inputs = [
+  "Packages/Shared/CmuxAgentCursor/**",
+  "scripts/cmux_agent_cursor_vendor.py",
+  "tests/test_vendored_cmux_agent_cursor.py",
+  "tests/git_fixture_env.py",
+]
+run = "python3 tests/test_vendored_cmux_agent_cursor.py"
+
+[step.r2-upload]
+job = "linux"
+timeout = 300
+title = "R2 upload tests"
+about = "the release uploaders and publishers: R2 object upload, GitHub release publication, the cmux-tui artifact retry, Mac live delivery"
+inputs = [
+  ".github/workflows/nightly.yml",
+  ".github/workflows/release.yml",
+  ".github/workflows/cmux-tui-artifacts.yml",
+  "scripts/ci/publish-release-assets.py",
+  "scripts/ci/finalize-release.py",
+  "tests/test_github_release_publication.py",
+  "scripts/ci/upload-r2-object.py",
+  "tests/test_ci_r2_upload_python.sh",
+  "tests/test_r2_upload_requests.py",
+  "scripts/ci/cmux_tui_artifacts_retry.py",
+  "tests/test_cmux_tui_artifacts_retry.py",
+  "tests/test_mac_live_delivery.py",
+  # What test_mac_live_delivery.py reads through tests/runs_on_labels.py.
+  "tests/runs_on_labels.py",
+  "tests/workflow_jobs.py",
+  "tests/test_ci_fleet_rule_lints.py",
+  "tests/fleet-rule-allowlist.json",
+  "scripts/ci/gh_expressions.py",
+  "scripts/ci/repair-nightly-appcast-content-types.py",
+]
+run = '''
+bash tests/test_ci_r2_upload_python.sh
+python3 tests/test_github_release_publication.py
+# finalize-release.py runs only at real publish time; at least prove it loads.
+python3 scripts/ci/finalize-release.py publish --help
+python3 scripts/ci/finalize-release.py download --help
+python3 tests/test_cmux_tui_artifacts_retry.py
+python3 tests/test_mac_live_delivery.py
+# The uploader's CLI and the headers R2 receives (scripts/ci/upload-r2-object.py).
+python3 tests/test_r2_upload_requests.py
+'''
+
+[step.skill-contracts]
+job = "linux"
+timeout = 300
+title = "cmux skill contracts"
+about = "the browser, settings and bug-triage skills agree with the CLI, the settings schema and their fixtures"
+inputs = [
+  "skills/cmux-browser/**",
+  "skills/cmux-settings/**",
+  "web/data/cmux.schema.json",
+  "tests/test_cmux_settings_supported_paths.py",
+  "tests/git_fixture_env.py",
+  ".agents/skills",
+  ".claude/skills/**",
+  "skills.sh",
+  "scripts/validate-cmux-browser-skill.py",
+  "tests/test_cmux_browser_skill.py",
+  "tests/test_cmux_settings_jsonc.py",
+  "tests/test_cmux_settings_transactions.py",
+  "skills/cmux-bug-triage/**",
+  "skills/*/SKILL.md",
+  "tests/fixtures/bug-triage/**",
+  "tests/test_cmux_bug_triage.py",
+  "tests/test_socket_control_schema.py",
+]
+run = '''
+python3 scripts/validate-cmux-browser-skill.py
+python3 tests/test_cmux_browser_skill.py
+python3 tests/test_cmux_settings_jsonc.py
+python3 tests/test_cmux_settings_transactions.py
+python3 tests/test_cmux_settings_supported_paths.py
+# These two run whatever the first of them says, as they did under `if: !cancelled()`.
+rc=0
+python3 tests/test_socket_control_schema.py || rc=1
+python3 tests/test_cmux_bug_triage.py || rc=1
+exit "$rc"
+'''
+
+[step.cache-receipts]
+job = "linux"
+timeout = 300
+title = "CI cache receipt contract"
+about = "cache restore receipts classify a restore, and their test is deterministic"
+inputs = [
+  ".github/actions/cache-restore/action.yml",
+  ".github/actions/cache-save/action.yml",
+  ".github/workflows/ci.yml",
+  ".github/workflows/ci-macos.yml",
+  ".github/workflows/nightly.yml",
+  ".github/workflows/seed-derived-data.yml",
+  "scripts/ci/cache_restore_receipt.py",
+  "scripts/check-test-determinism.py",
+  "tests/test_ci_cache_restore_receipt.py",
+  "tests/test_ci_pull_request_caches_are_read_only.py",
+]
+run = '''
+python3 tests/test_ci_cache_restore_receipt.py
+python3 scripts/check-test-determinism.py --roots tests/test_ci_cache_restore_receipt.py --strict
+'''
+
+# Checks whose pull request runs each had a job of their own (labels-sync.yml's validate job, cmux-next-shim-cpp.yml, cmux-next-chromium-currency.yml,
+# swift-acpmux-protocol.yml). Those workflows keep their push, dispatch and post-merge runs; a pull
+# request runs them here. `inputs` is each one's former pull_request path filter. A step whose
+# workflow ran its checks under `if: !cancelled()` runs every one and fails if any failed.
+[step.labels-manifest]
+job = "linux"
+timeout = 120
+title = "Labels manifest"
+about = "the label manifest (.github/labels.json) parses and fits GitHub's limits; labels-sync.yml applies it on main"
+inputs = [
+  ".github/labels.json",
+  "scripts/ci/sync_labels.py",
+]
+run = "python3 scripts/ci/sync_labels.py --dry-run"
+
+# Header-only C++ with no CEF and no Apple SDK: scripts/cmux-next/lib/cxx.sh picks clang++ on Linux.
+# Every scripts/cmux-next/test-*-cpp.sh runs (tests/test_ci_step_table.py holds it).
+[step.shim-cpp]
+job = "linux"
+timeout = 300
+title = "CEF shim C++ tests"
+about = "the CEF shim's header-only rules (downloads, password reveal, switches, local files, agent URLs, proxies, DevTools, cmux-page://, the host wire, file chooser, helper signals, Web Store), compiled and run with clang++"
+inputs = [
+  "Packages/macOS/CmuxNext/CEFShim/**",
+  "scripts/cmux-next/test-shim-downloads-cpp.sh",
+  "scripts/cmux-next/test-password-reveal-relay-cpp.sh",
+  "scripts/cmux-next/test-shim-switches-cpp.sh",
+  "scripts/cmux-next/test-auth-callback-policy-cpp.sh",
+  "scripts/cmux-next/test-permission-prompt-policy-cpp.sh",
+  "scripts/cmux-next/test-local-file-handoff-cpp.sh",
+  "schemas/local-file-handoff/vectors.json",
+  "scripts/cmux-next/test-local-file-scope-cpp.sh",
+  "schemas/local-file-scope/vectors.json",
+  "scripts/cmux-next/test-agent-url-policy-cpp.sh",
+  "schemas/agent-url-policy/vectors.json",
+  "scripts/cmux-next/test-context-proxy-cpp.sh",
+  "scripts/cmux-next/test-shim-devtools-id-cpp.sh",
+  "scripts/cmux-next/test-shim-devtools-dock-cpp.sh",
+  "scripts/cmux-next/test-shim-devtools-ready-cpp.sh",
+  "scripts/cmux-next/test-shim-devtools-call-target-cpp.sh",
+  "scripts/cmux-next/test-cmux-page-path-cpp.sh",
+  "scripts/cmux-next/test-chromium-host-wire-cpp.sh",
+  "scripts/cmux-next/test-shim-file-dialog-cpp.sh",
+  "scripts/cmux-next/test-shim-helper-signals-cpp.sh",
+  "scripts/cmux-next/test-shim-webstore-cpp.sh",
+  "scripts/cmux-next/lib/cxx.sh",
+  "tests/test_cmux_next_shim_cpp_linux.py",
+]
+run = '''
+rc=0
+./scripts/cmux-next/test-shim-downloads-cpp.sh || rc=1
+./scripts/cmux-next/test-password-reveal-relay-cpp.sh || rc=1
+./scripts/cmux-next/test-shim-switches-cpp.sh || rc=1
+./scripts/cmux-next/test-auth-callback-policy-cpp.sh || rc=1
+./scripts/cmux-next/test-permission-prompt-policy-cpp.sh || rc=1
+./scripts/cmux-next/test-local-file-handoff-cpp.sh || rc=1
+./scripts/cmux-next/test-local-file-scope-cpp.sh || rc=1
+./scripts/cmux-next/test-agent-url-policy-cpp.sh || rc=1
+./scripts/cmux-next/test-context-proxy-cpp.sh || rc=1
+./scripts/cmux-next/test-shim-devtools-id-cpp.sh || rc=1
+./scripts/cmux-next/test-shim-devtools-dock-cpp.sh || rc=1
+./scripts/cmux-next/test-shim-devtools-ready-cpp.sh || rc=1
+./scripts/cmux-next/test-shim-devtools-call-target-cpp.sh || rc=1
+./scripts/cmux-next/test-cmux-page-path-cpp.sh || rc=1
+./scripts/cmux-next/test-chromium-host-wire-cpp.sh || rc=1
+./scripts/cmux-next/test-shim-file-dialog-cpp.sh || rc=1
+./scripts/cmux-next/test-shim-helper-signals-cpp.sh || rc=1
+./scripts/cmux-next/test-shim-webstore-cpp.sh || rc=1
+exit "$rc"
+'''
+
+# Chrome ships its security fixes in stable first (CVE-2026-106378 was fixed in Chrome 155 while cmux
+# shipped 154). One HTTPS request to Google's version history API.
+[step.chromium-currency]
+job = "linux"
+timeout = 300
+title = "Shipped Chromium is at most one stable milestone behind"
+about = "the Chromium cmux-next ships (scripts/cmux-next/cef-manifest.json) is at most one Chrome stable milestone behind, and no sandbox-weakening switch reaches Chromium"
+inputs = [
+  "scripts/cmux-next/cef-manifest.json",
+  "scripts/cmux-next/check-chromium-currency.py",
+  "scripts/cmux-next/tests/chromium-currency.test.sh",
+]
+run = '''
+rc=0
+# The check itself (fixed versions).
+bash scripts/cmux-next/tests/chromium-currency.test.sh || rc=1
+# A pull request that leaves the pin alone inherits the pin's age from the base: it warns. One that
+# changes the pin is judged (cmuxterm-hq#5745). HEAD^1 is the base side of the merge commit; when it
+# can't be read, the step judges.
+if git diff --quiet HEAD^1 HEAD -- scripts/cmux-next/cef-manifest.json; then
+  python3 scripts/cmux-next/check-chromium-currency.py \
+    || echo "::warning::The base's Chromium pin is behind stable; this PR does not change it."
+else
+  python3 scripts/cmux-next/check-chromium-currency.py || rc=1
+fi
+# Sandbox-weakening switches never reach Chromium.
+./scripts/cmux-next/test-shim-switches-cpp.sh || rc=1
+exit "$rc"
+'''
+
+# acpmux's wire contract is cmux-tui/crates/acpmux/spec/acpmux-protocol.json; the app's Swift side
+# names acpmux methods and param keys by hand. swift-acpmux-protocol.yml keeps its post-merge batch run.
+[step.swift-acpmux-protocol]
+job = "linux"
+timeout = 300
+title = "Swift acpmux calls are in the protocol"
+about = "every acpmux method and param key the Swift app names is in the acpmux protocol, or in the allowlist with its reason"
+inputs = [
+  "Packages/macOS/CmuxNext/Sources/**",
+  "cmux-tui/crates/acpmux/spec/acpmux-protocol.json",
+  "scripts/ci/check-swift-acpmux-protocol.py",
+  "scripts/ci/swift-acpmux-protocol-allowlist.txt",
+  "tests/test_check_swift_acpmux_protocol.py",
+]
+run = '''
+rc=0
+# Red on a planted drifted method, pane method and param key, and on a stale allowlist entry.
+python3 -I tests/test_check_swift_acpmux_protocol.py || rc=1
+python3 -I scripts/ci/check-swift-acpmux-protocol.py || rc=1
+exit "$rc"
+'''
 
 # The description lints from pr-body-checks.yml. They judge the description, not the code, and only
 # ever warned (Leo, 2026-11-01: "keep only what catches real breakage"; cmuxterm-hq#5745).

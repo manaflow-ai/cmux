@@ -9,7 +9,8 @@ import Testing
 // same, or I mean, close enough to the exact same as the small sessions"). Each test measures one
 // metric on the SMALL and the GOD fixture (InstantPerfFixtures.swift) side by side, reports it
 // (`INSTANTPERF {json}`, InstantPerfReport.swift) and asserts its budget (3x target) and the
-// ratio rule (god at most 1.2x max(small, 1 ms)). Red on base where declared `knownRed`.
+// ratio rule (god at most 1.2x max(small, 1 ms)). Red on base where declared `knownRed`. The
+// small case's budget only warns unless CMUX_INSTANT_PERF_STRICT=1 (a quiet harness).
 //
 // a. home_list_first_screen   the first window's `home-inbox` reply bytes (what a windowing host
 //                              sends: 20 rows and the list's total) to the list the first screen

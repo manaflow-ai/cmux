@@ -41,7 +41,8 @@ final class TabStripRevealController {
         // task-owner: this controller (cancelled in deinit); event-driven (Observation).
         observation = Task { [weak self] in
             for await _ in ObservationStream({
-                (DesignSettings.shared.plusButton, TabTunables.restingControlOpacity.value, TabTunables.crowdedControls.value, TabTunables.crowdedControlOpacity.value, TabTunables.chevronOnHover.value)
+                (DesignSettings.shared.plusButton, TabTunables.restingControlOpacity.value, TabTunables.crowdedControls.value, TabTunables.crowdedControlOpacity.value, TabTunables.chevronOnHover.value,
+                 DesignSettings.shared.sidebarSections.hidesControlsUntilHover)
             }) {
                 self?.applyPlusButtonMode()
             }
@@ -53,7 +54,7 @@ final class TabStripRevealController {
         guard let strip else { return }
         // Hidden at rest while the tabs leave room; muted once they fill the bar, so its kept room never
         // reads as an empty gap (Leo 2026-10-19, 2026-10-20).
-        hover.restAlpha = TabTunables.restingControlAlpha(crowded: strip.isCrowded)
+        hover.restAlpha = TabTunables.restingControlAlpha(crowded: strip.isCrowded, minimal: DesignSettings.shared.sidebarSections.hidesControlsUntilHover)
         // The chooser sits beside the plus, so it fades with it; it never shows next to a hidden plus. Under
         // `tabs.chevronOnHover` it stays out of the strip's reveal: only the + or the ⌄ under the pointer (or
         // its menu) shows it (`TabStripView.updateChooserReveal`), never a hover anywhere on the strip.

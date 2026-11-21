@@ -269,6 +269,8 @@ impl WorkspaceRegistry {
                     "UPDATE personal_groups SET profile_id = ?2 WHERE profile_id = ?1",
                     params![id, target],
                 )?;
+                // The sidebar document's pins and groups of the space move in this commit too.
+                crate::state::sidebar_doc_sync::move_room_items(tx, id, target)?;
                 Vec::new()
             }
             None => {

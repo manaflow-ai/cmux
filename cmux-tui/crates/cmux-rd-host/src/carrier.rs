@@ -29,8 +29,9 @@ pub trait Carrier {
     fn fds(&self) -> Vec<RawFd>;
     /// Takes everything waiting, without blocking. `Err` ends the session with its reason.
     fn receive(&mut self, out: &mut Vec<Incoming>) -> Result<(), String>;
-    /// Returns the latest measured path RTT, if this carrier observed one.
-    fn take_path_rtt_us(&mut self) -> Option<u64> {
+    /// The current media route's measured RTT. Reads do not consume it;
+    /// None means the current route needs frame-ACK based sizing.
+    fn path_rtt_us(&self) -> Option<u64> {
         None
     }
     fn send_datagram(&mut self, datagram: &[u8]) -> io::Result<()>;
@@ -120,8 +121,19 @@ pub struct LinkCarrier {
     pub net: cmux_rd_link::net::Net,
     /// Path changes for the caller (the pane's path badge, the congestion controller).
     pub paths: Vec<cmux_rd_link::EndpointEvent>,
-    /// The current path's round trip, until the engine reads it.
+    /// The current path's round trip, retained between path events.
     pub rtt_us: Option<u64>,
+}
+
+#[cfg(feature = "link")]
+impl LinkCarrier {
+    /// Both setup and media processing retain only the current route's RTT.
+    pub(crate) fn record_path(&mut self, path: cmux_rd_link::EndpointEvent) {
+        if let cmux_rd_link::EndpointEvent::PathChanged { route, rtt_us, .. } = &path {
+            self.rtt_us = route.and(*rtt_us);
+            self.paths.push(path);
+        }
+    }
 }
 
 #[cfg(feature = "link")]
@@ -147,11 +159,8 @@ impl Carrier for LinkCarrier {
                     return Err("viewer closed the link".into());
                 }
                 NetEvent::Failed(reason) => return Err(format!("link failed: {reason}")),
-                NetEvent::Endpoint(path @ EndpointEvent::PathChanged { rtt_us, .. }) => {
-                    if rtt_us.is_some() {
-                        self.rtt_us = rtt_us;
-                    }
-                    self.paths.push(path);
+                NetEvent::Endpoint(path @ EndpointEvent::PathChanged { .. }) => {
+                    self.record_path(path);
                 }
                 _ => {}
             }
@@ -159,8 +168,8 @@ impl Carrier for LinkCarrier {
         Ok(())
     }
 
-    fn take_path_rtt_us(&mut self) -> Option<u64> {
-        self.rtt_us.take()
+    fn path_rtt_us(&self) -> Option<u64> {
+        self.rtt_us
     }
 
     fn send_datagram(&mut self, datagram: &[u8]) -> io::Result<()> {
@@ -200,4 +209,52 @@ pub fn turn_servers(setups: &[TurnSetup]) -> Vec<cmux_rd_link::net::TurnServer> 
             })
         })
         .collect()
+}
+
+#[cfg(all(test, feature = "link"))]
+mod path_tests {
+    use super::*;
+    use cmux_rd_link::net::{Net, NetConfig};
+    use cmux_rd_link::{EndpointEvent, KeyPair, Role, Route};
+
+    fn carrier() -> LinkCarrier {
+        let net = Net::start(NetConfig {
+            role: Role::Responder,
+            session: b"startup-path-rtt".to_vec(),
+            local: KeyPair::generate().expect("local key"),
+            expected_remote: KeyPair::generate().expect("peer key").public,
+            stun: Vec::new(),
+            bind: "127.0.0.1:0".parse().expect("bind"),
+            turn: Vec::new(),
+            relay_only: false,
+        })
+        .expect("link");
+        LinkCarrier { net, paths: Vec::new(), rtt_us: None }
+    }
+
+    fn path(route: Option<Route>, rtt_us: Option<u64>) -> EndpointEvent {
+        EndpointEvent::PathChanged { route, kind: None, medium: None, rtt_us }
+    }
+
+    fn assert_startup_forgets_rtt(next: EndpointEvent) {
+        let mut carrier = carrier();
+        let initial = path(Some(Route::Udp("127.0.0.1:4001".parse().unwrap())), Some(10_000));
+        carrier.record_path(initial.clone());
+        assert_eq!(carrier.path_rtt_us(), Some(10_000));
+        carrier.record_path(next.clone());
+        assert_eq!(carrier.path_rtt_us(), None, "startup must not retain the old route's RTT");
+        assert_eq!(carrier.paths, vec![initial, next], "path badges still receive both changes");
+    }
+
+    #[test]
+    fn startup_path_forgets_rtt_when_route_is_withdrawn() {
+        assert_startup_forgets_rtt(path(None, None));
+        assert_startup_forgets_rtt(path(None, Some(10_000)));
+    }
+
+    #[test]
+    fn startup_path_forgets_rtt_when_replacement_is_unmeasured() {
+        let route = Route::Udp("127.0.0.1:4002".parse().unwrap());
+        assert_startup_forgets_rtt(path(Some(route), None));
+    }
 }

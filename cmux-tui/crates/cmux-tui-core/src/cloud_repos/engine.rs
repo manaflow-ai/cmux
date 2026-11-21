@@ -272,11 +272,17 @@ pub(crate) fn add(backend: &impl Backend, args: &Value) -> Result<Value, Failure
             if let Some(reference) = reference { retry_args.set("ref", json!(reference)); }
             failure.0.set("retry", json!({"action":"cloud.repo.add", "args":retry_args, "wait_action":"cloud.repo.wait_github"}));
         }
-        if failure.0.get("code").and_then(Value::as_str) == Some("repo.no_access")
-            && let Ok(name) = normalize(input)
-            && let Some((org, _)) = name.split_once('/')
-        {
-            failure.0.set("org", json!(org));
+        if failure.0.get("code").and_then(Value::as_str) == Some("repo.no_access") {
+            if let Ok(name) = normalize(input)
+                && let Some((org, _)) = name.split_once('/')
+            {
+                failure.0.set("org", json!(org));
+            }
+            // Access is granted on GitHub (an install on the organization, or its owner's yes), never by
+            // a connect this Mac can wait for: the same add again, with no wait, once it is.
+            let mut retry_args = json!({"session":session,"repo":input});
+            if let Some(reference) = reference { retry_args.set("ref", json!(reference)); }
+            failure.0.set("retry", json!({"action":"cloud.repo.add", "args":retry_args}));
         }
         failure
     })
