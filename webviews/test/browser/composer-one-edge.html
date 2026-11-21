@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>composer one edge harness</title>
+  </head>
+  <body>
+    <section class="acpmux-shell">
+      <!-- The Goal banner heading the hat, joined to the composer card (user 2026-11-20, the shot). -->
+      <div class="acpmux-dock" id="goal-dock">
+        <section class="ui-glass ui-glass-floats acpmux-stack-material acpmux-goal" data-look="head" id="goal">
+          Goal running
+        </section>
+        <div class="acpmux-composer">
+          <div class="ui-glass ui-glass-floats ui-glass-material acpmux-composer-box" id="goal-card">
+            <div class="acpmux-attachments">
+              <div class="acpmux-attachment" id="attachment"></div>
+            </div>
+            <textarea class="acpmux-md-field" id="goal-field"></textarea>
+          </div>
+        </div>
+      </div>
+      <!-- The running tray over the card, then queued prompts on the card. -->
+      <div class="acpmux-dock" id="tray-dock">
+        <section class="ui-glass ui-glass-floats acpmux-stack-material acpmux-running-tray" data-card="" id="tray">
+          <div class="acpmux-running-tray__head">mkdir +2 more 15m 21s</div>
+        </section>
+        <div class="acpmux-composer">
+          <ul class="ui-glass acpmux-composer-queue" id="queue">
+            <li class="acpmux-queued">first</li>
+            <li class="acpmux-queued">second</li>
+          </ul>
+          <div class="ui-glass ui-glass-floats ui-glass-material acpmux-composer-box" id="tray-card">
+            <textarea class="acpmux-md-field" id="tray-field"></textarea>
+          </div>
+        </div>
+      </div>
+      <!-- A card with nothing over it. -->
+      <div class="acpmux-dock" id="bare-dock">
+        <div class="acpmux-composer">
+          <div class="ui-glass ui-glass-floats ui-glass-material acpmux-composer-box" id="bare-card">
+            <textarea class="acpmux-md-field"></textarea>
+          </div>
+        </div>
+      </div>
+    </section>
+    <!-- A menu of the pane, portaled out of the shell as the app's popups are. -->
+    <div class="ui-positioner">
+      <div class="ui-popup ui-glass ui-menu" id="menu">Copy</div>
+    </div>
+    <script type="module" src="./composer-one-edge.harness.ts"></script>
+  </body>
+</html>

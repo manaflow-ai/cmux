@@ -166,6 +166,7 @@ async fn start_adopted(spec: &SpawnSpec, adopt: Adopt) -> Result<Started> {
         host_build: crate::build_info::build().to_owned(),
         socket: spec.socket.clone(),
         claude_translator: spec.translator.is_some(),
+        host_level: HOST_LEVEL,
     };
     write_record_atomic(&record_path(&spec.hosts_dir, &spec.session_id), &record)?;
     cleanup.paths.clear();
@@ -250,6 +251,7 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         host_build: crate::build_info::build().to_owned(),
         socket: spec.socket.clone(),
         claude_translator: spec.translator.is_some(),
+        host_level: HOST_LEVEL,
     };
     if let Err(e) = write_record_atomic(&record_path(&spec.hosts_dir, &spec.session_id), &record) {
         if let Some(pg) = child.id() {
@@ -1285,7 +1287,7 @@ impl State {
             if let Some(kind) = crate::codex_app_server::tap_kind(&raw) {
                 self.push(Entry::Tap {
                     dir: TapDir::In,
-                    msg: Message::notification(&kind, crate::codex_app_server::redact(&raw))
+                    msg: Message::notification(&kind, crate::codex_app_server::logged(&raw))
                         .into_value(),
                 });
             }
