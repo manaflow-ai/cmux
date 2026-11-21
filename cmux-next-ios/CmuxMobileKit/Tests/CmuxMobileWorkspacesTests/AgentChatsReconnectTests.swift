@@ -48,7 +48,7 @@ struct AgentChatsReconnectTests {
         var isWaiting: Bool { lock.withLock { waiting != nil } }
 
         func pause(_ delay: Duration) async throws {
-            try await withCheckedThrowingContinuation { continuation in
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
                 // A wait the model replaced (a pull cancels its scheduled retry) ends as cancelled.
                 let replaced = lock.withLock { () -> CheckedContinuation<Void, any Error>? in
                     defer { delays.append(delay); waiting = continuation }
