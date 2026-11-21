@@ -152,6 +152,7 @@ function check --argument-names label
     end
 end
 check private 0 "$R/private"
+check private-canonical 0 "$R_REAL/private"
 check group-writable 0 "$R/group"
 check other-writable 0 "$R/other"
 check group-writable-low-bits 0 "$R/group-low"
@@ -172,6 +173,7 @@ check newline-component 0 "$R/nl"\n"/child"
 
 EXPECTED_RULES = {
     "private": "accept",
+    "private-canonical": "accept",
     "group-writable": "reject",
     "other-writable": "reject",
     "group-writable-low-bits": "reject",
@@ -248,6 +250,7 @@ def check_private_dir_rules(fish: str, root: Path) -> list[str]:
         try:
             env = base_env(home, tmpdir, make_fake_bundle(case_dir))
             env["R"] = str(r)
+            env["R_REAL"] = os.path.realpath(r)
             if ostype:
                 env["OSTYPE"] = ostype
             else:
