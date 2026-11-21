@@ -31,13 +31,17 @@ public nonisolated enum RemoteRdControl: Sendable, Equatable {
     case streamClose(stream: UInt16)
     /// Host to viewer with the `cursor` cap: one cursor shape.
     case cursorShape(RemoteRdCursorShape)
+    /// Several viewers at one host, one in control at a time: host to viewer, whether this
+    /// viewer holds control and who does when it does not; viewer to host, `control` asks for
+    /// it and `false` hands it over to a waiting viewer.
+    case floor(RemoteFloor)
     /// A message type this viewer does not know (a newer host); ignored.
     case unknown(String)
 }
 
 nonisolated extension RemoteRdControl: Codable {
     private enum TagKey: String, CodingKey { case t }
-    private enum Fields: String, CodingKey { case key, mode, session, reason, service, body, transfer, offset, stream }
+    private enum Fields: String, CodingKey { case key, mode, session, reason, service, body, transfer, offset, stream, control, holder }
 
     public init(from decoder: any Decoder) throws {
         let tag = try decoder.container(keyedBy: TagKey.self).decode(String.self, forKey: .t)
@@ -71,6 +75,9 @@ nonisolated extension RemoteRdControl: Codable {
             )
         case "stream_close": self = .streamClose(stream: try fields.decode(UInt16.self, forKey: .stream))
         case "cursor_shape": self = .cursorShape(try RemoteRdCursorShape(from: decoder))
+        case "floor":
+            self = .floor(RemoteFloor(control: try fields.decode(Bool.self, forKey: .control),
+                                      holder: try fields.decodeIfPresent(String.self, forKey: .holder)))
         default: self = .unknown(tag)
         }
     }
@@ -127,6 +134,10 @@ nonisolated extension RemoteRdControl: Codable {
         case let .cursorShape(shape):
             try tag.encode("cursor_shape", forKey: .t)
             try shape.encode(to: encoder)
+        case let .floor(floor):
+            try tag.encode("floor", forKey: .t)
+            try fields.encode(floor.control, forKey: .control)
+            try fields.encodeIfPresent(floor.holder, forKey: .holder)
         case let .unknown(name):
             try tag.encode(name, forKey: .t)
         }
@@ -140,5 +151,19 @@ nonisolated extension RemoteRdControl: Codable {
     /// Parses a type-1 stream frame payload.
     public static func parse(_ json: Data) throws -> RemoteRdControl {
         try JSONDecoder().decode(RemoteRdControl.self, from: json)
+    }
+}
+
+/// Who controls a host that several viewers watch (`cmux.rd/1` `floor`): one viewer at a time
+/// holds control, and the host drops every other viewer's input.
+public nonisolated struct RemoteFloor: Sendable, Hashable {
+    /// This viewer holds control.
+    public var control: Bool
+    /// The viewer that holds control when this one does not; nil when nobody does.
+    public var holder: String?
+
+    public init(control: Bool, holder: String? = nil) {
+        self.control = control
+        self.holder = holder
     }
 }

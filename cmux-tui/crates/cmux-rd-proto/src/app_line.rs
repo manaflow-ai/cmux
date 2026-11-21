@@ -97,6 +97,10 @@ pub struct AppLine {
     /// to show; `{"status":{"state":"waiting_for_consent","message":".."}}`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<LineStatus>,
+    /// `serve` only: the viewer asked for control (`true`) or handed it over (`false`) with its
+    /// `floor` message; the session's floor decides (several viewers, one controller).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub floor_request: Option<bool>,
 }
 
 /// One capture setup state: a stable `state` code and a sentence for the person.
