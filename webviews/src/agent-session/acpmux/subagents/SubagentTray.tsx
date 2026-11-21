@@ -189,6 +189,7 @@ export const SubagentTray = memo(function SubagentTray({
   chat,
   plan,
   planEarlier = false,
+  planKept = false,
   onTuck,
   tuckSide = "middle",
   onHold,
@@ -241,6 +242,9 @@ export const SubagentTray = memo(function SubagentTray({
   /// `plan` is an earlier turn's list with steps left, carried while the running turn has none of its
   /// own (turns.ts `earlierTurnPlan`): the header reads "Earlier plan · 2 of 5", the list says why.
   planEarlier?: boolean;
+  /// `plan` is the chat's task list shown between turns (chatTaskList.ts `hatPlanOf`): nothing in it
+  /// spins and the header's mark is not lit, as no turn works on it now.
+  planKept?: boolean;
   /// Tucks the hat away to a pull tab on the composer's top edge (TrayPullTab.tsx): a chevron
   /// on the hat's own top edge, shown on hover (Leo, 2026-11-04: "at the top of the hat, there's
   /// some sort of little thing ... a special kind of chevron"). Unset, the hat can't tuck away.
@@ -698,7 +702,7 @@ export const SubagentTray = memo(function SubagentTray({
     rim.addEventListener("lostpointercapture", end);
   };
   // The header's mark is in the accent while anything under it runs.
-  const runs = running > 0 || commands > 0 || planned;
+  const runs = running > 0 || commands > 0 || (planned && !planKept);
   return (
     <section
       ref={setTrayRef}
@@ -930,7 +934,7 @@ export const SubagentTray = memo(function SubagentTray({
           {/* The plan's checklist over what runs, the turn's own work first. */}
           {planned && (
             <div className="acpmux-running-tray__plan">
-              <PlanList entries={plan} earlier={planEarlier} />
+              <PlanList entries={plan} earlier={planEarlier} still={planKept} />
             </div>
           )}
           <ul ref={listRef} id={listId} className="acpmux-running-tray__list">

@@ -1660,6 +1660,12 @@ fn daemon_command(this: &crate::self_command::SelfCommand) -> std::process::Comm
     this.command(&["daemon", "run", "--ready-fd"])
 }
 
+/// The starter chat's session marks a daemon never keeps (`spawn_detached`, the upgrade
+/// handover in `daemon/exe_swap.rs`).
+#[cfg_attr(not(unix), allow(dead_code))]
+pub(crate) const STARTER_SESSION_MARKS: [&str; 4] =
+    ["ACPMUX_SESSION_ID", "ACPMUX_SESSION_NAME", "ACPMUX_HOST_NONCE", "ACPMUX_BG_TASK"];
+
 /// Start `<exe> [prefix] daemon run --ready-fd N` in its own session and
 /// return the read end of its readiness pipe. With `key`, the daemon also
 /// gets `--person-key-fd M`, one end of a socket pair: the key is written
@@ -1690,6 +1696,12 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<(std::fs::F
     crate::config::scrub_nested_claude_env(&mut cmd);
     // The daemon serves every session: its starter's turn values are not its own.
     for k in crate::config::inherited_caller_scoped_keys() {
+        cmd.env_remove(k);
+    }
+    // Nor its starter's session marks: a daemon a chat's shell started carried that chat's id and
+    // host nonce, and so did everything it started for other sessions, which made them read as
+    // that chat's (`acpmux process owner`, `cli/process_owner.rs`).
+    for k in STARTER_SESSION_MARKS {
         cmd.env_remove(k);
     }
     // The daemon must use this client's state directory and socket, including a host

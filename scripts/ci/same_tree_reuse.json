@@ -366,11 +366,6 @@
    "plan": "its outputs feed later jobs; a skipped run leaves them empty; needed by compile: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.pull_request.labels), not only the tree",
    "compile": "below break-even: 27 runs, 266 min on the last 52 merged PRs, 0 on an already-green merge tree; a ~2 s receipt write per green run costs more than reuse saves"
   },
-  "gallery-advisory.yml": {
-   "mark-stale": "writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.action, github.event.changes, github.event.pull_request.base.ref), not only the tree; checks out ${{ github.event.pull_request.base.ref }}, not the run's commit",
-   "capture": "needed by comment: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.action, github.event.before, github.event.changes), not only the tree; checks out ${{ github.event.pull_request.head.sha || github.sha }}, not the run's commit",
-   "comment": "writes to GitHub (a write permission): a side effect, not a verdict on the tree; reads pull request metadata or the base (github.event.pull_request.base.ref, github.event.pull_request.body, github.event.pull_request.head.sha), not only the tree; checks out ${{ github.event.pull_request.base.ref }}, not the run's commit"
-  },
   "gallery-health.yml": {
    "base-gallery": "below break-even: 26 runs, 59 min on the last 52 merged PRs, 0 on an already-green merge tree; a ~2 s receipt write per green run costs more than reuse saves",
    "health": "matrix: a job-level skip cannot see one leg's receipt; reads pull request metadata or the base (github.event.before, github.event.pull_request.head.sha), not only the tree"
