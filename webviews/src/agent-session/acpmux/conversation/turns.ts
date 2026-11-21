@@ -687,8 +687,13 @@ export function turnViewFrom(
     dated = [];
     ends = [];
     nextSteps = [];
+    // A failed turn paged in without its prompt is tracked too, so a later turn recovers it.
     failures = [];
     lastCompleted = -1;
+    out.forEach((row, at) => {
+      if (isFailed(row)) failures.push(at);
+      else if (row.kind === "turnSummary" && row.status === "completed") lastCompleted = at;
+    });
   }
   const first = starts.length;
   // The cards before the last reused one keep their state: what follows each, up to the next card,

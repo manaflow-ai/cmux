@@ -59,7 +59,11 @@ enum SidebarLaneStatus {
                 guard mergesState || namesState || saysStep else { return row }
                 let standing = withoutSupersededFailures(local)
                 if mergesState { merge(standing, into: &row) }
-                if namesState { row.agentChip = chip(standing, marks: marks.state) }
+                // A superseded failure keeps its lane's own failing checks (Red CI): only its turn failure goes.
+                if namesState {
+                    let superseded = Set(local.map(\.id)).subtracting(standing.map(\.id))
+                    row.agentChip = chip(local, marks: marks.state, superseded: superseded)
+                }
                 if saysStep { row.agentStep = step(local) }
                 return row
             }
@@ -118,9 +122,12 @@ enum SidebarLaneStatus {
     /// finished chat drops out before the ranking, so it never hides a failed one, and its failing
     /// checks still read as Red CI. `failingChecks` is the Red CI answer, by default the session tree feed's.
     static func chip(_ lanes: [AgentActivityLane], marks: AgentPriorityMarks.State,
-                     failingChecks: ((AgentActivityLane) -> Bool)? = nil) -> SidebarPriorityEntry.State? {
+                     failingChecks: ((AgentActivityLane) -> Bool)? = nil,
+                     superseded: Set<String> = []) -> SidebarPriorityEntry.State? {
         lanes.compactMap { lane -> SidebarPriorityEntry.State? in
             let failing = failingChecks?(lane) ?? SidebarSessionTreeFeed.shared.checksFailing(lane)
+            // A failure another chat went on past (`withoutSupersededFailures`) says only its failing checks.
+            if superseded.contains(lane.id) { return failing ? .ciFailing : nil }
             switch AgentPriorityRanking.state(lane, read: marks.read[lane.id] == AgentPriorityMarks.stamp(lane), failingChecks: failing) {
             case .done: return failing ? .ciFailing : nil
             case .working, .idle: return nil

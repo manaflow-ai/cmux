@@ -208,4 +208,41 @@ import Testing
         }
         #expect(SidebarLaneStatus.withoutSupersededFailures([try lane("solo", "failed", at: 1)]).count == 1)
     }
+
+    /// cmux#48434 (Greptile, PR 48464): the workspace's mark merges each chat's own turn state (StatusMapping) before
+    /// the lanes; a failed chat's turn there must not keep the row red once another chat went on past it.
+    @Test func theWorkspaceMergeLeavesOutAFailureAnotherChatWentOnPast() throws {
+        let store = DaemonStore(), turns = AgentTurnStateStore()
+        var workspace = Self.workspace(1, "two chats", session: "s-failed", harness: "codex")
+        var second = TabSnapshot(surface: SurfaceID(rawValue: 101), kind: .conversation, cwd: nil)
+        second.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: Self.host, session: "s-other", harness: "codex"))
+        workspace.screens[0].panes[0].tabs.append(second)
+        store.apply(snapshot: DaemonTree(workspaces: [workspace]))
+        turns.localHost = Self.host
+        let tabs = try #require(store.workspaces.first).screens.flatMap(\.panes).flatMap(\.tabs)
+        let mapping = StatusMapping(turns: turns)
+        func set(_ session: String, _ state: AgentTurnState?, since: UInt64) {
+            var detail = AgentChatDetail()
+            detail.laneSinceMs = since
+            turns.apply(session: session, state: state, lastMessage: nil, muted: false, title: nil, detail: detail)
+        }
+        set("s-failed", .failed, since: 100_000)
+        set("s-other", .working, since: 200_000)
+        #expect(mapping.summary(tabs: tabs).state == .working, "a running chat beside a failed one is not red")
+        #expect(mapping.summaries(tabs: tabs).workspace.state == .working)
+        set("s-other", nil, since: 300_000)
+        #expect(mapping.summary(tabs: tabs).state != .error, "a chat that finished after the failure went on past it")
+        set("s-other", nil, since: 50_000)
+        #expect(mapping.summary(tabs: tabs).state == .error, "a chat that came to rest before the failure did not")
+        set("s-other", .failed, since: 300_000)
+        #expect(mapping.summary(tabs: tabs).state == .error, "two failures are still red")
+    }
+
+    /// A superseded failure still says its failing checks (Red CI); only its turn failure goes (Greptile, PR 48464).
+    @Test func aSupersededFailureKeepsItsRedCI() throws {
+        let failed = try Self.lane("s-failed", "failed")
+        let marks = AgentPriorityMarks.State()
+        #expect(SidebarLaneStatus.chip([failed], marks: marks, failingChecks: { _ in true }, superseded: ["s-failed"]) == .ciFailing)
+        #expect(SidebarLaneStatus.chip([failed], marks: marks, failingChecks: { _ in false }, superseded: ["s-failed"]) == nil)
+    }
 }

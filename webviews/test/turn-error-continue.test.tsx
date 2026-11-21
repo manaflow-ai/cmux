@@ -304,6 +304,18 @@ test("a failed turn's card goes once a later turn finishes, and comes back if th
   expect(stopped[0]!.recovered).toBeUndefined();
 });
 
+test("a failed turn paged in without its prompt is recovered by a later turn too", () => {
+  // History paged in mid-turn: the failed summary comes before the first prompt drawn.
+  const rows = footers([
+    answer("a0", 500),
+    summary("s0", 900),
+    prompt("p2", 230_000),
+    answer("a2", 240_000),
+    summary("s2", 250_000, { status: "completed", error: undefined }),
+  ]);
+  expect(rows.find((row) => row.id === "s0")!.recovered).toBe(true);
+});
+
 test("a recovered mark follows incremental snapshots: it lands when the later turn completes", async () => {
   const { turnViewFrom } = await import("../src/agent-session/acpmux/conversation/turns");
   const base = [prompt("p1", 1_000), answer("a1", 30_000), summary("s1", 223_000), prompt("p2", 230_000)];
