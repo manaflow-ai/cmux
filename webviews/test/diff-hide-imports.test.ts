@@ -102,7 +102,7 @@ test("the stream leaves a file whose only changes are imports out of the diff, a
       onMetrics: () => {},
       onRename: () => {},
       onTreeSource: () => {},
-      parsePatchFiles: (text, key) => parsePatchFiles(text, key),
+      parsePatchFiles: (text, options) => parsePatchFiles(text, options),
       patchURL: "cmux-page://cmux.diff/__patch/token/patch.diff",
       processFile: (text, options) => processFile(text, options),
       filterFileText: withoutImportOnlyHunks,

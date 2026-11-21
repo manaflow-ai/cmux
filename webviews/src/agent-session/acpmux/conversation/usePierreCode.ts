@@ -18,6 +18,8 @@ const paneThemeType = () => (document.documentElement.dataset.theme === "light" 
 export function usePierreCode(code: string, lang: string, unsafeCSS: string, wrap: boolean) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<PierreFile | undefined>(undefined);
+  // The last draw, repeated when Pierre asks its owner to draw again (a highlight landing late).
+  const redraw = useRef<(() => void) | undefined>(undefined);
   const pool = paneHighlightPool("word-alt", isHighlighted(lang) ? lang : "text");
   const workerFailed = useSyncExternalStore(subscribeHighlightWorker, highlightWorkerFailed, () => false);
   const [painted, setPainted] = useState(false);
@@ -45,8 +47,9 @@ export function usePierreCode(code: string, lang: string, unsafeCSS: string, wra
         },
       },
       pool,
-      // React owns the host element: Pierre must not remove it on cleanUp.
-      true,
+      // React owns the host element: Pierre must not remove it on cleanUp. Owned, it asks this hook
+      // to draw again instead of drawing itself.
+      () => redraw.current?.(),
     );
     view.current = file;
     const theme = new MutationObserver(() => file.setThemeType(paneThemeType()));
@@ -54,6 +57,7 @@ export function usePierreCode(code: string, lang: string, unsafeCSS: string, wra
     return () => {
       theme.disconnect();
       view.current = undefined;
+      redraw.current = undefined;
       file.cleanUp();
       el.shadowRoot?.replaceChildren();
     };
@@ -64,10 +68,13 @@ export function usePierreCode(code: string, lang: string, unsafeCSS: string, wra
     if (!el || !file || !workerAvailable || highlightWorkerFailed() || !pool?.isWorkingPool()) return;
     file.setOptions({ ...file.options, overflow: wrap ? "wrap" : "scroll" });
     // Shiki throws for a language the bundle does not ship; those draw as plain text.
-    file.render({
-      fileContainer: el,
-      file: { name, contents: code, lang: (isHighlighted(lang) ? lang : "text") as never },
-    });
+    const draw = () =>
+      file.render({
+        fileContainer: el,
+        file: { name, contents: code, lang: (isHighlighted(lang) ? lang : "text") as never },
+      });
+    redraw.current = draw;
+    draw();
   }, [code, lang, unsafeCSS, pool, wrap, name, workerAvailable]);
   return { host, painted, workerAvailable };
 }

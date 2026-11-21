@@ -15,7 +15,7 @@ type UseDiffFindOptions = {
   open: boolean;
   query: string;
   dispatch: FindDispatch;
-  codeViewRef: React.MutableRefObject<CodeViewHandle<any> | null>;
+  codeViewRef: React.MutableRefObject<CodeViewHandle<any, any> | null>;
   viewerContainerRef: React.MutableRefObject<HTMLDivElement | null>;
   /**
    * Expands a collapsed file so a match inside it can be shown, like the

@@ -130,9 +130,12 @@ function PierreCorner() {
         },
       },
       undefined,
-      true,
+      // React owns the host element: Pierre must not remove it on cleanUp. A late highlight asks
+      // this owner to draw again.
+      () => draw(),
     );
-    file.render({ fileContainer: el, file: { name: "snippet.ts", contents: SNIPPET, lang: "ts" } });
+    const draw = () => file.render({ fileContainer: el, file: { name: "snippet.ts", contents: SNIPPET, lang: "ts" } });
+    draw();
     return () => {
       file.cleanUp();
       el.shadowRoot?.replaceChildren();

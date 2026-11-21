@@ -5,10 +5,10 @@ import type { CodeViewOptions } from "@pierre/diffs";
 import type { WorkerInitializationRenderOptions } from "@pierre/diffs/worker";
 import {
   appearanceBackgroundColor,
-  syntaxColorsFor,
   readableColor,
   type DiffChangeColors,
   type DiffViewerAppearance,
+  syntaxColorsFor,
 } from "./appearance";
 import { pageSyntaxVariable, syntaxTokenRules, type SyntaxRoleName } from "./syntax-theme";
 import { MOTION_MS } from "./motion/scale.generated";
@@ -69,7 +69,7 @@ export function codeViewOptions(
   appearance: DiffViewerAppearance,
   lineHeight?: number,
   headerHeight: number = DIFF_FILE_HEADER_HEIGHT,
-): CodeViewOptions<any> {
+): CodeViewOptions<any, any> {
   return {
     layout: { paddingTop: 0, gap: 1, paddingBottom: 0 },
     itemMetrics: lineHeight ? { diffHeaderHeight: headerHeight, lineHeight } : { diffHeaderHeight: headerHeight },
