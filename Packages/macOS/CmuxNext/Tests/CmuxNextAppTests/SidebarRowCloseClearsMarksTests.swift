@@ -118,6 +118,14 @@ struct SidebarRowCloseClearsMarksTests {
                 if marks.pullRequests {
                     #expect(!row.pullRequests.isHidden && row.pullRequests.alphaValue > 0, "\(spot): the badge stayed hidden after the hover")
                 }
+                // The unread dot or the error mark comes back when the hover ends (the layout restores it; the
+                // display pass no longer does).
+                if marks.workspace.unread != .none || marks.workspace.activity == .error {
+                    let back = ([row.badge, row.rowBadge, row.activity] as [NSView]).contains {
+                        !$0.isHidden && $0.frame.width > 0 && SidebarTrailingColumnTests.drawnAlpha($0, below: row) > 0.01
+                    }
+                    #expect(back, "\(spot), \(style), \(marks): no unread or error mark after the hover")
+                }
             }
         }
     }

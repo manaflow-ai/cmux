@@ -36,7 +36,8 @@ extension WorkspaceRowView {
         let glows = showsNeedsYouGlow
         if glows {
             hideMarksForNeedsYouGlow()
-        } else if needsYouGlowLayer != nil {
+        } else if marksHiddenForGlow {
+            marksHiddenForGlow = false
             // The marks come back by the layout's rules, never here: a hovered row keeps them clear under its ✕ and
             // ⋮. Setting them to 1 on every display pass drew the ✕ over the unread dot and the error mark
             // (https://github.com/manaflow-ai/cmux/issues/48363).
@@ -60,6 +61,7 @@ extension WorkspaceRowView {
 
     /// Clears the marks the halo stands in for. The layout calls it too, after its own mark pass shows them.
     func hideMarksForNeedsYouGlow() {
+        marksHiddenForGlow = true
         for mark in [rowBadge, badge, activity] as [NSView] where mark.alphaValue != 0 { mark.alphaValue = 0 }
     }
 
