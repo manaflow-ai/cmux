@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/44916156649",
+  "recorded_at": "2026-11-21T15:54:41Z",
+  "reason": "cmux-tui 12854f634d04 changes the image's cmux-tui (pinned a1143d5ccc80)",
+  "dry_run": false,
+  "cmux_tui": "12854f634d046cd581a00ae654851b22f6b15122",
+  "fixes": [
+    {
+      "sha": "12854f634d046cd581a00ae654851b22f6b15122",
+      "mergedAt": "2026-11-21T04:47:02-08:00",
+      "subject": "acpmux: a host below the level pauses next-prompt suggestions for an agent's turn"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-21T15:54:41Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
