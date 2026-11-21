@@ -33,7 +33,9 @@ fn browser_assets() -> Result<()> {
         None => Vec::new(),
     };
     files.sort();
-    let mut generated = String::from("static SHIPPED: &[(&str, cmux_embed::PackedStr)] = &[\n");
+    // An array by value: a `PackedStr` holds a `OnceLock`, which a static may own but not borrow.
+    let mut generated =
+        format!("static SHIPPED: [(&str, cmux_embed::PackedStr); {}] = [\n", files.len());
     for (name, file) in &files {
         println!("cargo:rerun-if-changed={}", file.display());
         let path = file
