@@ -134,11 +134,13 @@ jobs:
     # The repair path must not wait on a pool it judges: this sweep judges the owned labels
     # (glaeda-*, cmux-fleet-linux-x64; starved_labels.py) and moves the Blacksmith pools
     # (runner_pools.py), and on 2026-11-20 one sweep waited 77 minutes to start.
-    # So it runs on GitHub-hosted Ubuntu (minutes are free on a public repository), and
-    # CI_QUEUE_JANITOR_ON_FLEET=1 moves it to the fleet label while hosted runners are busy.
-    # No Blacksmith label (tests/test_ci_self_hosted_guard.sh
+    # So it runs on the CI repair workflows' one-job JIT label (cmux-gcp-repair-jit-x64:
+    # an ephemeral VM per job, so the App key leaves with it), which the janitor does not
+    # judge; CI_QUEUE_JANITOR_ON_FLEET=1 moves it to the fleet label. Not GitHub-hosted:
+    # on 2026-11-20 the hosted pool served none of our jobs for 15 hours (Leo, 2026-11-21:
+    # "the ci must flow"). No Blacksmith label (tests/test_ci_self_hosted_guard.sh
     # check_queue_janitor_runs_off_the_pools_it_judges).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_QUEUE_JANITOR_ON_FLEET == '1' && 'cmux-fleet-linux-x64' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_QUEUE_JANITOR_ON_FLEET == '1' && 'cmux-fleet-linux-x64' || 'cmux-gcp-repair-jit-x64' }}
     # A sweep that lists the whole queue took up to 13 minutes on 2026-10-30; a timed-out
     # job skips the upload below, so this leaves room for the longest one seen.
     timeout-minutes: 30
