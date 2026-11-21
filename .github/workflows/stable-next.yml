@@ -38,7 +38,9 @@ name: cmux NEXT Stable
 #   smoke-26      Blacksmith macOS 26
 # The std side lane (CI_SIDE_LANE_RUNNER) is not used: PR side lanes fill it (54 queued on 2026-10-31).
 #
-# This workflow adds no job to any push, pull request or nightly run (repo rule: no new gates there).
+# This workflow adds no job to any push, pull request or nightly run. The 2026-10-23 no-new-CI rule, since
+# lifted, kept it off them; Lawrence's perf decision (no perf run blocks or slows a push, a pull request merge
+# or a nightly; perf-lead.md F9), which still stands, keeps its perf-budgets --gate step off them.
 # It runs only on its schedule, a dispatch, or a push to the stable-next-dry-run branch. A dry run
 # (mode dry-run, or that branch) plans, runs every gate, re-signs ad hoc and smokes the result, and
 # publishes nothing; it needs no secret.
@@ -104,7 +106,7 @@ jobs:
   # main's copy, every hour of the night: dispatch one publish run on nightly-next.
   tick:
     if: github.event_name == 'schedule' && github.repository == 'manaflow-ai/cmux'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     permissions:
       actions: write
@@ -115,7 +117,9 @@ jobs:
         with:
           ref: nightly-next
           persist-credentials: false
-          sparse-checkout: scripts/ci/stable_next.py
+          sparse-checkout: |
+            scripts/ci/stable_next.py
+            scripts/ci/deadline_http.py
           sparse-checkout-cone-mode: false
 
       - name: Is this the night window
@@ -213,7 +217,7 @@ jobs:
           [ -z "$BUILD" ] || args=(--build "$BUILD")
           python3 -I scripts/ci/stable_next.py pick --feed "$RUNNER_TEMP/next.xml" --stable "$RUNNER_TEMP/stable.xml" \
             --pulled "$RUNNER_TEMP/pulled.json" --stable-pulled "$RUNNER_TEMP/stable-pulled.json" \
-            --verdicts "$NEXT_VERDICTS_BASE/verdicts" ${args[@]+"${args[@]}"}
+            --verdicts "$NEXT_VERDICTS_BASE/verdicts" --notes "$NEXT_FEED_BASE/notes" ${args[@]+"${args[@]}"}
 
       # The commit the build was compiled from: nightly.yml's build_sha (the resolved cmux-tui tree,
       # which can trail the run's head, or a recovered run's source), as its release notes record it
@@ -266,6 +270,7 @@ jobs:
             echo "| commit | ${{ steps.commit.outputs.commit }} |"
             echo "| published | ${PUBLISHED_AT:-unknown}${age_h:+ (${age_h} h ago)} |"
             echo "| canary verdict | ${{ steps.pick.outputs.verdict }} |"
+            echo "| newer builds without release notes yet | ${{ steps.pick.outputs.passed_without_notes || 'none' }} |"
             echo "| runs | $go${SKIP_REASON:+ ($SKIP_REASON)} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -287,7 +292,9 @@ jobs:
         with:
           persist-credentials: false
           path: .stable-tooling
-          sparse-checkout: scripts/ci/stable_next.py
+          sparse-checkout: |
+            scripts/ci/stable_next.py
+            scripts/ci/deadline_http.py
           sparse-checkout-cone-mode: false
       - name: Crash-class concurrency rules
         run: scripts/ci/crash-class-gate.sh
@@ -718,7 +725,9 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          sparse-checkout: scripts/ci/stable_next.py
+          sparse-checkout: |
+            scripts/ci/stable_next.py
+            scripts/ci/deadline_http.py
           sparse-checkout-cone-mode: false
       # Not "still on the feed": the feed keeps 2 builds, so newer nightlies drop the picked one long
       # before the gates finish (run 41419773317: build 4141347814401 refused for that alone).

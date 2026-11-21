@@ -1661,6 +1661,7 @@ CLI mapping: verb `apply-layout`; flags `[--workspace <id>] [--name <name>] [--c
 | `terminal_id` field | `terminal-input-while-creating-v1` additive extension |
 | `expect_foreground` field | `send-expect-foreground-v1` additive extension |
 | `expect_agent`, `submit` fields | `send-expect-agent-v1` additive extension |
+| `key` field | `send-key-v1` additive extension |
 
 Writes input to a PTY surface. `text`, when present, is UTF-8 encoded and written as bytes. `bytes`, when present, is standard base64 decoded and written as raw bytes. If both are present, v5 writes `text` first and `bytes` second. If neither is present, v5 returns success and writes nothing.
 
@@ -1678,6 +1679,7 @@ Params:
 | `expect_foreground` | `string` | default null | `send-expect-foreground-v1`; needs `surface`; write only while the foreground executable is this one |
 | `expect_agent` | `{session: string}` | default null | `send-expect-agent-v1`; needs `surface`; write only while the terminal's agent is `idle` in `session` |
 | `submit` | `boolean` | default false | `send-expect-agent-v1`; needs `surface`; Return after the payload, in the same request |
+| `key` | `string` | default null | `send-key-v1`; 1 to 128 bytes; a repeat of an applied key writes nothing and returns success |
 
 With `send-expect-foreground-v1`, `expect_foreground` names the executable the caller saw in the
 foreground (`process-info`'s `foreground_executable`, compared byte for byte). Right before the write the
@@ -1696,6 +1698,14 @@ too), the request fails with `agent not waiting: ...` and writes nothing. `submi
 a Return that fails after the text was written says `submit failed after the text was written`. The phone's Feed reply uses
 both, with `expect_foreground` and `paste:true`, so a reply typed where the screen is not in view
 never answers an approval or question, a running turn or a new agent session.
+
+With `send-key-v1`, `key` names this input (the phone uses a UUID per batch). The daemon remembers
+the keys it applied, daemon-wide, for 10 minutes (at most the last 1024); a `send` with a key it
+already applied returns the same success reply and writes nothing, with `text` or `bytes`, `surface`
+or `terminal_id` alike. A client whose `send` was written but whose reply was lost (a link drop) can
+then send the same input again with the same key, and the terminal gets it once. The key is claimed
+before the write and forgotten only when the request is refused with nothing written. A server
+without the capability ignores the field; a client sends a repeat only to a server that lists it.
 
 With `terminal-input-while-creating-v1`, `terminal_id` addresses the terminal by its host id. A
 `split`, `new-pane`, `new-pane-right` or `new-tab` that names a caller-minted `terminal_id` makes that id
@@ -10470,11 +10480,13 @@ see `agent-session-proxy-bind`).
 
 ### agent-session-attach
 
-`{id, cmd:"agent-session-attach", surface, after_seq?, before_seq?, limit?, kinds?}`
+`{id, cmd:"agent-session-attach", surface, after_seq?, before_seq?, limit?, kinds?, max_bytes?}`
 subscribes the connection to the tab's session and answers acpmux's attach
 page `{session, events, hasMore, lastSeq}` (`limit` 1 to 500, default 200;
 `kinds` at most 32 acpmux record kinds or categories; at most 8 MiB of
-records, the rest left for the next page with `hasMore`). On an attached tab
+records, the rest left for the next page with `hasMore`; `max_bytes`, under
+`agent-session-page-bytes-v1`, passes acpmux a page budget as `maxBytes`, at
+least 1 and held to 8 MiB, else acpmux's own 1 MiB default). On an attached tab
 it only pages. Live records then arrive as
 `{event:"agent-session-record", surface, record}` (one acpmux record in its
 `eventStream` form), permission requests as
@@ -10506,7 +10518,7 @@ existing attachment unchanged; the same mode again only pages.
 
 ### agent-session-events
 
-`{id, cmd:"agent-session-events", surface, after_seq?, before_seq?, limit?, kinds?}`
+`{id, cmd:"agent-session-events", surface, after_seq?, before_seq?, limit?, kinds?, max_bytes?}`
 pages the log of an attached tab, as acpmux's `_acpmux/events`
 (`{events, hasMore, lastSeq}`), with the same bounds.
 
