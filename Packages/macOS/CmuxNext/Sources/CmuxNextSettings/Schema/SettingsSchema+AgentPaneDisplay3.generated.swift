@@ -6,6 +6,33 @@ extension AgentPaneDisplaySettingsSchema {
         let group = SettingsText.keyed("settings.group.agentChat", "Agent Chat")
         return [
             SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.harnessPlacementPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.harnessPlacement", "Model Picker Harness Placement"),
+                kind: .choice([
+                    SettingChoice("symbols", SettingsText.keyed("settings.choice.harnessSymbols", "Top Row of Symbols")),
+                    SettingChoice("left", SettingsText.keyed("settings.choice.harnessLeft", "Left Rail with Names")),
+                    SettingChoice("top", SettingsText.keyed("settings.choice.harnessTop", "Top Strip with Names")),
+                    SettingChoice("compact", SettingsText.keyed("settings.choice.harnessCompact", "Compact Left Rail")),
+                ]),
+                default: .string(AgentPaneDisplaySettingsSchema.harnessPlacementDefault),
+                keywords: ["agent", "chat", "acp", "display", "reading", "model", "picker", "harness", "placement", "left", "top", "symbols"]
+            ),
+            SettingDescriptor(
+                AgentPaneDisplaySettingsSchema.railSidePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.agentPane.display.rail.side", "Prompt Rail Side"),
+                help: SettingsText.keyed("settings.agentPane.display.rail.side.help", "Right-click the rail to move it."),
+                kind: .choice([
+                    SettingChoice("left", SettingsText.keyed("settings.choice.left", "Left")),
+                    SettingChoice("right", SettingsText.keyed("settings.choice.right", "Right")),
+                ]),
+                default: .string(AgentPaneDisplaySettingsSchema.railSideDefault),
+                keywords: ["agent", "chat", "acp", "display", "reading", "rail", "minimap", "prompts", "ticks", "scroll", "side", "left", "right"]
+            ),
+            SettingDescriptor(
                 AgentPaneDisplaySettingsSchema.commandLabelsPath,
                 section: .appearance,
                 group: group,
