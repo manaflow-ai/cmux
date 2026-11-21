@@ -59,7 +59,7 @@ def web_states(label, page, selector, tag, focus=None, opt=None):
     return out
 
 # The chat page's web view takes the window's keyboard (Home's composer has it otherwise), as a click in the chat.
-WEB_KEY = lambda: step("The chat page has the keyboard", rpc("debug.text_field", {"focus": "AgentPaneWKWebView"}), shot=False, wait=0.5)
+WEB_KEY = lambda: step("The chat page has the keyboard", rpc("debug.text_field", {"focus": "AgentPaneView"}), shot=False, wait=0.5)
 KEY = lambda: step("Key window, app active (caret and focus rings draw)", rpc("debug.text_field", {"key": True}), shot=False, wait=0.6)
 
 def g_chief(tag):
@@ -68,7 +68,7 @@ def g_chief(tag):
 
 def g_home_search(tag):
     return [step("Home", cmux("action", "run", "home.show"), wait=4, shot=False), KEY()] \
-        + native_states("Home sidebar search (native)", rpc("debug.text_field", {"focus": "cmux.home.sidebar.search"}), tag)
+        + native_states("Home sidebar search (native)", rpc("debug.text_field", {"focus": "CmuxSidebarSearchField"}), tag)
 
 def chat_setup(tag):
     return [step("A chat workspace", cmux("action", "run", "newTab", "--name", f"Chat {tag}", "--focus", "--cwd", "/tmp"), shot=False, wait=1.5),
@@ -89,7 +89,7 @@ def g_newtab_web(tag):
     return page_tab(tag) + [WEB_KEY()] + web_states("New tab composer (web)", "cmux.agent", ".acpmux-newtab-field [contenteditable=true]", tag)
 
 def page_tab(tag):
-    return [step("A new tab, as Cmd-T opens it", cmux("action", "run", "newTab", "--focus"), shot=False, wait=3), KEY()]
+    return [step("A new tab, as Cmd-T opens it", cmux("action", "run", "newTab.page", "--focus"), shot=False, wait=3), KEY()]
 
 def web_tab(tag):
     name = "Web " + " ".join(re.findall(r"[a-z]+", tag))
@@ -107,7 +107,7 @@ def g_omnibar(tag):
 
 def g_browser_find(tag):
     name, setup = web_tab(tag)
-    return setup + [step("Browser find bar opens", cmux("action", "run", "find"), shot=False, wait=1)] + native_states("Browser find bar (native)", rpc("debug.text_field", {"focus": "Find"}), tag) \
+    return setup + [step("Browser find bar opens", cmux("action", "run", "find"), shot=False, wait=1)] + native_states("Browser find bar (native)", rpc("debug.text_field", {"focus": "Find in page"}), tag) \
         + [step("Close the browser tab", cmux("tab", name, "close"), shot=False, wait=1)]
 
 def g_term_find(tag):
