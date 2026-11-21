@@ -272,6 +272,50 @@ test("degraded stays quiet, while a detected outage is named from its first seco
   expect(link()?.hasAttribute("data-said")).toBe(false);
 });
 
+// Default off (`showPeerReconnectStatus` false): the row keeps its quiet bound, as before.
+test("off: a link that just dropped keeps the plain dot, with no spinner or words, until the bound, then says it once", async () => {
+  setComposerSettings({ showPeerReconnectStatus: false });
+  try {
+    jest.useFakeTimers();
+    setLinkDownSaidMs(LINK_DOWN_SAID_MS);
+    await render(started("walk-remote", "connected"));
+    const element = link();
+    for (const state of ["degraded", "reconnecting", "connecting", "offline"]) {
+      await render(linked("walk-remote", state, Date.now()));
+      expect(link(), state).toBe(element);
+      expect(link()?.hasAttribute("data-said"), state).toBe(false);
+      expect(link()?.hasAttribute("data-quiet"), state).toBe(true);
+      expect(host.querySelector(".acpmux-machine-link-spinner"), state).toBeNull();
+      // Back before the bound: nothing was ever said.
+      await render(started("walk-remote", "connected"));
+      expect(link()?.hasAttribute("data-quiet"), state).toBe(false);
+    }
+    // A drop that goes on, through degraded and then reconnecting, counts from its start.
+    await render(linked("walk-remote", "degraded", Date.now()));
+    await act(async () => void jest.advanceTimersByTime(LINK_DOWN_SAID_MS - 4_000));
+    await render(linked("walk-remote", "reconnecting", Date.now()));
+    await act(async () => void jest.advanceTimersByTime(3_999));
+    expect(link()?.hasAttribute("data-said")).toBe(false);
+    await act(async () => void jest.advanceTimersByTime(1));
+    expect(link()?.hasAttribute("data-said")).toBe(true);
+    expect(said()).toBe("walk-remoteReconnecting…");
+  } finally {
+    setComposerSettings({ showPeerReconnectStatus: true });
+  }
+});
+
+test("off: a link acpmux has had down past the bound is said at once, in the plain words", async () => {
+  setComposerSettings({ showPeerReconnectStatus: false });
+  try {
+    setLinkDownSaidMs(LINK_DOWN_SAID_MS);
+    await render(linked("walk-remote", "offline", Date.now() - LINK_DOWN_SAID_MS - 1));
+    expect(link()?.hasAttribute("data-said")).toBe(true);
+    expect(said()).toBe("walk-remoteOffline");
+  } finally {
+    setComposerSettings({ showPeerReconnectStatus: true });
+  }
+});
+
 test("a refused sign-in or an update the machine needs is said at once", async () => {
   setLinkDownSaidMs(LINK_DOWN_SAID_MS);
   for (const [state, words] of [

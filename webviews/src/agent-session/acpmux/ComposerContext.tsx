@@ -371,6 +371,7 @@ export function ComposerContext({
         peerStates,
         peerResources,
         peerLinks,
+        composerSettings.showPeerReconnectStatus,
       ),
       shownMachines,
       newChat,
@@ -389,6 +390,7 @@ export function ComposerContext({
     peerStates,
     peerResources,
     peerLinks,
+    composerSettings.showPeerReconnectStatus,
     ownName,
     newChat,
     shownMachines,
@@ -1372,6 +1374,7 @@ function availableComputers(
   peerStates: Record<string, string>,
   peerResources: Record<string, MachineResources>,
   peerLinks: Record<string, PeerLinkDetail>,
+  showPeerReconnectStatus = false,
 ): Computer[] {
   const localLabel =
     localName || (summary?.hostKind === "local" && summary.host ? summary.host : t(CONTEXT_LABELS.local));
@@ -1380,7 +1383,13 @@ function availableComputers(
   for (const machine of knownMachines(peers, sessions, peerKinds, current, peerConnected, peerStates)) {
     const detail = t(machine.kind === "ssh" ? "composer.envSSH" : CONTEXT_LABELS.cloud);
     const link = peerLinks[machine.id];
-    const downSince = link && link.link !== "connected" ? (link.downSince ?? link.since) : undefined;
+    // Opt-in only: the outage's start. Off (the default), the link's `since`, as before.
+    const downSince =
+      link && link.link !== "connected"
+        ? showPeerReconnectStatus
+          ? (link.downSince ?? link.since)
+          : link.since
+        : undefined;
     computers.push({
       ...machine,
       detail,

@@ -34,7 +34,10 @@ export function PeerCopyBanner(
   // wakes on its own (opening the chat, a send) that reads "starting". A paused machine (it has a
   // Resume) and a start the person asked for here keep `noteDelayMs`.
   const quiet = body.machine === undefined || (body.machine === "starting" && !asked);
-  const reconnecting = body.progress !== undefined && body.machine === undefined;
+  // Opt-in (`showPeerReconnectStatus`): the timed reconnect line shows at once. Off (the
+  // default), the banner keeps its delays exactly as before.
+  const { showPeerReconnectStatus } = useComposerSettings();
+  const reconnecting = showPeerReconnectStatus && body.progress !== undefined && body.machine === undefined;
   const shown = useAfterDelay(
     true,
     reconnecting ? 0 : quiet && noteDelayMs > 0 ? Math.max(noteDelayMs, LINK_DOWN_SAID_MS) : noteDelayMs,
