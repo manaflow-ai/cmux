@@ -198,6 +198,32 @@ import Testing
         #expect(!CloudMachineRoute.keepsItsError(CloudAPIError.transport("offline")))
     }
 
+    /// A start that could not start the machine (a quota, here) ends the route check with that error at once: no update
+    /// of a machine that does not run first (the update waits up to 90 s), and no second start.
+    @Test func aStartThatFailsEndsTheCheckWithItsErrorAndNoUpdate() async {
+        let quota = CloudAPIError.http(status: 409, code: "cloud.quota.exceeded", message: "the team is at its machine limit")
+        let starts = UpdateCount(), updated = UpdateCount()
+        let route = CloudMachineRoute(machineID: "vm-quota", exec: { _, _ in
+            throw CloudAPIError.http(status: 409, code: "vm_not_running", message: "the machine is not running; start it first")
+        }, start: {
+            await starts.add()
+            throw quota
+        })
+        await #expect(throws: quota) { try await route.prepare(family: "claude") { await updated.add() } }
+        #expect(await starts.count == 1)
+        #expect(await updated.count == 0, "no update of a machine that does not run")
+    }
+
+    /// Only whole words of a code keep a refused resume's own error: `control_plane` or `planned` is no plan refusal.
+    @Test func aCodeKeepsItsErrorOnlyByItsWholeWords() {
+        for code in ["control_plane", "model_plane_provision", "planned"] {
+            #expect(!CloudMachineRoute.keepsItsError(CloudAPIError.http(status: 409, code: code, message: nil)), "\(code)")
+        }
+        for code in ["cmux.cloud.plan_required", "cmux.cloud.approval_pending", "cloud.quota.vm_limit"] {
+            #expect(CloudMachineRoute.keepsItsError(CloudAPIError.http(status: 409, code: code, message: nil)), "\(code)")
+        }
+    }
+
     /// A machine whose exec route refuses it as not running until it is started, then prints `report`.
     private actor StoppedMachine {
         let report: String

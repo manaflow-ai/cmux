@@ -66,7 +66,8 @@ public struct CloudMachineRoute: Sendable {
         if error is CancellationError { return true }
         var code = (error as? CloudAppOpFailure)?.code ?? ""
         if case .http(_, let sent?, _, _, _) = error as? CloudAPIError { code = sent }
-        return code.contains("approval") || code.contains("quota") || code.contains("plan")
+        // Whole words of the code (`cmux.cloud.plan_required`, `cloud.quota.vm_limit`), so `control_plane` is no plan.
+        return !Set(code.split(whereSeparator: { $0 == "." || $0 == "_" }).map(String.init)).isDisjoint(with: ["approval", "quota", "plan"])
     }
 
     /// `exec`, except that a refusal because the machine does not run (`vm_not_running`: the Cloud API's exec and file
@@ -83,11 +84,18 @@ public struct CloudMachineRoute: Sendable {
             do {
                 return try await exec(command, timeoutMs)
             } catch let refusal as CloudAPIError where refusal.isMachineNotRunning {
-                try await once.run()
+                do { try await once.run() } catch { throw StartFailed(error: error) }
                 return try await exec(command, timeoutMs)
             }
         }
     }
+
+    /// The machine's start failed: its error is the route check's answer, thrown at once and never read as a route that
+    /// could not be read (which would update a machine that does not run first).
+    nonisolated struct StartFailed: Error { let error: any Error }
+
+    /// `error` as the route check's caller reads it: a failed start's own error.
+    private nonisolated static func unwrapped(_ error: any Error) -> any Error { (error as? StartFailed)?.error ?? error }
 
     /// One start, shared by every caller: the first runs it, the others await its outcome.
     private actor StartOnce {
@@ -98,7 +106,8 @@ public struct CloudMachineRoute: Sendable {
             // task-owner: started; the one start of a route check, awaited by each refusal that needs it
             let task = started ?? Task { [start] in try await start() }
             started = task
-            try await task.value
+            // A cancelled start (the person stopped the chat's start) ends its machine start too.
+            try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
         }
     }
 
@@ -133,7 +142,14 @@ public struct CloudMachineRoute: Sendable {
     public func prepare(serves: @MainActor () -> Bool = { true }, carriesConnection: Bool = false, family: String? = nil,
                         _ update: @escaping @Sendable () async -> Void) async throws {
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
-        if await serves(), let route = try? await read(family: family) {
+        var checked: (verdict: Verdict, agent: Agent?)?
+        if await serves() {
+            do { checked = try await read(family: family) } catch {
+                // A machine that could not be started, or stays stopped, or a cancel: its own error now, with no update first.
+                if error is StartFailed || error is CloudMoveFailure || error is CancellationError { throw Self.unwrapped(error) }
+            }
+        }
+        if let route = checked {
             if Self.starts(route.verdict, agent: route.agent, carriesConnection: carriesConnection) {
                 logger.info("cloud start chat: \(machineID ?? "", privacy: .public) already serves this start (\(route.verdict.rawValue, privacy: .public), \(route.agent?.summary ?? "no agent", privacy: .public)); no update")
                 return
@@ -272,7 +288,8 @@ public struct CloudMachineRoute: Sendable {
     /// Returns when the machine's agents reach models through its edge; throws ``Refused`` otherwise, with `family`'s
     /// ``Agent`` reading. An exec that fails (the machine went away, the route timed out) throws its own error.
     public func verify(family: String? = nil) async throws {
-        let route = try await read(family: family)
+        let route: (verdict: Verdict, agent: Agent?)
+        do { route = try await read(family: family) } catch { throw Self.unwrapped(error) }
         guard route.verdict == .ready else { throw Refused(verdict: route.verdict, agent: route.agent) }
     }
 
