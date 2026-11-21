@@ -4463,19 +4463,19 @@ function TranscriptView({
   // to latest gives the stack's room before following (`takeRoom`, the send), so theirs keeps none.
   const followedRoom = dockRoom - lifted - trayHold - cardHold - noticeHold;
   const keptPrompt = following && !sessionSwitched ? newestPromptId(rows) : undefined;
-  const held = heldRoom.current;
+  const roomHeld = heldRoom.current;
   const reader = readerRoom.current;
   const readerKept =
     !following || sessionSwitched
       ? undefined
       : !reader.followed
-        ? held > followedRoom + 0.5
-          ? { room: held, prompt: keptPrompt }
+        ? roomHeld > followedRoom + 0.5
+          ? { room: roomHeld, prompt: keptPrompt }
           : undefined
         : reader.kept?.prompt === keptPrompt
           ? reader.kept
           : undefined;
-  const room = sessionSwitched || following ? Math.max(followedRoom, readerKept?.room ?? 0) : held;
+  const room = sessionSwitched || following ? Math.max(followedRoom, readerKept?.room ?? 0) : roomHeld;
   const rowsHeight = measured.layout.totalHeight + THREAD_TOP + topInset + tailGap + room;
   // The content's end without the room a collapse left (`foldRoom`), which it is released against.
   const rowsEnd = Math.max(floorHeight - lifted, rowsHeight);
