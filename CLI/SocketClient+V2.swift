@@ -59,7 +59,8 @@ extension SocketClient {
                     v2Retryable: data?["retryable"] as? Bool == true,
                     vmBackendCode: data?["backend_code"] as? String,
                     vmBackendHTTPStatus: (data?["http_status"] as? NSNumber)?.intValue,
-                    v2Method: method
+                    v2Method: method,
+                    browserDialog: CLIError.BrowserDialog(data?["dialog"])
                 )
                 // Admission rejects these before dispatch: `rate_limited` for
                 // polling reads, and `overloaded` for any method (the server
