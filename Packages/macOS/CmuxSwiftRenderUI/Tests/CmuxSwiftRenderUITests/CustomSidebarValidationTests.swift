@@ -377,8 +377,8 @@ struct CustomSidebarSampleContextTests {
 
     @Test("the sample data context carries the render builder's shapes and optionality")
     func sampleContextMatchesRenderBuilderShapes() throws {
-        // The populated sample: every optional field is present with the type
-        // CustomSidebarDataContextBuilder emits, never a placeholder string.
+        // The populated sample: its workspace-level optionals are present with
+        // the type CustomSidebarDataContextBuilder emits, never a placeholder string.
         let populated = try sampleWorkspace(titled: "Sample Workspace")
         let pr = try #require(SwiftValue.objectFields(populated["pr"]),
                               "pr must be an object like the builder's pullRequestValues, not a placeholder string (#7944)")

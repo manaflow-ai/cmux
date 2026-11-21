@@ -163,10 +163,12 @@ public struct CustomSidebarValidator {
 
     /// Representative data context used when validating Swift sidebars outside a live render.
     ///
-    /// Every field carries the type and optionality CustomSidebarDataContextBuilder
-    /// emits for a real render: the populated workspace sample uses the builder's
-    /// object/int shapes, and the quiet workspace omits every optional the builder
-    /// omits when absent, so validation exercises both paths (#7944).
+    /// Every field present carries the type CustomSidebarDataContextBuilder emits
+    /// for a real render: the populated workspace sample uses the builder's
+    /// object/int shapes for its workspace-level optionals, and the quiet workspace
+    /// omits every optional the builder omits when absent, so validation exercises
+    /// both paths (#7944). The sample has no `agents`, `emoji` or `group` and no
+    /// tabs, so per-agent and per-tab shapes are not exercised.
     public static let defaultDataContext: [String: SwiftValue] = [
         "workspaces": .array([
             .object([
@@ -246,7 +248,8 @@ public struct CustomSidebarValidator {
         "selectedId": .string("workspace-sample"),
         "unreadTotal": .int(2),
         // One instant: epoch 1_780_000_000 is Thursday 20:26:40 UTC (Calendar
-        // weekday 5), ten minutes after the sample latestAt.
+        // weekday 5), ten minutes after the sample latestAt. The display fields
+        // are UTC; a real render derives them in the local time zone.
         "clock": .object([
             "time": .string("20:26:40"),
             "hour": .int(20),
