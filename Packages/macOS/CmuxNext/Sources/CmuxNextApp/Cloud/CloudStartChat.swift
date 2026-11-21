@@ -321,14 +321,8 @@ extension CloudStartChat {
             let rows = keys.currentAgents.compactMap { row in row["agent"]?.stringValue.map { (agent: $0, set: row["set"]?.boolValue == true) } }
             return .init(personal: personal, organization: keys.loaded ? CloudSetup.Snapshot.organization(keys: rows) : nil)
         }
-        // A team in inference gateway mode serves its members' chats with no connection of their own (hq#15762).
-        services.cloud.setup.gateway = { [weak services] in
-            guard let services, !services.accounts.agentKeys.scopeIsSignedOut, let binary = services.cloud.move.cli else { return nil }
-            return await CloudMoveCLI(binary: binary).inferenceGatewayServes()
-        }
-        services.cloud.setup.run = { [weak services] action in
-            try? services?.settingsWindow.show(section: nil, route: DeepLink.cloudRoute(row: action.settingsRow))
-        }
+        services.cloud.setup.gateway = { [weak services] in guard let services, !services.accounts.agentKeys.scopeIsSignedOut, let binary = services.cloud.move.cli else { return nil }; return await CloudMoveCLI(binary: binary).inferenceGatewayServes() } // a team in inference gateway mode, its gateway online, serves a chat with no connection of the person's own (hq#15762)
+        services.cloud.setup.run = { [weak services] action in try? services?.settingsWindow.show(section: nil, route: DeepLink.cloudRoute(row: action.settingsRow)) }
         services.cloud.startSessionRuns.began = { [weak services] key in if key.machine.hasPrefix("name:"), let services { warmSpare(services) } } // `cmux chat --on vm:new` and `cloud start-session --name`: a create, which claims the spare, comes next
     }
 
