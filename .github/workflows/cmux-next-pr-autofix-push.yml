@@ -47,7 +47,7 @@ jobs:
     name: push the PR autofix repairs
     if: >-
       github.repository == 'manaflow-ai/cmux'
-      && vars.CMUX_PR_AUTOFIX_PUSH != '0'
+      && (vars.CMUX_PR_AUTOFIX_PUSH || '1') != '0'
       && github.event.workflow_run.path == '.github/workflows/cmux-next-pr-autofix.yml'
       && github.event.workflow_run.event == 'pull_request'
       && github.event.workflow_run.conclusion == 'success'
