@@ -88,10 +88,10 @@ pub(super) fn load(
     })
     .map_err(|e| RpcError::internal(e.to_string()))?;
     let mut answer = opened(hub, &s);
-    if window.after > 0 {
-        if let Some(meta) = answer.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
-            meta.insert("replayTruncated".to_owned(), truncated(window));
-        }
+    if window.after > 0
+        && let Some(meta) = answer.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut)
+    {
+        meta.insert("replayTruncated".to_owned(), truncated(window));
     }
     Ok(answer)
 }
