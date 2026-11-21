@@ -68,7 +68,7 @@ export type SettingsPageVariant = VariantBase & {
   environments?: CloudEnvironmentsState;
   /** Settings > Privacy and Security > Shared Links fixture state; default the mock's shares. */
   sharedLinks?: SharesState;
-  /** Personalization > Customization Library fixture state; default the mock's few entries. */
+  /** Appearance > Customization Library fixture state; default the mock's few entries. */
   library?: LibraryListing;
   /** The CLI refuses every library change with this text (a preview is open). */
   libraryRefusal?: string;

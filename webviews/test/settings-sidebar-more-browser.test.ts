@@ -6,13 +6,15 @@ import { chromium, webkit, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
-await requireBrowserLane("settings-personalization-motion-browser.test.ts", async () => {
+await requireBrowserLane("settings-sidebar-more-browser.test.ts", async () => {
   setDefaultTimeout(180_000);
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "..");
   let vite: Awaited<ReturnType<typeof createServer>>;
-  const group = "#personalization-links";
-  const parent = '[data-section-link="personalization"]';
+  // The sidebar's More (one settings area, David Beyer 2026-11-20): its links open below its header
+  // in flow, and the section above it never moves.
+  const group = '[data-sidebar-section="more"] .sidebar-more-links';
+  const parent = ".sidebar-more";
   const appearance = '[data-section-link="appearance"]';
 
   beforeAll(async () => {
@@ -43,7 +45,7 @@ await requireBrowserLane("settings-personalization-motion-browser.test.ts", asyn
   }
 
   for (const engine of [chromium, webkit]) {
-    test(`${engine.name()}: the child rows move the next category during expansion and collapse`, async () => {
+    test(`${engine.name()}: More's links grow in flow while it opens and closes`, async () => {
       const browser = await engine.launch({ headless: true, timeout: 30_000 });
       try {
         const page = await browser.newPage({ viewport: { width: 900, height: 640 }, reducedMotion: "no-preference" });
@@ -52,11 +54,10 @@ await requireBrowserLane("settings-personalization-motion-browser.test.ts", asyn
         // asserting against how quickly the test runner can read two frames.
         const measure = (click: string) =>
           page.evaluate(
-            ({ group, click, appearance }) => {
+            ({ group, click }) => {
               const rows = document.querySelector<HTMLElement>(group)!;
-              const next = document.querySelector<HTMLElement>(appearance)!;
-              const top = () => next.getBoundingClientRect().top - rows.getBoundingClientRect().top;
-              const start = top();
+              const height = () => rows.getBoundingClientRect().height;
+              const start = height();
               return new Promise<[number, number, number]>((resolve) => {
                 const onRun = (event: TransitionEvent) => {
                   if (event.propertyName !== "grid-template-rows") return;
@@ -70,24 +71,28 @@ await requireBrowserLane("settings-personalization-motion-browser.test.ts", asyn
                   const duration = Number(animation.effect!.getComputedTiming().duration);
                   animation.pause();
                   animation.currentTime = duration / 2;
-                  const midpoint = top();
+                  const midpoint = height();
                   animation.finish();
-                  resolve([start, midpoint, top()]);
+                  resolve([start, midpoint, height()]);
                 };
                 rows.addEventListener("transitionrun", onRun);
                 document.querySelector<HTMLElement>(click)!.click();
               });
             },
-            { group, click, appearance },
+            { group, click },
           );
 
+        const above = () => page.locator(appearance).boundingBox();
+        const before = await above();
         const [closed, opening, expanded] = await measure(parent);
+        expect(closed).toBe(0);
         expect(opening).toBeGreaterThan(closed);
         expect(opening).toBeLessThan(expanded);
-        const [, closing, collapsed] = await measure(appearance);
-        expect(closing).toBeGreaterThan(closed);
+        const [, closing, collapsed] = await measure(parent);
+        expect(closing).toBeGreaterThan(collapsed);
         expect(closing).toBeLessThan(expanded);
         expect(collapsed).toBe(closed);
+        expect(await above()).toEqual(before);
         expect(await page.locator(group).getAttribute("inert")).not.toBeNull();
       } finally {
         await browser.close();
@@ -99,7 +104,7 @@ await requireBrowserLane("settings-personalization-motion-browser.test.ts", asyn
     const browser = await webkit.launch({ headless: true, timeout: 30_000 });
     try {
       const page = await browser.newPage({ viewport: { width: 900, height: 640 }, reducedMotion: "no-preference" });
-      await open(page, "personalization-sounds");
+      await open(page, "devices");
       const children = page.locator(group);
       const height = () => children.evaluate((element) => element.getBoundingClientRect().height);
       const transitions = () => children.evaluate((element) => getComputedStyle(element).transitionProperty);
@@ -110,7 +115,7 @@ await requireBrowserLane("settings-personalization-motion-browser.test.ts", asyn
         document.documentElement.dataset.cmuxMotion = "off";
       });
       expect(await transitions()).toBe("all");
-      await page.locator(appearance).click();
+      await page.locator(parent).click();
       expect(await height()).toBe(0);
 
       await open(page, "general", { reducedMotion: true });
@@ -127,9 +132,9 @@ await requireBrowserLane("settings-personalization-motion-browser.test.ts", asyn
     const browser = await webkit.launch({ headless: true, timeout: 30_000 });
     try {
       const page = await browser.newPage({ viewport: { width: 900, height: 640 }, reducedMotion: "no-preference" });
-      await open(page, "personalization-sounds");
-      const sounds = page.locator('[data-part-link="sounds"]');
-      const theme = page.locator('[data-part-link="theme"]');
+      await open(page, "devices");
+      const sounds = page.locator('[data-section-link="devices"]');
+      const theme = page.locator('[data-section-link="keys"]');
       const content = (link: typeof theme) => link.locator(".section-link-content");
       const fill = (link: typeof theme) => content(link).evaluate((row) => getComputedStyle(row).backgroundColor);
       const scale = (link: typeof theme) =>
@@ -151,11 +156,11 @@ await requireBrowserLane("settings-personalization-motion-browser.test.ts", asyn
       expect(await scale(theme)).toBeLessThan(1);
       expect(await theme.boundingBox()).toEqual(hitArea);
       await page.mouse.up();
-      await page.waitForSelector('[data-part-link="theme"][aria-current="page"]');
+      await page.waitForSelector('[data-section-link="keys"][aria-current="page"]');
       expect(await fill(theme)).toBe(selected);
       expect(await scale(theme)).toBe(1);
 
-      await open(page, "personalization-sounds", { reducedMotion: true });
+      await open(page, "devices", { reducedMotion: true });
       await theme.hover();
       await page.mouse.down();
       expect(await scale(theme)).toBe(1);
@@ -194,16 +199,16 @@ await requireBrowserLane("settings-personalization-motion-browser.test.ts", asyn
     }
   });
 
-  test("a narrow pane keeps child links in the scrollable category strip", async () => {
+  test("a narrow pane keeps More and its links in the scrollable category strip", async () => {
     const browser = await webkit.launch({ headless: true, timeout: 30_000 });
     try {
       const page = await browser.newPage({ viewport: { width: 480, height: 640 } });
       await open(page, "general", { width: 480 });
       await page.locator(parent).click();
-      const sounds = page.locator('[data-part-link="sounds"]');
-      await sounds.click();
-      expect(await sounds.getAttribute("aria-current")).toBe("page");
-      expect(await page.locator('[data-part="sounds"]').count()).toBe(1);
+      const keys = page.locator('[data-section-link="keys"]');
+      await keys.click();
+      expect(await keys.getAttribute("aria-current")).toBe("page");
+      expect(await page.locator('[data-section="keys"]').count()).toBe(1);
     } finally {
       await browser.close();
     }
