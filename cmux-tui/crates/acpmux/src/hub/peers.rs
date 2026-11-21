@@ -1551,22 +1551,44 @@ impl Hub {
                 .filter(|(id, r)| names_remote(id, r, key))
                 .map(|(_, r)| &**r)
                 .collect();
-            let shorts: Vec<&RemoteSession> = if strict.is_empty() {
-                map.short_named(key)
+            let agent_key = key.split_once('/').map_or(key, |(_, rest)| rest);
+            let agent: Vec<&RemoteSession> = if strict.is_empty() {
+                map.named(agent_key)
                     .into_iter()
-                    .filter(|(_, r)| remote_segment(r, key))
+                    .filter(|(_, r)| {
+                        crate::session_identity::match_agent_session_id(
+                            r.summary.agent_session_id(),
+                            agent_key,
+                        )
+                        .is_some()
+                    })
                     .map(|(_, r)| &**r)
                     .collect()
             } else {
                 Vec::new()
             };
-            let short = strict.is_empty();
-            let mut matches: Vec<&RemoteSession> = if short {
+            let shorts: Vec<&RemoteSession> = if strict.is_empty() {
+                if !agent.is_empty() {
+                    Vec::new()
+                } else {
+                    map.short_named(key)
+                        .into_iter()
+                        .filter(|(_, r)| remote_segment(r, key))
+                        .map(|(_, r)| &**r)
+                        .collect()
+                }
+            } else {
+                Vec::new()
+            };
+            let short = strict.is_empty() && agent.is_empty();
+            let mut matches: Vec<&RemoteSession> = if !strict.is_empty() {
+                strict
+            } else if !agent.is_empty() {
+                agent
+            } else {
                 // Closed ones count only when no live one has the short name (`hub/key_route.rs`).
                 let live = shorts.iter().any(|r| !remote_closed(r));
                 shorts.into_iter().filter(|r| !live || !remote_closed(r)).collect()
-            } else {
-                strict
             };
             (if matches.len() == 1 { matches.pop().map(row) } else { None }, short)
         };
@@ -1883,8 +1905,6 @@ pub(super) fn names_remote(id: &str, r: &RemoteSession, key: &str) -> bool {
     name == key
         || r.receipt.mux_session_id.starts_with(key)
         || id.starts_with(key)
-        || crate::session_identity::match_agent_session_id(r.summary.agent_session_id(), agent_key)
-            .is_some()
         || name.strip_prefix(&format!("{}/", r.peer)) == Some(key)
 }
 
