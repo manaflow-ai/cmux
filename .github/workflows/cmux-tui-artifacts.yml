@@ -5193,8 +5193,10 @@ jobs:
       # cmuxterm-hq docs/design/nightly-live-updates.md step 1: cmux-tui/<sha>/mac-live.json (written once; `cmux app
       # try SHA` takes it live) and cmux-tui/channels/mac-live.json (forward only), the same envelope and key with
       # purpose cmux-mac-live-update. It names the commit's darwin daemon binaries from the manifest (the Cloud
-      # machine channel's trust: the darwin build is not this job's) and live_from, the app commits that can take
-      # them live. Failure fails this delivery job so it can be retried and alerted; builds do not wait on it.
+      # machine channel's trust: the darwin build is not this job's), live_from, the app commits whose daemon protocol
+      # can take them, and native_from, those whose app already holds the rest of the commit (no Swift, web or
+      # helper change since): `app try` swaps live only for native_from, else installs a full build. Failure fails
+      # this delivery job so it can be retried and alerted; builds do not wait on it.
       - name: Sign the Mac live update file
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}

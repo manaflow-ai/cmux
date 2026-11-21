@@ -725,18 +725,44 @@ def pins_daemon(repo: Path, commit: str) -> list[str]:
     return paths
 
 
+def unswapped(repo: Path, commit: str) -> list[str]:
+    """The paths of COMMIT's own change that a Mac live update does not carry: everything the app bundle holds
+    outside the bin/ files `cmux app try` swaps (Swift, resources, manifests, web, the bundled helpers built from
+    cmux-tui crates). Empty when the change is daemon Rust the swapped binaries hold, or files no app ships."""
+    parent = git(repo, "rev-parse", "--verify", "--quiet", f"{commit}^", check=False)
+    if not SHA.fullmatch(parent or ""):
+        return [f"{commit} has no parent here"]
+    files = live_apply.classify_range(str(repo), parent, commit)["files"]
+    paths = sorted({p for kind in ("rebuild", "swift-live", "web-live") for p in files.get(kind, [])})
+    return paths + helper_rust(repo, sorted(set(files.get("daemon", []))))
+
+
 def live_from(repo: Path, sha: str, limit: int = LIVE_FROM_MAX) -> dict:
     """Every commit whose app can take SHA's daemon build live, newest first: SHA, then its first parents
     back to the newest commit whose own change pins the daemon to the app (pins_daemon; included: an app
     built there links that change).
     At most `limit` commits; `floor` is that commit, or None when the walk stopped at the limit. The
-    signed Mac live update file names them (scripts/ci/cmux-machine-channel.py --purpose mac-live)."""
-    out: dict = {"sha": sha, "live_from": [], "floor": None, "floor_paths": []}
+    signed Mac live update file names them (scripts/ci/cmux-machine-channel.py --purpose mac-live).
+
+    `native_from` is the part of `live_from` whose app already holds everything of SHA but the swapped bin/
+    files: SHA, then each older commit while every change between it and SHA is one `unswapped` finds nothing
+    in. `cmux app try` takes the live path only for those; any other app needs SHA's full build, since a swap
+    would report SHA live without its Swift, web or helper changes. `native_floor` is the last native_from entry
+    when the walk stopped at a change the swap does not carry (included: an app built there holds that change),
+    `native_floor_paths` what it changed; None when native_from reaches the end of live_from."""
+    out: dict = {"sha": sha, "live_from": [], "floor": None, "floor_paths": [],
+                 "native_from": [], "native_floor": None, "native_floor_paths": []}
     for commit in git(repo, "rev-list", "--first-parent", f"--max-count={limit}", sha).split():
         out["live_from"].append(commit)
         if paths := pins_daemon(repo, commit):
             out["floor"], out["floor_paths"] = commit, paths[:20]
             break
+    out["native_from"].append(sha)
+    for newer, older in zip(out["live_from"], out["live_from"][1:]):
+        if paths := unswapped(repo, newer):
+            out["native_floor"], out["native_floor_paths"] = newer, paths[:20]
+            break
+        out["native_from"].append(older)
     return out
 
 
