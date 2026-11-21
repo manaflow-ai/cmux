@@ -280,6 +280,13 @@ function linkRow(app: string, path: string, state: IntegrationRow["state"]): Int
   return { id: `link-${app}`, path, state, reason: null, detail: null, error: null };
 }
 
+const variant = (section: string, extra: Omit<SettingsPageVariant, "section"> = {}): SettingsPageVariant => {
+  // A section that is neither a category id nor one of its aliases opens General (categoryOf), so
+  // a state's steps wait for a card that is never drawn: say which section is wrong instead.
+  if (!isCategory(section) && categoryOf(section) === defaultCategory)
+    throw new Error(`settings gallery: ${JSON.stringify(section)} is not a Settings category or alias`);
+  return { section, host, accounts: accounts(), ...extra };
+};
 /** The Endpoint form captured in view (the tab sits below the Agents list), once `ready` shows. */
 const showEndpoint =
   (ready = "[data-agents-endpoint]") =>
