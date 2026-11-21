@@ -33,6 +33,7 @@ import { commandEdit, setSlashNames, slashTokensPlugin, slashTriggerAt } from ".
 import { deeplinkTokensPlugin } from "./composer/deeplinkTokens";
 import { spacedAfterDeeplink } from "./composer/deeplinks";
 import { deeplinkTitlesPlugin, type DeeplinkTitles } from "./composer/deeplinkTitles";
+import { mentionChipsPlugin } from "./composer/mentionChips";
 import { CMUX_LINK_ICONS, knownCmuxLink, subscribeCmuxLinks } from "./chips/cmuxLinkResolve";
 import { iconMaskUrl } from "./icons/iconMask";
 import { subscribeIconFamily } from "./icons/iconPack";
@@ -868,8 +869,10 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
       if (attribute === undefined) dom.removeAttribute(name);
       else dom.setAttribute(name, attribute);
   };
+  // Written only when it changes: each write is an attribute mutation, and this runs on every edit.
   const showPlaceholder = (markdown: string) => {
-    if (empty.current) empty.current.hidden = markdown !== "";
+    const hide = markdown !== "";
+    if (empty.current && empty.current.hidden !== hide) empty.current.hidden = hide;
   };
 
   /// Asks the surface about typed or pasted text first; true when it consumed it.
@@ -1440,6 +1443,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         .use($prose(() => deeplinkTokensPlugin()))
         // One it knows draws as what it names, its text still the link (composer/deeplinkTitles.ts).
         .use($prose(() => deeplinkTitlesPlugin(draftLinkTitles())))
+        // `@` mentions as inline chips while the composer refresh is on (composer/mentionChips.ts).
+        .use($prose(() => mentionChipsPlugin()))
         .create()
         .then((made) => {
           if (disposed) {

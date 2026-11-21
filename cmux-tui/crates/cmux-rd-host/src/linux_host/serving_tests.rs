@@ -136,7 +136,10 @@ fn cell(before: Before, sign_in_works: bool, stop_works: bool) {
         assert!(!stop_works, "{tag}: the records still name p:a: {calls:?}");
         let joined = machine::Joined::load(&dir).unwrap();
         let joined = joined.unwrap_or_else(|| panic!("{tag}: a person's p:a kept"));
-        assert!(super::current_join(&dir, &joined).is_err(), "{tag}: a host starts as p:a");
+        assert!(
+            super::current_join(&dir, &origin, &joined).is_err(),
+            "{tag}: a host starts as p:a"
+        );
     }
     // SameJoin's identity is the current join's: a host that serves on after a failed teardown
     // (the hub down, the stop failed) still serves the current join. Any other stops itself.
@@ -296,6 +299,69 @@ fn an_unanswered_sign_out_is_asked_again_and_the_host_is_off_meanwhile() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Review of #45369: a hub that fails (a 5xx) has not signed the device out, so its pending
+/// sign-out is kept; only a hub that signs it out or does not know it (404) drops it.
+#[test]
+fn a_pending_sign_out_is_kept_until_the_hub_confirms_it() {
+    let dir = dir("pending-5xx");
+    let old = hold(&dir, "http://127.0.0.1:1", Before::PersonAnchored).unwrap();
+    let unit = Recorded::new(Arc::new(Mutex::new(Vec::new())), false);
+    super::tear_down(&dir, super::Previous::load(&dir).unwrap(), &unit).unwrap();
+    let answering = |status: u16| {
+        stub(move |_, _| (status, serde_json::json!({ "error": { "code": "x", "message": "x" } })))
+    };
+    let point = |origin: String| {
+        let mut moved = super::load_pending(&dir).unwrap();
+        moved[0].hub = origin;
+        super::save_pending(&dir, &moved).unwrap();
+    };
+    for status in [500, 502, 503, 429] {
+        let (origin, seen) = answering(status);
+        point(origin);
+        super::retry_pending(&dir);
+        assert!(!seen.lock().unwrap().is_empty(), "{status}: not asked");
+        let left = super::load_pending(&dir).unwrap();
+        assert_eq!(left.len(), 1, "{status}: a failing hub dropped the pending sign-out");
+        assert_eq!(left[0].device.id, old.id);
+    }
+    let (origin, _) = answering(404);
+    point(origin);
+    super::retry_pending(&dir);
+    assert!(super::load_pending(&dir).unwrap().is_empty(), "a hub that does not know it");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Review of #45369: a pending sign-out keeps its device key on disk, so its file is private
+/// and its entries do not outlive the bound; one past it is dropped without asking the hub.
+#[test]
+fn a_pending_sign_out_is_private_and_dropped_once_it_is_old() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = dir("pending-age");
+    let old = hold(&dir, "http://127.0.0.1:1", Before::PersonAnchored).unwrap();
+    let unit = Recorded::new(Arc::new(Mutex::new(Vec::new())), false);
+    super::tear_down(&dir, super::Previous::load(&dir).unwrap(), &unit).unwrap();
+    let file = dir.join(super::PENDING_FILE);
+    assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
+    let pending = super::load_pending(&dir).unwrap();
+    assert_eq!(pending.len(), 1);
+    let since = pending[0].since_ms;
+    assert!(since > 0, "no time recorded");
+    // Still within the bound, at its last moment: kept (the hub still does not answer).
+    super::retry_pending_at(&dir, since + super::PENDING_MAX_AGE_MS);
+    assert_eq!(super::load_pending(&dir).unwrap().len(), 1);
+    // Past it: dropped, unasked, and the file with it.
+    let (origin, seen) = person_hub();
+    let mut moved = super::load_pending(&dir).unwrap();
+    moved[0].hub = origin;
+    super::save_pending(&dir, &moved).unwrap();
+    super::retry_pending_at(&dir, since + super::PENDING_MAX_AGE_MS + 1);
+    assert!(super::load_pending(&dir).unwrap().is_empty());
+    assert!(!file.exists());
+    let sign_out = format!("/v1/devices/{}/sign-out", old.id);
+    assert!(!seen.lock().unwrap().iter().any(|s| s.path == sign_out), "an aged entry was sent");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn a_host_started_for_an_earlier_join_serves_nothing() {
     let dir = dir("earlier-join");
@@ -309,14 +375,16 @@ fn a_host_started_for_an_earlier_join_serves_nothing() {
     };
     write("m-a");
     let joined = machine::Joined::of(&home, &machine::load(&home).unwrap().unwrap());
-    assert!(super::current_join(&dir, &joined).is_ok());
+    assert!(super::current_join(&dir, "http://127.0.0.1:1", &joined).is_ok());
     // Joined again: the unit's record names the earlier join.
     write("m-b");
-    let e = super::current_join(&dir, &joined).unwrap_err();
+    let e = super::current_join(&dir, "http://127.0.0.1:1", &joined).unwrap_err();
     assert!(e.is::<super::Fatal>() && e.to_string().contains("joined again"), "{e}");
     // Left: no credential at all.
     std::fs::remove_file(home.join(machine::CREDENTIAL_FILE)).unwrap();
-    assert!(super::current_join(&dir, &joined).unwrap_err().is::<super::Fatal>());
+    assert!(super::current_join(&dir, "http://127.0.0.1:1", &joined)
+        .unwrap_err()
+        .is::<super::Fatal>());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -393,4 +461,73 @@ fn after_a_failed_join_a_person_is_still_refused() {
         assert_eq!(super::join_owner(&dir).unwrap(), None);
     }
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// What a desktop a join signed in before joins were marked (#45369) has after `run`'s start.
+struct Unmarked {
+    dir: PathBuf,
+    home: PathBuf,
+    old: Device,
+    got: Res<machine::MachineCredential>,
+}
+
+/// A desktop the join m-b signed in as `recorded` before joins were marked; the hub now signs
+/// m-b in as p:b, or is down.
+fn unmarked(recorded: &str, hub_up: bool) -> Unmarked {
+    let (origin, _) = stub(move |_, request| match request.path.as_str() {
+        "/v1/auth/machine" if !hub_up => {
+            (503, serde_json::json!({ "error": { "code": "unavailable", "message": "down" } }))
+        }
+        "/v1/auth/machine" => (
+            200,
+            serde_json::json!({ "session": "m", "userId": "p:b", "expiresAt": now_ms() + 3_600_000 }),
+        ),
+        _ => (200, serde_json::json!({ "ok": true })),
+    });
+    let dir = dir(&format!("unmarked-{recorded}-{hub_up}"));
+    let home = dir.join("acpmux-home");
+    identity::private_dir(&home).unwrap();
+    let record = br#"{"credential":"cmm_m-b","name":"lane-vm","machine_id":"m-b","credential_generation":1}"#;
+    identity::write_private(&home.join(machine::CREDENTIAL_FILE), record).unwrap();
+    let old = Device::generate("lane-vm").unwrap();
+    old.save(&dir).unwrap();
+    Account { hub: origin.clone(), user_id: recorded.to_owned(), anchored_until: 0 }
+        .save(&dir)
+        .unwrap();
+    let joined = machine::Joined { acpmux_home: home.clone(), ..Default::default() };
+    joined.save(&dir).unwrap();
+    let got = super::current_join(&dir, &origin, &joined);
+    Unmarked { dir, home, old, got }
+}
+
+#[test]
+fn a_join_signed_in_before_its_mark_keeps_serving_its_account_and_is_marked() {
+    let c = unmarked("p:b", true);
+    let credential = c.got.unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(Device::load(&c.dir).unwrap().unwrap().id, c.old.id);
+    assert_eq!(Account::load(&c.dir).unwrap().unwrap().user_id, "p:b");
+    let marked = machine::Joined::of(&c.home, &credential);
+    assert_eq!(machine::Joined::load(&c.dir).unwrap(), Some(marked));
+    let _ = std::fs::remove_dir_all(&c.dir);
+}
+
+#[test]
+fn a_join_signed_in_before_its_mark_as_another_account_serves_the_current_join() {
+    let c = unmarked("p:a", true);
+    let credential = c.got.unwrap_or_else(|e| panic!("{e}"));
+    assert_ne!(Device::load(&c.dir).unwrap().unwrap().id, c.old.id);
+    assert_eq!(Account::load(&c.dir).unwrap().unwrap().user_id, "p:b");
+    let marked = machine::Joined::of(&c.home, &credential);
+    assert_eq!(machine::Joined::load(&c.dir).unwrap(), Some(marked));
+    let _ = std::fs::remove_dir_all(&c.dir);
+}
+
+#[test]
+fn a_join_signed_in_before_its_mark_serves_nothing_while_the_hub_is_down() {
+    let c = unmarked("p:b", false);
+    assert!(c.got.is_err());
+    assert_eq!(Account::load(&c.dir).unwrap(), None);
+    assert!(Device::load(&c.dir).unwrap().is_none());
+    assert_eq!(machine::Joined::load(&c.dir).unwrap(), None);
+    let _ = std::fs::remove_dir_all(&c.dir);
 }

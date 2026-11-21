@@ -25,6 +25,10 @@ public final class GitHubConnections {
     @ObservationIgnored public var completionLink: String?
     /// The live model's watch of ``CloudGitHubChanges`` (a finished install re-reads the connections).
     @ObservationIgnored public var changes: Task<Void, Never>? { didSet { oldValue?.cancel() } }
+    /// The words for the last completion the API refused (an expired link, a non-owner's request), shown where Connect
+    /// GitHub is until the next Connect starts over or a connection takes. The live model sets it from
+    /// ``CloudGitHubChanges/refusal`` (``refusalWords(reason:)``); nil when nothing was refused.
+    public var linkRefusal: String?
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private var connectKeys: [Scope: String] = [:]
     private var loadedScope: Scope?
@@ -48,9 +52,9 @@ public final class GitHubConnections {
     public var busy: Bool { workingScope != nil && workingScope == scope() }
     public var currentConnections: [JSONValue] { loadedScope == scope() ? connections : [] }
     /// `integration.connect`'s params: GitHub, and the app's completion link when one is set (``completionLink``).
-    var connectParams: JSONValue {
+    func connectParams(returning: Bool) -> JSONValue {
         var params: [String: JSONValue] = ["provider": "github"]
-        if let completionLink { params["return_to"] = .string(completionLink) }
+        if returning, let completionLink { params["return_to"] = .string(completionLink) }
         return .object(params)
     }
     public var connected: Bool { currentConnections.contains { $0["status"]?.stringValue == "active" && (canDisconnect($0) || $0["sharing"]?.stringValue == "team") } }
@@ -90,6 +94,7 @@ public final class GitHubConnections {
         do {
             switch action {
             case "githubConnect":
+                linkRefusal = nil // a new Connect starts over
                 // A pending flow from another launch has no resumable URL or key here.
                 // Keep it pending until refresh or disconnect resolves that flow.
                 guard ready, !connected, !pending || resumable(bound) else { return }
@@ -101,7 +106,12 @@ public final class GitHubConnections {
                     open(authorization.url)
                 } else {
                     if connectKeys[bound] == nil { connectKeys[bound] = UUID().uuidString }
-                    let value = try await call(bound, "integration.connect", connectParams, connectKeys[bound])
+                    // An API from before the completion link refuses its params: the console finishes it. The retry has its
+                    // own key, derived so its own retry is the same ask (the same key with other params is a conflict).
+                    let value: JSONValue
+                    do { value = try await call(bound, "integration.connect", connectParams(returning: true), connectKeys[bound]) } catch GitHubFailure.refused where completionLink != nil {
+                        value = try await call(bound, "integration.connect", connectParams(returning: false), connectKeys[bound].map { $0 + ":plain" })
+                    }
                     guard scope() == bound, generation == ticket else { return }
                     guard let raw = value["authorize_url"]?.stringValue, let url = Self.installationURL(raw),
                           let id = value["connection"]?["id"]?.stringValue, !id.isEmpty else { throw GitHubFailure.invalidReply }

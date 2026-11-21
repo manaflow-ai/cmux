@@ -45,43 +45,54 @@ jobs:
   request:
     name: request the cmux-tui tree publish
     if: ${{ github.event_name == 'workflow_dispatch' && github.repository_owner == 'manaflow-ai' && github.ref == 'refs/heads/feat-cmux-next' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-lane-build-x64' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     permissions:
       # actions: write re-runs a cmux-tui artifacts run.
       actions: write
       contents: read
     steps:
-      - name: Check the commit is on feat-cmux-next
-        env:
-          COMMIT: ${{ inputs.commit }}
-          TIP: ${{ github.sha }}
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::commit must be a full 40-hex sha, not '$COMMIT'"; exit 1; }
-          status="$(gh api "repos/$REPOSITORY/compare/$COMMIT...$TIP?per_page=1" --jq .status)"
-          case "$status" in
-            ahead|identical) echo "$COMMIT is on feat-cmux-next ($TIP)." ;;
-            *) echo "::error::$COMMIT is not on feat-cmux-next ($TIP is $status of it); nothing is published"; exit 1 ;;
-          esac
-
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          ref: ${{ inputs.commit }}
-          fetch-depth: 1
+          ref: ${{ github.ref }}
+          # The branch's complete commit graph lets git prove ancestry without
+          # spending the installation API quota on compare.
+          fetch-depth: 0
+          filter: blob:none
+          sparse-checkout: scripts/ci
 
-      # The owned GCP build lanes reuse the workspace: after an earlier job's sparse checkout a full checkout there left tracked files missing (run 44398113924), so write HEAD's files again.
+      # The owned GCP build lanes reuse the workspace: reset the sparse checkout
+      # after an earlier job left tracked files missing (run 44398113924).
       - name: Repair a reused self-hosted checkout
         if: runner.os == 'Linux'
         shell: bash
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
-            git sparse-checkout disable 2>/dev/null || true
             git reset -q --hard HEAD
+            if ! git config --bool core.sparseCheckout | grep -qx true; then
+              git sparse-checkout disable 2>/dev/null || true
+              git reset -q --hard HEAD
+            fi
           fi
+
+      - name: Check the commit is on feat-cmux-next
+        env:
+          COMMIT: ${{ inputs.commit }}
+          TIP: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::commit must be a full 40-hex sha, not '$COMMIT'"; exit 1; }
+          git cat-file -e "$COMMIT^{commit}" 2>/dev/null || {
+            echo "::error::$COMMIT is not on feat-cmux-next ($TIP does not contain it); nothing is published"
+            exit 1
+          }
+          if ! git merge-base --is-ancestor "$COMMIT" "$TIP"; then
+            echo "::error::$COMMIT is not on feat-cmux-next ($TIP does not contain it); nothing is published"
+            exit 1
+          fi
+          echo "$COMMIT is on feat-cmux-next ($TIP)."
+          git checkout --quiet --detach "$COMMIT"
 
       - name: Dispatch one publisher when the tree is missing
         id: request
@@ -92,6 +103,13 @@ jobs:
           SERVER_URL: ${{ github.server_url }}
         run: |
           set -euo pipefail
+          # The checkout is blobless and sparse (scripts/ci), and the key script
+          # never fetches lazily (GIT_NO_LAZY_FETCH). Its only blob read is the
+          # revision's own inputs list, so fetch that one blob first; trees and
+          # gitlinks are already local. A revision without the list falls back
+          # in the script.
+          prefetch_key_inputs() { git cat-file blob "$1:scripts/cmux-next/cmux-tui-tree-inputs.txt" >/dev/null 2>&1 || true; }
+          prefetch_key_inputs "$COMMIT"
           # The commit's own key definition, as its push run's tree-preflight uses.
           key="$(python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$COMMIT")"
           [[ "$key" =~ ^[0-9a-f]{40}$ ]]
@@ -149,7 +167,12 @@ jobs:
           while IFS=$'\t' read -r candidate url; do
             [[ "$candidate" =~ ^[0-9a-f]{40}$ ]] || continue
             if [[ "$candidate" != "$COMMIT" ]]; then
-              git fetch -q --no-tags --depth=1 "$SERVER_URL/$REPOSITORY.git" "$candidate" 2>/dev/null || continue
+              # Older pushes are already in the full blobless history; a newer
+              # one comes through origin with the same filter (no shallow file,
+              # no full blob download).
+              git cat-file -e "$candidate^{commit}" 2>/dev/null \
+                || git fetch -q --no-tags --filter=blob:none origin "$candidate" 2>/dev/null || continue
+              prefetch_key_inputs "$candidate"
               [[ "$(python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$candidate" 2>/dev/null)" == "$key" ]] || continue
             fi
             active_url="$url"

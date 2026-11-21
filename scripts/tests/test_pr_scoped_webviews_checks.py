@@ -20,12 +20,20 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 WEBVIEWS = ROOT / 'webviews'
 SWIFT = 'Packages/macOS/CmuxNext/Sources'
-OUTSIDE = ('schemas', 'web', 'Packages/Shared', 'design/icons/neko-candidates')
+# Gallery entries also load preview data from the first-party apps outside webviews.
+OUTSIDE = ('schemas', 'web', 'Packages/Shared', 'design/icons/neko-candidates', 'first-party-apps')
 UI_RULES = 'test/ui-rules.test.ts'
 COVERAGE = 'test/gallery-coverage.test.ts'
 RAW_KEYS = 'export function RawKeys() {\n  return <div onKeyDown={() => undefined} />;\n}\n'
 ORPHAN = 'export function Orphan() {\n  return <div />;\n}\n'
 CLEAN = 'export const clean = 1;\n'
+
+
+def tracked_webviews_folders():
+    """webviews' top-level folders git tracks (src, test, scripts, dev-server, ...), never node_modules or build output."""
+    listed = subprocess.run(['git', 'ls-files', '-z', '--', 'webviews/'], cwd=ROOT, check=True,
+                            capture_output=True).stdout.decode().split('\0')
+    return sorted({parts[1] for parts in (p.split('/') for p in listed) if len(parts) > 2})
 
 
 class Checkout:
@@ -35,7 +43,9 @@ class Checkout:
         self.temporary = tempfile.TemporaryDirectory()
         self.path = Path(self.temporary.name)
         web = self.path / 'webviews'
-        for name in ('src', 'test', 'scripts'):
+        # Every tracked folder, not a hand-kept list: webviews/scripts/gallery/entries.ts imports
+        # ../../dev-server/galleryHost (#46869), and a fixture without dev-server failed every test here.
+        for name in tracked_webviews_folders():
             shutil.copytree(WEBVIEWS / name, web / name, ignore=shutil.ignore_patterns('node_modules'))
         for name in ('package.json', 'tsconfig.json'):
             if (WEBVIEWS / name).exists():
