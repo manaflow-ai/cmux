@@ -2160,8 +2160,8 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     if ev.record.kind == crate::hub::PEER_REWOUND {
         if conn.sub_opts(&ev.session_id).is_some() {
             let mut params = ev.record.msg.clone();
-            if let Some(remote) = &ev.remote {
-                params["peer"] = json!(remote.peer);
+            if let (Some(remote), Some(fields)) = (&ev.remote, params.as_object_mut()) {
+                fields.insert("peer".to_owned(), json!(remote.peer));
             }
             conn.send(&Message::notification(method::MUX_REWOUND, params));
         }
