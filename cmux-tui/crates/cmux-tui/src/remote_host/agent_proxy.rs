@@ -14,7 +14,8 @@ const MAX_FRAME: usize = 128 * 1024;
 /// also send `agent-session-typing` and `agent-session-view`, and a guest `agent-session-view`, so
 /// the owner and the teammate see each other's face and typing row. Off (the default, and when
 /// the settings file cannot be read), a teammate gets exactly the 1a verbs.
-pub(super) fn chat_multiplayer() -> bool {
+#[cfg(not(test))]
+fn chat_multiplayer() -> bool {
     use acpmux::user_settings::{self, Settings};
     match user_settings::read() {
         Settings::Parsed(doc) => {
