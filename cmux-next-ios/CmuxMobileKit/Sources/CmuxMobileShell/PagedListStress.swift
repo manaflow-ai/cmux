@@ -67,8 +67,6 @@ final class PagedStressSource: PagedListSource {
     private var edits = 0
     /// The rows typing now (the `typing` load).
     private var typing: Set<Int> = []
-    /// The row being read (the lab's probe), where the `typing` load's rows start and stop typing.
-    var reading: (@MainActor () -> Int?)?
     private var typingOwed = 0.0
     private var continuation: AsyncStream<[PagedListChange<PagedLabItem>]>.Continuation?
     private var ticking: Task<Void, Never>?
@@ -147,11 +145,12 @@ final class PagedStressSource: PagedListSource {
         }
     }
 
-    /// A row from the six above the one being read to the two below it (the first rows before any
-    /// is read) starts or stops typing.
+    /// One of the newest 40 rows starts or stops typing, as Home's live Chiefs do at the top of its
+    /// list: the reader passes above and below them as they scroll back to the newest rows. (The row
+    /// being read moves only when a scroll ends, so aiming at it put the changes off screen during
+    /// a fling: step e5a40416 stayed green.)
     private func toggledTyping() -> PagedListChange<PagedLabItem>? {
-        let at = reading?().flatMap { served.firstIndex(of: $0) } ?? 4
-        let range = max(0, at - 6)..<min(served.count, at + 3)
+        let range = 0..<min(served.count, 40)
         guard !range.isEmpty else { return nil }
         let id = served[Int.random(in: range, using: &rng)]
         let now = !typing.contains(id)

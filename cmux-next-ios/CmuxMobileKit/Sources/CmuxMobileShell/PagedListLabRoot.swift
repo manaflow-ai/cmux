@@ -62,7 +62,6 @@ public struct PagedListLabRoot: View {
         _probe = State(initialValue: probe)
         if let name = value("-cmux-mobile-paged-lab-stress"), let load = PagedStressLoad.named[name] {
             let stress = PagedStressSource(load: load)
-            stress.reading = { [weak probe] in probe?.readingID as? Int }
             _stress = State(initialValue: stress)
             _model = State(initialValue: PagedListModel(direction: direction, source: stress, memory: memory))
         } else {
