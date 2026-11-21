@@ -55,7 +55,9 @@ const LENGTHS = (flag("--lengths") ?? "60,1500,6000").split(",").map(Number);
 const KEYS = Number(flag("--keys") ?? 60);
 const GAP_MS = Number(flag("--gap") ?? 80);
 const MODES = (flag("--mode") ?? flag("--modes") ?? "idle").split(",");
-const ENGINES = (flag("--engines") ?? "chromium").split(",");
+// `--engine webkit` (one engine) and `--engines chromium,webkit` (each in turn) name the same thing: without
+// --engines the single run takes --engine's, so `--engine webkit` alone types in WebKit and not, as it did, in Chromium.
+const ENGINES = (flag("--engines") ?? flag("--engine") ?? "chromium").split(",");
 const STREAM = Number(flag("--stream") ?? 60);
 const TOOL_LINES = Number(flag("--tool-lines") ?? 2000);
 if (
@@ -86,9 +88,9 @@ const ARMS = parseArms(flag("--arms"), webviews);
 const ROUNDS = Number(flag("--rounds") ?? 6);
 const FLOOR = !argv.includes("--no-floor");
 const COLD = argv.includes("--cold");
-const ENGINE = flag("--engine") ?? "chromium";
+const ENGINE = flag("--engine") ?? (ENGINES.length === 1 ? ENGINES[0]! : "chromium");
 if (ENGINE !== "chromium" && ENGINE !== "webkit") throw new Error(`--engine must be chromium or webkit, not ${ENGINE}`);
-if (ENGINE === "webkit" && (PROFILE || TRACE))
+if (ENGINES.includes("webkit") && (PROFILE || TRACE))
   throw new Error("--profile and --trace read Chromium's DevTools protocol");
 /// Prompts waiting in the chat's queue while the keys are typed (0: none).
 const QUEUED = Number(flag("--queue") ?? 0);
@@ -414,8 +416,8 @@ async function measure(
 
 try {
   const cases = LENGTHS.flatMap((length) => MODES.map((mode) => ({ length, mode })));
-  if (ARMS && ENGINES.some((engine) => engine === "webkit"))
-    throw new Error("--engines webkit cannot be combined with --arms; run WebKit as a single source tree");
+  if (ARMS && ENGINES.length > 1)
+    throw new Error("--arms measures one engine: pass --engine chromium or --engine webkit, not a list");
   if (ARMS) {
     // Two source trees in one run: each built and served once, then every case interleaved (composer-arms.ts).
     const ports = new Map<string, number>();
@@ -430,7 +432,7 @@ try {
           label: `${mode} ${length} rows`,
           metrics: ARM_METRICS,
           ports,
-          run: (port) => measure(port, length, mode),
+          run: (port) => measure(port, length, mode, ENGINES[0] as "chromium" | "webkit"),
         })),
       );
     console.log(`COMPOSER-TYPING ${JSON.stringify(runs)}`);

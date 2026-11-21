@@ -8,6 +8,7 @@ mod daemon;
 mod page;
 mod parts;
 mod scale;
+mod shared_stall;
 
 use crate::model::Health;
 use crate::{Kind, Outcome, PartView, RepairAction};

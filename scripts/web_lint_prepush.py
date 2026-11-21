@@ -1881,6 +1881,35 @@ def load_compare():
     return module
 
 
+# --new-only: the file (one repo-relative path per line) of the paths the change touches, for a check that is a pure
+# function of each file (webviews' check:compiler-bails) to read only those. Its findings on the other files are the
+# base's, which a full run on every feat-cmux-next push (cmux-next-web-lint.yml, no --new-only) already holds. The
+# merge and the --new-only base run read the same list. check:compiler-bails compiled all 2,977 agent-chat files
+# serially on every pull request: 65 s of the fast gates' 159 s step (job 136902872282, 2026-11-21).
+CHANGED_FILES_ENV = "CMUX_WEB_LINT_CHANGED_FILES"
+
+
+@contextlib.contextmanager
+def changed_files_env(files: list[str] | None):
+    """CHANGED_FILES_ENV naming a file of FILES while the checks run; unset (every check reads every file) when None."""
+    if files is None:
+        yield
+        return
+    handle, name = tempfile.mkstemp(prefix="web-lint-changed-", suffix=".txt")
+    previous = os.environ.get(CHANGED_FILES_ENV)
+    try:
+        with os.fdopen(handle, "w") as out:
+            out.write("".join(f"{path}\n" for path in files))
+        os.environ[CHANGED_FILES_ENV] = name
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop(CHANGED_FILES_ENV, None)
+        else:
+            os.environ[CHANGED_FILES_ENV] = previous
+        Path(name).unlink(missing_ok=True)
+
+
 def charge_new_only(repo: Path, base: str, plan: Plan, tree: Path, results: list[Result], heavy: bool = True) -> None:
     """--new-only: each failed package check runs again on BASE. A red whose every finding BASE has too passes
     with a warning; otherwise the result keeps only the findings it adds. A host that runs no heavy checks makes
@@ -2089,7 +2118,8 @@ def main(argv: list[str] | None = None) -> int:
                       "the lint tree would download them first. CI's `web lint` job checks it; `scripts/web-lint.sh` "
                       "on a full checkout runs it by hand.", file=sys.stderr)
                 continue
-        with tree_of(repo, head, directories, only) as tree:
+        scoped = files if args.new_only and not args.all else None
+        with tree_of(repo, head, directories, only) as tree, changed_files_env(scoped):
             if args.pre_push and not refuse_escapes(tree, plan, mode, read):
                 continue
             found = run_plan(tree, plan, args.fix, cache=tree == repo, heavy=heavy, mode=mode)

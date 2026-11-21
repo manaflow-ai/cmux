@@ -41,9 +41,11 @@ pub enum Environment {
     Preview(u32),
     Staging,
     Prod,
-    /// A dev build's own backend on the tailnet: one tag's `wrangler dev` stack on the dev VM
-    /// (`https://<host>.<tailnet>.ts.net[:port]`, HTTPS only). Dev bundles only ([`is_dev_bundle`]);
-    /// its other origins are the development deployment's unless its client-config names others.
+    /// A dev build's own backend: one tag's `wrangler dev` stack on the dev VM, by its tailnet origin
+    /// (`https://<host>.<tailnet>.ts.net[:port]`) or its public one (`https://api.s<N>.wdev.cmux.dev`,
+    /// behind the authenticating gateway, scripts/cmux-next/cloud-dev-stack/gateway). HTTPS only. Dev
+    /// bundles only ([`is_dev_bundle`]); its other origins are the development deployment's unless
+    /// its client-config names others.
     Tailnet(String),
 }
 
@@ -86,7 +88,11 @@ impl Environment {
             PRODUCTION_API => Ok(Self::Prod),
             "http://localhost:8787" => Ok(Self::Local),
             _ if client_config::is_loopback_origin(&origin) => Ok(Self::LocalOrigin(origin)),
-            _ if client_config::is_tailnet_origin(&origin) => Ok(Self::Tailnet(origin)),
+            _ if client_config::is_tailnet_origin(&origin)
+                || client_config::is_public_stack_origin(&origin) =>
+            {
+                Ok(Self::Tailnet(origin))
+            }
             _ => {
                 let host = url::Url::parse(&origin)
                     .map_err(|error| error.to_string())?
@@ -1001,6 +1007,7 @@ mod tests {
     }
 
     const TAILNET: &str = "https://cmux-dev-backend-1.tail137216.ts.net:3850";
+    const PUBLIC_STACK: &str = "https://api.s7.wdev.cmux.dev";
 
     /// The tag hand-off's file (`backend.json` in the bundle's folder), as review.sh writes it.
     fn write_tag_backend(home: &Home, bundle: &str, body: &str) {
@@ -1087,7 +1094,12 @@ mod tests {
             assert_eq!(selected.name, "prod", "{bundle}");
             assert_eq!(override_source(&selected), serde_json::Value::Null, "{bundle}");
             assert!(resolver.resolve(Some(TAILNET)).is_err(), "{bundle}");
+            assert!(resolver.resolve(Some(PUBLIC_STACK)).is_err(), "{bundle}");
         }
+        // A dev bundle takes a tag stack's public origin, as its tailnet one.
+        let home = Home::new();
+        let dev = Resolver::new("com.cmuxterm.app.debug.cnx-tag", &home.0).unwrap();
+        assert_eq!(dev.resolve(Some(PUBLIC_STACK)).unwrap().api_origin, PUBLIC_STACK);
         // NIGHTLY's picker cannot persist one either.
         let home = Home::new();
         let nightly = Resolver::new(NIGHTLY_BUNDLE, &home.0).unwrap();
@@ -1150,6 +1162,16 @@ mod tests {
             "https://cmux-dev-backend-1.tail137216.ts.net?x=1",
             "https://user@cmux-dev-backend-1.tail137216.ts.net",
             "https://cmux_dev.tail137216.ts.net",
+            // Another tailnet's machine (a Funnel name is public) or a name under ours that is no machine.
+            "https://cmux-dev-backend-1.tail9999.ts.net:3850",
+            "https://evil.ts.net",
+            "https://a.b.tail137216.ts.net",
+            "https://.tail137216.ts.net",
+            // Under cmux.dev but no tag stack's API host.
+            "https://mobile.s7.wdev.cmux.dev",
+            "https://api.s7.wdev.cmux.dev:8443",
+            "https://api.s7.other.cmux.dev",
+            "https://cmux.dev",
         ] {
             assert!(Environment::parse(origin).is_err(), "{origin}");
         }
