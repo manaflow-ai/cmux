@@ -122,22 +122,19 @@ export function DiffPill({
       case "options":
         dispatch({ type: "set-options-open", open: !state.optionsOpen });
         return;
-      case "find":
-        dispatch(state.findOpen ? { type: "set-find-open", open: false } : { type: "request-find" });
-        return;
       case "layout":
         onSetLayout(nextDiffViewerLayout(state.options.layout));
         return;
       case "files":
         dispatch({ type: "set-files-visible", visible: !state.filesVisible });
         return;
-      case "plainEnglish":
-        onTogglePlainEnglish?.();
-        return;
     }
   };
   const onMenuItem = (id: OverflowMenuItemId) => {
     switch (id) {
+      case "find":
+        dispatch({ type: "request-find" });
+        return;
       case "word-wrap":
         onSetOption("wordWrap", !state.options.wordWrap);
         return;
@@ -178,7 +175,7 @@ export function DiffPill({
   };
   return (
     <FloatingToolbar
-      buttons={toolbarPillButtons(state, plainEnglish)}
+      buttons={toolbarPillButtons(state)}
       label={label}
       menuItems={[
         ...overflowMenuItems(state.options, capabilities, state.whitespaceHidden),

@@ -87,7 +87,7 @@ import { sentPasteJoin } from "./conversation/sentPasteJoin.experiment";
 import { attachmentOnlyPrompt, bubbleLayout } from "./conversation/bubbleParts";
 import { isPromptMarkdown } from "./conversation/promptMarkdown";
 import { sentUIPick, sentUIPickSegments, type SentPromptSegment } from "./conversation/sentUIPickModel";
-import { SENT_IMAGE_HEIGHT, sentImageSize, sentImageWidth } from "./conversation/userBubbleModel";
+import { SENT_IMAGE_HEIGHT, SENT_IMAGE_MAX_WIDTH, sentImageSize, sentImageWidth } from "./conversation/userBubbleModel";
 import { sentVideoOf, sentVideosOf } from "./conversation/sentVideos";
 import { fileSizeLabel } from "./fileAttachmentModel";
 import { mcpCall } from "./conversation/mcpCalls";
@@ -2596,11 +2596,11 @@ function fallbackRowHeight(
     (!row.text?.trim() || attachmentOnlyPrompt(row)) &&
     (row.images?.length || row.retryAttachments?.length || row.inlineParts?.some((part) => part.kind !== "text"))
   ) {
-    // Sent thumbnails wrap at the 70% user column. Use the widest thumbnail (320px, plus its 6px
-    // gap; userBubbleModel.ts SENT_IMAGE_MAX_WIDTH) when estimating columns so a wide image never
-    // lets a second attachment row overlap the next row.
+    // Sent thumbnails wrap at the 70% user column. Use the widest thumbnail (userBubbleModel.ts
+    // SENT_IMAGE_MAX_WIDTH, plus its 8px gap) when estimating columns so a wide image never lets a
+    // second attachment row overlap the next row.
     const inlineParts = row.inlineParts ?? [];
-    // A video sent with its frames draws as a 120px tile in the thumbnail row (UserBubble.tsx
+    // A video sent with its frames draws as a SENT_IMAGE_HEIGHT tile in the thumbnail row (UserBubble.tsx
     // SentVideoTiles), not as a file chip.
     const videoCount = sentVideosOf(row).length;
     const imageCount =
@@ -2609,7 +2609,7 @@ function fallbackRowHeight(
         inlineParts.filter((part) => part.kind === "image").length,
         row.retryAttachments?.filter((part) => part.kind === "image").length ?? 0,
       ) + videoCount;
-    const columns = Math.max(1, Math.floor((width * 0.7 + 6) / 326));
+    const columns = Math.max(1, Math.floor((width * USER_BUBBLE_SHARE + 8) / (SENT_IMAGE_MAX_WIDTH + 8)));
     const imageRows = imageCount ? Math.ceil(imageCount / columns) : 0;
     const otherAttachments = Math.max(
       0,
@@ -2618,7 +2618,11 @@ function fallbackRowHeight(
         inlineParts.filter((part) => part.kind !== "text" && part.kind !== "image").length,
       ) - videoCount,
     );
-    const attachmentHeight = imageRows * 128 + otherAttachments * 36;
+    // Each thumbnail row and the gap under it (conversation.css .cv-user__images, its 8px row gap
+    // and its ATTACHMENT_BAND_BELOW margin under the last row).
+    const attachmentHeight = imageRows
+      ? imageRows * SENT_IMAGE_HEIGHT + (imageRows - 1) * 8 + ATTACHMENT_BAND_BELOW + otherAttachments * 36
+      : otherAttachments * 36;
     // Its pending state is its footer's time slot (PromptDelivery.tsx), taking no line of its own,
     // so the row keeps its height when the send lands.
     return finish(attachmentHeight + messageBelow(beforeFooter) + chromeHeight(row, actions));
@@ -3287,7 +3291,14 @@ function measuredRowHeight(
     contentHeight = promptOpen
       ? contentHeight + (contentHeight > COLLAPSED_PROMPT_LINES * metrics().lineHeight + 1 ? PROMPT_MORE_HEIGHT : 0)
       : collapsedPromptHeight(contentHeight, metrics().lineHeight);
-  const band = layout?.band.length ? attachmentBandHeight(row, layout.band, width, entry.prepared, usedPrepared) : 0;
+  // The band's tiles span the bubble's column (conversation.css `.cv-user__inline-strip`: 70% and
+  // its tiles' side margins), with its gap to the bubble under it.
+  const bandWidth = USER_BUBBLE_SHARE * width + 2 * INLINE_ATTACHMENT_MARGIN.x;
+  const band = layout?.band.length
+    ? attachmentBandHeight(row, layout.band, bandWidth, entry.prepared, usedPrepared) +
+      ATTACHMENT_BAND_BELOW -
+      INLINE_ATTACHMENT_MARGIN.y
+    : 0;
   // A strip prompt with nothing to read beside its attachments draws no bubble (UserBubble.tsx).
   if (layout && !layout.parts.some((part) => part.kind !== "text" || part.text.trim()))
     return finish(messageBelow(beforeFooter) + chromeHeight(row, actions) - userBubblePadding() + band);
@@ -3295,6 +3306,9 @@ function measuredRowHeight(
   return finish(height);
 }
 
+/// The gap from a prompt's attachments to its bubble (conversation.css --cv-user-attachment-gap): the
+/// legacy image band's margin under it, and the strip's with its tiles' 2px margin.
+export const ATTACHMENT_BAND_BELOW = 6;
 /// A sent attachment in a bubble's text (`.cv-user__inline-image`, `.cv-user__inline-file`):
 /// an inline block 4px from its neighbors and 2px above and below, on the text's line.
 export const INLINE_ATTACHMENT_MARGIN = { x: 4, y: 2 };

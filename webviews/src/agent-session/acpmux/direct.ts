@@ -209,6 +209,7 @@ import {
   BACKGROUND_TURN,
   backgroundTurnRecord,
   backgroundTurnRowId,
+  isQuietReply,
   saysNothing,
 } from "./conversation/backgroundTurns";
 import { backgroundReactionLook, reactsOnCall } from "./conversation/backgroundReaction.experiment";
@@ -3559,6 +3560,9 @@ export class AcpmuxDirectClient {
   private runChangeRows = new Set<string>();
   /// Session replay (replay/ReplayScreen.tsx): the recorded events are folded only through this seq.
   private replayThrough?: number;
+  /// The events `replay` sorted by seq, while they are still `events`: a seek forward starts at the
+  /// first event after the last one shown instead of walking every event before it.
+  private replaySorted?: readonly EventRecord[];
   /// A `fed` client its page let go of (`dispose`).
   private disposed = false;
   /// This computer's clock minus the session's (an SSH or Cloud peer stamps events with its own
@@ -3751,6 +3755,24 @@ export class AcpmuxDirectClient {
   /// it failed, and its turn id once a record names it (the prompt, or its `turn_started`), since a
   /// `turn_result` may name only the turn.
   private bgDoneTurns = new Map<string, { failed: boolean; turnId?: string }>();
+  /// Ends the background turn a background finish ran as (`bgDoneTurns`), at its result or at the
+  /// person's message into it (`reason`, as acpmux's own `background_turn` records name it). It is
+  /// quiet, its line standing alone, only when the task went well and the agent's acknowledgement
+  /// is one short line with no question and no link, as acpmux decides it for the turns Claude Code
+  /// runs on its own (`isQuietReply`); a turn that reported something draws its report under the
+  /// task's line (backgroundTurns.ts `headsBackground`).
+  private endBgDoneTurn(event: EventRecord, id: string, reason: "result" | "prompt"): void {
+    const turn = this.bgDoneTurns.get(id);
+    if (!turn) return;
+    this.bgDoneTurns.delete(id);
+    this.reduceBackgroundTurn(event, {
+      id,
+      state: "ended",
+      quiet: !turn.failed && isQuietReply(this.rows.backgroundReply(id)),
+      trigger: "task_notification",
+      reason,
+    });
+  }
   /// Why subagents stopped, as far as this pane knows, kept across the fold's rebuilds (a new
   /// session forgets them).
   private subagentStops = subagentStops();
@@ -4034,6 +4056,7 @@ export class AcpmuxDirectClient {
     client.events = events
       .filter((event) => event.seq > 0 && (event.sessionId ?? sessionId) === sessionId)
       .sort((a, b) => a.seq - b.seq);
+    client.replaySorted = client.events;
     client.replayThrough = 0;
     return client;
   }
@@ -4045,7 +4068,23 @@ export class AcpmuxDirectClient {
     if (throughSeq === from) return;
     this.replayThrough = throughSeq;
     if (throughSeq < from) this.rebuild();
-    else
+    else if (this.events === this.replaySorted) {
+      // Sorted: from the first event after `from` up to `throughSeq`, so a step costs only its events.
+      const events = this.events;
+      let at = 0;
+      let high = events.length;
+      while (at < high) {
+        const middle = (at + high) >> 1;
+        if (events[middle]!.seq <= from) at = middle + 1;
+        else high = middle;
+      }
+      for (; at < events.length && events[at]!.seq <= throughSeq; at += 1) {
+        const event = events[at]!;
+        this.lastSeq = event.seq;
+        this.firstSeq ??= event.seq;
+        this.reduce(event);
+      }
+    } else
       for (const event of this.events) {
         if (event.seq <= from || event.seq > throughSeq) continue;
         this.lastSeq = event.seq;
@@ -7048,6 +7087,12 @@ export class AcpmuxDirectClient {
 
   /// The totals of one git scope of the selected session's repository, with no patch: Session Info's
   /// Changes row (session-info/changeCounts.ts).
+  /// The Labs preview asks once when opened; ordinary session reads do no live-tree IO.
+  async liveTreeStatus(sessionId: string): Promise<unknown> {
+    const reply = await this.request("_acpmux/info", { sessionId, waitLogs: false, includeLiveTree: true }, 5000);
+    return (reply as { liveTree?: unknown } | null)?.liveTree;
+  }
+
   gitDiffCounts(scope: string): Promise<unknown> {
     return this.git("git.diff", { scope, include_patch: false });
   }
@@ -10261,6 +10306,13 @@ export class AcpmuxDirectClient {
           : blank
             ? ({ kind: "hidden" } as const)
             : incomingPrompt(raw, msg, this.incomingContext());
+        // The person's message into a background finish's turn: what the agent writes from here on
+        // answers them, so the finish's turn ends here and the rest draws as any reply does, as
+        // acpmux ends a turn Claude Code ran on its own when a prompt arrives (hub/background_turn.rs,
+        // reason `prompt`). Leo, 2026-11-21, on a five-paragraph answer to his message that never
+        // drew, the finish's turn having closed quiet over it: "things dont get rendeed?".
+        if (msg.steer === true && this.bgDoneTurns.size > 0 && incoming === undefined && !received)
+          for (const id of [...this.bgDoneTurns.keys()]) this.endBgDoneTurn(event, id, "prompt");
         const shown =
           incoming?.kind === "message"
             ? {
@@ -10588,15 +10640,7 @@ export class AcpmuxDirectClient {
               ? undefined
               : [...this.bgDoneTurns].find(([, turn]) => turn.turnId === resultTurn)?.[0];
         const bgDoneTurn = bgDoneId === undefined ? undefined : this.bgDoneTurns.get(bgDoneId);
-        if (event.kind === "turn_result" && bgDoneId && bgDoneTurn) {
-          this.bgDoneTurns.delete(bgDoneId);
-          this.reduceBackgroundTurn(event, {
-            id: bgDoneId,
-            state: "ended",
-            quiet: !bgDoneTurn.failed,
-            trigger: "task_notification",
-          });
-        }
+        if (event.kind === "turn_result" && bgDoneId && bgDoneTurn) this.endBgDoneTurn(event, bgDoneId, "result");
       } else if (event.kind === "queue_declined") {
         // The owner declined a guest's prompt: one quiet line where it was declined, never gone silently.
         this.declinedRow(event);
