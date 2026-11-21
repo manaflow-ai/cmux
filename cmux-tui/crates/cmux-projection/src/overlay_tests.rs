@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::sync::atomic::AtomicUsize;
 
+use super::errno::ENOSPC;
 use super::*;
 use crate::manifest::Item;
 

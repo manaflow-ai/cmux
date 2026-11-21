@@ -32,12 +32,12 @@ use crate::manifest::{Kind, Manifest, ROOT};
 use crate::upper::{SetTime, Stat, Upper};
 use crate::{Fetch, FetchError};
 
+#[path = "overlay_room.rs"]
+mod room;
+use room::Temp;
+
 /// The size of a chunk of a big file, and the largest file fetched whole.
 pub const CHUNK: u64 = 4 * 1024 * 1024;
-/// The cache leaves free 1/`CACHE_RESERVE_PART` of the disk it is on, at most
-const CACHE_RESERVE_PART: u64 = 10;
-/// `CACHE_RESERVE_MAX`: that room stays for what the agent writes.
-const CACHE_RESERVE_MAX: u64 = 2 * 1024 * 1024 * 1024;
 /// The most files one directory readahead batch asks for.
 const BATCH_FILES: usize = 256;
 /// The most bytes one directory readahead batch asks for.
@@ -59,8 +59,7 @@ pub mod errno {
     pub const ENOSPC: i32 = 28;
 }
 use errno::{
-    EBADF, EEXIST, EINVAL, EIO, EISDIR, ENAMETOOLONG, ENOENT, ENOSPC, ENOTDIR, ENOTEMPTY, EPERM,
-    EXDEV,
+    EBADF, EEXIST, EINVAL, EIO, EISDIR, ENAMETOOLONG, ENOENT, ENOTDIR, ENOTEMPTY, EPERM, EXDEV,
 };
 /// The longest name a folder holds, in bytes (Linux's `NAME_MAX`).
 const NAME_MAX: usize = 255;
@@ -204,40 +203,6 @@ pub struct Overlay {
     remote_reads: AtomicU64,
     remote_bytes: AtomicU64,
     cache_hits: AtomicU64,
-}
-
-/// A file being written in the scratch folder: removed when dropped unless [`Temp::place`] moved
-/// it into place, so a write that fails half way (a full disk, a fetch that failed) leaves nothing
-/// behind holding the space until the next mount.
-struct Temp {
-    path: PathBuf,
-    placed: bool,
-}
-
-impl Temp {
-    fn path(&self) -> &Path {
-        &self.path
-    }
-
-    /// Leaves it where it is: something else moved it into place.
-    fn keep(mut self) {
-        self.placed = true;
-    }
-
-    /// Renames it to `to`.
-    fn place(mut self, to: &Path) -> std::io::Result<()> {
-        fs::rename(&self.path, to)?;
-        self.placed = true;
-        Ok(())
-    }
-}
-
-impl Drop for Temp {
-    fn drop(&mut self) {
-        if !self.placed {
-            let _ = fs::remove_file(&self.path);
-        }
-    }
 }
 
 /// Keys this thread is fetching; dropping it lets others waiting on them go on.
@@ -609,37 +574,6 @@ impl Overlay {
         Ok((parent, child))
     }
 
-    fn write_whiteouts(&self, inner: &Inner) -> Result<(), i32> {
-        let mut text = String::new();
-        for path in &inner.whiteouts {
-            text.push_str(path);
-            text.push('\0');
-        }
-        let temp = self.scratch_file();
-        fs::write(temp.path(), text)
-            .and_then(|()| temp.place(&self.whiteouts_file))
-            .map_err(|error| io_errno(&error))
-    }
-
-    fn set_whiteout(&self, path: &str, on: bool) -> Result<(), i32> {
-        let mut inner = self.lock();
-        let changed =
-            if on { inner.whiteouts.insert(path.to_owned()) } else { inner.whiteouts.remove(path) };
-        if !changed {
-            return Ok(());
-        }
-        let saved = self.write_whiteouts(&inner);
-        if saved.is_err() {
-            // Not on disk (a full disk): not in effect either, so a reopen agrees with now.
-            if on {
-                inner.whiteouts.remove(path);
-            } else {
-                inner.whiteouts.insert(path.to_owned());
-            }
-        }
-        saved
-    }
-
     /// Readies whited-out `path` for something new there: the whiteout goes, and when a lower
     /// folder was there its names stay hidden (the new path is opaque, as overlayfs makes it), so
     /// a folder deleted and made again comes back empty.
@@ -655,13 +589,6 @@ impl Overlay {
             }
         }
         self.write_whiteouts(&inner)
-    }
-
-    fn scratch_file(&self) -> Temp {
-        Temp {
-            path: self.scratch.join(format!("t{}", self.temp.fetch_add(1, Ordering::Relaxed))),
-            placed: false,
-        }
     }
 
     // MARK: Reads
@@ -819,18 +746,6 @@ impl Overlay {
         let bytes = fs::read(self.cache_path(key)).ok()?;
         self.cache_hits.fetch_add(1, Ordering::Relaxed);
         Some(bytes)
-    }
-
-    /// Keeps fetched bytes in the cache. A failure (a full disk) only means the next read fetches
-    /// them again: the read itself has its bytes.
-    fn store(&self, key: Key, bytes: &[u8]) {
-        if !self.cache_has_room(bytes.len() as u64) {
-            self.cache_failing.store(true, Ordering::Relaxed);
-            return;
-        }
-        let temp = self.scratch_file();
-        let kept = fs::write(temp.path(), bytes).and_then(|()| temp.place(&self.cache_path(key)));
-        self.cache_failing.store(kept.is_err(), Ordering::Relaxed);
     }
 
     /// Waits until no other thread fetches `key`, then claims it.
@@ -1047,55 +962,6 @@ impl Overlay {
         }
     }
 
-    /// Runs `op`, and once more after emptying the cache when it ran out of disk: the cache holds
-    /// only bytes the Mac still has, so the agent's own writes always come first.
-    fn with_room<T>(&self, op: impl Fn() -> Result<T, i32>) -> Result<T, i32> {
-        match op() {
-            Err(ENOSPC) if self.free_cache() => op(),
-            done => done,
-        }
-    }
-
-    /// Deletes every cached byte (whole files and chunks; the next read fetches them again).
-    /// Whether anything was freed.
-    fn free_cache(&self) -> bool {
-        let Ok(read) = fs::read_dir(&self.cache) else { return false };
-        let mut freed = false;
-        for entry in read.flatten() {
-            if entry.file_name() != "manifest-id" && fs::remove_file(entry.path()).is_ok() {
-                freed = true;
-            }
-        }
-        freed
-    }
-
-    /// Whether the cache may keep `len` more bytes: never into the last [`CACHE_RESERVE_PART`] of
-    /// the disk (at most [`CACHE_RESERVE_MAX`]), which stays for what the agent writes.
-    fn cache_has_room(&self, len: u64) -> bool {
-        #[cfg(target_os = "linux")]
-        {
-            use std::os::unix::ffi::OsStrExt as _;
-            let Ok(path) = std::ffi::CString::new(self.cache.as_os_str().as_bytes()) else {
-                return true;
-            };
-            // SAFETY: `path` is a NUL-terminated string and `stat` a zeroed out-parameter.
-            let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
-            if unsafe { libc::statvfs(path.as_ptr(), &raw mut stat) } != 0 {
-                return true;
-            }
-            let block = stat.f_frsize;
-            let total = stat.f_blocks.saturating_mul(block);
-            let free = stat.f_bavail.saturating_mul(block);
-            let reserve = (total / CACHE_RESERVE_PART).min(CACHE_RESERVE_MAX);
-            free.saturating_sub(len) >= reserve
-        }
-        #[cfg(not(target_os = "linux"))]
-        {
-            let _ = len;
-            true
-        }
-    }
-
     /// Opens `ino` with open(2) `flags`. A write open copies a lower file up first; the handle
     /// then reads and writes the upper file's own descriptor.
     pub fn open_handle(&self, ino: u64, flags: i32) -> Result<u64, i32> {
@@ -1185,15 +1051,13 @@ impl Overlay {
 
     /// Writes `ino` by its path (no open handle), copying a lower file up first.
     pub fn write(&self, ino: u64, offset: u64, data: &[u8]) -> Result<u32, i32> {
-        self.with_room(|| self.write_once(ino, offset, data))
-    }
-
-    fn write_once(&self, ino: u64, offset: u64, data: &[u8]) -> Result<u32, i32> {
-        let path = self.path_of(ino)?;
-        self.ensure_upper(&path)?;
-        let file = self.upper.open_existing(&path, libc::O_WRONLY)?;
-        file.write_all_at(data, offset).map_err(|error| io_errno(&error))?;
-        u32::try_from(data.len()).map_err(|_| EINVAL)
+        self.with_room(|| {
+            let path = self.path_of(ino)?;
+            self.ensure_upper(&path)?;
+            let file = self.upper.open_existing(&path, libc::O_WRONLY)?;
+            file.write_all_at(data, offset).map_err(|error| io_errno(&error))?;
+            u32::try_from(data.len()).map_err(|_| EINVAL)
+        })
     }
 
     /// `fallocate(2)` through open handle `handle`.
@@ -1503,59 +1367,57 @@ impl Overlay {
     /// setattr(2)-family changes to `ino`, through open handle `handle` when the kernel names one
     /// (an `ftruncate` of a file deleted while open).
     pub fn setattr(&self, ino: u64, handle: Option<u64>, set: Set) -> Result<Attr, i32> {
-        self.with_room(|| self.setattr_once(ino, handle, set))
-    }
-
-    fn setattr_once(&self, ino: u64, handle: Option<u64>, set: Set) -> Result<Attr, i32> {
-        let by_handle = handle.and_then(|handle| self.handle_file(handle));
-        let path = match self.path_of(ino) {
-            Ok(path) if self.node(&path).is_some() => Some(path),
-            _ => None,
-        };
-        let file = match (&path, by_handle) {
-            (_, Some(file)) => Some(file),
-            (None, None) => Some(self.open_file_of(ino).ok_or(ENOENT)?),
-            (Some(_), None) => None,
-        };
-        if set == Set::default() {
-            return self.getattr(ino);
-        }
-        if let Some(path) = &path {
-            self.ensure_upper(path)?;
-        }
-        if let Some(size) = set.size {
-            match (&file, &path) {
-                (Some(file), _) => file.set_len(size).map_err(|error| io_errno(&error))?,
-                (None, Some(path)) => {
-                    let opened = self.upper.open_existing(path, libc::O_WRONLY)?;
-                    opened.set_len(size).map_err(|error| io_errno(&error))?;
+        self.with_room(|| {
+            let by_handle = handle.and_then(|handle| self.handle_file(handle));
+            let path = match self.path_of(ino) {
+                Ok(path) if self.node(&path).is_some() => Some(path),
+                _ => None,
+            };
+            let file = match (&path, by_handle) {
+                (_, Some(file)) => Some(file),
+                (None, None) => Some(self.open_file_of(ino).ok_or(ENOENT)?),
+                (Some(_), None) => None,
+            };
+            if set == Set::default() {
+                return self.getattr(ino);
+            }
+            if let Some(path) = &path {
+                self.ensure_upper(path)?;
+            }
+            if let Some(size) = set.size {
+                match (&file, &path) {
+                    (Some(file), _) => file.set_len(size).map_err(|error| io_errno(&error))?,
+                    (None, Some(path)) => {
+                        let opened = self.upper.open_existing(path, libc::O_WRONLY)?;
+                        opened.set_len(size).map_err(|error| io_errno(&error))?;
+                    }
+                    (None, None) => return Err(ENOENT),
                 }
-                (None, None) => return Err(ENOENT),
             }
-        }
-        if set.uid.is_some() || set.gid.is_some() {
-            let (uid, gid) = (set.uid.unwrap_or(u32::MAX), set.gid.unwrap_or(u32::MAX));
-            match (&path, &file) {
-                (Some(path), _) => self.upper.chown(path, uid, gid)?,
-                (None, Some(file)) => fd_chown(file, uid, gid)?,
-                (None, None) => return Err(ENOENT),
+            if set.uid.is_some() || set.gid.is_some() {
+                let (uid, gid) = (set.uid.unwrap_or(u32::MAX), set.gid.unwrap_or(u32::MAX));
+                match (&path, &file) {
+                    (Some(path), _) => self.upper.chown(path, uid, gid)?,
+                    (None, Some(file)) => fd_chown(file, uid, gid)?,
+                    (None, None) => return Err(ENOENT),
+                }
             }
-        }
-        if let Some(mode) = set.mode {
-            match (&path, &file) {
-                (Some(path), _) => self.upper.chmod(path, mode)?,
-                (None, Some(file)) => fd_chmod(file, mode)?,
-                (None, None) => return Err(ENOENT),
+            if let Some(mode) = set.mode {
+                match (&path, &file) {
+                    (Some(path), _) => self.upper.chmod(path, mode)?,
+                    (None, Some(file)) => fd_chmod(file, mode)?,
+                    (None, None) => return Err(ENOENT),
+                }
             }
-        }
-        if set.atime.is_some() || set.mtime.is_some() {
-            match (&path, &file) {
-                (Some(path), _) => self.upper.utimes(path, set.atime, set.mtime)?,
-                (None, Some(file)) => fd_utimes(file, set.atime, set.mtime)?,
-                (None, None) => return Err(ENOENT),
+            if set.atime.is_some() || set.mtime.is_some() {
+                match (&path, &file) {
+                    (Some(path), _) => self.upper.utimes(path, set.atime, set.mtime)?,
+                    (None, Some(file)) => fd_utimes(file, set.atime, set.mtime)?,
+                    (None, None) => return Err(ENOENT),
+                }
             }
-        }
-        self.getattr(ino)
+            self.getattr(ino)
+        })
     }
 
     /// Flushes open handle `handle`'s file to disk.
