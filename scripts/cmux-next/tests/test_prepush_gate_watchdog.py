@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 GATE = Path(__file__).resolve().parents[1] / "prepush-gate.py"
@@ -106,6 +107,30 @@ class GateLimitUnderLoadTest(unittest.TestCase):
                 del os.environ["CMUX_NEXT_GATE_LIMIT_SECONDS"]
             else:
                 os.environ["CMUX_NEXT_GATE_LIMIT_SECONDS"] = old
+
+
+class LocalGateDeferTest(unittest.TestCase):
+    def setUp(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("prepush_gate_defer_under_test", GATE)
+        self.gate = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = self.gate
+        self.addCleanup(sys.modules.pop, spec.name, None)
+        spec.loader.exec_module(self.gate)
+
+    def test_named_personal_macs_defer(self):
+        with patch.dict(os.environ, {"CMUX_HOOK_HOSTNAME": "air-blue.local"}, clear=False):
+            self.assertIn("personal Mac", self.gate.local_gate_defer_reason())
+
+    def test_loaded_lane_defers(self):
+        cpus = os.cpu_count() or 1
+        with patch.dict(os.environ, {"CMUX_HOOK_HOSTNAME": "gcp-agent-lane-1"}, clear=False), \
+                patch.object(self.gate.os, "getloadavg", return_value=(0.81 * cpus, 0, 0)):
+            self.assertIn("above 0.8 per core", self.gate.local_gate_defer_reason())
+
+    def test_ci_keeps_the_gate(self):
+        with patch.dict(os.environ, {"CMUX_HOOK_HOSTNAME": "cosmic-gray", "GITHUB_ACTIONS": "1"}, clear=False):
+            self.assertIsNone(self.gate.local_gate_defer_reason())
 
 
 if __name__ == "__main__":

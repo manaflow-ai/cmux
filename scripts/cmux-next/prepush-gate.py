@@ -185,6 +185,7 @@ import platform
 import re
 import shlex
 import shutil
+import socket
 import signal
 import subprocess
 import sys
@@ -3810,6 +3811,10 @@ def _main(argv: list[str] | None = None) -> int:
                              "SwiftFormat, What's New pictures) and print each finding as a ::warning; never changes "
                              "the exit code")
     args = parser.parse_args(argv)
+    deferred = local_gate_defer_reason()
+    if deferred and not (args.commits or args.advisory or args.advisory_only):
+        print(f"prepush-gate: deferred local checks ({deferred}); run the push checks with cmux-ci or let CI judge this commit")
+        return 0
     repo = absolute(Path(args.repo or git(Path.cwd(), "rev-parse", "--show-toplevel").decode().strip()))
     only = set(args.only.split(",")) if args.only else None
     started = time.monotonic()
@@ -4072,6 +4077,26 @@ def start_watchdog(limit: float) -> None:
 
 
 GATE_LIMIT_MAX_SECONDS = 3600.0  # the most a loaded Mac's gate gets; past it the push goes through another Mac
+
+
+LOCAL_GATE_HOSTS = frozenset(("cosmic-gray", "air-blue"))
+
+
+def local_gate_defer_reason() -> str | None:
+    """Explain why local checks should run on cmux-ci or CI instead of this host."""
+    if os.environ.get("GITHUB_ACTIONS") or os.environ.get("CMUX_CI_STEP_KEY") or os.environ.get("CMUX_CI"):
+        return None
+    host = (os.environ.get("CMUX_HOOK_HOSTNAME") or socket.gethostname()).split(".", 1)[0].lower()
+    if host in LOCAL_GATE_HOSTS:
+        return f"{host} is a personal Mac"
+    try:
+        load = os.getloadavg()[0]
+    except OSError:
+        return None
+    cpus = os.cpu_count() or 1
+    if load / cpus > 0.8:
+        return f"load1 {load:g} is above 0.8 per core ({cpus} cores)"
+    return None
 
 
 def loaded_limit(base: float, load: float, cpus: int) -> float:
