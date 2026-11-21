@@ -155,7 +155,7 @@ impl BrowserSignIn {
         })
         .await
         .map_err(|_| BrowserSignInError::Expired)??;
-        if !user.is_some_and(|user| user.id == self.owner_user_id) {
+        if user.is_none_or(|user| user.id != self.owner_user_id) {
             return Err(BrowserSignInError::AccountMismatch);
         }
         if Instant::now() >= self.expires_at {
