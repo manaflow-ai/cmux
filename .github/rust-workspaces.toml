@@ -136,6 +136,10 @@ root = "cmux-tui/crates/cmux-remote-browser-testhost"
 run = true
 
 [[workspace]]
+root = "cmux-tui/crates/coord-sim"
+run = true
+
+[[workspace]]
 root = "cmux-tui/vendor/crossterm"
 skip = "vendored upstream crate with cmux's patch; cmux-tui.yml runs its tests"
 
