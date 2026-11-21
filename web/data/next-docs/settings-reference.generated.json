@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 640,
+  "count": 641,
   "sections": [
     {
       "id": "general",
@@ -299,6 +299,14 @@
           "help": "A line on where a Claude chat stands when you come back. Each is a small model call.",
           "kind": "toggle",
           "default": true,
+          "group": "Chats"
+        },
+        {
+          "key": "agents.chats.terminalChatWritable",
+          "title": "Write to a Chat a Terminal Runs",
+          "help": "When Toggle Terminal and Chat moves a Claude Code or Codex chat to a terminal, keep the chat's composer: what you send goes into that terminal's session, and Stop stops its turn. Off, the chat is View Only while the terminal runs it.",
+          "kind": "toggle",
+          "default": false,
           "group": "Chats"
         },
         {

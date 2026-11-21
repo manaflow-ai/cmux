@@ -156,6 +156,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agents.chats.discovery` | boolean | `true` |  | Discover Chat Folders. Find harness chat folders automatically. When off, only the listed folders are used. |
 | `agents.chats.roots` | array | `[]` |  | Chat Folders. Folders agents may also use. |
 | `agents.chats.sessionRecap` | boolean | `true` |  | Session Recap. A line on where a Claude chat stands when you come back. Each is a small model call. |
+| `agents.chats.terminalChatWritable` | boolean | `false` |  | Write to a Chat a Terminal Runs. When Toggle Terminal and Chat moves a Claude Code or Codex chat to a terminal, keep the chat's composer: what you send goes into that terminal's session, and Stop stops its turn. Off, the chat is View Only while the terminal runs it. |
 | `agents.chats.coldArchive` | boolean | `false` |  | Compress Old Chats. Unused chats are compressed into one small file each and open as before. |
 | `agents.chats.coldArchiveAfterDays` | real | `30` | 1 to 3650 | Compress Chats Idle For. Days unused before a chat is compressed. Busy chats never are. |
 | `chat.on` | string | `""` |  | Default Chat Target. Where cmux chat starts a chat with no --on: here, cloud, vm:NAME or a device name. |
