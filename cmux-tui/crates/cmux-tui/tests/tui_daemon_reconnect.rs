@@ -103,6 +103,108 @@ impl Fixture {
     fn has_tui_client(&self) -> bool {
         self.client_kinds().is_some_and(|kinds| kinds.iter().any(|kind| kind == "tui"))
     }
+
+    /// `server ACTION` with extra environment for the owner it starts.
+    fn server_with_env(&self, action: &str, env: &[(&str, &str)]) -> Value {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
+        command
+            .args(["server", action, "--json", "--session", &self.session, "--socket"])
+            .arg(&self.socket);
+        self.env(&mut command);
+        command.envs(env.iter().copied());
+        let output = command.output().unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "server {action} failed: {stdout} {stderr}");
+        let last = stdout.lines().rfind(|line| line.starts_with('{')).unwrap_or_default();
+        serde_json::from_str(last)
+            .unwrap_or_else(|_| panic!("server {action} printed no JSON: {stdout:?} {stderr:?}"))
+    }
+
+    /// `cmux --json ARGS` against this session's socket.
+    fn cli(&self, args: &[&str]) -> Value {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
+        command.args(["--json", "--socket"]).arg(&self.socket).args(args);
+        self.env(&mut command);
+        let output = command.output().unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "cmux {args:?} failed: {stdout} {stderr}");
+        serde_json::from_str(stdout.trim())
+            .unwrap_or_else(|_| panic!("cmux {args:?} printed no JSON: {stdout:?} {stderr:?}"))
+    }
+
+    /// The `data` of one raw socket command, or `None` while no daemon answers.
+    fn raw(&self, request: Value) -> Option<Value> {
+        let stream = UnixStream::connect(&self.socket).ok()?;
+        stream.set_read_timeout(Some(Duration::from_secs(5))).ok()?;
+        let mut stream = BufReader::new(stream);
+        writeln!(stream.get_mut(), "{request}").ok()?;
+        loop {
+            let mut line = String::new();
+            if stream.read_line(&mut line).ok()? == 0 {
+                return None;
+            }
+            let reply: Value = serde_json::from_str(&line).ok()?;
+            if reply["id"] != request["id"] {
+                continue;
+            }
+            return reply["ok"].as_bool().unwrap_or(false).then(|| reply["data"].clone());
+        }
+    }
+
+    /// Every pane of the daemon's tree, with its tabs.
+    fn panes(&self) -> Vec<Value> {
+        let Some(tree) = self.raw(json!({"id": 2, "cmd": "list-workspaces"})) else {
+            return Vec::new();
+        };
+        let tree = tree.get("tree").unwrap_or(&tree).clone();
+        tree["workspaces"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .flat_map(|workspace| workspace["screens"].as_array().cloned().unwrap_or_default())
+            .flat_map(|screen| screen["panes"].as_array().cloned().unwrap_or_default())
+            .collect()
+    }
+
+    /// The TUI client's attached surfaces and the ones it sizes (the tab it
+    /// shows), or `None` while no TUI client is registered.
+    fn tui_views(&self) -> Option<(Vec<u64>, Vec<u64>)> {
+        let data = self.raw(json!({"id": 3, "cmd": "list-clients"}))?;
+        let clients = data.as_array().or_else(|| data["clients"].as_array())?.clone();
+        let tui = clients.into_iter().find(|client| client["kind"] == "tui")?;
+        let surfaces = |key: &str| -> Vec<u64> {
+            tui[key]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|entry| entry.as_u64().or_else(|| entry["surface"].as_u64()))
+                .collect()
+        };
+        let sized = tui["sizes"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|size| size["cols"].is_u64())
+            .filter_map(|size| size["surface"].as_u64())
+            .collect();
+        Some((surfaces("attached"), sized))
+    }
+}
+
+/// The surface of each tab of `pane`, keyed by its name (the shell tab has
+/// none: `""`).
+fn tab_surfaces(pane: &Value) -> Vec<(String, u64)> {
+    pane["tabs"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|tab| {
+            let name = tab["name"].as_str().unwrap_or_default().to_string();
+            (name, tab["surface"].as_u64().unwrap())
+        })
+        .collect()
 }
 
 impl Drop for Fixture {
@@ -243,6 +345,79 @@ fn tui_daemon_reconnect_follows_restart_and_exits_on_stop() {
         stderr.contains("session daemon-reconnect stopped"),
         "the client did not say the session stopped:\n{stderr}"
     );
+}
+
+/// Bench round 5 orchestration row 1 (W6-A): a pane with the person's shell
+/// tab and two agent tabs; `daemon restart`; the TUI reconnected while the
+/// new daemon still adopted the terminals, the adopting tabs answered
+/// `unknown surface`, and the TUI dropped them from its tab strip for good
+/// (and their agents from the sidebar). herdr reconnects to the same layout.
+/// After the restart the TUI must attach every tab of the pane again and keep
+/// showing the tab it showed (the shell), not the daemon's selected tab.
+#[test]
+fn w6a_restart_keeps_every_tab_of_the_strip_and_the_shown_tab() {
+    let fixture = Fixture::new("w6a-strip");
+    fixture.server("ensure", &[]);
+    let client = Client::start(&fixture);
+    wait_for("the client to take the terminal", &client, || client.printed(INPUT_MODES_ENABLED));
+    wait_for("the client to attach", &client, || fixture.has_tui_client());
+    let mut panes = Vec::new();
+    wait_for("the client's first pane", &client, || {
+        panes = fixture.panes();
+        panes.len() == 1 && tab_surfaces(&panes[0]).len() == 1
+    });
+    let pane = panes[0]["resource_id"].as_str().unwrap().to_string();
+    for name in ["w6a-alpha", "w6a-beta"] {
+        fixture.cli(&[
+            "pane",
+            &pane,
+            "run",
+            "--name",
+            name,
+            "--on-exit",
+            "keep",
+            "--",
+            "/bin/sleep",
+            "600",
+        ]);
+    }
+    // Every tab attached, and of the pane's tabs only the shell sized (shown).
+    let shown_before = |views: &(Vec<u64>, Vec<u64>), tabs: &[(String, u64)]| {
+        let (attached, sized) = views;
+        tabs.len() == 3
+            && tabs.iter().all(|(_, surface)| attached.contains(surface))
+            && tabs.iter().all(|(name, surface)| sized.contains(surface) == name.is_empty())
+    };
+    wait_for("the client to attach the three tabs and show the shell", &client, || {
+        let tabs = fixture.panes().first().map(tab_surfaces).unwrap_or_default();
+        fixture.tui_views().is_some_and(|views| shown_before(&views, &tabs))
+    });
+
+    // The new daemon adopts each terminal 2 s after it answers, so the client
+    // reconnects while all three still adopt.
+    fixture.server_with_env("restart", &[("CMUX_TUI_TEST_ADOPTION_DELAY_MS", "2000")]);
+    wait_for("the client to reconnect", &client, || {
+        assert!(client.running(), "the client exited on restart:\n{}", client.stderr());
+        fixture.has_tui_client()
+    });
+    let deadline = Instant::now() + DEADLINE;
+    loop {
+        let panes = fixture.panes();
+        let tabs = panes.first().map(tab_surfaces).unwrap_or_default();
+        let views = fixture.tui_views();
+        if views.as_ref().is_some_and(|views| shown_before(views, &tabs)) {
+            break;
+        }
+        let last = format!("tabs {tabs:?}, client attached and shown {views:?}");
+        assert!(
+            Instant::now() < deadline,
+            "after the restart the client did not attach every tab and show the shell: \
+             {last}\nclient stderr:\n{}",
+            client.stderr()
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    assert!(client.running(), "the client exited after reconnecting:\n{}", client.stderr());
 }
 
 /// A close-on-exec pty pair: the client gets the slave, the test the master.

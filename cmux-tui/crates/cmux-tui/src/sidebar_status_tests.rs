@@ -5,6 +5,7 @@ use crate::session::tree::{PaneView, ScreenView, TabNotificationView, TabView, W
 
 fn tab(surface: SurfaceId, title: &str, unread: bool, branch: Option<&str>) -> TabView {
     TabView {
+        terminal_pending: false,
         surface,
         public_id: None,
         content_id: None,
