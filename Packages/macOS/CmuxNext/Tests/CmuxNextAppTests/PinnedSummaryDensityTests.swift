@@ -171,28 +171,24 @@ import Testing
         #expect(m.pinnedRowHeight == m.listRowHeight, "\(setting): pinned row \(m.pinnedRowHeight), workspace row \(m.listRowHeight)")
         #expect(m.pinnedTitle == tokens.titleSize, "\(setting): pinned title \(m.pinnedTitle), token \(tokens.titleSize)")
         #expect(m.pinnedTitle == m.listTitle, "\(setting): pinned title \(m.pinnedTitle), workspace title \(m.listTitle)")
-        // The pinned row's glyph fills the one optical side (Lawrence 2026-11-09, one icon size). A density with its own
-        // icon column draws a workspace favicon's bitmap at the tab's icon box (Lucas 2026-11-14: a row's icon is its
-        // tab's size); the others draw it 4/3 its optical side, so its ink, not its margin, fills that side.
-        let (box, optical) = Self.at(setting) { (SidebarStyle.rowGlyphOptics.box, SidebarStyle.rowGlyphOpticalSide) }
-        #expect(abs(m.pinnedGlyph - optical) <= 0.5, "\(setting): pinned icon \(m.pinnedGlyph), optical side \(optical)")
-        if let box {
-            #expect(abs(m.listGlyph - box) <= 0.5, "\(setting): workspace favicon \(m.listGlyph), the tab's icon box \(box)")
-        } else {
-            let listOptical = m.listGlyph * 3 / 4
-            #expect(abs(m.pinnedGlyph - listOptical) <= 0.5, "\(setting): pinned icon \(m.pinnedGlyph), workspace icon \(listOptical)")
-        }
+        // A full-bleed favicon fills the favicon size on both rows (https://github.com/manaflow-ai/cmux/issues/48586: the
+        // tab's favicon box, grown with the text size), drawn at that side so every bitmap pixel lands on one screen pixel.
+        let side = Self.at(setting) { SidebarStyle.rowFaviconOpticalSide }
+        #expect(abs(m.pinnedGlyph - side) <= 0.5, "\(setting): pinned favicon \(m.pinnedGlyph), the favicon size \(side)")
+        #expect(abs(m.listGlyph - side) <= 0.5, "\(setting): workspace favicon \(m.listGlyph), the favicon size \(side)")
     }
 
-    /// At an app density with its own icon column a workspace favicon is the tab's icon box and the pinned glyph keeps
-    /// the one optical side (Lucas 2026-11-14: a row's icon is its tab's size).
+    /// At an app density with its own icon column a workspace favicon is its tab's favicon box (Lucas 2026-11-14: a row's
+    /// icon is its tab's size; #48586), never wider than the icon column, and larger than the line glyphs' optical side.
     @Test(arguments: iconColumnSettings)
     func aRowAtAnIconColumnDensityDrawsTheTabsBox(_ setting: Setting) throws {
         let m = try Self.measure(setting)
-        let (box, optical) = Self.at(setting) { (SidebarStyle.rowGlyphOptics.box, SidebarStyle.rowGlyphOpticalSide) }
-        let tabBox = try #require(box, "\(setting): no icon box")
-        #expect(abs(m.listGlyph - tabBox) <= 0.5, "\(setting): workspace favicon \(m.listGlyph), the tab's icon box \(tabBox)")
-        #expect(abs(m.pinnedGlyph - optical) <= 0.5, "\(setting): pinned icon \(m.pinnedGlyph), optical side \(optical)")
+        let (side, optical, column) = Self.at(setting) {
+            (SidebarStyle.rowFaviconOpticalSide, SidebarStyle.rowGlyphOpticalSide, SidebarStyle.iconColumnBox)
+        }
+        #expect(abs(m.listGlyph - side) <= 0.5, "\(setting): workspace favicon \(m.listGlyph), the favicon size \(side)")
+        #expect(side <= column + 0.01, "\(setting): the favicon size \(side) is wider than the icon column \(column)")
+        #expect(side > optical, "\(setting): the favicon size \(side) is no larger than the line glyphs' \(optical)")
     }
 
     /// The card the pinned row opens takes its sizes from ``SidebarRowTokens/hoverCard``.
