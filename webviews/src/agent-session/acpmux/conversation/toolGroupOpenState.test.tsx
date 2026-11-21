@@ -14,9 +14,16 @@ import { FindReveal } from "./chatFind";
 import { ToolRows } from "./TurnRows";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 import { WorkingFor } from "./WorkingFor";
-import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
+import {
+  resetTranscriptDisclosure,
+  DisclosureSession,
+  forgetInsideTurn,
+  useTranscriptDisclosure,
+} from "./transcriptDisclosureModel";
 import { turnFoldStyle } from "./turnFoldStyle";
-import { workedLabel } from "./turns";
+import { messageRunRowId } from "./messageRuns";
+import { workedLabel, mergeShortNotes, toggleTurnFold, turnInsideIds } from "./turns";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -28,8 +35,19 @@ async function mount(node: ReactNode): Promise<HTMLElement> {
     url: "http://localhost/",
     pretendToBeVisual: true,
   });
-  for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
-    saved.set(key, scope[key]);
+  for (const key of [
+    "window",
+    "document",
+    "navigator",
+    "Node",
+    "HTMLElement",
+    "Element",
+    "customElements",
+    "MutationObserver",
+    "ResizeObserver",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ])
+    if (!saved.has(key)) saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -37,8 +55,27 @@ async function mount(node: ReactNode): Promise<HTMLElement> {
     Node: dom.window.Node,
     HTMLElement: dom.window.HTMLElement,
     Element: dom.window.Element,
+    // An edit's diff loads @pierre/diffs, whose web component registers itself once wherever there
+    // is an HTMLElement: with no customElements beside it the import fails, for every later file too.
+    customElements: dom.window.customElements,
+    // The diff follows the pane's theme attribute (EditDiffHunks.tsx).
+    MutationObserver: dom.window.MutationObserver,
+    // jsdom has no layout observer; the diff still subscribes to one.
+    ResizeObserver: class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
     IS_REACT_ACT_ENVIRONMENT: true,
   });
+  // The diff card (Pierre's registered element) reads its DOM constructors (SVGElement,
+  // CSSStyleSheet, ShadowRoot) from the globals when it draws, as permission-edit-diff.test.tsx
+  // gives it them; each goes again in teardown.
+  for (const key of Object.getOwnPropertyNames(dom.window))
+    if (/^(HTML|SVG|CSS|Shadow|Document)/.test(key) && !(key in scope)) {
+      if (!saved.has(key)) saved.set(key, undefined);
+      scope[key] = (dom.window as unknown as Record<string, unknown>)[key];
+    }
   const container = dom.window.document.getElementById("root")!;
   await act(async () => {
     root = createRoot(container);
@@ -55,6 +92,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   resetTranscriptDisclosure();
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -73,6 +111,12 @@ const read = (id: string, path: string): AcpmuxActivity => ({
   kind: "tool",
   text: `Read ${path}`,
   tool: { id, title: `Read ${path}`, kind: "read", status: "completed" },
+});
+// The second group kind in a run: since the 2026-11-14 change reads stay flat rows and never group.
+const search = (id: string, pattern: string): AcpmuxActivity => ({
+  kind: "tool",
+  text: `Grep ${pattern}`,
+  tool: { id, title: `Grep ${pattern}`, kind: "search", status: "completed" },
 });
 const edit = (id: string, path: string): AcpmuxActivity => ({
   kind: "tool",
@@ -162,9 +206,14 @@ test("a run line the reader closed stays closed when the run splits back into it
 });
 
 test("closing one of a run's groups leaves its sibling as it was", async () => {
-  const calls = [command("c1", "git pull"), command("c2", "git status"), read("c3", "a.md"), read("c4", "b.md")];
+  const calls = [
+    command("c1", "git pull"),
+    command("c2", "git status"),
+    search("c3", "retry"),
+    search("c4", "backoff"),
+  ];
   const container = await mount(<ToolRows row={run("r1", calls)} sessionId="siblings" />);
-  await open(container, /^Ran 2 commands and read 2 files$/);
+  await open(container, /^Ran 2 commands and ran 2 searches$/);
   // A call that is still running leaves the run unfolded: its groups draw, open from the run's line.
   const live = { ...run("r1", calls), foldRun: false };
   await update(<ToolRows row={live} sessionId="siblings" />);
@@ -229,8 +278,9 @@ test("asides split the runs' counts; the turn's Worked for line counts every cal
   );
   const now = lines(container).map((line) => line.text);
   expect(now).toEqual(["Ran 3 commands", "Ran 2 commands"]);
-  // Claude's and the other Worked-for families' outer line counts the whole turn; Codex's says the time alone.
-  expect(turnFoldStyle("claude", () => false).countsCalls).toBe(true);
+  // Every family's outer line says the time alone, as the Codex app's (Lucas, 2026-11-12); the label
+  // still reads a count a row carries.
+  expect(turnFoldStyle("claude", () => false).countsCalls).toBe(false);
   expect(turnFoldStyle("codex").countsCalls).toBe(false);
   const t = translatorFor("en");
   const worked: AcpmuxRow = { id: "w", version: 1, at: 1, kind: "worked", durationMs: 137_000, workedCalls: 6 };
@@ -254,47 +304,57 @@ async function click(container: HTMLElement, selector: string) {
 }
 
 test("a run whose groups the reader closed one by one stays closed when the turn folds it", async () => {
-  const calls = [command("c1", "git pull"), command("c2", "git status"), read("c3", "a.md"), read("c4", "b.md")];
+  const calls = [
+    command("c1", "git pull"),
+    command("c2", "git status"),
+    search("c3", "retry"),
+    search("c4", "backoff"),
+  ];
   const container = await mount(<ToolRows row={run("r1", calls)} sessionId="one-by-one" />);
-  await open(container, /^Ran 2 commands and read 2 files$/);
+  await open(container, /^Ran 2 commands and ran 2 searches$/);
   // The running turn draws the run's groups, open from the run's line; the reader closes each.
   await update(<ToolRows row={{ ...run("r1", calls), foldRun: false }} sessionId="one-by-one" />);
-  expect(groupLines(container)).toEqual({ "group:commands:c1": true, "group:reads:c3": true });
+  expect(groupLines(container)).toEqual({ "group:commands:c1": true, "group:searches:c3": true });
   await click(container, 'button[data-tool-group="group:commands:c1"]');
-  await click(container, 'button[data-tool-group="group:reads:c3"]');
-  expect(groupLines(container)).toEqual({ "group:commands:c1": false, "group:reads:c3": false });
+  await click(container, 'button[data-tool-group="group:searches:c3"]');
+  expect(groupLines(container)).toEqual({ "group:commands:c1": false, "group:searches:c3": false });
   // The turn ends: its work folds under the run's line again, closed as the reader left its groups.
   await update(<ToolRows row={{ ...run("r1", calls), version: 99 }} sessionId="one-by-one" />);
-  expect(lines(container)).toEqual([{ text: "Ran 2 commands and read 2 files", open: false }]);
+  expect(lines(container)).toEqual([{ text: "Ran 2 commands and ran 2 searches", open: false }]);
 });
 
 test("a steered turn's open run line stays closed over groups the reader closed while it ran", async () => {
-  const calls = [command("c1", "git pull"), command("c2", "git status"), read("c3", "a.md"), read("c4", "b.md")];
+  const calls = [
+    command("c1", "git pull"),
+    command("c2", "git status"),
+    search("c3", "retry"),
+    search("c4", "backoff"),
+  ];
   // The running turn keeps its calls in sight in their groups, open (turns.ts codexRuns).
   const container = await mount(<ToolRows row={{ ...run("r1", calls), foldRun: false }} sessionId="steered" />);
-  expect(groupLines(container)).toEqual({ "group:commands:c1": true, "group:reads:c3": true });
+  expect(groupLines(container)).toEqual({ "group:commands:c1": true, "group:searches:c3": true });
   await click(container, 'button[data-tool-group="group:commands:c1"]');
-  await click(container, 'button[data-tool-group="group:reads:c3"]');
+  await click(container, 'button[data-tool-group="group:searches:c3"]');
   // A steered turn's opened Worked for draws its run lines open (`runOpen`), but not over the reader's choice.
   await update(<ToolRows row={{ ...run("r1", calls), version: 99, runOpen: true }} sessionId="steered" />);
-  expect(lines(container)).toEqual([{ text: "Ran 2 commands and read 2 files", open: false }]);
+  expect(lines(container)).toEqual([{ text: "Ran 2 commands and ran 2 searches", open: false }]);
 });
 
 test("a run line the reader closed stays closed when the run splits back into groups", async () => {
   const two = [command("c1", "git pull"), command("c2", "git status")];
-  const three = [...two, read("c3", "a.md"), read("c4", "b.md")];
+  const three = [...two, search("c3", "retry"), search("c4", "backoff")];
   const container = await mount(<ToolRows row={run("r1", two)} sessionId="split" />);
   await open(container, /^Ran 2 commands$/);
-  // Reads join: the group grows into a run, open where the reader opened the group; they close it.
+  // Searches join: the group grows into a run, open where the reader opened the group; they close it.
   await update(<ToolRows row={run("r1", three)} sessionId="split" />);
-  const runLine = lineNamed(container, /^Ran 2 commands and read 2 files$/)!;
+  const runLine = lineNamed(container, /^Ran 2 commands and ran 2 searches$/)!;
   expect(runLine.getAttribute("aria-expanded")).toBe("true");
   await act(async () => runLine.click());
   expect(runLine.getAttribute("aria-expanded")).toBe("false");
-  // A call still running unfolds the run into its groups: each stays closed, the reads' too, which
+  // A call still running unfolds the run into its groups: each stays closed, the searches' too, which
   // the reader never opened on its own.
   await update(<ToolRows row={{ ...run("r1", three), foldRun: false }} sessionId="split" />);
-  expect(groupLines(container)).toEqual({ "group:commands:c1": false, "group:reads:c3": false });
+  expect(groupLines(container)).toEqual({ "group:commands:c1": false, "group:searches:c3": false });
 });
 
 test("a run keeps its open state when Find shows a hidden discovery call at its start", async () => {
@@ -362,11 +422,16 @@ const mcpLine = (container: HTMLElement) =>
   );
 
 test("a run whose groups the reader closed stays open at the turn's end over an MCP group they opened", async () => {
-  const calls = [command("c1", "git pull"), command("c2", "git status"), read("c3", "a.md"), read("c4", "b.md")];
+  const calls = [
+    command("c1", "git pull"),
+    command("c2", "git status"),
+    search("c3", "retry"),
+    search("c4", "backoff"),
+  ];
   const items = [...calls, mcp("m1"), mcp("m2")];
   const container = await mount(<ToolRows row={{ ...run("r1", items), foldRun: false }} sessionId="mcp-open" />);
   await click(container, 'button[data-tool-group="group:commands:c1"]');
-  await click(container, 'button[data-tool-group="group:reads:c3"]');
+  await click(container, 'button[data-tool-group="group:searches:c3"]');
   const line = mcpLine(container);
   expect(line?.getAttribute("aria-expanded")).toBe("false");
   await act(async () => line!.click());
@@ -377,13 +442,18 @@ test("a run whose groups the reader closed stays open at the turn's end over an 
 });
 
 test("an MCP group opened after the reader set the run line opens it again at the turn's end", async () => {
-  const calls = [command("c1", "git pull"), command("c2", "git status"), read("c3", "a.md"), read("c4", "b.md")];
+  const calls = [
+    command("c1", "git pull"),
+    command("c2", "git status"),
+    search("c3", "retry"),
+    search("c4", "backoff"),
+  ];
   const items = [...calls, mcp("m1"), mcp("m2")];
   const container = await mount(<ToolRows row={run("r1", items)} sessionId="mcp-later" />);
   await open(container, /^Ran 2 commands/);
   await update(<ToolRows row={{ ...run("r1", items), foldRun: false }} sessionId="mcp-later" />);
   await click(container, 'button[data-tool-group="group:commands:c1"]');
-  await click(container, 'button[data-tool-group="group:reads:c3"]');
+  await click(container, 'button[data-tool-group="group:searches:c3"]');
   await act(async () => mcpLine(container)!.click());
   await update(<ToolRows row={{ ...run("r1", items), version: 99 }} sessionId="mcp-later" />);
   expect(lines(container)).toEqual([{ text: expect.any(String), open: true }]);
@@ -427,4 +497,148 @@ test("the running line names the call when the reader closed the run line its gr
   // The reader opens the group: its own row names the call, and the line no longer does.
   await click(container, 'button[data-tool-group="group:commands:c1"]');
   expect(named(container)).toBe("");
+});
+
+test("closing a run line closes the calls the reader opened in it: it opens again with each one closed", async () => {
+  const items = [command("c1", "git pull"), command("c2", "git status"), read("c3", "notes.md")];
+  const container = await mount(<ToolRows row={run("r1", items)} sessionId="reset" />);
+  await open(container, /^Ran 2 commands and read a file$/);
+  const call = 'button[data-tool-id="c1"]';
+  await click(container, call);
+  expect(container.querySelector(call)!.getAttribute("aria-expanded")).toBe("true");
+  // The run's key names the same first call (`run:c1`): opening the call never closed the run.
+  const runLine = lineNamed(container, /^Ran 2 commands and read a file$/)!;
+  expect(runLine.getAttribute("aria-expanded")).toBe("true");
+  await act(async () => runLine.click());
+  await act(async () => runLine.click());
+  expect(runLine.getAttribute("aria-expanded")).toBe("true");
+  expect(container.querySelector(call)!.getAttribute("aria-expanded")).toBe("false");
+});
+
+test("a turn's Worked for, closed or opened, closes the lines the reader opened in that turn only", async () => {
+  const user = (id: string, text: string): AcpmuxRow => ({ id, version: 1, at: 1, kind: "user", text });
+  const earlier = run("r0", [command("c0", "ls"), command("c00", "pwd")]);
+  const row = run("r1", [command("c1", "git pull"), command("c2", "git status"), read("c3", "notes.md")]);
+  const rows = [user("u0", "Look"), earlier, user("u1", "Pull"), row, user("u2", "Next")];
+  expect([...turnInsideIds(rows, "worked-u1")].sort()).toEqual(["c1", "c2", "c3", "r1"]);
+  const container = await mount(
+    <>
+      <ToolRows row={earlier} sessionId="turn" />
+      <ToolRows row={row} sessionId="turn" />
+    </>,
+  );
+  await open(container, /^Ran 2 commands and read a file$/);
+  await open(container, /^Ran 2 commands$/);
+  await click(container, 'button[data-tool-id="c1"]');
+  await click(container, 'button[data-tool-id="c0"]');
+  await act(async () => forgetInsideTurn("turn", turnInsideIds(rows, "worked-u1")));
+  expect(lineNamed(container, /^Ran 2 commands and read a file$/)!.getAttribute("aria-expanded")).toBe("false");
+  // The earlier turn keeps what the reader opened.
+  expect(lineNamed(container, /^Ran 2 commands$/)!.getAttribute("aria-expanded")).toBe("true");
+  expect(container.querySelector('button[data-tool-id="c0"]')!.getAttribute("aria-expanded")).toBe("true");
+});
+
+test("closing a run line closes a thought the reader opened in it", async () => {
+  const thought: AcpmuxActivity = {
+    kind: "thought",
+    text: "Check the retry path before the cap. ".repeat(6),
+    startedAt: 1_000,
+    endedAt: 9_000,
+  };
+  const items = [command("c1", "git pull"), thought, command("c2", "git status"), read("c3", "notes.md")];
+  const container = await mount(<ToolRows row={run("r1", items)} sessionId="thought-reset" />);
+  await open(container, /^Ran 2 commands and read a file$/);
+  const toggle = () => container.querySelector<HTMLButtonElement>("button.cv-step-thought")!;
+  await click(container, "button.cv-step-thought");
+  expect(toggle().getAttribute("aria-expanded")).toBe("true");
+  const runLine = lineNamed(container, /^Ran 2 commands and read a file$/)!;
+  await act(async () => runLine.click());
+  await act(async () => runLine.click());
+  expect(toggle().getAttribute("aria-expanded")).toBe("false");
+});
+
+test("a turn's fold leaves out its edit calls: the edited-files card under the answer draws them too", () => {
+  const user = (id: string): AcpmuxRow => ({ id, version: 1, at: 1, kind: "user", text: "Fix it" });
+  const rows = [user("u1"), run("r1", [edit("e1", "/src/app.ts"), command("c1", "bun test")])];
+  expect([...turnInsideIds(rows, "worked-u1")].sort()).toEqual(["c1", "r1"]);
+});
+
+// Review of #41213 (codex, read-only): a run whose first call is an edit is keyed `run:e1`, so the
+// edit's id must still reach the turn's reset for the runs and groups it starts; its own line
+// (`row:e1`) stays the edited-files card's.
+test("a turn's fold closes a run that starts with an edit, and keeps the edit's own line", async () => {
+  const user = (id: string): AcpmuxRow => ({ id, version: 1, at: 1, kind: "user", text: "Fix it" });
+  const row = run("r1", [edit("e1", "/src/app.ts"), command("c1", "bun test"), command("c2", "git status")]);
+  const rows = [user("u1"), row];
+  const edits = new Set<string>();
+  expect([...turnInsideIds(rows, "worked-u1", edits)].sort()).toEqual(["c1", "c2", "r1"]);
+  expect([...edits]).toEqual(["e1"]);
+  const container = await mount(<ToolRows row={row} sessionId="edit-led" />);
+  const line = () => container.querySelector<HTMLButtonElement>("button[data-tool-run]")!;
+  await act(async () => line().click());
+  expect(line().getAttribute("aria-expanded")).toBe("true");
+  await act(async () => forgetInsideTurn("edit-led", turnInsideIds(rows, "worked-u1", edits), edits));
+  expect(line().getAttribute("aria-expanded")).toBe("false");
+});
+
+/// A line whose default is open (a steered turn's run under `nested-open`), as a probe.
+function OpenByDefault({ id }: { id: string }) {
+  const [open, setOpen] = useTranscriptDisclosure(`run:${id}`, true);
+  return <button type="button" aria-label={id} data-probe={id} aria-expanded={open} onClick={() => setOpen(!open)} />;
+}
+
+test("a reset forgets only lines the reader opened: one they closed over an open default stays closed", async () => {
+  const container = await mount(
+    <DisclosureSession.Provider value="open-default">
+      <OpenByDefault id="c1" />
+    </DisclosureSession.Provider>,
+  );
+  const probe = () => container.querySelector<HTMLButtonElement>('[data-probe="c1"]')!;
+  await act(async () => probe().click());
+  expect(probe().getAttribute("aria-expanded")).toBe("false");
+  await act(async () => forgetInsideTurn("open-default", new Set(["c1"])));
+  expect(probe().getAttribute("aria-expanded")).toBe("false");
+});
+
+test("closing a turn's fold closes the runs of messages inside it, opened by key", () => {
+  const user = (id: string): AcpmuxRow => ({ id, version: 1, at: 1, kind: "user", text: "Ask them" });
+  const note = (id: string): AcpmuxRow => ({ id, version: 1, at: 2, kind: "assistant", text: id });
+  const rows = [user("u1"), note("m1"), note("m2"), user("u2"), note("m3")];
+  const expanded = new Set([
+    "worked-u1",
+    messageRunRowId("m1"),
+    `${messageRunRowId("m2")}:fold`,
+    messageRunRowId("m3"),
+  ]);
+  const closed = toggleTurnFold(rows, expanded, "worked-u1");
+  expect(closed.has(messageRunRowId("m1"))).toBe(false);
+  // A run's line keyed by a folded edit run's copy closes too.
+  expect(closed.has(`${messageRunRowId("m2")}:fold`)).toBe(false);
+  // Another turn's run of messages keeps the reader's choice.
+  expect(closed.has(messageRunRowId("m3"))).toBe(true);
+});
+
+test("short notes join their runs in one pass, each call once and in order", () => {
+  const note = (id: string): AcpmuxRow => ({ id, version: 1, at: 2, kind: "assistant", text: `Checking ${id}.` });
+  const rows = [
+    run("a", [command("a1", "ls")]),
+    note("n1"),
+    run("b", [command("b1", "pwd")]),
+    note("n2"),
+    run("c", [command("c1", "git status")]),
+  ];
+  const [merged, ...rest] = mergeShortNotes(rows);
+  expect(rest).toEqual([]);
+  expect(merged!.joined).toEqual(["a", "n1", "b", "n2", "c"]);
+  expect(merged!.items!.map((item) => item.tool?.id ?? item.kind)).toEqual(["a1", "note", "b1", "note", "c1"]);
+  // The rows it read are not changed.
+  expect(rows[0]!.items).toHaveLength(1);
+});
+
+test("every call in an opened run carries its id for the scroll box's reveal", async () => {
+  const row = run("r1", [edit("e1", "/src/app.ts"), command("c1", "bun test"), command("c2", "git status")]);
+  const container = await mount(<ToolRows row={row} sessionId="step-ids" />);
+  await act(async () => container.querySelector<HTMLButtonElement>("button[data-tool-run]")!.click());
+  const ids = [...container.querySelectorAll<HTMLElement>("[data-step-call]")].map((step) => step.dataset.stepCall);
+  expect(ids).toEqual(expect.arrayContaining(["c1", "c2"]));
 });

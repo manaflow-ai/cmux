@@ -56,6 +56,34 @@ import Testing
         #expect(ControlMethod.authTokenError(AuthTokenRefusal(code: "bad_reply"), team: nil).code == "unavailable")
     }
 
+    /// Probe cloud-signed-in-after-update-production, 2026-11-15: a Keychain refusal read "cmux Cloud sent an answer
+    /// cmux can't use", and a terminal prints only the message. The cause rides in the code and the text.
+    @Test func aLocalFailureNamesItsCauseInTheCodeAndTheText() {
+        let cause = "keychain(-25244: Invalid attempt to change the owner of this item.)"
+        let local = ControlMethod.authTokenError(AuthTokenRefusal(code: "local_failure", detail: cause), team: nil)
+        #expect(local.code == "local_failure")
+        #expect(local.message.contains(cause))
+        #expect(!local.message.contains("cmux Cloud sent an answer"))
+        #expect(local.data?["detail"]?.stringValue == cause)
+        let reply = ControlMethod.authTokenError(AuthTokenRefusal(code: "bad_reply", detail: "unexpected_challenge"), team: nil)
+        #expect(reply.message.contains("unexpected_challenge"))
+        // A refusal's detail is the owner's code, already in its own words: not repeated.
+        let refused = ControlMethod.authTokenError(AuthTokenRefusal(code: "forbidden", detail: "auth.forbidden"), team: nil)
+        #expect(!refused.message.contains("(auth.forbidden)"))
+    }
+
+    /// Leo's NIGHTLY, 2026-11-11: `cmux whoami` (no `--team`) said "refused a token for team -". The refusal
+    /// names the team the mint was for, the app's own team too.
+    @Test func aRefusalForTheAppsOwnTeamNamesThatTeam() {
+        let own = AuthTokenRefusal(code: "forbidden", detail: "auth.forbidden", team: "team_0123456789abcdef0123")
+        let error = ControlMethod.authTokenError(own, team: nil)
+        #expect(error.code == "forbidden")
+        #expect(error.message.contains("team_0123456789abcdef0123"))
+        #expect(!error.message.contains("team -"))
+        // The team the mint was for wins over the asked one.
+        #expect(ControlMethod.authTokenError(own, team: team).message.contains("team_0123456789abcdef0123"))
+    }
+
     @Test func authTokenIsACloudFeatureMethod() {
         #expect(ActionFeature(controlMethod: "auth.token") == .cloud)
         #expect(ActionFeature(controlMethod: "auth.status") == nil)

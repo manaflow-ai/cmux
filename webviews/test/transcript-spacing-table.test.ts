@@ -15,6 +15,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { BUBBLE, FOOTER, TRANSCRIPT_SPACING } from "../src/agent-session/acpmux/transcriptSpacing";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { CLOCK_ON_LINE, pinArms } from "./support/pinArms";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("transcript-spacing-table.test.ts", async () => {
@@ -169,7 +170,9 @@ await requireBrowserLane("transcript-spacing-table.test.ts", async () => {
         "footer-to-next": diff(glyphCentre, at(inboxes[0])),
         "step-to-prompt": diff(at(inboxes[0]), prompt?.top),
         "prompt-to-step": diff(prompt?.bottom, at(sends[0])),
-        "step-pitch": diff(at(sends[0]), at(sends[1])),
+        // An opened run's two commands sit flush; a running turn's listed calls keep the run's 4 between them.
+        "step-pitch": diff(at(commands.at(-2)), at(commands.at(-1))),
+        "call-pitch": diff(at(sends[0]), at(sends[1])),
         "step-to-prose": diff(at(sends.at(-1)), at(short[0])),
         "prose-to-step": diff(at(short.at(-1)), at(commands[0])),
         "run-to-step": diff(at(commands.at(-1)), at(inboxes[1])),
@@ -227,6 +230,8 @@ await requireBrowserLane("transcript-spacing-table.test.ts", async () => {
 
   const open = async (theme: string) => {
     const page = await browser.newPage({ viewport: { width: 1200, height: 1100 }, deviceScaleFactor: 2 });
+    // Measure the status rows without the optional header between them.
+    await pinArms(page, CLOCK_ON_LINE);
     const port = (vite!.httpServer!.address() as { port: number }).port;
     await page.goto(
       `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant: "shipped", width: 1100, theme, reducedMotion: "true" })}`,

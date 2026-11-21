@@ -3,6 +3,7 @@
 // the transcript's own block parser (Markdown.tsx), so a version is a fence the chat drew with Open.
 import { artifactKind, documentName, type Artifact } from "./artifactPreview";
 import { parseMarkdown, type MdBlock } from "./markdownModel";
+import { PrefixFlatCache } from "./prefixFlatMap";
 
 export type ArtifactSourceRow = {
   id: string;
@@ -10,6 +11,7 @@ export type ArtifactSourceRow = {
   kind: string;
   text?: string;
   at?: number;
+  streaming?: boolean;
 };
 
 /// The row and parser block key identify one fence across streamed snapshots.
@@ -56,18 +58,18 @@ export function artifactForIdentity(
 }
 
 /// The chat's documents of `artifact`'s kind and title, oldest first, each text once. One with no
-/// title, or that the replies do not hold, is its only version.
-export function artifactVersions(replies: readonly string[], artifact: Artifact): Artifact[] {
+/// title, or that the replies do not hold, is its only version. `documents`: the replies' documents in
+/// reading order (`finishedReplyDocuments`, `replyDocuments`).
+export function artifactVersions(documents: readonly Artifact[], artifact: Artifact): Artifact[] {
   const name = documentName(artifact);
   if (!name) return [artifact];
   const versions: Artifact[] = [];
   const seen = new Set<string>();
-  for (const reply of replies)
-    for (const document of replyDocuments(reply)) {
-      if (document.kind !== artifact.kind || seen.has(document.code) || documentName(document) !== name) continue;
-      seen.add(document.code);
-      versions.push(document);
-    }
+  for (const document of documents) {
+    if (document.kind !== artifact.kind || seen.has(document.code) || documentName(document) !== name) continue;
+    seen.add(document.code);
+    versions.push(document);
+  }
   if (!seen.has(artifact.code)) {
     // A live rewrite is not finished yet, but it is still the newest version of this document.
     if (!artifact.identity || versions.length === 0) return [artifact];
@@ -76,17 +78,33 @@ export function artifactVersions(replies: readonly string[], artifact: Artifact)
   return versions;
 }
 
-/// A finished reply's documents, parsed once: the panel reads them again on every streamed delta.
-const parsed = new Map<string, Artifact[]>();
-function replyDocuments(reply: string): Artifact[] {
-  let found = parsed.get(reply);
-  if (!found) {
-    found = [...documents(parseMarkdown(reply))];
-    // Another chat's replies replace these, a bounded cache, not a growing one.
-    if (parsed.size >= 512) parsed.clear();
-    parsed.set(reply, found);
-  }
+/// A reply the document scans read: a transcript row, kept by its object.
+export type Reply = { readonly text?: string };
+const NO_DOCUMENTS: readonly Artifact[] = [];
+
+/// A reply's documents, parsed once per row: the panel and Session Info read them again on every
+/// streamed delta. Kept by the row's object (the client keeps an unchanged row's object, direct.ts
+/// `OrderedRows`), so a chat of any length parses only the rows an update changed, and a closed
+/// chat's rows take their entries with them. A cache by reply text that emptied itself at 512
+/// replies parsed every reply of a longer chat again on each update.
+const parsed = new WeakMap<Reply, { readonly text: string; readonly documents: readonly Artifact[] }>();
+export function replyDocuments(reply: Reply): readonly Artifact[] {
+  const text = reply.text ?? "";
+  const known = parsed.get(reply);
+  if (known?.text === text) return known.documents;
+  const found = text ? [...documents(parseMarkdown(text))] : NO_DOCUMENTS;
+  parsed.set(reply, { text, documents: found });
   return found;
+}
+
+/// The documents of the finished replies among `rows`, in reading order. A pass reads again only
+/// the rows after the kept prefix (prefixFlatMap.ts), so a streamed token reads its own row only.
+const finishedDocuments = new PrefixFlatCache<ArtifactSourceRow, Artifact>(
+  (row) => (row.kind === "assistant" && !row.streaming && row.text ? replyDocuments(row) : NO_DOCUMENTS),
+  6,
+);
+export function finishedReplyDocuments(rows: readonly ArtifactSourceRow[]): readonly Artifact[] {
+  return finishedDocuments.read(rows).items;
 }
 
 /// The fences in `blocks` the panel can draw, in reading order (quotes and list items hold fences too).
@@ -101,14 +119,13 @@ function* documents(blocks: readonly MdBlock[]): Generator<Artifact> {
 
 /// The documents the chat's finished replies drew as fences the panel can open, oldest first, each
 /// text once (Session Info's Outputs lists them).
-export function chatDocuments(replies: readonly string[]): Artifact[] {
+export function chatDocuments(rows: readonly ArtifactSourceRow[]): Artifact[] {
   const seen = new Set<string>();
   const found: Artifact[] = [];
-  for (const reply of replies)
-    for (const document of replyDocuments(reply)) {
-      if (seen.has(document.code)) continue;
-      seen.add(document.code);
-      found.push(document);
-    }
+  for (const document of finishedReplyDocuments(rows)) {
+    if (seen.has(document.code)) continue;
+    seen.add(document.code);
+    found.push(document);
+  }
   return found;
 }

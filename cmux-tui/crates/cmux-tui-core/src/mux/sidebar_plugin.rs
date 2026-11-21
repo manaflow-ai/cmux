@@ -30,7 +30,8 @@ impl Mux {
         relaunch: bool,
     ) -> SidebarPluginStatus {
         let now = Instant::now();
-        let size = (cols.max(1), rows.max(1));
+        // The view's terminal runs in the daemon: the one size rule applies.
+        let size = clamp_terminal_size(cols, rows);
         let spawn_options = {
             let mut runtime = self.sidebar_plugin.lock().unwrap();
             let Some(options) = runtime.options.clone() else {
@@ -140,7 +141,7 @@ impl Mux {
     ) -> SidebarPluginStatus {
         let old_surface = {
             let mut runtime = self.sidebar_plugin.lock().unwrap();
-            runtime.last_size = Some((cols.max(1), rows.max(1)));
+            runtime.last_size = Some(clamp_terminal_size(cols, rows));
             runtime.last_error = None;
             runtime.failures = 0;
             runtime.retry_at = None;
@@ -165,8 +166,7 @@ impl Mux {
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
     ) -> anyhow::Result<ResourcePatchCommit> {
-        let cols = cols.max(1);
-        let rows = rows.max(1);
+        let (cols, rows) = clamp_terminal_size(cols, rows);
         let fingerprint = serde_json::json!({
             "operation":"sidebar_view.resize",
             "selectors":selectors,
@@ -260,4 +260,26 @@ impl Mux {
         }
         Ok(commit)
     }
+}
+
+impl Mux {
+    pub(super) fn sidebar_surface_exited(&self, id: SurfaceId) -> bool {
+        let mut runtime = self.sidebar_plugin.lock().unwrap();
+        if runtime.surface != Some(id) {
+            return false;
+        }
+        runtime.surface = None;
+        runtime.failures = runtime.failures.saturating_add(1);
+        let delay = sidebar_retry_delay(runtime.failures);
+        runtime.last_error = Some("sidebar plugin exited".to_string());
+        runtime.retry_at = Some(Instant::now() + delay);
+        drop(runtime);
+        self.state.lock().unwrap().surfaces.remove(&id);
+        true
+    }
+}
+
+fn sidebar_retry_delay(failures: u32) -> Duration {
+    let shift = failures.saturating_sub(1).min(5);
+    Duration::from_secs(1u64 << shift)
 }

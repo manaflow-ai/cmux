@@ -572,7 +572,7 @@
   height: 28px;
   padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   background: transparent;
   color: var(--cmux-text-secondary);
 }
@@ -732,4 +732,12 @@
   justify-content: flex-end;
   gap: 8px;
   margin-top: auto;
+}
+/* Text Size and Density: the picker under the row's words, the row's whole width. */
+.hm-setup__row[data-step="look"] {
+  align-items: flex-start;
+}
+.hm-setup__look {
+  margin-top: 8px;
+  margin-bottom: 4px;
 }

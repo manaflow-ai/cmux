@@ -38,6 +38,9 @@ pub struct Command {
     /// (descriptor, the number the child gets it at).
     #[cfg(unix)]
     pub(crate) inherit: Vec<(OwnedFd, RawFd)>,
+    /// Windows process creation flags ([`Command::creation_flags`]).
+    #[cfg(windows)]
+    pub(crate) creation_flags: u32,
 }
 
 impl Command {
@@ -60,6 +63,8 @@ impl Command {
             disclaim_responsibility: false,
             #[cfg(unix)]
             inherit: Vec::new(),
+            #[cfg(windows)]
+            creation_flags: 0,
         }
     }
 
@@ -183,6 +188,14 @@ impl Command {
         self
     }
 
+    /// Windows: the process creation flags (`CREATE_NO_WINDOW`, ...), as
+    /// `std::os::windows::process::CommandExt::creation_flags`.
+    #[cfg(windows)]
+    pub fn creation_flags(&mut self, flags: u32) -> &mut Self {
+        self.creation_flags = flags;
+        self
+    }
+
     /// Give the child a copy of `fd` at descriptor number `at` (3 or more:
     /// 0-2 are [`Command::stdin`], [`Command::stdout`], [`Command::stderr`]).
     /// The only way a descriptor other than 0-2 reaches the child.
@@ -206,15 +219,33 @@ impl Command {
     /// Start the child. Returns once it runs its program (an exec failure is
     /// this call's error). The streams and descriptors given are used up, as
     /// std does with a `Stdio` it owns.
+    ///
+    /// The child leads a process group of its own unless it was put in
+    /// another ([`Command::process_group`] with a pgid) or this process has
+    /// a controlling terminal (a command run from a shell: its children stay
+    /// in the terminal's foreground group, so Ctrl-C reaches them as it
+    /// reaches this process). A daemon has none, so its children lead their
+    /// groups. [`Command::new_session`] makes it a leader too. A leader's
+    /// drop ends what it started with it ([`Child`]).
     pub fn spawn(&mut self) -> io::Result<Child> {
+        let asked = self.process_group;
+        let leads_group = match asked {
+            _ if self.new_session => true,
+            Some(pgid) => pgid == 0,
+            None if cfg!(unix) && !has_controlling_terminal() => {
+                self.process_group = Some(0);
+                true
+            }
+            None => false,
+        };
         #[cfg(target_vendor = "apple")]
-        {
-            crate::spawn_apple::spawn(self)
-        }
+        let spawned = crate::spawn_apple::spawn(self);
         #[cfg(not(target_vendor = "apple"))]
-        {
-            self.spawn_std()
-        }
+        let spawned = self.spawn_std();
+        self.process_group = asked;
+        let mut child = spawned?;
+        child.set_leads_group(leads_group);
+        Ok(child)
     }
 
     /// Run the child to its end with stdin null and stdout and stderr
@@ -263,6 +294,11 @@ impl Command {
         }
         if let Some(stdio) = self.stderr.take() {
             command.stderr(stdio.into_std());
+        }
+        #[cfg(windows)]
+        if self.creation_flags != 0 {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(self.creation_flags);
         }
         #[cfg(unix)]
         {
@@ -340,5 +376,26 @@ impl Command {
         #[cfg(unix)]
         self.inherit.clear();
         Ok(Child::from_std(child))
+    }
+}
+
+/// This process has a controlling terminal (`/dev/tty` opens).
+pub(crate) fn has_controlling_terminal() -> bool {
+    #[cfg(unix)]
+    {
+        // SAFETY: a constant path; the descriptor is closed at once.
+        let fd = unsafe {
+            libc::open(c"/dev/tty".as_ptr(), libc::O_RDONLY | libc::O_NOCTTY | libc::O_CLOEXEC)
+        };
+        if fd < 0 {
+            return false;
+        }
+        // SAFETY: the descriptor just opened.
+        unsafe { libc::close(fd) };
+        true
+    }
+    #[cfg(not(unix))]
+    {
+        true
     }
 }

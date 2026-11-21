@@ -5,6 +5,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -49,13 +50,9 @@ const { TurnActionsContext } = await import("../src/agent-session/acpmux/convers
 const host = dom.window.document.getElementById("root")!;
 const root = createRoot(host);
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root.unmount());
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 // The chat's last turn, which turns.ts marks retryable with the prompt it sends again.
@@ -64,7 +61,7 @@ const lastTurn: AcpmuxRow = {
   version: 1,
   at: Date.now(),
   kind: "turnSummary",
-  status: "completed",
+  status: "failed",
   text: "Added it.",
   retryable: true,
   retryTarget: true,
@@ -78,7 +75,7 @@ const menuItem = (label: string) =>
     item.textContent?.includes(label),
   );
 
-test("Retry's model menu retries the prompt on the model picked there", async () => {
+test("a failed reply retains its model Retry menu", async () => {
   const retried: unknown[][] = [];
   const actions = {
     retry: (rowId: string, prompt: string) => retried.push([rowId, prompt]),
@@ -104,7 +101,7 @@ test("Retry's model menu retries the prompt on the model picked there", async ()
   expect(retried).toEqual([["user-1", "Add retry to the uploader", "claude-sonnet-5-5"]]);
 });
 
-test("a harness with one model offers Retry alone", async () => {
+test("a failed reply with one model offers Retry alone", async () => {
   const actions = {
     retry: () => {},
     retryWith: {
@@ -133,7 +130,7 @@ const rowName = (item: Element) => item.querySelector(".acpmux-menu-label")?.tex
 const shownRows = () =>
   [...dom.window.document.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitemradio"]')].map(rowName);
 
-test("Retry's model menu lists the top models, the rest under More models, one row per model", async () => {
+test("a failed reply keeps top models and More models, one row per model", async () => {
   const retried: unknown[][] = [];
   const actions = {
     retry: () => {},
@@ -176,4 +173,55 @@ test("Retry's model menu lists the top models, the rest under More models, one r
   expect(more, "older models fold under More models").toBeDefined();
   await act(async () => menuItem("Fable 5.1")!.click());
   expect(retried).toEqual([["user-1", "Add retry to the uploader", "claude-fable-5-1"]]);
+});
+
+test("a successful reply has no inline Retry or model split control", async () => {
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider
+        value={{
+          retry: () => {},
+          retryWith: {
+            models: [
+              { id: "one", name: "One" },
+              { id: "two", name: "Two" },
+            ],
+            retry: () => {},
+          },
+        }}
+      >
+        <TurnFooter row={{ ...lastTurn, status: "completed", answerId: "answer-1" }} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  expect(button("Retry")).toBeUndefined();
+  expect(button("Retry with another model")).toBeUndefined();
+  expect(host.querySelector(".cv-turn-retry")).toBeNull();
+});
+
+test("an interrupted reply keeps resend out of the inline recovery controls", async () => {
+  const retried: string[] = [];
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider
+        value={{
+          retry: (rowId) => {
+            retried.push(rowId);
+          },
+          retryWith: {
+            models: [
+              { id: "one", name: "One" },
+              { id: "two", name: "Two" },
+            ],
+            retry: () => {},
+          },
+        }}
+      >
+        <TurnFooter row={{ ...lastTurn, status: "interrupted" }} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  expect(button("Retry with another model")).toBeUndefined();
+  expect(button("Retry")).toBeUndefined();
+  expect(retried).toEqual([]);
 });

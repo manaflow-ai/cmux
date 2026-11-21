@@ -1,6 +1,4 @@
 # file	px	count: off-scale icon sizes that predate check-icon-scale.ts. Rows only shrink.
-agent-session/acpmux/composer/attachmentIntake.tsx	8	2
-agent-session/acpmux/composer/inlineAttachments.tsx	8	1
 agent-session/acpmux/header/header.css	6	1
 agent-session/acpmux/QueuedImages.tsx	8	1
 icon-picker/styles.css	17	1

@@ -19,7 +19,7 @@ Rules:
                    that allows no glass.
   native-stale     a manifest entry whose file is gone or no longer builds glass.
   web-floating     a floating web surface in the agent pane's code (webviews/src/ui, webviews/src/agent-session):
-                   a JSX element whose opening tag carries both `ui-popup` and `ui-glass` (in a string or a
+                   a JSX element whose own className carries both `ui-popup` and `ui-glass` (a string, a
                    multiline cx(...)) and no `data-host-glass=` attribute of its own. In a see-through
                    Chromium pane it reads as a flat box beside the menus on the App's glass. A
                    `host-glass-allow: <reason>` comment inside that opening tag passes; so does a file in
@@ -106,6 +106,110 @@ def opening_tags(text: str):
 
 # A class held in a const: a string or a cx(...) of strings, never a component or a function.
 CONST = re.compile(r"\bconst\s+(\w+)\s*=([^;]*);", re.S)
+# `className=`, with the whitespace JSX allows around the `=`.
+CLASS_NAME = re.compile(r"className\s*=\s*")
+
+
+def class_attribute(tag: str) -> str:
+    """The value of the tag's own `className` (outside braces), or "" without one."""
+    depth = 0
+    quote = ""
+    index = 0
+    while index < len(tag):
+        char = tag[index]
+        if not quote and tag.startswith(("//", "/*"), index):
+            block = tag.startswith("/*", index)
+            end = tag.find("*/" if block else "\n", index + 2)
+            index = len(tag) if end < 0 else end + (2 if block else 0)
+            continue
+        if quote:
+            if char == "\\":
+                index += 1
+            elif char == quote:
+                quote = ""
+        elif char in "\"'`":
+            quote = char
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+        elif depth == 0 and tag[index - 1 : index].isspace() and (attribute := CLASS_NAME.match(tag, index)):
+            return balanced_value(tag, attribute.end())
+        index += 1
+    return ""
+
+
+def balanced_value(tag: str, start: int) -> str:
+    """The attribute value at `start`: a quoted string to its quote, or `{...}` to its balancing brace."""
+    opener = tag[start : start + 1]
+    if opener in ("\"", "'"):
+        end = tag.find(opener, start + 1)
+        return tag[start : (len(tag) if end < 0 else end + 1)]
+    if opener != "{":
+        return ""
+    depth = 0
+    quote = ""
+    index = start
+    while index < len(tag):
+        char = tag[index]
+        if not quote and tag.startswith(("//", "/*"), index):
+            block = tag.startswith("/*", index)
+            end = tag.find("*/" if block else "\n", index + 2)
+            index = len(tag) if end < 0 else end + (2 if block else 0)
+            continue
+        if quote:
+            if char == "\\":
+                index += 1
+            elif char == quote:
+                quote = ""
+        elif char in "\"'`":
+            quote = char
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return tag[start : index + 1]
+        index += 1
+    return tag[start:]
+
+
+def strings_and_code(value: str) -> tuple[str, str]:
+    """A className value split into the text of its string literals (the classes) and the code around them (where a
+    const is named), with comments in neither. A template literal's text is a string; its `${...}` is code."""
+    strings: list[str] = []
+    code: list[str] = []
+    index = 0
+    while index < len(value):
+        char = value[index]
+        if value.startswith(("//", "/*"), index):
+            block = value.startswith("/*", index)
+            end = value.find("*/" if block else "\n", index + 2)
+            index = len(value) if end < 0 else end + (2 if block else 0)
+            code.append(" ")
+            continue
+        if char in "\"'`":
+            index += 1
+            while index < len(value) and value[index] != char:
+                if value[index] == "\\":
+                    index += 1
+                elif char == "`" and value.startswith("${", index):
+                    inner = balanced_value(value, index + 1)
+                    inner_strings, inner_code = strings_and_code(inner[1:-1])
+                    strings.append(" " + inner_strings + " ")
+                    code.append(" " + inner_code + " ")
+                    index += 1 + len(inner)
+                    continue
+                else:
+                    strings.append(value[index])
+                index += 1
+            strings.append(" ")
+            code.append(' "" ')
+            index += 1
+            continue
+        code.append(char)
+        index += 1
+    return "".join(strings), "".join(code)
 
 
 def unmarked_surfaces(text: str) -> list[int]:
@@ -119,11 +223,13 @@ def unmarked_surfaces(text: str) -> list[int]:
     ]
     lines = []
     for offset, tag, own, notes in opening_tags(text):
-        class_value = re.search(r"\bclassName=\{([^}]*)", tag)
-        named = class_value is not None and any(
-            re.search(r"\b" + name + r"\b", class_value.group(1)) for name in floating_names
-        )
-        floating = (POPUP.search(tag) and GLASS.search(tag)) or named
+        # The element's own className, whole: a string, or a braced expression to its balancing brace.
+        classes = class_attribute(tag)
+        # Its classes are the text of its string literals; a const is named only in its code, a braced expression.
+        strings, code = strings_and_code(classes)
+        code = code if classes.startswith("{") else ""
+        named = any(re.search(r"\b" + name + r"\b", code) for name in floating_names)
+        floating = (POPUP.search(strings) and GLASS.search(strings)) or named
         if floating and not HOST_GLASS.search(own) and "host-glass-allow:" not in notes:
             lines.append(text.count("\n", 0, offset) + 1)
     return lines

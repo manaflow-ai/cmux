@@ -4,6 +4,7 @@ import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { SESSION_INFO } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 await requireBrowserLane("session-info-nested-dismiss-browser.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -37,7 +38,7 @@ await requireBrowserLane("session-info-nested-dismiss-browser.test.ts", async ()
             await page.goto(
               `http://127.0.0.1:${port}${galleryFrame(entry, { variant: inDialog ? "dialog-panel" : "panel" })}`,
             );
-            const panel = page.locator("aside.acpmux-session-info");
+            const panel = page.locator(SESSION_INFO);
             await panel.waitFor();
             const popup = repository ? ".acpmux-cloud-repository-picker" : '[role="menu"]';
             await page.locator(repository ? "[data-repository-trigger]" : ".acpmux-session-info-pr__more").click();

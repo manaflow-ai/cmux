@@ -14,6 +14,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { exactTime, messageAge, nextMessageAge } from "../src/agent-session/acpmux/conversation/relativeTime";
 import { pageClocks } from "../src/ui/pageClock";
+import { settleReact } from "./support/domTeardown";
 
 const SECOND = 1_000;
 const MINUTE = 60 * SECOND;
@@ -70,7 +71,9 @@ const assistantRow = (at: number): AcpmuxRow => ({
   text: "Pushed to the branch.",
 });
 
-test("an answer's footer (the exact-time shape) and a reply's own row read relative, the exact time on hover", async () => {
+// An answer's footer draws no time: the Codex app shows none (Lawrence, 2026-11-11 standup: "when I
+// hover, the time shows up on the right, which I don't think is good"). A reply's own row keeps it.
+test("an answer's footer draws no time; a reply's own row reads relative, the exact time on hover", async () => {
   const { TurnFooter } = await import("../src/agent-session/acpmux/conversation/TurnRows");
   const { ReplyActions } = await import("../src/agent-session/acpmux/conversation/MessageActions");
   const at = Math.floor(Date.now() / MINUTE) * MINUTE - 10 * MINUTE - 5 * SECOND;
@@ -84,14 +87,11 @@ test("an answer's footer (the exact-time shape) and a reply's own row read relat
     durationMs: 5_000,
     text: "Pushed to the branch.",
   };
-  for (const markup of [
-    renderToStaticMarkup(<TurnFooter row={footer} />),
-    renderToStaticMarkup(<ReplyActions row={assistantRow(at)} />),
-  ]) {
-    const time = /<time class="cv-turn-time"([^>]*)>([^<]*)<\/time>/.exec(markup);
-    expect(time?.[2]).toBe("10 minutes ago");
-    expect(time?.[1]).toContain(`title="${exact}"`);
-  }
+  expect(renderToStaticMarkup(<TurnFooter row={footer} />)).not.toContain("cv-turn-time");
+  const markup = renderToStaticMarkup(<ReplyActions row={assistantRow(at)} />);
+  const time = /<time class="cv-turn-time"([^>]*)>([^<]*)<\/time>/.exec(markup);
+  expect(time?.[2]).toBe("10 minutes ago");
+  expect(time?.[1]).toContain(`title="${exact}"`);
 });
 
 test("a prompt's row has the same age and the same exact-time tooltip", async () => {
@@ -130,7 +130,8 @@ afterEach(() => {
   root = undefined;
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
     else delete scope[key];

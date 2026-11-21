@@ -65,7 +65,7 @@ export function TableBlock({
         />
       </div>
       <div className="cv-table-wrap" ref={wrap} {...SIDEWAYS_SCROLLER}>
-        <table className={`cv-table${labeled ? " cv-table--labeled" : ""}`}>
+        <table className={`cv-table${labeled ? " cv-table--labeled" : ""}`} data-headless={header ? undefined : ""}>
           {header && (
             <thead>
               <tr>

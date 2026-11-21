@@ -5,6 +5,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -54,11 +55,8 @@ afterEach(() => {
   refuse = false;
 });
 
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { scope });
 });
 
 async function render(node: React.ReactNode) {
@@ -149,16 +147,12 @@ test("a fetch result with prose Markdown renders it and keeps JSON mono", async 
   expect(host.querySelector(".cv-tool-output")).not.toBeNull();
 });
 
-test("a long Markdown result can show every line and toggle to Raw", async () => {
+test("a long Markdown result scrolls through every line and toggles to Raw", async () => {
   const lines = Array.from({ length: 20 }, (_, index) => `## Result ${index}`);
   await openRow("fetch", lines.join("\n"), undefined, "Fetch https://example.com/report");
-  const showAll = [...host.querySelectorAll("button")].find((node) => node.textContent === "Show all 20 lines");
-  expect(showAll).toBeDefined();
   expect(host.querySelector(".cv-tool-output__markdown")?.getAttribute("data-preview")).toBe("cut");
-
-  await click(showAll);
-  expect(host.querySelector(".cv-tool-output__markdown")?.getAttribute("data-preview")).toBe("all");
-  expect([...host.querySelectorAll("button")].some((node) => node.textContent === "Show less")).toBe(true);
+  expect(host.querySelector(".cv-tool-output__markdown")?.textContent).toContain("Result 19");
+  expect([...host.querySelectorAll("button")].some((node) => node.textContent?.startsWith("Show all"))).toBe(false);
 
   const raw = [...host.querySelectorAll("button")].find((node) => node.textContent?.trim() === "Raw");
   expect(raw).toBeDefined();
@@ -203,10 +197,8 @@ test("a long output shows its last lines until Show all output", async () => {
   expect(shown().endsWith("line 4999")).toBe(true);
   expect(shown()).not.toContain("line 0\n");
   expect(shown().split("\n").length).toBeLessThan(1000);
-  // Its first lines show under a fade until the block is opened (BlockParts.tsx); then all of it.
-  // The preview counts the output's own lines (the command is its own block, ShellBlock.tsx), and
-  // opening it shows them all.
-  await click([...host.querySelectorAll("button")].find((node) => node.textContent === "Show all 5000 lines"));
+  // Its end scrolls in the block's box; Show all output draws all of it.
+  await click([...host.querySelectorAll("button")].find((node) => node.textContent === "Show all output"));
   expect(shown()).toBe(lines.join("\n"));
 });
 

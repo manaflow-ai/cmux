@@ -11,7 +11,7 @@ can fail, or pass, on what the frame does not show. A marker is one row of truec
 draws; a pixel reader decodes it.
 
 Step (`do`):
-  marker_install {}       writes this file to /tmp/jr-m-<nonce> (mode 755; removed when the journey ends) and binds
+  marker_install {}       writes this file to /tmp/jr-m-<nonce>-<random> (mode 755; removed when the journey ends) and binds
                           ${marker} to that path. Then type `${marker} TOKEN` (e.g. `${marker} ok-${nonce}-$((6*7))`):
                           the shell expands the token, and the program prints TOKEN as a text line (so daemon_line and
                           app_text_line check the same text as `echo TOKEN` did) and, below it, the marker of TOKEN.
@@ -297,9 +297,13 @@ def install(driver):
 
 
 def step_marker_install(j, step):
-    path = f"/tmp/jr-m-{j.nonce}"
+    # Made with O_CREAT|O_EXCL: a name another account made first (a link, a FIFO, its own program) fails the step
+    # instead of being written through or run. The random part keeps a planted name from failing every run.
+    path = f"/tmp/jr-m-{j.nonce}-{os.urandom(4).hex()}"
     data = Path(__file__).read_bytes()
-    Path(path).write_bytes(data)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o700)
+    with os.fdopen(fd, "wb") as out:
+        out.write(data)
     os.chmod(path, 0o755)
     j.files.append(path)
     j.vars["marker"] = path

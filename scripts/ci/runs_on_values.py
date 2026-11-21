@@ -60,9 +60,13 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 
 # glaeda-cmux-runner's runner_label(): the static label only the runner registered under that name carries.
@@ -77,7 +81,7 @@ VARIABLE = re.compile(r"\bvars\.([A-Za-z0-9_]+)\b")
 # `needs.p.outputs.attempt == format('{0}', github.run_attempt)`). A negation (`!needs...`), an `||` group or an
 # output mentioned anywhere else is no pick.
 PICK = re.compile(r"needs\.[\w-]+\.outputs\.[\w-]+(?:\s*(?:==|!=)\s*(?:'[^']*'|format\([^|&]*\)))?")
-EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
+EXPRESSION = gh_expressions.EXPRESSION  # a tokenizer: a `}}` in a string literal does not end it
 
 
 def single_host(value: str | None) -> bool:
@@ -304,13 +308,15 @@ def single_host_sets(trees: Iterable[tuple[str, Path]], values: Mapping[str, str
 
 
 def runs_on_text(job: Mapping) -> str:
-    value = job.get("runs-on")
-    if isinstance(value, dict):
-        labels = value.get("labels") or []
-        value = [value.get("group", ""), *([labels] if isinstance(labels, str) else labels)]
-    if isinstance(value, list):
-        return " ".join(str(item) for item in value)
-    return str(value or "")
+    """Every item of the job's runs-on (workflow_jobs.runs_on_items: a list's items, a mapping's labels and group),
+    joined by spaces, for runs_on_expressions."""
+    # Imported here, like yaml in jobs(): `--list-runners` runs on a bare Python, and workflow_jobs needs PyYAML.
+    tests = str(Path(__file__).resolve().parents[2] / "tests")
+    if tests not in sys.path:
+        sys.path.append(tests)
+    import workflow_jobs  # noqa: PLC0415
+
+    return " ".join(str(item) for item in workflow_jobs.runs_on_items(job))
 
 
 def runs_on_expressions(text: str) -> list[str]:

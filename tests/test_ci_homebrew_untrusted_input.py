@@ -22,6 +22,9 @@ import sys
 import tempfile
 
 import yaml
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOMEBREW = os.path.join(ROOT, ".github", "workflows", "update-homebrew.yml")
@@ -39,7 +42,7 @@ def _check(cond, msg):
 def render(text, context):
     """Substitute `${{ expr }}` like the runner: known paths get their value,
     anything else becomes empty."""
-    return re.sub(r"\$\{\{\s*([^}]+?)\s*\}\}", lambda m: context.get(m.group(1).strip(), ""), str(text))
+    return gh_expressions.STRIPPED.sub(lambda m: context.get(m.group(1).strip(), ""), str(text))
 
 
 def main():
@@ -87,7 +90,7 @@ def main():
     for name, job_def in workflow["jobs"].items():
         for s in job_def.get("steps", []):
             run = str(s.get("run", ""))
-            for expr in re.findall(r"\$\{\{\s*([^}]+?)\s*\}\}", run):
+            for expr in gh_expressions.STRIPPED.findall(run):
                 # `steps.version.outputs` is derived from the branch name, so it
                 # is attacker data one regex away from arbitrary text. It reaches
                 # a script through `env:` like the rest.

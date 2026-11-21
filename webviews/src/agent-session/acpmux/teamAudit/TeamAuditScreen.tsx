@@ -30,12 +30,20 @@ import {
 import "../ledger/ledger.css";
 import "./teamAudit.css";
 
-/// `group` is the grouping a reply was read for: the table keeps its heading and labels while the
-/// next grouping's read runs.
+/// `group` and `range` are what a reply was read for: the table keeps its heading and labels while the
+/// next read runs, and Download saves a reply only while it is the one for the picked range and grouping.
 type State =
   | { phase: "loading"; reply?: TeamAuditReply; group?: TeamAuditGroup }
-  | { phase: "answered"; answer: TeamAuditAnswer; group: TeamAuditGroup }
+  | { phase: "answered"; answer: TeamAuditAnswer; group: TeamAuditGroup; range: TeamAuditRange }
   | { phase: "older" };
+
+/// The last table stays on screen while the next read runs.
+const keepWhileLoading = (previous: State): State =>
+  previous.phase === "answered" && previous.answer.kind === "ready"
+    ? { phase: "loading", reply: previous.answer.reply, group: previous.group }
+    : previous.phase === "loading"
+      ? previous
+      : { phase: "loading" };
 
 type Props = {
   /// `_acpmux/team_audit` with `params` (direct.ts `teamAudit`).
@@ -80,20 +88,18 @@ export function TeamAuditScreen({ load, initialRange = "30d", initialGroup = "pe
   const read = useCallback(
     (which: TeamAuditRange, by: TeamAuditGroup) => {
       const id = ++request.current;
-      // The last table stays on screen while the next read runs.
-      setState((previous) =>
-        previous.phase === "answered" && previous.answer.kind === "ready"
-          ? { phase: "loading", reply: previous.answer.reply, group: previous.group }
-          : { phase: "loading" },
-      );
+      setState(keepWhileLoading);
       loadRef.current(teamAuditParams(which, by, now ?? Date.now())).then(
         (value) => {
-          if (id === request.current) setState({ phase: "answered", answer: readTeamAudit(value), group: by });
+          if (id === request.current)
+            setState({ phase: "answered", answer: readTeamAudit(value), group: by, range: which });
         },
         (error: unknown) => {
           if (id !== request.current) return;
           setState(
-            isOlderDaemon(error) ? { phase: "older" } : { phase: "answered", answer: { kind: "failed" }, group: by },
+            isOlderDaemon(error)
+              ? { phase: "older" }
+              : { phase: "answered", answer: { kind: "failed" }, group: by, range: which },
           );
         },
       );
@@ -110,9 +116,41 @@ export function TeamAuditScreen({ load, initialRange = "30d", initialGroup = "pe
     };
   }, [range, group, read]);
 
+  // A pick leaves the answered state in the same update, before the read's effect runs, so no render
+  // shows the last reply as the answer to the new pick. The ref holds the pick at once, for a click
+  // that lands before the next render.
+  const picked = useRef({ range, group });
+  const pick = (next: { range?: TeamAuditRange; group?: TeamAuditGroup }) => {
+    const chosen = { ...picked.current, ...next };
+    // Picking what is already picked reads nothing again, so it keeps the answer it has.
+    if (chosen.range === picked.current.range && chosen.group === picked.current.group) return;
+    picked.current = chosen;
+    setState(keepWhileLoading);
+    if (next.range) setRange(next.range);
+    if (next.group) setGroup(next.group);
+  };
+
+  // Download saves the table on screen, and only while it is the reply for the picked range and
+  // grouping, with that reply's own days and grouping.
+  const answerFor = (selection: { range: TeamAuditRange; group: TeamAuditGroup }) =>
+    state.phase === "answered" &&
+    state.answer.kind === "ready" &&
+    state.range === selection.range &&
+    state.group === selection.group
+      ? state.answer.reply
+      : undefined;
+  const shownAudit = answerFor({ range, group });
   const download = () => {
+    const audit = answerFor(picked.current);
+    if (!audit) return;
+    // The reply's own days and grouping: the file holds what the table on screen holds.
+    const { range: days, groupBy } = audit;
+    const params =
+      days.since && days.until
+        ? { since: days.since, until: days.until, groupBy, format: "csv" }
+        : teamAuditParams(picked.current.range, groupBy, now ?? Date.now(), "csv");
     setSaved(undefined);
-    loadRef.current(teamAuditParams(range, group, now ?? Date.now(), "csv")).then(
+    loadRef.current(params).then(
       (value) => {
         const answer = readTeamAuditSaved(value);
         setSaved(answer.kind === "saved" ? t("teamAudit.saved", { path: answer.path }) : t(REASON_KEY[answer.kind]));
@@ -145,7 +183,7 @@ export function TeamAuditScreen({ load, initialRange = "30d", initialGroup = "pe
   return (
     <div className="cst tma" data-loading={state.phase === "loading" || undefined}>
       <div className="cst-controls">
-        <Tabs variant="segmented" value={range} onValueChange={(value) => setRange(value as TeamAuditRange)}>
+        <Tabs variant="segmented" value={range} onValueChange={(value) => pick({ range: value as TeamAuditRange })}>
           <TabsList aria-label={t("ledger.range")}>
             {TEAM_AUDIT_RANGES.map((each) => (
               <TabsTrigger key={each} value={each}>
@@ -161,9 +199,9 @@ export function TeamAuditScreen({ load, initialRange = "30d", initialGroup = "pe
           closeOnPick
           align="end"
           options={TEAM_AUDIT_GROUPS.map((each) => ({ value: each, label: t(GROUP_KEY[each]) }))}
-          onChange={(value) => setGroup(value as TeamAuditGroup)}
+          onChange={(value) => pick({ group: value as TeamAuditGroup })}
         />
-        <button type="button" className="cst-link" disabled={!reply} onClick={download}>
+        <button type="button" className="cst-link" disabled={!shownAudit} onClick={download}>
           {t("teamAudit.export")}
         </button>
       </div>

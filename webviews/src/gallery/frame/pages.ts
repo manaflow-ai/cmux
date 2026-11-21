@@ -227,6 +227,15 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
   const source = { kind: "branch", repoRoot: repo, baseRef: state.baseRef ?? "main" };
   const prefs: Record<string, unknown> = {};
   let comments: DiffCommentRecord[] = [...(state.comments ?? [])];
+  const sessionOpened = () => ({
+    type: "sessionOpened",
+    value: {
+      sessionId: "gallery",
+      patch: { id: patchPath, mediaType: "text/x-diff", byteLength: patch.length, revision: 1 },
+      source,
+      generatedPaths: [],
+    },
+  });
   const host = installMockHost(
     {
       "cmux.diff.config": () => ({
@@ -256,15 +265,15 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
         type: "handshake",
         value: { protocolVersion: 1, capabilities: ["sessions", "branches"] },
       }),
-      "cmux.diff.sessionOpen": () => ({
-        type: "sessionOpened",
-        value: {
-          sessionId: "gallery",
-          patch: { id: patchPath, mediaType: "text/x-diff", byteLength: patch.length, revision: 1 },
-          source,
-          generatedPaths: [],
-        },
-      }),
+      "cmux.diff.sessionOpen": async () => {
+        if (state.mode === "loading") return await new Promise<never>(() => {});
+        if (state.mode === "error")
+          throw new HostError(
+            state.openError?.code ?? "cmux.diff.open_failed",
+            state.openError?.message ?? "git diff failed: not a git repository.",
+          );
+        return sessionOpened();
+      },
       "cmux.diff.git.fingerprint": () => {
         if (state.fingerprintError) throw new HostError(state.fingerprintError.code, state.fingerprintError.message);
         return { fingerprint: hash(patch) };
@@ -380,6 +389,13 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
   if (state.ports) provider.edge.forwards = JSON.parse(JSON.stringify(state.ports)) as PortForward[];
   if (state.maxActive !== undefined) provider.account.plan.max_active = state.maxActive;
   if (state.snapshotsFail) provider.failNext = CloudOps.snapshotList;
+  if (state.retention) provider.retention = JSON.parse(JSON.stringify(state.retention));
+  if (state.machinesCap !== undefined) provider.machinesCap = state.machinesCap;
+  if (state.freeUp) provider.freeUp = state.freeUp;
+  if (state.idle) provider.idle = [...state.idle];
+  if (state.retentionForbidden) provider.retentionForbidden = true;
+  if (state.spendCap) provider.spendCap = { ...state.spendCap };
+  if (state.memberBudget) provider.memberBudget = { ...state.memberBudget };
   const operations = pageOps(provider, [...Object.values(CloudOps), CLOUD_ACTION_RUN, CLOUD_PAGE_COMMAND], {
     mode: state.mode === "normal" ? undefined : state.mode,
     firstOperation: CloudOps.authStatus,
@@ -415,6 +431,18 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
   if (state.action === "select-machine") clickLater(".cloud-machine");
   if (state.action === "create") clickLater(".cloud-create-button");
   if (state.action === "get") clickLater(".cloud-store-get");
+  if (state.action === "create-at-cap") {
+    clickLater(".cloud-create-button");
+    setTimeout(() => document.querySelector<HTMLElement>(".cloud-create-submit")?.click(), 320);
+  }
+  if (state.action === "cleanup-team") {
+    setTimeout(() => {
+      const team = document.querySelector<HTMLDetailsElement>(".cloud-cleanup-team");
+      if (team) team.open = true;
+    }, 240);
+  }
+  // The first row's Resume (a paused machine): a start the spending cap or the member's budget refuses.
+  if (state.action === "resume") clickLater(".cloud-machine-toggle");
   if (state.action === "ports-pending") {
     clickLater(".cloud-machine");
     setTimeout(() => {

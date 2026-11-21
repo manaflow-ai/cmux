@@ -11,6 +11,7 @@ import { Composer } from "../src/pages/home-channels/Composer";
 import { quoteSelection } from "../src/pages/home-channels/quoteSelection";
 import table from "../src/pages/home-channels/generated/strings.json";
 import { createStrings } from "../src/pages/shared/i18n";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 const roots: Root[] = [];
@@ -58,8 +59,9 @@ function installDom(): Document {
   return dom.window.document;
 }
 
-afterEach(() => {
+afterEach(async () => {
   for (const root of roots.splice(0)) act(() => root.unmount());
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
