@@ -7,7 +7,7 @@ mod ticket;
 
 pub use admission::AdmissionListener;
 pub use config::{ConfigError, RelayCommand, RelayConfig};
-pub use relay::{HealthSnapshot, Relay};
+pub use relay::{HealthSnapshot, ReadinessSnapshot, Relay};
 pub use ticket::{TicketAuthority, TicketError};
 
 pub fn version_string() -> String {
