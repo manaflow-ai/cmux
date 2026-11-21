@@ -300,6 +300,13 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
     private var membershipKey: Int?
     /// Pull to refresh under the search field (`ListPullToRefresh` says why not `UIRefreshControl`).
     private var pullToRefresh: ListPullToRefresh?
+    /// When the list last moved (`scrollViewDidScroll`): a change that lands while it moves
+    /// applies without animation (`isScrolling`).
+    private var lastScrolled: CFTimeInterval = -.infinity
+    /// Animated snapshots applied, and the ones held to a plain apply because the list was
+    /// moving (tests and the rig read them).
+    private(set) var animatedApplyCount = 0
+    private(set) var unanimatedWhileScrollingCount = 0
     /// Snapshots and reconfigures applied (tests and the rig read them).
     private(set) var applyCount = 0
     private(set) var reconfigureCount = 0
@@ -426,8 +433,19 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
         heights.textSize = collectionView?.traitCollection.preferredContentSizeCategory ?? .large
         guard let next = pending, let dataSource else { return }
         pending = nil
-        let animated = pendingAnimated && !UIAccessibility.isReduceMotionEnabled && collectionView?.window != nil
+        var animated = pendingAnimated && !UIAccessibility.isReduceMotionEnabled && collectionView?.window != nil
         pendingAnimated = false
+        // Never an animated whole-list snapshot under a moving list (a new workspace or a Needs
+        // You change from a busy Mac, mid-scroll): it animated every row, and the frame it ran
+        // in dropped. The change shows at once instead; at rest, rows still animate in.
+        if animated, isScrolling(now: CACurrentMediaTime()) {
+            animated = false
+            unanimatedWhileScrollingCount += 1
+        }
+        if animated { animatedApplyCount += 1 }
+        #if DEBUG
+        ListApplyProbe.shared.applied("workspaces")
+        #endif
         let sections = ListSectionIDs.unique(next.sections)
         let plan = ListApplyPlan.make(old: shownSections, oldItems: items, new: sections, newItems: next.items)
         items = next.items
@@ -542,8 +560,24 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        lastScrolled = CACurrentMediaTime()
         pullToRefresh?.scrolled()
     }
+
+    /// The list is moving under the person: a finger on it, or coasting. An offset change the
+    /// list makes itself (an inset, a content-size change) is not scrolling.
+    func isScrolling(now: CFTimeInterval) -> Bool {
+        guard let view = collectionView else { return false }
+        if view.isTracking || view.isDragging || view.isDecelerating { return true }
+        #if DEBUG
+        // The rig scrolls from code, which sets no dragging flag.
+        if ListApplyProbe.shared.codeDrivenScroll { return now - lastScrolled < Self.movingWindow }
+        #endif
+        return false
+    }
+
+    /// How long after the last offset change the list still counts as moving.
+    static let movingWindow: CFTimeInterval = 0.1
 
     func scrollViewDidChangeAdjustedContentInset(_ scrollView: UIScrollView) {
         pullToRefresh?.scrolled()

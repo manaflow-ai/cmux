@@ -112,8 +112,17 @@ extension LiveCoordinator {
         session.acpmux.onWatchEvent = { [weak session] event in
             guard let session else { return }
             session.feed.handle(event, sessions: session.acpmux.sessions)
-            session.workspaces.setPending(session.acpmux.sessions.mapValues { $0.pendingPermissions > 0 }, waitingFor: session.feed.waitingFor,
-                                          chatTitles: session.acpmux.sessions.compactMapValues(\.title))
+            // Every session's asks and titles are mapped once a display frame, however many watch
+            // events the frame brought (each one mapped them all, on the main thread).
+            guard !session.pendingSyncScheduled else { return }
+            session.pendingSyncScheduled = true
+            NextDisplayFrame.schedule { [weak session] in
+                guard let session else { return }
+                session.pendingSyncScheduled = false
+                session.workspaces.setPending(session.acpmux.sessions.mapValues { $0.pendingPermissions > 0 },
+                                              waitingFor: session.feed.waitingFor,
+                                              chatTitles: session.acpmux.sessions.compactMapValues(\.title))
+            }
         }
         session.creation.capabilities = { [weak self] mac in self?.store.macCapabilities[mac] }
         observe(session)

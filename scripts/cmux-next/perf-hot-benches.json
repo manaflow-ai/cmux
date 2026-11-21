@@ -195,6 +195,11 @@
       "what": "one keystroke in the New Tab field: screenRows ranks the open tabs, workspaces, visited pages, palette actions, chats and agent starts for the typed text (webviews newtab/screenModel.ts, launchRows.ts), over lists folded once per host update (omnibar.ts foldedTexts)",
       "bench": "cd webviews && bun bench/new-tab-omnibar-keystroke.bench.ts (stress fixture: 2,000 actions, 500 chats, 200 folders; prints p50/p95/p99/max µs per key; --no-agents for the rows without the agent sources)",
       "owner": "new tab"
+    },
+    "workspace-sync-publish": {
+      "what": "the iPhone app's live workspace publication (cmux-next-ios WorkspaceSync.flushPublication): every Mac event of a display frame published to AppStore, the lists and the terminal Feed once",
+      "bench": "cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --arg listperf --arg cases=ws-heavy-live,feed-live (hitch ms/s, max frame, main CPU ms/s under a busy Mac on the real live path)",
+      "owner": "iOS (Aziz)"
     }
   }
 }
