@@ -54,6 +54,14 @@ Make me a cmux Cloud machine. I know it costs money every hour it runs. Run `cmu
 
 What only you can do: signing in to cmux, and allowing the new machine on the card cmux shows.
 
+## Start a chat on cmux Cloud and send it a follow-up
+
+```text
+Start me a chat on cmux Cloud and show me it works: run `cmux whoami`; if I am signed out, run `cmux login` and wait while I finish it in the browser. Then run `cmux chat --on vm --harness HARNESS --prompt 'Say hello in one sentence.' --wait --json` (HARNESS is claude or codex) and show me its reply, then `cmux chat send SESSION_ID 'Say it once more, shorter.' --wait` with the answer's session_id. If a start is refused for a Cloud plan, a model connection or GitHub, tell me the one card or Settings page that fixes it and run it again once I have. Tell me how long each step took, and that `cmux vm pause NAME` or `cmux vm rm NAME --yes` stops the machine.
+```
+
+What only you can do: signing in to cmux in the browser, picking a Cloud plan, and connecting a model (Claude setup token, ChatGPT or an API key) when the team shares none.
+
 ## Work in cmux Cloud: start an agent there, move a chat over and bring it back
 
 ```text

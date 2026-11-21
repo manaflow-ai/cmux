@@ -1651,7 +1651,6 @@
             "rows" : [
               "home.chiefDock.edge",
               "home.chiefPanel.style",
-              "home.chiefPanel.seesScreen",
               "home.chiefDock.openBeside"
             ],
             "title" : {
@@ -10192,7 +10191,7 @@
         true,
         false
       ],
-      "agent_refusal" : null,
+      "agent_refusal" : "userOnly",
       "agent_settable" : false,
       "consumers" : [
         "cmux-next"
@@ -10325,7 +10324,7 @@
         240,
         120.5
       ],
-      "agent_refusal" : null,
+      "agent_refusal" : "userOnly",
       "agent_settable" : false,
       "consumers" : [
         "cmux-next"
@@ -33731,7 +33730,7 @@
         false
       ],
       "agent_refusal" : null,
-      "agent_settable" : false,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -33798,7 +33797,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -33810,9 +33809,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -64719,7 +64720,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -94859,143 +94860,6 @@
         true,
         false
       ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.chiefDock",
-        "text" : "Chief Dock"
-      },
-      "help" : {
-        "key" : "settings.home.chiefPanelSeesScreen.help",
-        "text" : "The floating Chief takes one look at your screen when it opens. The eye turns it off."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "home.chiefPanel.seesScreen",
-      "keywords" : [
-        "chief",
-        "screen",
-        "see",
-        "context",
-        "screenshot",
-        "eye",
-        "floating",
-        "privacy",
-        "home"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "home",
-        "chiefPanel",
-        "seesScreen"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "home",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get"
-          ],
-          "reason" : "agent_settable_false",
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "toggle",
-          "offered" : true,
-          "operations" : [
-            "palette.toggleSetting"
-          ],
-          "reason" : null,
-          "row" : "setting:home.chiefPanel.seesScreen"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.home.chiefPanelSeesScreen",
-        "text" : "Chief Sees Your Screen When It Opens"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "consumers" : [
@@ -101242,7 +101106,7 @@
         "glow"
       ],
       "agent_refusal" : null,
-      "agent_settable" : false,
+      "agent_settable" : true,
       "choices" : [
         {
           "title" : {
@@ -101321,7 +101185,7 @@
         },
         "mcp" : {
           "aliases" : [
-
+            "settings.unset"
           ],
           "app_aliases" : [
 
@@ -101333,9 +101197,11 @@
           "offered" : true,
           "operations" : [
             "settings.list",
-            "settings.get"
+            "settings.get",
+            "settings.set",
+            "settings.reset"
           ],
-          "reason" : "agent_settable_false",
+          "reason" : null,
           "row" : null
         },
         "palette" : {
@@ -108480,7 +108346,7 @@
         true,
         false
       ],
-      "agent_refusal" : null,
+      "agent_refusal" : "userOnly",
       "agent_settable" : false,
       "consumers" : [
         "cmux-next"
