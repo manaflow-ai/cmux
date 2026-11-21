@@ -217,9 +217,10 @@ public final class CloudSetup {
     /// unrouted (``organizationUnrouted(_:)``, ``unroutedGateway``), and the answer is the Set up Cloud card's family and model where the next choice
     /// is that card. Nil for anything else (connections unread, an agent Cloud does not serve): the card could never pass.
     public func unrouted(harness: String?, model: String?, account: String?) async -> (family: String, model: String?)? {
+        let family: String
         switch await choose(harness: harness, model: model, account: account) {
-        case .organization(let family): organizationUnrouted(family)
-        case .gateway(let family): unroutedGateway.insert(family); connectionsChanged()
+        case .organization(let chosen): family = chosen; organizationUnrouted(chosen)
+        case .gateway(let chosen): family = chosen; unroutedGateway.insert(chosen); connectionsChanged()
         default: return nil
         }
         guard case .setup(_, let model) = await choose(harness: harness, model: model, account: account) else { return nil }
