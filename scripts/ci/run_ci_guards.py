@@ -435,18 +435,26 @@ def write_stamp(head_sha: str, groups: list[str], skipped: list[str], seconds: f
 TIMES = Path(os.environ.get("CMUX_GUARDS_TIMES")
              or Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "cmux-guards/step-seconds.json")
 UNTIMED_SECONDS = 10.0
+# Times of the long steps, checked in, for a machine with no times of its own: every pool runner
+# is a fresh VM, so without these CI would run the steps in ci-guards.yml order. A step not
+# listed counts as UNTIMED_SECONDS. Refresh it from a run's own file (CMUX_GUARDS_TIMES).
+SEED_TIMES = ROOT / "scripts/ci/guard-step-seconds.json"
 
 
-def read_times() -> dict[str, float]:
+def _read_seconds(path: Path) -> dict[str, float]:
     try:
-        body = json.loads(TIMES.read_text())
+        body = json.loads(path.read_text())
     except (OSError, ValueError):
         return {}
     return {k: float(v) for k, v in body.items() if isinstance(v, (int, float))} if isinstance(body, dict) else {}
 
 
+def read_times() -> dict[str, float]:
+    return {**_read_seconds(SEED_TIMES), **_read_seconds(TIMES)}
+
+
 def write_times(results: list[StepResult]) -> None:
-    times = read_times()
+    times = _read_seconds(TIMES)
     times.update({f"{r.unit.label}: {r.step.name}": round(r.seconds, 1) for r in results if r.ok is not None})
     try:
         TIMES.parent.mkdir(parents=True, exist_ok=True)
@@ -583,6 +591,9 @@ def main(argv: list[str]) -> int:
     tasks.sort(key=lambda task: (-expected(task), -len(task[1])))
     results: list[StepResult] = []
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs))
+    # In Actions every step's time is printed as it ends, so a job stopped at its timeout still shows
+    # which steps finished and which were still running.
+    on_actions = os.environ.get("GITHUB_ACTIONS") == "true"
     futures = [pool.submit(run_steps, unit, steps, env, base_sha, args.keep_going) for unit, steps in tasks]
     try:
         for future in concurrent.futures.as_completed(futures):
@@ -591,7 +602,7 @@ def main(argv: list[str]) -> int:
                 if result.ok is False:
                     print(f"  FAIL {result.seconds:6.1f}s  {result.unit.label}: {result.step.name}", flush=True)
                     print(f"::group::{result.step.name}\n{result.output.rstrip()}\n::endgroup::", flush=True)
-                elif args.verbose and result.ok:
+                elif (args.verbose or on_actions) and result.ok:
                     print(f"  ok   {result.seconds:6.1f}s  {result.unit.label}: {result.step.name}", flush=True)
     except KeyboardInterrupt:
         pool.shutdown(wait=False, cancel_futures=True)
@@ -603,6 +614,12 @@ def main(argv: list[str]) -> int:
     write_times(results)
     slowest = sorted((r for r in results if r.ok is not None), key=lambda r: -r.seconds)[:5]
     print("cmux guards: slowest " + "; ".join(f"{r.seconds:.1f}s {r.step.name}" for r in slowest), flush=True)
+    # CPU the steps used against what the machine had: near 1.0 the job needs fewer steps or more
+    # cores; well below it, the steps wait (sleeps, subprocess round trips) and more workers help.
+    cpu = sum(os.times()[:4])
+    cores = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 1)
+    print(f"cmux guards: cpu {cpu:.0f}s over {seconds:.0f}s wall on {cores} cores "
+          f"({cpu / max(seconds * cores, 1e-9):.0%} busy), {args.jobs} workers", flush=True)
     failed = [r for r in results if r.ok is False]
     skipped = sorted({r.step.name for r in results if r.ok is None})
     passed = sum(1 for r in results if r.ok)
