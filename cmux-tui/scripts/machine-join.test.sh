@@ -82,18 +82,6 @@ if [ -n "\${CMUX_JOIN+x}" ] || "$real_env" | "$real_grep" -q cmj_; then
 fi
 EOF
 
-# The fake systemctl: the user manager has acpmux-update.timer enabled only
-# with JT_TIMER=enabled; every other call succeeds.
-cat >"$shims/systemctl" <<EOF
-#!/bin/sh
-. "$fakes/record.sh"
-case "\$*" in
-  "--user is-enabled --quiet acpmux-update.timer") [ "\${JT_TIMER:-}" = enabled ] ;;
-  *) exit 0 ;;
-esac
-EOF
-chmod 755 "$shims/systemctl"
-
 # The fake uname: JT_OS and JT_ARCH.
 cat >"$shims/uname" <<EOF
 #!/bin/sh
@@ -102,7 +90,34 @@ case "\$1" in -s) echo "\$JT_OS" ;; -m) echo "\$JT_ARCH" ;; *) echo fake ;; esac
 EOF
 chmod 755 "$shims/uname"
 
+# The fake systemctl: the user manager has acpmux-update.timer enabled only
+# with JT_TIMER=enabled. JT_UNIT=1 has acpmux.service loaded, and JT_UNIT_UP=0
+# keeps it from coming up; otherwise nothing is loaded and every other call is
+# a no-op.
+cat >"$shims/systemctl" <<EOF
+#!/bin/sh
+. "$fakes/record.sh"
+case "\$*" in
+  "--user is-enabled --quiet acpmux-update.timer") [ "\${JT_TIMER:-}" = enabled ]; exit ;;
+esac
+[ "\${JT_UNIT:-0}" = 1 ] || exit 0
+case "\$*" in
+  "--user show -p LoadState --value acpmux.service") echo loaded ;;
+  "--user is-active --quiet acpmux.service") [ "\${JT_UNIT_UP:-1}" = 1 ] ;;
+esac
+EOF
+chmod 755 "$shims/systemctl"
+
+# sleep records its argv and returns at once: a retry's wait costs the suite nothing.
+cat >"$shims/sleep" <<EOF
+#!/bin/sh
+. "$fakes/record.sh"
+EOF
+chmod 755 "$shims/sleep"
+
 # The fake curl: serves \$JT_SERVE/<kind> by the URL's shape, honours -o.
+# \$JT_LOG/curl-fails, one curl exit code per line: the acpmux download
+# fails with each in turn (a reset is 56, an HTTP status 22), then succeeds.
 cat >"$shims/curl" <<EOF
 #!/bin/sh
 . "$fakes/record.sh"
@@ -123,6 +138,15 @@ case "\$url" in
   https://files.cmux.com/cmux-tui/*/cmux-tui-*) src="\$JT_SERVE/cmux" ;;
   https://claude.ai/install.sh) src="\$JT_SERVE/claude-install.sh" ;;
   *) exit 6 ;;
+esac
+case "\$url" in
+  */tree/*)
+    if [ -s "\$JT_LOG/curl-fails" ]; then
+      code="\$("$(command -v head)" -n 1 "\$JT_LOG/curl-fails")"
+      "$(command -v sed)" 1d "\$JT_LOG/curl-fails" >"\$JT_LOG/curl-fails.next"
+      "$(command -v mv)" "\$JT_LOG/curl-fails.next" "\$JT_LOG/curl-fails"
+      exit "\$code"
+    fi ;;
 esac
 [ -f "\$src" ] || exit 22
 if [ -n "\$out" ]; then "$(command -v cat)" "\$src" >"\$out"; else "$(command -v cat)" "\$src"; fi
@@ -156,7 +180,7 @@ case "\$*" in
     esac ;;
   "daemon restart") [ "\${JT_RESTART:-ok}" != fail ] || exit 1 ;;
   "host doctor --help") [ "\${JT_DOCTOR:-0}" = 1 ] && echo "  --here" || exit 2 ;;
-  "host doctor --here") echo '{"step":"credential","state":"ok"}' ;;
+  "host doctor --here --fix") echo '{"step":"credential","state":"ok"}' ;;
   "host join --status --json")
     inc=false
     [ ! -f "\$JT_PENDING" ] || inc=true
@@ -282,7 +306,7 @@ new_case() {
   JT_OS=Linux JT_ARCH=x86_64
   JT_CAPS="acpmux-v1 machine.join.stdin.v1"
   JT_JOIN_EXIT=0 JT_DOCTOR=0 JT_SERVICE=1 JT_PROBE=unknown JT_JOIN_ERR=""
-  JT_VAULT=fail JT_CODEX_RT=0 JT_SVC=ok JT_RESTART=ok JT_TIMER=off
+  JT_VAULT=fail JT_CODEX_RT=0 JT_SVC=ok JT_RESTART=ok JT_TIMER=off JT_UNIT=0 JT_UNIT_UP=1
   : >"$d/log/argv"
 }
 
@@ -296,8 +320,7 @@ run_join() {
     JT_DOCTOR="$JT_DOCTOR" JT_SERVICE="$JT_SERVICE" JT_PROBE="$JT_PROBE" JT_JOIN_ERR="$JT_JOIN_ERR" \
     JT_PENDING="$d/home/pending" JT_REVOKED="$d/home/revoked" \
     JT_VAULT="$JT_VAULT" JT_CODEX_RT="$JT_CODEX_RT" JT_SVC="$JT_SVC" JT_RESTART="$JT_RESTART" \
-    JT_TIMER="$JT_TIMER" \
-    CMUX_PLATFORM_URL="$origin" "$@"
+    JT_TIMER="$JT_TIMER" JT_UNIT="$JT_UNIT" JT_UNIT_UP="$JT_UNIT_UP" CMUX_PLATFORM_URL="$origin" "$@"
   rc=0
   case "$form" in
     env) "$@" CMUX_JOIN="$token" $shell_cmd -s <"$script_under_test" >"$d/out" 2>&1 || rc=$? ;;
@@ -335,7 +358,8 @@ suite() {
   check "acpmux installed" installed
   check "joins with --hub and --name" grep -q -- "--hub $origin --name" "$d/log/joins"
   check "the cmux CLI installed" test -x "$d/home/.cmux/bin/cmux"
-  check "the consent line" out_has "Screen sharing and control are off on this machine."
+  check "linux without cmux-rd: says the screen is not shared and why" out_has "This machine's screen is not shared: cmux-rd is not installed at $d/home/.local/bin/cmux-rd."
+  check "linux: no consent line (cmux-rd's host serves your own account)" eval '! out_has "Screen sharing and control are off"'
   check "no token in output" no_token_in_output
   check "no printf binary was exec'd (it is a builtin)" eval '! grep -q "^printf" "$d/log/argv"'
 
@@ -438,11 +462,45 @@ suite() {
   check "the temp dir was kept for the disk check" eval 'ls "$d/tmp"/cmux-join.*/join.err >/dev/null 2>&1'
   check "acpmux's stderr is redacted before it reaches disk" no_token_on_disk
 
+  # A transport reset is retried (run 44192875334: a 23 s blip reset every
+  # connection); an HTTP status the server sent is not.
+  new_case fetch-reset
+  printf '56\n56\n' >"$d/log/curl-fails"
+  run_join env
+  check "two resets, then the download: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "one line per retry" test "$(grep -c 'retrying in' "$d/out")" = 2
+  check "the retry line names the curl exit" out_has "(curl exit 56); retrying in 2 s"
+  check "waits 2 s, then 8 s" test "$(grep '^sleep' "$d/log/argv" | tr '\n' ' ')" = "sleep 2 sleep 8 "
+  check "three tries of the download" test "$(grep -c '^curl .*tree/' "$d/log/argv")" = 3
+  check "acpmux installed" installed
+  check "the token reaches acpmux on stdin, once" token_on_stdin_once
+  check "no token in output" no_token_in_output
+
+  new_case fetch-reset-gives-up
+  printf '56\n7\n28\n35\n' >"$d/log/curl-fails"
+  run_join env
+  check "four transport failures: exit 1 (got $rc)" rc_is 1
+  check "it stops after four tries" test "$(grep -c '^curl .*tree/' "$d/log/argv")" = 4
+  check "waits 2, 8 and 20 s" test "$(grep '^sleep' "$d/log/argv" | tr '\n' ' ')" = "sleep 2 sleep 8 sleep 20 "
+  check "it says the download failed" out_has "cannot download acpmux for x86_64-unknown-linux-musl"
+  check "nothing installed" eval '! installed'
+  check "nothing redeemed" no_redeem
+
+  new_case fetch-http-status
+  printf '22\n' >"$d/log/curl-fails"
+  run_join env
+  check "an HTTP status: exit 1 (got $rc)" rc_is 1
+  check "an HTTP status is not retried" test "$(grep -c '^curl .*tree/' "$d/log/argv")" = 1
+  check "no wait" eval '! grep -q "^sleep" "$d/log/argv"'
+  check "no retry line" eval '! out_has "retrying in"'
+  check "nothing redeemed" no_redeem
+
   new_case sha-mismatch
   serve_dir "$d/serve" "0000000000000000000000000000000000000000000000000000000000000000"
   run_join env
   check "mismatch fails (got $rc)" rc_is 1
   check "mismatch says so" out_has "checksum verification failed for acpmux"
+  check "a mismatch is not retried" test "$(grep -c '^curl .*tree/' "$d/log/argv")" = 1
   check "nothing installed" eval '! installed'
   check "nothing redeemed" no_redeem
 
@@ -457,7 +515,76 @@ suite() {
   check "the channel build replaced it" test "$(sha "$d/home/.local/bin/acpmux")" = "$(sha "$d/serve/acpmux")"
   check "the old one kept as acpmux.prev" grep -q "a different build" "$d/home/.local/bin/acpmux.prev"
   check "the replaced daemon restarted" grep -q "^acpmux daemon restart" "$d/log/argv"
+  check "replace and redeem restart the daemon once, not twice" test "$(grep -c "^acpmux daemon restart" "$d/log/argv")" = 1
   check "token on stdin of the verified binary" token_on_stdin_once
+
+  # acpmux.prev still runs (processes started before an earlier update): on
+  # Linux, writing over it fails with "Text file busy"; the join goes on.
+  if [ "$(uname -s)" = Linux ]; then
+    new_case prev-busy
+    bin="$d/home/.local/bin"
+    mkdir -p "$bin"
+    { cat "$root/acpmux.src"; echo "# a different build"; } >"$bin/acpmux"
+    chmod 755 "$bin/acpmux"
+    cp "$(command -v sleep)" "$bin/acpmux.prev"
+    chmod 755 "$bin/acpmux.prev"
+    "$bin/acpmux.prev" 120 &
+    busy=$!
+    tries=0
+    while [ "$(readlink "/proc/$busy/exe" 2>/dev/null)" != "$bin/acpmux.prev" ] && [ "$tries" -lt 50 ]; do
+      sleep 0.1
+      tries=$((tries + 1))
+    done
+    # Live: the copy-over this replaced fails on this file.
+    check "prev-busy: acpmux.prev is running, so cp over it fails" eval '! cp "$bin/acpmux" "$bin/acpmux.prev" 2>/dev/null'
+    run_join env
+    kill "$busy" 2>/dev/null || :
+    wait "$busy" 2>/dev/null || :
+    check "prev-busy: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+    check "prev-busy: the channel build replaced it" test "$(sha "$bin/acpmux")" = "$(sha "$d/serve/acpmux")"
+    check "prev-busy: the old one kept as acpmux.prev" grep -q "a different build" "$bin/acpmux.prev"
+    check "prev-busy: no staged copy left" test ! -e "$bin/.acpmux.prev.new"
+    check "prev-busy: token on stdin" token_on_stdin_once
+  fi
+
+  # systemd's acpmux.service runs the daemon: restarts go through it after
+  # reset-failed, once per run (two within seconds hit its start limit).
+  new_case unit-replace-join
+  JT_UNIT=1
+  mkdir -p "$d/home/.local/bin"
+  { cat "$root/acpmux.src"; echo "# a different build"; } >"$d/home/.local/bin/acpmux"
+  chmod 755 "$d/home/.local/bin/acpmux"
+  run_join env
+  check "unit: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "unit: one systemd restart" test "$(grep -c "^systemctl --user restart acpmux.service" "$d/log/argv")" = 1
+  check "unit: reset-failed before it" grep -q "^systemctl --user reset-failed acpmux.service" "$d/log/argv"
+  check "unit: never acpmux daemon restart or start" eval '! grep -qE "^acpmux daemon (restart|start)" "$d/log/argv"'
+  check "unit: the restart comes after the redeem" eval '[ "$(grep -n "^acpmux host join --hub" "$d/log/argv" | head -n 1 | cut -d: -f1)" -lt "$(grep -n "^systemctl --user restart" "$d/log/argv" | cut -d: -f1)" ]'
+  check "unit: says it is active" out_has "restarted acpmux.service; it is active"
+  : >"$d/log/argv"
+  run_join env
+  check "unit re-run: exit 0 (got $rc)" rc_is 0
+  check "unit re-run: no restart" eval '! grep -q "^systemctl --user restart" "$d/log/argv"'
+
+  # A replaced binary on a joined machine (nothing redeemed) still restarts, once.
+  new_case unit-replace-joined
+  JT_UNIT=1
+  mkdir -p "$d/home/.local/bin"
+  { cat "$root/acpmux.src"; echo "# a different build"; } >"$d/home/.local/bin/acpmux"
+  chmod 755 "$d/home/.local/bin/acpmux"
+  : >"$d/home/joined"
+  run_join env
+  check "unit, joined: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "unit, joined: nothing redeemed" no_redeem
+  check "unit, joined: one systemd restart" test "$(grep -c "^systemctl --user restart acpmux.service" "$d/log/argv")" = 1
+
+  # The unit does not come back: fail with the way out.
+  new_case unit-down
+  JT_UNIT=1
+  JT_UNIT_UP=0
+  run_join env
+  check "unit down: exit 1 (got $rc)" rc_is 1
+  check "unit down: names reset-failed and start" out_has "systemctl --user reset-failed acpmux.service; systemctl --user start acpmux.service"
 
   # Without a token (repair), a capable different build is kept when something
   # else updates it: a Linux box's acpmux-update.timer, the owner's
@@ -527,11 +654,17 @@ suite() {
   check "bad token downloads nothing" eval '! grep -q "^curl" "$d/log/argv"'
 
   new_case no-token
+  # cmux-rd is installed, but nothing joined this machine: its screen is not shared.
+  mkdir -p "$d/home/.local/bin"
+  printf '#!/bin/sh\n. "%s/record.sh"\nexit 0\n' "$fakes" >"$d/home/.local/bin/cmux-rd"
+  chmod 755 "$d/home/.local/bin/cmux-rd"
   run_join none
   check "no token: exit 0 (got $rc)" rc_is 0
   check "no token: installed" installed
   check "no token: service and daemon" grep -q "^acpmux daemon start" "$d/log/argv"
   check "no token: nothing redeemed" no_redeem
+  check "no token, not joined: the screen is not shared" out_has "This machine is not joined, so its screen is not shared."
+  check "no token, not joined: never says it is shared" eval '! out_has "Your own account can view this machine'"'"'s screen"'
 
   new_case doctor
   JT_DOCTOR=1
@@ -558,7 +691,7 @@ suite() {
   JT_RESTART=fail
   run_join env
   check "restart fails: still joins (got $rc)" rc_is 0
-  check "restart fails: says the daemon has no heartbeat yet" out_has "did not restart onto the join, so it sends no heartbeat yet"
+  check "restart fails: says the daemon has no heartbeat yet" out_has "did not restart onto the new acpmux or the join, so it sends no heartbeat yet"
 
   new_case no-service
   JT_SERVICE=0
@@ -572,6 +705,20 @@ suite() {
   run_join env
   check "macos exit 0 (got $rc): $(cat "$d/out")" rc_is 0
   check "macos fetches the darwin build" grep -q "cmux-tui-acpmux-aarch64-apple-darwin" "$d/log/argv"
+  check "macos: the consent line" out_has "Screen sharing and control are off on this machine."
+
+  # Linux with cmux-rd where the screen host unit runs it: the daemon shares the
+  # screen with the joining account by itself, after the join's restart.
+  new_case linux-cmux-rd
+  mkdir -p "$d/home/.local/bin"
+  printf '#!/bin/sh\n. "%s/record.sh"\nexit 0\n' "$fakes" >"$d/home/.local/bin/cmux-rd"
+  chmod 755 "$d/home/.local/bin/cmux-rd"
+  run_join env
+  check "linux-cmux-rd exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "linux-cmux-rd: your own account, nothing to do here" out_has "Your own account can view this machine's screen from your other devices, with nothing to do here. Other accounts can't reach it."
+  check "linux-cmux-rd: no consent line" eval '! out_has "Screen sharing and control are off"'
+  check "linux-cmux-rd: the daemon restarts onto the join" grep -q "^acpmux daemon restart" "$d/log/argv"
+  check "linux-cmux-rd: the script never runs cmux-rd itself" eval '! grep -q "^cmux-rd" "$d/log/argv"'
 
   # A join cut off after redeem (joinIncomplete) wins over a present
   # credential: the rerun resumes through acpmux, never "already joined".
@@ -674,7 +821,7 @@ suite() {
   check "revoked, no token: no join attempted" test ! -e "$d/log/joins"
 
   # Once joined: Claude Code from its own installer, Codex from acpmux's
-  # runtime (macOS), and a sign-in line for each, through its own flow.
+  # runtime (macOS and Linux), and a sign-in line for each, through its own flow.
   new_case harnesses
   JT_OS=Darwin JT_ARCH=arm64 JT_CODEX_RT=1
   run_join env
@@ -705,16 +852,20 @@ suite() {
   check "signed in: nothing of claude's status is shown" eval '! out_has "x@example.com"'
 
   new_case harnesses-none
-  run_join env CMUX_JOIN_HARNESSES=none
+  # A fixed name: the host name (gcp-codex-lane-11) would put "codex" in the join's argv.
+  run_join env CMUX_JOIN_HARNESSES=none CMUX_JOIN_NAME=box
   check "none: exit 0 (got $rc)" rc_is 0
   check "none: no installer" eval '! grep -q "claude.ai" "$d/log/argv"'
   check "none: no codex" eval '! grep -q "codex" "$d/log/argv"'
   check "none: no sign-in" eval '! out_has "sign in to"'
 
   new_case harnesses-linux
+  JT_CODEX_RT=1 JT_DOCTOR=1
   run_join env CMUX_JOIN_HARNESSES=codex
   check "linux codex: exit 0 (got $rc)" rc_is 0
-  check "linux codex: says how" out_has "Codex is not installed: npm install -g @openai/codex"
+  check "linux codex: installed" test -f "$d/home/codex-ready"
+  check "linux codex: uses managed installer" grep -q "^acpmux harness codex-runtime install" "$d/log/argv"
+  check "linux sandbox: join repairs prerequisites" grep -q "^acpmux host doctor --here --fix$" "$d/log/argv"
   check "linux codex: no claude" eval '! grep -q "claude.ai" "$d/log/argv"'
 
   new_case harnesses-bad

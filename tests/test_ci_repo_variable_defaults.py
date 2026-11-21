@@ -275,8 +275,14 @@ FORK_WRAP = re.compile(
     r" != github\.repository && ('[^']+') \|\| fromJSON\(vars\.RUNNER_POOLS\)\.[a-z0-9_]+\)")
 
 
+# The side lane's capability array read (tests/test_ci_side_lane_capability_labels.py). With its array unset it is
+# vars.CI_SIDE_LANE_RUNNER, so for an unset variable it falls back exactly as that one read does.
+SIDE_LANE_LABELS_READ = ("(vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || "
+                         "vars.CI_SIDE_LANE_RUNNER)")
+
+
 def fork_view(text: str) -> str:
-    return FORK_WRAP.sub(r"\1", text)
+    return FORK_WRAP.sub(r"\1", text.replace(SIDE_LANE_LABELS_READ, "vars.CI_SIDE_LANE_RUNNER"))
 
 
 def check_runs_on(path: Path, errors: list[str]) -> None:

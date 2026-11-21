@@ -140,7 +140,7 @@ import Testing
         for request in [run, typed] {
             #expect(LinkOpenPlacement<String>.inColumn(right: "web", column: ["web"], sourceWidth: 1400,
                                                        width: { _ in 700 }, kind: request.kind.rightColumnKind,
-                                                       holds: { _, kind in kind == .browser }) == .splitBelow(of: "web"),
+                                                       holds: { _, kind in kind == .browser }, opening: .tool) == .splitBelow(of: "web"),
                     "both terminal intents go below an existing browser in the chat's right column")
         }
         for kind in [AgentPaneTabKind.terminal, .browser] {

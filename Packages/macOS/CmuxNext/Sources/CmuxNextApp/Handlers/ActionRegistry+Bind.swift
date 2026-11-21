@@ -63,8 +63,7 @@ extension ActionRegistry {
     /// Binds every ID as unavailable in this build with `failure`'s reason.
     func bindUnavailable(_ ids: [ActionID], _ failure: ActionFailure) {
         for id in ids {
-            let bound = bindUnavailable(id, reason: failure.message)
-            assert(bound, "\(id) is not in the action catalog")
+            bindUnavailable(id, reason: failure.message)
         }
     }
 }

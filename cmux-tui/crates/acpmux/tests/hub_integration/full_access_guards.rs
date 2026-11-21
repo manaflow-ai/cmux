@@ -280,7 +280,7 @@ async fn deny_all_and_deny_rules_still_deny_in_full_access() {
         .await
         .unwrap();
     let err = c.request(method::SESSION_PROMPT, guard(&id)).await.unwrap_err();
-    assert!(err.contains("cannot be enforced"), "{err}");
+    assert!(err.contains("policy=approve-all`"), "{err}");
     assert!(
         autos(&hub, &id).iter().all(|a| a.get("fullAccess").is_none()),
         "{:?}",
