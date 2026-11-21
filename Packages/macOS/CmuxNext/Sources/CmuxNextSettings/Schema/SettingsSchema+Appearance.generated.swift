@@ -270,6 +270,12 @@ extension TitleAreaContrastSetting {
     public nonisolated static let placeholder: Double = 1
 }
 
+extension CornerFlushSetting {
+    /// `appearance.cornerFlush`: How the selected tab meets the content card (CornerFlush, CmuxNextDesign). A missing key is the default, flush with no goo, drawn only over the stock chrome (CornerFlush.defaultFits); a set value draws over any chrome, as a Debug Settings pick of chrome.cornerFlush does, which still overrides it in DEV and NIGHTLY. Compact density keeps the pill under every value. Leo 2026-11-13: "lawrence wanted no goo by default"; Leo 2026-11-18: the gooey look is a toggle a theme or a setup can pick.
+    public nonisolated static let configPath = ["appearance", "cornerFlush"]
+    public nonisolated static let fallback: CornerFlush = .flush
+}
+
 extension PaneAnimationsSetting {
     /// `ui.paneAnimations`.
     public nonisolated static let configPath = ["ui", "paneAnimations"]
@@ -361,26 +367,4 @@ extension ThemeFlourishSetting {
     /// `appearance.paneArt.light`.
     public nonisolated static let paneArtLightPath = ["appearance", "paneArt", "light"]
     public nonisolated static let paneArtLightDefault: [String] = []
-}
-
-/// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
-nonisolated enum AppearanceSettingsSchema {
-    static var iconTheme: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.iconTheme", "Icon Theme")
-        return [
-            SettingDescriptor(
-                NekoIconThemeSetting.configPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.appearance.iconTheme", "Icon Theme"),
-                help: SettingsText.keyed("settings.appearance.iconTheme.help", "The icon drawings used by cmux."),
-                kind: .choice([
-                    SettingChoice(NekoIconTheme.default.rawValue, SettingsText.keyed("settings.choice.default", "Default")),
-                    SettingChoice(NekoIconTheme.neko.rawValue, SettingsText.keyed("settings.choice.neko", "Neko")),
-                ]),
-                default: .string(NekoIconThemeSetting.fallback.rawValue),
-                keywords: ["icons", "icon", "theme", "neko", "cat"]
-            ).hiddenFromSettingsPage("reserved until the Neko artwork passes light/dark 1x/2x review"),
-        ]
-    }
 }

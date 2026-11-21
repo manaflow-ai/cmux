@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 665,
+  "count": 666,
   "sections": [
     {
       "id": "general",
@@ -2829,6 +2829,20 @@
             "max": 2,
             "unit": "seconds"
           }
+        },
+        {
+          "key": "appearance.cornerFlush",
+          "title": "Selected Tab Shape",
+          "help": "How the selected tab meets the content below it: a pill, flush with it, or flowing into it like a drop of water.",
+          "kind": "choice",
+          "default": "flush",
+          "group": "Panes",
+          "values": [
+            "off",
+            "flush",
+            "flush-tight",
+            "flush-goo"
+          ]
         },
         {
           "key": "appearance.customDensities",
