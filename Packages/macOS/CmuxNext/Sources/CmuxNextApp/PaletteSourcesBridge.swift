@@ -41,8 +41,7 @@ enum PaletteSourcesBridge {
             for (id, words) in setting.aliases { aliases[canonical(id), default: []] += words }
             var seen = Set<String>()
             return PaletteRankSettings(aliases: aliases, pins: setting.pins.map(canonical).filter { seen.insert($0).inserted },
-                                       remembersSearches: setting.remembersSearches,
-                                       experiments: PaletteExperiments(look: PaletteV2Look(setting: setting.paletteV2), preview: setting.palettePreview))
+                                       remembersSearches: setting.remembersSearches, experiments: PaletteExperiments(look: PaletteV2Look(setting: setting.paletteV2), preview: setting.palettePreview))
         }
         // Theme rows draw the theme's swatch strip (R98), from the catalog's
         // cache (read off the main thread at launch).
