@@ -5,7 +5,7 @@
 // and, for a typed path, from the disk (`folder.complete`, answered later: ``FolderListing``).
 // Pure and synchronous: a keystroke reads only the lists it is given, never the disk.
 import { foldedScore, foldedTexts } from "../omnibar";
-import { type AcpmuxSessionEntry, homePath, isAgentHome } from "../sessionList";
+import { type AcpmuxSessionEntry, homePath, isAgentHome, NewestFolders } from "../sessionList";
 
 /// An agent the page can start: its catalog id (`claude`, `codex`, `opencode`) and name.
 export type LaunchAgent = { id: string; name: string };
@@ -270,6 +270,21 @@ export function omnibarFolders(
   projects: readonly { cwd: string; peer?: string }[] | undefined,
   sessions: readonly AcpmuxSessionEntry[],
 ): string[] {
+  return omnibarFoldersFrom(projects, new NewestFolders(omnibarFolderKey).of(sessions));
+}
+
+/// The folder a chat gives the field's completions: a local chat's startable folder.
+export function omnibarFolderKey(session: AcpmuxSessionEntry): string | undefined {
+  if (session.peer || session.hostKind === "cloud" || !startable(session.cwd)) return undefined;
+  return session.cwd.replace(/(.)\/+$/, "$1");
+}
+
+/// ``omnibarFolders`` from the chats' folders already newest first (`NewestFolders` over
+/// ``omnibarFolderKey``), which a page keeps up to date at the cost of the chats that changed.
+export function omnibarFoldersFrom(
+  projects: readonly { cwd: string; peer?: string }[] | undefined,
+  newest: readonly string[],
+): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   const add = (cwd: string | undefined) => {
@@ -280,8 +295,9 @@ export function omnibarFolders(
     out.push(key);
   };
   for (const project of projects ?? []) if (!project.peer) add(project.cwd);
-  const local = sessions.filter((session) => !session.peer && session.hostKind !== "cloud");
-  const newest = [...local].sort((a, b) => (b.activityAt ?? b.updatedAt ?? 0) - (a.activityAt ?? a.updatedAt ?? 0));
-  for (const session of newest) add(session.cwd);
+  for (const folder of newest) {
+    if (out.length >= MAX_KNOWN_FOLDERS) break;
+    add(folder);
+  }
   return out;
 }
