@@ -78,6 +78,10 @@ pub const CONVERSATION_PERSON_CREDENTIALS_CAPABILITY: &str = "conversation-perso
 /// (kind, display name, unread count, preview, a Chief's live state, the
 /// caller's pins and marks, list order), so every view shows the same list.
 pub const HOME_INBOX_CAPABILITY: &str = "home-inbox-v1";
+/// `home-inbox` takes `since` (a revision) for `owners: ["local"]`: the reply
+/// carries `revision` and the rows changed and ids removed since, or the
+/// whole list with `full: true` when the change log does not reach back.
+pub const HOME_INBOX_SINCE_CAPABILITY: &str = "home-inbox-since-v1";
 
 /// `conversation-create`: a retry with the same `idempotency_key` and request
 /// returns the conversation it created.
@@ -130,6 +134,12 @@ pub(super) struct LinkResolveParams {
 pub(super) struct HomeInboxParams {
     #[serde(default)]
     owners: Option<Vec<String>>,
+    /// The revision of the rows the caller holds (`home-inbox-since-v1`,
+    /// local rows only): the reply is the rows changed and the ids removed
+    /// since, or the whole list (`full`). `0` asks for the whole list and its
+    /// revision. Absent: the reply is exactly the one without this field.
+    #[serde(default)]
+    since: Option<u64>,
 }
 
 impl HomeInboxParams {
@@ -335,6 +345,10 @@ pub(super) fn home_inbox(mux: &Mux, client: u64, params: HomeInboxParams) -> any
         owners.iter().all(|owner| owner == "local" || owner == "cloud"),
         "bad request: owners"
     );
+    anyhow::ensure!(
+        params.since.is_none() || owners.iter().all(|owner| owner == "local"),
+        "bad request: since needs owners [\"local\"]"
+    );
     let (cloud_rows, cloud) = if owners.iter().any(|owner| owner == "cloud") {
         cloud_home_rows(mux, client)
     } else {
@@ -378,7 +392,55 @@ pub(super) fn home_inbox(mux: &Mux, client: u64, params: HomeInboxParams) -> any
         cmux_conversation::home_inbox(&conversations, &input),
         cloud_rows,
     );
-    Ok(json!({"me": principal, "rows": rows, "cloud": cloud}))
+    let Some(since) = params.since else {
+        return Ok(json!({"me": principal, "rows": rows, "cloud": cloud}));
+    };
+    let (revision, delta) =
+        mux.with_home_changes(&principal, now_ms, &rows, |log| (log.revision(), log.since(since)));
+    home_inbox_delta(&principal, rows, cloud, revision, delta)
+}
+
+/// A `since` reply: the whole list (`full: true`), or (`full: false`) in
+/// `rows` only the changed rows, each with its `index` in the whole list,
+/// plus the removed ids and the list's `total`. Only the changed rows are
+/// serialized.
+fn home_inbox_delta(
+    principal: &str,
+    rows: Vec<cmux_conversation::HomeRow>,
+    cloud: &str,
+    revision: u64,
+    delta: cmux_conversation::HomeDelta,
+) -> anyhow::Result<Value> {
+    let (changed, removed) = match delta {
+        cmux_conversation::HomeDelta::Full => {
+            return Ok(json!({
+                "me": principal, "rows": rows, "cloud": cloud, "revision": revision, "full": true,
+            }));
+        }
+        cmux_conversation::HomeDelta::Since { changed, removed } => (changed, removed),
+    };
+    let wanted: std::collections::HashSet<&str> = changed.iter().map(String::as_str).collect();
+    let changed = rows
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| wanted.contains(row.id.as_str()))
+        .map(|(index, row)| {
+            let mut value = serde_json::to_value(row)?;
+            if let Value::Object(fields) = &mut value {
+                fields.insert("index".into(), Value::from(index));
+            }
+            Ok(value)
+        })
+        .collect::<anyhow::Result<Vec<Value>>>()?;
+    Ok(json!({
+        "me": principal,
+        "rows": changed,
+        "removed": removed,
+        "total": rows.len(),
+        "cloud": cloud,
+        "revision": revision,
+        "full": false,
+    }))
 }
 
 /// The person's Cloud inbox as Home rows, through the daemon's lease, and
