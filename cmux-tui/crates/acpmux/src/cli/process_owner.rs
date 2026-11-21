@@ -233,8 +233,12 @@ fn read_record(hosts: &Path, session: &str) -> Record {
 /// the Bash hook.
 pub fn is_acpmux_own(argv: &[String]) -> bool {
     let own = [agent_host::HOST_ARG, crate::bg_run::RUN_ARG, crate::bg_hook::HOOK_ARG];
-    argv.iter().skip(1).any(|a| own.contains(&a.as_str()))
-        || argv.windows(2).any(|w| w[0] == "daemon" && w[1] == "run")
+    argv.iter().skip(1).any(|a| own.contains(&a.as_str())) || is_daemon_run(argv)
+}
+
+/// Whether `argv` runs `daemon run` (the acpmux daemon).
+fn is_daemon_run(argv: &[String]) -> bool {
+    argv.windows(2).any(|w| matches!(w, [a, b] if a == "daemon" && b == "run"))
 }
 
 /// Whether the nearest acpmux process above `proc` is the daemon itself, not an agent host or a
@@ -249,7 +253,7 @@ fn under_the_daemon(proc: &tree::Started, table: &[tree::Started], daemon: Optio
             return true;
         }
         if let Some(argv) = tree::argv(parent) {
-            if argv.windows(2).any(|w| w[0] == "daemon" && w[1] == "run") {
+            if is_daemon_run(&argv) {
                 return true;
             }
             if is_acpmux_own(&argv) {
