@@ -121,6 +121,8 @@ final class ComposeVoice {
         guard isActive, !applying, splice != nil else { return }
         detached = true
         splice = nil
+        // The shown words stay with no undo step: the field's undo ranges no longer fit (#48500).
+        controller?.demo?.compose.textView.view.forgetUndo()
         input?.finishVoice()
     }
 
@@ -157,8 +159,9 @@ final class ComposeVoice {
             undoWatch = nil
         }
         guard !detached, var splice, let field = controller?.demo?.compose.textView.view else { return }
-        // Something else rebuilt the field (an attachment landed): the words stay where they are.
-        guard isShowing(splice, in: field) else { return }
+        // Something else rebuilt the field (an attachment landed): the words stay where they are,
+        // with no undo step, so the field's undo ranges no longer fit (#48500).
+        guard isShowing(splice, in: field) else { field.forgetUndo(); return }
         // The shown piece leaves without an undo step; a commit puts the final words back as one.
         let out = splice.replace(with: "")
         edit(field, out.range, out.text, caret: splice.location)
@@ -177,6 +180,7 @@ final class ComposeVoice {
         guard isShowing(splice, in: field) else {
             detached = true
             self.splice = nil
+            field.forgetUndo()  // the words stay with no undo step (#48500)
             input?.finishVoice()
             return
         }
