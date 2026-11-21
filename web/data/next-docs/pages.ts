@@ -89,6 +89,9 @@ export const nextDocPages: NextDocPage[] = [
     body: [
       { p: "Home is the first screen. It looks like a messages app. Each row is a conversation: a Chief, a person on your team, or a group chat." },
       { p: "Chief is your assistant. You ask in plain words. Chief starts agents, opens panes, and reports back in the same thread." },
+      { h2: "First run" },
+      { p: "A fresh install opens on Meet Chief, three short steps on the Chief chat: who Chief is and what it does for you, how often it checks with you before it runs a command (Bypass, Auto, or Manual), and the density and text size of cmux. Skip ends it at any step, and your first message ends it too." },
+      { p: "Change the permission mode later in Settings > Home, and the look in Settings > Appearance. In every mode, Chief asks you before it spends money, deletes data, or signs in." },
       { h2: "Commands" },
       { code: "cmux home open-chief      # open Chief\ncmux home tab             # open Home in a tab\ncmux home new-chief       # make another Chief\ncmux home send            # send a message", lang: "bash" },
       { h2: "Teammates" },
