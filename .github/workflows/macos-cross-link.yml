@@ -106,8 +106,10 @@ jobs:
       - uses: ./.github/actions/runner-cargo-home
 
       # Warm start: the dependencies' dev-profile objects for this target, saved by
-      # feat-cmux-next pushes only. The key holds the cross toolchain and the recipe, so
-      # a toolchain change starts cold instead of reusing the old one's objects.
+      # feat-cmux-next pushes only. The key holds the cross toolchain and macos-cross.sh
+      # (its compiler wrappers), so a toolchain change starts cold instead of reusing the
+      # old one's objects. The stubs only feed the link, which every run redoes, so a stub
+      # change keeps the warm objects.
       - name: Restore the macOS cross-link cargo cache
         continue-on-error: true
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -115,8 +117,10 @@ jobs:
           cache-bin: false
           workspaces: cmux-tui -> target
           shared-key: macos-cross-link-aarch64-apple-darwin
-          key: ${{ steps.darwin-cross.outputs.key }}-${{ hashFiles('scripts/ci/macos-cross.sh', 'scripts/ci/macos-stubs/**') }}
-          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+          key: ${{ steps.darwin-cross.outputs.key }}-${{ hashFiles('scripts/ci/macos-cross.sh') }}
+          # TEMP (measurement, reverted before landing): this PR saves too, so its next run is warm.
+          cache-on-failure: true
+          save-if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
 
       - name: Link the macOS daemon family on Linux (framework stubs)
         id: link

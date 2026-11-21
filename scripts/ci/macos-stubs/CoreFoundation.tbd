@@ -45,7 +45,6 @@ exports:
                        '_CFPreferencesCopyValue',
                        '_CFPropertyListCreateData',
                        '_CFPropertyListCreateWithData',
-                       '_CFRelease',
                        '_CFRetain',
                        '_CFRunLoopAddSource',
                        '_CFRunLoopGetCurrent',
