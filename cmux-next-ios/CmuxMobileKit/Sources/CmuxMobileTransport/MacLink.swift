@@ -117,6 +117,20 @@ extension MacLink {
     }
 }
 
+/// A link the Mac can hold while the app is suspended (PROTOCOL.md "Parked
+/// link"): a WireGuard link to a Mac that knows parking.
+public protocol ParkableMacLink: MacLink {
+    /// Before the OS suspends the app: ask the Mac to hold the link for up to
+    /// `hold` while the phone is silent. `true`: parked, and nothing on the
+    /// link wakes the phone until ``resumeParked()``. `false`: an older Mac,
+    /// no answer within `timeout`, or a transport that cannot be held.
+    func park(hold: Duration, timeout: Duration) async -> Bool
+    /// Back in front: `true` when the link was parked and its hold has not
+    /// passed. The tunnel then moves onto a fresh socket; probe it, and the
+    /// first frame back ends the park on both sides.
+    func resumeParked() -> Bool
+}
+
 /// One multiplexed channel inside a link.
 public protocol LinkChannel: AnyObject, Sendable {
     var id: UInt32 { get }

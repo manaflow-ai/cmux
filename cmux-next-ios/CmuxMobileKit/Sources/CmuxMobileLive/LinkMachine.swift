@@ -69,8 +69,21 @@ public struct LinkMachine: Sendable {
         /// The scene actually entered the background; links may go stale
         /// while iOS suspends the process. Inactive scenes do not count.
         case background
-        /// The scene became active. Replace any link kept across suspension.
+        /// The scene became active. A parked link resumes; any other link
+        /// kept across suspension is replaced.
         case resume
+        /// The Mac holds the link of `generation` while the app is suspended
+        /// (PROTOCOL.md "Parked link"): nothing on it wakes the phone, and on
+        /// `resume` it is roamed and probed instead of redialed.
+        case parked(generation: Int)
+        /// The park's hold ran out while the app was away: `resume` redials.
+        case parkLapsed
+        /// Something needs the link awake (a call on it, a notification
+        /// action's request): no park while any hold is out, and a parked
+        /// link resumes at once. Each is paired with one `releaseAwake`.
+        case holdAwake
+        /// One hold ended; with none left, a link in the background parks.
+        case releaseAwake
         case probeFailed(generation: Int, reason: String)
         /// A presence frame says the target Mac's signaling socket is up
         /// (again): its host may have restarted under a live link, whose
@@ -96,6 +109,12 @@ public struct LinkMachine: Sendable {
         case probe(generation: Int)
         /// Ping the live link with a short timeout (presence changed under it).
         case quickProbe(generation: Int)
+        /// Ask the Mac to hold the live link while the app is suspended; an
+        /// accepted park comes back as `parked`.
+        case park(generation: Int)
+        /// Bring a parked link back: roam its tunnel onto a fresh socket and
+        /// probe it once. A failure comes back as `probeFailed` (a redial).
+        case resumeParked(generation: Int)
     }
 
     public private(set) var phase: Phase = .idle
@@ -107,6 +126,13 @@ public struct LinkMachine: Sendable {
     public private(set) var blockUDP: Bool
     public private(set) var generation = 0
     public private(set) var isBackgrounded = false
+    /// The generation whose link the Mac holds while the app is suspended.
+    private var parkedGeneration: Int?
+    /// The current link is parked: nothing may probe it (a ping ends the
+    /// Mac's park while the phone is about to be suspended).
+    public var isParked: Bool { parkedGeneration == generation }
+    /// Holds that keep the link out of the park (`holdAwake`).
+    public private(set) var awakeHolds = 0
     /// The current link's WebRTC media session (browser video), `off` between links.
     public private(set) var media: VideoMediaState = .off
     /// Retry delays in seconds after the silent retries; the last one repeats.
@@ -133,12 +159,41 @@ public struct LinkMachine: Sendable {
             guard gen == generation else { return [] }
             return reset(to: .signedOut)
         case .background:
+            let wasBackgrounded = isBackgrounded
             isBackgrounded = true
+            // Park only a live link nothing holds awake, once per stay in the
+            // background (a hold's release parks it later).
+            guard !wasBackgrounded, awakeHolds == 0, phase.isConnected, !isParked else { return [] }
+            return [.park(generation: generation)]
+        case .parked(let gen):
+            guard gen == generation, isBackgrounded, phase.isConnected else { return [] }
+            // A hold came while the park was being asked for: take it back.
+            guard awakeHolds == 0 else { return [.resumeParked(generation: gen)] }
+            parkedGeneration = gen
             return []
+        case .parkLapsed:
+            parkedGeneration = nil
+            return []
+        case .holdAwake:
+            awakeHolds += 1
+            guard isParked, phase.isConnected else { return [] }
+            parkedGeneration = nil
+            return [.resumeParked(generation: generation)]
+        case .releaseAwake:
+            awakeHolds = max(awakeHolds - 1, 0)
+            guard awakeHolds == 0, isBackgrounded, phase.isConnected, !isParked else { return [] }
+            return [.park(generation: generation)]
         case .resume:
             let wasBackgrounded = isBackgrounded
             isBackgrounded = false
-            if wasBackgrounded, isActive {
+            if wasBackgrounded, isParked, phase.isConnected {
+                // The Mac kept the link: roam it and probe once, no redial.
+                parkedGeneration = nil
+                return [.resumeParked(generation: generation)]
+            }
+            // A link held awake was never suspended (a call kept the app
+            // running): probe it as on any foreground, no redial.
+            if wasBackgrounded, isActive, awakeHolds == 0 {
                 return dial(attempt: 1, closing: true)
             }
             return handle(.foreground)
@@ -151,7 +206,7 @@ public struct LinkMachine: Sendable {
                 // the Mac's signaling socket (a Worker deploy) says "offline"
                 // for a moment while the link is fine. Keep it and probe it;
                 // a dead one fails the probe (termfix-r13 D2a, T-LIFE-17).
-                if sameMac, case .connected = phase { return [.quickProbe(generation: generation)] }
+                if sameMac, case .connected = phase { return isParked ? [] : [.quickProbe(generation: generation)] }
                 // A dial a surface asked for (``Event/open``) is left to finish:
                 // its own failure says whether the Mac is offline.
                 if sameMac, case .connecting = phase { return [] }
@@ -210,7 +265,7 @@ public struct LinkMachine: Sendable {
             return [.close] + dial(attempt: 1, closing: false)
         case .macSignaled:
             switch phase {
-            case .connected: return [.quickProbe(generation: generation)]
+            case .connected: return isParked ? [] : [.quickProbe(generation: generation)]
             // The Mac just came back: dial now, not at the end of the backoff.
             case .waiting(_, let attempt, _, _): return dial(attempt: attempt + 1, closing: false)
             // A dial in flight sent its offer to a host that was down or
@@ -242,7 +297,8 @@ public struct LinkMachine: Sendable {
         case .foreground:
             switch phase {
             case .waiting(_, let attempt, _, _): return dial(attempt: attempt + 1, closing: false)
-            case .connected: return [.probe(generation: generation)]
+            // A parked link is probed only by its resume: a ping ends the Mac's park.
+            case .connected: return isParked ? [] : [.probe(generation: generation)]
             default: return []
             }
         }
