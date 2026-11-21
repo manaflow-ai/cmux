@@ -49,7 +49,7 @@ import { ComposerQueue } from "./ComposerQueue";
 import { ownQueue } from "./conversation/queuedMessages";
 import { BuildIcon, ContextRing, PlanIcon } from "./ComposerPickers";
 import { ExtensionControls } from "./composer/ExtensionControls";
-import { useExtensionControls } from "./composer/extensionControls";
+import { useExtensionControls } from "./composer/extensionControlsModel";
 import { type Choice } from "./composerPickerModel";
 import { SendSlotGlyph } from "./composer/SendSlotGlyph";
 import { SendMenu } from "./composer/SendMenu";

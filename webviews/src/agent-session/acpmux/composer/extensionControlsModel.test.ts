@@ -1,7 +1,7 @@
 // l10n-allow-file: synthetic extension control labels and texts.
 import { describe, expect, test } from "bun:test";
 import { MockAppPanelsClient } from "../../../apps/scene/panelsMock";
-import { ExtensionControls, extensionControlsFrom, runExtensionControl } from "./extensionControls";
+import { ExtensionControls, extensionControlsFrom, runExtensionControl } from "./extensionControlsModel";
 
 const BUTTON = {
   app: "local/footer",

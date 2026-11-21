@@ -1,11 +1,11 @@
 // The composer footer's extension controls (`cmux.composer.control/1`): an app's buttons and menus,
 // drawn as the composer's own Plan toggle and pickers are. A click writes the control's text at the
-// caret (`onInsert`) or asks the daemon to run its action as the app (extensionControls.ts).
+// caret (`onInsert`) or asks the daemon to run its action as the app (extensionControlsModel.ts).
 import { SceneSymbol } from "../../../apps/scene/SceneSymbol";
 import type { PageClient } from "../../../pages/shared/pageClient";
 import { ChevronIcon, Picker } from "../ComposerPickers";
 import { tooltipProps } from "../shortcuts";
-import { type ExtensionControl, type ExtensionControlItem, runExtensionControl } from "./extensionControls";
+import { type ExtensionControl, type ExtensionControlItem, runExtensionControl } from "./extensionControlsModel";
 
 export function ExtensionControls({
   controls,

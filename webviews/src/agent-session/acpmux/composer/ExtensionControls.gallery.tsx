@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { MockAppPanelsClient } from "../../../apps/scene/panelsMock";
 import { componentEntry } from "../../../gallery/format";
 import { ExtensionControls } from "./ExtensionControls";
-import { extensionControlsFrom } from "./extensionControls";
+import { extensionControlsFrom } from "./extensionControlsModel";
 
 type Props = { controls: unknown[] };
 
