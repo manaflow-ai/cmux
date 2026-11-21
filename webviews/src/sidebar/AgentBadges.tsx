@@ -169,7 +169,7 @@ export function AgentBadges({ look, tabs = [], rows = [], timeline }: AgentBadge
   }
   return (
     <div className="abg-root" data-look={look} style={rootStyle}>
-      <div className="abg-strip" role="tablist">
+      <div className="abg-strip">
         {tabs.map((tab) => (
           <Tab key={tab.title} look={look} tab={tab} />
         ))}
