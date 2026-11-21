@@ -180,6 +180,30 @@ impl<T> SignaledMutex<T> {
         locked
     }
 
+    /// How many lockers of both kinds wait for this mutex now (each from its call to its take).
+    /// Work that can wait reads this before it takes the lock and stands back while a locker
+    /// waits (`mux/startup_restore/restate_parts.rs`).
+    pub(crate) fn waiters(&self) -> usize {
+        self.interactive_waiters
+            .load(Ordering::Acquire)
+            .saturating_add(self.plain_waiters.load(Ordering::Acquire))
+    }
+
+    /// One try, for work that must not wait for the lock: `None` while
+    /// another thread holds it. The take does not queue behind the lockers
+    /// that wait.
+    #[track_caller]
+    pub(crate) fn try_lock_free(&self) -> Option<LockResult<SignaledMutexGuard<'_, T>>> {
+        let (site, waited_from) = (std::panic::Location::caller(), Instant::now());
+        match self.value.try_lock() {
+            Ok(value) => Some(Ok(self.guard(value, site, waited_from, None))),
+            Err(TryLockError::WouldBlock) => None,
+            Err(TryLockError::Poisoned(error)) => {
+                Some(Err(PoisonError::new(self.guard(error.into_inner(), site, waited_from, None))))
+            }
+        }
+    }
+
     /// An interactive locker waits and has not used up its streak.
     fn interactive_goes_first(&self) -> bool {
         self.interactive_waiters.load(Ordering::Acquire) > 0
@@ -293,9 +317,10 @@ thread_local! {
 
 /// How many plain lockers took the registry lock in front of this thread's own takes, summed over its takes (test
 /// hook): for each `lock` call, the plain acquisitions between the call and its return. The holder at the call
-/// is not a turn in front (at most one such hold per take). A test proves with it that a person's request does
-/// not queue behind a crowd of writers by counting turns, with no timing: a wait in wall time grows with the
-/// host's load, a place in the queue does not.
+/// is not a turn in front (at most one such hold per take); a plain locker that has the lock at the call and
+/// has not counted itself yet can add 1 to that take. Only `lock` counts: `try_lock` and `lock_until` do not. A
+/// test proves with it that a person's request does not queue behind a crowd of writers by counting turns, with
+/// no timing: a wait in wall time grows with the host's load, a place in the queue does not.
 #[cfg(test)]
 pub(crate) fn plain_turns_ahead_on_this_thread() -> u64 {
     PLAIN_TURNS_AHEAD.with(Cell::get)
@@ -561,8 +586,8 @@ impl StateMutex {
         }
     }
 
-    /// The state lock if it is free now (the accept loop, which never waits
-    /// for it, and the snapshot reader that builds, `resource_api/committed_snapshot.rs`).
+    /// The state lock if it is free now (the snapshot reader that builds,
+    /// `resource_api/committed_snapshot.rs`).
     /// A try cannot deadlock, so it skips the rank check `lock` makes.
     #[track_caller]
     pub(crate) fn try_lock(&self) -> TryLockResult<StateGuard<'_>> {
@@ -625,24 +650,13 @@ impl Mux {
         &self,
         registry: &WorkspaceRegistry,
     ) -> LockResult<PinnedState<'_>> {
-        // Wait for the answers of earlier indeterminate commits before the
-        // pin: the writer needs the connection to commit and answer, so a
-        // wait under the pin could only run out. The caller holds the
-        // registry, so no new indeterminate commit appears after this. A
-        // commit still unanswered stays; the flow's own prepare refuses to
-        // build on it (`drain_unsettled` without waiting).
-        let _ = registry.connection.drain_unsettled();
         let connection = registry.connection.pin();
-        let (mut pinned, poisoned) = match self.state.lock() {
+        let (pinned, poisoned) = match self.state.lock() {
             Ok(state) => (PinnedState { state, _connection: connection }, false),
             Err(poison) => {
                 (PinnedState { state: poison.into_inner(), _connection: connection }, true)
             }
         };
-        // Non-blocking: the answers that can arrive were taken before the
-        // pin; one still unanswered stays for a later holder, and the
-        // prepare paths refuse to build on it (drain_unsettled).
-        self.settle_registry_receipts(registry, &mut pinned.state);
         if poisoned { Err(PoisonError::new(pinned)) } else { Ok(pinned) }
     }
 }

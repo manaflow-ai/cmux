@@ -3,25 +3,15 @@ import CmuxNextActions
 extension PaletteController {
     // MARK: Pages
 
-    /// Common intents and command families on the empty root; every catalog action plus
-    /// workspaces (with their groups, panes and tabs, as Cmd-P lists them), directories, and settings
-    /// once the user types.
+    /// Common intents and command families on the empty root; every catalog action plus directories and
+    /// settings once the user types. Never the open workspaces or tabs: those are Cmd-P's and Search's.
     public func commandsPage() -> PalettePageSpec {
         let registryProvider = makeRegistryProvider()
         registryProvider.curatesEmptyRoot = true
         var providers: [any PaletteProvider] = [registryProvider]
-        if let source = sources.workspaces {
-            providers.append(WorkspacePaletteProvider(source: source, showsItemsForEmptyQuery: false))
-        }
-        // The open items as Cmd-P and Search list them (one path): a tab that repeats its workspace's name
-        // is that workspace's row, and recent and higher-in-the-sidebar places rank first. The plain tab
-        // list gave such a tab a second row, which pushed a workspace found by a word of its title below
-        // the rows the panel shows (Lawrence 2026-11-09: "landing" did not find "cmux-next landing").
-        if let source = sources.navigation {
-            providers.append(NavigationPaletteProvider(source: source, showsItemsForEmptyQuery: false))
-        } else if let source = sources.tabs {
-            providers.append(TabPaletteProvider(source: source, showsItemsForEmptyQuery: false))
-        }
+        // Commands only: no open workspace, group, pane or tab rows, whatever is typed. Those are Cmd-P's (Go to
+        // Workspace) and Search's (Cmd-Shift-A) (Lawrence 2026-11-15, msg 34162: "cmd shift p should NOT show
+        // workspaces or tabs"; CmdShiftPListsCommandsOnlyTests keeps this page from reading those lists).
         if let source = sources.recentDirectories {
             providers.append(RecentDirectoriesPaletteProvider(source: source, showsItemsForEmptyQuery: false))
         }

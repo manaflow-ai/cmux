@@ -8,127 +8,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No pane is focused."
+            "value": "Click a tab first, then try again."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا يوجد جزء مركّز عليه."
+            "value": "انقر على علامة تبويب أولًا، ثم حاول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nijedan panel nije fokusiran."
+            "value": "Prvo kliknite karticu, pa pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingen rude har fokus."
+            "value": "Klik først på en fane, og prøv så igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kein Teilfenster ist fokussiert."
+            "value": "Klicke zuerst auf einen Tab und versuche es dann erneut."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No hay ningún panel enfocado."
+            "value": "Haz clic primero en una pestaña y vuelve a intentarlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aucun volet n’est actif."
+            "value": "Cliquez d’abord sur un onglet, puis réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nessun pannello attivo."
+            "value": "Fai prima clic su una scheda, poi riprova."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フォーカスされたペインがありません。"
+            "value": "先にタブをクリックしてから、もう一度お試しください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "គ្មានផ្ទាំងកំពុងផ្ដោតទេ។"
+            "value": "ចុចផ្ទាំងមួយជាមុនសិន រួចសាកល្បងម្តងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "포커스된 분할 창이 없습니다."
+            "value": "먼저 탭을 클릭한 다음 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingen rute er fokusert."
+            "value": "Klikk på en fane først, og prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Żaden panel nie jest aktywny."
+            "value": "Najpierw kliknij kartę, a potem spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nenhum painel está focado."
+            "value": "Clique em uma aba primeiro e tente de novo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Нет активной панели."
+            "value": "Сначала щёлкните вкладку, затем повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ไม่มีบานหน้าต่างที่โฟกัสอยู่"
+            "value": "คลิกแท็บก่อน แล้วลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Odakta bölme yok."
+            "value": "Önce bir sekmeye tıklayın, sonra yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Немає активної панелі."
+            "value": "Спершу клацніть вкладку, потім спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không có khung nào đang được tập trung."
+            "value": "Hãy bấm vào một thẻ trước, rồi thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "没有聚焦的窗格。"
+            "value": "请先点按一个标签页，然后重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "沒有聚焦的窗格。"
+            "value": "請先點按一個分頁，然後再試一次。"
           }
         }
       }
@@ -3803,137 +3803,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "需要 name 引數"
-          }
-        }
-      }
-    },
-    "handlers.refusal.noActiveFind": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "no find is active; use Find first"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "検索が実行されていません。先に「検索」を使ってください"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لا يوجد بحث نشط؛ استخدم البحث أولًا"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "nijedna pretraga nije aktivna; prvo koristite Pronađi"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ingen søgning er aktiv; brug Søg først"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "keine aktive Suche; verwenden Sie zuerst „Suchen“"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "no hay ninguna búsqueda activa; usa Buscar primero"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "aucune recherche active ; utilisez d’abord Rechercher"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "nessuna ricerca attiva; usa prima Trova"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "គ្មានការស្វែងរកសកម្មទេ; សូមប្រើ ស្វែងរក ជាមុនសិន"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "활성화된 찾기가 없음. 먼저 '찾기'를 사용하십시오"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ingen søk er aktivt; bruk Finn først"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "brak aktywnego wyszukiwania; najpierw użyj Znajdź"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "nenhuma busca ativa; use Buscar primeiro"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "поиск не активен; сначала выполните «Найти»"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่มีการค้นหาที่ใช้งานอยู่ ใช้ “ค้นหา” ก่อน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "etkin bir arama yok; önce Bul’u kullanın"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "пошук не активний; спершу скористайтеся «Знайти»"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "không có tìm kiếm nào đang hoạt động; hãy dùng Tìm trước"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "没有进行中的查找；请先使用“查找”"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "沒有進行中的尋找；請先使用「尋找」"
           }
         }
       }
@@ -15338,6 +15207,137 @@
         }
       }
     },
+    "handlers.refusal.agentReferenceUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "this agent session isn't available to you: it isn't on this Mac or a machine paired with it"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "diese Agent-Sitzung ist für dich nicht verfügbar: Sie ist weder auf diesem Mac noch auf einem damit gekoppelten Rechner"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cette session d’agent ne vous est pas accessible : elle n’est ni sur ce Mac ni sur une machine jumelée avec lui"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جلسة الوكيل هذه غير متاحة لك: ليست على جهاز Mac هذا ولا على جهاز مقترن به"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "esta sesión de agente no está disponible para ti: no está en este Mac ni en un equipo vinculado a él"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你無法使用此代理工作階段：它不在這台 Mac 或與其配對的機器上"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你无法使用此代理会话：它不在这台 Mac 或与其配对的机器上"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 에이전트 세션은 사용할 수 없습니다: 이 Mac이나 페어링된 컴퓨터에 없습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このエージェントセッションは利用できません: この Mac にも、ペアリングされたマシンにもありません"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ova sesija agenta vam nije dostupna: nije na ovom Macu niti na uređaju uparenom s njim"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "denne agentsession er ikke tilgængelig for dig: den er hverken på denne Mac eller på en maskine, der er parret med den"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "questa sessione dell’agente non è disponibile per te: non è su questo Mac né su una macchina abbinata"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "វគ្គភ្នាក់ងារនេះមិនអាចប្រើបានសម្រាប់អ្នកទេ៖ វាមិននៅលើ Mac នេះ ឬម៉ាស៊ីនដែលបានផ្គូផ្គងជាមួយវាទេ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "denne agentøkten er ikke tilgjengelig for deg: den er verken på denne Macen eller på en maskin som er paret med den"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ta sesja agenta jest dla ciebie niedostępna: nie ma jej na tym Macu ani na sparowanym z nim komputerze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "esta sessão de agente não está disponível para você: ela não está neste Mac nem em uma máquina pareada com ele"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "этот сеанс агента вам недоступен: его нет ни на этом Mac, ни на связанном с ним компьютере"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เซสชันเอเจนต์นี้ไม่พร้อมใช้งานสำหรับคุณ: ไม่ได้อยู่บน Mac เครื่องนี้หรือเครื่องที่จับคู่ไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bu ajan oturumu size açık değil: bu Mac'te ya da onunla eşlenmiş bir makinede değil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "цей сеанс агента вам недоступний: його немає ні на цьому Mac, ні на пов’язаному з ним комп’ютері"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "phiên tác tử này không khả dụng với bạn: nó không có trên máy Mac này hay máy được ghép đôi với nó"
+          }
+        }
+      }
+    },
     "handlers.refusal.linkItemNotFound": {
       "extractionState": "manual",
       "localizations": {
@@ -16120,6 +16120,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "請先新增第二欄"
+          }
+        }
+      }
+    },
+    "refusal.server.devBuild": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A dev build does not keep a server running after it quits: the server's state is shared by every build."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يُبقي إصدار التطوير خادمًا قيد التشغيل بعد إغلاقه: حالة الخادم مشتركة بين جميع الإصدارات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Razvojna verzija ne ostavlja server pokrenut nakon zatvaranja: stanje servera dijele sve verzije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En udviklingsbuild holder ikke en server kørende, efter den er lukket: serverens tilstand deles af alle builds."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein Entwicklungs-Build lässt nach dem Beenden keinen Server weiterlaufen: Der Serverzustand wird von allen Builds geteilt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una compilación de desarrollo no mantiene un servidor en marcha al cerrarse: el estado del servidor lo comparten todas las compilaciones."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une build de développement ne garde pas de serveur actif après sa fermeture : l'état du serveur est partagé par toutes les builds."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una build di sviluppo non mantiene un server attivo dopo la chiusura: lo stato del server è condiviso da tutte le build."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "開発ビルドは終了後にサーバーを動かし続けません。サーバーの状態はすべてのビルドで共有されるためです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំណែអភិវឌ្ឍន៍មិនរក្សាម៉ាស៊ីនមេឱ្យដំណើរការបន្ទាប់ពីបិទទេ៖ ស្ថានភាពម៉ាស៊ីនមេត្រូវបានចែករំលែកដោយកំណែទាំងអស់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "개발 빌드는 종료 후 서버를 계속 실행하지 않습니다. 서버 상태는 모든 빌드가 공유하기 때문입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et utviklingsbygg holder ikke en server i gang etter at det er avsluttet: serverens tilstand deles av alle bygg."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wersja deweloperska nie utrzymuje działającego serwera po zamknięciu: stan serwera jest wspólny dla wszystkich wersji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma build de desenvolvimento não mantém um servidor em execução depois de fechada: o estado do servidor é compartilhado por todas as builds."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сборка для разработки не оставляет сервер работать после выхода: состояние сервера общее для всех сборок."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บิลด์สำหรับพัฒนาจะไม่ให้เซิร์ฟเวอร์ทำงานต่อหลังปิด: สถานะของเซิร์ฟเวอร์ใช้ร่วมกันทุกบิลด์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Geliştirme derlemesi kapandıktan sonra sunucuyu çalışır durumda tutmaz: sunucunun durumu tüm derlemelerce paylaşılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Збірка для розробки не залишає сервер працювати після виходу: стан сервера спільний для всіх збірок."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản dựng phát triển không giữ máy chủ chạy sau khi thoát: trạng thái máy chủ được dùng chung cho mọi bản dựng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "开发版本退出后不会让服务器继续运行：服务器状态由所有版本共享。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "開發版本結束後不會讓伺服器繼續執行：伺服器狀態由所有版本共用。"
           }
         }
       }
@@ -26085,6 +26216,138 @@
         }
       }
     },
+    "handlers.refusal.agentRemoteStart.untrustedSource": {
+      "comment": "A Cloud start from a folder this Mac does not trust: its copy on the Cloud machine is trusted only when this Mac trusts the folder. %1$@ is the folder on this Mac, %2$@ the same folder as one shell word.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac doesn't trust %1$@, so its copy on a Cloud machine isn't trusted either. Trust it on this Mac (Trust Folder in a chat in that folder, or `cmux setup trust %2$@`), then start the chat again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac は %1$@ を信頼していないため、Cloud マシン上のそのコピーも信頼されません。この Mac で信頼してから（そのフォルダのチャットで「フォルダを信頼」、または `cmux setup trust %2$@`）、チャットをもう一度開始してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هذا الـ Mac لا يثق في %1$@، لذا فإن نسخته على جهاز Cloud ليست موثوقة أيضًا. اجعله موثوقًا على هذا الـ Mac (Trust Folder في دردشة داخل ذلك المجلد، أو `cmux setup trust %2$@`)، ثم ابدأ الدردشة مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj Mac ne vjeruje folderu %1$@, pa ni njegova kopija na Cloud mašini nije pouzdana. Označite ga kao pouzdan na ovom Macu (Trust Folder u chatu u tom folderu ili `cmux setup trust %2$@`), pa ponovo pokrenite chat."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne Mac betror ikke %1$@, så kopien på en Cloud-maskine er heller ikke betroet. Betro mappen på denne Mac (Trust Folder i en chat i mappen, eller `cmux setup trust %2$@`), og start chatten igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Mac vertraut %1$@ nicht, daher ist auch die Kopie auf einem Cloud-Rechner nicht vertrauenswürdig. Vertraue dem Ordner auf diesem Mac (Trust Folder in einem Chat in diesem Ordner oder `cmux setup trust %2$@`) und starte den Chat dann erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este Mac no confía en %1$@, así que su copia en una máquina de Cloud tampoco es de confianza. Confía en ella en este Mac (Trust Folder en un chat de esa carpeta o `cmux setup trust %2$@`) y vuelve a iniciar el chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce Mac n’approuve pas %1$@, donc sa copie sur une machine Cloud n’est pas approuvée non plus. Approuvez-le sur ce Mac (Trust Folder dans une discussion de ce dossier, ou `cmux setup trust %2$@`), puis relancez la discussion."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo Mac non considera attendibile %1$@, quindi nemmeno la sua copia su una macchina Cloud lo è. Rendilo attendibile su questo Mac (Trust Folder in una chat in quella cartella, oppure `cmux setup trust %2$@`), poi avvia di nuovo la chat."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac នេះមិនទុកចិត្ត %1$@ ទេ ដូច្នេះច្បាប់ចម្លងរបស់វានៅលើម៉ាស៊ីន Cloud ក៏មិនត្រូវបានទុកចិត្តដែរ។ ទុកចិត្តវានៅលើ Mac នេះ (Trust Folder ក្នុងការជជែកក្នុងថតនោះ ឬ `cmux setup trust %2$@`) រួចចាប់ផ្ដើមការជជែកម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Mac은 %1$@을(를) 신뢰하지 않으므로 Cloud 머신에 있는 사본도 신뢰되지 않습니다. 이 Mac에서 신뢰한 다음(해당 폴더의 채팅에서 Trust Folder 또는 `cmux setup trust %2$@`) 채팅을 다시 시작하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne Macen stoler ikke på %1$@, så kopien på en Cloud-maskin er heller ikke klarert. Stol på mappen på denne Macen (Trust Folder i en chat i mappen, eller `cmux setup trust %2$@`), og start chatten på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten Mac nie ufa folderowi %1$@, więc jego kopia na maszynie Cloud też nie jest zaufana. Oznacz go jako zaufany na tym Macu (Trust Folder w czacie w tym folderze lub `cmux setup trust %2$@`), a potem uruchom czat ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este Mac não confia em %1$@, então a cópia dela em uma máquina do Cloud também não é confiável. Confie nela neste Mac (Trust Folder em um chat nessa pasta ou `cmux setup trust %2$@`) e inicie o chat novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот Mac не доверяет папке %1$@, поэтому её копия на машине Cloud тоже не доверенная. Доверьтесь ей на этом Mac (Trust Folder в чате в этой папке или `cmux setup trust %2$@`), затем снова запустите чат."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac เครื่องนี้ไม่เชื่อถือ %1$@ สำเนาบนเครื่อง Cloud จึงไม่ได้รับความเชื่อถือด้วย ให้เชื่อถือบน Mac เครื่องนี้ (Trust Folder ในแชทในโฟลเดอร์นั้น หรือ `cmux setup trust %2$@`) แล้วเริ่มแชทอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu Mac %1$@ klasörüne güvenmiyor, bu yüzden bir Cloud makinesindeki kopyası da güvenilir değil. Bu Mac'te ona güvenin (o klasördeki bir sohbette Trust Folder veya `cmux setup trust %2$@`), sonra sohbeti yeniden başlatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей Mac не довіряє теці %1$@, тож її копія на машині Cloud теж не довірена. Довіртеся їй на цьому Mac (Trust Folder у чаті в цій теці або `cmux setup trust %2$@`), а потім знову запустіть чат."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac này không tin cậy %1$@, nên bản sao của nó trên máy Cloud cũng không được tin cậy. Hãy tin cậy nó trên Mac này (Trust Folder trong một cuộc trò chuyện ở thư mục đó, hoặc `cmux setup trust %2$@`), rồi bắt đầu lại cuộc trò chuyện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "这台 Mac 不信任 %1$@，所以它在 Cloud 机器上的副本也不受信任。请先在这台 Mac 上信任它（在该文件夹的聊天中点 Trust Folder，或运行 `cmux setup trust %2$@`），然后重新开始聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "這台 Mac 不信任 %1$@，所以它在 Cloud 機器上的副本也不受信任。請先在這台 Mac 上信任它（在該資料夾的聊天中點 Trust Folder，或執行 `cmux setup trust %2$@`），然後重新開始聊天。"
+          }
+        }
+      }
+    },
     "handlers.refusal.agentRemoteStart.harnessRefused": {
       "extractionState": "manual",
       "localizations": {
@@ -26736,6 +26999,796 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "%@ 上的代理程式服務沒有啟動。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.agentRemoteStart.signInRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ isn't signed in on %2$@. Sign it in there, then start the chat again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ では %1$@ にサインインしていません。そこでサインインしてから、チャットをもう一度開始してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ist auf %2$@ nicht angemeldet. Melde ihn dort an und starte den Chat dann erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ n'est pas connecté sur %2$@. Connectez-le là-bas, puis relancez la discussion."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ no tiene la sesión iniciada en %2$@. Inicia su sesión allí y vuelve a iniciar el chat."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ غير مسجّل الدخول على %2$@. سجّل دخوله هناك، ثم ابدأ المحادثة مرة أخرى."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%2$@에서 %1$@에 로그인되어 있지 않습니다. 그곳에서 로그인한 다음 채팅을 다시 시작하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 尚未在 %2$@ 上登录。请在那里登录，然后重新开始聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 尚未在 %2$@ 上登入。請在那裡登入，然後重新開始聊天。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ nije prijavljen na %2$@. Prijavite ga tamo, pa ponovo pokrenite chat."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ er ikke logget ind på %2$@. Log den ind der, og start chatten igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ non ha eseguito l'accesso su %2$@. Esegui l'accesso lì, poi avvia di nuovo la chat."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ មិនទាន់បានចូលគណនីនៅលើ %2$@ ទេ។ ចូលគណនីនៅទីនោះ រួចចាប់ផ្ដើមការជជែកម្ដងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ er ikke logget på %2$@. Logg den på der, og start chatten på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ nie jest zalogowany na %2$@. Zaloguj go tam, a potem uruchom czat ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ não está conectado em %2$@. Conecte-o lá e inicie o chat novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ не выполнил вход на %2$@. Выполните вход там, затем снова начните чат."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ยังไม่ได้ลงชื่อเข้าใช้บน %2$@ ลงชื่อเข้าใช้ที่นั่น แล้วเริ่มแชตอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@, %2$@ üzerinde oturum açmamış. Orada oturum açın, ardından sohbeti yeniden başlatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ не ввійшов на %2$@. Увійдіть там, потім знову почніть чат."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ chưa đăng nhập trên %2$@. Đăng nhập ở đó, rồi bắt đầu lại cuộc trò chuyện."
+          }
+        }
+      }
+    },
+    "handlers.refusal.agentRemoteStart.signInExpired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@'s sign-in expired on %2$@. Sign it in again there, then start the chat again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ での %1$@ のサインインが期限切れです。そこでもう一度サインインしてから、チャットをもう一度開始してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Anmeldung von %1$@ ist auf %2$@ abgelaufen. Melde ihn dort erneut an und starte den Chat dann erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La connexion de %1$@ a expiré sur %2$@. Reconnectez-le là-bas, puis relancez la discussion."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La sesión de %1$@ caducó en %2$@. Vuelve a iniciarla allí y vuelve a iniciar el chat."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "انتهت صلاحية تسجيل دخول %1$@ على %2$@. سجّل دخوله مرة أخرى هناك، ثم ابدأ المحادثة مرة أخرى."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%2$@에서 %1$@ 로그인이 만료되었습니다. 그곳에서 다시 로그인한 다음 채팅을 다시 시작하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 在 %2$@ 上的登录已过期。请在那里重新登录，然后重新开始聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 在 %2$@ 上的登入已過期。請在那裡重新登入，然後重新開始聊天。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prijava za %1$@ je istekla na %2$@. Ponovo ga prijavite tamo, pa ponovo pokrenite chat."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Login for %1$@ er udløbet på %2$@. Log den ind igen der, og start chatten igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'accesso di %1$@ è scaduto su %2$@. Esegui di nuovo l'accesso lì, poi avvia di nuovo la chat."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការចូលគណនី %1$@ បានផុតកំណត់នៅលើ %2$@។ ចូលគណនីម្ដងទៀតនៅទីនោះ រួចចាប់ផ្ដើមការជជែកម្ដងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Påloggingen for %1$@ er utløpt på %2$@. Logg den på igjen der, og start chatten på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Logowanie %1$@ wygasło na %2$@. Zaloguj go tam ponownie, a potem uruchom czat ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O login do %1$@ expirou em %2$@. Conecte-o novamente lá e inicie o chat novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Срок входа %1$@ на %2$@ истёк. Снова выполните вход там, затем снова начните чат."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การลงชื่อเข้าใช้ %1$@ บน %2$@ หมดอายุแล้ว ลงชื่อเข้าใช้อีกครั้งที่นั่น แล้วเริ่มแชตอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ oturumunun %2$@ üzerindeki süresi doldu. Orada yeniden oturum açın, ardından sohbeti yeniden başlatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Термін входу %1$@ на %2$@ сплив. Увійдіть там знову, потім знову почніть чат."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phiên đăng nhập %1$@ trên %2$@ đã hết hạn. Đăng nhập lại ở đó, rồi bắt đầu lại cuộc trò chuyện."
+          }
+        }
+      }
+    },
+    "handlers.refusal.agentRemoteStart.thisAgent": {
+      "comment": "Stands for an agent whose name is unknown, as the subject of 'isn't signed in on <machine>'.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This agent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このエージェント"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Agent"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cet agent"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este agente"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هذا الوكيل"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 에이전트"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此代理"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此代理"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj agent"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne agent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo agente"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្នាក់ងារនេះ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne agenten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten agent"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este agente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот агент"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เอเจนต์นี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu ajan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей агент"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tác tử này"
+          }
+        }
+      }
+    },
+    "handlers.refusal.agentRemoteStart.harnessMissing": {
+      "comment": "A chat's agent isn't on the other machine. %1$@ the agent's name (Cursor) or 'This agent', %2$@ the machine's name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ isn't installed on %2$@. Install it there or pick another agent, then start the chat again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ には %1$@ がインストールされていません。そこでインストールするか別のエージェントを選んでから、チャットをもう一度開始してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ist auf %2$@ nicht installiert. Installiere ihn dort oder wähle einen anderen Agenten und starte den Chat dann erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ n'est pas installé sur %2$@. Installez-le là-bas ou choisissez un autre agent, puis relancez la discussion."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ no está instalado en %2$@. Instálalo allí o elige otro agente y vuelve a iniciar el chat."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ غير مثبّت على %2$@. ثبّته هناك أو اختر وكيلًا آخر، ثم ابدأ المحادثة مرة أخرى."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%2$@에 %1$@이(가) 설치되어 있지 않습니다. 그곳에 설치하거나 다른 에이전트를 선택한 다음 채팅을 다시 시작하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%2$@ 上没有安装 %1$@。请在那里安装或选择其他代理，然后重新开始聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%2$@ 上沒有安裝 %1$@。請在那裡安裝或選擇其他代理，然後重新開始聊天。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ nije instaliran na %2$@. Instalirajte ga tamo ili odaberite drugog agenta, pa ponovo pokrenite chat."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ er ikke installeret på %2$@. Installér den der, eller vælg en anden agent, og start chatten igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ non è installato su %2$@. Installalo lì o scegli un altro agente, poi avvia di nuovo la chat."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ មិនទាន់បានដំឡើងនៅលើ %2$@ ទេ។ ដំឡើងវានៅទីនោះ ឬជ្រើសភ្នាក់ងារផ្សេង រួចចាប់ផ្ដើមការជជែកម្ដងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ er ikke installert på %2$@. Installer den der, eller velg en annen agent, og start chatten på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ nie jest zainstalowany na %2$@. Zainstaluj go tam lub wybierz innego agenta, a potem uruchom czat ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ não está instalado em %2$@. Instale-o lá ou escolha outro agente e inicie o chat novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ не установлен на %2$@. Установите его там или выберите другого агента, затем снова начните чат."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังไม่ได้ติดตั้ง %1$@ บน %2$@ ติดตั้งที่นั่นหรือเลือกเอเจนต์อื่น แล้วเริ่มแชตอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@, %2$@ üzerinde yüklü değil. Orada yükleyin veya başka bir ajan seçin, ardından sohbeti yeniden başlatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ не встановлено на %2$@. Встановіть його там або виберіть іншого агента, потім знову почніть чат."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ chưa được cài trên %2$@. Cài nó ở đó hoặc chọn tác tử khác, rồi bắt đầu lại cuộc trò chuyện."
+          }
+        }
+      }
+    },
+    "handlers.refusal.agentRemoteStart.routeUnavailable": {
+      "comment": "The model route a chat's agent uses can't serve it on the other machine. %1$@ the agent's name (Cursor) or 'This agent', %2$@ the machine's name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@'s model route isn't available on %2$@. Pick another agent, or start the chat again later."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ では %1$@ のモデルルートを利用できません。別のエージェントを選ぶか、後でもう一度チャットを開始してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Modellroute von %1$@ ist auf %2$@ nicht verfügbar. Wähle einen anderen Agenten oder starte den Chat später erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La route de modèle de %1$@ n'est pas disponible sur %2$@. Choisissez un autre agent ou relancez la discussion plus tard."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La ruta de modelo de %1$@ no está disponible en %2$@. Elige otro agente o vuelve a iniciar el chat más tarde."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مسار النموذج الخاص بـ %1$@ غير متاح على %2$@. اختر وكيلًا آخر، أو ابدأ المحادثة مرة أخرى لاحقًا."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%2$@에서는 %1$@의 모델 경로를 사용할 수 없습니다. 다른 에이전트를 선택하거나 나중에 채팅을 다시 시작하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 的模型路由在 %2$@ 上不可用。请选择其他代理，或稍后重新开始聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 的模型路由在 %2$@ 上無法使用。請選擇其他代理，或稍後重新開始聊天。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ruta modela za %1$@ nije dostupna na %2$@. Odaberite drugog agenta ili kasnije ponovo pokrenite chat."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modelruten for %1$@ er ikke tilgængelig på %2$@. Vælg en anden agent, eller start chatten igen senere."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il percorso del modello di %1$@ non è disponibile su %2$@. Scegli un altro agente o avvia di nuovo la chat più tardi."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្លូវម៉ូដែលរបស់ %1$@ មិនអាចប្រើបាននៅលើ %2$@ ទេ។ ជ្រើសភ្នាក់ងារផ្សេង ឬចាប់ផ្ដើមការជជែកម្ដងទៀតនៅពេលក្រោយ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modellruten for %1$@ er ikke tilgjengelig på %2$@. Velg en annen agent, eller start chatten på nytt senere."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trasa modelu %1$@ nie jest dostępna na %2$@. Wybierz innego agenta lub uruchom czat ponownie później."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A rota de modelo do %1$@ não está disponível em %2$@. Escolha outro agente ou inicie o chat novamente mais tarde."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Маршрут модели %1$@ недоступен на %2$@. Выберите другого агента или начните чат позже."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เส้นทางโมเดลของ %1$@ ใช้ไม่ได้บน %2$@ เลือกเอเจนต์อื่น หรือเริ่มแชตอีกครั้งภายหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ model rotası %2$@ üzerinde kullanılamıyor. Başka bir ajan seçin veya sohbeti daha sonra yeniden başlatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Маршрут моделі %1$@ недоступний на %2$@. Виберіть іншого агента або почніть чат пізніше."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tuyến mô hình của %1$@ không khả dụng trên %2$@. Chọn tác tử khác, hoặc bắt đầu lại cuộc trò chuyện sau."
+          }
+        }
+      }
+    },
+    "handlers.refusal.agentRemoteStart.routerUnavailable": {
+      "comment": "A chat on the cmux router agent can't start because the cmux router can't serve it on the other machine (a Cloud machine has no local router). %@ the machine's name. Keep 'cmux' as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cmux router isn't available on %@. Pick another agent, or start the chat again later."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ では cmux ルーターを利用できません。別のエージェントを選ぶか、後でもう一度チャットを開始してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der cmux-Router ist auf %@ nicht verfügbar. Wähle einen anderen Agenten oder starte den Chat später erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le routeur cmux n'est pas disponible sur %@. Choisissez un autre agent ou relancez la discussion plus tard."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El enrutador de cmux no está disponible en %@. Elige otro agente o vuelve a iniciar el chat más tarde."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "موجّه cmux غير متاح على %@. اختر وكيلًا آخر، أو ابدأ المحادثة مرة أخرى لاحقًا."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@에서는 cmux 라우터를 사용할 수 없습니다. 다른 에이전트를 선택하거나 나중에 채팅을 다시 시작하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 路由器在 %@ 上不可用。请选择其他代理，或稍后重新开始聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 路由器在 %@ 上無法使用。請選擇其他代理，或稍後重新開始聊天。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ruter nije dostupan na %@. Odaberite drugog agenta ili kasnije ponovo pokrenite chat."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-routeren er ikke tilgængelig på %@. Vælg en anden agent, eller start chatten igen senere."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il router di cmux non è disponibile su %@. Scegli un altro agente o avvia di nuovo la chat più tardi."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រ៉ោតទ័រ cmux មិនអាចប្រើបាននៅលើ %@ ទេ។ ជ្រើសភ្នាក់ងារផ្សេង ឬចាប់ផ្ដើមការជជែកម្ដងទៀតនៅពេលក្រោយ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-ruteren er ikke tilgjengelig på %@. Velg en annen agent, eller start chatten på nytt senere."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Router cmux nie jest dostępny na %@. Wybierz innego agenta lub uruchom czat ponownie później."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O roteador do cmux não está disponível em %@. Escolha outro agente ou inicie o chat novamente mais tarde."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Маршрутизатор cmux недоступен на %@. Выберите другого агента или начните чат позже."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เราเตอร์ของ cmux ใช้ไม่ได้บน %@ เลือกเอเจนต์อื่น หรือเริ่มแชตอีกครั้งภายหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux yönlendiricisi %@ üzerinde kullanılamıyor. Başka bir ajan seçin veya sohbeti daha sonra yeniden başlatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Маршрутизатор cmux недоступний на %@. Виберіть іншого агента або почніть чат пізніше."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bộ định tuyến cmux không khả dụng trên %@. Chọn tác tử khác, hoặc bắt đầu lại cuộc trò chuyện sau."
           }
         }
       }
@@ -34610,6 +35663,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "已停止等待開啟你點選的聊天。"
+          }
+        }
+      }
+    },
+    "refusal.daemon.startupWaitDropped": {
+      "comment": "Toast when actions a person took while cmux was starting are dropped: the service did not start, or was not ready within 10 minutes.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux didn’t finish starting, so what you did while it started didn’t run."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يكتمل تشغيل cmux، لذلك لم يُنفَّذ ما قمت به أثناء بدء تشغيله."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nije završio pokretanje, pa se ono što ste uradili dok se pokretao nije izvršilo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux blev ikke færdig med at starte, så det, du gjorde imens, blev ikke udført."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux wurde nicht fertig gestartet, daher wurde nicht ausgeführt, was du währenddessen getan hast."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux no terminó de iniciarse, así que lo que hiciste mientras se iniciaba no se ejecutó."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux n’a pas fini de démarrer, donc ce que vous avez fait pendant le démarrage n’a pas été exécuté."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux non ha finito di avviarsi, quindi ciò che hai fatto durante l’avvio non è stato eseguito."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux の起動が完了しなかったため、起動中に行った操作は実行されませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux មិនបានចាប់ផ្ដើមរួចរាល់ទេ ដូច្នេះអ្វីដែលអ្នកបានធ្វើពេលវាកំពុងចាប់ផ្ដើមមិនបានដំណើរការទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 시작을 마치지 못해 시작하는 동안 한 작업이 실행되지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ble ikke ferdig med å starte, så det du gjorde mens den startet, ble ikke utført."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nie zakończył uruchamiania, więc to, co zrobiłeś w trakcie, nie zostało wykonane."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux não terminou de iniciar, então o que você fez enquanto ele iniciava não foi executado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не завершил запуск, поэтому то, что вы сделали во время запуска, не выполнено."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux เริ่มทำงานไม่เสร็จ สิ่งที่คุณทำระหว่างที่กำลังเริ่มจึงไม่ได้ทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux başlatmayı bitiremedi, bu yüzden başlarken yaptıklarınız çalışmadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не завершив запуск, тому те, що ви зробили під час запуску, не виконано."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux chưa khởi động xong, nên những gì bạn làm trong lúc khởi động đã không chạy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 未能完成启动，因此你在启动期间执行的操作未运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 未能完成啟動，因此你在啟動期間執行的操作未執行。"
           }
         }
       }

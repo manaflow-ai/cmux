@@ -100,9 +100,10 @@ expect(1, "appcast", appcast(f"{NEXT}cmux-nightly-next-macos-arm64-123.dmg",
 
 # The guard, the ring script and the app name the same tags.
 guard_tags = re.search(r"^NEXT_SPARKLE_CHANNELS = \(([^)]*)\)$", GUARD.read_text(), re.MULTILINE)
-ring_spec = importlib.util.spec_from_file_location("nightly_next_ring", ROOT / "scripts" / "ci" / "nightly_next_ring.py")
-ring_module = importlib.util.module_from_spec(ring_spec)
-ring_spec.loader.exec_module(ring_module)
+# Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+if str(ROOT / "scripts/ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+import nightly_next_ring as ring_module  # noqa: E402
 swift = (ROOT / "Packages" / "macOS" / "CmuxUpdater" / "Sources" / "CmuxUpdater" / "UpdateRing.swift")
 app_tags = set(re.findall(r'case \.\w+: "(cmux-next[^"]*)"', swift.read_text()))
 resolver = (swift.parent / "UpdateFeedResolver.swift").read_text()

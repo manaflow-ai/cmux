@@ -1,0 +1,538 @@
+{
+  "title": "Toggle Terminal and Chat latency, idle: 2,000-turn Claude Code chat whose session a terminal runs",
+  "harnessFixture": {
+    "harnesses": {
+      "claude": {
+        "kind": "claude-stdio",
+        "argv": [
+          "claude"
+        ],
+        "family": "claude",
+        "description": "Synthetic capture harness (Toggle Terminal and Chat tours)"
+      }
+    }
+  },
+  "steps": [
+    {
+      "title": "New workspace Swap",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Swap"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Show Swap",
+      "cmux": [
+        "workspace",
+        "name:Swap",
+        "focus"
+      ],
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "Seed: a 2,000-turn Claude Code transcript in the Claude store, 3,000 lines of scrollback, and the terminal reports the session (agent hook SessionStart)",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Swap",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; mkdir -p \"$HOME/swap-bench\" && cd \"$HOME/swap-bench\" && C=$(pwd -P); cmux setup trust | tr , \"\\n\" | grep -m1 state; S=5a7e5a7e-0000-4000-8000-000000002000; D=\"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/$(printf %s \"$C\" | tr -c \"A-Za-z0-9\" -)\"; mkdir -p \"$D\" && python3 -c 'import json,sys;p,c,s=sys.argv[1:4];u=lambda i:\"5a7e0000-0000-4000-9000-%012d\"%i;open(p,\"w\").write(\"\".join(json.dumps({\"type\":(\"user\",\"assistant\")[i%2],\"uuid\":u(i),\"parentUuid\":u(i-1) if i else None,\"sessionId\":s,\"timestamp\":\"2026-11-01T%02d:%02d:%02d.000Z\"%(i//3600,i//60%60,i%60),\"cwd\":c,\"message\":{\"role\":\"user\",\"content\":\"Turn %d: how does pane %d keep its place when the view swaps?\"%(i//2,i%7)} if i%2==0 else {\"id\":\"msg_%d\"%i,\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-5-5\",\"content\":[{\"type\":\"text\",\"text\":\"Answer %d: both views stay mounted.\\n\\n- the terminal keeps its scrollback\\n- the chat keeps its offset\\n\\n`swap %d`\"%(i//2,i)}],\"stop_reason\":\"end_turn\"}})+\"\\n\" for i in range(4000)))' \"$D/$S.jsonl\" \"$C\" \"$S\" && seq -f \"scrollback %g of 3000: terminal and chat swap bench\" 1 3000 && echo TRANSCRIPT-READY && cmux agent hook emit --source claude --event SessionStart --payload-json \"{\\\"session_id\\\":\\\"$S\\\"}\" && echo HOOK-SENT\r"
+      ],
+      "wait": 8,
+      "shot": false
+    },
+    {
+      "title": "Arm the chat open trace",
+      "rpc": {
+        "method": "debug.chat_open_trace",
+        "params": {
+          "action": "arm"
+        }
+      },
+      "wait": 0.1,
+      "shot": false,
+      "optional": "debug.chat_open_trace"
+    },
+    {
+      "title": "Toggle Terminal and Chat: the reported session opens as its View Only chat",
+      "cmux": [
+        "action",
+        "run",
+        "palette.toggleTerminalChat",
+        "--focus"
+      ],
+      "wait": 0.2,
+      "shot": false
+    },
+    {
+      "title": "The chat open trace (until the chat shows, then 1 s of frames)",
+      "rpc": {
+        "method": "debug.chat_open_trace",
+        "params": {
+          "action": "wait",
+          "timeout_ms": 15000,
+          "settle_ms": 1000,
+          "page_timing": true
+        }
+      },
+      "record": "file",
+      "wait": 2.0,
+      "shot": false,
+      "optional": "debug.chat_open_trace"
+    },
+    {
+      "title": "Before: the chat painted its newest turn",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "chat_state"
+        }
+      },
+      "record": "file",
+      "wait": 0.5,
+      "shot": false,
+      "readback": {
+        "at": "lastAssistant.text",
+        "contains": [
+          "Answer 1999"
+        ],
+        "within": 30
+      }
+    },
+    {
+      "title": "debug.tab_switch start",
+      "rpc": {
+        "method": "debug.tab_switch",
+        "params": {
+          "action": "start"
+        }
+      },
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Run 1 (a) idle: Toggle chat to terminal, frames around it",
+      "rpc": {
+        "method": "debug.new_tab",
+        "params": {
+          "action": "frame_strip",
+          "key": "`",
+          "modifiers": [
+            "option",
+            "command"
+          ],
+          "above": true,
+          "duration_ms": 600
+        }
+      },
+      "record": "file",
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Run 1 (b) idle: Toggle terminal to chat, frames around it",
+      "rpc": {
+        "method": "debug.new_tab",
+        "params": {
+          "action": "frame_strip",
+          "key": "`",
+          "modifiers": [
+            "option",
+            "command"
+          ],
+          "above": true,
+          "duration_ms": 600
+        }
+      },
+      "record": "file",
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Run 2 (a) idle: Toggle chat to terminal, frames around it",
+      "rpc": {
+        "method": "debug.new_tab",
+        "params": {
+          "action": "frame_strip",
+          "key": "`",
+          "modifiers": [
+            "option",
+            "command"
+          ],
+          "above": true,
+          "duration_ms": 600
+        }
+      },
+      "record": "file",
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Run 2 (b) idle: Toggle terminal to chat, frames around it",
+      "rpc": {
+        "method": "debug.new_tab",
+        "params": {
+          "action": "frame_strip",
+          "key": "`",
+          "modifiers": [
+            "option",
+            "command"
+          ],
+          "above": true,
+          "duration_ms": 600
+        }
+      },
+      "record": "file",
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Run 3 (a) idle: Toggle chat to terminal, frames around it",
+      "rpc": {
+        "method": "debug.new_tab",
+        "params": {
+          "action": "frame_strip",
+          "key": "`",
+          "modifiers": [
+            "option",
+            "command"
+          ],
+          "above": true,
+          "duration_ms": 600
+        }
+      },
+      "record": "file",
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Run 3 (b) idle: Toggle terminal to chat, frames around it",
+      "rpc": {
+        "method": "debug.new_tab",
+        "params": {
+          "action": "frame_strip",
+          "key": "`",
+          "modifiers": [
+            "option",
+            "command"
+          ],
+          "above": true,
+          "duration_ms": 600
+        }
+      },
+      "record": "file",
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Run 4 (a) idle: Toggle chat to terminal, frames around it",
+      "rpc": {
+        "method": "debug.new_tab",
+        "params": {
+          "action": "frame_strip",
+          "key": "`",
+          "modifiers": [
+            "option",
+            "command"
+          ],
+          "above": true,
+          "duration_ms": 600
+        }
+      },
+      "record": "file",
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Run 4 (b) idle: Toggle terminal to chat, frames around it",
+      "rpc": {
+        "method": "debug.new_tab",
+        "params": {
+          "action": "frame_strip",
+          "key": "`",
+          "modifiers": [
+            "option",
+            "command"
+          ],
+          "above": true,
+          "duration_ms": 600
+        }
+      },
+      "record": "file",
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Run 5 (a) idle: Toggle chat to terminal, frames around it",
+      "rpc": {
+        "method": "debug.new_tab",
+        "params": {
+          "action": "frame_strip",
+          "key": "`",
+          "modifiers": [
+            "option",
+            "command"
+          ],
+          "above": true,
+          "duration_ms": 600
+        }
+      },
+      "record": "file",
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Run 5 (b) idle: Toggle terminal to chat, frames around it",
+      "rpc": {
+        "method": "debug.new_tab",
+        "params": {
+          "action": "frame_strip",
+          "key": "`",
+          "modifiers": [
+            "option",
+            "command"
+          ],
+          "above": true,
+          "duration_ms": 600
+        }
+      },
+      "record": "file",
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Run 6 (a) idle: Toggle chat to terminal, frames around it",
+      "rpc": {
+        "method": "debug.new_tab",
+        "params": {
+          "action": "frame_strip",
+          "key": "`",
+          "modifiers": [
+            "option",
+            "command"
+          ],
+          "above": true,
+          "duration_ms": 600
+        }
+      },
+      "record": "file",
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Run 6 (b) idle: Toggle terminal to chat, frames around it",
+      "rpc": {
+        "method": "debug.new_tab",
+        "params": {
+          "action": "frame_strip",
+          "key": "`",
+          "modifiers": [
+            "option",
+            "command"
+          ],
+          "above": true,
+          "duration_ms": 600
+        }
+      },
+      "record": "file",
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Run 7 (a) idle: Toggle chat to terminal, frames around it",
+      "rpc": {
+        "method": "debug.new_tab",
+        "params": {
+          "action": "frame_strip",
+          "key": "`",
+          "modifiers": [
+            "option",
+            "command"
+          ],
+          "above": true,
+          "duration_ms": 600
+        }
+      },
+      "record": "file",
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Run 7 (b) idle: Toggle terminal to chat, frames around it",
+      "rpc": {
+        "method": "debug.new_tab",
+        "params": {
+          "action": "frame_strip",
+          "key": "`",
+          "modifiers": [
+            "option",
+            "command"
+          ],
+          "above": true,
+          "duration_ms": 600
+        }
+      },
+      "record": "file",
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Run 8 (a) idle: Toggle chat to terminal, frames around it",
+      "rpc": {
+        "method": "debug.new_tab",
+        "params": {
+          "action": "frame_strip",
+          "key": "`",
+          "modifiers": [
+            "option",
+            "command"
+          ],
+          "above": true,
+          "duration_ms": 600
+        }
+      },
+      "record": "file",
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Run 8 (b) idle: Toggle terminal to chat, frames around it",
+      "rpc": {
+        "method": "debug.new_tab",
+        "params": {
+          "action": "frame_strip",
+          "key": "`",
+          "modifiers": [
+            "option",
+            "command"
+          ],
+          "above": true,
+          "duration_ms": 600
+        }
+      },
+      "record": "file",
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Run 9 (a) idle: Toggle chat to terminal, frames around it",
+      "rpc": {
+        "method": "debug.new_tab",
+        "params": {
+          "action": "frame_strip",
+          "key": "`",
+          "modifiers": [
+            "option",
+            "command"
+          ],
+          "above": true,
+          "duration_ms": 600
+        }
+      },
+      "record": "file",
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Run 9 (b) idle: Toggle terminal to chat, frames around it",
+      "rpc": {
+        "method": "debug.new_tab",
+        "params": {
+          "action": "frame_strip",
+          "key": "`",
+          "modifiers": [
+            "option",
+            "command"
+          ],
+          "above": true,
+          "duration_ms": 600
+        }
+      },
+      "record": "file",
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Run 10 (a) idle: Toggle chat to terminal, frames around it",
+      "rpc": {
+        "method": "debug.new_tab",
+        "params": {
+          "action": "frame_strip",
+          "key": "`",
+          "modifiers": [
+            "option",
+            "command"
+          ],
+          "above": true,
+          "duration_ms": 600
+        }
+      },
+      "record": "file",
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Run 10 (b) idle: Toggle terminal to chat, frames around it",
+      "rpc": {
+        "method": "debug.new_tab",
+        "params": {
+          "action": "frame_strip",
+          "key": "`",
+          "modifiers": [
+            "option",
+            "command"
+          ],
+          "above": true,
+          "duration_ms": 600
+        }
+      },
+      "record": "file",
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "debug.tab_switch stop",
+      "rpc": {
+        "method": "debug.tab_switch",
+        "params": {
+          "action": "stop"
+        }
+      },
+      "wait": 0.3,
+      "shot": false,
+      "record": "file"
+    },
+    {
+      "title": "After: the same newest turn, the same row count",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "chat_state"
+        }
+      },
+      "record": "file",
+      "wait": 0.5,
+      "shot": false,
+      "readback": {
+        "at": "lastAssistant.text",
+        "contains": [
+          "Answer 1999"
+        ]
+      }
+    }
+  ]
+}

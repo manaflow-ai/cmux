@@ -208,6 +208,18 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                 Err(refusal) => json!({ "refusal": value(refusal)? }),
             }
         }
+        b"cloud_handler_palette_targets" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                #[serde(default)]
+                desktop: bool,
+                #[serde(default)]
+                machines: Vec<decide::PaletteMachine>,
+            }
+            let request: Request = read(request)?;
+            json!({ "rows": value(decide::palette_targets(request.desktop, &request.machines))? })
+        }
         b"cloud_handler_new_workspace" => {
             let r: Route = read(request)?;
             json!({ "route": value(decide::new_workspace(r.has_target, r.connected, r.by_user, r.has_window))? })

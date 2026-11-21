@@ -206,6 +206,62 @@ git_q -C "$src" add scripts/ci/macos-stubs/Security.tbd
 git_q -C "$src" commit -m stubs
 [[ "$(key --version v2)" != "$before" ]] || fail "a framework stub change kept the tree key"
 
+# The build profile is a key input: cmux-tui-build-package.yml sets lto,
+# codegen-units and CARGO_PROFILE_RELEASE_LTO for the Cloud machine channel's
+# legs. A profile-only change (cmux#42622 turned thin LTO off) builds a tree;
+# before this input it reused the tree built with the old profile.
+workflow=.github/workflows/cmux-tui-build-package.yml
+mkdir -p "$src/.github/workflows"
+cp "$ROOT/$workflow" "$src/$workflow"
+git_q -C "$src" add "$workflow"
+git_q -C "$src" commit -m "build workflow"
+before=$(key --version v2)
+grep -q 'export CARGO_PROFILE_RELEASE_LTO=off' "$src/$workflow" || fail "$workflow no longer sets CARGO_PROFILE_RELEASE_LTO=off; update this test"
+sed -i.bak 's/export CARGO_PROFILE_RELEASE_LTO=off/export CARGO_PROFILE_RELEASE_LTO=thin/' "$src/$workflow" && rm -f "$src/$workflow.bak"
+git_q -C "$src" add "$workflow"
+git_q -C "$src" commit -m "profile"
+[[ "$(key --version v2)" != "$before" ]] || fail "a build profile change ($workflow, CARGO_PROFILE_RELEASE_LTO) kept the tree key"
+
+# What each cmux-tui-artifacts.yml build call builds (lto, target_set,
+# artifact_prefix) comes from cmux-tui-build-profiles.json, a key input; the
+# artifacts workflow itself is not one (41 commits in 14 days, most of them
+# publishing-only). Turning the machine channel's thin legs to fat builds a
+# tree; a publishing-only edit of the artifacts workflow reuses one.
+profiles=scripts/cmux-next/cmux-tui-build-profiles.json
+artifacts=.github/workflows/cmux-tui-artifacts.yml
+cp "$ROOT/$profiles" "$src/$profiles"
+cp "$ROOT/$artifacts" "$src/$artifacts"
+git_q -C "$src" add "$profiles" "$artifacts"
+git_q -C "$src" commit -m "build profiles"
+before=$(key --version v2)
+python3 - "$src/$profiles" <<'PY' || fail "$profiles has no machine_channel lto thin; update this test"
+import json, sys
+path = sys.argv[1]
+data = json.load(open(path))
+assert data["machine_channel"]["lto"] == "thin"
+data["machine_channel"]["lto"] = "fat"
+open(path, "w").write(json.dumps(data, indent=2) + "\n")
+PY
+git_q -C "$src" add "$profiles"
+git_q -C "$src" commit -m "thin legs go fat"
+[[ "$(key --version v2)" != "$before" ]] || fail "changing the machine channel's lto ($profiles) kept the tree key"
+before=$(key --version v2)
+printf '\n# a publishing-only edit\n' >> "$src/$artifacts"
+git_q -C "$src" add "$artifacts"
+git_q -C "$src" commit -m "publishing-only edit"
+[[ "$(key --version v2)" == "$before" ]] || fail "a publishing-only edit of $artifacts moved the tree key"
+
+# The rest of what decides the build outside cmux-tui/: the Zig version
+# reader, the pinned Rust toolchain install and the detector staging.
+for input in scripts/ghostty-zig-version.sh .github/actions/setup-cmux-tui-rust/action.yml scripts/ci/stage-agent-detector.sh; do
+  before=$(key --version v2)
+  mkdir -p "$(dirname "$src/$input")"
+  echo "# changed" >> "$src/$input"
+  git_q -C "$src" add "$input"
+  git_q -C "$src" commit -m "change $input"
+  [[ "$(key --version v2)" != "$before" ]] || fail "a change to $input kept the tree key"
+done
+
 # A revision the checkout does not have fails at once, in a partial clone too:
 # one lazy promisor fetch per input pegged a Mac for 19 minutes on a
 # placeholder sha (2026-10-20). The promisor's upload-pack records any fetch.

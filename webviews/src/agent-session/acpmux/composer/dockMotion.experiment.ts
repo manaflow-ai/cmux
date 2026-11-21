@@ -15,7 +15,7 @@ export const composerDockMotion = defineExperiment({
     overlay: {
       label: "Overlay",
       description:
-        "The transcript holds still while the composer grows over its foot as glass. The room under the last row takes the growth when the rows move anyway (a reply's next line, the send) or when the reader scrolls past the end, so nothing stays out of reach. A send is one move: the composer clears and the bubble rises in, never a drop and a rise.",
+        "Nothing reflows while the composer grows. At the latest row the transcript rises with the composer in the same frame, on its curve, so the newest line stays in sight; scrolled up, the composer grows over the transcript's foot as glass and no row moves. A send is one move: the composer clears and the bubble rises in, never a drop and a rise.",
     },
     push: {
       label: "Push up (before)",

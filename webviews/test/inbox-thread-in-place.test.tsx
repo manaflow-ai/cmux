@@ -27,6 +27,7 @@ import {
 } from "../src/agent-session/acpmux/conversation/inboxThreadRead";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { clockTime } from "../src/agent-session/acpmux/clock";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -64,6 +65,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

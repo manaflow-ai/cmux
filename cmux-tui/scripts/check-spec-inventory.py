@@ -320,6 +320,9 @@ def rust_raw_string_end(source: str, start: int) -> int | None:
     return len(source) if closing < 0 else closing + len(terminator)
 
 
+RUST_CHARACTER_LITERAL_RE = re.compile(r"'(?:\\(?:x[0-9A-Fa-f]{2}|u\{[0-9A-Fa-f_]+\}|.)|[^'\\\n])'")
+
+
 def strip_rust_comments(source: str) -> str:
     output = list(source)
     index = 0
@@ -327,6 +330,10 @@ def strip_rust_comments(source: str) -> str:
         raw_end = rust_raw_string_end(source, index)
         if raw_end is not None:
             index = raw_end
+            continue
+        character = RUST_CHARACTER_LITERAL_RE.match(source, index) if source[index] == "'" else None
+        if character:
+            index = character.end()
             continue
         if source[index] == '"':
             index += 1
@@ -367,9 +374,9 @@ def strip_rust_comments(source: str) -> str:
     return "".join(output)
 
 
-def rust_tokens(source: str) -> list[str]:
-    """Tokenize the Rust subset needed to inspect JSON event construction."""
-    tokens: list[str] = []
+def rust_token_spans(source: str) -> list[tuple[str, int, int]]:
+    """Tokenize Rust with offsets so source exclusions preserve surrounding code."""
+    tokens: list[tuple[str, int, int]] = []
     identifier_re = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
     index = 0
     while index < len(source):
@@ -378,7 +385,7 @@ def rust_tokens(source: str) -> list[str]:
             continue
         raw_end = rust_raw_string_end(source, index)
         if raw_end is not None:
-            tokens.append(source[index:raw_end])
+            tokens.append((source[index:raw_end], index, raw_end))
             index = raw_end
             continue
         if source[index] == '"':
@@ -391,8 +398,13 @@ def rust_tokens(source: str) -> list[str]:
                     break
                 else:
                     end += 1
-            tokens.append(source[index:end])
+            tokens.append((source[index:end], index, end))
             index = end
+            continue
+        character = RUST_CHARACTER_LITERAL_RE.match(source, index) if source[index] == "'" else None
+        if character:
+            tokens.append((character.group(0), index, character.end()))
+            index = character.end()
             continue
         # Use the regex position argument. Slicing ``source[index:]`` copies
         # the remaining source on every byte and makes tokenization quadratic
@@ -400,13 +412,62 @@ def rust_tokens(source: str) -> list[str]:
         identifier = identifier_re.match(source, index)
         if identifier:
             token = identifier.group(0)
-            tokens.append(token)
+            tokens.append((token, index, index + len(token)))
             index += len(token)
             continue
-        if source[index] in "{}()[],:;!.=":
-            tokens.append(source[index])
+        if source[index] in "{}()[],:;!.=#":
+            tokens.append((source[index], index, index + 1))
         index += 1
     return tokens
+
+
+def rust_tokens(source: str) -> list[str]:
+    """Tokenize the Rust subset needed to inspect JSON event construction."""
+    return [token for token, _, _ in rust_token_spans(source)]
+
+
+def strip_rust_test_modules(source: str) -> str:
+    """Blank cfg(test) modules, retaining production code on either side."""
+    spans = rust_token_spans(strip_rust_comments(source))
+    tokens = [token for token, _, _ in spans]
+    output = list(source)
+    marker = ["#", "[", "cfg", "(", "test", ")", "]"]
+    index = 0
+    while index < len(tokens):
+        if tokens[index:index + len(marker)] != marker:
+            index += 1
+            continue
+        item = index + len(marker)
+        # More attributes and visibility may occur between cfg(test) and mod.
+        while tokens[item:item + 2] == ["#", "["]:
+            end = matching_token(tokens, item + 1)
+            if end is None:
+                break
+            item = end + 1
+        if tokens[item:item + 1] == ["pub"]:
+            item += 1
+            if tokens[item:item + 1] == ["("]:
+                end = matching_token(tokens, item)
+                if end is not None:
+                    item = end + 1
+        if tokens[item:item + 1] != ["mod"] or item + 2 >= len(tokens):
+            index += len(marker)
+            continue
+        opening = item + 2
+        if tokens[opening] == ";":
+            closing = opening
+        elif tokens[opening] == "{":
+            closing = matching_token(tokens, opening)
+        else:
+            closing = None
+        if closing is None:
+            index += len(marker)
+            continue
+        for offset in range(spans[index][1], spans[closing][2]):
+            if output[offset] != "\n":
+                output[offset] = " "
+        index = closing + 1
+    return "".join(output)
 
 
 def rust_string_value(token: str) -> str | None:
@@ -607,13 +668,13 @@ def server_module_sources() -> list[str]:
             or parts[0].removesuffix(".rs") in SERVER_MODULES_OUTSIDE_RAW_SDK
         ):
             continue
-        sources.append(path.read_text().split("\n#[cfg(test)]\nmod tests", 1)[0])
+        sources.append(strip_rust_test_modules(path.read_text()))
     return sources
 
 
 def event_names() -> set[str]:
     server = (TUI / "crates/cmux-tui-core/src/server.rs").read_text()
-    production = strip_rust_comments(server.split("\n#[cfg(test)]\nmod tests", 1)[0])
+    production = strip_rust_comments(strip_rust_test_modules(server))
     tokens = rust_tokens(production)
     constants = rust_string_constants(tokens)
     names = json_macro_event_names(tokens, constants)
@@ -639,7 +700,7 @@ def event_names() -> set[str]:
         if not path.exists():
             continue
         source = path.read_text()
-        source = strip_rust_comments(source.split("\n#[cfg(test)]\nmod tests", 1)[0])
+        source = strip_rust_comments(strip_rust_test_modules(source))
         module_tokens = rust_tokens(source)
         module_constants = rust_string_constants(module_tokens)
         names.update(json_macro_event_names(module_tokens, module_constants))
@@ -647,16 +708,16 @@ def event_names() -> set[str]:
     # The local conversation owner builds its subscribe-stream events itself.
     conversations = TUI / "crates/cmux-tui-core/src/conversation_store.rs"
     if conversations.exists():
-        names.update(function_event_names(conversations.read_text(), "wire_json"))
+        names.update(function_event_names(strip_rust_test_modules(conversations.read_text()), "wire_json"))
     # So does the cloud conversations proxy (cloud-conversations-v1).
     cloud = TUI / "crates/cmux-tui-cloud-conversations/src/stream.rs"
     if cloud.exists():
-        names.update(function_event_names(cloud.read_text(), "wire_json"))
+        names.update(function_event_names(strip_rust_test_modules(cloud.read_text()), "wire_json"))
 
     # TreeDeltaKind may live in mux.rs or in any module under src/mux/.
     mux_root = TUI / "crates/cmux-tui-core/src"
     mux_sources = [mux_root / "mux.rs", *sorted((mux_root / "mux").rglob("*.rs"))]
-    mux = strip_rust_comments("\n".join(path.read_text() for path in mux_sources if path.exists()))
+    mux = strip_rust_comments("\n".join(strip_rust_test_modules(path.read_text()) for path in mux_sources if path.exists()))
     delta_impl = mux.split("impl TreeDeltaKind", 1)
     if len(delta_impl) != 2:
         fail("cannot find TreeDeltaKind implementation")
@@ -685,7 +746,7 @@ def first_function_event_names(source: str, *names: str) -> set[str]:
 
 
 def runtime_event_stream_hints() -> dict[str, set[str]]:
-    server = (TUI / "crates/cmux-tui-core/src/server.rs").read_text()
+    server = strip_rust_test_modules((TUI / "crates/cmux-tui-core/src/server.rs").read_text())
     for module_source in server_module_sources():
         server += "\n" + module_source
     hints: dict[str, set[str]] = {}
@@ -721,7 +782,7 @@ def runtime_event_stream_hints() -> dict[str, set[str]]:
     # native control connection, independently of the tree subscribe stream.
     inventory_watch = TUI / "crates/cmux-tui-core/src/server/agent_inventory_watch/state.rs"
     if inventory_watch.is_file():
-        source = inventory_watch.read_text()
+        source = strip_rust_test_modules(inventory_watch.read_text())
         add(function_event_names(source, "observe"), "control")
         add(function_event_names(source, "stop"), "control")
     return hints

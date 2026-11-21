@@ -14,7 +14,7 @@ extension ActionRegistry {
     @discardableResult
     public func bindEffect(_ id: ActionID, isEnabled: @escaping @MainActor () -> Bool = { true },
                            effect: @escaping @MainActor (ActionInvocation) -> ActionEffect) -> Bool {
-        guard let descriptor = descriptor(for: id) else { return false }
+        guard let descriptor = bindingDescriptor(for: id) else { return false }
         noteBinding(descriptor.id, placeholder: false)
         register(Action(id: descriptor.id, title: descriptor.title, keywords: descriptor.keywords, isEnabled: isEnabled,
                         handler: {}).withEffect(effect))
@@ -26,7 +26,7 @@ extension ActionRegistry {
     @discardableResult
     public func bindEffect(_ id: ActionID, unavailable reason: @escaping @MainActor () -> String?,
                            effect: @escaping @MainActor (ActionInvocation) -> ActionEffect) -> Bool {
-        guard let descriptor = descriptor(for: id) else { return false }
+        guard let descriptor = bindingDescriptor(for: id) else { return false }
         noteBinding(descriptor.id, placeholder: false)
         register(Action(id: descriptor.id, title: descriptor.title, keywords: descriptor.keywords, isEnabled: { reason() == nil },
                         unavailableReason: reason, handler: {}).withEffect(effect))

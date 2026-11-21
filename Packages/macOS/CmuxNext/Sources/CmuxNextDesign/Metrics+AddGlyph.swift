@@ -8,17 +8,17 @@ public import AppKit
 extension Metrics {
     /// How far the + reaches end to end: 9 pt at Compact, between the two it replaces.
     public static var addGlyphExtent: CGFloat { (smallIconSize * 0.75 * 2).rounded() / 2 }
-    /// The +'s stroke at rest (a held press draws it heavier, `addGlyphPressedLineWidth`).
+    /// The add controls' stroke in every interaction state.
     public static var addGlyphLineWidth: CGFloat { space1 * 0.6 }
-    /// The +'s stroke while held or while its menu is open.
-    public static var addGlyphPressedLineWidth: CGFloat { space1 * 0.9 }
     /// The tab row's pane-type chevron beside its +: an SF chevron at this point size spans about
     /// the +'s width. (The sidebar's chooser keeps its smaller menu-indicator chevron.)
     public static var addMenuChevronPointSize: CGFloat { (addGlyphExtent + space1 / 2).rounded() }
 }
 
 extension CGPath {
-    /// The add buttons' +, centered on `center` and snapped to the device pixels of `scale`.
+    /// The add buttons' +, centered on `center` and snapped to the device pixels of `scale`. Draw it through
+    /// ``PlusButtonLook`` (a + button) or ``PlusButtonLook/drawGlyph(in:center:ink:)``, never on its own: the
+    /// `plus-button` guardrail refuses any other +.
     public static func addGlyph(center: CGPoint, scale: CGFloat) -> CGPath {
         let arm = Metrics.addGlyphExtent / 2
         let scale = max(scale, 1)
@@ -29,23 +29,5 @@ extension CGPath {
         path.move(to: CGPoint(x: center.x, y: center.y - arm))
         path.addLine(to: CGPoint(x: center.x, y: center.y + arm))
         return path
-    }
-}
-
-extension NSImage {
-    /// The add buttons' + as a template image `side` points square (an image button tints it).
-    public static func addGlyph(side: CGFloat) -> NSImage {
-        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
-            guard let context = NSGraphicsContext.current?.cgContext else { return false }
-            let scale = NSGraphicsContext.current.flatMap { $0.cgContext.userSpaceToDeviceSpaceTransform.a } ?? 2
-            context.addPath(CGPath.addGlyph(center: CGPoint(x: rect.midX, y: rect.midY), scale: scale))
-            context.setLineWidth(Metrics.addGlyphLineWidth)
-            context.setLineCap(.round)
-            context.setStrokeColor(NSColor.black.cgColor)
-            context.strokePath()
-            return true
-        }
-        image.isTemplate = true
-        return image
     }
 }

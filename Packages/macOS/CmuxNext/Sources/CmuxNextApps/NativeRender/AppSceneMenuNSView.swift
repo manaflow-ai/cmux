@@ -22,8 +22,8 @@ final class AppSceneMenuNSView: AppSceneNodeNSView {
         title.font = Typography.body
         title.maximumNumberOfLines = 1
         title.lineBreakMode = .byTruncatingTail
-        // The solid (heavier) stroke: AppKit's pull-down chevron is bolder than the line glyph at this side.
-        chevron.image = NSImage.icon(symbol: "chevron.down", size: Self.chevronSide, style: .solid)
+        chevron.image = Self.chevronImage()
+        chevron.imageScaling = .scaleNone
         addSubview(title)
         addSubview(chevron)
         setAccessibilityElement(true)
@@ -34,7 +34,17 @@ final class AppSceneMenuNSView: AppSceneNodeNSView {
         }
     }
 
-    private static let chevronSide: CGFloat = 9
+    /// AppKit's pull-down chevron: the system `chevron.down` at 10 points in the emphasis weight, so its stroke
+    /// covers whole pixels at 1x and it reaches its title's tone (the pack's 9-point glyph stays lighter; a 2x
+    /// display hides it).
+    private static func chevronImage() -> NSImage {
+        NSImage(systemSymbolName: "chevron.down", accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 10, weight: TypeScale.emphasis))
+            ?? NSImage.icon(symbol: "chevron.down", size: 9, style: .solid)
+    }
+
+    /// The chevron's drawn size (its image's, placed on whole points so it stays crisp).
+    private var chevronSize: CGSize { chevron.image?.size ?? CGSize(width: 9, height: 9) }
 
     override func configure(_ node: AppSceneNode) {
         super.configure(node)
@@ -63,7 +73,7 @@ final class AppSceneMenuNSView: AppSceneNodeNSView {
     }
 
     override var contentNaturalWidth: CGFloat? {
-        ceil(title.naturalSize.width) + Metrics.space1 + Self.chevronSide + 2 * Metrics.space2
+        ceil(title.naturalSize.width) + Metrics.space1 + ceil(chevronSize.width) + 2 * Metrics.space2
     }
 
     override func contentHeight(width: CGFloat) -> CGFloat { max(ceil(title.naturalSize.height) + 2 * Metrics.space1, Metrics.iconSize + Metrics.space2) }
@@ -72,8 +82,9 @@ final class AppSceneMenuNSView: AppSceneNodeNSView {
         fill.frame = rect
         fill.cornerRadius = Metrics.itemCornerRadius
         let inner = rect.insetBy(dx: Metrics.space2, dy: 0)
-        let side = Self.chevronSide
-        chevron.frame = CGRect(x: inner.maxX - side, y: rect.midY - side / 2, width: side, height: side).integral
+        let size = chevronSize
+        chevron.frame = CGRect(x: (inner.maxX - size.width).rounded(.down), y: (rect.midY - size.height / 2).rounded(.down),
+                               width: size.width, height: size.height)
         let height = ceil(title.naturalSize.height)
         title.frame = CGRect(x: inner.minX, y: rect.midY - height / 2, width: max(0, chevron.frame.minX - Metrics.space1 - inner.minX),
                              height: height).integral

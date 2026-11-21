@@ -7,7 +7,7 @@
 // That one reads "Running <program …>" (conversation/shortCommand.ts, the background-task note's
 // short label); the whole text stays the line's tooltip.
 import type { Translate } from "../i18n";
-import { shortCommand } from "../conversation/shortCommand";
+import { ROW_WIDTH, shortCommand } from "../conversation/shortCommand";
 import { toolForName } from "../toolNames";
 
 /// A command as a shell call's title starts: a lowercase program (`git`, `cd`, `./x`), a path
@@ -37,15 +37,15 @@ export function isCommandTitle(title: string, shell = false): boolean {
   return PROGRAMS.has(/^\S+/.exec(line)![0]) || SHELL_SHAPED.test(line);
 }
 
-/// The longest short command a line keeps; the row's CSS ellipsis cuts the rest of the line.
-const COMMAND_MAX = 40;
-
 /// A tool call's title in words: a command reads "Running <program …>", any other title as it is.
 export function toolDetail(t: Translate, title: string | undefined, shell = false): string | undefined {
   const trimmed = title?.trim();
   if (!trimmed) return undefined;
   if (!isCommandTitle(trimmed, shell)) return trimmed;
-  const command = shortCommand(trimmed, COMMAND_MAX);
+  // No character cap: the line's CSS ellipsis cuts it where the row ends, never 40 characters in
+  // with the row half empty (Leo, 2026-11-12: "why are there ellipses going so fast? Like they get
+  // truncated and cut off so soon").
+  const command = shortCommand(trimmed, ROW_WIDTH);
   return command ? t("tools.runningCommand", { command }) : t("tools.runningUnnamed");
 }
 

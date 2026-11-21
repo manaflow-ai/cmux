@@ -86,6 +86,34 @@ names) with `tab`, `url`, `confirm` (the tab still asks for Connect),
 stream's state, mode and frame counts). It carries no credential and no
 screen content. Connect and Take over stay the person's clicks in the pane.
 
+`app mac-screens [--tab <tab>]` works with every build: it reads the app's
+`mac_screen.state`, one row per Mac Screen tab showing one of your devices
+(or the one `--tab` names) with `tab`, `device_id`, `device`, `phase`
+(`connecting`, `connected`, `failed`, `ended`, null with no session),
+`connected`, `has_frame`, `path`, `connect_started_at` (ISO 8601) and
+`first_frame_ms` (connect start to the first decoded frame on screen), `fps`,
+`target_fps`, `rtt_ms`, `frames_decoded`, `frames_dropped` (frames the other
+Mac numbered that never showed), `frame`, and `rtt_ms_window`,
+`frame_interval_ms` and `present_ms` (decoded to shown) as `{count, p50, p95,
+max}` over the last 60 round trips and 120 frames. It is read-only: it never
+connects, disconnects or sends input, and carries no credential or screen
+content.
+
+`app chat perf --tab <tab> [--seconds <1-60>]` works with every build: the
+app's `agent.chat.perf` runs the chat page's own capture for that many
+seconds (default 5) and returns `{tab, seconds, duration_ms, measured,
+unmeasured_reason, visibility, frames, long_tasks, layout_shift, records}`:
+frame intervals (p50/p95/p99/max, frames over 33 and 50 ms), long animation
+frames (or long tasks) with their top scripts' invoker and URL, non-input
+layout shift, and for each record the selected chat receives, its time from
+arrival to the first painted frame and its apply time, by kind (`tool_call`,
+`tool_call_update`, `agent_message_chunk`, `other`, `all`). It never focuses,
+selects, shows or un-occludes the tab; a hidden or covered page draws no
+frames, so `measured` is false with `unmeasured_reason` `page_hidden` or
+`no_frames`. Nothing in the page measures outside a capture. A tab that is
+not an agent chat is `invalid_params`; a chat whose page this launch never
+made is `unavailable`.
+
 `app machines [--no-refresh]` works with every build: it reads the app's
 `machine.list`, the right sidebar's Machines section as the person sees it,
 `{machines: [{id, name, kind, isLocal, linkState, online, serverState,

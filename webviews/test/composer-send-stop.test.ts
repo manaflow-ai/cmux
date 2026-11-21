@@ -49,6 +49,9 @@ await requireBrowserLane("composer-send-stop.test.ts", async () => {
 
   test("stops a running turn and restores the resting row after the host snapshot", async () => {
     const page: Page = await browser!.newPage({ viewport: { width: 760, height: 560 } });
+    // Claude's look, where an empty draft draws no Send: Codex's, the default since #42247, always
+    // draws Send (Composer.tsx).
+    await page.addInitScript(() => localStorage.setItem("cmux.composer.look", "claude"));
     await page.goto(stageURL());
     // The first page waits on a cold Vite compiling the gallery, past 30 s on a busy runner.
     await page.waitForFunction(

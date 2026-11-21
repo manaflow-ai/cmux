@@ -553,6 +553,7 @@ fn queued_prompt(prompt_id: &str, provenance: Option<Value>) -> crate::hub::queu
         restored: false,
         resume: false,
         steer: false,
+        steer_on_start: false,
         held: false,
         awaiting_owner: false,
         revision: 0,

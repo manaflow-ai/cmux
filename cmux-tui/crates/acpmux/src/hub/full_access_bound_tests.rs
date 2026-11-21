@@ -681,7 +681,9 @@ async fn every_off_push_waits_for_an_ask_deciding_under_the_old_bound() {
             drop(held);
         })
     };
-    locked.recv().expect("the ask holds the permission lock");
+    locked
+        .recv_timeout(std::time::Duration::from_secs(30))
+        .expect("the ask never took the permission lock");
     let push = || {
         let hub = hub.clone();
         tokio::spawn(async move { hub.apply_full_access_push(Some(false)).await })

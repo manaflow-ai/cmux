@@ -33,6 +33,20 @@ pub(crate) fn line_is_named() {
     NAMED.with(|named| named.set(named.get().wrapping_add(1)));
 }
 
+thread_local! {
+    /// The request this thread counts now is answered by another thread, which records its
+    /// time ([`CommandStats::record_since`]): its [`Counted`] records nothing.
+    static LATER: ThreadCell<bool> = const { ThreadCell::new(false) };
+}
+
+/// The request this thread handles is answered later, by a thread that waits for its work
+/// (the git lane): that thread records the request's time, from its arrival to its reply
+/// ([`CommandStats::record_since`]). The reader's own few microseconds are not a second count.
+#[inline]
+pub(crate) fn answered_later() {
+    LATER.with(|later| later.set(true));
+}
+
 /// The name of every line that is not a decoded command or a v2 method: a word the daemon
 /// does not know, a line that does not decode, a frame of an app-private family.
 pub(crate) const OTHER: &str = "other";
@@ -303,7 +317,14 @@ impl CommandStats {
     // perf-hot: <1us command-stats
     #[inline]
     pub(crate) fn start<'a>(&'a self, name: &'static str, kind: &'a ConnectionKind) -> Counted<'a> {
+        LATER.with(|later| later.set(false));
         Counted { entry: self.entry(name), kind, started: Instant::now() }
+    }
+
+    /// Records one request that a thread other than its reader answered ([`answered_later`]):
+    /// its time runs from `arrived`, so it has the wait for its turn and the work.
+    pub(crate) fn record_since(&self, name: &'static str, kind: &ConnectionKind, arrived: Instant) {
+        self.entry(name).record(kind.get(), elapsed_ns(arrived));
     }
 
     /// Starts the count of one line of a connection. When the value drops, the line counts
@@ -424,7 +445,9 @@ pub(crate) struct Counted<'a> {
 impl Drop for Counted<'_> {
     #[inline]
     fn drop(&mut self) {
-        self.entry.record(self.kind.get(), elapsed_ns(self.started));
+        if !LATER.with(|later| later.replace(false)) {
+            self.entry.record(self.kind.get(), elapsed_ns(self.started));
+        }
         line_is_named();
     }
 }
@@ -483,6 +506,8 @@ pub struct CommandRow {
     /// writer. A command the connection's queue runs later does not count its wait, and a
     /// command the queue refused (it is full) did not run and is not counted. A command that
     /// answers later from a thread of its own (a URL open, a Cloud call) counts its start.
+    /// A git request counts from its arrival at the git lane to its reply there, with its
+    /// wait for a place (server/git_lane.rs): the time its caller waits.
     pub total_ns: u64,
     pub max_ns: u64,
     /// The requests by time: below 0.25 ms, then one bucket per power of 2 (`hist_bounds_ns`).
@@ -511,59 +536,5 @@ pub struct CommandConnections {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn buckets_are_powers_of_two_from_a_quarter_millisecond() {
-        assert_eq!(bucket(0), 0);
-        assert_eq!(bucket(249_999), 0);
-        assert_eq!(bucket(250_000), 1);
-        assert_eq!(bucket(499_999), 1);
-        assert_eq!(bucket(500_000), 2);
-        assert_eq!(bucket(4_095_999_999), 14);
-        assert_eq!(bucket(4_096_000_000), 15);
-        assert_eq!(bucket(u64::MAX), 15);
-    }
-
-    #[test]
-    fn a_connection_moves_its_accepted_count_with_its_kind() {
-        let stats = Arc::new(CommandStats::default());
-        let connection = ConnectionKind::default();
-        connection.registered(&stats, ClientKind::Unknown);
-        connection.observed(ClientKind::Terminal);
-        connection.declare(ClientKind::declared("frontend"));
-        // What the daemon sees later does not replace what the client said.
-        connection.observed(ClientKind::Hook);
-        assert_eq!(connection.get(), ClientKind::App);
-        let snapshot = stats.snapshot();
-        assert_eq!(snapshot.connections.len(), 1, "{snapshot:?}");
-        assert_eq!(snapshot.connections[0].kind, "app");
-        assert_eq!(snapshot.connections[0].accepted, 1);
-    }
-
-    #[test]
-    fn names_past_the_limit_count_in_other() {
-        let stats = CommandStats::default();
-        let words: Vec<&'static str> =
-            (0..NAME_LIMIT + 40).map(|number| &*format!("word-{number}").leak()).collect();
-        let kind = ConnectionKind::default();
-        for word in &words {
-            drop(stats.start(word, &kind));
-        }
-        // A line with no named request counts in the same row.
-        drop(stats.start_line(&kind));
-        let snapshot = stats.snapshot();
-        assert_eq!(snapshot.names, NAME_LIMIT as u64);
-        assert_eq!(snapshot.rows.len(), NAME_LIMIT + 1, "one row per name and one for the rest");
-        let other = snapshot.rows.iter().find(|row| row.name == OTHER).expect("other");
-        assert_eq!(other.count, 41);
-
-        // A line with a named request does not.
-        let line = stats.start_line(&kind);
-        drop(stats.start(words[0], &kind));
-        drop(line);
-        let other_after = stats.snapshot().rows.into_iter().find(|row| row.name == OTHER);
-        assert_eq!(other_after.map(|row| row.count), Some(41));
-    }
-}
+#[path = "command_stats_tests.rs"]
+mod tests;
