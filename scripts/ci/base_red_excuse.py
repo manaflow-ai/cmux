@@ -388,9 +388,7 @@ def settled_put(route: str, found, state: tuple | None = None) -> None:
         os.replace(spare, path)
         if not _SETTLED_PRUNED:
             _SETTLED_PRUNED.append(True)
-            for old in path.parent.glob("*.json"):
-                if time.time() - old.stat().st_mtime > SETTLED_KEEP_SECONDS:
-                    old.unlink(missing_ok=True)
+            prune_kept(path.parent, SETTLED_KEEP_SECONDS)
     except OSError:
         pass
 
@@ -839,6 +837,84 @@ def git_remote(repo: str) -> str:
     return f"https://github.com/{repo}.git"
 
 
+# The source cache's bound. Every object a fetch brings lands in a promisor pack, which `git gc` keeps whatever is
+# reachable, and the refs git_commit fetches into are deleted after: so the one-commit fetches, the blobs `git show`
+# fetches lazily, ws_check_squash_tree's whole-history fetch and its merge-tree objects piled up for good (2.3 GB on
+# the land host on 2026-11-21, nothing removing any of it). A repo whose objects pass SOURCE_CACHE_MAX_BYTES
+# (BASE_RED_EXCUSE_SOURCE_CACHE_MAX_BYTES) is made again from nothing by the next run that finds no other run using
+# it, which is cheap: every fetch is blob-less and git_commit's one commit deep. A repo made less than
+# SOURCE_CACHE_MIN_AGE_SECONDS ago is kept whatever its size, so a working set above the cap is rebuilt once a day at
+# most, never once a run. Each run holds a shared flock on the repo's lock file (beside it) from its first git_cache
+# call to its exit; the rebuild takes it exclusive without waiting, so a repo another run is reading is never moved.
+SOURCE_CACHE_MAX_BYTES_ENV = "BASE_RED_EXCUSE_SOURCE_CACHE_MAX_BYTES"
+SOURCE_CACHE_MAX_BYTES = 512 * 1024 * 1024
+SOURCE_CACHE_MIN_AGE_SECONDS = 24 * 3600
+SOURCE_CACHE_STAMP = "base-red-excuse-made"
+_SOURCE_CACHE_LOCKS: dict[str, int] = {}
+
+
+def source_cache_max_bytes() -> int:
+    raw = os.environ.get(SOURCE_CACHE_MAX_BYTES_ENV, "")
+    try:
+        value = int(raw) if raw else SOURCE_CACHE_MAX_BYTES
+    except ValueError:
+        return SOURCE_CACHE_MAX_BYTES
+    return value if value > 0 else SOURCE_CACHE_MAX_BYTES
+
+
+def source_cache_bytes(where: Path) -> int:
+    """Bytes under WHERE's objects directory (loose objects, packs and their indexes), files only."""
+    total = 0
+    for root, _, files in os.walk(where / "objects"):
+        for name in files:
+            try:
+                total += os.lstat(os.path.join(root, name)).st_size
+            except OSError:
+                pass
+    return total
+
+
+def source_cache_hold(where: Path) -> bool:
+    """Hold this run's shared lock on the bare repo WHERE (once per process), rebuilding WHERE first when no other run
+    holds it and it is past its bound (SOURCE_CACHE_MAX_BYTES and SOURCE_CACHE_MIN_AGE_SECONDS). True when WHERE was
+    moved aside for a fresh one. Without flock (no fcntl) nothing is locked and nothing rebuilt."""
+    key = str(where)
+    if key in _SOURCE_CACHE_LOCKS:
+        return False
+    try:
+        import fcntl
+    except ImportError:
+        return False
+    where.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(where.with_name(where.name + ".lock"), os.O_RDWR | os.O_CREAT, 0o644)
+    rebuilt, retired = False, []
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        fcntl.flock(fd, fcntl.LOCK_SH)  # another run reads WHERE: share it, rebuild nothing
+    else:
+        # No other run holds WHERE, nor any copy an earlier rebuild moved aside.
+        retired = sorted(where.parent.glob(where.name + ".retired-*"))
+        try:
+            made = (where / SOURCE_CACHE_STAMP).stat().st_mtime
+        except OSError:
+            made = 0.0  # a repo from before the stamp: as old as can be
+        if ((where / "HEAD").is_file() and time.time() - made > SOURCE_CACHE_MIN_AGE_SECONDS
+                and source_cache_bytes(where) > source_cache_max_bytes()):
+            aside = where.with_name(f"{where.name}.retired-{os.getpid()}-{int(time.time())}")
+            try:
+                os.rename(where, aside)
+                retired.append(aside)
+                rebuilt = True
+            except OSError:
+                pass
+        fcntl.flock(fd, fcntl.LOCK_SH)
+    _SOURCE_CACHE_LOCKS[key] = fd  # held until this process exits
+    for old in retired:  # nothing reads a moved-aside copy: removed outside the exclusive hold
+        shutil.rmtree(old, ignore_errors=True)
+    return rebuilt
+
+
 def git_cache(repo: str) -> Callable[..., subprocess.CompletedProcess] | None:
     """`git` in REPO's bare repo under source_cache(), made and pointed at REPO's remote (blob-less) on first use; None
     when it cannot be."""
@@ -851,11 +927,19 @@ def git_cache(repo: str) -> Callable[..., subprocess.CompletedProcess] | None:
         return subprocess.run(["git", "--git-dir", str(where), *args], capture_output=True, env=env,
                               timeout=GIT_SECONDS, stdin=subprocess.DEVNULL)
 
+    try:
+        source_cache_hold(where)
+    except OSError:
+        pass  # an unlockable cache is still read, only never rebuilt
     if not (where / "HEAD").is_file():
         where.mkdir(parents=True, exist_ok=True)
         if subprocess.run(["git", "init", "-q", "--bare", str(where)], capture_output=True,
                           timeout=GIT_SECONDS).returncode:
             return None
+        try:
+            (where / SOURCE_CACHE_STAMP).touch()
+        except OSError:
+            pass
     for key, value in (("remote.origin.url", git_remote(repo)), ("remote.origin.promisor", "true"),
                        ("remote.origin.partialclonefilter", "blob:none")):
         if git("config", key, value).returncode:
@@ -1054,6 +1138,24 @@ OTHER_REPO_ROLLUPS = {
 # checks each entry against the workflows. Its verdict is read only when the PR run's own workflow has none at or
 # after the merge-base.
 BASE_WORKFLOW_FOR = {("feat-cmux-next", "ci.yml", "web"): "cmux-next-web.yml"}
+# The post-merge batch tier (2026-11-21, cmux#48662): per-push base workflows move onto cmux-next-post-merge.yml,
+# which every ~2 h calls each suite of .github/post-merge-batch.json whose paths changed, as a caller job named by the
+# suite key, so the base's check of job J of suite S is 'S / J'. A workflow that moved there drops its own
+# `push: feat-cmux-next`, so its own base runs go stale and every red on a PR was refused as having no verdict at or
+# after its merge-base. batch_check maps a PR's red job to its batch check from the manifest alone, so a new suite is
+# covered by its entry, with no change here: a run of the suite's own workflow (J is 'J' on the PR, 'S / J' on the
+# base), or of a pull-request caller whose job calls the suite's workflow (ci.yml's `web` calls ci-web.yml: 'web / J'
+# on the PR, 'S / J' on the base). Read before BASE_WORKFLOW_FOR, and like it only when the PR's own workflow has no
+# verdict at or after the merge-base. A suite skipped in the newest batch run has no verdict there (base_verdicts
+# passes it over for the previous batch run where it ran). The manifest is the one beside this script, else the
+# base's (land-judge and the lane broker run a `git archive` of scripts/ci alone).
+POST_MERGE_WORKFLOW = "cmux-next-post-merge.yml"
+POST_MERGE_MANIFEST = ".github/post-merge-batch.json"
+POST_MERGE_MANIFEST_FILE = WORKFLOWS.parent / "post-merge-batch.json"
+POST_MERGE_BASES = frozenset({"feat-cmux-next"})
+# A post-merge batch probe run (cmux-next-post-merge.yml's run-name 'probe <suite> <job> at <sha>') tests one job of
+# an older commit while its head_sha is the tip it was dispatched from: never a base verdict for that tip.
+POST_MERGE_PROBE_TITLE = "probe "
 # A workflow no base push or schedule runs gets its base verdict from a dispatch on the base tip (2026-11-07).
 # nightly-next-cua-signed-host.yml runs on pull requests that touch it and on a schedule, but a schedule fires only
 # from the default branch, where the file was not yet registered, so feat-cmux-next never had a run of it: every red
@@ -1289,7 +1391,7 @@ MATRIX_NAME = re.compile(r"([^$]*[^$ ]) \(\$\{\{ *matrix\.(\w+) *\}\}\)")
 def _check_matcher(job_id: str, job: dict, where: str) -> dict:
     """How the Actions jobs of JOB (id JOB_ID in a workflow) are named: {"exact": [...], "prefixes": [...]}. A job
     with no `name:` is named by its id; a called workflow's jobs are '<name> / <its job>'; a matrix job whose
-    name holds no expression gets ' (<values>)' after it; a name may hold an expression only as a last
+    name holds no expression gets ' (<values>)' after it, as does one named over a computed include; a name may hold an expression only as a last
     ' / ${{ ... }}' segment. Any other shape is refused."""
     name = job.get("name", job_id)
     if not isinstance(name, str) or not name.strip() or name != name.strip():
@@ -1304,6 +1406,11 @@ def _check_matcher(job_id: str, job: dict, where: str) -> dict:
         elif (isinstance(matrix, dict) and set(matrix) == {"include"} and isinstance(matrix["include"], list)
               and all(isinstance(row, dict) and key in row for row in matrix["include"])):
             values = [row[key] for row in matrix["include"]]
+        elif (isinstance(matrix, dict) and set(matrix) == {"include"} and isinstance(matrix["include"], str)
+              and matrix["include"].strip().startswith("${{") and "uses" not in job):
+            # A computed include ('react-apps-check (${{ matrix.shard }})' over the shards a pull request reaches,
+            # #48561): its values are known only at run time, but Actions still names each job '<name> (<value>)'.
+            return {"exact": [], "prefixes": [f"{one.group(1)} ("]}
         if (not values or "uses" in job
                 or not all(isinstance(v, (str, int)) and not isinstance(v, bool) and str(v) for v in values)):
             raise Refused(f"{where}: job {job_id}'s name {name!r} is not one matrix key over fixed values")
@@ -2216,8 +2323,35 @@ def unplaced_signature(job: dict, log: str) -> UnplacedSignature:
             inside = False
         elif inside and line and not RATCHET_HIT.match(line):
             errors[f"ratchet: {line}"] += 1
+    if not tests and not errors:
+        errors = last_words(output)
     crashes = frozenset(first or second for first, second in CRASH.findall("\n".join(output)))
     return UnplacedSignature(steps, tests, errors, crashes, tuple(dict.fromkeys(unnamed)))
+
+
+# A shell step that ends its red with a plain sentence and exit 1 names no test and no error line: only the runner's
+# generic `##[error]Process completed with exit code 1.` follows it. 2026-11-20, cmuxterm-hq#15467 at 4aa7a17c
+# (cmuxterm-hq#15575): 'Fleet tests' failed "Validate the fleet client install and the tag policy" on `Bundled fleet
+# client is stale. Run scripts/sync-fleet-skill-client.py.`, the same step and the same line as main's run
+# 44769654200, and was refused as naming nothing to compare. When a whole log names no failing test or error line, the
+# last line each exit annotation follows is that failed step's error line, on both sides alike (numbers masked,
+# counted): a step that fails anew, or fails on other words, still differs from the base.
+EXIT_LINE = re.compile(r"^##\[error\]Process completed with exit code (\d+)\.?$")
+LAST_WORDS = "last words before exit"
+
+
+def last_words(output: list[str]) -> Counter:
+    """For each runner exit annotation in OUTPUT (a whole log's lines less the runner's echo, test_reds.lines_of),
+    `last words before exit N: LINE`, LINE the nearest non-empty line above it that is not a runner `##[` line,
+    numbers masked (normalise_error), counted."""
+    found: Counter = Counter()
+    for n, line in enumerate(output):
+        if not (exit_code := EXIT_LINE.match(line)):
+            continue
+        said = next((text for text in reversed(output[:n]) if text.strip()), "")
+        if said and not said.startswith("##["):
+            found[f"{LAST_WORDS} {exit_code[1]}: {normalise_error(said)}"] += 1
+    return found
 
 
 def unplaced_without_ffi_pin(head: UnplacedSignature) -> UnplacedSignature:
@@ -2239,6 +2373,33 @@ def unplaced_head_evidence(repo: str, job: dict, github) -> UnplacedSignature:
     return unplaced_signature(job, github.log(repo, job))
 
 
+# A red job whose log names no failing test, error line or crash is compared by its failed steps alone (Leo, 2026-11-21
+# ~03:45Z: "clearly we need to be hitting a 10x improvement in not running useless jobs"; the coordinator's rule: "a
+# red job with no parsable test name is excused when the same job (same name, same failing step) is red on the base
+# run"). cmuxterm-hq docs/ci/bottleneck-and-skip-candidates-2026-11-21.md: 3,765 PR heads were red only from base over
+# 11-13..19, and a refused inherited red makes its owner push again. Excused only when the base verdict failed exactly
+# the same steps (name and conclusion, counted: failed_step_keys) and names no failing test, error line, crash or
+# unnamed test either: a base that names a failure the head does not print is another failure, never this one.
+STEP_ONLY_WHY = "its log names no failing test or error line, so only its failed steps identify it"
+
+
+def step_only_verdict(name: str, why: str, head: UnplacedSignature, found: UnplacedSignature, where: str) -> str:
+    """The audit line for red NAME whose whole-log signature HEAD names no failing test or error line, when FOUND (the
+    red base verdict at WHERE) failed the same steps and names nothing either; else Refused saying why not."""
+    nothing = f"'{name}': {why}, and its log names no failing test or error line"
+    if head.crashes or head.unnamed:
+        raise Refused(f"{nothing}, but it crashed or reports tests it does not name; never compared by step alone")
+    if found.tests or found.errors or found.crashes or found.unnamed:
+        said = sorted(found.tests) or sorted(found.errors) or sorted(found.crashes) or list(found.unnamed)
+        raise Refused(f"{nothing}, while {where} names its failure ({'; '.join(said)[:300]}); a red naming nothing "
+                      "is not that one")
+    if head.steps != found.steps:
+        raise Refused(f"{nothing}; compared by step alone, its failed steps ({step_keys_text(head.steps)}) are not "
+                      f"{where}'s ({step_keys_text(found.steps)})")
+    return (f"excused '{name}': {STEP_ONLY_WHY}: the same failed steps ({step_keys_text(head.steps)[:300]}), as "
+            f"often each, as {where}, which names no failing test or error line either")
+
+
 def unplaced_verdict(repo: str, name: str, base: str, head: UnplacedSignature, found: UnplacedSignature,
                      base_run: dict, *, why: str | None = None) -> str:
     """The audit line for an unplaced red job NAME whose whole-log signature HEAD is FOUND's, the newest red base
@@ -2249,8 +2410,11 @@ def unplaced_verdict(repo: str, name: str, base: str, head: UnplacedSignature, f
     if not head.steps:
         raise Refused(f"'{name}': {why}, and it names no failed step; nothing is compared with the base")
     if not head.tests and not head.errors:
-        raise Refused(f"'{name}': {why}, and its log names no failing test or error line; nothing to "
-                      "compare with the base")
+        # A red that names nothing (a setup step such as `Select JDK 17` exiting 1, a shell check that prints no
+        # FAIL line) is the base's when the base verdict failed the very same steps and names nothing either
+        # (STEP_ONLY_WHY): its failed steps are its whole identity, as the Chromium step's is. cmux#48480 was refused
+        # three times for 'seven-language live conformance', red at 'Select JDK 17' on feat-cmux-next too.
+        return step_only_verdict(name, why, head, found, where)
     for side, said in (("its", head.unnamed), (f"{where}'s", found.unnamed)):
         if said:
             raise Refused(f"'{name}': {why}; compared whole, {side} log reports more failed tests than it names "
@@ -4130,6 +4294,50 @@ JOBS_CACHE_ENV = "BASE_RED_EXCUSE_JOBS_CACHE"  # a directory, or "off"
 JOBS_CACHE_SECONDS = 6 * 3600
 
 
+# The jobs cache's size bound, beside each directory's age bound (JOBS_CACHE_SECONDS for kept job lists,
+# SETTLED_KEEP_SECONDS for settled reads): past JOBS_CACHE_MAX_BYTES (BASE_RED_EXCUSE_JOBS_CACHE_MAX_BYTES) in one
+# directory, its oldest answers go first until it is under. A spare file a crashed write left (".NAME.PID") goes after
+# KEPT_SPARE_SECONDS. Every kept answer is only a saved read: one removed is read from GitHub again.
+JOBS_CACHE_MAX_BYTES_ENV = "BASE_RED_EXCUSE_JOBS_CACHE_MAX_BYTES"
+JOBS_CACHE_MAX_BYTES = 256 * 1024 * 1024
+KEPT_SPARE_SECONDS = 3600
+
+
+def jobs_cache_max_bytes() -> int:
+    raw = os.environ.get(JOBS_CACHE_MAX_BYTES_ENV, "")
+    try:
+        value = int(raw) if raw else JOBS_CACHE_MAX_BYTES
+    except ValueError:
+        return JOBS_CACHE_MAX_BYTES
+    return value if value > 0 else JOBS_CACHE_MAX_BYTES
+
+
+def prune_kept(where: Path, keep_seconds: float) -> None:
+    """Prune one kept-answers directory WHERE: answers older than KEEP_SECONDS, spare files older than
+    KEPT_SPARE_SECONDS, then the oldest answers until the rest fit in jobs_cache_max_bytes()."""
+    now, kept = time.time(), []
+    for entry in os.scandir(where):
+        try:
+            if not entry.is_file(follow_symlinks=False):
+                continue
+            stat = entry.stat(follow_symlinks=False)
+        except OSError:
+            continue
+        spare = entry.name.startswith(".")
+        if not spare and not entry.name.endswith(".json"):
+            continue
+        if now - stat.st_mtime > (KEPT_SPARE_SECONDS if spare else keep_seconds):
+            Path(entry.path).unlink(missing_ok=True)
+        elif not spare:
+            kept.append((stat.st_mtime, stat.st_size, entry.path))
+    total, cap = sum(size for _, size, _ in kept), jobs_cache_max_bytes()
+    for _, size, path in sorted(kept):
+        if total <= cap:
+            break
+        Path(path).unlink(missing_ok=True)
+        total -= size
+
+
 def jobs_cache() -> Path | None:
     named = os.environ.get(JOBS_CACHE_ENV)
     if named == "off":
@@ -4165,9 +4373,7 @@ def base_run_jobs(repo: str, run: dict, github) -> list[dict]:
             spare = key.with_name(f".{key.name}.{os.getpid()}")
             spare.write_text(json.dumps(jobs))
             os.replace(spare, key)
-            for old in key.parent.glob("*.json"):
-                if time.time() - old.stat().st_mtime > JOBS_CACHE_SECONDS:
-                    old.unlink(missing_ok=True)
+            prune_kept(key.parent, JOBS_CACHE_SECONDS)
         except OSError:
             pass
     return jobs
@@ -4757,7 +4963,12 @@ def kept_run_jobs(repo: str, run: dict) -> list[dict] | None:
 def search_cut(job_reads: dict, name: str, *workflows) -> int | None:
     """The job lists read before the cap cut a base search for job NAME in any of WORKFLOWS short, or None when none
     was cut."""
-    cut = [job_reads[(SEARCH_CUT, workflow, name)] for workflow in workflows
+    return search_cut_any(job_reads, *((workflow, name) for workflow in workflows))
+
+
+def search_cut_any(job_reads: dict, *searches: tuple) -> int | None:
+    """search_cut over SEARCHES, each (workflow, the check name searched for there: a batch suite's differs)."""
+    cut = [job_reads[(SEARCH_CUT, workflow, name)] for workflow, name in searches
            if workflow is not None and (SEARCH_CUT, workflow, name) in job_reads]
     return max(cut) if cut else None
 
@@ -4972,16 +5183,17 @@ _PUBLISH = "requests, publishes, attributes or comments: no test verdict of its 
 # Every job of these workflows is declared (GUARD_JOB_IDS) or excluded here with its reason.
 GUARD_WORKFLOWS = {
     "cmux-next-guards.yml": {
+        "coalesce": "the window gate (base-coalesce.yml): decides whether a push runs the guards, reads no tree",
         "pinned-asset-store": "reads the pinned asset store over the network, not the tree",
         "nightly-guards": "calls ci-guards.yml, whose jobs are classified there (GUARD_JOB_SUFFIXES)",
         "signing-runner-variables": "reads the repository's runner variables, not the tree",
         "portable-placement": _PLACE,
-        "hot-route": _PLACE,
         "ci-guard-group": "judged step by step against the base by its own rule (GUARD_GROUP_JOB)",
         "release-notary": "skipped on a pull request (its `if:`): it judges a push to the branch on its own "
                           "(guards_new_reds.py --tip), so no pull request's red is its",
         "rust-notices-tree": _PRODUCT,
         "pr-red-checks": _PUBLISH,
+        "fast-check-route": "decides from the changed paths which guard jobs run; it checks nothing itself",
     },
     "ci-guards.yml": {
         "workflow-guard-submodule-forward-only": "reads the submodules' remote history, not only the tree",
@@ -4994,7 +5206,7 @@ GUARD_WORKFLOWS = {
         "guard-status": "a routed rollup (ROUTED_ROLLUPS), judged by the jobs under it",
     },
     "cmux-next.yml": {
-        **dict.fromkeys(("pr-quiet-period", "push-head-preflight", "path_route", "dev-daily-tree-wait",
+        **dict.fromkeys(("push-head-preflight", "path_route", "dev-daily-tree-wait",
                          "macos-placement", "portable-placement", "app-compile-placement",
                          "fast-tier-rerun-placement", "fast-tier-handback-placement", "dev-daily-place",
                          "dev-landing-place", "release-compile-fast-admission", "compile-status-handoff"), _PLACE),
@@ -5093,6 +5305,8 @@ PACKAGE_JOBS = {
                   # which reads the bundle rule from cmux-agent-pane-policy; its `testing` feature adds cmux-scope
                   "cmux-tui/crates/cmux-build-space/", "cmux-tui/crates/cmux-agent-pane-policy/",
                   "cmux-tui/crates/cmux-scope/", "cmux-tui/crates/cmux-unix-socket/",
+                  # cmux-next-ios/rust names the phone's message preview words (cmux-message-preview, d1024754)
+                  "cmux-tui/crates/cmux-message-preview/",
                   # cmux-agent-pane-policy's bundle rule tests read the shared build-identity vectors
                   "schemas/build-identity/",
                   # cmux-wg's smoltcp is the vendored copy ([patch.crates-io] in cmux-next-ios/rust)
@@ -5800,13 +6014,13 @@ def prior_base_verdict(repo: str, workflow, name: str, merge_base: str, when: st
 def fixed_on_base_by_step(repo: str, base: str, sha: str, name: str, job: dict, view: "FailedView | Unplaced",
                           workflow_info: dict, base_run: dict, base_job: dict, github, *,
                           base_jobs: dict, run_reads: dict, others: list[dict], evidence: "Evidence",
-                          suites: SuiteChecks | None = None, base_workflow=None) -> str:
+                          suites: SuiteChecks | None = None, base_workflow=None, base_name=None) -> str:
     """The audit line for red head JOB (VIEW: its failed_view; WORKFLOW_INFO: its run) when each of its failing steps
     is fixed on base by the rule above, BASE_RUN and BASE_JOB being the base's newest verdict for it, from
-    BASE_WORKFLOW (the head's own workflow when None; a BASE_WORKFLOW_FOR caller's otherwise, whose runs then give the
-    merge-base's verdict too, #41104's review F2). OTHERS: the head's red jobs; one of NAME in another workflow makes
-    the job's identity unknown. Its failures must also be the merge-base verdict's: each failing step's test ids and
-    `file:line` compiler errors (a continue-on-error check's: the job's file error annotations) among that run's, so a
+    BASE_WORKFLOW (the head's own workflow when None; a base caller's otherwise, whose runs then give the merge-base's
+    verdict too, #41104's review F2, under BASE_NAME: a batch suite's check name). OTHERS: the head's red jobs; one of
+    NAME in another workflow makes the job's identity unknown. Its failures must also be the merge-base verdict's:
+    each failing step's test ids and `file:line` compiler errors (a continue-on-error check's: the job's file error annotations) among that run's, so a
     new failure in a step red at the merge-base is never excused (#41117's review F1). Raises Refused with why not."""
     workflow = workflow_info.get("workflow_id")
     base_workflow = workflow if base_workflow is None else base_workflow
@@ -5839,7 +6053,8 @@ def fixed_on_base_by_step(repo: str, base: str, sha: str, name: str, job: dict, 
         raise Refused(f"{base}'s newest verdict for it, run {base_run['id']}, {stale}, not at or after the merge-base")
     if not re.fullmatch(r"\d{4}-\d\d-\d\dT[\d:]+Z", when):
         raise Refused(f"the merge-base {merge_base[:12]} came back without its commit time")
-    prior = prior_base_verdict(repo, base_workflow, name, merge_base, when, github, base_jobs, evidence, suites)
+    prior = prior_base_verdict(repo, base_workflow, name if base_name is None else base_name, merge_base, when,
+                               github, base_jobs, evidence, suites)
     if prior is None:
         raise Refused(f"no {base} verdict for it at or before the merge-base {merge_base[:12]} shows the red was the "
                       f"base's (of the {STEP_PRIOR_RUNS} newest runs created before it, read the job lists of up to "
@@ -7182,20 +7397,97 @@ def list_base_runs(repo: str, base: str, workflow, github, base_runs: dict) -> N
     base_runs[workflow] = sorted(
         (run for run in (listed.get("workflow_runs") if isinstance(listed, dict) else None) or []
          if isinstance(run, dict) and run.get("event") not in ("pull_request", "pull_request_target")
-         and run.get("conclusion") != "skipped"),
+         and run.get("conclusion") != "skipped" and not post_merge_probe(run)),
         key=lambda run: run.get("created_at") or "", reverse=True)
 
 
-def base_caller(repo: str, base: str, run: dict, name: str) -> str | None:
-    """The workflow file that runs job NAME on pushes to BASE when RUN's own workflow (a pull-request-only caller of
-    the same reusable workflow) does not (BASE_WORKFLOW_FOR); None for any other job, base, repo or unread workflow
-    path."""
+def post_merge_probe(run: dict) -> bool:
+    """Whether RUN is a post-merge batch probe (POST_MERGE_PROBE_TITLE), which is no base verdict."""
+    return (str(run.get("path") or "").startswith(f".github/workflows/{POST_MERGE_WORKFLOW}")
+            and (run.get("display_title") or "").startswith(POST_MERGE_PROBE_TITLE))
+
+
+@once_per_judgement("batch-suites", lambda repo, base, github: (repo, base))
+def batch_suites(repo: str, base: str, github) -> dict[str, dict]:
+    """The post-merge batch suites (POST_MERGE_MANIFEST's `suites`, each with a `workflow` file) BASE's batch runs
+    call: the manifest beside this script, else BASE's own (source_text_if_present); {} for another repo or base, or
+    when neither reads, so a red is judged by its own workflow alone, as before."""
+    if repo != HOME_REPO or base not in POST_MERGE_BASES:
+        return {}
+    try:
+        if POST_MERGE_MANIFEST_FILE.is_file():
+            text = POST_MERGE_MANIFEST_FILE.read_text()
+        elif hasattr(github, "blob_if_present"):
+            text = source_text_if_present(repo, base, POST_MERGE_MANIFEST, github)
+        else:
+            text = None
+        suites = json.loads(text).get("suites") if text else None
+    except (OSError, ValueError, AttributeError, Refused):
+        return {}
+    if not isinstance(suites, dict):
+        return {}
+    return {key: suite for key, suite in suites.items()
+            if isinstance(key, str) and isinstance(suite, dict) and isinstance(suite.get("workflow"), str)}
+
+
+@functools.lru_cache(maxsize=None)
+def _local_workflow_jobs(file: str) -> dict:
+    return _workflow(yaml_module(), lambda name: (WORKFLOWS / name).read_text(), file)[1]
+
+
+def workflow_jobs(repo: str, base: str, file: str, github) -> dict:
+    """Workflow FILE's `jobs:`: the one beside this script, else BASE's (workflow_doc); {} when unread."""
+    try:
+        if (WORKFLOWS / file).is_file():
+            return _local_workflow_jobs(file)
+        if not hasattr(github, "blob"):
+            return {}
+        doc = workflow_doc(repo, base, f".github/workflows/{file}", github)
+    except Refused:
+        return {}
+    jobs = doc.get("jobs") if isinstance(doc, dict) else None
+    return jobs if isinstance(jobs, dict) else {}
+
+
+def batch_check(repo: str, base: str, file: str, name: str, github) -> str | None:
+    """The check name BASE's post-merge batch runs give PR job NAME of workflow FILE (POST_MERGE_WORKFLOW's rule):
+    'S / NAME' when FILE is suite S's workflow; 'S / J' when NAME is 'P / J' and FILE's job checked as 'P / ...'
+    calls S's workflow; None when no suite runs it."""
+    suites = batch_suites(repo, base, github)
+    for key, suite in sorted(suites.items()):
+        if suite["workflow"] == file:
+            return f"{key} / {name}"
+    callees = {f"./.github/workflows/{suite['workflow']}": key for key, suite in suites.items()}
+    if " / " not in name or not callees:
+        return None
+    for job_id, job in workflow_jobs(repo, base, file, github).items():
+        key = callees.get(job.get("uses")) if isinstance(job, dict) else None
+        if key is None:
+            continue
+        try:
+            prefixes = _check_matcher(str(job_id), job, f".github/workflows/{file}")["prefixes"]
+        except Refused:
+            continue
+        for prefix in prefixes:
+            if name.startswith(prefix):
+                return f"{key} / {name.removeprefix(prefix)}"
+    return None
+
+
+def base_caller(repo: str, base: str, run: dict, name: str, github=None) -> tuple[str, str] | None:
+    """(workflow file, check name) of the base's verdict for job NAME when RUN's own workflow no longer runs it on
+    BASE: the post-merge batch tier's (batch_check), else the workflow that runs the same called job on pushes to
+    BASE (BASE_WORKFLOW_FOR, a pull-request-only caller of the same reusable workflow) under NAME itself; None for any
+    other job, base, repo or unread workflow path."""
     path = run.get("path") if isinstance(run, dict) else None
     if repo != HOME_REPO or not isinstance(path, str) or not path.startswith(".github/workflows/"):
         return None
     file = path.removeprefix(".github/workflows/").split("@", 1)[0]
-    return next((caller for (branch, pr_file, job_id), caller in BASE_WORKFLOW_FOR.items()
-                 if branch == base and pr_file == file and name.startswith(f"{job_id} / ")), None)
+    if (check := batch_check(repo, base, file, name, github)) is not None:
+        return POST_MERGE_WORKFLOW, check
+    caller = next((caller for (branch, pr_file, job_id), caller in BASE_WORKFLOW_FOR.items()
+                   if branch == base and pr_file == file and name.startswith(f"{job_id} / ")), None)
+    return None if caller is None else (caller, name)
 
 
 def base_dispatch(repo: str, base: str, run: dict, runs: list[dict], github, now: datetime | None = None) -> str | None:
@@ -7626,7 +7918,8 @@ def web_test_verdict(repo: str, base: str, name: str, job: dict, head_log: str, 
             except Refused as why:
                 raise Refused(f"'{name}': the log of its head shard '{sibling.get('name') or shard}', where its tests' "
                               f"errors are printed, could not be read: {str(why)[:300]}") from None
-    workflow = base_caller(repo, base, workflow_info, name) or workflow_info["workflow_id"]
+    # A web shard is checked under its own name on the base (the batch suite `web` is the caller job `web`).
+    workflow = (base_caller(repo, base, workflow_info, name, github) or (workflow_info["workflow_id"],))[0]
     green: list[dict] = []
     unread: list[str] = []  # why a base log could not be read, named in the refusal
 
@@ -7688,7 +7981,7 @@ def cut_short_web_verdict(repo: str, base: str, name: str, job: dict, github, ru
     if test_reds.classify_web_cut_short(head_log, (), name, base) is None:
         return None  # no red file: nothing to compare, and no base run is read
     workflow_info = rest_run(repo, job["run_id"], github, run_reads)
-    workflow = base_caller(repo, base, workflow_info, name) or workflow_info.get("workflow_id")
+    workflow = (base_caller(repo, base, workflow_info, name, github) or (workflow_info.get("workflow_id"),))[0]
     if workflow is None:
         return None
     green: list[dict] = []
@@ -7948,7 +8241,7 @@ class Evidence:
         found = self.github.json(f"repos/{self.repo}/actions/workflows/{workflow}/runs?branch={self.base}&{query}"
                                  f"&per_page={per_page}")
         return [run for run in (found.get("workflow_runs") if isinstance(found, dict) else None) or []
-                if self.allows(run)]
+                if self.allows(run) and not post_merge_probe(run)]
 
     def dispatches(self, workflow) -> list[dict]:
         """The base's workflow_dispatch runs of WORKFLOW (every status, so a first run's same-tree run is seen while
@@ -8348,17 +8641,19 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             audit.append(f"base for '{name}': {base} is open PR #{parent.number}'s head {parent.head[:12]}; its "
                          "checks there are the base verdicts below")
         base_run, base_job = next(verdicts, (None, None))
-        base_workflow = workflow  # the workflow whose run gives the base verdict
-        if ((caller := base_caller(repo, base, workflow_info, name)) is not None
-                and (base_run is None or before_merge_base(repo, base, sha, base_run, github, evidence))):
-            # The PR run's workflow has no base verdict at or after the merge-base: the workflow that runs the same
-            # called job on base pushes may (BASE_WORKFLOW_FOR). Its verdict decides only when it is at or after the
-            # merge-base, or when the PR's workflow has none at all; else the stale one below refuses as before.
-            pushed = base_verdicts(repo, caller, name, github, evidence, base_jobs, job_reads, suites)
+        base_workflow, base_name = workflow, name  # the workflow whose run gives the base verdict, and its check
+        caller, caller_name = base_caller(repo, base, workflow_info, name, github) or (None, name)
+        if caller is not None and (base_run is None or before_merge_base(repo, base, sha, base_run, github, evidence)):
+            # The PR run's workflow has no base verdict at or after the merge-base: the post-merge batch tier's suite
+            # that runs it (batch_check), or the workflow that runs the same called job on base pushes, may
+            # (BASE_WORKFLOW_FOR). Its verdict decides only when it is at or after the merge-base, or when the PR's
+            # workflow has none at all; else the stale one below refuses as before.
+            pushed = base_verdicts(repo, caller, caller_name, github, evidence, base_jobs, job_reads, suites)
             pushed_run, pushed_job = next(pushed, (None, None))
             if pushed_run is not None and (
                     base_run is None or before_merge_base(repo, base, sha, pushed_run, github, evidence) is None):
-                base_run, base_job, verdicts, base_workflow = pushed_run, pushed_job, pushed, caller
+                base_run, base_job, verdicts = pushed_run, pushed_job, pushed
+                base_workflow, base_name = caller, caller_name
         # A quota-only red with no red base verdict to share is Infra (github_quota_only); a red base verdict keeps
         # its comparison below, which may excuse it as the base's.
         quota = github_quota_only(view) if base_run is None or base_job.get("conclusion") != "failure" else None
@@ -8377,7 +8672,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 continue
             # Every workflow searched: the PR run's, and the base caller's (searched whenever it has one here, since
             # the PR run's workflow gave no verdict), not only the one that gave a verdict (#47687's review F1).
-            if (cut := search_cut(job_reads, name, workflow, caller)) is not None:
+            if (cut := search_cut_any(job_reads, (workflow, name), (caller, caller_name))) is not None:
                 raise Refused(cut_refusal(name, base, cut))
             dispatch = base_dispatch(repo, base, workflow_info, evidence.runs(workflow), github)
             raise Refused(f"'{name}': no {base} run of its workflow has a verdict for it to compare with "
@@ -8400,7 +8695,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             return fixed_on_base_by_step(repo, base, sha, name, job, view, workflow_info, base_run, base_job, github,
                                          base_jobs=base_jobs, run_reads=run_reads,
                                          others=jobs, evidence=evidence, suites=suites,
-                                         base_workflow=base_workflow)
+                                         base_workflow=base_workflow, base_name=base_name)
         if base_job.get("conclusion") != "failure":
             try:
                 audit.append(fixed_on_base(repo, base, sha, name, view, base_run, github, evidence))
@@ -8504,7 +8799,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                             # Out of verdicts because the cap cut the search, with older runs unread (#47971's review
                             # F1, as the placed window's F3): an older red matching the whole head may be among them.
                             if (run is None and read < BASE_WINDOW
-                                    and (cut := search_cut(job_reads, name, workflow, base_workflow)) is not None):
+                                    and (cut := search_cut_any(job_reads, (workflow, name),
+                                                               (base_workflow, base_name))) is not None):
                                 raise Refused(f"{cut_refusal(name, base, cut)}; the newest so far: "
                                               f"{mismatch}") from None
                             # Last, so it pre-empts no excuse: a refusal that says the base ran and passed the check
@@ -8574,7 +8870,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                         or (newest and created(run) and newest - created(run) > timedelta(hours=BASE_WINDOW_HOURS))):
                     # Out of verdicts because the cap cut the search, with older runs unread (#47687's review F3):
                     # an older matching red may be among them, so not a verdict either way.
-                    cut = (search_cut(job_reads, name, workflow, base_workflow)
+                    cut = (search_cut_any(job_reads, (workflow, name), (base_workflow, base_name))
                            if run is None and read < BASE_WINDOW else None)
                     if aside is not None:  # the step-A pin rule set its red aside: judged as before
                         if cut is not None:

@@ -280,11 +280,11 @@
       "after_minutes": 25
     },
     "CI_NIGHTLY_MINI_SIGNER": {
-      "fallback": "an operator switch, never a label: cmux nightly.yml compares it with exactly macos-26 (cmux#40221; Leo, 2026-11-10: \"It's fine to sign on GitHub hosted tonight\", while the only owned signer had no power). Equal, the three signing jobs take a fresh GitHub-hosted macos-26 VM; unset or any other value, they keep their chain (the signing picker, then glaeda-trusted-next-signing). It is itself the fallback for the trusted signer going dark. after_minutes is the 25-minute nightly freshness budget an operator works to, as for CI_NIGHTLY_SIGN_RUNNER",
+      "fallback": "a retired operator switch, never a label: until 2026-11-21 cmux nightly.yml compared it with exactly macos-26 (cmux#40221) to sign on a GitHub-hosted macos-26 VM; GitHub-hosted runners start nothing in manaflow-ai (Leo, 2026-11-21: \"the ci must flow\"), so nightly.yml no longer reads it and the three signing jobs keep their chain (the signing picker, then glaeda-trusted-next-signing). after_minutes is the 25-minute nightly freshness budget an operator works to, as for CI_NIGHTLY_SIGN_RUNNER",
       "after_minutes": 25
     },
     "CI_NIGHTLY_MINI_PUBLISHER": {
-      "fallback": "an operator switch, never a label: cmux nightly.yml compares it with exactly ubuntu-24.04 (cmux#40221, the same night as vars.CI_NIGHTLY_MINI_SIGNER). Equal, the three publishing jobs take a GitHub-hosted ubuntu-24.04 runner; unset or any other value, they keep their chain (the signing picker's pool, then glaeda-trusted-next-signing). after_minutes is the 25-minute nightly freshness budget an operator works to",
+      "fallback": "an operator switch, never a label: cmux nightly.yml compares it with exactly ubuntu-24.04 (cmux#40221, the same night as vars.CI_NIGHTLY_MINI_SIGNER). Equal, the three publishing jobs take a one-job cmux-gcp-nightly-jit-x64 VM (GitHub-hosted until 2026-11-21, which starts nothing in manaflow-ai); unset or any other value, they keep their chain (the signing picker's pool, then glaeda-trusted-next-signing). after_minutes is the 25-minute nightly freshness budget an operator works to",
       "after_minutes": 25
     },
     "CI_NIGHTLY_MINI_BUILDER": {
