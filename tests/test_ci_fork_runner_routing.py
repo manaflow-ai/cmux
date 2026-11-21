@@ -140,11 +140,10 @@ SMALL_TRUSTED_RUNNER_EXPRESSION = TRUSTED_RUNNER_EXPRESSION.replace(',"blacksmit
 TRUSTED_RUNNER_EXPRESSIONS = (TRUSTED_RUNNER_EXPRESSION, CLA_TRUSTED_RUNNER_EXPRESSION, SMALL_TRUSTED_RUNNER_EXPRESSION,
                               GATE_TRUSTED_RUNNER_EXPRESSION, GATE_CLA_TRUSTED_RUNNER_EXPRESSION)
 # Fast checks admission accepts only the smallest measured Blacksmith size (a
-# picker's one re-run route, never 16 or 32 vCPU), with the PR control one-job
-# JIT label as its default. No input can select a persistent runner.
+# picker's one re-run route, never 16 or 32 vCPU), else Blacksmith 2 vCPU, never
+# GitHub-hosted. No input can select a persistent runner.
 FAST_CHECKS_ADMISSION_EXPRESSION = (
-    "${{ contains(fromJSON('[\"blacksmith-8vcpu-ubuntu-2404\"]'), inputs.runner) && inputs.runner || "
-    "'cmux-gcp-pr-control-jit-x64' }}"
+    "${{ contains(fromJSON('[\"blacksmith-8vcpu-ubuntu-2404\"]'), inputs.runner) && inputs.runner || 'blacksmith-2vcpu-ubuntu-2404' }}"
 )
 TRUSTED_RUNNER_LINE = re.compile(
     r"^\s*runs-on:\s*(?:" + "|".join(map(re.escape, TRUSTED_RUNNER_EXPRESSIONS)) + r")\s*(?:#.*)?$"
