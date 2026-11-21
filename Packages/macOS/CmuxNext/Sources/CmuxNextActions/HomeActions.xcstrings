@@ -9766,127 +9766,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send Message…"
+            "value": "Ask Chief About This…"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إرسال رسالة…"
+            "value": "اسأل Chief عن هذا…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pošalji poruku…"
+            "value": "Pitaj Chiefa o ovome…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send besked…"
+            "value": "Spørg Chief om dette…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nachricht senden…"
+            "value": "Chief dazu fragen…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enviar mensaje…"
+            "value": "Preguntar a Chief sobre esto…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Envoyer un message…"
+            "value": "Demander à Chief à ce sujet…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Invia messaggio…"
+            "value": "Chiedi a Chief di questo…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "メッセージを送信…"
+            "value": "これについてChiefに質問…"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ផ្ញើសារ…"
+            "value": "សួរ Chief អំពីនេះ…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "메시지 보내기…"
+            "value": "이것에 대해 Chief에게 묻기…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send melding…"
+            "value": "Spør Chief om dette…"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wyślij wiadomość…"
+            "value": "Zapytaj Chiefa o to…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enviar mensagem…"
+            "value": "Perguntar ao Chief sobre isto…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Отправить сообщение…"
+            "value": "Спросить Chief об этом…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ส่งข้อความ…"
+            "value": "ถาม Chief เกี่ยวกับสิ่งนี้…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mesaj Gönder…"
+            "value": "Chief'e Bunu Sor…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Надіслати повідомлення…"
+            "value": "Запитати Chief про це…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gửi tin nhắn…"
+            "value": "Hỏi Chief về mục này…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "发送消息…"
+            "value": "向 Chief 询问此项…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "傳送訊息…"
+            "value": "向 Chief 詢問此項…"
           }
         }
       }

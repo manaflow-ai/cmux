@@ -24,8 +24,8 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
 
     /// `avatar` is drawn in the current-profile row's image column. `chiefPetShown` (the
     /// `home.chiefPetEnabled` that applies now) adds Show Chief or Hide Chief above Settings; nil
-    /// leaves the row out. Personalization… follows it (Leo 2026-11-07: the profile menu's fast
-    /// path to the look of the app).
+    /// leaves the row out. Settings follows it: the one settings area, with no Personalization… row
+    /// beside it (David Beyer 2026-11-20: "Personalization and Settings are redundant").
     public func make(profile: ProfileMenuProfile, avatar: NSImage? = nil, chiefPetShown: Bool? = nil,
                      spec: ProfileMenuSpec = ProfileMenuSpec()) -> NSMenu {
         let menu = NSMenu()
@@ -45,7 +45,6 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
             menu.addItem(item)
         }
         if let chiefPetShown, let chief = chiefPetRow(shown: chiefPetShown) { menu.addItem(chief) }
-        if let personalization = row(spec.personalization) { menu.addItem(personalization) }
         if let settings = row(spec.settings) { menu.addItem(settings) }
         if let updates = row(spec.updates) { menu.addItem(updates) }
         spec.account.compactMap(row).forEach(menu.addItem)
