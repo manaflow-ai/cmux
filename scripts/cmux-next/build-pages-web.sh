@@ -48,7 +48,6 @@ icon-picker
 import-history
 keybindings
 machines
-mobile-pairing
 onboarding
 passwords
 server-cards

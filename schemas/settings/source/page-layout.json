@@ -51,7 +51,7 @@
     "home": ["chief.importMemories", "diagnostics.viewHangReport"],
     "keyboard": ["keybindings.open", "palette.searchShortcuts"],
     "notifications": ["toasts.showHidden"],
-    "accounts": ["accounts.refresh", "palette.mobileConnect"],
+    "accounts": ["accounts.refresh"],
     "rooms": ["space.new", "space.switch", "space.rename", "space.setTheme", "space.clearTheme"],
     "machines": ["device.add", "remote.connect", "newCloudMachine", "palette.auth.signIn"],
     "advanced": ["reloadConfiguration", "liveSwift.start", "liveSwift.stop"],

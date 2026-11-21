@@ -4,8 +4,6 @@
 extension SettingsSchema {
     /// Keys an agent may not set or reset, with the reason.
     public static let agentRefusedKeys: [String: AgentRefusal] = [
-        // On, opening the floating Chief gives it a look at the person's screen; only the person turns it on.
-        "home.chiefPanel.seesScreen": .userOnly,
         // What leaves the machine: a device proof to the Cloud service (cx-ds09i).
         "freeModel.enabled": .privacy,
         // The Cloud toggle copies the person's folder off this Mac to a paid machine: theirs to set.
@@ -171,6 +169,8 @@ extension SettingsSchema {
         "phone.cloudReplica": .privacy, "phone.cloudDesktop": .privacy,
         // On, a phone signed in to the same account can open this Mac's terminals and agents.
         "mobile.allowIPhoneConnections": .userOnly,
+        // On, a new phone on the same account reaches this Mac's terminals and agents without the person's Allow.
+        "mobile.autoApprovePhones": .userOnly,
         // Which device sizes a terminal shown on this Mac and a phone; the person sets it here or on the phone.
         "mobile.terminalSizing": .userOnly, "mobile.terminalSizingOrder": .userOnly,
         // On, a session event tap takes system chords from macOS for the other Mac; only the person turns it on. cmux Remote: the person's call.

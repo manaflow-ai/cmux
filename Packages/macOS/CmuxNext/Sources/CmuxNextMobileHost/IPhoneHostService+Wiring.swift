@@ -120,6 +120,7 @@ extension IPhoneHostService {
             cloudLinks: cloudLinks ?? { MobileHostCloudLinks() },
             pairingSeed: IPhonePairingSeed.fromEnvironment(processEnvironment),
             devAutoApprove: IPhoneDevAutoApprove.fromLaunch(environment: processEnvironment),
+            autoApprovePhones: { settings()?.snapshot.mobile.autoApprovePhones ?? false },
             macDevTag: IPhoneDevAutoApprove.macDevTag(),
             chief: chief
         )

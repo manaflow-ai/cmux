@@ -149,7 +149,7 @@ extension SettingsSchema {
         case .home: ["chief.importMemories", "diagnostics.viewHangReport"]
         case .keyboard: ["keybindings.open", "palette.searchShortcuts"]
         case .notifications: ["toasts.showHidden"]
-        case .accounts: ["accounts.refresh", "palette.mobileConnect"]
+        case .accounts: ["accounts.refresh"]
         case .rooms: ["space.new", "space.switch", "space.rename", "space.setTheme", "space.clearTheme"]
         case .machines: ["device.add", "remote.connect", "newCloudMachine", "palette.auth.signIn"]
         case .advanced: ["reloadConfiguration", "liveSwift.start", "liveSwift.stop"]
