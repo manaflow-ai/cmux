@@ -9,7 +9,15 @@ import { Spinner } from "../../../../agent-session/acpmux/conversation/icons";
 import { Button } from "../../../../ui/Button";
 import { StatusGlyph } from "../../../../ui/StatusGlyph";
 import type { Strings } from "../strings";
-import { nextStep, setupProgress, setupSteps, type SetupAction, type SetupState, type SetupStep } from "./setupModel";
+import {
+  nextStep,
+  setupProgress,
+  setupSteps,
+  setupTitle,
+  type SetupAction,
+  type SetupState,
+  type SetupStep,
+} from "./setupModel";
 import "../cards.css";
 
 export type SetupLook = "next" | "rows" | "checklist" | "window";
@@ -30,13 +38,17 @@ export function SetupCard({ strings, state, look = DEFAULT_SETUP_LOOK, onAction,
   const next = nextStep(steps);
   const { done, total } = setupProgress(steps);
   const progress = format("home.setup.progress", String(done), String(total));
+  const title = setupTitle(state, strings);
   const head = (
     <div className="hm-setup__head">
-      <span className="hm-setup__title">{t("home.setup.title")}</span>
-      <span className="hm-setup__progress">
-        <Ring done={done} total={total} />
-        {progress}
-      </span>
+      <span className="hm-setup__title">{title}</span>
+      {/* One row has no progress to count (the Chief form). */}
+      {total > 1 && (
+        <span className="hm-setup__progress">
+          <Ring done={done} total={total} />
+          {progress}
+        </span>
+      )}
       {look !== "window" && (
         <button type="button" className="hm-setup__hide" onClick={onHide}>
           {t("home.setup.hide")}
@@ -47,7 +59,7 @@ export function SetupCard({ strings, state, look = DEFAULT_SETUP_LOOK, onAction,
   const note = <p className="hm-setup__note">{t("home.setup.network")}</p>;
   if (look === "next") {
     return (
-      <section className="hm-setup" data-look={look} aria-label={t("home.setup.title")}>
+      <section className="hm-setup" data-look={look} aria-label={title}>
         {head}
         {next ? (
           <div className="hm-setup__next">
@@ -65,7 +77,7 @@ export function SetupCard({ strings, state, look = DEFAULT_SETUP_LOOK, onAction,
     );
   }
   return (
-    <section className="hm-setup" data-look={look} aria-label={t("home.setup.title")}>
+    <section className="hm-setup" data-look={look} aria-label={title}>
       {head}
       <ul className="hm-setup__rows">
         {steps.map((step) => (

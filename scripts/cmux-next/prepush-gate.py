@@ -204,7 +204,10 @@ except ImportError:  # a copy of this script outside scripts/: the same helper (
         except (BrokenPipeError, OSError, ValueError):
             pass
 
-DEFAULT_BASE_REFS = ("origin/feat-cmux-next",)
+# Full remote-tracking names, never `origin/feat-cmux-next`: git reads a short name as a local branch of that name
+# (refs/heads/origin/feat-cmux-next, which some tool creates) when one exists (push_range.UPSTREAM, 2026-11-20).
+# Reports print them without refs/remotes/.
+DEFAULT_BASE_REFS = ("refs/remotes/origin/feat-cmux-next",)
 PKG = "Packages/macOS/CmuxNext"
 SCRIPTS = "scripts/cmux-next"
 SCOPES = (PKG + "/", "cmux-tui/", "webviews/")
@@ -503,7 +506,7 @@ APP_ENTRY = PKG + "/Sources/CmuxNextApp/CmuxNextApp.swift"
 # push whose head has no PKG manifest skips them all (2026-11-17: a main-based push touching Packages/Shared/ ran
 # "Main-thread concurrency", whose check-concurrency.sh died with FileNotFoundError in package_targets, and the hook
 # refused the push without a verdict).
-MAIN_REF = "origin/main"
+MAIN_REF = "refs/remotes/origin/main"  # full name: see DEFAULT_BASE_REFS
 CRASH_RATCHET_CHECK = "Crash ratchet (crash_ratchet.py: no crate gains a Rust unwrap, expect, panic or exit)"
 CRASH_RATCHET = "crash_ratchet.py"
 RUST_CRATES = "cmux-tui/crates/"
@@ -2593,7 +2596,8 @@ def highlight_problems(repo: Path, base: str, head: str, trusted_scripts: Path |
     code_rev = next((ref for ref in DEFAULT_BASE_REFS if rev_ok(repo, ref)), None) if trusted_scripts else head
     try:
         if code_rev is None:
-            raise ValueError(f"no {' or '.join(DEFAULT_BASE_REFS)} in this clone to read the validator from")
+            raise ValueError(f"no {' or '.join(r.removeprefix('refs/remotes/') for r in DEFAULT_BASE_REFS)} in this "
+                             "clone to read the validator from")
         blobs = git_batch.cat_file(repo, [f"{code_rev}:{p}" for p in HIGHLIGHTS_CODE] + [f"{head}:{p}" for p in files])
         if any(blobs[f"{code_rev}:{p}"] is None for p in HIGHLIGHTS_CODE):
             return []  # a validator older than the highlights' rules: CI's test is older too
@@ -3365,8 +3369,10 @@ def stale_hook_warning(repo: Path, trusted_scripts: Path) -> None:
         if tracked.returncode == 0 and hook.is_file() and hook.read_bytes() != tracked.stdout:
             stale.append("pre-push (the hook)")
         if stale:
-            log(f"prepush-gate: WARNING: this clone's installed hook copy of {', '.join(stale)} is not {ref}'s, so its "
-                f"rules may be old: run scripts/install-git-hooks.sh from a checkout at {ref} (rebase and fetch do not).")
+            shown = ref.removeprefix("refs/remotes/")
+            log(f"prepush-gate: WARNING: this clone's installed hook copy of {', '.join(stale)} is not {shown}'s, so "
+                f"its rules may be old: run scripts/install-git-hooks.sh from a checkout at {shown} (rebase and fetch do "
+                "not).")
         return
 
 

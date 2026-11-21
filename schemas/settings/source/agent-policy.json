@@ -757,6 +757,10 @@
         "agentPane.display.promptCoach",
         "agentPane.display.statusVerbs.mode",
         "agentPane.display.statusVerbs.custom",
+        "agentPane.display.thinking.shimmer",
+        "agentPane.display.thinking.shimmerPeriod",
+        "agentPane.display.thinking.shimmerBand",
+        "agentPane.display.thinking.jumpButton",
         "agentPane.display.harnessPlacement",
         "agentPane.display.rail.side",
         "agentPane.display.commandLabels"
@@ -1260,6 +1264,13 @@
       "why": "On, a live code build loads Swift patches into the running app: only the person turns that on.",
       "keys": [
         "labs.liveCode"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "On, Settings edits the MCP servers in Claude Code's and Codex's own config files: only the person turns that on.",
+      "keys": [
+        "labs.agentCustomization"
       ]
     },
     {
