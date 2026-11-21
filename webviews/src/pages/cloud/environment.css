@@ -31,7 +31,7 @@
   font-size: var(--text-body);
   line-height: var(--text-body--line-height); }
 .env-note { margin: 0; }
-.cloud-environment-sheet input:not([type="radio"], [type="checkbox"], [type="file"]), .cloud-environment-sheet textarea {
+.cloud-environment-sheet input:not([type="radio"], [type="checkbox"], [type="file"]), .cloud-environment-sheet textarea, .cloud-environment-sheet select {
   min-width: 0;
   width: 100%;
   box-sizing: border-box;
@@ -57,7 +57,7 @@
 .env-primary:hover { background: color-mix(in srgb, var(--cmux-text, CanvasText) 90%, transparent); }
 .cloud-environment-sheet button:disabled { opacity: 0.5; }
 .env-error { color: var(--cmux-status-danger-text, var(--cmux-text, CanvasText)); }
-.env-modes { border: 0; padding: 0; display: flex; gap: 24px; }
+.env-modes { border: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 24px; }
 .env-modes legend { margin-block-end: 12px; }
 .env-modes label, .env-checkbox { display: flex; align-items: center; gap: 8px; }
 .env-value-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px; }
@@ -98,3 +98,30 @@
 .env-secret .env-error { margin: 0; }
 :root[data-cmux-motion="reduced"] .env-fold, :root[data-cmux-motion="off"] .env-fold { transition: none; }
 @media (prefers-reduced-motion: reduce) { .env-fold, .env-disclosure-mark { transition: none; } }
+/* Repository, files, image and the Setup output page (design/environment-sheet.md "Configuration"). */
+.env-repository { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 8px; }
+.env-file-row { display: flex; flex-direction: column; gap: 8px; }
+.env-file-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.cloud-environment-sheet .env-file-content, .env-log pre { font-family: var(--font-mono, ui-monospace, "SF Mono", Menlo, monospace); font-size: var(--text-body); line-height: var(--text-body--line-height); }
+.cloud-environment-sheet .env-file-content { resize: vertical; min-height: 6em; }
+.env-output-status, .env-run { display: flex; flex-direction: column; gap: 4px; padding: 16px; border: 1px solid var(--cmux-separator, color-mix(in srgb, CanvasText 12%, transparent)); border-radius: var(--ds-radius-lg, 12px); }
+.env-run { gap: 12px; }
+.env-run-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.env-steps { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.env-step { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto; align-items: baseline; gap: 8px; }
+.env-step-detail { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; font-family: var(--font-mono, ui-monospace, "SF Mono", Menlo, monospace); }
+.env-step .env-note, .env-step .env-error, .env-run-heading .env-note, .env-run-heading .env-error, .env-run > .env-error { margin: 0; }
+.env-log { display: flex; flex-direction: column; gap: 4px; }
+.env-log pre { margin: 0; max-height: 16em; overflow: auto; padding: 8px; border-radius: 6px; background: var(--cmux-field-background, var(--cmux-background, Canvas)); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.env-conflict { display: flex; flex-direction: column; gap: 8px; }
+.env-conflict .env-error { margin: 0; }
+.env-conflict-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+/* iPhone widths: the repository's two fields stack, a step's detail goes under its name. */
+@media (max-width: 480px) {
+  .env-repository { grid-template-columns: minmax(0, 1fr); }
+  .env-step { grid-template-columns: minmax(0, 1fr) auto; }
+  .env-step-detail { grid-column: 1 / -1; grid-row: 2; }
+  .env-body { padding-inline: 16px; }
+  .env-heading { padding: 16px; }
+  .env-actions { padding: 12px 16px; }
+}

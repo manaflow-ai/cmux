@@ -264,4 +264,12 @@ struct AgentPaneConnectActionTests {
         #expect(await model.respond(to: .runAction("newCloudMachine", environment: "env_abc123"))["ok"] as? Bool == true)
         #expect(arguments == [["environment": "env_abc123"]])
     }
+
+    /// Move to Cloud's Environment chip: the move's new machine boots in the picked environment.
+    @Test func moveToCloudCarriesTheChipsEnvironment() {
+        #expect(AgentPaneRequest(body: ["method": "action.run", "params": ["id": "cloudMove", "environment": "env_abc123"]])
+            == .runAction("cloudMove", environment: "env_abc123"))
+        #expect(AgentPaneRequest(body: ["method": "action.run", "params": ["id": "cloudMove", "environment": "prod"]])
+            == .unsupported("action.run"))
+    }
 }

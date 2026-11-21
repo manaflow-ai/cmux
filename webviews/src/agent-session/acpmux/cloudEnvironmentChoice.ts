@@ -9,9 +9,12 @@
 ///   `POST /v1/environments/derive`).
 /// - Any other pick is one of the account's Cloud environments (`cloud.environment.list`, cmux-platform
 ///   `GET /v1/cloud-environments`), sent as `cloud.startChat`'s `environment`.
-/// - The drop-up lists the project's recent environments: the ones picked for this folder, most
-///   recent first. The platform keeps no per-project list, so this page remembers them; a folder with
-///   none yet lists the account's most recently changed ones.
+/// - The project's default (cmux-platform's per-repository default, `cloud.environment.default`) is
+///   the pick a new chat starts with, listed first and marked Default; "Make default for this
+///   project" sets it (`cloud.environment.setDefault`). A service without that route keeps the
+///   older list: the ones picked for this folder, most recent first, which this page remembers in
+///   localStorage; a folder with none yet lists the account's most recently changed ones. With the
+///   route, those local recents are not read: the default, then the most recently changed.
 
 import type { CloudEnvironment } from "../../pages/cloud/environmentModel";
 import { composerSettingsSnapshot } from "./composerSettings";
@@ -32,6 +35,8 @@ export type CloudEnvironmentRow =
   | { kind: "environment"; environment: CloudEnvironmentChoice }
   | { kind: "new" }
   | { kind: "edit"; name: string; id?: string }
+  /// Make the current pick this project's default (Auto: clear the project's default).
+  | { kind: "makeDefault"; id?: string }
   | { kind: "separator" }
   | { kind: "newMachine" };
 
@@ -53,6 +58,11 @@ export type CloudEnvironmentControl = {
   onNewMachine(environment: string | undefined): void;
   /// The drop-up opened: read the account's environments again.
   onOpen?(): void;
+  /// The project's default environment, from the service: an id, AUTO_ENVIRONMENT for none set, or
+  /// undefined when the service keeps no per-project default (or the chat has no repository).
+  projectDefault?: string;
+  /// Makes `id` (none: Auto) the project's default. Absent with `projectDefault`.
+  onMakeDefault?(id: string | undefined): void;
 };
 
 /// The rows of the drop-up, in order. The current pick, when it is not Auto and not among the recent
@@ -70,6 +80,9 @@ export function cloudEnvironmentRows(control: CloudEnvironmentControl, autoName:
     ...(pickedOther ? [{ kind: "environment" as const, environment: pickedOther }] : []),
     { kind: "new" },
     { kind: "edit", name: current.name, ...(current.id ? { id: current.id } : {}) },
+    ...(control.onMakeDefault && control.projectDefault !== undefined && control.projectDefault !== control.current
+      ? [{ kind: "makeDefault" as const, ...(current.id ? { id: current.id } : {}) }]
+      : []),
     { kind: "separator" },
     { kind: "newMachine" },
   ];
@@ -163,24 +176,58 @@ export function rememberEnvironment(
 /// The folder's recent environments that the account still lists, most recent first; with none
 /// remembered, the account's most recently changed ones. The Default (Auto's) is never listed: Auto
 /// is its row.
+/// `projectDefault` is the service's per-project default (`CloudEnvironmentControl.projectDefault`):
+/// when the service answers one, it comes first and the local recents are not read.
 export function recentEnvironments(
   folder: string | undefined,
   environments: readonly CloudEnvironment[],
   store: RecentEnvironmentStore | undefined = pageStore(),
+  projectDefault?: string,
 ): CloudEnvironmentChoice[] {
   const others = environments.filter((environment) => !environment.is_default);
   const byId = new Map(others.map((environment) => [environment.id, environment]));
+  const newest = () =>
+    [...others].sort((a, b) => (a.updated_at < b.updated_at ? 1 : a.updated_at > b.updated_at ? -1 : 0));
+  if (projectDefault !== undefined) {
+    const first = byId.get(projectDefault);
+    return [...(first ? [first] : []), ...newest().filter((environment) => environment !== first)]
+      .slice(0, RECENT_ENVIRONMENTS)
+      .map(({ id, name }) => ({ id, name }));
+  }
   const remembered = (readRecent(store)[folder ?? ""] ?? [])
     .map((id) => byId.get(id))
     .filter((environment): environment is CloudEnvironment => environment !== undefined);
-  const chosen =
-    remembered.length > 0
-      ? remembered
-      : [...others].sort((a, b) => (a.updated_at < b.updated_at ? 1 : a.updated_at > b.updated_at ? -1 : 0));
+  const chosen = remembered.length > 0 ? remembered : newest();
   return chosen.slice(0, RECENT_ENVIRONMENTS).map(({ id, name }) => ({ id, name }));
 }
 
 /// A new chat's pick, held with its run mode (`RunModeRows.environment`): App.tsx keeps it per chat
 /// and puts it back to Auto when a chat starts or another new chat shows, so a pick never reaches a
 /// later chat's send.
-export type CloudEnvironmentPick = { current: string; onPick(id: string): void };
+/// `chat` names the chat the pick belongs to, so the project default is put in once per chat and
+/// never over a pick the person made there.
+export type CloudEnvironmentPick = { current: string; onPick(id: string): void; chat?: string };
+
+/// The project default a new chat starts with: `projectDefault` while the pick is still Auto and the
+/// person has not picked in this chat; otherwise nothing changes.
+export function defaultPick(
+  current: string,
+  projectDefault: string | undefined,
+  pickedHere: boolean,
+): string | undefined {
+  if (pickedHere || current !== AUTO_ENVIRONMENT) return undefined;
+  return projectDefault && projectDefault !== AUTO_ENVIRONMENT ? projectDefault : undefined;
+}
+
+/// The service's per-project default from `cloud.environment.default`'s reply (cmux-platform#1144:
+/// `GET /v1/cloud-environments/project-defaults?repo=`, a list of `{ scope, repo, environment }`, the
+/// caller's own first, then the team's): the first entry's environment, AUTO_ENVIRONMENT for none
+/// set, undefined for an answer that is not a list (the service has no such route).
+export function projectDefaultFrom(reply: unknown): string | undefined {
+  if (!Array.isArray(reply)) return undefined;
+  const first = reply.find(
+    (entry): entry is { environment: string } =>
+      !!entry && typeof entry === "object" && typeof (entry as { environment?: unknown }).environment === "string",
+  );
+  return first ? first.environment : AUTO_ENVIRONMENT;
+}

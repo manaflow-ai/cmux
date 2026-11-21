@@ -10,7 +10,6 @@ import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
 import { Spinner } from "./conversation/icons";
 import {
-  DevicesIcon,
   EnvironmentIcon,
   EnvironmentPicker,
   ServerIcon,
@@ -18,6 +17,7 @@ import {
   type EnvironmentFaceStyle,
   type SavedEnvironmentRows,
   type MoveTarget,
+  DevicesIcon,
 } from "./EnvironmentPicker";
 import { SECTION_LABELS, environmentStateLabel, useMachineRefresh } from "./environmentPickerModel";
 import { machineColor } from "./machineColor";
@@ -67,7 +67,7 @@ import { isAgentHome, projectLabel, SessionsBy } from "./sessionList";
 import { translate as t, useT } from "./i18n";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { CloudEnvironmentChip, useCloudEnvironmentControl, type CloudEnvironmentDropUp } from "./CloudEnvironmentChip";
-import type { CloudEnvironmentControl } from "./cloudEnvironmentChoice";
+import type { CloudEnvironmentControl, CloudEnvironmentPick } from "./cloudEnvironmentChoice";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { focusAfterEscape } from "../../ui/escapeFocus";
 import type { RunModeRows } from "./sandboxRun";
@@ -78,14 +78,14 @@ import { CONTEXT_LABELS, splitForMiddleTruncation } from "./composerContextModel
 import {
   FOLDER_CHIP_LABELS,
   FOLDERLESS_CLOUD_LABELS,
+  folderChipState,
+  type FolderChipState,
   chatFolderChoices,
   shownChatFolder,
-  folderChipState,
   startedCloudFolderName,
   folderMenu,
-  type FolderChipState,
 } from "./folderlessCloud";
-import { chatComputerId, ownMachineName, routeOnOwnCloud, type ChatPlace } from "./chatMachine";
+import { chatComputerId, ownMachineName, type ChatPlace, routeOnOwnCloud } from "./chatMachine";
 import { useMachineCard } from "./MachineCard";
 /// How a new chat's strip asks where it runs (gallery seam; `where-machine` ships). Leo, 2026-11-03,
 /// on Codex desktop's strip: "chatgpt codex has nicer ways to deal with stuff".
@@ -176,6 +176,7 @@ export function ComposerContext({
   offloadReasons,
   moveTargets,
   onMoveTo,
+  moveEnvironment,
   saved,
   onRefreshMachines: onRefreshPeers,
   onComputer,
@@ -269,6 +270,10 @@ export function ComposerContext({
   /// can go to, `pane.tabState` `moveTargets`; a pick runs `onMoveTo` with the target's id.
   moveTargets?: readonly MoveTarget[];
   onMoveTo?(id: string): void;
+  /// The Cloud environment a started local chat's Move to Cloud makes its machine in (the same
+  /// Environment chip as a new chat's, beside the picker while Move to Cloud is offered). App.tsx
+  /// holds it per chat and sends it with the move; Auto sends none.
+  moveEnvironment?: CloudEnvironmentPick;
   /// The New Tab page's saved environments, in the environment picker. While one is picked it
   /// alone names where the chat starts: the folder control steps aside. One that is only a folder on
   /// this computer is a folder instead: the folder menu lists and picks it, and names it while it is
@@ -566,13 +571,18 @@ export function ComposerContext({
   const currentComputer = computers.find((computer) => computer.id === selectedComputer) ?? computers[0];
   // The Environment chip's control (Leo, 2026-11-07, behind CLOUD_ENVIRONMENTS_ENABLED): a new chat's
   // only, and only where the strip is the environment picker. It shows while Cloud is the pick.
+  // A started local chat that offers Move to Cloud gets the same chip, for the machine the move makes.
+  const moveOffered = started && environments === true && onOffload !== undefined && offloads[0] === "move";
   const liveEnvironment = useCloudEnvironmentControl(
-    cloudEnvironmentSeam === undefined && composerSettings.cloudEnvironments && newChat && environments === true,
+    cloudEnvironmentSeam === undefined &&
+      composerSettings.cloudEnvironments &&
+      environments === true &&
+      (newChat || (moveOffered && moveEnvironment !== undefined)),
     currentFolder,
     currentFolder
       ? (folders.find((folder) => folder.id === currentFolder)?.repo?.github ?? githubFolderRepo(currentFolder))
       : undefined,
-    runMode?.environment,
+    newChat ? runMode?.environment : moveEnvironment,
   );
   const environmentControl = cloudEnvironmentSeam ?? liveEnvironment;
   // A started chat's picker lists only where it runs, with that machine's warning too.
@@ -1121,33 +1131,46 @@ export function ComposerContext({
           {newProject && newProjectName}
           {environmentsShown ? (
             layout === "combined" ? (
-              <EnvironmentPicker
-                {...pickerProps}
-                label={t(CONTEXT_LABELS.environment)}
-                menu="Computer"
-                value={
-                  sandboxPicked || cloudPicked ? t(sandboxPicked ? "composer.sandboxed" : "composer.cloud") : placeName
-                }
-                face={
-                  // Sandboxed (hq#3367) or Cloud picked: the control names it where the machine was.
-                  sandboxPicked || cloudPicked ? (
-                    <LocationFace
-                      icon={<EnvironmentIcon kind="cloud" />}
-                      value={t(sandboxPicked ? "composer.sandboxed" : "composer.cloud")}
-                      chevron
+              <>
+                <EnvironmentPicker
+                  {...pickerProps}
+                  label={t(CONTEXT_LABELS.environment)}
+                  menu="Computer"
+                  value={
+                    sandboxPicked || cloudPicked
+                      ? t(sandboxPicked ? "composer.sandboxed" : "composer.cloud")
+                      : placeName
+                  }
+                  face={
+                    // Sandboxed (hq#3367) or Cloud picked: the control names it where the machine was.
+                    sandboxPicked || cloudPicked ? (
+                      <LocationFace
+                        icon={<EnvironmentIcon kind="cloud" />}
+                        value={t(sandboxPicked ? "composer.sandboxed" : "composer.cloud")}
+                        chevron
+                      />
+                    ) : (
+                      combinedFace
+                    )
+                  }
+                  environments={moves && currentPickerComputer ? [currentPickerComputer] : pickerComputers}
+                  // A new chat that can still choose its machine: Other devices after Cloud (Austin, 2026-11-12).
+                  otherDevices={!readOnly && !moves}
+                  {...(offload && onOffload ? { offload, onOffload } : {})}
+                  {...(offload && offloadReasons?.[offload] ? { offloadReason: offloadReasons[offload] } : {})}
+                  {...(moving && onMoveTo ? { moveTargets: moving, onMoveTo } : {})}
+                  {...(machineCardRows ? { card: machineCardRows } : {})}
+                />
+                {offload === "move" && environmentControl && (
+                  // Move to Cloud's environment: the machine the move makes boots in it (Auto: none named).
+                  <span className="acpmux-cloud-env-slot" data-shown="true" data-for="move">
+                    <CloudEnvironmentChip
+                      control={environmentControl}
+                      {...(cloudEnvironmentDropUp ? { dropUp: cloudEnvironmentDropUp } : {})}
                     />
-                  ) : (
-                    combinedFace
-                  )
-                }
-                environments={moves && currentPickerComputer ? [currentPickerComputer] : pickerComputers}
-                // A new chat that can still choose its machine: Other devices after Cloud (Austin, 2026-11-12).
-                otherDevices={!readOnly && !moves}
-                {...(offload && onOffload ? { offload, onOffload } : {})}
-                {...(offload && offloadReasons?.[offload] ? { offloadReason: offloadReasons[offload] } : {})}
-                {...(moving && onMoveTo ? { moveTargets: moving, onMoveTo } : {})}
-                {...(machineCardRows ? { card: machineCardRows } : {})}
-              />
+                  </span>
+                )}
+              </>
             ) : layout === "cloud-toggle" ? (
               <EnvironmentPicker
                 {...pickerProps}

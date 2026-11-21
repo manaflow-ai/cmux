@@ -55,6 +55,53 @@ fn refused(reply: &HttpReply) -> Result<(), CloudError> {
     })
 }
 
+/// A GitHub repository as `owner/name`, for the per-project default's query: an owner of 1 to 39
+/// letters, digits and dashes, and a name of 1 to 100 letters, digits, `.`, `_` and `-` (never
+/// `.` or `..`). The page names nothing else in the path.
+fn repository(value: Option<&Value>) -> Result<(&str, &str), CloudError> {
+    let (owner, name) =
+        value.and_then(Value::as_str).and_then(|repo| repo.split_once('/')).ok_or_else(invalid)?;
+    let owner_ok = (1..=39).contains(&owner.len())
+        && owner.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-');
+    let name_ok = (1..=100).contains(&name.len())
+        && name != "."
+        && name != ".."
+        && name.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b));
+    if owner_ok && name_ok { Ok((owner, name)) } else { Err(invalid()) }
+}
+
+/// The fields a PATCH may carry: the original ones, the Codex-style configuration (`repo`, `ref`,
+/// `maintenance_script`, `files`, `image`) and `expected_revision`, which makes the platform refuse
+/// a save on a record changed since it was read (409 `cloud_environment.revision_conflict`,
+/// forwarded as that code). The platform validates them all.
+const UPDATE_FIELDS: &[&str] = &[
+    "name",
+    "setup_script",
+    "env_vars",
+    "set_secrets",
+    "remove_secrets",
+    "network",
+    "repo",
+    "ref",
+    "maintenance_script",
+    "files",
+    "image",
+    "expected_revision",
+];
+const CREATE_FIELDS: &[&str] = &[
+    "name",
+    "scope",
+    "setup_script",
+    "env_vars",
+    "secrets",
+    "network",
+    "repo",
+    "ref",
+    "maintenance_script",
+    "files",
+    "image",
+];
+
 impl CloudConversations {
     pub fn environment(
         &self,
@@ -94,17 +141,7 @@ impl CloudConversations {
             "update" if params.len() == 2 => {
                 let id = identifier(params.get("id"))?;
                 let patch = params.get("patch").and_then(Value::as_object).ok_or_else(invalid)?;
-                if patch.keys().any(|key| {
-                    ![
-                        "name",
-                        "setup_script",
-                        "env_vars",
-                        "set_secrets",
-                        "remove_secrets",
-                        "network",
-                    ]
-                    .contains(&key.as_str())
-                }) {
+                if patch.keys().any(|key| !UPDATE_FIELDS.contains(&key.as_str())) {
                     return Err(invalid());
                 }
                 // Validation details belong to the platform; preserve null and empty values.
@@ -119,14 +156,35 @@ impl CloudConversations {
                     .get("name")
                     .and_then(Value::as_str)
                     .is_none_or(|name| name.trim().is_empty())
-                    || environment.keys().any(|key| {
-                        !["name", "scope", "setup_script", "env_vars", "secrets", "network"]
-                            .contains(&key.as_str())
-                    })
+                    || environment.keys().any(|key| !CREATE_FIELDS.contains(&key.as_str()))
                 {
                     return Err(invalid());
                 }
                 send("POST", "/v1/cloud-environments", &json!(environment))?
+            }
+            // The project's default environment (the composer's Environment chip,
+            // cmux-platform#1144): read the caller's defaults for one repository (personal first,
+            // then the team's), or set the personal one (`environment` null removes it). Only a
+            // checked `owner/name` reaches the query.
+            "default" if params.len() == 1 => {
+                let (owner, name) = repository(params.get("repo"))?;
+                send(
+                    "GET",
+                    &format!("/v1/cloud-environments/project-defaults?repo={owner}%2F{name}"),
+                    &Value::Null,
+                )?
+            }
+            "setDefault" if params.len() == 2 => {
+                let (owner, name) = repository(params.get("repo"))?;
+                let environment = match params.get("environment") {
+                    Some(Value::Null) => Value::Null,
+                    id => Value::String(identifier(id)?.into()),
+                };
+                send(
+                    "PUT",
+                    "/v1/cloud-environments/project-defaults",
+                    &json!({ "repo": format!("{owner}/{name}"), "environment": environment }),
+                )?
             }
             "derive" => {
                 if params.keys().any(|key| !["repo", "ref", "environment"].contains(&key.as_str()))
@@ -224,6 +282,25 @@ mod tests {
                 CloudError::Unavailable(_) => assert_eq!(status, 503),
                 other => panic!("{other:?}"),
             }
+        }
+    }
+
+    #[test]
+    fn a_default_names_only_an_owner_and_name_in_its_path() {
+        for repo in ["octocat/hello-world", "a-b/c.d_e", "o/n"] {
+            assert!(repository(Some(&json!(repo))).is_ok(), "{repo}");
+        }
+        for repo in [
+            json!("octocat"),
+            json!("octocat/hello/world"),
+            json!("../x"),
+            json!("octocat/.."),
+            json!("octocat/a?b"),
+            json!("octocat/a%2fb"),
+            json!("-/"),
+            json!(7),
+        ] {
+            assert!(repository(Some(&repo)).is_err(), "{repo}");
         }
     }
 
