@@ -214,9 +214,6 @@ impl RecoveryHarness {
             .args(&self.extra_args)
             .stdout(Stdio::null())
             .stderr(Stdio::null());
-        for (name, value) in &self.extra_env {
-            command.env(name, value);
-        }
         if let Some(delay_ms) = self.host_ready_delay_ms {
             command.env("CMUX_TUI_TEST_HOST_READY_DELAY_MS", delay_ms.to_string());
         }
@@ -251,6 +248,11 @@ impl RecoveryHarness {
             command.env("CMUX_TUI_ADOPT_TEMPLATE_TERMINAL", "1");
             command.env("CMUX_TUI_TEMPLATE_BOUND_FILE", self.dir.join("bound"));
             command.env("CMUX_TUI_TEMPLATE_WORKSPACE_NAME", "Cloud");
+        }
+        // Last, so a test's own setting replaces a default above (the held
+        // journal's durable wait).
+        for (name, value) in &self.extra_env {
+            command.env(name, value);
         }
         command
     }
@@ -5475,3 +5477,6 @@ mod output_store;
 
 #[path = "terminal_host_recovery/template_binding.rs"]
 mod template_binding;
+
+#[path = "terminal_host_recovery/journal_writer_deadline.rs"]
+mod journal_writer_deadline;
