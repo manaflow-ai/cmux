@@ -229,7 +229,7 @@ public final class CmuxDialogButtonView: ClickableButton {
             let card = enclosingSurface?.tintLevel == .menu ? CmuxDialogButtonLook.menuCardSurfaces(tokens, lift: lift)
                 : CmuxDialogButtonLook.cardSurfaces(tokens, lift: lift)
             return CmuxDialogButtonLook(role: isQuiet ? .destructive : button.role, tokens: tokens, state: state, quiet: isQuiet,
-                                        card: card)
+                                        isEnabled: isEnabled, card: card)
         }
     }
 
@@ -248,7 +248,6 @@ public final class CmuxDialogButtonView: ClickableButton {
             let onOpaqueCard = enclosingSurface?.material == .opaque
             focusGap.borderColor = (onOpaqueCard ? look.opaqueCard : look.card).nsColor.cgColor
             CATransaction.commit()
-            alphaValue = isEnabled ? 1 : 0.45
             let font = button.role == .default ? Typography.bodyEmphasized : Typography.body
             if let keycapView {
                 keycapView.paint(ink: look.title.nsColor, glyph: look.keyHint.nsColor)
