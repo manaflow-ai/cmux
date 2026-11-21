@@ -433,3 +433,36 @@ test("the session detail's usage limits reach the summary, and malformed ones re
   const plain = await connect(fakeDaemon(history(), "claude-sr2", 1, { usageLimits: "Weekly: 62% remaining" }));
   expect(plain.summary()?.usageLimits).toBe("Weekly: 62% remaining");
 });
+
+test("usage limits acpmux reports after the chat opened reach the summary without a reattach", async () => {
+  const detail = { windows: [{ id: "weekly", usedPercent: 12 }] };
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "hello" }],
+      // Already in the detail: replayed with the page, it never takes the detail's back.
+      ["mux", "usage_limits", { usageLimits: { windows: [{ id: "weekly", usedPercent: 3 }] } }],
+    ]),
+    "claude-sr2",
+    2,
+    { usageLimits: detail },
+  );
+  const { summary } = await connect(daemon);
+  expect(summary()?.usageLimits).toEqual(detail);
+
+  // acpmux merged the report (hub/permissions.rs); the pane applies it whole.
+  const merged = {
+    windows: [
+      { id: "weekly", usedPercent: 12 },
+      { id: "session", usedPercent: 41, resetsAt: 1_793_570_400 },
+    ],
+    plan: "max",
+  };
+  daemon.push(record([["mux", "usage_limits", { usageLimits: merged }]], 3));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(summary()?.usageLimits).toEqual(merged);
+
+  // A Codex report with no plan window left clears them: unreported, not a stale ring.
+  daemon.push(record([["mux", "usage_limits", { usageLimits: null }]], 4));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(summary()?.usageLimits).toBeUndefined();
+});
