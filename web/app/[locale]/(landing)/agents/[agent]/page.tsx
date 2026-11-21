@@ -10,7 +10,7 @@ import {
   findGenericCodingAgent,
   genericCodingAgents,
 } from "@/i18n/coding-agents";
-import { locales } from "@/i18n/routing";
+import { prerenderLocales } from "@/i18n/prerender";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import {
   JsonLd,
@@ -22,7 +22,7 @@ import { LandingCTA } from "../../landing-ui";
 type Params = Promise<{ locale: string; agent: string }>;
 
 export function generateStaticParams() {
-  return locales.flatMap((locale) =>
+  return prerenderLocales().flatMap((locale) =>
     genericCodingAgents.map((agent) => ({
       locale,
       agent: agent.slug,
