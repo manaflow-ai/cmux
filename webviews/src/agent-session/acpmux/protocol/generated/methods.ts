@@ -322,6 +322,12 @@ export interface AcpmuxRequests {
   "_acpmux/machine_consent_set": { params: unknown; result: unknown };
   "_acpmux/machine_consent_get": { params: unknown; result: unknown };
   "_acpmux/machine_consent_refused": { params: unknown; result: unknown };
+  "_acpmux/consent_remote_status": { params: unknown; result: unknown };
+  "_acpmux/consent_remote_set": { params: unknown; result: unknown };
+  "_acpmux/consent_grantor_trust": { params: unknown; result: unknown };
+  "_acpmux/consent_account_set": { params: unknown; result: unknown };
+  "_acpmux/consent_trust_refresh": { params: unknown; result: unknown };
+  "_acpmux/consent_screen_auto": { params: unknown; result: unknown };
   "_acpmux/machine_routes": { params: unknown; result: unknown };
   "_acpmux/machine_route_probe": { params: unknown; result: unknown };
   "_acpmux/share_host_status": { params: unknown; result: unknown };
@@ -714,6 +720,12 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/machine_consent_set", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine_consent_get", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine_consent_refused", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/consent_remote_status", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/consent_remote_set", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/consent_grantor_trust", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/consent_account_set", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/consent_trust_refresh", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/consent_screen_auto", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine_routes", kind: "request", acp: false, typed: false },
   { name: "_acpmux/machine_route_probe", kind: "request", acp: false, typed: false },
   { name: "_acpmux/share_host_status", kind: "request", acp: false, typed: false },

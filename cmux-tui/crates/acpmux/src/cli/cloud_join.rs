@@ -26,15 +26,16 @@ pub(crate) use self_capabilities::{
 
 // The join record and the consent gate live in `crate::machine_record`, which lower modules
 // read; these keep their `cli::cloud_join` paths.
+pub(crate) use crate::machine_record::authority;
 #[cfg(test)]
 use crate::machine_record::home_copy_state;
 pub(super) use crate::machine_record::load_at;
 pub use crate::machine_record::{
-    CONSENT_REQUIRED, Consent, ConsentState, MachineCredential, SIGNED_IN_MACHINES,
+    CONSENT_REQUIRED, Consent, ConsentState, GrantedBy, MachineCredential, SIGNED_IN_MACHINES,
     require_consent, require_joined_consent, signed_in_machines_granted,
 };
 use crate::machine_record::{
-    CREDENTIAL_FILE, CopyState, authority, consent_home, copied_here, copy_state, load, other_box,
+    CREDENTIAL_FILE, CopyState, consent_home, copied_here, copy_state, load, other_box,
     settle_evidence, state_dir,
 };
 pub(crate) use crate::machine_record::{
@@ -578,7 +579,30 @@ pub async fn join_with_token(
     json_out: bool,
     token: Option<String>,
 ) -> Result<()> {
-    recovery::join(hub, name, replace, Report::from_json(json_out), token, None).await
+    let before = credential_now().await;
+    recovery::join(hub, name, replace, Report::from_json(json_out), token, None).await?;
+    // A new join opens the consent enrollment window: the daemon's carrier, when it starts on
+    // this join, pins this Mac's own app key and its peers' with no ask (`consent_grant.rs`).
+    let after = credential_now().await;
+    if after.is_some() && after != before {
+        let _ = tokio::task::spawn_blocking(|| {
+            authority().and_then(|authority| {
+                super::consent_grant::open_window(&authority, crate::store::now_ms())
+            })
+        })
+        .await;
+    }
+    Ok(())
+}
+
+/// The joined record's credential now, when there is a live one.
+async fn credential_now() -> Option<String> {
+    tokio::task::spawn_blocking(|| {
+        machine_credential().ok().flatten().filter(|record| !record.revoked).map(|r| r.credential)
+    })
+    .await
+    .ok()
+    .flatten()
 }
 
 /// `acpmux machine leave` (`cloud_join/leave.rs`).
@@ -711,6 +735,29 @@ pub(crate) fn set_consent_for_person(surface: &str, granted: bool) -> Result<Con
     authority()?.set(surface, granted)
 }
 
+/// `machine_consent_set {surface, granted: null}`: clears the person's own setting of `screen` or
+/// `control` here, so the signed grants decide again (`consent_grant.rs`). The person only.
+pub(crate) fn clear_consent_for_person(surface: &str) -> Result<Consent> {
+    authority()?.set_local(surface, None, machine_user_id().as_deref())
+}
+
+/// `_acpmux/machine_consent_get`'s answer: [`consent_status_for`] plus the pinned grantors, the
+/// pending grantor ask and the last lines of the grant log (`consent_grant.rs`).
+pub(crate) fn consent_status_with_grants(
+    params: &Value,
+    own: Option<&super::consent_grant::OwnGrantor>,
+) -> Value {
+    let mut status = consent_status_for(params);
+    let account = machine_user_id();
+    if let Some(fields) = status.as_object_mut() {
+        if let Ok(authority) = authority() {
+            fields.extend(super::consent_grant::status_fields(&authority, account.as_deref(), own));
+        }
+        fields.insert("account".into(), json!(account));
+    }
+    status
+}
+
 /// This machine's consent and the account it is joined as, read now (blocking file reads).
 pub fn signed_in_machines_granted_here() -> (bool, Option<String>) {
     let account = machine_user_id();
@@ -718,7 +765,7 @@ pub fn signed_in_machines_granted_here() -> (bool, Option<String>) {
     (granted, account)
 }
 
-/// `_acpmux/machine_consent_get`'s answer. With `{"use": "localComputerUse"}` (the app asking
+/// The consent status the gates read. With `{"use": "localComputerUse"}` (the app asking
 /// for its Computer Use helper, which serves only this Mac's own sessions), a requirement only
 /// sign-in joins made gates nothing ([`machine_consent::Authority::status_for`]); every other
 /// caller gets the requirement as it is.
