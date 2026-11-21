@@ -760,6 +760,18 @@ agent report --terminal <selector> --state working|blocked|idle|ended|unknown --
 agent hook emit --source <provider> --event <native-event> [--terminal <id>]
 agent hook install|uninstall|status [provider...]
 
+agent ls [--all] [--json]
+agent send [--no-wait] SESSION MESSAGE
+agent history SESSION [-n COUNT]
+agent search QUERY... [-n COUNT]
+agent resolve NAME|ID|LINK
+agent register NAME [--code CODE]
+agent open SESSION_ID
+agent open-tab SESSION_ID [--target PANE_OR_TAB]
+agent bg start [--cwd DIR] [--description TEXT] COMMAND
+agent bg list [--all]
+agent notices [SESSION] [--thread THREAD [--mark-read]]
+
 client list
 client <selector> show|detach
 client <selector> metadata set
@@ -1373,6 +1385,26 @@ takes `until` and `match` (an object of path to value) within its 60 s bound.
 `sidebar plugin` commands read and write local plugin installation state. They
 never open a protocol connection or send a plugin ID to a session. Optional
 plugin names are slugs matching `[a-z0-9-_]+`.
+
+## Agent sessions
+
+`cmux agent ls` lists named sessions on this host and its peers. Use a session
+name or `HOST/NAME` with `cmux agent history` to read its turns or with
+`cmux agent send` to message it. `cmux agent resolve` accepts a name, an ID or
+a session link.
+
+`cmux agent search "failing test"` finds prompts and replies in the session
+history on this host and its peers. Results include the session, host, UTC turn
+time ending in `Z`, and a one-line preview. Open a result by passing its session
+ID to `cmux agent open` or `cmux agent open-tab`. Include `--host HOST` for
+a session on a peer.
+
+From inside a session, `cmux agent bg start 'make test'` starts a background
+shell command owned by that session. `cmux agent bg list` shows its tasks.
+`cmux agent notices` shows the session's inbox threads. Pass a thread ID
+with `--thread` to read its messages.
+
+The engine, acpmux, also accepts its existing standalone commands.
 
 ## Agent list
 

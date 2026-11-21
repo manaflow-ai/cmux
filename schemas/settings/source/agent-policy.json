@@ -482,13 +482,6 @@
       ]
     },
     {
-      "agent": "userOnly",
-      "why": "On, opening the floating Chief gives it a look at the person's screen; only the person turns it on.",
-      "keys": [
-        "home.chiefPanel.seesScreen"
-      ]
-    },
-    {
       "agent": "settable",
       "why": "Needs you in the agent chat header (an App Store item): a display the person can hide again.",
       "keys": [
@@ -1265,6 +1258,13 @@
       "why": "On, a live code build loads Swift patches into the running app: only the person turns that on.",
       "keys": [
         "labs.liveCode"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "On, Settings edits the MCP servers in Claude Code's and Codex's own config files: only the person turns that on.",
+      "keys": [
+        "labs.agentCustomization"
       ]
     },
     {
