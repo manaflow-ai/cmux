@@ -1,0 +1,227 @@
+{
+  "version": 1,
+  "build": "4490426815301",
+  "notes": "notes/4490426815301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 48948,
+      "title": "post-merge batch: hold a teammate's revert, check probe inputs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48895,
+      "title": "Transcript: rows glide with the bottom stack, charts keep their box",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48949,
+      "title": "CI: admit a hard-capped pool by expected wait, not by label (cmuxterm-hq#16113 step 3)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48929,
+      "title": "Cloud image probe: accept acpmux's /mcp/<session> gateway endpoint for cmux",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48417,
+      "title": "feat(cmux-next): show favicons in native New Tab suggestions",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48405,
+      "title": "fix(ci): the portable placement test expects the PR control label on a first attempt",
+      "author": "lawrencecchen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48920,
+      "title": "ci: draft PR heads run a cheap tier; full CI when marked ready",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48908,
+      "title": "What's New: computer-use-cursor-stays gets its before, the cursor gone between actions",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47735,
+      "title": "Calendar widget: a cmux.widget/1 store app in the style of Apple's Calendar Up Next",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48905,
+      "title": "What's New clips: the tour records as the user on the display, not the last Screen Sharing login",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48863,
+      "title": "base red follow-up: drop the duplicate NSButton hitTest selector key",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48736,
+      "title": "Hub: report each online Mac's quietMs so the phone knows it is awake",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48757,
+      "title": "ci: Swift packages on Linux becomes a pr-router callee: a Packages/macOS-only change starts none of its legs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48897,
+      "title": "customize-demo looks: Claude and Codex turn on their sidebar features",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48873,
+      "title": "cmux-rd: --help prints usage; a command left out of this build says so",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48695,
+      "title": "action catalog: sync Ask Chief About This… and add the env secrets playground re-pin marker (base autofix swift_parity red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48883,
+      "title": "release notes: a span cut short by a shallow fetch never ships every highlight ever written",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48932,
+      "title": "cmux-next push: leave the Swift canary to the scheduled tip Swift suite",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48432,
+      "title": "acpmux: a message follows a moved chat, and session move --after-turn moves without stopping the turn",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48871,
+      "title": "Model picker and subagent tray: lower stale shift rows to measured values",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48911,
+      "title": "base red: KeychainNoPromptContext passes the namespace-type lint",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48691,
+      "title": "ci(cmux-tui): a re-run build leg rereads the pool instead of a stale 2 vCPU label",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48901,
+      "title": "ci: a PR that adds a namespace type fails the iOS conventions lint",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48893,
+      "title": "cmux-vm: upstream-timing test allows 5 ms timer slack",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48641,
+      "title": "cmux-tui artifacts retry: do not rerun a build leg that failed on a rerun",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47361,
+      "title": "ci: the status comment's ran line says which workflows a diff started, and why",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48788,
+      "title": "measure: perf-idle-ab relaunch= measures a returning user's launch (a restored workspace, not Home)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48662,
+      "title": "ci: post-merge batch tier: suites once per window, bisect, revert PR",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48753,
+      "title": "Give Return its own read after a paste, so composer sends submit",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48667,
+      "title": "acpmux, Computer Use: halve the MCP server instructions every chat loads",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48728,
+      "title": "iOS: opening a terminal connects its Mac; offline only after a real failure",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48898,
+      "title": "docs(ios): cmux-next-ios-sim.sh modes list and #45397 status, verified 2026-11-21",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48884,
+      "title": "Show distinct GitHub link states and refused-link reasons",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48760,
+      "title": "examples: customization gallery index, five starter looks (one per API surface), looks/README",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 47101,
+      "title": "fix(ios): Feed \"You\" caption, white bubbles after app switch, late code scroll, swipe-back jump",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 48633,
+      "title": "cmux-tui: cmux tmux attach renders one tmux pane through control mode (experiment, off by default)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
