@@ -702,6 +702,170 @@ fn leased_desktops_are_off_until_the_env_names_a_binary_and_owned_by_the_session
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// Each chat ran its own `acpmux tools-mcp` under its `cmux mcp serve` (Leo's NIGHTLY,
+/// 2026-11-17). With the daemon's gateway, each of acpmux's own upstream specs names the
+/// gateway's tool endpoint for the chat (`http`) beside its launch, and the `cmux` server the
+/// gateway keeps is the one with them.
+#[tokio::test]
+async fn with_a_gateway_acpmux_s_own_upstreams_name_its_tool_endpoint() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = std::env::temp_dir().join(format!("acpmux-gw-tools-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let cmux = root.join("cmux");
+    std::fs::write(&cmux, "#!/bin/sh\n").unwrap();
+    std::fs::set_permissions(&cmux, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let exe = std::path::PathBuf::from("/usr/local/lib/cmux/cmux-tui");
+    let inputs = super::Inputs {
+        acpmux: Some(crate::self_command::SelfCommand::new(exe, vec!["acp".into()])),
+        secrets: true,
+        offers: true,
+        subsessions: true,
+        ..memory_inputs(&root, None)
+    };
+    let home = root.join("home");
+    let gateway = crate::mcp_gateway::bind(
+        &home,
+        crate::mcp_gateway::IDLE_STOP,
+        std::time::Duration::from_secs(60),
+    )
+    .await
+    .unwrap();
+    let upstreams = |tools: &super::AgentTools| -> Vec<serde_json::Value> {
+        let cmux = tools.servers.iter().find(|s| s.name == "cmux").unwrap();
+        let specs = &cmux.env.iter().find(|(k, _)| k == super::UPSTREAMS_ENV).unwrap().1;
+        serde_json::from_str(specs).unwrap()
+    };
+    let plain = resolve(&inputs).for_session("s-gw").folded();
+    assert!(upstreams(&plain).iter().all(|s| s.get("http").is_none()), "no gateway, no http");
+    let tools =
+        resolve(&inputs).for_session("s-gw").folded().via_gateway_on(Some(&gateway), "s-gw", &root);
+    let endpoint = gateway.tools_endpoint("s-gw");
+    assert!(endpoint.url.ends_with("/mcp/s-gw/tools"), "{}", endpoint.url);
+    let want = serde_json::json!({"url": endpoint.url, "headers": {"Authorization": endpoint.authorization}});
+    let own = ["cmux-secrets", "cmux-sessions", "cmux-subsessions", "cmux-forum", "acpmux"];
+    let specs = upstreams(&tools);
+    for spec in &specs {
+        let name = spec["name"].as_str().unwrap();
+        if own.contains(&name) {
+            assert_eq!(spec["http"], want, "{name}");
+            // An older `cmux` that does not read `http` starts it as before.
+            assert!(spec.get("shared").is_some() && spec.get("command").is_some(), "{spec}");
+        } else {
+            assert!(spec.get("http").is_none(), "{name} is not acpmux's: {spec}");
+        }
+    }
+    assert_eq!(specs.iter().filter(|s| s.get("http").is_some()).count(), own.len());
+    // The harness gets the gateway, and the gateway keeps the launch with the same upstreams.
+    assert!(tools.http.contains_key("cmux"));
+    let kept: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(crate::mcp_gateway::launch_path(&home, "s-gw")).unwrap(),
+    )
+    .unwrap();
+    let kept_env: Vec<(String, String)> =
+        serde_json::from_value(kept["launch"]["env"].clone()).unwrap();
+    let cmux = tools.servers.iter().find(|s| s.name == "cmux").unwrap();
+    assert_eq!(kept_env, cmux.env);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The most acpmux processes cmux's own tools may run under one agent harness: the Computer Use
+/// bridge (`acpmux computer-use-mcp`), which ends the chat's Computer Use session (approvals,
+/// cursor) when its pipe closes, so it lives exactly as long as the harness. Every other tool
+/// family of acpmux's (`tools_mcp::SERVERS`) is served by the daemon (`mcp_gateway.rs`), folded
+/// behind the `cmux` server or not. Measured on Leo's Mac 2026-11-21: 5 per chat (14 chats, 65
+/// processes). Leo, 2026-11-21: "if it has tons of processes tbats a prkduct bug", "movjng
+/// everything out is not the actual solution".
+const ACPMUX_PROCESSES_PER_CHAT: usize = 1;
+
+/// The stdio entries of a Claude Code config that start `exe`: the acpmux processes the harness
+/// starts for the chat.
+fn acpmux_processes(config: &serde_json::Value, exe: &std::path::Path) -> Vec<String> {
+    let exe = exe.to_string_lossy();
+    config["mcpServers"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(_, entry)| {
+            entry.get("type").and_then(serde_json::Value::as_str) != Some("http")
+                && entry.get("command").and_then(serde_json::Value::as_str) == Some(exe.as_ref())
+        })
+        .map(|(name, _)| name.clone())
+        .collect()
+}
+
+/// One chat starts at most [`ACPMUX_PROCESSES_PER_CHAT`] acpmux processes, with the `cmux`
+/// server (folded) and without it (the person has not said yes to cmux's tools: each of acpmux's
+/// servers its own entry), and the entries keep their names, so the tool names
+/// (`mcp__cmux-forum__...`) and every allowlist naming them stay.
+#[tokio::test]
+async fn a_chat_starts_at_most_its_budget_of_acpmux_processes() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = std::env::temp_dir().join(format!("acpmux-proc-budget-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let cmux = root.join("cmux");
+    std::fs::write(&cmux, "#!/bin/sh\n").unwrap();
+    std::fs::set_permissions(&cmux, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let exe = std::path::PathBuf::from("/usr/local/lib/cmux/acpmux");
+    let inputs = super::Inputs {
+        acpmux: Some(crate::self_command::SelfCommand::new(exe.clone(), Vec::new())),
+        secrets: true,
+        offers: true,
+        subsessions: true,
+        ..memory_inputs(&root, None)
+    };
+    let gateway = crate::mcp_gateway::bind(
+        &root.join("home"),
+        crate::mcp_gateway::IDLE_STOP,
+        std::time::Duration::from_secs(60),
+    )
+    .await
+    .unwrap();
+    let own: Vec<&str> = crate::tools_mcp::SERVERS.iter().map(|(name, _)| *name).collect();
+    // No `cmux` server: without the gateway each of acpmux's servers is a process of its own
+    // (the count the budget cuts), with it none is.
+    let standalone = || resolve(&inputs).scoped(&Default::default()).for_session("s-budget");
+    let before = standalone().folded().mcp_config().unwrap();
+    assert!(before["mcpServers"].get("cmux").is_none(), "{before}");
+    let started = acpmux_processes(&before, &exe);
+    assert_eq!(started.len(), own.len() + 1, "five tool servers and Computer Use: {started:?}");
+    let after = standalone().folded().via_gateway_on(Some(&gateway), "s-budget", &root);
+    let config = after.mcp_config().unwrap();
+    let started = acpmux_processes(&config, &exe);
+    assert!(started.len() <= ACPMUX_PROCESSES_PER_CHAT, "{started:?} in {config}");
+    for name in &own {
+        let entry = &config["mcpServers"][*name];
+        let endpoint = gateway.server_endpoint("s-budget", name);
+        assert_eq!(entry["type"], "http", "{name}: {entry}");
+        assert_eq!(entry["url"], endpoint.url.as_str(), "{name}");
+        assert!(endpoint.url.ends_with(&format!("/mcp/s-budget/tools/{name}")), "{}", endpoint.url);
+    }
+    // The gateway keeps the one launch they would share, with each one's spec.
+    let kept: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(crate::mcp_gateway::launch_path(&root.join("home"), "s-budget")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(kept["launch"]["args"], serde_json::json!([crate::tools_mcp::ARG]));
+    // An ACP harness that takes HTTP servers gets the same.
+    let acp = after.acp_servers();
+    let stdio_acpmux = acp
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|s| s.get("type").is_none() && s["command"] == exe.to_string_lossy().as_ref())
+        .count();
+    assert!(stdio_acpmux <= ACPMUX_PROCESSES_PER_CHAT, "{acp}");
+    // With the `cmux` server (folded): acpmux's servers are its upstreams, served by the daemon.
+    let folded = resolve(&inputs).for_session("s-budget-cmux").folded().via_gateway_on(
+        Some(&gateway),
+        "s-budget-cmux",
+        &root,
+    );
+    let config = folded.mcp_config().unwrap();
+    let started = acpmux_processes(&config, &exe);
+    assert!(started.len() <= ACPMUX_PROCESSES_PER_CHAT, "{started:?} in {config}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// Every agent cmux starts gets the one `cmux` server ([`super::cmux_server`]): this CLI's `mcp
 /// serve` with the app's settings file, and only with the person's yes (`agents.cmuxMcp` on).
 /// Unanswered, `off` or a file that does not parse: the session's other servers, standalone. A

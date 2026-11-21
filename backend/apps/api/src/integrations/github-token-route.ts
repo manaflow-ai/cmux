@@ -32,11 +32,17 @@ const REPOS_PER_ANSWER = 100
 type Fail = { status: number; code: string; message: string; retry_after?: number; configure_url?: string; reason?: string }
 // `configure_url` and a policy.denied's `reason` (github-tokens.ts DenyReason) ride in `error`, where the machine's
 // git and gh read them (cmux-host github.rs reply_for).
-const failed = (f: Fail) => Response.json({ error: { code: f.code, message: f.message, ...(f.configure_url === undefined ? {} : { configure_url: f.configure_url }), ...(f.reason === undefined ? {} : { reason: f.reason }) }, ...(f.retry_after === undefined ? {} : { retry_after: f.retry_after }) }, { status: f.status, headers: NO_STORE })
+const failed = (f: Fail) => Response.json({ error: { code: f.code, message: f.message, ...(f.configure_url === undefined ? {} : { configure_url: f.configure_url }), ...(f.reason === undefined ? {} : { reason: f.reason }) }, ...(f.retry_after === undefined ? {} : { retry_after: f.retry_after }) }, { status: f.status, headers: f.retry_after === undefined ? NO_STORE : { ...NO_STORE, "retry-after": String(f.retry_after) } })
 const no = (status: number, code: string, message: string): Fail => ({ status, code, message })
 const unreachable = (what: string) => no(503, "integration.unavailable", `${what} could not be checked; retry`)
 
 const connections = (env: Env, team: string) => env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(team))
+
+/**
+ * Where the machine-only seam (POST /machine-token) answers: development and staging, where Cloud
+ * environment builds mint through it. Production stays closed until the hosted connector rollout.
+ */
+export const MACHINE_TOKEN_ENVIRONMENTS: ReadonlySet<string> = new Set(["development", "staging"])
 
 /** The caller, in `team` (a vm install: its machine's team), with grant classes, or why not. */
 const caller = async (request: Request, env: Env, team: string | undefined): Promise<{ p: Principal; team: string; machine?: string } | Fail> => {
@@ -81,13 +87,13 @@ const teamAdmin = async (env: Env, p: Principal, team: string): Promise<boolean 
 }
 
 export const handleGithubToken = async (request: Request, env: Env, sub: string): Promise<Response> => {
-  // The machine-only seam is a development surface until the hosted connector rollout. Repository
+  // The machine-only seam answers in MACHINE_TOKEN_ENVIRONMENTS (not production). Repository
   // enumeration answers in every environment: a signed-in person (a session or their own install), and a
   // `vm` install for its own team under exactly the gate POST /token applies to it (caller: its machine's
   // team only, the SSO gate, a live grant, vmGate's own live machine). The listing is no wider than the
   // tokens that VM could mint: githubRepos keeps only the connections it may use and the repositories
   // their scope and the team's allowlist cover (githubRepoAllowed, as authorize's githubCovers).
-  if (sub === "machine-token" && env.ENVIRONMENT !== "development") return new Response("not found", { status: 404 })
+  if (sub === "machine-token" && !MACHINE_TOKEN_ENVIRONMENTS.has(env.ENVIRONMENT)) return new Response("not found", { status: 404 })
   if (sub === "repos") {
     if (request.method !== "GET") return failed(no(405, "request.invalid", "GET"))
     const url = new URL(request.url)
