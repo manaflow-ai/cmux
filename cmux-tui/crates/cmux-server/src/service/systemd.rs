@@ -295,8 +295,6 @@ pub fn stop(s: &Services<'_>) -> Result<()> {
 }
 
 pub fn uninstall(s: &Services<'_>) -> Result<Vec<PathBuf>> {
-    // The app server instances, listed and checked before anything stops.
-    let instances = if system(s) { app_instances(s)? } else { Vec::new() };
     let ctl = systemctl(s);
     // KillMode=process leaves terminal hosts after a stop by design;
     // uninstall ends every process of the unit first.
@@ -310,10 +308,12 @@ pub fn uninstall(s: &Services<'_>) -> Result<Vec<PathBuf>> {
         let _ = s.runner.run(&ctl.clone().args(["disable", "--now", unit]));
     }
     if system(s) {
-        // Every app server instance stops before its template is removed:
-        // each one listed and checked just now, by name, never by a pattern
-        // that would also match an instance started since.
-        for unit in &instances {
+        // Every app server instance stops before its template is removed.
+        // Listed once the supervisor is down (so one it started meanwhile
+        // is in the list) and each checked to come from cmux's template,
+        // then stopped by name, never by a pattern. `Services::uninstall`
+        // already refused a foreign instance before anything stopped.
+        for unit in app_instances(s)? {
             let _ = s.runner.run(&ctl.clone().args(["stop", unit.as_str()]));
         }
     }

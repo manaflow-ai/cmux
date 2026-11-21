@@ -381,7 +381,8 @@ fn claude_installed_plugins(homes: &Homes, project: Option<&Path>) -> Vec<(Strin
 
 // ----- Codex -----
 
-/// A Codex skill root: its folder, scope, plugin (short name, id) and whether links are followed.
+/// One Codex skills folder: its path, scope, owning plugin (short name, id) and whether
+/// symlinks under it are followed.
 type CodexRoot = (PathBuf, Scope, Option<(String, String)>, bool);
 
 /// Codex's skills from its folders (no app-server).

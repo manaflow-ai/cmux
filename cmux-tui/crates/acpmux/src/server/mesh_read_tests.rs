@@ -1003,3 +1003,141 @@ async fn call_error(hub: &Arc<Hub>, m: &str, params: Value) -> Value {
         }
     }
 }
+
+/// Which hub call a [`Flaky`] failure stands in for.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Call {
+    Send,
+    Answer,
+}
+
+/// The hub as gcp-codex-swarm-07 saw it on 2026-11-19..20: the failures queued here come first,
+/// one per call of their kind, then [`Loopback`] answers. `calls` counts every call that reached it.
+struct Flaky {
+    inner: Loopback,
+    failures: Mutex<std::collections::VecDeque<(Call, HubError)>>,
+    calls: Mutex<Vec<Call>>,
+}
+
+impl Flaky {
+    fn new(inner: Loopback, failures: Vec<(Call, HubError)>) -> Self {
+        Self { inner, failures: Mutex::new(failures.into()), calls: Mutex::default() }
+    }
+
+    fn fail(&self, call: Call) -> Option<HubError> {
+        self.calls.lock().unwrap().push(call);
+        let mut failures = self.failures.lock().unwrap();
+        if failures.front().is_some_and(|(c, _)| *c == call) {
+            return failures.pop_front().map(|(_, e)| e);
+        }
+        None
+    }
+}
+
+/// A hub answer with `status` and `code`, as `mesh_http::answer` makes it.
+fn hub_status(status: u16, code: &str) -> HubError {
+    let mut e = HubError::refused(format!("the hub answered {status} {code}"));
+    e.refused = !(status == 408 || status == 429 || status >= 500);
+    e.status = Some(status);
+    e.code = Some(code.into());
+    e
+}
+
+impl MeshHub for Flaky {
+    fn inbox(&self, wait: Duration, max: usize) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>> {
+        self.inner.inbox(wait, max)
+    }
+
+    fn ack<'a>(&'a self, id: &'a str, ack: &'a Ack) -> BoxFuture<'a, Result<(), HubError>> {
+        self.inner.ack(id, ack)
+    }
+
+    fn heartbeat<'a>(
+        &'a self,
+        beat: &'a crate::mesh::Heartbeat,
+    ) -> BoxFuture<'a, Result<crate::mesh::HeartbeatReply, HubError>> {
+        self.inner.heartbeat(beat)
+    }
+
+    fn send<'a>(&'a self, m: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        match self.fail(Call::Send) {
+            Some(e) => Box::pin(async move { Err(e) }),
+            None => self.inner.send(m),
+        }
+    }
+
+    fn receipt<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        self.inner.receipt(id)
+    }
+
+    fn answer<'a>(
+        &'a self,
+        id: &'a str,
+        wait: Duration,
+    ) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        match self.fail(Call::Answer) {
+            Some(e) => Box::pin(async move { Err(e) }),
+            None => self.inner.answer(id, wait),
+        }
+    }
+}
+
+/// `acpmux last HOST/NAME` through a hub that drops a connection, answers 503 and lets go of the
+/// read's receipt (404 `mesh.not_found`) still reads the session: each blip is tried again, and
+/// the read whose receipt is gone is sent afresh.
+#[tokio::test]
+async fn a_read_through_a_hub_that_blips_still_answers() {
+    let b = machine_b();
+    let meta = json!({"acpmux": {"harness": "fake", "name": "own-e2e"}});
+    let made = call(
+        &b,
+        "session/new",
+        json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": meta}),
+    )
+    .await;
+    let session = made["sessionId"].as_str().unwrap().to_owned();
+    let dir = tempfile::tempdir().unwrap();
+    let hub = Flaky::new(
+        Loopback::new(&b, dir.path(), "person-1"),
+        vec![
+            (Call::Send, HubError::unavailable("the hub: error sending request")),
+            (Call::Answer, hub_status(503, "mesh.unavailable")),
+            (Call::Answer, hub_status(404, "mesh.not_found")),
+        ],
+    );
+    let info = read(&hub, "machine-b", "own-e2e", method::MUX_INFO, &json!({})).await.unwrap();
+    assert_eq!(info["sessionId"].as_str(), Some(session.as_str()), "{info}");
+    assert_eq!(info["via"], "hub");
+    // Send (dropped), send, answer (503), answer (404: gone), send again, answer.
+    assert_eq!(
+        *hub.calls.lock().unwrap(),
+        [Call::Send, Call::Send, Call::Answer, Call::Answer, Call::Send, Call::Answer]
+    );
+}
+
+/// A hub that stays down is tried a bounded number of times, and the error names the only route
+/// this machine has to the host and the one that does not need the hub. A refusal is not retried.
+#[tokio::test]
+async fn a_hub_that_stays_down_fails_bounded_and_names_the_direct_route() {
+    let b = machine_b();
+    let dir = tempfile::tempdir().unwrap();
+    let down: Vec<_> = (0..crate::mesh_retry::ATTEMPTS)
+        .map(|_| (Call::Send, hub_status(503, "mesh.unavailable")))
+        .collect();
+    let hub = Flaky::new(Loopback::new(&b, dir.path(), "person-1"), down);
+    let e = read(&hub, "machine-b", "own-e2e", method::MUX_INFO, &json!({})).await.unwrap_err();
+    assert_eq!(hub.calls.lock().unwrap().len(), crate::mesh_retry::ATTEMPTS);
+    assert!(e.message.contains("the hub answered 503 mesh.unavailable"), "{e:?}");
+    assert!(e.message.contains("only through the mesh hub"), "{e:?}");
+    assert!(e.message.contains("`acpmux machine add machine-b`"), "{e:?}");
+    let data = e.data.unwrap();
+    assert_eq!((&data["reason"], &data["route"]), (&json!("mesh.unavailable"), &json!("hub")));
+
+    let refused = Flaky::new(
+        Loopback::new(&b, dir.path(), "person-1"),
+        vec![(Call::Send, hub_status(403, "mesh.forbidden"))],
+    );
+    let e = read(&refused, "machine-b", "own-e2e", method::MUX_INFO, &json!({})).await.unwrap_err();
+    assert_eq!(refused.calls.lock().unwrap().len(), 1);
+    assert_eq!(e.data.unwrap()["retryable"], json!(false));
+}

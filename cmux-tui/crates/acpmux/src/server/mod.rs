@@ -2493,6 +2493,7 @@ mod ssh_carry;
 mod task_list;
 pub use pairing::serve_connection_device;
 pub(crate) mod host_power;
+mod move_targets;
 pub mod peer_auth;
 mod peer_forward;
 pub(crate) mod peer_status;
