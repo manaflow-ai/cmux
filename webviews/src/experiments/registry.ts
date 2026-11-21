@@ -97,6 +97,9 @@ import { composerDockMotion } from "../agent-session/acpmux/composer/dockMotion.
 import { teamAudit } from "../agent-session/acpmux/teamAudit/teamAudit.experiment";
 import { jumpPairLook } from "../agent-session/acpmux/jumpPair.experiment";
 import { jumpLatestPlace } from "../agent-session/acpmux/jumpPlace.experiment";
+import { composerShellLook } from "../agent-session/acpmux/composer/shellLook.experiment";
+import { composerFooterControls } from "../agent-session/acpmux/composer/footerControls.experiment";
+import { composerEmptyHeight } from "../agent-session/acpmux/composer/emptyHeight.experiment";
 import type { Experiment } from "./experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
@@ -201,6 +204,9 @@ export const EXPERIMENTS: readonly Experiment[] = [
   teamAudit,
   jumpPairLook,
   jumpLatestPlace,
+  composerShellLook,
+  composerFooterControls,
+  composerEmptyHeight,
 ];
 
 export function experimentById(id: string): Experiment | undefined {
