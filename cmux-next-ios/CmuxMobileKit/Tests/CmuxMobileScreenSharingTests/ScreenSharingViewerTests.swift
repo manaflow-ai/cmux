@@ -41,7 +41,7 @@ import Testing
     /// display, never WebRTC (the joined Mac's share host refuses WebRTC offers): view only
     /// unless the link asked for control and the Mac granted it. The host's end or refusal
     /// ends the session; a link that failed reattaches like a dropped stream.
-    @Test func aScreenLinkStreamsOverRdOnItsDisplayViewOnlyUnlessControlIsGranted() throws {
+    @Test func aScreenLinkStreamsOverRdOnItsDisplayViewOnlyUnlessControlIsGranted() async throws {
         let (service, ends) = makeService()
         service.demoDiscovery = .listed
         service.demoMacs = [mac()]
@@ -65,7 +65,8 @@ import Testing
         viewer.rdClosed(sessionID: "s1", code: "refused", reason: "sharing is off")
         #expect(viewer.phase == .ended(reason: "sharing is off"))
         #expect(viewer.rdScreen == nil)
-        #expect(ends.calls.contains(.init(session: "s1", reason: "failed")))
+        await ends.wait(for: 1)
+        #expect(ends.calls == [Ends.Call(session: "s1", reason: "failed")])
 
         // Control asked: granted only with a full-scope ticket. A list tap after it is WebRTC.
         let (full, _) = makeService()
