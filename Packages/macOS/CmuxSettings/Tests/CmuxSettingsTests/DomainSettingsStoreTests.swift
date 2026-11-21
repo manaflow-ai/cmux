@@ -479,6 +479,16 @@ struct CloseTabConfirmationPolicyTests {
         )
     }
 
+    @Test func runningProcessClosesWithoutPromptWhenTabWarningIsOff() {
+        let warningOff = FixedWarnings(warnsBeforeClosingTab: false, warnsBeforeClosingTabXButton: false)
+        let warningOn = FixedWarnings(warnsBeforeClosingTab: true, warnsBeforeClosingTabXButton: false)
+
+        #expect(!warningOff.shouldConfirmCloseIncludingSafety(requiresConfirmation: true, source: .shortcut))
+        #expect(warningOff.warningKindsIncludingSafety(requiresConfirmation: true, source: .shortcut).isEmpty)
+        #expect(warningOn.shouldConfirmCloseIncludingSafety(requiresConfirmation: true, source: .shortcut))
+        #expect(warningOn.warningKindsIncludingSafety(requiresConfirmation: true, source: .shortcut) == [.tab, .safety])
+    }
+
     @Test func agentDontAskAgainDoesNotDisableOrdinaryTabWarning() {
         let defaults = makeScratchDefaults()
         let store = CloseTabWarningStore(defaults: defaults)

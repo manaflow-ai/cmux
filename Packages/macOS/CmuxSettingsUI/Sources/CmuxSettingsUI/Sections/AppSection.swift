@@ -900,7 +900,9 @@ public struct AppSection: View {
             SettingsCardRow(
                 configurationReview: .json(catalog.app.warnBeforeClosingTab.id),
                 catalog.app.warnBeforeClosingTab.userFacing!.title,
-                subtitle: String(localized: "settings.app.warnBeforeClosingTab.subtitle", defaultValue: "Closing a tab asks for confirmation first.")
+                subtitle: warnCloseTab.current
+                    ? String(localized: "settings.app.warnBeforeClosingTab.subtitleOn", defaultValue: "Show a confirmation before closing a tab with a running process.")
+                    : String(localized: "settings.app.warnBeforeClosingTab.subtitleOff", defaultValue: "Tabs close immediately without confirmation. Working agents follow their own setting.")
             ) {
                 Toggle("", isOn: Binding(get: { warnCloseTab.current }, set: { warnCloseTab.set($0) }))
                     .labelsHidden()
