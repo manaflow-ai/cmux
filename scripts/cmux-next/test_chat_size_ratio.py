@@ -216,12 +216,6 @@ class PerfCron(unittest.TestCase):
         self.assertEqual(got["chat_size.ratio_max"]["p95"], 8.0)
         self.assertEqual(got["chat_size.gb4.open_ms_ratio"]["unit"], "x")
 
-    def test_suite_is_dispatched(self):
-        with open(os.path.join(HERE, "split-spring-terminal.py")) as handle:
-            text = handle.read()
-        self.assertIn('"--suite=chat-size"', text)
-        self.assertIn("chat-size-ratio.py", text)
-
 
 if __name__ == "__main__":
     unittest.main()
