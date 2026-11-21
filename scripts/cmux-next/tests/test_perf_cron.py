@@ -972,6 +972,39 @@ class WebUiTests(unittest.TestCase):
         per = rows["webui.chat_open.god.compact.attach_to_latest_per_calibration"]
         self.assertEqual((per["unit"], per["p95"], per["floor"], per["measure_version"]), ("x", 3.75, 0.375, 1))
 
+    def test_the_god_part_keeps_both_chats_paired_attach_rows_and_judges_only_their_dcl_ratio(self):
+        # chat-open-god PAIRED=1: each chat's chat_open_paired.<rail>.attach_to_latest (ms) and attach_per_dcl (x, the
+        # rounds' median of attach_to_latest over the load's own DOMContentLoaded), read by cmuxterm-hq's
+        # chat_attach_p95_ms. The small chat's paired rows stay with the god part, and no god_ratio duplicates
+        # god_ratio.chat_open.compact.attach_to_latest.
+        report = {"rows": [
+            {"name": "chat_open.compact.attach_to_latest", "p95": 30.0},
+            {"name": "chat_open.god.compact.attach_to_latest", "p95": 150.0},
+            {"name": "chat_open_paired.compact.attach_to_latest", "p95": 111.7, "version": 3},
+            {"name": "chat_open_paired.compact.attach_per_dcl", "p95": 6.35, "unit": "x"},
+            {"name": "chat_open_paired.god.compact.attach_to_latest", "p95": 89.1, "version": 3},
+            {"name": "chat_open_paired.god.compact.attach_per_dcl", "p95": 5.1, "unit": "x"},
+        ], "failed": []}
+        rows = cron.rows_of_part(cron.PART_BY_NAME["web-ui-god"], report, budgets_mod, {"rows": {}})
+        self.assertEqual(sorted(rows), ["webui.chat_open.god.compact.attach_to_latest",
+                                        "webui.chat_open_paired.compact.attach_per_dcl",
+                                        "webui.chat_open_paired.compact.attach_to_latest",
+                                        "webui.chat_open_paired.god.compact.attach_per_dcl",
+                                        "webui.chat_open_paired.god.compact.attach_to_latest",
+                                        "webui.god_ratio.chat_open.compact.attach_to_latest"])
+        self.assertEqual(cron.part_for_row("webui.chat_open_paired.compact.attach_per_dcl@linux"), "web-ui-god")
+        # The same code on a slower runner (goal chat-attach-p95, 2026-11-16: 111.7 then 184.5 ms, the ratio 6.35 then
+        # 6.23): the ms rows are shown, never judged, and the ratio is within its rule, so nothing regressed.
+        base = {"webui.chat_open_paired.compact.attach_to_latest": {"p95": 111.7, "unit": "ms"},
+                "webui.chat_open_paired.compact.attach_per_dcl": {"p95": 6.35, "unit": "x"}}
+        slow = {"webui.chat_open_paired.compact.attach_to_latest": {"p95": 184.5, "unit": "ms"},
+                "webui.chat_open_paired.compact.attach_per_dcl": {"p95": 6.23, "unit": "x"}}
+        self.assertEqual(cron.find_regressions(slow, base, 16.67, 16.67, budgets_mod), [])
+        # More work on the same runner moves the ratio: that is the regression.
+        worse = {**slow, "webui.chat_open_paired.compact.attach_per_dcl": {"p95": 7.6, "unit": "x"}}
+        self.assertEqual([r["name"] for r in cron.find_regressions(worse, base, 16.67, 16.67, budgets_mod)],
+                         ["webui.chat_open_paired.compact.attach_per_dcl"])
+
     @staticmethod
     def paired_round(thought, token=1.0, heap=1.0):
         """One paired round's PERF_ROW objects: the small chat's rows and the god chat's at the given ratios."""
