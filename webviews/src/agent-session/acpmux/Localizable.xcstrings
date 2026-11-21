@@ -133242,133 +133242,133 @@
       }
     },
     "newTab.placeholder": {
-      "comment": "Agent pane",
+      "comment": "Agent pane: the New Tab field's placeholder. Return asks the agent, runs a shell command, or opens an address, so it names all three (David Beyer 2026-11-20).",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "اسأل أي شيء أو اكتب URL"
+            "value": "اسأل أي شيء، أو اكتب أمرًا أو URL"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pitaj bilo šta ili upiši URL"
+            "value": "Pitaj bilo šta, ili upiši naredbu ili URL"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Spørg om hvad som helst, eller skriv en URL"
+            "value": "Spørg om hvad som helst, eller skriv en kommando eller URL"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Frag etwas oder gib eine URL ein"
+            "value": "Frag etwas oder gib einen Befehl oder eine URL ein"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ask anything or type a URL"
+            "value": "Ask anything, or type a command or URL"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pregunta lo que quieras o escribe una URL"
+            "value": "Pregunta lo que quieras o escribe un comando o una URL"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Posez une question ou saisissez une URL"
+            "value": "Posez une question, ou saisissez une commande ou une URL"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chiedi qualsiasi cosa o digita un URL"
+            "value": "Chiedi qualsiasi cosa o digita un comando o un URL"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "何でも質問するか、URLを入力"
+            "value": "何でも質問するか、コマンドやURLを入力"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "សួរអ្វីក៏បាន ឬវាយ URL"
+            "value": "សួរអ្វីក៏បាន ឬវាយពាក្យបញ្ជា ឬ URL"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "무엇이든 묻거나 URL 입력"
+            "value": "무엇이든 묻거나 명령어 또는 URL 입력"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Spør om hva som helst, eller skriv en URL"
+            "value": "Spør om hva som helst, eller skriv en kommando eller URL"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zapytaj o cokolwiek lub wpisz URL"
+            "value": "Zapytaj o cokolwiek lub wpisz polecenie albo URL"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pergunte qualquer coisa ou digite uma URL"
+            "value": "Pergunte qualquer coisa ou digite um comando ou uma URL"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Спросите что угодно или введите URL"
+            "value": "Спросите что угодно или введите команду или URL"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ถามอะไรก็ได้หรือพิมพ์ URL"
+            "value": "ถามอะไรก็ได้ หรือพิมพ์คำสั่งหรือ URL"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bir şey sor veya URL yaz"
+            "value": "Bir şey sor ya da bir komut veya URL yaz"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Запитайте будь-що або введіть URL"
+            "value": "Запитайте будь-що або введіть команду чи URL"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hỏi bất cứ điều gì hoặc nhập URL"
+            "value": "Hỏi bất cứ điều gì, hoặc nhập lệnh hay URL"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "问任何问题或输入 URL"
+            "value": "问任何问题，或输入命令或 URL"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "問任何問題或輸入 URL"
+            "value": "問任何問題，或輸入指令或 URL"
           }
         }
       }
@@ -133765,6 +133765,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "打開"
+          }
+        }
+      }
+    },
+    "newTab.row.resumeChat": {
+      "comment": "New Tab dropdown: the row that resumes the chat the typed text names (/resume <session id>, a pasted session id, claude --resume <id>); its detail shows the id's first block",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استئناف المحادثة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nastavi razgovor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Genoptag chat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat fortsetzen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resume Chat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reanudar chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reprendre la conversation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riprendi chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットを再開"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្តការជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 이어서 하기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gjenoppta chat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wznów czat"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retomar chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Продолжить чат"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชทต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbete devam et"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Продовжити чат"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiếp tục cuộc trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "继续聊天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "繼續聊天"
           }
         }
       }
@@ -172055,6 +172187,534 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "代理對話"
+          }
+        }
+      }
+    },
+    "header.liveTree": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شجرة مباشرة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live stablo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live-træ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live-Baum"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live tree"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Árbol en vivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbre en direct"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Albero live"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブツリー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មែកធាងបន្តផ្ទាល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "라이브 트리"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live-tre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drzewo na żywo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Árvore ao vivo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Живое дерево"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ต้นไม้แบบสด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canlı ağaç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Живе дерево"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cây trực tiếp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "实时树"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即時樹"
+          }
+        }
+      }
+    },
+    "header.liveTreeDisconnected": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حالة الشجرة المباشرة غير متاحة لهذه الجلسة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status live stabla nije dostupan za ovu sesiju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status for live-træet er ikke tilgængelig for denne session."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Status des Live-Baums ist für diese Sitzung nicht verfügbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live-tree status is unavailable for this session."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El estado del árbol en vivo no está disponible para esta sesión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’état de l’arbre en direct n’est pas disponible pour cette session."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lo stato dell’albero live non è disponibile per questa sessione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このセッションではライブツリーの状態を利用できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្ថានភាពមែកធាងបន្តផ្ទាល់មិនអាចប្រើបានសម្រាប់សម័យនេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 세션에서는 라이브 트리 상태를 사용할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status for live-treet er ikke tilgjengelig for denne økten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stan drzewa na żywo jest niedostępny dla tej sesji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O status da árvore ao vivo não está disponível para esta sessão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Состояние живого дерева недоступно для этого сеанса."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สถานะต้นไม้แบบสดไม่พร้อมใช้งานสำหรับเซสชันนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canlı ağaç durumu bu oturum için kullanılamıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стан живого дерева недоступний для цього сеансу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trạng thái cây trực tiếp không khả dụng cho phiên này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此会话无法使用实时树状态。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此工作階段無法使用即時樹狀態。"
+          }
+        }
+      }
+    },
+    "header.liveTreeReport": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "آخر نتائج المترجم المُبلّغ عنها"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posljednji prijavljeni rezultati kompajlera"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Senest rapporterede compilerresultater"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zuletzt gemeldete Compilerergebnisse"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last reported compiler results"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Últimos resultados del compilador notificados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Derniers résultats du compilateur signalés"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ultimi risultati del compilatore segnalati"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最後に報告されたコンパイラ結果"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លទ្ធផលកម្មវិធីចងក្រងដែលបានរាយការណ៍ចុងក្រោយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마지막으로 보고된 컴파일러 결과"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sist rapporterte kompilatorresultater"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ostatnio zgłoszone wyniki kompilatora"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Últimos resultados do compilador informados"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Последние полученные результаты компилятора"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ผลลัพธ์คอมไพเลอร์ที่รายงานล่าสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Son bildirilen derleyici sonuçları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Останні повідомлені результати компілятора"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kết quả trình biên dịch được báo cáo gần nhất"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上次报告的编译器结果"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上次回報的編譯器結果"
+          }
+        }
+      }
+    },
+    "header.liveTreeUnknown": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غير متحقق منه"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nepotvrđeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke bekræftet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht verifiziert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unverified"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No verificado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non vérifié"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non verificato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未検証"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនបានផ្ទៀងផ្ទាត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인되지 않음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ubekreftet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niezweryfikowano"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não verificado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не проверено"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยังไม่ยืนยัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Doğrulanmadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не перевірено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chưa xác minh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未验证"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未驗證"
           }
         }
       }
@@ -222481,6 +223141,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "無法繪製此圖表：{reason}"
+          }
+        }
+      }
+    },
+    "diagram.unavailable": {
+      "comment": "Agent pane: in place of a chart or diagram whose renderer failed to load; the chart's source follows",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذر رسم هذا المخطط: لم يتم تحميل أداة رسم المخططات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije moguće nacrtati ovaj grafikon: alat za crtanje grafikona se nije učitao."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke tegne diagrammet: diagramværktøjet blev ikke indlæst."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Diagramm konnte nicht gezeichnet werden: Der Diagramm-Renderer wurde nicht geladen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't draw this chart: the chart renderer didn't load."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudo dibujar este gráfico: el motor de gráficos no se cargó."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible de dessiner ce graphique : le moteur de rendu des graphiques ne s’est pas chargé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile disegnare questo grafico: il motore dei grafici non è stato caricato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このチャートを描画できませんでした: チャートの描画エンジンを読み込めませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចគូរគំនូសតាងនេះបានទេ៖ កម្មវិធីគូរគំនូសតាងមិនបានផ្ទុកទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 차트를 그릴 수 없습니다: 차트 렌더러를 불러오지 못했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke tegne diagrammet: diagramverktøyet ble ikke lastet inn."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie udało się narysować wykresu: mechanizm rysowania wykresów się nie załadował."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível desenhar este gráfico: o renderizador de gráficos não carregou."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось нарисовать диаграмму: модуль отрисовки диаграмм не загрузился."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "วาดแผนภูมินี้ไม่ได้: ตัวแสดงผลแผนภูมิโหลดไม่สำเร็จ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu grafik çizilemedi: grafik oluşturucu yüklenmedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося намалювати діаграму: модуль малювання діаграм не завантажився."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể vẽ biểu đồ này: trình hiển thị biểu đồ không tải được."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法绘制此图表：图表渲染器未能加载。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法繪製此圖表：圖表繪製器未能載入。"
           }
         }
       }
@@ -410693,266 +411485,530 @@
         }
       }
     },
-    "whoElse.topic": {
-      "comment": "Agent pane: who else works on these files",
+    "whoElse.oneSimilar": {
+      "comment": "Agent pane: who else works on these files: the one other session matched by its topic alone, no file in common",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "الموضوع: {words}"
+            "value": "جلسة أخرى واحدة تعمل على شيء مشابه"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "tema: {words}"
+            "value": "Još 1 sesija radi na nečemu sličnom"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "emne: {words}"
+            "value": "1 anden session arbejder på noget lignende"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Thema: {words}"
+            "value": "1 weitere Sitzung arbeitet an etwas Ähnlichem"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "topic: {words}"
+            "value": "1 other session works on something similar"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "tema: {words}"
+            "value": "1 sesión más trabaja en algo parecido"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "sujet : {words}"
+            "value": "1 autre session travaille sur un sujet proche"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "argomento: {words}"
+            "value": "1 altra sessione lavora su qualcosa di simile"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "トピック: {words}"
+            "value": "ほかに1つのセッションが似た作業をしています"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ប្រធានបទ៖ {words}"
+            "value": "វគ្គ 1 ផ្សេងទៀតកំពុងធ្វើការលើអ្វីដែលស្រដៀងគ្នា"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "주제: {words}"
+            "value": "다른 세션 1개가 비슷한 작업을 하고 있습니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "emne: {words}"
+            "value": "1 annen økt jobber med noe lignende"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "temat: {words}"
+            "value": "1 inna sesja pracuje nad czymś podobnym"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "tópico: {words}"
+            "value": "1 outra sessão trabalha em algo parecido"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "тема: {words}"
+            "value": "Ещё 1 сессия работает над чем-то похожим"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "หัวข้อ: {words}"
+            "value": "อีก 1 เซสชันกำลังทำงานที่คล้ายกัน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "konu: {words}"
+            "value": "1 başka oturum benzer bir şey üzerinde çalışıyor"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "тема: {words}"
+            "value": "Ще 1 сесія працює над чимось схожим"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "chủ đề: {words}"
+            "value": "1 phiên khác đang làm việc tương tự"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "主题：{words}"
+            "value": "另有 1 个会话在做类似的事"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "主題：{words}"
+            "value": "另有 1 個工作階段在做類似的事"
+          }
+        }
+      }
+    },
+    "whoElse.manySimilar": {
+      "comment": "Agent pane: who else works on these files: the other sessions all matched by their topic alone, no file in common",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{count} جلسات أخرى تعمل على شيء مشابه"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Još {count} sesija radi na nečemu sličnom"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{count} andre sessioner arbejder på noget lignende"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{count} weitere Sitzungen arbeiten an etwas Ähnlichem"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{count} other sessions work on something similar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{count} sesiones más trabajan en algo parecido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{count} autres sessions travaillent sur un sujet proche"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{count} altre sessioni lavorano su qualcosa di simile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ほかに{count}個のセッションが似た作業をしています"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "វគ្គ {count} ផ្សេងទៀតកំពុងធ្វើការលើអ្វីដែលស្រដៀងគ្នា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다른 세션 {count}개가 비슷한 작업을 하고 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{count} andre økter jobber med noe lignende"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{count} inne sesje pracują nad czymś podobnym"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{count} outras sessões trabalham em algo parecido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ещё {count} сессий работают над чем-то похожим"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อีก {count} เซสชันกำลังทำงานที่คล้ายกัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{count} başka oturum benzer bir şey üzerinde çalışıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ще {count} сесій працюють над чимось схожим"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{count} phiên khác đang làm việc tương tự"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "另有 {count} 个会话在做类似的事"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "另有 {count} 個工作階段在做類似的事"
+          }
+        }
+      }
+    },
+    "whoElse.similar": {
+      "comment": "Agent pane: who else works on these files: why a session with no title matched (its topic is close to this one)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعمل على شيء مشابه"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "radi na nečemu sličnom"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "arbejder på noget lignende"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "arbeitet an etwas Ähnlichem"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "working on something similar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "trabaja en algo parecido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "travaille sur un sujet proche"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "lavora su qualcosa di simile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "似た作業をしています"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងធ្វើការលើអ្វីដែលស្រដៀងគ្នា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "비슷한 작업 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "jobber med noe lignende"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "pracuje nad czymś podobnym"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "trabalhando em algo parecido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "работает над чем-то похожим"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังทำงานที่คล้ายกัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "benzer bir şey üzerinde çalışıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "працює над чимось схожим"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "đang làm việc tương tự"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在做类似的事"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在做類似的事"
           }
         }
       }
     },
     "whoElse.unreached": {
-      "comment": "Agent pane: who else works on these files",
+      "comment": "Agent pane: who else works on these files: the machines that did not answer in time, as a list (Couldn't check a and b)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لم يُسأل: {hosts}"
+            "value": "تعذّر التحقق من {hosts}"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nije pitano: {hosts}"
+            "value": "Nije moguće provjeriti {hosts}"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ikke spurgt: {hosts}"
+            "value": "Kunne ikke tjekke {hosts}"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nicht gefragt: {hosts}"
+            "value": "{hosts} konnte nicht geprüft werden"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Not asked: {hosts}"
+            "value": "Couldn't check {hosts}"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sin consultar: {hosts}"
+            "value": "No se pudo comprobar {hosts}"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Non interrogés : {hosts}"
+            "value": "Impossible de vérifier {hosts}"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Non interpellati: {hosts}"
+            "value": "Impossibile controllare {hosts}"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "未確認: {hosts}"
+            "value": "{hosts} を確認できませんでした"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "មិនបានសួរ៖ {hosts}"
+            "value": "មិនអាចពិនិត្យ {hosts} បានទេ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "확인 못 함: {hosts}"
+            "value": "{hosts}을(를) 확인할 수 없음"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ikke spurt: {hosts}"
+            "value": "Kunne ikke sjekke {hosts}"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nie zapytano: {hosts}"
+            "value": "Nie udało się sprawdzić {hosts}"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Não consultados: {hosts}"
+            "value": "Não foi possível verificar {hosts}"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Не опрошены: {hosts}"
+            "value": "Не удалось проверить {hosts}"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่ได้ถาม: {hosts}"
+            "value": "ตรวจสอบ {hosts} ไม่ได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sorulmadı: {hosts}"
+            "value": "{hosts} denetlenemedi"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Не опитані: {hosts}"
+            "value": "Не вдалося перевірити {hosts}"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chưa hỏi: {hosts}"
+            "value": "Không thể kiểm tra {hosts}"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "未询问：{hosts}"
+            "value": "无法检查 {hosts}"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "未詢問：{hosts}"
+            "value": "無法檢查 {hosts}"
           }
         }
       }
@@ -441648,6 +442704,1458 @@
           "stringUnit": {
             "state": "translated",
             "value": "登入 {name}"
+          }
+        }
+      }
+    },
+    "harnesses.install.incomplete": {
+      "comment": "Agent pane: a Harnesses row or the composer's setup strip when an install failed with advice meant for a terminal user (such as a command-line flag); Retry and Setup guide buttons sit beside it",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يكتمل التثبيت. أعد المحاولة أو افتح دليل الإعداد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instalacija nije završena. Pokušajte ponovo ili otvorite vodič za postavljanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installationen blev ikke færdig. Prøv igen, eller åbn opsætningsvejledningen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Installation wurde nicht abgeschlossen. Versuche es erneut oder öffne die Einrichtungsanleitung."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The install didn't finish. Retry, or open the setup guide."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La instalación no terminó. Vuelve a intentarlo o abre la guía de configuración."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’installation n’a pas abouti. Réessayez ou ouvrez le guide de configuration."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’installazione non è stata completata. Riprova o apri la guida alla configurazione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インストールが完了しませんでした。もう一度試すか、セットアップガイドを開いてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការដំឡើងមិនបានបញ្ចប់ទេ។ សូមព្យាយាមម្តងទៀត ឬបើកមគ្គុទ្ទេសក៍រៀបចំ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설치가 완료되지 않았습니다. 다시 시도하거나 설정 가이드를 여세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installasjonen ble ikke fullført. Prøv igjen, eller åpne oppsettsveiledningen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instalacja nie została ukończona. Spróbuj ponownie lub otwórz przewodnik konfiguracji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A instalação não terminou. Tente novamente ou abra o guia de configuração."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Установка не завершилась. Повторите попытку или откройте руководство по настройке."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การติดตั้งไม่เสร็จสมบูรณ์ ลองอีกครั้ง หรือเปิดคู่มือการตั้งค่า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kurulum tamamlanmadı. Yeniden deneyin veya kurulum kılavuzunu açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Встановлення не завершилося. Повторіть спробу або відкрийте посібник із налаштування."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quá trình cài đặt chưa hoàn tất. Hãy thử lại hoặc mở hướng dẫn thiết lập."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安装未完成。请重试，或打开设置指南。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安裝未完成。請重試，或開啟設定指南。"
+          }
+        }
+      }
+    },
+    "harnesses.install.networkDropped": {
+      "comment": "Agent pane: a Harnesses row or the composer's setup strip when an install failed because the network dropped; a Retry button sits beside it",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انقطعت الشبكة. تحقّق من اتصالك ثم أعد المحاولة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mreža je prekinuta. Provjerite vezu i pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Netværket faldt ud. Tjek din forbindelse, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Netzwerk ist abgebrochen. Prüfe deine Verbindung und versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The network dropped. Check your connection and retry."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La red se cortó. Comprueba tu conexión y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le réseau a été coupé. Vérifiez votre connexion et réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La rete si è interrotta. Controlla la connessione e riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネットワークが切断されました。接続を確認して、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បណ្តាញបានដាច់។ សូមពិនិត្យការតភ្ជាប់របស់អ្នក ហើយព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "네트워크 연결이 끊겼습니다. 연결을 확인한 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nettverket falt ut. Sjekk tilkoblingen og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sieć została przerwana. Sprawdź połączenie i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A rede caiu. Verifique sua conexão e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сеть пропала. Проверьте подключение и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครือข่ายหลุด ตรวจสอบการเชื่อมต่อแล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ağ bağlantısı koptu. Bağlantınızı kontrol edip yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мережа зникла. Перевірте з’єднання та повторіть спробу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mạng bị ngắt. Hãy kiểm tra kết nối và thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "网络中断。请检查网络连接后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "網路中斷。請檢查網路連線後重試。"
+          }
+        }
+      }
+    },
+    "harnesses.install.retrying": {
+      "comment": "Agent pane: a Harnesses row or the composer's setup strip when the network came back and the install runs again by itself",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عاد الاتصال. جارٍ التثبيت مرة أخرى…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ponovo ste povezani. Ponovna instalacija…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Online igen. Installerer igen…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wieder online. Erneute Installation…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Back online. Installing again…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De nuevo en línea. Instalando otra vez…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De nouveau en ligne. Nouvelle installation…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Di nuovo online. Nuova installazione…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンラインに戻りました。もう一度インストールしています…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មានអ៊ីនធឺណិតវិញហើយ។ កំពុងដំឡើងម្តងទៀត…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 온라인입니다. 다시 설치하는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "På nett igjen. Installerer på nytt…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Połączenie przywrócone. Ponowna instalacja…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Online de novo. Instalando novamente…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключение восстановлено. Повторная установка…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กลับมาออนไลน์แล้ว กำลังติดตั้งอีกครั้ง…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeniden çevrimiçi. Tekrar kuruluyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "З’єднання відновлено. Повторне встановлення…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã trực tuyến trở lại. Đang cài đặt lại…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已恢复联网。正在重新安装…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已恢復連線。正在重新安裝…"
+          }
+        }
+      }
+    },
+    "harnesses.install.waitingNetwork": {
+      "comment": "Agent pane: a Harnesses row or the composer's setup strip while an install waits for the network to come back (it then goes on by itself)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "في انتظار الشبكة. يستمر التثبيت عند عودة الاتصال."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Čeka se mreža. Instalacija se nastavlja kada se ponovo povežete."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Venter på netværket. Installationen fortsætter, når du er online igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warte auf das Netzwerk. Die Installation geht weiter, sobald du wieder online bist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for the network. The install goes on when you're back online."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esperando a la red. La instalación continúa cuando vuelvas a estar en línea."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En attente du réseau. L’installation reprend dès que vous êtes de nouveau en ligne."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In attesa della rete. L’installazione riprende quando torni online."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネットワークを待っています。オンラインに戻るとインストールを続けます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងរង់ចាំបណ្តាញ។ ការដំឡើងនឹងបន្តនៅពេលអ្នកមានអ៊ីនធឺណិតវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "네트워크를 기다리는 중입니다. 다시 온라인이 되면 설치를 계속합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Venter på nettverket. Installasjonen fortsetter når du er på nett igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czekanie na sieć. Instalacja będzie kontynuowana po przywróceniu połączenia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aguardando a rede. A instalação continua quando você voltar a ficar online."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ожидание сети. Установка продолжится, когда подключение восстановится."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังรอเครือข่าย การติดตั้งจะดำเนินต่อเมื่อคุณกลับมาออนไลน์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ağ bekleniyor. Yeniden çevrimiçi olduğunuzda kurulum devam eder."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Очікування мережі. Встановлення продовжиться, коли з’єднання відновиться."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đang chờ mạng. Quá trình cài đặt sẽ tiếp tục khi bạn trực tuyến trở lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在等待网络。恢复联网后将继续安装。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在等待網路。恢復連線後將繼續安裝。"
+          }
+        }
+      }
+    },
+    "harnesses.retry": {
+      "comment": "Agent pane: the Harnesses page and its rows (first-run finding 6): the button on a failed install that runs the install again",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة المحاولة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokušaj ponovo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prøv igen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erneut versuchen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reintentar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réessayer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riprova"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ព្យាយាមម្តងទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재시도"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prøv igjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ponów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tentar novamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повторить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลองใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeniden dene"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повторити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thử lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重試"
+          }
+        }
+      }
+    },
+    "harnesses.installedNotFound": {
+      "comment": "Agent pane: the Harnesses page, a row whose install finished while cmux still cannot find the agent; {name} is the agent (Codex). Check again is the row's button (first-run findings row 3)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم التثبيت، لكن cmux لا يجد {name} على هذا الـ Mac بعد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instalirano, ali cmux još ne pronalazi {name} na ovom Macu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installeret, men cmux kan ikke finde {name} på denne Mac endnu"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installiert, aber cmux findet {name} auf diesem Mac noch nicht"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installed, but cmux can't find {name} on this Mac yet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instalado, pero cmux aún no encuentra {name} en este Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installé, mais cmux ne trouve pas encore {name} sur ce Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installato, ma cmux non trova ancora {name} su questo Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インストールしましたが、cmux はこの Mac で {name} をまだ見つけられません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានដំឡើង ប៉ុន្តែ cmux មិនទាន់រក {name} ឃើញនៅលើ Mac នេះនៅឡើយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설치했지만 cmux가 이 Mac에서 {name}을(를) 아직 찾지 못했습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installert, men cmux finner ikke {name} på denne Macen ennå"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zainstalowano, ale cmux jeszcze nie widzi {name} na tym Macu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instalado, mas o cmux ainda não encontra {name} neste Mac"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Установлено, но cmux пока не находит {name} на этом Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ติดตั้งแล้ว แต่ cmux ยังหา {name} บน Mac เครื่องนี้ไม่พบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yüklendi, ancak cmux bu Mac'te {name} uygulamasını henüz bulamıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Встановлено, але cmux ще не знаходить {name} на цьому Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã cài, nhưng cmux chưa tìm thấy {name} trên máy Mac này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已安装，但 cmux 还未在这台 Mac 上找到 {name}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已安裝，但 cmux 還未在這台 Mac 上找到 {name}"
+          }
+        }
+      }
+    },
+    "harnesses.installAgent": {
+      "comment": "Agent pane: the Harnesses page, the Chief row's button when the agent Chief answers through is missing; {name} is that agent (Claude Code)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تثبيت {name}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instaliraj {name}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installer {name}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} installieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install {name}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instalar {name}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installer {name}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installa {name}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} をインストール"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដំឡើង {name}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} 설치"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installer {name}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zainstaluj {name}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instalar {name}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Установить {name}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ติดตั้ง {name}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} uygulamasını yükle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Встановити {name}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cài {name}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安装 {name}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安裝 {name}"
+          }
+        }
+      }
+    },
+    "harnesses.needsAgent": {
+      "comment": "Agent pane: the Harnesses page, the Chief row's status when the agent Chief answers through is not installed; {name} is that agent (Claude Code)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج إلى {name}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Treba {name}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kræver {name}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Braucht {name}"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs {name}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Necesita {name}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nécessite {name}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Richiede {name}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} が必要です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ត្រូវការ {name}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} 필요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trenger {name}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wymaga {name}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Precisa do {name}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нужен {name}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ต้องใช้ {name}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} gerekli"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Потрібен {name}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cần {name}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要 {name}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要 {name}"
+          }
+        }
+      }
+    },
+    "harnesses.signInFirst": {
+      "comment": "Agent pane: the Harnesses page, the Chief row's status when the agent Chief answers through is signed out; {name} is that agent (Claude Code)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سجّل الدخول إلى {name} أولًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prvo se prijavi na {name}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log ind på {name} først"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zuerst bei {name} anmelden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to {name} first"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicia sesión en {name} primero"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez-vous d'abord à {name}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accedi prima a {name}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先に {name} にサインインしてください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចូលគណនី {name} ជាមុនសិន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "먼저 {name}에 로그인하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logg inn på {name} først"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Najpierw zaloguj się do {name}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entre no {name} primeiro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сначала войдите в {name}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลงชื่อเข้า {name} ก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Önce {name} hesabına giriş yapın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спершу увійдіть у {name}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hãy đăng nhập {name} trước"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先登录 {name}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請先登入 {name}"
+          }
+        }
+      }
+    },
+    "auth.signInFirst": {
+      "comment": "Agent pane: New Tab, the lead of the signed-out note after Return or Send was refused; {name} is the agent or cmux. Ends with a period; the cause follows",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سجّل الدخول إلى {name} أولًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prvo se prijavi na {name}."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log ind på {name} først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Melde dich zuerst bei {name} an."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to {name} first."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicia sesión en {name} primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez-vous d'abord à {name}."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accedi prima a {name}."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先に {name} にサインインしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចូលគណនី {name} ជាមុនសិន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "먼저 {name}에 로그인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logg inn på {name} først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Najpierw zaloguj się do {name}."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entre no {name} primeiro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сначала войдите в {name}."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลงชื่อเข้า {name} ก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Önce {name} hesabına giriş yapın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спершу увійдіть у {name}."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hãy đăng nhập {name} trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先登录 {name}。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請先登入 {name}。"
+          }
+        }
+      }
+    },
+    "auth.useAnotherAgent": {
+      "comment": "Agent pane: New Tab, the signed-out note's second button: opens the agents list to pick or set up another agent",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدام وكيل آخر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koristi drugog agenta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug en anden agent"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anderen Agenten verwenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Another Agent"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar otro agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser un autre agent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa un altro agente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のエージェントを使う"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រើភ្នាក់ងារផ្សេង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 에이전트 사용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk en annen agent"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użyj innego agenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar outro agente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Другой агент"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้เอเจนต์อื่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başka bir ajan kullan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Інший агент"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dùng agent khác"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用其他智能体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用其他代理"
           }
         }
       }

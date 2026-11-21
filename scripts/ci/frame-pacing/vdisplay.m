@@ -1,5 +1,5 @@
 // vdisplay: hold a virtual display at a chosen refresh rate until killed (or HOLD seconds).
-// Usage: VDisplay HZ HOLD_SECONDS [main|-] [WIDTHxHEIGHT] [hidpi], or VDisplay probe. `hidpi` makes a
+// Usage: VDisplay HZ HOLD_SECONDS [main|-] [WIDTHxHEIGHT] [hidpi|hidpi-points], or VDisplay probe. `hidpi` makes a
 // backing-scale-2 display of WIDTHxHEIGHT points (twice the pixels): the Liquid Glass Parity matrix's 2x
 // cells on a host whose own screen is 1x (scripts/measure/glass-parity.sh). A copy of cmuxterm-hq's
 // build-fleet/mini-ops/vdisplay.m (`fleet vdisplay`); keep the two in step (this copy adds `main` and
@@ -130,7 +130,11 @@ int main(int argc, char **argv) {
       printf("error: size %s is not WIDTHxHEIGHT within 640x480..3840x2400\n", argv[4]);
       return 2;
     }
-    BOOL hidpi = argc > 5 && strcmp(argv[5], "hidpi") == 0;
+    // `hidpi-points` lists the 2x mode by its point size only (WIDTHxHEIGHT; the pixel size is twice that), the
+    // form DeskPad gives; `hidpi` lists the pixel size and the point size (scripts/measure/vdisplay-hidpi-probe.sh
+    // measures which a host takes).
+    BOOL hidpi = argc > 5 && strncmp(argv[5], "hidpi", 5) == 0;
+    BOOL pointModes = argc > 5 && strcmp(argv[5], "hidpi-points") == 0;
     unsigned int factor = hidpi ? 2 : 1;
     [NSApplication sharedApplication];
     CGVirtualDisplayDescriptor *descriptor = [CGVirtualDisplayDescriptor new];
@@ -146,7 +150,9 @@ int main(int argc, char **argv) {
     settings.hiDPI = hidpi ? 1 : 0;
     // HiDPI: the mode list holds the pixel size too, and the display is switched to the mode of WIDTHxHEIGHT points
     // at twice the pixels (macOS starts it at its 1x mode of the largest size).
-    settings.modes = hidpi
+    settings.modes = pointModes
+      ? @[[[CGVirtualDisplayMode alloc] initWithWidth:width height:height refreshRate:hz]]
+      : hidpi
       ? @[[[CGVirtualDisplayMode alloc] initWithWidth:width * 2 height:height * 2 refreshRate:hz],
           [[CGVirtualDisplayMode alloc] initWithWidth:width height:height refreshRate:hz]]
       : @[[[CGVirtualDisplayMode alloc] initWithWidth:width height:height refreshRate:hz]];

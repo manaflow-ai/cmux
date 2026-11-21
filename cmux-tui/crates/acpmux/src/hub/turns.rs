@@ -500,8 +500,12 @@ impl Hub {
         let replaced = std::sync::OnceLock::<Vec<String>>::new();
         // Another agent's message queued as the running turn crosses its cap still gets the
         // turn its notice (`turn_cap.rs`): the timer may have looked at the queue just before.
-        // An FYI asks for none.
-        let fyi = opts.class == Some(crate::prompt_class::PromptClass::Fyi);
+        // An unclassified notice is informational by default, so use its effective class for
+        // cap checks and routing before any path can treat it as a result.
+        let notice_class = super::inbox::is_notice(opts.provenance.as_ref())
+            .then_some(crate::prompt_class::PromptClass::Fyi);
+        let effective_class = opts.class.or(notice_class);
+        let fyi = effective_class == Some(crate::prompt_class::PromptClass::Fyi);
         let from_agent =
             super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref()).is_some()
                 && !opts.send_now;
@@ -543,7 +547,7 @@ impl Hub {
             &blocks,
             control,
             opts.send_now,
-            opts.class,
+            effective_class,
             opts.provenance.as_ref(),
             opts.agent.as_deref(),
             opts.inbox,
@@ -654,7 +658,7 @@ impl Hub {
         // Who sent it, as the queue knows its prompts' senders (`digest.rs`).
         let agent = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
         // What it asks of this chat: another agent's only, `result` when it named none.
-        let class = crate::prompt_class::of_message(opts.class, agent.is_some());
+        let class = crate::prompt_class::of_message(effective_class, agent.is_some());
         // A question no caller reads the reply of, from a session that did not start this chat
         // and that the inbox did not take: its reply goes back when the turn that answers it ends
         // (`question_replies.rs`). It is due under this prompt until its turn is known: its steer
@@ -1278,6 +1282,11 @@ impl Hub {
         // session-info title can still win before the cheap completion is spent.
         let delivers_context = control != Control::Web
             && blocks.iter().any(|b| b.pointer("/_meta/acpmux/contextSource").is_some());
+        // Only a person's own turn makes a recap worth asking for (`away_recap.rs`).
+        self.recap_turn_started(
+            session,
+            super::prompt_sender::person_turn(&run, provenance.as_ref()),
+        );
         let mut result = super::steer_end::agent_prompt_hook(
             session,
             &child,
@@ -2501,6 +2510,20 @@ impl Hub {
     }
 
     pub async fn rename(&self, session: &Arc<Session>, name: String) -> Result<(), RpcError> {
+        self.rename_as(session, name, super::task_names::Naming::Hand).await
+    }
+
+    /// `rename`, saying who names it (`task_names::Naming`): a person's or an agent's rename
+    /// titles it by the name in words, a task's by the task's title, an address (`register`)
+    /// leaves its title as it is. Every one keeps the old name as a former name
+    /// (`former_names.rs`); a name another session has now is refused, one it had is taken.
+    pub(super) async fn rename_as(
+        &self,
+        session: &Arc<Session>,
+        name: String,
+        naming: super::task_names::Naming<'_>,
+    ) -> Result<(), RpcError> {
+        use super::task_names::Naming;
         if self
             .sessions
             .lock()
@@ -2510,15 +2533,36 @@ impl Hub {
         {
             return Err(RpcError::invalid_params(format!("session name {name:?} is taken")));
         }
-        let old = {
+        let old = session.read_meta(|m| m.name.clone());
+        self.release_former_names(session, &name, &old);
+        let (old, titled) = {
             let mut m = session.meta.lock().unwrap();
             // A chat renamed before it was titled asks no model for a title (`titles.rs`).
             super::titles::title_renamed(&mut m);
+            let titled = match naming {
+                Naming::Hand => super::task_names::name_in_words(&name).inspect(|title| {
+                    m.title = Some(title.clone());
+                    m.title_source = Some(super::titles::NAMED.to_owned());
+                    m.title_prompt = None;
+                }),
+                Naming::Task(title) => {
+                    m.title = Some(title.to_owned());
+                    m.title_source = Some(super::task_names::TASK.to_owned());
+                    m.title_prompt = None;
+                    Some(title.to_owned())
+                }
+                Naming::Address => None,
+            };
             m.name_given = true;
-            std::mem::replace(&mut m.name, name.clone())
+            let old = std::mem::replace(&mut m.name, name.clone());
+            super::former_names::push_former(&mut m.former_names, &old, &name);
+            (old, titled)
         };
         // Both kept (`store/durability.rs`): the answer waits until they are written, not synced.
         self.append(session, "mux", "renamed", json!({"from": old, "to": name}));
+        if let Some(title) = titled {
+            self.append(session, "mux", "titled", json!({"title": title}));
+        }
         self.save_meta_kept(session)?;
         // Its running Claude Code takes the name too (`live_name.rs`).
         self.rename_live_claude(session);

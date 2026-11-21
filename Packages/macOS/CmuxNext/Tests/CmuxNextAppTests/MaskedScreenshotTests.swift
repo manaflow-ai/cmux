@@ -161,7 +161,8 @@ import WebKit
         let raw = Pixels(try await rawCapture(fixture))
         #expect(Self.isRed(raw.at(CGPoint(x: page.midX, y: page.midY), size: size)), "the raw capture shows the page: there is something to mask")
 
-        let (image, masked) = try await AppWindowImage.maskedCapture(fixture.window)
+        let (image, masked, areas) = try await AppWindowImage.maskedCapture(fixture.window)
+        #expect(areas.map(\.name).contains("browser"), "the capture names what it masked")
         let shot = Pixels(image)
         #expect(masked >= 1)
         #expect(shot.width == raw.width && shot.height == raw.height)
