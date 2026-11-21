@@ -19,7 +19,7 @@ export function TurnTokens({ total, split }: { total?: number; split?: TurnToken
   const language = usePaneLanguage();
   if (hasTokens(split))
     return (
-      <span className="cv-worked__tokens is-split" title={tokenDetail(t, language, split)}>
+      <span className="cv-worked__tokens is-split" aria-description={tokenDetail(t, language, split)}>
         <span className="cv-worked__tokens-part">
           {t("turn.tokens.out", { tokens: compactTokens(language, split.output) })}
         </span>

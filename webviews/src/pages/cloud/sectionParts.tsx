@@ -91,7 +91,6 @@ export function PortField({
         aria-label={label}
         disabled={!valid || busy}
         aria-busy={busy}
-        title={busy ? busyLabel : label}
         onClick={() => void submit()}
       >
         {busy ? <output aria-label={busyLabel}>…</output> : button}

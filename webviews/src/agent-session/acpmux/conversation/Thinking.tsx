@@ -617,7 +617,7 @@ export function Thinking({
           {parts.count}
         </span>
         {parts.error && (
-          <span className="cv-worked__count cv-retrying__error" title={parts.error}>
+          <span className="cv-worked__count cv-retrying__error">
             <span className="cv-worked__sep" aria-hidden="true">
               ·
             </span>
@@ -705,7 +705,7 @@ export function Thinking({
             )}
           </output>
           {elapsed && (
-            <span className={own ? "cv-worked__own" : "cv-worked__time"} title={turnTitle}>
+            <span className={own ? "cv-worked__own" : "cv-worked__time"} aria-description={turnTitle}>
               {elapsed}
             </span>
           )}

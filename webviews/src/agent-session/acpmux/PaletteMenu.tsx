@@ -178,7 +178,6 @@ export function PaletteMenu({
         className="acpmux-picker-button"
         data-menu={label}
         aria-label={label}
-        title={tooltip}
         onKeyDown={(event) => {
           if (!open && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
             event.preventDefault();

@@ -68,7 +68,7 @@ function AgentListRow({ row, look }: { row: AgentRow; look: AgentsLook }) {
         {look === "compact" ? null : (
           <span
             className={cx("onb-agent-detail", failed && "is-error")}
-            title={failed ? (install?.message ?? undefined) : undefined}
+            aria-description={failed ? (install?.message ?? undefined) : undefined}
           >
             {detail}
           </span>
@@ -78,7 +78,7 @@ function AgentListRow({ row, look }: { row: AgentRow; look: AgentsLook }) {
         <span
           className="onb-agent-pill"
           data-state={failed ? "error" : signedIn ? "done" : "idle"}
-          title={failed ? (install?.message ?? undefined) : undefined}
+          aria-description={failed ? (install?.message ?? undefined) : undefined}
         >
           {(failed || signedIn) && <StatusGlyph name={failed ? "error" : "done"} size={12} />}
           <span>{detail}</span>

@@ -144,7 +144,7 @@ export function AssigneeBadge({
   if (id) {
     const name = shortName(id);
     return (
-      <span className="tasks-assignee person" style={{ width: size, height: size, fontSize: size * 0.5 }} title={name}>
+      <span className="tasks-assignee person" style={{ width: size, height: size, fontSize: size * 0.5 }}>
         {name.slice(0, 1).toUpperCase()}
       </span>
     );

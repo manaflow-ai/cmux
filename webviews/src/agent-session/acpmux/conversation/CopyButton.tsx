@@ -37,7 +37,6 @@ export function CopyButton({
       type="button"
       className={className}
       aria-label={name}
-      title={name}
       /* A transcript row's roving tab stop and its keys, from src/ui (rovingTabStopProps). */
       {...tabStop}
       data-copied={copied || undefined}

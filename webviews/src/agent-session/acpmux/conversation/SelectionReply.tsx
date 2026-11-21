@@ -181,7 +181,6 @@ export function SelectionReplyChip({ doc = document }: { doc?: Document }) {
       data-hidden={hidden ? "true" : undefined}
       aria-hidden={hidden ? true : undefined}
       aria-label={label}
-      title={current === "icon" ? label : undefined}
       style={
         placed
           ? { left: placed.left, top: placed.top }
