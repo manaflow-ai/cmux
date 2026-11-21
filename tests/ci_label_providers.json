@@ -34,8 +34,8 @@
     },
     "gha-runners": {
       "kind": "reconciler",
-      "serves": ["cmux-fleet-linux-x64"],
-      "what": "cmuxterm-hq tools/fleet-reconcilers/gha_runners.py: boots one-job JIT runners on GCP VMs for jobs queued on the label.",
+      "serves": ["cmux-fleet-linux-x64", "cmux-gcp-*-jit-x64", "cmux-linux"],
+      "what": "cmuxterm-hq tools/fleet-reconcilers/gha_runners.py and runner_pool.py: boots one-job JIT runners on GCP VMs for jobs queued on cmux-fleet-linux-x64 and the reserved cmux-gcp-*-jit-x64 labels (nightly, repair, pr-control, deploy, autoland), and keeps the persistent cmux-runner-pool-* runners on cmux-linux.",
       "workflow": "manaflow-ai/cmuxterm-hq .github/workflows/fleet-reconciler-gha-runners.yml",
       "runs_on": ["${{ fromJSON(vars.RUNNER_POOLS || '{}').small || 'blacksmith-2vcpu-ubuntu-2404' }}"],
       "blacksmith_exempt": "2026-11-19: being moved onto the build controller, off HQ's small Blacksmith pool (fleet-capacity-routing-2). The day's 168-job outage was this route. Write the new route here when it lands and delete this line. Until then NOW's LABEL PROVIDER DOWN (cmuxterm-hq now_runner_starve.py) pages within minutes when it happens again."
