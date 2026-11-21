@@ -76,5 +76,20 @@ exports:
                        '_kCFRunLoopDefaultMode',
                        '_kCFTypeArrayCallBacks',
                        '_kCFTypeDictionaryKeyCallBacks',
-                       '_kCFTypeDictionaryValueCallBacks' ]
+                       '_kCFTypeDictionaryValueCallBacks',
+                       '_CFArrayGetTypeID',
+                       '_CFBooleanGetTypeID',
+                       '_CFBooleanGetValue',
+                       '_CFDictionaryGetCount',
+                       '_CFDictionaryGetKeysAndValues',
+                       '_CFDictionaryGetTypeID',
+                       '_CFHash',
+                       '_CFMachPortCreateRunLoopSource',
+                       '_CFMachPortInvalidate',
+                       '_CFNumberCreate',
+                       '_CFPropertyListCreateWithData',
+                       '_CFRunLoopAddSource',
+                       '_CFRunLoopRemoveSource',
+                       '_CFRunLoopRunInMode',
+                       '_kCFRunLoopCommonModes' ]
 ...
