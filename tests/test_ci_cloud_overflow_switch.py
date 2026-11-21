@@ -1248,9 +1248,16 @@ class WorkflowTests(unittest.TestCase):
 
 
 class RepoVariableCheckTests(unittest.TestCase):
-    def env(self, **extra: str) -> dict[str, str]:
-        return {"CMUX_CI_RUNNER_VARIABLES": "MACOS_RUNNER_PR=glaeda-std-xcode-26.6\nLINUX_RUNNER=ubuntu-24.04\n",
+    # A label the drift policy refuses in MACOS_RUNNER_PR (a side lane's); an owned pull request pool label
+    # (glaeda-std-xcode-26.6) is no drift there, record or not.
+    REFUSED = "glaeda-side-std-xcode-26.6"
+
+    def env(self, label: str = REFUSED, **extra: str) -> dict[str, str]:
+        return {"CMUX_CI_RUNNER_VARIABLES": f"MACOS_RUNNER_PR={label}\nLINUX_RUNNER=ubuntu-24.04\n",
                 "CI_OWNED_POOL_SLOTS": "", "CMUX_CI_XCODE_APP_PR": PIN, **extra}
+
+    def test_an_owned_pull_request_pool_is_no_drift_without_the_record(self) -> None:
+        self.assertEqual(check.problems(self.env("glaeda-std-xcode-26.6")), [])
 
     def test_a_signing_variable_the_drift_policy_accepts_is_still_reported(self) -> None:
         env = {"CMUX_CI_RUNNER_VARIABLES": "MACOS_RUNNER_26=warp-macos-15-arm64-6x\n", "CI_OWNED_POOL_SLOTS": "",
@@ -1270,7 +1277,7 @@ class RepoVariableCheckTests(unittest.TestCase):
         self.assertTrue(check.problems(self.env()))
 
     def test_the_switch_failover_is_expected_while_the_record_exists(self) -> None:
-        record = {"changed": {"MACOS_RUNNER_PR": {"before": None, "after": "glaeda-std-xcode-26.6"}}}
+        record = {"changed": {"MACOS_RUNNER_PR": {"before": None, "after": self.REFUSED}}}
         self.assertEqual(check.problems(self.env(CI_CLOUD_OVERFLOW_SAVED=json.dumps(record))), [])
         other = {"changed": {"MACOS_RUNNER_PR": {"before": None, "after": "glaeda-light-xcode-26.6"}}}
         self.assertTrue(check.problems(self.env(CI_CLOUD_OVERFLOW_SAVED=json.dumps(other))))

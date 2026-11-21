@@ -57,8 +57,21 @@ class Values(unittest.TestCase):
                 self.assertTrue(found)
                 self.assertIn("set-owned-slots.sh", found[0])
 
+    def test_the_live_values_of_2026_11_21_pass(self) -> None:
+        # The values the scheduled check failed on for days: the persistent Linux pool (Leo, 2026-11-21 00:38Z:
+        # "just... accept all labels"; signing isolation deferred, cmux#13742) and owned pull request Macs.
+        live = ("LINUX_RUNNER=cmux-fleet-linux-x64\nMACOS_RUNNER_15=glaeda-std-xcode-26.6\n"
+                "MACOS_RUNNER_26_LARGE=glaeda-std-xcode-26.6\nMACOS_RUNNER_DISPLAY=glaeda-gui-std-xcode-26.6\n"
+                "MACOS_RUNNER_IOS=glaeda-ios-sim\nMACOS_RUNNER_PR=glaeda-std-xcode-26.6\n")
+        self.assertEqual(check.problems(env(CMUX_CI_RUNNER_VARIABLES=live)), [])
+
+    def test_a_signing_variable_still_refuses_a_reused_machine_outside_the_deferral(self) -> None:
+        found = check.problems(env(CMUX_CI_RUNNER_VARIABLES="LINUX_RUNNER=glaeda-std-xcode-26.6\n"))
+        self.assertTrue(any(p.startswith("LINUX_RUNNER=") for p in found))
+
     def test_runner_labels_the_guard_refuses_fail(self) -> None:
-        for label in ("warp-macos-26-arm64-12x", "glaeda-std-xcode-26.6"):
+        # An owned pull request pool (glaeda-std-xcode-26.6) is allowed there now; a side lane's label is not.
+        for label in ("warp-macos-26-arm64-12x", "glaeda-side-std-xcode-26.6"):
             with self.subTest(label=label):
                 found = check.problems(env(CMUX_CI_RUNNER_VARIABLES=f"MACOS_RUNNER_PR={label}\n"))
                 self.assertEqual(len(found), 1)
