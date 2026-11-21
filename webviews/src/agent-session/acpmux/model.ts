@@ -1647,6 +1647,8 @@ export type ConversationLayout = {
   tailGap?: number;
   /// The interface scale the gaps were placed at (transcriptGrid.ts gridScale).
   scale?: number;
+  /// The transcript look's gap factor they were placed at (chatDisplay.ts transcriptGapScale), when not 1.
+  gapScale?: number;
   /// Over a floating stack, the band under the last drawn row before the rest gap: a trailing turn
   /// footer's action row lies there (transcriptGrid.ts restBand).
   restBand?: number;
@@ -1661,15 +1663,28 @@ export type ConversationLayout = {
 /// Metrics of conversation/conversation.css (`--cv-font-size`, `--cv-line-height`, `.cv-*`): the
 /// text font, its line and the code sizes follow the user's chat look (chatDisplay.ts), 14px
 /// system-ui on 22.75px lines and 12px code on 20px lines by default.
-const metrics = () => currentChatMetrics();
-/// Whether the row being measured is the agent's reply, whose prose a font pack can set apart
-/// (chatDisplay.ts `replyMeasureFont`, conversation.css `.cv-reply`); layoutConversation sets it around each row.
-let measuringReply = false;
-/// The canvas font of the text being measured: the reply's while a reply is, else the chat's.
-const proseFont = () => (measuringReply ? metrics().replyMeasureFont : metrics().measureFont);
+/// While a reply or a prompt is measured, its own text (a transcript look's `reply.*` and
+/// `userMessage.font*`, chatDisplay.ts ChatMetrics `reply` and `prompt`; conversation.css rebinds the
+/// same font, size and line inside `.cv-reply` and `.cv-user__bubble`).
+const metrics = (): ChatMetrics => {
+  const base = currentChatMetrics();
+  if (measuringPart === null) return base;
+  // A reply's prose measures in `replyMeasureFont` (proseFont); its line is the reply's own.
+  if (measuringPart === "reply") return { ...base, lineHeight: base.reply.lineHeight };
+  return { ...base, measureFont: base.prompt.measureFont, lineHeight: base.prompt.lineHeight };
+};
+/// Which part's row is being measured: the agent's reply, whose prose a font pack or a look can set
+/// apart (chatDisplay.ts `replyMeasureFont`, conversation.css `.cv-reply`), or the person's prompt;
+/// layoutConversation sets it around each row.
+let measuringPart: "reply" | "prompt" | null = null;
+/// The canvas font of the text being measured: the reply's while a reply is, else the chat's (or
+/// the prompt's).
+const proseFont = () => (measuringPart === "reply" ? metrics().replyMeasureFont : metrics().measureFont);
 /// Codex's user bubble keeps 10px padding on each side, at the chat's density text scale (`.cv-user__bubble`:
 /// the grid's Interface Size scale times the bubble's own, which together are the text scale).
-const userBubblePadding = () => 5 * gridLength("base") * chatDensityTextScale();
+/// A transcript look's padding (conversation/transcriptLook.ts userBubbleBox) replaces the 10 per side.
+const userBubblePadding = () =>
+  2 * (userBubbleBox(chatDisplay().transcriptLook).padBlock ?? 2.5 * gridLength("base")) * chatDensityTextScale();
 /// The status line under a queued prompt (`.cv-user__status`: 4px above a 16px line).
 const USER_STATUS_HEIGHT = 20;
 /// The transcript's rhythm (`--cv-meta-gap`, `--cv-meta-row`, `--cv-message-gap` and `--cv-turn-gap`
@@ -2161,8 +2176,11 @@ const chromeHeight = (row: AcpmuxRow, _actions: boolean) =>
       (row.author ? authorHeight() : 0)
     : 0; // Reply controls overlay the container gap.
 /// The bubble's share of its row and its side padding, which sits inside that share (border-box).
+/// A transcript look's share and side padding replace them (`--cv-user-bubble-share`, `-pad-inline`).
 const USER_BUBBLE_SHARE = 0.7;
-const userBubbleSides = () => 2 * BUBBLE.paddingInline * chatDensityTextScale();
+const userBubbleShare = () => userBubbleBox(chatDisplay().transcriptLook).share ?? USER_BUBBLE_SHARE;
+const userBubbleSides = () =>
+  2 * (userBubbleBox(chatDisplay().transcriptLook).padInline ?? BUBBLE.paddingInline) * chatDensityTextScale();
 /// Space between a row's markdown blocks, the list indent and the quote's bar and padding.
 const blockGap = () => TRANSCRIPT_INNER_GAP * chromeScale;
 const LIST_INDENT = 28;
@@ -3249,7 +3267,7 @@ function measuredRowHeight(
     !row.from &&
     !chiefEnvelope(row.text) &&
     isPlainUserPrompt(row.text);
-  const contentWidth = Math.max(80, row.kind === "user" ? USER_BUBBLE_SHARE * width - userBubbleSides() : width);
+  const contentWidth = Math.max(80, row.kind === "user" ? userBubbleShare() * width - userBubbleSides() : width);
   const picks = row.kind === "user" && !inline && !pasted && !plainUser ? sentUIPickSegments(row.text) : undefined;
   const usedPrepared = new Set<string>();
   let contentHeight: number;
@@ -3639,9 +3657,12 @@ export function layoutConversation(
   const messages = new MessagePlacement(rows, previous?.layout);
   const scale = gridScale();
   chromeScale = scale;
+  // The gaps between rows also take the transcript look's density and row spacing (1 at cmux).
+  const gapFactor = transcriptGapScale();
+  const gapScale = scale * gapFactor;
   let start = 0;
   // Kept rows keep their gaps only at the scale they were placed at.
-  if (previous && (previous.layout.scale ?? 1) === scale) {
+  if (previous && (previous.layout.scale ?? 1) === scale && (previous.layout.gapScale ?? 1) === gapFactor) {
     const limit = Math.min(rows.length, previous.rows.length);
     while (start < limit && rows[start] === previous.rows[start]) start += 1;
     // A row after the kept ones can change the height of the last kept row that draws (a footer
@@ -3718,7 +3739,7 @@ export function layoutConversation(
         remembered = true;
       } else {
         // A reply's text measures in the reply's face (`proseFont`).
-        measuringReply = row.kind === "assistant";
+        measuringPart = row.kind === "assistant" ? "reply" : row.kind === "user" ? "prompt" : null;
         try {
           height = custom
             ? customHeight
@@ -3735,7 +3756,7 @@ export function layoutConversation(
                   edge?.endsWith(ACTIONS_EDGE) === true,
                 );
         } finally {
-          measuringReply = false;
+          measuringPart = null;
         }
         // A row that draws nothing stays at 0; a custom renderer's height is its own.
         if (!custom && height > 0) height += statusDelta(row, statusEdge(row, rows[nextDrawn], prev));
@@ -3743,7 +3764,7 @@ export function layoutConversation(
       }
     }
     if (height > 0) {
-      if (previousContent >= 0) gaps[index] = transcriptGap(marks[previousContent]!, marks[index]!) * scale;
+      if (previousContent >= 0) gaps[index] = transcriptGap(marks[previousContent]!, marks[index]!) * gapScale;
       top += gaps[index]!;
       beforeContent = previousContent;
       previousContent = index;
@@ -3760,6 +3781,7 @@ export function layoutConversation(
     tailGap: tailGap(marks[previousContent] ?? 0, marks[beforeContent] ?? 0, footerAfter(marks, heights)) * scale,
     restBand: restBand(footerAfter(marks, heights)) * scale,
     scale,
+    ...(gapFactor !== 1 ? { gapScale: gapFactor } : {}),
     totalHeight: top,
     ...(remembered ? { remembered: true as const } : {}),
   };
@@ -3784,8 +3806,13 @@ export function placeRows(
   // The gaps take the Interface Size now, not the estimate's (it may predate a change), and the kept
   // rows keep their places only at the scale they were placed at.
   const scale = gridScale();
+  const gapFactor = transcriptGapScale();
+  const gapScale = scale * gapFactor;
   const kept =
-    previous && (previous.layout.scale ?? 1) === scale && (previous.layout.origin ?? 0) === origin
+    previous &&
+    (previous.layout.scale ?? 1) === scale &&
+    (previous.layout.gapScale ?? 1) === gapFactor &&
+    (previous.layout.origin ?? 0) === origin
       ? Math.min(previous.kept, previous.layout.heights.length, heights.length)
       : 0;
   if (kept > 0) {
@@ -3804,7 +3831,7 @@ export function placeRows(
     const height = known !== undefined && known >= 0 ? known : estimate.heights[index];
     if (height > 0) {
       if (previousContent >= 0)
-        top += marks ? transcriptGap(marks[previousContent]!, marks[index]!) * scale : (estimate.gaps?.[index] ?? 0);
+        top += marks ? transcriptGap(marks[previousContent]!, marks[index]!) * gapScale : (estimate.gaps?.[index] ?? 0);
       beforeContent = previousContent;
       previousContent = index;
     }
@@ -3822,6 +3849,7 @@ export function placeRows(
       : estimate.tailGap,
     restBand: marks ? restBand(footerAfter(marks, heights)) * scale : estimate.restBand,
     scale,
+    ...(gapFactor !== 1 ? { gapScale: gapFactor } : {}),
     totalHeight: top,
     ...(origin ? { origin } : {}),
   };
@@ -3855,6 +3883,7 @@ export type PlacedLayout = {
   marks?: Uint8Array;
   tailGap?: number;
   scale?: number;
+  gapScale?: number;
   restBand?: number;
   origin?: number;
 };
@@ -3970,7 +3999,9 @@ export function placeRowsIndexed(
   const count = estimate.heights.length;
   const scale = gridScale();
   const marks = estimate.marks;
-  const between = (before: number, next: number) => transcriptGap(before, next) * scale;
+  const gapFactor = transcriptGapScale();
+  const gapScale = scale * gapFactor;
+  const between = (before: number, next: number) => transcriptGap(before, next) * gapScale;
   const drawnAt = (index: number) => {
     // A drawn 0 is a row that draws nothing (App.tsx drawnHeightOf): it takes no room.
     const known = heightAt(index);
@@ -4000,6 +4031,7 @@ export function placeRowsIndexed(
     prior &&
     "index" in prior &&
     (previous.layout.scale ?? 1) === scale &&
+    (previous.layout.gapScale ?? 1) === gapFactor &&
     (previous.layout.origin ?? 0) === origin &&
     Boolean(previous.layout.marks) === Boolean(marks)
       ? (prior as IndexedLayoutGeometry).index
@@ -4043,6 +4075,7 @@ export function placeRowsIndexed(
     tailGap: marks ? tailGap(last, beforeLast, footer) * scale : estimate.tailGap,
     restBand: marks ? restBand(footer) * scale : estimate.restBand,
     scale,
+    ...(gapFactor !== 1 ? { gapScale: gapFactor } : {}),
     ...(origin ? { origin } : {}),
   };
 }
@@ -4184,7 +4217,15 @@ import { recapHeight } from "./conversation/recapPoints";
 import { lastBlockBoundary } from "./conversation/incrementalMarkdown";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { chatColumn, type ChatColumn } from "./chatWidth";
-import { chatDensityTextScale, currentChatMetrics, promptCoachEnabled } from "./chatDisplay";
+import {
+  chatDensityTextScale,
+  chatDisplay,
+  currentChatMetrics,
+  type ChatMetrics,
+  promptCoachEnabled,
+  transcriptGapScale,
+} from "./chatDisplay";
+import { userBubbleBox } from "./conversation/transcriptLook";
 import { messageOpened } from "./conversation/incomingOpened";
 import { inboxThreadKey } from "./conversation/inboxNotice";
 import { foldsThreads, inboxNoticeLook } from "./conversation/inboxNoticeLook";
