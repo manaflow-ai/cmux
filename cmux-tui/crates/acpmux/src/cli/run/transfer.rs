@@ -188,7 +188,7 @@ pub(super) async fn precopy(
     // The copy `dst` still holds from the chat's last move, if any: the source prepares only
     // what came after it. A base either side refuses falls back to a full prefix.
     let base = dst.request("_acpmux/transfer_base", json!({"sessionId": id})).await.ok();
-    let base = base.map(|b| b["base"].clone()).filter(|b| !b.is_null());
+    let base = base.map(|b| field(&b, "base").clone()).filter(|b| !b.is_null());
     if let Some(base) = base
         && let Some(staged) = stage_prefix(src, dst, id, Some(base)).await
     {
@@ -204,17 +204,19 @@ async fn stage_prefix(src: &Client, dst: &Client, id: &str, base: Option<Value>)
         params.set("base", base.clone());
     }
     let prepared = src.request("_acpmux/transfer_prepare", params).await.ok()?;
-    if base.is_some() && prepared["base"].is_null() {
+    if base.is_some() && field(&prepared, "base").is_null() {
         return None;
     }
     let stage = dst.request("_acpmux/transfer_stage", json!({"manifest": prepared})).await.ok()?;
-    let stage_id = stage["stageId"].as_str()?.to_owned();
+    let stage_id = field(&stage, "stageId").as_str()?.to_owned();
     let receive_id = json!(stage_id);
-    page_files(src, dst, &prepared, &prepared["prepareId"], &receive_id, None).await.ok()?;
+    page_files(src, dst, &prepared, &field(&prepared, "prepareId"), &receive_id, None)
+        .await
+        .ok()?;
     dst.request("_acpmux/transfer_stage_finish", json!({"stageId": stage_id})).await.ok()?;
     Some(Staged {
-        prepare_id: prepared["prepareId"].as_str()?.to_owned(),
-        after_seq: prepared["afterSeq"].as_u64()?,
+        prepare_id: field(&prepared, "prepareId").as_str()?.to_owned(),
+        after_seq: field(&prepared, "afterSeq").as_u64()?,
         stage_id,
     })
 }
@@ -365,7 +367,7 @@ async fn page_files(
         loop {
             let mut read = json!({"transferId": transfer_id, "path": path, "offset": offset});
             let page = src.request("_acpmux/transfer_read", stamped(&mut read, epoch)).await?;
-            let mut write = json!({"receiveId": receive_id, "path": path, "offset": offset, "data": page["data"]});
+            let mut write = json!({"receiveId": receive_id, "path": path, "offset": offset, "data": field(&page, "data")});
             dst.request("_acpmux/transfer_write", stamped(&mut write, epoch)).await?;
             offset = page["next"].as_u64().ok_or_else(|| anyhow!("transfer_read: no next"))?;
             if page["eof"] == true {
@@ -401,4 +403,9 @@ pub(super) async fn connect_target(
     let init = json!({"protocolVersion": 1, "clientInfo": {"name": "acpmux-move"}});
     let dst_init = dst.request(method::INITIALIZE, init).await?;
     Ok((forward, dst, dst_init))
+}
+
+/// `v[k]` without the indexing lint: Null when absent.
+fn field<'a>(v: &'a Value, k: &str) -> &'a Value {
+    v.get(k).unwrap_or(&Value::Null)
 }

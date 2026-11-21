@@ -219,8 +219,8 @@ impl Hub {
         }
         let note = read_json(&self.base_note(id)?)?;
         let stamp = self.store.log_stamp(id).ok()?;
-        (note["role"] == "shipped" && note["stamp"].as_u64() == Some(stamp))
-            .then(|| note["transferId"].as_str().map(str::to_owned))
+        (*field(&note, "role") == "shipped" && field(&note, "stamp").as_u64() == Some(stamp))
+            .then(|| field(&note, "transferId").as_str().map(str::to_owned))
             .flatten()
     }
 
@@ -229,12 +229,12 @@ impl Hub {
     fn held_base(&self, session: &Session, base: &Value) -> Option<Base> {
         let transfer_id = base.get("transferId").and_then(Value::as_str)?;
         let note = read_json(&self.base_note(&session.id)?)?;
-        let seq = note["seq"].as_u64().filter(|s| *s > 0)?;
-        let digest = note["digest"].as_str()?.to_owned();
+        let seq = field(&note, "seq").as_u64().filter(|s| *s > 0)?;
+        let digest = field(&note, "digest").as_str()?.to_owned();
         let stamp = self.store.log_stamp(&session.id).ok()?;
-        let held = note["role"] == "received"
-            && note["transferId"] == transfer_id
-            && note["stamp"].as_u64() == Some(stamp)
+        let held = *field(&note, "role") == "received"
+            && *field(&note, "transferId") == transfer_id
+            && field(&note, "stamp").as_u64() == Some(stamp)
             && seq <= session.seq.load(Ordering::SeqCst)
             && self.digest_at(&session.id, seq).ok().flatten().as_deref() == Some(digest.as_str());
         held.then(|| Base { transfer_id: transfer_id.to_owned(), seq, digest })
@@ -357,14 +357,14 @@ impl Hub {
         let Some(record) = read_json(&root.join("prefix.json")) else {
             return Err(diverged("no such prepare here"));
         };
-        if record["sessionId"] != session.id.as_str()
-            || record["afterSeq"].as_u64() != Some(after_seq)
+        if *field(&record, "sessionId") != session.id.as_str()
+            || field(&record, "afterSeq").as_u64() != Some(after_seq)
         {
             return Err(diverged("the prepare is of another chat or prefix"));
         }
         let stamp =
             self.store.log_stamp(&session.id).map_err(|e| RpcError::internal(e.to_string()))?;
-        if record["stamp"].as_u64() != Some(stamp) {
+        if field(&record, "stamp").as_u64() != Some(stamp) {
             return Err(diverged("the chat's log was rewritten since its prepare"));
         }
         if after_seq > 0 {
@@ -376,14 +376,14 @@ impl Hub {
                 })
                 .map_err(|e| RpcError::internal(e.to_string()))?;
             let same = match at.filter(|e| e.seq == after_seq) {
-                Some(e) => record["digest"].as_str() == Some(record_digest(&e)?.as_str()),
+                Some(e) => field(&record, "digest").as_str() == Some(record_digest(&e)?.as_str()),
                 None => false,
             };
             if !same {
                 return Err(diverged("the chat's log no longer holds the prepared prefix"));
             }
         }
-        let token = record["token"].as_str().unwrap_or_default().to_owned();
+        let token = field(&record, "token").as_str().unwrap_or_default().to_owned();
         Ok(CheckedPrefix { prepare_id: prepare_id.to_owned(), after_seq, token })
     }
 
@@ -391,14 +391,16 @@ impl Hub {
     /// `transfer_write`.
     pub(in crate::hub) fn transfer_stage(&self, params: &Value) -> Result<Value, RpcError> {
         let manifest = params.get("manifest").cloned().unwrap_or(Value::Null);
-        if manifest["schema"] != PREFIX_SCHEMA {
+        if *field(&manifest, "schema") != PREFIX_SCHEMA {
             return Err(transfer_error("schema", format!("a stage takes {PREFIX_SCHEMA}")));
         }
-        let id = manifest["sessionId"].as_str().unwrap_or("");
-        if !super::super::transfer::is_plain_id(id) || manifest["afterSeq"].as_u64().is_none() {
+        let id = field(&manifest, "sessionId").as_str().unwrap_or("");
+        if !super::super::transfer::is_plain_id(id)
+            || field(&manifest, "afterSeq").as_u64().is_none()
+        {
             return Err(RpcError::invalid_params("transfer: a stage needs sessionId and afterSeq"));
         }
-        let files = manifest["files"].as_array().cloned().unwrap_or_default();
+        let files = field(&manifest, "files").as_array().cloned().unwrap_or_default();
         if files.len() > MAX_FILES {
             return Err(transfer_error("size", format!("{} files", files.len())));
         }
@@ -433,16 +435,16 @@ impl Hub {
             .ok_or_else(|| {
                 RpcError::not_found(format!("transfer.unknown: no stage {stage_id:?}"))
             })?;
-        let after_seq = manifest["afterSeq"].as_u64().unwrap_or(0);
+        let after_seq = field(&manifest, "afterSeq").as_u64().unwrap_or(0);
         let bundle = dir.join("bundle");
-        for f in manifest["files"].as_array().into_iter().flatten() {
+        for f in field(&manifest, "files").as_array().into_iter().flatten() {
             let (path, size) = (f["path"].as_str().unwrap_or(""), f["size"].as_u64());
             let have = std::fs::metadata(inside(&bundle, path)?).map_or(0, |m| m.len());
             if Some(have) != size {
                 return Err(transfer_error("incomplete", format!("{path:?}: {have} of {size:?}")));
             }
         }
-        let chat = manifest["sessionId"].as_str().unwrap_or_default();
+        let chat = field(&manifest, "sessionId").as_str().unwrap_or_default();
         let staged = dir.join("store").join(chat);
         let segment = staged.join("events").join("000000.ndjson");
         let base = match manifest.get("base").filter(|b| !b.is_null()) {
@@ -460,8 +462,8 @@ impl Hub {
             ));
         }
         index_staged(&dir.join("store"), chat);
-        let staged = json!({"sessionId": manifest["sessionId"], "afterSeq": after_seq,
-                            "token": manifest["token"]});
+        let staged = json!({"sessionId": field(&manifest, "sessionId"), "afterSeq": after_seq,
+                            "token": field(&manifest, "token")});
         crate::home_fs::write(dir.join("staged.json"), staged.to_string())
             .map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
         let _ = crate::home_fs::remove_dir_all(&bundle);
@@ -516,12 +518,12 @@ impl Hub {
         let chat = manifest["sessionId"].as_str().unwrap_or_default();
         let file = dir.join("store").join(chat).join("events").join("000000.ndjson");
         let staged = read_json(&dir.join("prefix.json"));
-        let Some(staged) =
-            staged.filter(|s| s["token"] == manifest["prefix"]["token"] && file.is_file())
-        else {
+        let Some(staged) = staged.filter(|s| {
+            *field(s, "token") == *field(field(&manifest, "prefix"), "token") && file.is_file()
+        }) else {
             return Err(transfer_error("unstaged", "the move's staged prefix is not here"));
         };
-        Ok(Some(StagedPrefix { file, after_seq: staged["afterSeq"].as_u64().unwrap_or(0) }))
+        Ok(Some(StagedPrefix { file, after_seq: field(&staged, "afterSeq").as_u64().unwrap_or(0) }))
     }
 
     /// Append every record of a bundle's `events/*.ndjson` to the store, in file order, after the
@@ -717,4 +719,9 @@ fn adopt_index(file: &Path, dir: &Path) {
     let target = to.join("000000.ndjson");
     let _ = crate::home_fs::remove_file(&target);
     let _ = crate::home_fs::hard_link(&copy, &target);
+}
+
+/// `v[k]` without the indexing lint: Null when absent.
+fn field<'a>(v: &'a Value, k: &str) -> &'a Value {
+    v.get(k).unwrap_or(&Value::Null)
 }
