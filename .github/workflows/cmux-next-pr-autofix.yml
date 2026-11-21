@@ -736,6 +736,13 @@ jobs:
 
       - name: Install zig for clippy
         if: steps.areas.outputs.clippy == 'true'
+        env:
+          # The clippy gate's build env (cmux-tui-spec.yml): zig's version from ghostty-next (the
+          # default, ghostty, is not checked out here), the ghostty-next gitlink as the source, and a
+          # baseline CPU so the gate's build cache matches.
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+          CMUX_GHOSTTY_SRC: ""
+          CMUX_GHOSTTY_VT_ZIG_CPU: baseline
         run: ./scripts/install-zig-ci.sh
 
       - name: Cache cargo build
@@ -749,6 +756,11 @@ jobs:
       # Before the other repairs, so their cargo fmt sees clippy's edits.
       - name: cargo clippy --fix
         if: steps.areas.outputs.clippy == 'true'
+        env:
+          # The clippy gate's build env (cmux-tui-spec.yml).
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+          CMUX_GHOSTTY_SRC: ""
+          CMUX_GHOSTTY_VT_ZIG_CPU: baseline
         run: |
           set -euo pipefail
           "$AUTOFIX/autofix-clippy.sh" "$GITHUB_WORKSPACE" < "$RUNNER_TEMP/changed.txt" | tee "$RUNNER_TEMP/clippy.txt"

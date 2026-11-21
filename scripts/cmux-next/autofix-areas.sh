@@ -51,5 +51,5 @@ area fmt 'cmux-tui/|Native/OptChat/'
 # manifest reaches other workspaces' locks through path dependencies (eb4f3eb1d94).
 area locks '(.*/)?Cargo\.(toml|lock)$'
 # cargo clippy --fix: the cmux-tui Rust a pull request changes, and on the base what changed since the
-# last successful run (base-autofix-repair.sh, with the crates the clippy gate checks for it).
+# last successful run (base-autofix-repair.sh, with the crates it can affect: cargo_affected.py).
 area clippy 'cmux-tui/.*\.rs$'
