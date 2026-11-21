@@ -42,7 +42,9 @@ PATH_FILTERED_PREFIXES = ("docs/", "plans/", "design/")
 # the name and nothing else speaks for it. For an older same-named sibling -- another workflow's job of that name, or
 # an earlier run of the same workflow (check_runs_at) -- only the two that are a verdict a job actually reached.
 # `cancelled` and `stale` are what concurrency does to a superseded run, and a `startup_failure` attempt ran no job
-# at all (check_runs_at's own reading of it), so none of them is a result anybody must explain. Reading them as reds
+# at all, so none of them is a result anybody must explain. (Only a sibling is read that way. check_runs_at keeps the
+# highest id per check suite and reads no conclusion, so a `startup_failure` that is the newest of its name is still
+# that name's verdict and still refuses.) Reading them as reds
 # would refuse nearly every real head: 8375182a4233 had three runs of each workflow, and three names whose newest was
 # green over a `cancelled` sibling (`language-boundaries`, `pr-capture-check, ...`, `risk evidence`).
 VERDICT_REDS = {"failure", "timed_out"}
