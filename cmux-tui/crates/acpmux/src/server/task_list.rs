@@ -4,9 +4,12 @@
 //! answers the list's summary (`TaskListSummary`), null for none.
 //!
 //! Set by the chat's own agent (its proven caller token: source `agent`), by the session that
-//! started it with `start_session` (source `chief`), or by the person's side, the Chief host and
-//! the app (source `chief`). A remote WebSocket device and a peer are refused, as for the goal
-//! methods (`goal.rs`).
+//! started it with `start_session`, or by a local client that runs in no chat: the person, the
+//! Chief host (optchat-chief's socket client proves neither a caller nor the person) and the app
+//! (source `chief`). A connection that proved it runs in another chat is refused, and so are a
+//! remote WebSocket device and a peer, as for the goal methods (`goal.rs`). The list is display
+//! data, and an unproven local client can already prompt any chat, so this rule gives it nothing
+//! it lacks.
 
 use super::{Conn, str_param};
 use crate::hub::Hub;
@@ -44,11 +47,11 @@ fn handle(hub: &Arc<Hub>, conn: &Conn, m: &str, params: &Value) -> Result<Value,
     });
     let source = if own {
         TaskListSource::Agent
-    } else if starter || conn.is_person() {
+    } else if starter || caller.is_none() || conn.is_person() {
         TaskListSource::Chief
     } else {
         return Err(RpcError::invalid_params(
-            "a chat's task list is kept by its own agent, the chat that started it, or the person",
+            "a chat's task list is kept by its own agent, the chat that started it, the Chief or the person",
         ));
     };
     if m == method::MUX_TASK_LIST_GET {
