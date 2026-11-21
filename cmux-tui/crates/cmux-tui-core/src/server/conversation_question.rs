@@ -5,6 +5,8 @@
 #[cfg(unix)]
 use std::time::Duration;
 
+#[cfg(unix)]
+use cmux_conversation::QuestionHarness;
 #[cfg(any(unix, test))]
 use cmux_conversation::QuestionState;
 use cmux_conversation::{Question, QuestionAnswer};
