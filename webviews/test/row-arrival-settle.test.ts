@@ -93,7 +93,7 @@ await requireBrowserLane("row-arrival-settle.test.ts", async () => {
   const SHORT = 17;
   const LONG = 167;
   /// From the event to everything at rest.
-  const MAX_REST_MS = 120;
+  const MAX_REST_MS = 120; // motion-allow: a rest budget, not a step
   /// The chat moves in the frame the row lands in, or the next: never behind the stream.
   const MAX_FIRST_MS = 2 * FRAME_MS + 0.5;
   /// One line of the reply at the chat font; no frame moves a row in view by more than two thirds of
@@ -122,7 +122,9 @@ await requireBrowserLane("row-arrival-settle.test.ts", async () => {
     return made;
   }
 
+  // motion-allow: the rest budget (MAX_REST_MS), not a step
   test.each([...ARRIVAL_TURNS])("%s: everything rests within 120 ms of the event, in one motion", async (scenario) => {
+    // motion-allow: a rest budget, not a step
     for (const turns of [SHORT, LONG])
       for (const step of STEPS) {
         const window = (await report(scenario, turns))[step];

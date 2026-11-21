@@ -494,8 +494,7 @@ fi
 # cmux-next ships no legacy Cloud tunnel system extension. The opt-in Cloud
 # Tunnel (plans/cmux-next/cloud-tunnel-DESIGN.md) is handled only by its own
 # "Prepare the Cloud Tunnel extension" step, which signs or removes it, so that
-# step is left out of this check. It does ship the Computer Use helper (D19;
-# tests/test_nightly_next_computer_use_helper.py). The Chromium engine artifact
+# step is left out of this check. The Chromium engine artifact
 # is arm64 only, so an x86_64 variant drops it before thinning.
 if awk '
   /^      - name: Prepare the Cloud Tunnel extension$/ { skip=1; next }
@@ -570,6 +569,8 @@ for step in "Gate distribution with syspolicy_check" "Generate Sparkle appcasts 
   step_if="$(awk -v name="      - name: $step" '$0 == name { found=1; next } found && /^        if: / { sub(/^        if: /, ""); print; exit }' "$WORKFLOW_FILE")"
   expected="$ACCEPTED_ONLY"
   [ "$step" = "Gate distribution with syspolicy_check" ] || expected="$NOT_NOTARY_TEST"
+  # Shared with nightly-next-one, whose steps also skip once its run left the push slot (LEFT_SLOT).
+  step_if="${step_if% && !env.LEFT_SLOT}"
   if [ "$step_if" != "$expected" ]; then
     echo "FAIL: $step must run only for an Accepted build: $step_if"
     exit 1

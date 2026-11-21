@@ -1,5 +1,11 @@
 # cmux next: Cloud and iOS on cmux-tui
 
+Status (2026-11-13): the Mac's irx phone listener this note designed (`MobileIrxHost`, Settings >
+Accounts > Phone Access, `phone.allowConnections`) was removed from cmux-next; no cmux-next phone
+used it. cmux on iPhone (`cmux-next-ios/`) connects through the iPhone host (`IPhoneHostService`
+and the bundled `cmux-mobile-host`, `mobile.allowIPhoneConnections`). The sections below are kept
+as the research record.
+
 Research note for `REWRITE.md` decision D4 ("Cloud and iOS must keep working
 seamlessly. They may be rewritten so both ride cmux-tui"). Paths are relative
 to the `feat-cmux-next` worktree (base `fde44232c35`, read 2026-09-28). `T/` =

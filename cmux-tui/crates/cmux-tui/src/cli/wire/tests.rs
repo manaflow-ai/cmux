@@ -1,5 +1,6 @@
 use super::*;
 use cmux_tui_core::resource::ResourceOperation;
+use std::net::Shutdown;
 
 fn plan(operation: ResourceOperation) -> RequestPlan {
     RequestPlan {

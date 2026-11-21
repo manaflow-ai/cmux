@@ -1,7 +1,7 @@
 // Standalone toggle buttons over Base UI Toggle and Toggle Group, in shadcn's shape (`Toggle` and
 // `ToggleGroup` with `variant`, `size`, single or `multiple` choice and `orientation`), drawn with the
-// design scale (ui/controls.css), never shadcn's look. Usable anywhere, not only in a Toolbar (the
-// toolbar keeps its own ToolbarToggleGroup).
+// design scale (ui/controls.css, plus ui/toggle.css), never shadcn's look. Usable anywhere, not only
+// in a Toolbar (the toolbar keeps its own ToolbarToggleGroup).
 // - Toggle: a real button with `aria-pressed`; Space and Return flip it.
 // - ToggleGroup: one Tab stop; the arrows move between its toggles (along its orientation, looping,
 //   direction-aware), Home and End jump to the ends. Single choice by default; `multiple` lets
@@ -10,6 +10,8 @@ import { createContext, useContext, type ComponentProps } from "react";
 import { Toggle as BaseToggle } from "@base-ui/react/toggle";
 import { ToggleGroup as BaseToggleGroup } from "@base-ui/react/toggle-group";
 import { cx } from "./cx";
+import "./controls.css";
+import "./toggle.css";
 
 /** ghost: nothing at rest, the selection fill while pressed. outline: a hairline, filled while pressed.
  * segmented (groups only): one track holding the toggles, the pressed one raised, like Tabs'. */

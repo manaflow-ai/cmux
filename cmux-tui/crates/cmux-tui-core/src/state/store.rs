@@ -374,6 +374,17 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<T> {
         read(&self.connection.get())
     }
+
+    /// Run a read against the registry connection with one try for it:
+    /// `None` while another thread holds the connection (the journal writer
+    /// at a commit), and the read did not run.
+    pub(crate) fn try_read_state<T>(
+        &self,
+        read: impl FnOnce(&Connection) -> anyhow::Result<T>,
+    ) -> Option<anyhow::Result<T>> {
+        let connection = self.connection.try_get()?;
+        Some(read(&connection))
+    }
 }
 
 /// The state resources for a session snapshot's `extra.state`.
@@ -434,6 +445,14 @@ static NOTED_EPHEMERAL: std::sync::Mutex<std::collections::BTreeSet<String>> =
 pub(crate) fn note_ephemeral(workspace_id: &str) {
     use crate::panic_free::RecoverPoison;
     NOTED_EPHEMERAL.lock().recover_poison().insert(workspace_id.to_string());
+}
+
+/// Whether any workspace was ever ephemeral in this process: a remote
+/// device's `list-workspaces` revision is then a digest of what it may see
+/// (server.rs `list_workspaces_reply_since`).
+pub(crate) fn any_ephemeral_noted() -> bool {
+    use crate::panic_free::RecoverPoison;
+    !NOTED_EPHEMERAL.lock().recover_poison().is_empty()
 }
 
 /// Whether workspace `workspace_id` was ever ephemeral in this process.

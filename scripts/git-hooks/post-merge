@@ -6,6 +6,58 @@ set -euo pipefail
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 HEAD_SHA="$(git rev-parse HEAD)"
 
+canonical_url() {
+    case "$1" in
+        git@github.com:manaflow-ai/cmux.git|ssh://git@github.com/manaflow-ai/cmux.git|https://github.com/manaflow-ai/cmux.git|https://github.com/manaflow-ai/cmux) return 0 ;;
+    esac
+    return 1
+}
+
+# After main or feat-cmux-next is merged into a branch, rebuild the generated
+# files the merge kept one side of (.gitattributes, cmux-generated-v1) and
+# commit them, so nobody resolves or rebuilds one by hand (Leo, 2026-11-16: "it
+# shouldve just been done"). The rebuild runs the merged tree's generators, so
+# only when the merged-in commit is exactly a base branch fetched from
+# manaflow-ai/cmux and the branch does not track a fork or a pull request ref.
+# CMUX_REGENERATE_AFTER_MERGE=0 turns it off. A failed generator only warns:
+# the pull request's generated-file checks still name what is stale.
+regenerate_after_base_merge() {
+    [[ "${CMUX_REGENERATE_AFTER_MERGE:-1}" != 0 ]] || return 0
+    local merged branch upstream_remote upstream_merge remote base python3_bin found=""
+    merged="$(git rev-parse -q --verify 'HEAD^2' 2>/dev/null)" || return 0
+    branch="$(git symbolic-ref -q --short HEAD)" || return 0
+    upstream_remote="$(git config "branch.$branch.remote" || true)"
+    upstream_merge="$(git config "branch.$branch.merge" || true)"
+    case "$upstream_merge" in ""|refs/heads/*) ;; *) return 0 ;; esac
+    if [[ -n "$upstream_remote" && "$upstream_remote" != "." ]]; then
+        canonical_url "$(git remote get-url "$upstream_remote" 2>/dev/null || true)" || return 0
+    fi
+    while IFS= read -r remote; do
+        canonical_url "$(git remote get-url "$remote" 2>/dev/null || true)" || continue
+        for base in main feat-cmux-next; do
+            if [[ "$(git rev-parse -q --verify "refs/remotes/$remote/$base" 2>/dev/null || true)" == "$merged" ]]; then
+                found="$base"
+            fi
+        done
+    done < <(git remote)
+    [[ -n "$found" && -f "$REPO_ROOT/scripts/cmux-next/generated_merge.py" ]] || return 0
+    python3_bin="$(command -v python3 || true)"
+    [[ "$python3_bin" == /* ]] && python3_bin="$(/bin/realpath "$python3_bin")"
+    case "$python3_bin" in /*) ;; *) return 0 ;; esac
+    case "$python3_bin" in "$REPO_ROOT"/*) return 0 ;; esac
+    if ! (cd "$REPO_ROOT" && "$python3_bin" -I scripts/cmux-next/generated_merge.py regenerate --merge --stage); then
+        echo "warning: rebuilding the generated files after merging $found failed; run" \
+            "scripts/cmux-next/generated_merge.py regenerate --merge --stage, then commit." >&2
+        return 0
+    fi
+    if ! git diff --cached --quiet; then
+        git commit --no-verify -q -m "Regenerate generated files after merging $found" \
+            -m "scripts/cmux-next/generated_merge.py regenerate --merge, from the post-merge hook."
+        echo "==> committed the generated files the merge with $found kept one side of, rebuilt."
+    fi
+}
+regenerate_after_base_merge
+
 # This hook is tracked, so never run its installer merely because an arbitrary
 # checked-out branch asks. The current commit must exactly equal main or
 # feat-cmux-next fetched from the canonical manaflow-ai/cmux remote already
@@ -34,6 +86,8 @@ while IFS= read -r remote; do
                         scripts/normalize-pbxproj.py
                         scripts/webviews_bun_version.py
                         scripts/git-hooks/pre-push
+                        scripts/git-hooks/hook_python.sh
+                        scripts/git-hooks/merge_python.sh
                         scripts/git-hooks/refresh_checks.py
                         scripts/web_lint_prepush.py
                         scripts/lint_swift_namespaces.py

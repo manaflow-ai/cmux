@@ -1,0 +1,226 @@
+{
+ "tag": "instantnew",
+ "host": "cmux22",
+ "cpus": 10,
+ "summary": {
+  "idle/new_tab": {
+   "n": 6
+  }
+ },
+ "runs": [
+  {
+   "command": "new_tab",
+   "phase": "idle",
+   "run": 0,
+   "visible_ms": 33.374,
+   "ready_ms": 49.284,
+   "confirmed_ms": 65.682,
+   "key_ms": 16.807,
+   "committed_ms": 24.624875,
+   "frames_to_visible": 3
+  },
+  {
+   "command": "new_tab",
+   "phase": "idle",
+   "run": 1,
+   "visible_ms": 7.863,
+   "ready_ms": 23.554,
+   "confirmed_ms": 39.919,
+   "key_ms": 3.776,
+   "committed_ms": 6.841666,
+   "frames_to_visible": 1
+  },
+  {
+   "command": "new_tab",
+   "phase": "idle",
+   "run": 2,
+   "visible_ms": 24.564,
+   "ready_ms": 40.449,
+   "confirmed_ms": 56.981,
+   "key_ms": 5.217,
+   "committed_ms": 12.51175,
+   "frames_to_visible": 2
+  },
+  {
+   "command": "new_tab",
+   "phase": "idle",
+   "run": 3,
+   "visible_ms": 29.982,
+   "ready_ms": 45.8,
+   "confirmed_ms": 62.156,
+   "key_ms": 15.771,
+   "committed_ms": 22.688542,
+   "frames_to_visible": 2
+  },
+  {
+   "command": "new_tab",
+   "phase": "idle",
+   "run": 4,
+   "visible_ms": 7.485,
+   "ready_ms": 24.077,
+   "confirmed_ms": 40.569,
+   "key_ms": 3.665,
+   "committed_ms": 6.344667,
+   "frames_to_visible": 1
+  },
+  {
+   "command": "new_tab",
+   "phase": "idle",
+   "run": 5,
+   "visible_ms": 31.389,
+   "ready_ms": 44.737,
+   "confirmed_ms": 61.52,
+   "key_ms": 16.046,
+   "committed_ms": null,
+   "frames_to_visible": 2
+  },
+  {
+   "command": "new_tab",
+   "phase": "load",
+   "run": 0,
+   "visible_ms": 53.398,
+   "ready_ms": 78.854,
+   "confirmed_ms": 105.092,
+   "key_ms": 26.891,
+   "committed_ms": 24.624875,
+   "frames_to_visible": 3
+  },
+  {
+   "command": "new_tab",
+   "phase": "load",
+   "run": 1,
+   "visible_ms": 12.581,
+   "ready_ms": 37.687,
+   "confirmed_ms": 63.871,
+   "key_ms": 6.042,
+   "committed_ms": 6.841666,
+   "frames_to_visible": 1
+  },
+  {
+   "command": "new_tab",
+   "phase": "load",
+   "run": 2,
+   "visible_ms": 39.302,
+   "ready_ms": 64.719,
+   "confirmed_ms": 91.169,
+   "key_ms": 8.347,
+   "committed_ms": 12.51175,
+   "frames_to_visible": 2
+  },
+  {
+   "command": "new_tab",
+   "phase": "load",
+   "run": 3,
+   "visible_ms": 47.971,
+   "ready_ms": 73.28,
+   "confirmed_ms": 99.449,
+   "key_ms": 25.234,
+   "committed_ms": 22.688542,
+   "frames_to_visible": 2
+  },
+  {
+   "command": "new_tab",
+   "phase": "load",
+   "run": 4,
+   "visible_ms": 11.977,
+   "ready_ms": 38.523,
+   "confirmed_ms": 64.911,
+   "key_ms": 5.864,
+   "committed_ms": 6.344667,
+   "frames_to_visible": 1
+  },
+  {
+   "command": "new_tab",
+   "phase": "load",
+   "run": 5,
+   "visible_ms": 50.223,
+   "ready_ms": 71.58,
+   "confirmed_ms": 98.433,
+   "key_ms": 25.674,
+   "committed_ms": null,
+   "frames_to_visible": 2
+  },
+  {
+   "arm": "quick",
+   "command": "new_tab",
+   "phase": "quick",
+   "run": 0,
+   "visible_ms": 29.982084,
+   "ready_ms": 45.800125,
+   "confirmed_ms": 62.155625,
+   "key_ms": 15.771042,
+   "committed_ms": 22.688542,
+   "frames_to_visible": 2
+  },
+  {
+   "arm": "quick",
+   "command": "new_tab",
+   "phase": "quick",
+   "run": 1,
+   "visible_ms": 7.485333,
+   "ready_ms": 24.076625,
+   "confirmed_ms": 40.569125,
+   "key_ms": 3.664958,
+   "committed_ms": 6.344667,
+   "frames_to_visible": 1
+  },
+  {
+   "arm": "quick",
+   "command": "new_tab",
+   "phase": "quick",
+   "run": 2,
+   "visible_ms": 31.389417,
+   "ready_ms": 44.737458,
+   "confirmed_ms": 61.520417,
+   "key_ms": 16.046333,
+   "committed_ms": null,
+   "frames_to_visible": 2
+  },
+  {
+   "arm": "cold",
+   "command": "new_tab",
+   "phase": "cold",
+   "run": 0,
+   "visible_ms": 29.982084,
+   "ready_ms": 45.800125,
+   "confirmed_ms": 62.155625,
+   "key_ms": 15.771042,
+   "committed_ms": 22.688542,
+   "frames_to_visible": 2
+  },
+  {
+   "arm": "cold",
+   "command": "new_tab",
+   "phase": "cold",
+   "run": 1,
+   "visible_ms": 7.485333,
+   "ready_ms": 24.076625,
+   "confirmed_ms": 40.569125,
+   "key_ms": 3.664958,
+   "committed_ms": 6.344667,
+   "frames_to_visible": 1
+  },
+  {
+   "arm": "cold",
+   "command": "new_tab",
+   "phase": "cold",
+   "run": 2,
+   "visible_ms": 31.389417,
+   "ready_ms": 44.737458,
+   "confirmed_ms": 61.520417,
+   "key_ms": 16.046333,
+   "committed_ms": null,
+   "frames_to_visible": 2
+  },
+  {
+   "phase": "cold",
+   "run": 3,
+   "command": "new_tab",
+   "arm": "cold",
+   "error": "launch: the app did not come up"
+  }
+ ],
+ "arms": {},
+ "headline": {},
+ "headline_rule": "worst arm"
+}

@@ -1,0 +1,246 @@
+﻿2026-11-14T19:50:52.7536850Z Current runner version: '2.338.2'
+2026-11-14T19:50:52.7539100Z Runner name: 'blacksmith-6vcpu-macos-26-3llxsy3nuaqkmjqq'
+2026-11-14T19:50:52.7539590Z Runner group name: 'blacksmith scale sets - blacksmith-6vcpu-macos-26'
+2026-11-14T19:50:52.7540150Z Machine name: 'Mac-1794685847019'
+2026-11-14T19:50:52.7541390Z ##[group]GITHUB_TOKEN Permissions
+2026-11-14T19:50:52.7542080Z Contents: read
+2026-11-14T19:50:52.7542380Z Metadata: read
+2026-11-14T19:50:52.7542630Z ##[endgroup]
+2026-11-14T19:50:52.7543500Z Secret source: Actions
+2026-11-14T19:50:52.7543920Z Cache mode: write
+2026-11-14T19:50:52.7544270Z Prepare workflow directory
+2026-11-14T19:50:52.7738050Z Prepare all required actions
+2026-11-14T19:50:54.4290880Z ##[group]Run '/opt/blacksmith/setup_mac.sh'
+2026-11-14T19:50:54.4313670Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-14T19:50:54.4313990Z env:
+2026-11-14T19:50:54.4314160Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 251
+2026-11-14T19:50:54.4314370Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 1786
+2026-11-14T19:50:54.4314560Z   BLACKSMITH_CHECK_RUN_ID: 132561563162
+2026-11-14T19:50:54.4314790Z   BLACKSMITH_JOB_DISPLAY_NAME: Reviewer path (appstore, ipad)
+2026-11-14T19:50:54.4315040Z   GITHUB_ACTIONS_CACHE_MODE: write
+2026-11-14T19:50:54.4315220Z ##[endgroup]
+2026-11-14T19:50:54.8712050Z ##[group]Run # Under RUNNER_TEMP: upload-artifact refuses a path with '..'
+2026-11-14T19:50:54.8742160Z shell: /bin/bash -e {0}
+2026-11-14T19:50:54.8742370Z env:
+2026-11-14T19:50:54.8742550Z   LANE: appstore
+2026-11-14T19:50:54.8742760Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 251
+2026-11-14T19:50:54.8742990Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 1786
+2026-11-14T19:50:54.8743200Z ##[endgroup]
+2026-11-14T19:50:54.9236110Z ##[group]Run actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+2026-11-14T19:50:54.9241660Z ##[endgroup]
+2026-11-14T19:50:55.1790310Z ##[group]Getting Git version info
+2026-11-14T19:50:55.2062780Z ##[endgroup]
+2026-11-14T19:50:55.2180750Z ##[group]Initializing the repository
+2026-11-14T19:50:55.2361860Z ##[endgroup]
+2026-11-14T19:50:55.2362360Z ##[group]Disabling automatic garbage collection
+2026-11-14T19:50:55.2406770Z ##[endgroup]
+2026-11-14T19:50:55.2410540Z ##[group]Setting up auth
+2026-11-14T19:50:55.4713050Z ##[endgroup]
+2026-11-14T19:50:55.4713460Z ##[group]Fetching the repository
+2026-11-14T19:51:35.8470070Z ##[endgroup]
+2026-11-14T19:51:35.8470330Z ##[group]Determining the checkout info
+2026-11-14T19:51:35.8471140Z ##[endgroup]
+2026-11-14T19:51:35.8566970Z ##[group]Checking out the ref
+2026-11-14T19:51:40.5914080Z ##[endgroup]
+2026-11-14T19:51:40.6051080Z ##[group]Removing auth
+2026-11-14T19:51:40.8158580Z ##[endgroup]
+2026-11-14T19:51:40.8460100Z ##[group]Run actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+2026-11-14T19:51:40.8464730Z ##[endgroup]
+2026-11-14T19:51:40.9047250Z ##[group]Getting Git version info
+2026-11-14T19:51:40.9115390Z ##[endgroup]
+2026-11-14T19:51:40.9173270Z ##[group]Initializing the repository
+2026-11-14T19:51:40.9310720Z ##[endgroup]
+2026-11-14T19:51:40.9310950Z ##[group]Disabling automatic garbage collection
+2026-11-14T19:51:40.9353140Z ##[endgroup]
+2026-11-14T19:51:40.9353350Z ##[group]Setting up auth
+2026-11-14T19:51:41.1452970Z ##[endgroup]
+2026-11-14T19:51:41.1453170Z ##[group]Fetching the repository
+2026-11-14T19:51:42.2092830Z ##[endgroup]
+2026-11-14T19:51:42.2093070Z ##[group]Determining the checkout info
+2026-11-14T19:51:42.2093320Z ##[endgroup]
+2026-11-14T19:51:42.2093500Z ##[group]Setting up sparse checkout
+2026-11-14T19:51:42.2143680Z ##[endgroup]
+2026-11-14T19:51:42.2143860Z ##[group]Checking out the ref
+2026-11-14T19:51:43.2844830Z ##[endgroup]
+2026-11-14T19:51:43.2951300Z ##[group]Removing auth
+2026-11-14T19:51:43.4934770Z ##[endgroup]
+2026-11-14T19:51:43.5177420Z ##[group]Run ./scripts/select-ci-xcode.sh
+2026-11-14T19:51:43.5200800Z shell: /bin/bash -e {0}
+2026-11-14T19:51:43.5200970Z env:
+2026-11-14T19:51:43.5201170Z   LANE: appstore
+2026-11-14T19:51:43.5201400Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 251
+2026-11-14T19:51:43.5201590Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 1786
+2026-11-14T19:51:43.5201830Z   DERIVED: /Users/runner/_work/_temp/dd
+2026-11-14T19:51:43.5202090Z   RESULTS: /Users/runner/_work/_temp/results
+2026-11-14T19:51:43.5202540Z ##[endgroup]
+2026-11-14T19:51:45.2040460Z ##[group]Run set -euo pipefail
+2026-11-14T19:51:45.2041380Z [36;1m  echo "::error::749d86697ef31d198612eed13817041569574e40 has no cmux-next-ios/project.yml: it is not the NEXT iOS app, so there is no reviewer path to walk" >&2[0m
+2026-11-14T19:51:45.2065280Z shell: /bin/bash -e {0}
+2026-11-14T19:51:45.2065440Z env:
+2026-11-14T19:51:45.2065560Z   LANE: appstore
+2026-11-14T19:51:45.2065680Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 251
+2026-11-14T19:51:45.2065860Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 1786
+2026-11-14T19:51:45.2066010Z   DERIVED: /Users/runner/_work/_temp/dd
+2026-11-14T19:51:45.2066150Z   RESULTS: /Users/runner/_work/_temp/results
+2026-11-14T19:51:45.2066380Z   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+2026-11-14T19:51:45.2066570Z ##[endgroup]
+2026-11-14T19:51:45.2489270Z ##[group]Run set -euo pipefail
+2026-11-14T19:51:45.2513220Z shell: /bin/bash -e {0}
+2026-11-14T19:51:45.2513370Z env:
+2026-11-14T19:51:45.2513490Z   LANE: appstore
+2026-11-14T19:51:45.2513610Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 251
+2026-11-14T19:51:45.2513760Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 1786
+2026-11-14T19:51:45.2513910Z   DERIVED: /Users/runner/_work/_temp/dd
+2026-11-14T19:51:45.2514050Z   RESULTS: /Users/runner/_work/_temp/results
+2026-11-14T19:51:45.2514230Z   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+2026-11-14T19:51:45.2514470Z ##[endgroup]
+2026-11-14T19:51:50.7838550Z ##[group]Run bash .review-gate/cmux-next-ios/scripts/app_review_pick_step.sh "$FAMILY"
+2026-11-14T19:51:50.7861740Z shell: /bin/bash -e {0}
+2026-11-14T19:51:50.7861860Z env:
+2026-11-14T19:51:50.7861980Z   LANE: appstore
+2026-11-14T19:51:50.7862090Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 251
+2026-11-14T19:51:50.7862220Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 1786
+2026-11-14T19:51:50.7862390Z   DERIVED: /Users/runner/_work/_temp/dd
+2026-11-14T19:51:50.7862530Z   RESULTS: /Users/runner/_work/_temp/results
+2026-11-14T19:51:50.7862740Z   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+2026-11-14T19:51:50.7862910Z   FAMILY: ipad
+2026-11-14T19:51:50.7863000Z ##[endgroup]
+2026-11-14T19:51:51.2929330Z ##[group]Run ./.github/actions/setup-cmux-tui-rust
+2026-11-14T19:51:51.2930830Z ##[endgroup]
+2026-11-14T19:51:51.3000420Z ##[group]Run set -euo pipefail
+2026-11-14T19:51:51.3024350Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-14T19:51:51.3024520Z env:
+2026-11-14T19:51:51.3024620Z   LANE: appstore
+2026-11-14T19:51:51.3024720Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 251
+2026-11-14T19:51:51.3024850Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 1786
+2026-11-14T19:51:51.3024990Z   DERIVED: /Users/runner/_work/_temp/dd
+2026-11-14T19:51:51.3025120Z   RESULTS: /Users/runner/_work/_temp/results
+2026-11-14T19:51:51.3025300Z   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+2026-11-14T19:51:51.3025470Z   UDID: B182EAEE-366E-42CF-A4E4-F2477FA54947
+2026-11-14T19:51:51.3025600Z ##[endgroup]
+2026-11-14T19:51:51.5420650Z ##[group]Run if [[ -n "$REQUESTED_PYTHON_COMMAND" ]]; then
+2026-11-14T19:51:51.5433230Z [36;1m  echo "::error::Python is required to read the pinned Rust toolchain" >&2[0m
+2026-11-14T19:51:51.5469340Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-14T19:51:51.5469510Z env:
+2026-11-14T19:51:51.5469610Z   LANE: appstore
+2026-11-14T19:51:51.5469720Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 251
+2026-11-14T19:51:51.5469870Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 1786
+2026-11-14T19:51:51.5470020Z   DERIVED: /Users/runner/_work/_temp/dd
+2026-11-14T19:51:51.5470190Z   RESULTS: /Users/runner/_work/_temp/results
+2026-11-14T19:51:51.5470390Z   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+2026-11-14T19:51:51.5470780Z   UDID: B182EAEE-366E-42CF-A4E4-F2477FA54947
+2026-11-14T19:51:51.5471090Z   TOOLCHAIN_FILE: /Users/runner/_work/cmux/cmux/./.github/actions/setup-cmux-tui-rust/../../../cmux-tui/rust-toolchain.toml
+2026-11-14T19:51:51.5471390Z   REQUESTED_PYTHON_COMMAND: 
+2026-11-14T19:51:51.5471510Z ##[endgroup]
+2026-11-14T19:51:56.3342100Z ##[group]Run bash "$GITHUB_ACTION_PATH/../runner-cargo-home/runner-cargo-home.sh"
+2026-11-14T19:51:56.3369330Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-14T19:51:56.3369540Z env:
+2026-11-14T19:51:56.3369670Z   LANE: appstore
+2026-11-14T19:51:56.3369840Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 251
+2026-11-14T19:51:56.3370010Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 1786
+2026-11-14T19:51:56.3370280Z   DERIVED: /Users/runner/_work/_temp/dd
+2026-11-14T19:51:56.3370550Z   RESULTS: /Users/runner/_work/_temp/results
+2026-11-14T19:51:56.3370820Z   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+2026-11-14T19:51:56.3371050Z   UDID: B182EAEE-366E-42CF-A4E4-F2477FA54947
+2026-11-14T19:51:56.3371310Z   CMUX_TUI_RUSTDOC: /Users/runner/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/rustdoc
+2026-11-14T19:51:56.3371570Z ##[endgroup]
+2026-11-14T19:51:56.3815820Z ##[group]Run Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+2026-11-14T19:51:56.3819330Z ##[endgroup]
+2026-11-14T19:51:56.5751600Z ##[group]Cache Configuration
+2026-11-14T19:51:56.5757440Z ##[endgroup]
+2026-11-14T19:51:56.8554320Z ##[group]Run bash cmux-next-ios/rust/scripts/build-xcframework.sh
+2026-11-14T19:51:56.8580080Z shell: /bin/bash -e {0}
+2026-11-14T19:51:56.8580220Z env:
+2026-11-14T19:51:56.8580330Z   LANE: appstore
+2026-11-14T19:51:56.8580460Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 251
+2026-11-14T19:51:56.8580600Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 1786
+2026-11-14T19:51:56.8580740Z   DERIVED: /Users/runner/_work/_temp/dd
+2026-11-14T19:51:56.8580890Z   RESULTS: /Users/runner/_work/_temp/results
+2026-11-14T19:51:56.8581100Z   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+2026-11-14T19:51:56.8581280Z   UDID: B182EAEE-366E-42CF-A4E4-F2477FA54947
+2026-11-14T19:51:56.8581510Z   CMUX_TUI_RUSTDOC: /Users/runner/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/rustdoc
+2026-11-14T19:51:56.8581710Z   CACHE_ON_FAILURE: false
+2026-11-14T19:51:56.8581830Z   CARGO_INCREMENTAL: 0
+2026-11-14T19:51:56.8581970Z   JOBS: 6
+2026-11-14T19:51:56.8582080Z ##[endgroup]
+2026-11-14T19:54:53.6304410Z ##[group]Run set -euo pipefail
+2026-11-14T19:54:53.6330800Z shell: /bin/bash -e {0}
+2026-11-14T19:54:53.6330960Z env:
+2026-11-14T19:54:53.6331070Z   LANE: appstore
+2026-11-14T19:54:53.6331210Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 251
+2026-11-14T19:54:53.6331360Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 1786
+2026-11-14T19:54:53.6331510Z   DERIVED: /Users/runner/_work/_temp/dd
+2026-11-14T19:54:53.6331660Z   RESULTS: /Users/runner/_work/_temp/results
+2026-11-14T19:54:53.6331890Z   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+2026-11-14T19:54:53.6332090Z   UDID: B182EAEE-366E-42CF-A4E4-F2477FA54947
+2026-11-14T19:54:53.6332340Z   CMUX_TUI_RUSTDOC: /Users/runner/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/rustdoc
+2026-11-14T19:54:53.6332560Z   CACHE_ON_FAILURE: false
+2026-11-14T19:54:53.6332660Z   CARGO_INCREMENTAL: 0
+2026-11-14T19:54:53.6332750Z ##[endgroup]
+2026-11-14T19:56:21.3317740Z ##[group]Run # Never -e (Actions runs `bash -e`): a failing suite must still
+2026-11-14T19:56:21.3323240Z [36;1mgrep -E ' error: |^Test Case .* failed|Executed [0-9]+ tests|^GATE-NOTE ' "$RESULTS/$family.log" || true[0m
+2026-11-14T19:56:21.3514710Z shell: /bin/bash -e {0}
+2026-11-14T19:56:21.3514880Z env:
+2026-11-14T19:56:21.3515080Z   LANE: appstore
+2026-11-14T19:56:21.3515220Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 251
+2026-11-14T19:56:21.3515380Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 1786
+2026-11-14T19:56:21.3515540Z   DERIVED: /Users/runner/_work/_temp/dd
+2026-11-14T19:56:21.3515710Z   RESULTS: /Users/runner/_work/_temp/results
+2026-11-14T19:56:21.3515950Z   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+2026-11-14T19:56:21.3516190Z   UDID: B182EAEE-366E-42CF-A4E4-F2477FA54947
+2026-11-14T19:56:21.3516460Z   CMUX_TUI_RUSTDOC: /Users/runner/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/rustdoc
+2026-11-14T19:56:21.3516720Z   CACHE_ON_FAILURE: false
+2026-11-14T19:56:21.3516870Z   CARGO_INCREMENTAL: 0
+2026-11-14T19:56:21.3516980Z   FAMILY: ipad
+2026-11-14T19:56:21.3517110Z ##[endgroup]
+2026-11-14T20:16:54.8294990Z GATE-NOTE chief-live-reply-unjudged: the reply came from the mock Chief; a live Chief reply needs the reviewer's live account
+2026-11-14T20:16:54.8301430Z GATE-NOTE delete-account-unconfirmed: Delete Account was not confirmed (it would delete the account); the deletion itself is unjudged
+2026-11-14T20:16:54.8303430Z /Users/runner/_work/cmux/cmux/cmux-next-ios/UITests/AppReviewGateUITests.swift:120: error: -[CmuxMobileAppUITests.AppReviewGateUITests testOnboardingHasAWayForwardWithoutAMac] : XCTAssertTrue failed - onboarding must end on Home without a Mac (pages seen: ["team", "team", "team", "team", "team", "team", "team", "team"]); on screen: state 4, alerts [], elements label: 'cmux' | label: 'cmux' | identifier: 'setup.teams.choose' | label: 'Choose a space' | label: 'Your Macs appear in their signed-in space.' | identifier: 'setup.teams.personal', label: 'Personal, Just y | label: '🌵' | label: 'Personal' | label: 'Just you' | label: 'Manaflow', value: 1 of 2 Macs online | label: 'Manaflow' | label: 'M' | label: 'Build Fleet', value: 6 of 8 Macs online | label: 'B'
+2026-11-14T20:16:54.8305010Z GATE-NOTE onboarding-pair-mac-unjudged: setup showed no Connect your Mac page with the mock account (pages seen: ["team", "team", "team", "team", "team", "team", "team", "team"])
+2026-11-14T20:16:54.8305530Z Test Case '-[CmuxMobileAppUITests.AppReviewGateUITests testOnboardingHasAWayForwardWithoutAMac]' failed (19.794 seconds).
+2026-11-14T20:16:54.8306390Z /Users/runner/_work/cmux/cmux/cmux-next-ios/UITests/AppReviewGateUITests.swift:137: error: -[CmuxMobileAppUITests.AppReviewGateUITests testOnboardingHasNoDeadControls] : XCTAssertTrue failed - dead controls in onboarding: onboarding: setup.teams.personal; onboarding: 9:Manaflow; onboarding: 9:Build Fleet
+2026-11-14T20:16:54.8307160Z Test Case '-[CmuxMobileAppUITests.AppReviewGateUITests testOnboardingHasNoDeadControls]' failed (40.222 seconds).
+2026-11-14T20:16:54.8307610Z GATE-NOTE scan-unjudged: Settings > Devices showed no Scan QR on your Mac with the mock account, so the camera-denied path was not walked
+2026-11-14T20:16:54.8308400Z /Users/runner/_work/cmux/cmux/cmux-next-ios/UITests/AppReviewGateUITests.swift:262: error: -[CmuxMobileAppUITests.AppReviewGateUITests testSettingsHaveNoDeadControls] : XCTAssertTrue failed - dead controls in Settings: settings: settings.compactWorkspaceList; settings-bottom: 9:Join the cmux Discord; settings-bottom: 9:Follow @cmux on X
+2026-11-14T20:16:54.8309180Z Test Case '-[CmuxMobileAppUITests.AppReviewGateUITests testSettingsHaveNoDeadControls]' failed (617.635 seconds).
+2026-11-14T20:16:54.8309950Z /Users/runner/_work/cmux/cmux/cmux-next-ios/UITests/AppReviewGateUITests.swift:86: error: -[CmuxMobileAppUITests.AppReviewGateUITests testSignInHasNoDeadControls] : XCTAssertTrue failed - dead controls on sign-in: sign-in: https://cmux.com/terms-of-service
+2026-11-14T20:16:54.8310600Z Test Case '-[CmuxMobileAppUITests.AppReviewGateUITests testSignInHasNoDeadControls]' failed (51.442 seconds).
+2026-11-14T20:16:54.8311200Z GATE-NOTE signin-live-unjudged: the provider sheets themselves (Apple ID, Google, GitHub web sign-in) need live accounts; the mock account judged that each button signs in
+2026-11-14T20:16:54.8311740Z GATE-NOTE ipad-multitasking-unjudged: XCUITest cannot drive Split View or Stage Manager; the iPhone app was judged in its default compatibility window on iPad
+2026-11-14T20:16:54.8312160Z 	 Executed 12 tests, with 4 failures (0 unexpected) in 1165.880 (1165.888) seconds
+2026-11-14T20:16:54.8313010Z 	 Executed 12 tests, with 4 failures (0 unexpected) in 1165.880 (1165.888) seconds
+2026-11-14T20:16:54.8313590Z 	 Executed 12 tests, with 4 failures (0 unexpected) in 1165.880 (1165.889) seconds
+2026-11-14T20:16:57.4529600Z ##[group]Run set -euo pipefail
+2026-11-14T20:16:57.4536810Z [36;1m  echo "::error::CLAUDE_CODE_OAUTH_TOKEN is not set for this run; the agent reviewer pass cannot run" >&2[0m
+2026-11-14T20:16:57.5145760Z shell: /bin/bash -e {0}
+2026-11-14T20:16:57.5146040Z env:
+2026-11-14T20:16:57.5146190Z   LANE: appstore
+2026-11-14T20:16:57.5146350Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 251
+2026-11-14T20:16:57.5146570Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 1786
+2026-11-14T20:16:57.5146780Z   DERIVED: /Users/runner/_work/_temp/dd
+2026-11-14T20:16:57.5147370Z   RESULTS: /Users/runner/_work/_temp/results
+2026-11-14T20:16:57.5147630Z   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+2026-11-14T20:16:57.5147890Z   UDID: B182EAEE-366E-42CF-A4E4-F2477FA54947
+2026-11-14T20:16:57.5148180Z   CMUX_TUI_RUSTDOC: /Users/runner/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin/rustdoc
+2026-11-14T20:16:57.5148450Z   CACHE_ON_FAILURE: false
+2026-11-14T20:16:57.5148610Z   CARGO_INCREMENTAL: 0
+2026-11-14T20:16:57.5149130Z   CLAUDE_CODE_OAUTH_TOKEN: ***
+2026-11-14T20:16:57.5149750Z   AXE_URL: https://github.com/cameroncooke/AXe/releases/download/v2.0.4/AXe-macOS-homebrew-v2.0.4.tar.gz
+2026-11-14T20:16:57.5150120Z   AXE_SHA256: 4997a7305814d1bcbb925bf1f81667177e204fe58855d99c4896b85d749e181a
+2026-11-14T20:16:57.5150390Z   FORK_PULL_REQUEST: false
+2026-11-14T20:16:57.5150550Z ##[endgroup]
+2026-11-14T20:17:04.5761720Z ##[error]agent reviewer pass: the agent exited 1 with no findings array ({"duration_api_ms":0,"stop_reason":"stop_sequence","session_id":"c17f4c58-87e6-4296-bb63-ecbe39880f1b","total_cost_usd":0,"usage":{"output_tokens_details":{"thinking_tokens":0},"input_tokens":0,"cache); read transcript.json and stderr.txt
+2026-11-14T20:17:04.5816320Z ##[error]Process completed with exit code 1.
+2026-11-14T20:17:04.6090600Z ##[group]Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+2026-11-14T20:17:04.6094150Z ##[endgroup]
+2026-11-14T20:17:32.4048780Z Post job cleanup.
+2026-11-14T20:17:32.6882830Z Post job cleanup.
+2026-11-14T20:17:32.9427370Z ##[group]Run '/opt/blacksmith/job_completed_mac.sh'
+2026-11-14T20:17:32.9445440Z shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-14T20:17:32.9445640Z env:
+2026-11-14T20:17:32.9445770Z   BLACKSMITH_RUNNER_MESSAGE_WAIT_MS: 251
+2026-11-14T20:17:32.9446010Z   BLACKSMITH_RUNNER_ACQUIRE_JOB_MS: 1786
+2026-11-14T20:17:32.9446160Z   BLACKSMITH_CHECK_RUN_ID: 132561563162
+2026-11-14T20:17:32.9446330Z   BLACKSMITH_JOB_DISPLAY_NAME: Reviewer path (appstore, ipad)
+2026-11-14T20:17:32.9446510Z   GITHUB_ACTIONS_CACHE_MODE: write
+2026-11-14T20:17:32.9446640Z ##[endgroup]

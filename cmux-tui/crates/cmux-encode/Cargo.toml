@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "cmux remote desktop and remote browser video encoders behind one trait: I420 pictures, OpenH264 from source (tests and the bench only) or Cisco's prebuilt library loaded at runtime after a pinned SHA-256 check; VideoToolbox on macOS"
+description = "cmux remote desktop and remote browser video encoders behind one trait: I420 pictures, OpenH264 from source (tests and the bench only) or Cisco's prebuilt library loaded at runtime after a pinned SHA-256 check; VideoToolbox on macOS; Media Foundation on Windows"
 
 [lints]
 workspace = true
@@ -34,3 +34,16 @@ rustls = { workspace = true, optional = true }
 rustls-native-certs = { version = "0.8", optional = true }
 # Cisco serves bzip2 files; the default backend is the pure-Rust libbz2-rs-sys.
 bzip2 = { version = "0.6", optional = true }
+
+[target.'cfg(windows)'.dependencies]
+# Media Foundation's H.264 encoder MFTs (module `mediafoundation`) are COM interfaces, so the
+# `windows` crate rather than windows-sys. The codec comes with Windows; nothing is linked,
+# and mfplat.dll is loaded at run time (LibraryLoader).
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Media_MediaFoundation",
+    "Win32_System_Com",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Ole",
+    "Win32_System_Variant",
+] }
