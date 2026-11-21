@@ -123,6 +123,8 @@ import Testing
             let faviconInk = SidebarOpticalGlyph.fittedExtent(favicon.ink.size), houseInk = SidebarOpticalGlyph.fittedExtent(house.ink.size)
             #expect(faviconInk >= houseInk - Self.tolerance,
                     "\(c.testDescription) \(preset): the favicon's ink \(faviconInk) pt reads smaller than Home's house \(houseInk) pt")
+            #expect(faviconInk <= SidebarStyle.iconColumnBox + Self.tolerance,
+                    "\(c.testDescription) \(preset): the favicon's ink \(faviconInk) pt is wider than the icon column \(SidebarStyle.iconColumnBox) pt")
             if Metrics.densityToken("sidebarIconColumn") != nil, Metrics.densityToken("sidebarGlyphInk") == nil {
                 let atDefaults = CGFloat.iconRowSize(forLabelPointSize: Typography.sidebarTitle.pointSize)
                 let tab = min(Metrics.tabIconSize * SidebarStyle.workspaceFaviconSide / atDefaults, SidebarStyle.iconColumnBox)

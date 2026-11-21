@@ -95,8 +95,9 @@ public nonisolated struct SidebarRowTuning {
                   Metrics.densityToken("sidebarGlyphInk") == nil else { return glyphSize.value }
             let atDefaults = CGFloat.iconRowSize(forLabelPointSize: Typography.sidebarTitle.pointSize)
             let box = (Metrics.tabIconSize * SidebarStyle.workspaceFaviconSide / max(1, atDefaults) * 2).rounded() / 2
-            // Never wider than the icon column, so the title keeps its one gap after it.
-            return max(glyphSize.value, min(box, iconColumn.value))
+            // Never wider than the icon column the rows lay out (`iconColumnBox`, not `iconColumn`'s grid floor, which a
+            // compact density's text-sized box can sit under), so the title keeps its one gap after it.
+            return max(glyphSize.value, min(box, SidebarStyle.iconColumnBox))
         }
     /// The leading icon column's width: a title after a glyph starts one gap after it.
     public static let iconColumn = ComputedTunable(

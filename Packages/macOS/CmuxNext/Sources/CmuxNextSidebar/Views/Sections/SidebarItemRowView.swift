@@ -527,10 +527,11 @@ class SidebarItemRowView: NSView {
         return Self.drawnInk(ink, image: image, in: icon.frame)
     }
 
-    /// The cache key of the item's glyph ink (`SidebarGlyphInk`): what draws it, not its size.
+    /// The cache key of the item's glyph ink (`SidebarGlyphInk`): what draws it, not its size. A favicon names its image,
+    /// so an item that keeps its title and gets a new favicon measures the new one.
     var glyphKey: String {
         let iconKey = info.icon == .notification ? "\(info.icon?.rawValue ?? "")#\(NotificationIconLook.tunable.value.rawValue)" : info.icon?.rawValue ?? ""
-        return "\(info.emoji ?? "")|\(info.brand.map { "\($0)" } ?? "")|\(iconKey)|\(info.symbol)|\(info.favicon == nil ? "" : info.title)"
+        return "\(info.emoji ?? "")|\(info.brand.map { "\($0)" } ?? "")|\(iconKey)|\(info.symbol)|\(info.favicon.map { "\(info.title)#\(ObjectIdentifier($0.image).hashValue)" } ?? "")"
     }
 
     /// Shows the item's glyph at `side` points, unless ``icon`` shows that glyph already.

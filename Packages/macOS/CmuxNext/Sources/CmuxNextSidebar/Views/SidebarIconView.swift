@@ -254,9 +254,10 @@ final class SidebarIconView: NSView {
     /// The original treatment keeps the frame it always had.
     private func layoutFavicon(content: CGRect) {
         guard let drawing = faviconDrawing, drawing.treatment != .original else { return }
-        let side = min(SidebarStyle.rowFaviconOpticalSide, content.width)
-        // Leading with ink, `leadingImageFrame` already sized it to the optical size.
+        // Leading with ink, `leadingImageFrame` already sized it to the optical size. Centered, it keeps its drawn side
+        // (`fittedDrawing` drew it so its ink fills the favicon size), so each bitmap pixel lands on one screen pixel.
         if !leadsWithInk {
+            let side = drawing.image.size.width
             imageView.frame = CGRect(x: snap(content.midX - side / 2), y: snap(content.midY - side / 2), width: side, height: side)
         }
     }
