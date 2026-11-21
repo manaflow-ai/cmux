@@ -445,7 +445,7 @@ fn system_calendar_reads_are_bounded_cached_once_granted_and_the_prompt_needs_a_
             false,
         )
         .unwrap();
-    let request = answer(&rx, waiting.clone());
+    let request = answer(&rx, waiting);
     assert_eq!(request["params"], json!({"days":2,"limit":20}), "defaults filled in");
     f.wait("first read", |e| e["event"] == "apps-scene" && e["ops"][0]["op"] == "update");
 
@@ -502,6 +502,6 @@ fn system_calendar_reads_are_bounded_cached_once_granted_and_the_prompt_needs_a_
             false,
         )
         .unwrap();
-    let request = answer(&rx, events.clone());
+    let request = answer(&rx, events);
     assert_eq!(request["op"], "system_calendar.events", "a change makes the next read fresh");
 }

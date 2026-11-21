@@ -108,7 +108,6 @@ import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./ha
 import {
   injectedNewTabContext,
   useEarlyNewTabContext,
-  useLostSharedPart,
   useNewTabAdoption,
   useNewTabPlaces,
   adoptionPlan,
@@ -117,13 +116,14 @@ import {
   useSessionAdoption,
   type SessionAdoption,
   withHandshakeNewTab,
+  useLostSharedPart,
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import {
   heldPick,
-  withCloudStartFolder,
-  withDraftFolder,
   shownCloudStartPick,
+  withDraftFolder,
+  withCloudStartFolder,
   withCloudStartPick,
 } from "./newtab/draftFolder";
 import {
@@ -140,7 +140,7 @@ import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from ".
 import { TaskGoalStrip } from "./TaskGoalStrip";
 import { hatPlanOf } from "./chatTaskList";
 import { goalHatPlace } from "./goalHat.experiment";
-import { githubFolder, githubFolderRepo } from "./githubRepos";
+import { githubFolderRepo, githubFolder } from "./githubRepos";
 import { StyleSwitch } from "./newtab/StyleSwitch";
 import { useSessionCommands } from "./newtab/useSessionCommands";
 import { screenTemplate, shownTemplate, pageStyle, pickNewTabStyle } from "./newtab/templates";
@@ -190,8 +190,8 @@ import {
   CloudTypingPrewarm,
   cloudIdentityKept,
   cloudTypingMachineID,
-  sameNewChat,
   type CloudIdentityView,
+  sameNewChat,
 } from "./cloudTypingPrewarm";
 import { CloudComposeReservation, reservedCloudCall } from "./cloudComposeReservation";
 import { harnessProfiles } from "./harnessProfiles";
@@ -505,7 +505,6 @@ import { turnPreviewUrl, turnServedUrl } from "./conversation/previewUrl";
 import { projectInboxRows } from "./conversation/laneNoticeBatches";
 import {
   canFork,
-  canForkTurn,
   forkRefusal,
   forkToTarget,
   forksAnyTurn,
@@ -516,6 +515,7 @@ import {
   setMessageMenuSource,
   switchForks,
   withSendPromptAgain,
+  canForkTurn,
 } from "./conversation/messageMenu";
 import { actOnReportedImage } from "./conversation/imageMenuActions";
 import { callChipHost } from "./chips/host";
@@ -581,7 +581,6 @@ import { HarnessStatusCard } from "./HarnessStatusCard";
 import type { LocalCommand } from "./localCommands";
 import {
   cloudPageRefusal,
-  pageOnOtherMachine,
   cloudRunsHere,
   composerAgentLocal,
   cloudFolderGrants,
@@ -590,8 +589,6 @@ import {
   cloudStartTeam,
   makeCloudSignInRetry,
   grantedCloudStart,
-  pickedChatCloudCall,
-  pickOnlyNewChat,
   newTabProjectPick,
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
@@ -600,10 +597,13 @@ import {
   heldPromptShown,
   cloudPickExtras,
   composerCloudStartFolder,
+  pickedChatCloudCall,
+  pickOnlyNewChat,
+  pageOnOtherMachine,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
 import { holdsDraft, promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
-import { defaultFolderFor, folderRunLocation, newChatRunLocation } from "./runLocationDefault";
+import { folderRunLocation, newChatRunLocation, defaultFolderFor } from "./runLocationDefault";
 import {
   lastNewChatPlace,
   pickedRunLocation,
@@ -847,16 +847,17 @@ import {
   withStartedSessions,
 } from "./started/startedSessions";
 import { experimentArm } from "../../experiments/experiment";
+import { setExperimentSwitches } from "../../experiments/switches";
 import { setSessionStatus, useSessionStatus } from "./sessionStatus";
 import { holdWebSwap, pageEditHold, pageReleaseHold } from "../../pages/shared/webSwap";
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import {
   SandboxTab,
+  newTabRunModeRows,
   sandboxAgent,
   sandboxPageRefusal,
   sandboxRetryable,
   type RunMode,
-  newTabRunModeRows,
 } from "./sandboxRun";
 import { SandboxRunView } from "./SandboxRunView";
 import { PaneFeatureTips } from "./featureTips";
@@ -943,6 +944,9 @@ declare global {
       /// Claude Code desktop's in-session status (the live plan card) on or off: the
       /// Debug Settings toggle `agent.sessionStatus`, off by default (sessionStatus.ts).
       applySessionStatus?(on: boolean): void;
+      /// Settings > Advanced > Experiments: every `experiments.*` switch as one object
+      /// (`{"glassToolbarGroups": true}`), each off by default (experiments/switches.ts).
+      applyExperiments?(value: unknown): void;
       /// Session `sessionId`'s avatar was set or removed in some pane: ask for it again (agentAvatar.ts).
       agentAvatarChanged?(sessionId: string): void;
       /// Suggested tasks on or off (Settings > Suggest Follow-Up Tasks, on by default, or the Debug
@@ -8309,6 +8313,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       applySessionStatus(on) {
         setSessionStatus(on === true);
       },
+      applyExperiments(value) {
+        setExperimentSwitches(value);
+      },
       agentAvatarChanged(sessionId) {
         if (typeof sessionId === "string") agentAvatarChanged(sessionId);
       },
@@ -14358,6 +14365,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                               })
                           : undefined
                       }
+                      // The glass toolbar's search chip (Settings > Advanced > Experiments): the palette's chats page.
+                      onSearch={showAllChats}
                       onTerminal={(mode) => runSplitAction(HEADER_ACTIONS.terminal, localCwd, mode)}
                       onSplitDown={(mode) => runSplitAction(HEADER_ACTIONS.splitDown, localCwd, mode)}
                       onBrowser={(mode) => runSplitAction(HEADER_ACTIONS.browser, undefined, mode)}
