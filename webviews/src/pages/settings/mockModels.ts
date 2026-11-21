@@ -26,7 +26,11 @@ const provider = (
   ...extra,
 });
 const all = ["claude", "codex", "opencode"];
-const custom = { fields: ["base-url" as const], protocols: ["anthropic", "anthropic-bearer", "responses"], servesCloud: true };
+const custom = {
+  fields: ["base-url" as const],
+  protocols: ["anthropic", "anthropic-bearer", "responses"],
+  servesCloud: true,
+};
 const signInOnly = { checked: false, servesCloud: false, unavailable: "providers.sign_in_only" };
 export const mockProviders: ModelProviderInfo[] = [
   provider("supergrok", "SuperGrok", "subscription", "https://grok.com/plans", [], signInOnly),
@@ -43,11 +47,20 @@ export const mockProviders: ModelProviderInfo[] = [
   provider("xai", "xAI", "api-key", "https://console.x.ai", ["codex", "opencode"]),
   provider("baseten", "Baseten", "api-key", "https://app.baseten.co/settings/api_keys", all),
   provider("vercel", "Vercel AI Gateway", "api-key", "https://vercel.com/account/settings", ["claude", "opencode"]),
-  provider("nvidia", "NVIDIA", "api-key", "https://build.nvidia.com/settings/api-keys", ["opencode"], { checked: false }),
-  provider("fireworks", "Fireworks", "api-key", "https://app.fireworks.ai/settings/users/api-keys", all),
-  provider("bedrock", "Amazon Bedrock", "api-key", "https://console.aws.amazon.com/bedrock/home", ["claude", "opencode"], {
-    fields: ["region"],
+  provider("nvidia", "NVIDIA", "api-key", "https://build.nvidia.com/settings/api-keys", ["opencode"], {
+    checked: false,
   }),
+  provider("fireworks", "Fireworks", "api-key", "https://app.fireworks.ai/settings/users/api-keys", all),
+  provider(
+    "bedrock",
+    "Amazon Bedrock",
+    "api-key",
+    "https://console.aws.amazon.com/bedrock/home",
+    ["claude", "opencode"],
+    {
+      fields: ["region"],
+    },
+  ),
   provider("meta", "Meta", "api-key", "https://dev.meta.ai", all),
   provider("ramp", "Ramp Router", "api-key", "https://app.router.com", ["claude", "codex"]),
   provider("together", "Together", "api-key", "https://api.together.ai/settings/api-keys", ["opencode"]),
@@ -236,7 +249,8 @@ export function runMockModels(state: ModelsState, run: ModelsRun): ModelsState {
       if (!run.key.trim()) throw new Error("a key is required");
       const info = (state.providers ?? mockProviders).find((entry) => entry.id === run.provider);
       if (!info || info.unavailable) throw new Error("no key is taken for this provider");
-      if (info.fields.includes("base-url") && !run.baseUrl?.startsWith("https://")) throw new Error("an https base URL is required");
+      if (info.fields.includes("base-url") && !run.baseUrl?.startsWith("https://"))
+        throw new Error("an https base URL is required");
       if (info.fields.includes("region") && !run.region?.trim()) throw new Error("a region is required");
       // A named endpoint serves the agents its protocol speaks.
       const families = info.fields.includes("base-url")
