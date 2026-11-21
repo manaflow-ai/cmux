@@ -7,6 +7,7 @@ pub(crate) mod capture;
 #[cfg(feature = "bench")]
 pub(crate) mod cpu;
 pub(crate) mod cursor;
+mod display_pick;
 mod input;
 mod keys;
 #[cfg(feature = "bench")]
