@@ -99,11 +99,14 @@ test("Keybindings: a lost link keeps the list and says so only once it lasts", a
       await settle();
     });
     expect(store.getSnapshot().connection).toBe("disconnected");
-    await advance(LASTING_MS - 100);
+    await advance(CONNECTION_QUIET_MS - 100);
     expect(element.querySelector(".keys-scroll")).not.toBeNull();
-    expect(element.textContent).not.toContain(message);
+    expect(element.querySelector("[data-connection-chip]")).toBeNull();
     await advance(200);
-    expect(element.textContent).toContain(message);
+    expect(element.querySelector("[data-connection-chip]")).not.toBeNull();
+    // The list stays; the sentence is the mark's tooltip, not a body in its place.
+    expect(element.querySelector(".keys-scroll")).not.toBeNull();
+    expect(element.querySelector("[data-connection-chip]")!.getAttribute("title")).toBe(message);
   });
 });
 
@@ -124,11 +127,13 @@ test("Passwords: a lost link keeps the list and says so only once it lasts", asy
       await settle();
     });
     expect(store.getSnapshot().connection).toBe("disconnected");
-    await advance(LASTING_MS - 100);
+    await advance(CONNECTION_QUIET_MS - 100);
     expect(element.querySelector(".pw-row")).not.toBeNull();
-    expect(element.querySelector(".pw-disconnected")).toBeNull();
+    expect(element.querySelector("[data-connection-chip]")).toBeNull();
     await advance(200);
-    expect(element.querySelector(".pw-disconnected")).not.toBeNull();
+    // Past the bound: a corner mark, and the rows stay (never wiped, never a sentence in their place).
+    expect(element.querySelector("[data-connection-chip]")).not.toBeNull();
+    expect(element.querySelector(".pw-row")).not.toBeNull();
   });
 });
 
@@ -141,11 +146,13 @@ test("CodeRouter: a page with nothing read yet stays blank, not 'not available',
   const store = new CodeRouterStore(null);
   await mounted(<CodeRouterPage store={store} strings={strings} />, async (element) => {
     const message = strings.t("disconnected");
-    expect(element.textContent).not.toContain(message);
-    await advance(LASTING_MS - 100);
-    expect(element.textContent).not.toContain(message);
+    const chip = () => element.querySelector("[data-connection-chip]");
+    expect(chip()).toBeNull();
+    await advance(CONNECTION_QUIET_MS - 100);
+    expect(chip()).toBeNull();
     await advance(200);
-    expect(element.textContent).toContain(message);
+    expect(chip()).not.toBeNull();
+    expect(chip()!.getAttribute("title")).toBe(message);
   });
 });
 
