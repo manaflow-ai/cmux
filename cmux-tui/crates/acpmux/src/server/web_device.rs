@@ -68,7 +68,9 @@ pub(super) async fn dispatch(
 /// the app's pane read with this daemon's identity and need no device; a paired machine, a
 /// teammate through the carrier and a peer daemon have their own proofs.
 fn web_only(conn: &Conn, m: &str) -> Result<(), RpcError> {
-    if conn.origin != Origin::Web || conn.auth != ConnAuth::ListenerToken {
+    if conn.origin != Origin::Web
+        || !matches!(conn.auth, ConnAuth::ListenerToken | ConnAuth::BrowserApp)
+    {
         return Err(RpcError::method_not_found(&format!("{m} (a web connection only)")));
     }
     Ok(())
@@ -115,6 +117,9 @@ async fn hello(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcError
     let origin = hub_origin(hub).await?;
     let client = HttpHub::with_credential(origin, credential)
         .map_err(|_| RpcError::internal("the hub client could not be built"))?;
+    if conn.auth == ConnAuth::BrowserApp {
+        verify_owner(hub, &client).await?;
+    }
     {
         let mut slot = conn.device_mesh.lock().unwrap_or_else(|e| e.into_inner());
         match *slot {
@@ -180,4 +185,110 @@ async fn enroll(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcErro
 
 fn refused(why: &str) -> RpcError {
     RpcError::new(-32000, why).with_data(json!({"reason": "device.enroll_refused"}))
+}
+
+/// Only the app socket uses this prelude. Fanout, list subscriptions, and normal
+/// request workers do not exist until the hub confirms the browser's identity.
+pub(super) async fn admit(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    inbound: &mut tokio::sync::mpsc::Receiver<String>,
+) -> bool {
+    use crate::rpc::Message;
+    if conn.origin != Origin::Web {
+        return false;
+    }
+    while let Some(line) = inbound.recv().await {
+        let (id, m, params) = match Message::parse(&line) {
+            Ok(Message::Request { id, method, params }) => (id, method, params.unwrap_or_default()),
+            _ => return false,
+        };
+        let Some(answer) = dispatch(hub, conn, &m, &params).await else {
+            conn.send(&Message::err(
+                id,
+                RpcError::new(-32001, "Sign in to connect this browser.")
+                    .with_data(json!({"reason": "device.identity_required"})),
+            ));
+            return false;
+        };
+        let admitted = m == method::MUX_DEVICE_HELLO && answer.is_ok();
+        let reply = match answer {
+            Ok(result) => Message::ok(id, result),
+            Err(error) => Message::err(id, error),
+        };
+        conn.send(&reply);
+        if admitted {
+            return true;
+        }
+    }
+    false
+}
+
+async fn verify_owner(hub: &Hub, client: &HttpHub) -> Result<(), RpcError> {
+    let origin = hub_origin(hub).await?;
+    let (team, user) = crate::cli::cloud_join::browser_app_owner(&origin).ok_or_else(|| {
+        owner_error("device.host_not_joined", "This daemon needs an active account join.")
+    })?;
+    let identity = client.browser_identity(&origin).await.map_err(|_| match client.refused() {
+        Some(reason) => revoked(reason),
+        None => owner_error("device.hub_unavailable", "The hub could not verify this browser."),
+    })?;
+    if !same_browser_owner(&identity, &team, &user) {
+        return Err(owner_error(
+            "device.wrong_owner",
+            "Sign in with the account that owns this daemon.",
+        ));
+    }
+    Ok(())
+}
+
+fn owner_error(reason: &str, message: &str) -> RpcError {
+    RpcError::new(-32003, message).with_data(json!({ "reason": reason }))
+}
+
+fn same_browser_owner(identity: &Value, team: &str, user: &str) -> bool {
+    !user.is_empty()
+        && !team.is_empty()
+        && identity.get("platform").and_then(Value::as_str) == Some("web")
+        && identity.get("userId").and_then(Value::as_str) == Some(user)
+        && identity.get("teamId").and_then(Value::as_str) == Some(team)
+}
+
+/// A quiet socket can still receive a live transcript. Renew its proof even
+/// when the browser makes no requests. A refused or unavailable hub ends it.
+pub(super) async fn credential_ended(hub: &Hub, conn: &Conn) {
+    if conn.auth != ConnAuth::BrowserApp {
+        return std::future::pending().await;
+    }
+    let device = match &*conn.device_mesh.lock().unwrap_or_else(|e| e.into_inner()) {
+        Slot::Device(device) => Arc::clone(device),
+        _ => return,
+    };
+    loop {
+        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        if verify_owner(hub, &device).await.is_err() {
+            return;
+        }
+    }
+}
+
+#[cfg(test)]
+mod browser_owner_tests {
+    use super::*;
+
+    #[test]
+    fn requires_a_web_device_from_the_same_person_and_team() {
+        let valid = json!({"platform": "web", "userId": "owner", "teamId": "team"});
+        assert!(same_browser_owner(&valid, "team", "owner"));
+        assert!(!same_browser_owner(&valid, "team", "other"));
+        assert!(!same_browser_owner(&valid, "other", "owner"));
+        for field in ["platform", "teamId", "userId"] {
+            let mut missing = valid.clone();
+            missing.as_object_mut().unwrap().remove(field);
+            assert!(!same_browser_owner(&missing, "team", "owner"));
+        }
+        let mut machine = valid;
+        machine["platform"] = json!("linux");
+        assert!(!same_browser_owner(&machine, "team", "owner"));
+    }
 }

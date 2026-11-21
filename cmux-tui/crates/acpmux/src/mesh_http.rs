@@ -121,6 +121,13 @@ impl HttpHub {
         })
     }
 
+    pub(crate) async fn browser_identity(&self, hub_origin: &str) -> Result<Value, HubError> {
+        if !self.device || self.origin != hub_origin {
+            return Err(HubError::refused("browser credential belongs to a different authority"));
+        }
+        self.call(reqwest::Method::GET, "/v1/machines/credentials/self", None, CALL_WAIT).await
+    }
+
     /// Why the hub refused this client's device credential, as the browser is told:
     /// `device.revoked` (`machine.revoked`) or `device.unauthorized` (`mesh.unauthorized`). None
     /// while the hub takes it.

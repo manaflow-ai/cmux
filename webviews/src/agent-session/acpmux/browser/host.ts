@@ -18,8 +18,8 @@ export function installBrowserHost(): void {
   const listener = fragment.get("token");
   let token = listener;
   try {
-    if (listener) sessionStorage.setItem("cmux.browser.listener", listener);
-    else token = sessionStorage.getItem("cmux.browser.listener");
+    if (listener) sessionStorage.setItem("cmux.browser.appLink", listener);
+    else token = sessionStorage.getItem("cmux.browser.appLink");
   } catch {
     // A tab with storage disabled still has its launch token until it closes.
   }
@@ -28,7 +28,7 @@ export function installBrowserHost(): void {
     launch.hash = fragment.toString();
     history.replaceState(history.state, "", launch);
   }
-  const endpoint = new URL("/", launch.origin);
+  const endpoint = new URL("/app/ws", launch.origin);
   endpoint.protocol = launch.protocol === "https:" ? "wss:" : "ws:";
   document.documentElement.dataset.cmuxBrowserPane = "";
   document.title = "cmux NEXT";

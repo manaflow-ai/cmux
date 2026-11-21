@@ -421,7 +421,7 @@ impl Conn {
     /// The proof this connection holds now: its `auth`, or [`ConnAuth::WebDevice`] once a
     /// browser presented its own device (`web_device.rs`). Every rule still reads `auth`.
     pub(super) fn proof(&self) -> ConnAuth {
-        if self.auth == ConnAuth::ListenerToken
+        if matches!(self.auth, ConnAuth::ListenerToken | ConnAuth::BrowserApp)
             && matches!(
                 *self.device_mesh.lock().unwrap_or_else(|e| e.into_inner()),
                 web_device::Slot::Device(_)
@@ -437,7 +437,7 @@ impl Conn {
     /// hub-listed chat go to `mesh_read.rs` `prompt`, which answers `device.revoked` for a
     /// revoked one.
     pub(super) fn presented_web_device(&self) -> bool {
-        self.auth == ConnAuth::ListenerToken
+        matches!(self.auth, ConnAuth::ListenerToken | ConnAuth::BrowserApp)
             && !matches!(
                 *self.device_mesh.lock().unwrap_or_else(|e| e.into_inner()),
                 web_device::Slot::Empty
@@ -1752,6 +1752,11 @@ async fn serve_connection_from(
         device_mesh: StdMutex::new(web_device::Slot::Empty),
         fan_flush,
     });
+    if auth == ConnAuth::BrowserApp && !web_device::admit(&hub, &conn, &mut inbound).await {
+        return;
+    }
+    let device_ended = web_device::credential_ended(&hub, &conn);
+    tokio::pin!(device_ended);
     queue_gauge::register(&conn);
     tracing::debug!(conn = %conn.id, "client connected");
 
@@ -1788,6 +1793,7 @@ async fn serve_connection_from(
         let line = tokio::select! {
             biased;
             () = conn.out.closed() => None,
+            () = &mut device_ended => None,
             ended = &mut fan => {
                 fanout::ended(&conn, ended);
                 None

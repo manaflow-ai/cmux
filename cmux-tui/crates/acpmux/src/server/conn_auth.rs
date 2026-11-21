@@ -35,6 +35,8 @@ pub enum ConnAuth {
     LocalSocket,
     /// The WebSocket listener token, checked at the handshake.
     ListenerToken,
+    /// The browser app launch link. Session access also requires its enrolled device.
+    BrowserApp,
     /// This launch's LocalApp token (`local_app.rs`), presented with the
     /// listener token at the upgrade. It outlives a listener token rotation.
     LocalApp,
@@ -73,6 +75,7 @@ impl ConnAuth {
             ConnAuth::None => "none",
             ConnAuth::LocalSocket => "localSocket",
             ConnAuth::ListenerToken => "listenerToken",
+            ConnAuth::BrowserApp => "browserApp",
             ConnAuth::LocalApp => "localApp",
             ConnAuth::PeerToken => "peerToken",
             ConnAuth::Device => "device",
