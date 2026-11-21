@@ -8,8 +8,10 @@ Run: python3 -I tests/test_nightly_speed.py (also runs in nightly-speed.yml)."""
 from __future__ import annotations
 
 import base64
+import contextlib
 import copy
 import importlib.util
+import io
 import json
 import os
 import random
@@ -189,15 +191,15 @@ class PrAttribution(unittest.TestCase):
             if "merge-base" in cmd:
                 commit, head = cmd[-2:]
                 return subprocess.CompletedProcess(cmd, 0 if (commit, head) in {
-                    ("m1", "h1"), ("m1", "h2"), ("m2", "h2")
+                    ("m1", "a1a1a1a"), ("m1", "a2a2a2a"), ("m2", "a2a2a2a")
                 } else 1, "", "")
             raise AssertionError(cmd)
 
     def test_merges_map_to_the_first_later_feed_and_keep_missing_rows(self):
         feeds = [
-            {"build": "n0", "sha": "h0", "feed_at": "2026-11-13T12:00:00Z"},
-            {"build": "n1", "sha": "h1", "feed_at": "2026-11-14T01:00:00Z"},
-            {"build": "n2", "sha": "h2", "feed_at": "2026-11-16T00:00:00Z"},
+            {"build": "n0", "sha": "a0a0a0a", "feed_at": "2026-11-13T12:00:00Z"},
+            {"build": "n1", "sha": "a1a1a1a", "feed_at": "2026-11-14T01:00:00Z"},
+            {"build": "n2", "sha": "a2a2a2a", "feed_at": "2026-11-16T00:00:00Z"},
         ]
         result = ns.pr_attribution(feeds, ".", "origin/feat-cmux-next", run=self.Git(),
                                    now=ns.ts("2026-11-20T00:00:00Z"))
@@ -220,7 +222,7 @@ class PrAttribution(unittest.TestCase):
         self.assertEqual(doc["schema"], 2)
         self.assertEqual(doc["pr_attribution"]["count"], 1)
         self.assertEqual(ns.parse_history(body)["pr_attribution"]["p90"], None)
-        text = ns.render_verdict({"build": "n1", "sha": "h1", "merge_to_feed": 20.0,
+        text = ns.render_verdict({"build": "n1", "sha": "a1a1a1a", "merge_to_feed": 20.0,
                                   "verdict": "in budget", "budget_min": 30.0, "window": 1, "over": False,
                                   "p50": 20.0, "p95": 20.0, "feed_at": "2026-11-14T01:00:00Z",
                                   "slow": {}, "diff": None, "bisect": [],
@@ -256,8 +258,8 @@ class PrAttribution(unittest.TestCase):
                     return subprocess.CompletedProcess(cmd, 0, "", "")  # every feed holds every merge
                 raise AssertionError(cmd)
 
-        feeds = [{"build": "n1", "sha": "h1", "feed_at": "2026-11-14T12:00:00Z"},
-                 {"build": "n2", "sha": "h2", "feed_at": "2026-11-16T01:00:00Z"}]
+        feeds = [{"build": "n1", "sha": "a1a1a1a", "feed_at": "2026-11-14T12:00:00Z"},
+                 {"build": "n2", "sha": "a2a2a2a", "feed_at": "2026-11-16T01:00:00Z"}]
         result = ns.pr_attribution(feeds, ".", run=Git(), now=ns.ts("2026-11-20T00:00:00Z"))
         rows = {row["pr"]: row for row in result["rows"]}
         self.assertEqual((rows[1]["status"], rows[1]["reason"], rows[1]["build"]),
@@ -267,7 +269,7 @@ class PrAttribution(unittest.TestCase):
         self.assertEqual(result["reasons"], {ns.BEFORE_FEEDS: 1})
         self.assertEqual((result["p50"], result["p90"]), (ns.quantile([1500.0, 60.0], 0.5), ns.quantile([1500.0, 60.0], 0.9)))
         text = ns.render_verdict({
-            "build": "n2", "sha": "h2", "merge_to_feed": 20.0, "verdict": "in budget", "budget_min": 30.0, "window": 1,
+            "build": "n2", "sha": "a2a2a2a", "merge_to_feed": 20.0, "verdict": "in budget", "budget_min": 30.0, "window": 1,
             "over": False, "p50": 20.0, "p95": 20.0, "feed_at": "2026-11-16T01:00:00Z", "slow": {}, "diff": None,
             "bisect": [], "pr_attribution": result})
         self.assertIn(f"{ns.BEFORE_FEEDS}: 1", text)
@@ -351,6 +353,107 @@ class PrAttribution(unittest.TestCase):
         table = [ln for ln in body.splitlines() if ln.startswith("| 2026-11-")
                  and ln.rstrip().endswith(("attributed |", "contains merge |", "metadata |", "feed |"))]
         self.assertLessEqual(len(table), ns.PR_SUMMARY_ROWS)
+
+    @staticmethod
+    def busy_week(n=60):
+        """n nightlies over the 7 days before 2026-11-20 (a busy week: more than HISTORY_KEEP), the predecessor feed
+        just before the window first, and a git fake whose head holds every merge committed before its feed."""
+        end = ns.ts("2026-11-20T00:00:00Z")
+        feeds = [{"sha": "%040x" % (0xf00 + i), "build": f"b{i}", "sign_run": 1 + i,
+                  "feed_at": ns.iso(end - 7 * 86400 + i * (7 * 86400 / n) - (3600 if i == 0 else -60))}
+                 for i in range(n)]
+        merges = [("%040x" % (0xa00 + i), int(ns.ts(f["feed_at"]) - 600)) for i, f in enumerate(feeds) if i]
+        log = "".join(f"{sha}\tp1\t{stamp}\tlanding {k} (#{1000 + k})\n"
+                      for k, (sha, stamp) in reversed(list(enumerate(merges))))
+        when = {f["sha"]: ns.ts(f["feed_at"]) for f in feeds}
+
+        def git(cmd, **kw):
+            if "log" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, log, "")
+            if "rev-list" in cmd:
+                return subprocess.CompletedProcess(cmd, 0, "".join(f"{m}\n" for m, t in merges if t < when[cmd[-1]]), "")
+            raise AssertionError(cmd)
+
+        return end, feeds, git
+
+    def test_a_busy_week_attributes_merges_older_than_the_40th_record_and_proves_its_window(self):
+        end, feeds, git = self.busy_week()
+        records = [{**f, "landed_at": None} for f in feeds[-ns.HISTORY_KEEP:]]
+        old_merge = 1000 + 5  # merged 10 min before feed 6, far older than the oldest of the 40 records
+        only_records = ns.pr_attribution(records, ".", run=git, now=end)
+        self.assertEqual({r["pr"]: r for r in only_records["rows"]}[old_merge]["reason"], ns.BEFORE_FEEDS)
+        self.assertTrue(only_records["partial"])
+        kept = ns.feed_list(feeds, records, end)
+        self.assertEqual(len(kept), len(feeds), "every feed of the 7 days and the one before them")
+        data = ns.pr_attribution(records, ".", run=git, now=end, feeds=kept)
+        row = {r["pr"]: r for r in data["rows"]}[old_merge]
+        self.assertEqual((row["build"], row["feed_sha"], row["merge_to_nightly"]), ("b6", feeds[6]["sha"], 10.0))
+        self.assertEqual((data["attributed"], data["count"], data["partial"]), (len(feeds) - 1, len(feeds) - 1, False))
+        verdict = {"build": "b59", "sha": feeds[-1]["sha"], "merge_to_feed": 20.0, "verdict": "in budget",
+                   "budget_min": 30.0, "window": 1, "over": False, "p50": 20.0, "p95": 20.0,
+                   "feed_at": feeds[-1]["feed_at"], "slow": {}, "diff": None, "bisect": []}
+        full = ns.render_verdict({**verdict, "pr_attribution": data})
+        self.assertIn("## PR merge to NIGHTLY (newest 7 days)", full)
+        self.assertNotIn("partial", full)
+        self.assertIn(f"Observed window: {data['since']} to {data['until']}; 0 merges before it", full)
+        # Without the predecessor the window is not proven: the label stays.
+        short = ns.pr_attribution(records, ".", run=git, now=end, feeds=kept[1:])
+        self.assertTrue(short["partial"])
+        self.assertIn("(partial: observed window)", ns.render_verdict({**verdict, "pr_attribution": short}))
+
+    def test_the_feed_list_outlives_the_records_and_bad_entries_are_dropped(self):
+        end, feeds, _ = self.busy_week()
+        stale = {"sha": "%040x" % 0xbad, "build": "old", "sign_run": 999, "feed_at": "2026-11-01T00:00:00Z"}
+        kept = ns.feed_list([stale] + feeds, [], end)
+        self.assertEqual([e["build"] for e in kept], [f["build"] for f in feeds], "older than the predecessor goes")
+        recs = Issue.records(ns.HISTORY_KEEP)
+        body = ns.issue_body(recs, [], ".", run=FakeGh(), pr_data={"count": 0}, feeds=kept)
+        self.assertLess(len(body), ns.BODY_LIMIT)
+        back = ns.parse_history(body)
+        self.assertEqual((len(back["records"]), back["feeds"]), (ns.HISTORY_KEEP, kept))
+        bad = [{"sha": "zz; rm -rf", "build": "x", "feed_at": "2026-11-19T00:00:00Z"},
+               {"sha": "abcdef1", "build": "x"}, {"sha": "abcdef1", "build": "x", "feed_at": "not a time"},
+               {"sha": "abcdef1", "build": "", "feed_at": "2026-11-19T00:00:00Z"},
+               {"sha": "abcdef1", "build": "x", "feed_at": "2026-11-19T00:00:00Z", "sign_run": -1},
+               "text", 7, None, ["abcdef1"]]
+        good = {"sha": "abcdef1", "build": "ok", "sign_run": 3, "feed_at": "2026-11-19T00:00:00Z"}
+        doc = {"records": [], "unpublished": [], "feeds": bad + [good]}
+        self.assertEqual(ns.parse_history(Issue.packed(doc))["feeds"], [good])
+        self.assertNotIn("feeds", ns.parse_history(Issue.packed({"records": [], "feeds": {"a": 1}})))
+
+    def test_the_pr_json_holds_no_host_runner_or_diff(self):
+        end, feeds, git = self.busy_week()
+        data = ns.pr_attribution(feeds[-3:], ".", run=git, now=end, feeds=feeds)
+        rec = fixture_record()
+        self.assertTrue(rec.get("hosts") and rec.get("jobs"), "the fixture carries hosts and jobs")
+        with tempfile.TemporaryDirectory() as tmp:
+            state, out, full = (os.path.join(tmp, n) for n in ("state.json", "pr.json", "check.json"))
+            with open(state, "w", encoding="utf-8") as f:
+                json.dump({"records": [rec], "pr_attribution": data}, f)
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(ns.main(["check", "--state", state, "--pr-json", out, "--json", full,
+                                          "--git-dir", tmp]), 0)
+            with open(out, encoding="utf-8") as f:
+                doc = json.load(f)
+            with open(full, encoding="utf-8") as f:
+                self.assertIn("build_runner", f.read(), "the full check JSON names runners; the PR JSON must not")
+
+        def keys(v):
+            if isinstance(v, dict):
+                for k, x in v.items():
+                    yield k
+                    yield from keys(x)
+            elif isinstance(v, list):
+                for x in v:
+                    yield from keys(x)
+
+        found = set(keys(doc))
+        for banned in ("build_runner", "hosts", "host", "runners", "runner", "jobs", "diff", "bisect", "stages", "subject", "slow"):
+            self.assertNotIn(banned, found)
+        self.assertEqual(set(doc["rows"][0]), {"pr", "sha", "merged_at", "feed_sha", "feed_at", "merge_to_nightly",
+                                               "reason"})
+        self.assertEqual((doc["partial"], doc["count"], len(doc["rows"])), (False, len(feeds) - 1, len(feeds) - 1))
+        self.assertEqual(doc["observed_window"], {"from": data["oldest_feed"], "to": data["until"]})
 
 
 def one_job_run(run_id=43300000001, conclusion="success", status="completed"):
@@ -647,6 +750,10 @@ class Issue(unittest.TestCase):
         ns.write_issue({"records": [nxt], "unpublished": [], "new": ["b30"]}, "o/hq", "t", ".", run=gh2)
         self.assertEqual(gh2.calls[-1][0][:4], ["gh", "issue", "edit", "9"])
         self.assertEqual([r["build"] for r in ns.parse_history(gh2.written)["records"]], ["4318547490101", "b30"])
+        # The feed list is seeded from the records (verified publications), and past the 7 days keeps only the one
+        # feed before the window.
+        self.assertEqual([e["build"] for e in ns.parse_history(body)["feeds"]], ["4318547490101"])
+        self.assertEqual([e["build"] for e in ns.parse_history(gh2.written)["feeds"]], ["b30"])
 
     def test_nothing_new_writes_nothing(self):
         gh = FakeGh(issues=[{"number": 9, "title": ns.ISSUE_TITLE, "body": ns.ISSUE_MARK}])
