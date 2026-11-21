@@ -243,3 +243,51 @@ test("the router kills a wake only after the wake's own wait for health ran out"
   assert.deepEqual(args.slice(1), ["wake", "--tag", "t", "--wait", String(WAKE_WAIT_S)])
   assert.ok(WAKE_TIMEOUT_MS >= (WAKE_WAIT_S + 60) * 1000, `${WAKE_TIMEOUT_MS} ms kill vs a ${WAKE_WAIT_S} s wait`)
 })
+
+test("a Host naming an object built-in is no route, and the router keeps serving", async () => {
+  const stack = fakeStack()
+  const sport = await listen(stack)
+  const dir = base([{ tag: "pp", state: "running", port: sport, authorities: ["vm.tail.ts.net:4790"] }])
+  const router = createRouter({ base: dir, wakeRun: async () => assert.fail("no wake") })
+  const rport = await listen(router)
+  for (const host of ["__proto__", "constructor", "toString", "hasOwnProperty"]) {
+    assert.equal((await get(rport, host)).status, 421, host)
+    const ws = await new Promise((resolve) => {
+      const s = net.connect(rport, "127.0.0.1", () => s.write(`GET / HTTP/1.1\r\nHost: ${host}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n`))
+      let buf = ""
+      s.on("data", (d) => (buf += d))
+      s.on("close", () => resolve(buf))
+      s.on("error", () => resolve(buf))
+    })
+    assert.match(ws, /^HTTP\/1\.1 421/, host)
+  }
+  assert.equal(routeFor({ a: { tag: "a", port: "x" } }, "a"), undefined, "a malformed entry is no route")
+  assert.equal((await get(rport, "vm.tail.ts.net:4790")).status, 200, "still serving")
+  done(router, stack)
+})
+
+test("a WebSocket client that leaves while its crashed stack wakes leaves nothing open upstream", async () => {
+  let upstreamConnections = 0
+  const stack = fakeStack()
+  stack.on("connection", () => upstreamConnections++)
+  const dir = base([{ tag: "wl", state: "running", port: 0, authorities: ["vm.tail.ts.net:4795"] }])
+  const probe = net.createServer()
+  const port = await listen(probe)
+  await new Promise((r) => probe.close(r))
+  writeFileSync(join(dir, "routes.json"), JSON.stringify({ "vm.tail.ts.net:4795": { tag: "wl", port } }))
+  let client
+  const router = createRouter({
+    base: dir,
+    wakeRun: async () => {
+      client.destroy() // the client leaves during the wake
+      await new Promise((r) => stack.listen(port, "127.0.0.1", r))
+      await sleep(50)
+    },
+  })
+  const rport = await listen(router)
+  client = net.connect(rport, "127.0.0.1", () => client.write("GET /v1/ws HTTP/1.1\r\nHost: vm.tail.ts.net:4795\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n"))
+  client.on("error", () => {})
+  await sleep(400)
+  assert.equal(upstreamConnections, 0, "no upstream socket (and no heartbeat) for a client that left")
+  done(router, stack)
+})

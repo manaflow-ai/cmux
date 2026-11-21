@@ -141,7 +141,7 @@ migration_kinds() {  # prints pg and/or mysql when this branch changes that data
 
 stack_entry() { vm status --tag "$tag" | json "s=d['stacks']; print(json.dumps(s[0] if s else {}))"; }
 
-cred_fresh() {  # cred_fresh KIND MODE: the VM holds a credential of that mode that outlives this up's 12 h cap
+cred_fresh() {  # cred_fresh KIND MODE: the VM holds a credential of that mode that outlives the stack's retention (8 d)
   vm cred-fresh --tag "$tag" --kind "$1" --mode "$2" | json "sys.exit(0 if d['fresh'] else 1)"
 }
 

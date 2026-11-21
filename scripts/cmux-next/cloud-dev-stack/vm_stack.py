@@ -844,6 +844,11 @@ def stop_unit(tag: str) -> None:
     systemctl("reset-failed", unit(tag), check=False)
 
 
+def up_in_progress(entry: dict[str, Any], now: int) -> bool:
+    """An up of this tag holds its lock (prepare to up-done): the stack is never released or stopped under it."""
+    return bool(entry.get("up_token")) and now - entry.get("up_started", 0) < UP_LOCK_SECS
+
+
 def park(entry: dict[str, Any], now: int, reason: str) -> None:
     """Under the registry lock: stop a running stack's unit and keep everything else (state stopped)."""
     stop_unit(entry["tag"])
@@ -858,6 +863,7 @@ def release(entry: dict[str, Any], now: int, reason: str) -> list[str]:
     gc from a Mac, which deletes its credentials and branch."""
     steps = stop_stack(entry["tag"], keep_files=False)
     entry.update({"state": "reaped", "reaped_at": now, "reason": reason})
+    entry.pop("served_at", None)  # its files are gone: a later up starts a new stack
     write_entry(entry)
     return steps
 
@@ -899,7 +905,7 @@ def admit(tag: str, now: int | None = None) -> list[str]:
         disk = disk_free_gib()
         if disk >= need_disk:
             break
-        stopped = [e for e in all_entries() if e["tag"] != tag and e.get("state") == "stopped"]
+        stopped = [e for e in all_entries() if e["tag"] != tag and e.get("state") == "stopped" and not up_in_progress(e, now)]
         if not stopped:
             raise Refused(f"free disk {disk:.1f} GiB < {need_disk:.1f} GiB (the classic GC starts purging at 100) and no stopped stack to release")
         if not any(m.startswith("released") for m in made_room):
@@ -929,6 +935,8 @@ def cmd_prepare(args) -> dict[str, Any]:
         for sub in ("src", "platform", "state", "logs", "secrets", "home"):
             (d / sub).mkdir(mode=0o700, parents=True, exist_ok=True)
         token = secrets.token_hex(8)
+        if state in ("stopped", "running"):
+            entry.setdefault("served_at", entry.get("started_at") or now)  # an entry from before the mark served
         if state == "stopped" and (d / "run.sh").exists():
             # A re-up of a stopped stack: it stays stopped (and wakes on a request) until start restarts it, so
             # a re-up that fails before start leaves it as it was, files and data included.
@@ -946,6 +954,7 @@ def cmd_prepare(args) -> dict[str, Any]:
             if state in ("down", "reaped", "releasing"):
                 entry.pop("port", None)
                 entry.pop("ports", None)
+            entry.pop("served_at", None)  # not a stack that served (a first up, or one after a release or a failure)
             entry.update({"state": "preparing", "last_up_at": now})
         entry.update({"up_token": token, "up_started": now})
         write_entry(entry)
@@ -953,7 +962,8 @@ def cmd_prepare(args) -> dict[str, Any]:
     return {"dir": str(d), "state": entry["state"], "token": token}
 
 
-def wait_healthy(tag: str, port: int, host: str, timeout: float, local: int | None = None) -> tuple[bool, str]:
+def wait_healthy(tag: str, port: int, host: str, timeout: float, local: int | None = None,
+                 log: Path | None = None, log_start: int = 0) -> tuple[bool, str]:
     """Wait until every Worker of the stack answers /v1/health on wrangler's port (local; port for a stack from
     before local ports), each asked as its own tailnet authority (host:port, host:port+1, ...)."""
     authorities = [f"{host}:{p}" for p in stack_ports(port)]
@@ -961,6 +971,11 @@ def wait_healthy(tag: str, port: int, host: str, timeout: float, local: int | No
     while time.time() < deadline:
         if not unit_active(tag):
             return False, "its unit stopped"
+        if log is not None and log.exists():  # wrangler keeps running after a failed build, waiting for a change
+            with open(log, "rb") as f:
+                f.seek(log_start)
+                if b"Build failed" in f.read():
+                    return False, "build failed"
         for a in authorities:
             if a not in healthy:
                 ok, body = probe(local or port, a)
@@ -1004,6 +1019,10 @@ def cmd_wake(args) -> dict[str, Any]:
                 raise Refused(f"{tag}: its last wake failed {now - entry['wake_failed_at']} s ago ({entry.get('wake_error', '')}); retry in a minute, or cloud-dev-stack.sh up --tag {tag}")
             if not (stack_dir(tag) / "run.sh").exists():
                 raise Refused(f"{tag}: no run.sh (released); cloud-dev-stack.sh up --tag {tag}")
+            if entry.get("start_failed_at"):
+                # Its run.sh is the code whose start failed: a wake would fail the same way after up to 150 s, and
+                # might stop a healthy stack for room first. An up with a fix brings it back.
+                raise Refused(f"{tag}: its last up did not start ({entry.get('reason', '')}); fix it and run cloud-dev-stack.sh up --tag {tag}")
             # Its tailnet ports must still be ours: a classic stack never takes one (wrangler listens on its own
             # local port), but a hand-made Serve entry might.
             with serve_lock():
@@ -1037,7 +1056,7 @@ def cmd_wake(args) -> dict[str, Any]:
                 return None  # its new owner (a down stops the unit, an up restarts it) decides; the unit is left alone
             t = int(time.time())
             if ok:
-                e.update({"state": "running", "started_at": t, "last_request_at": t, "woke_at": t, "log_offset": log_offset})
+                e.update({"state": "running", "started_at": t, "last_request_at": t, "woke_at": t, "log_offset": log_offset, "served_at": t})
                 for k in ("wake_failed_at", "wake_error", "reason", "stopped_at", *WAKE_KEYS):
                     e.pop(k, None)
             else:
@@ -1056,7 +1075,7 @@ def cmd_wake(args) -> dict[str, Any]:
         systemctl("reset-failed", unit(tag), check=False)
         systemctl("start", unit(tag))
         (stack_dir(tag) / "heartbeat").touch()
-        ok, why = wait_healthy(tag, entry["port"], entry["host"], args.wait, local=local_port(entry))
+        ok, why = wait_healthy(tag, entry["port"], entry["host"], args.wait, local=local_port(entry), log=log, log_start=log_start)
     except BaseException as err:  # noqa: BLE001 - killed or failed: back to stopped
         settle(False, f"the wake was interrupted: {type(err).__name__}: {err}")
         raise
@@ -1094,13 +1113,15 @@ def cmd_up_done(args) -> dict[str, Any]:
         entry.pop("up_token", None)
         entry.pop("up_started", None)
         if args.failed:
-            reup = entry.pop("reup_at", None)
+            entry.pop("reup_at", None)
             if entry.get("state") == "preparing":
                 entry["state"] = "failed"
-            elif entry.get("state") == "starting" and reup and (stack_dir(tag) / "run.sh").exists():
-                # A re-up of a stack that already served, whose start died after it took the stack (before start
-                # settled it): the stack keeps its ports, Serve and data. Still up, it is running; else stopped, and
-                # its next request wakes it. Never failed, which gc would release with its data.
+            elif (entry.get("state") == "starting" and entry.get("served_at") and not entry.get("wake_token")
+                  and (stack_dir(tag) / "run.sh").exists()):
+                # A re-up of a stack that already served, whose Mac side died after start took the stack (start may
+                # still be running on the VM, and settles the entry itself when it ends): the stack keeps its ports,
+                # Serve and data. Still up, it is running; else stopped, and its next request wakes it. Never failed,
+                # which gc would release with its data. A wake in progress settles its own entry.
                 if unit_active(tag):
                     entry["state"] = "running"
                 else:
@@ -1418,7 +1439,8 @@ def cmd_start(args) -> dict[str, Any]:
         entry = read_entry(tag) or entry
         entry.update({"state": "running", "started_at": int(time.time()), "log_offset": log.stat().st_size if log.exists() else 0,
                       "last_request_at": int(time.time())})
-        for k in ("reup_at", "reason", "stopped_at"):  # a running stack carries no stop reason from before
+        entry["served_at"] = entry["started_at"]
+        for k in ("reup_at", "reason", "stopped_at", "start_failed_at"):  # a running stack carries no stop reason from before
             entry.pop(k, None)
         write_entry(entry)
     health = {}
@@ -1427,7 +1449,7 @@ def cmd_start(args) -> dict[str, Any]:
             health[svc] = json.loads(body)
         except ValueError:
             health[svc] = body
-    return {"tag": tag, "url": origins["api"], "urls": origins, "port": port, "health": health}
+    return {"tag": tag, "url": origins["api"], "urls": origins, "port": port, "health": health, "retain_days": RETAIN_SECS // 86400}
 
 
 def settle_failed_start(entry: dict[str, Any]) -> str:
@@ -1435,9 +1457,11 @@ def settle_failed_start(entry: dict[str, Any]) -> str:
     its ports, Serve, files and Durable Object data, stopped: its next request tries the new code again, and an up
     with a fix brings it back. Any other start fails (Serve off, files kept), and gc releases it later."""
     tag = entry["tag"]
-    if entry.get("reup_at") and (stack_dir(tag) / "run.sh").exists() and serve_on_router(entry):
+    if entry.get("served_at") and (stack_dir(tag) / "run.sh").exists() and serve_on_router(entry):
+        # served_at, not the up's re-up mark: the Mac's up-done may have cleared that while this start ran on.
         stop_unit(tag)
-        entry.update({"state": "stopped", "stopped_at": int(time.time()), "reason": "the last up did not start; fix it and run up again"})
+        now = int(time.time())
+        entry.update({"state": "stopped", "stopped_at": now, "start_failed_at": now, "reason": "the last up did not start; fix it and run up again"})
         entry.pop("reup_at", None)
     else:
         stop_stack(tag, keep_files=True)
@@ -1653,6 +1677,8 @@ def reap_one(tag: str, now: int) -> dict[str, Any] | None:
                 return {"tag": tag, "action": "cleaned failed stack", "steps": steps}
             return None
         if state == "stopped":
+            if up_in_progress(entry, now):
+                return None  # a re-up is syncing into it: never released under it
             retain = entry.get("retain_secs", RETAIN_SECS)
             if now - entry.get("last_up_at", now) > retain:
                 steps = release(entry, now, f"{retain // 86400} d since the last up (retention)")
@@ -1714,7 +1740,7 @@ def trim_kept(now: int) -> list[dict[str, Any]]:
     out = []
     with registry_lock():
         while True:
-            stopped = sorted((e for e in all_entries() if e.get("state") == "stopped"), key=last_activity)
+            stopped = sorted((e for e in all_entries() if e.get("state") == "stopped" and not up_in_progress(e, now)), key=last_activity)
             if not stopped or (len(stopped) <= MAX_KEPT and disk_free_gib() >= MIN_DISK_GIB):
                 return out
             if len(stopped) <= MAX_KEPT and disk_free_gib() + sum(dir_gib(stack_dir(e["tag"])) for e in stopped) < MIN_DISK_GIB:

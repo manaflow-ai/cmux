@@ -8,7 +8,8 @@
 //     with the client's Host, which the stack's front Worker routes by;
 //   - a stopped stack: wakes it (`vm_stack.py wake`, one at a time per tag; the requests that arrive meanwhile
 //     wait for the same wake), then proxies;
-//   - no stack (never made, released, expired): answers 404 with what to run.
+//   - a released stack: its entry stays (state reaped) until the next gc, and a request that still reaches the
+//     router (its Serve entry is gone, so only one already on its way) answers 404 with what to run.
 // Each request counts as the stack's activity (its heartbeat file, at most every 30 s), which the reaper's idle
 // stop reads. Nothing here reads a credential or a request body.
 import { spawn } from "node:child_process"
@@ -47,10 +48,14 @@ export function loadRoutes(path = join(BASE, "routes.json")) {
   return routes.table
 }
 
-/** The stack that answers on this Host header, or undefined. */
+/** The stack that answers on this Host header, or undefined. Only the table's own entries count, and only a
+ * well-formed one: a Host of `__proto__` or `constructor` is no route (a plain object's lookup would find a built-in). */
 export function routeFor(table, host) {
-  if (!host) return undefined
-  return table[host.toLowerCase()]
+  if (typeof host !== "string" || !host || !table || !Object.hasOwn(table, host.toLowerCase())) return undefined
+  const route = table[host.toLowerCase()]
+  return route && typeof route.tag === "string" && /^[a-z0-9-]+$/.test(route.tag) && Number.isInteger(route.port) && route.port > 0
+    ? route
+    : undefined
 }
 
 function stackState(base, tag) {
@@ -93,6 +98,7 @@ export const wakeArgs = (tag) => [VM_STACK, "wake", "--tag", tag, "--wait", Stri
 function runWake(tag) {
   return new Promise((resolve, reject) => {
     const child = spawn("python3", wakeArgs(tag), { stdio: ["ignore", "ignore", "pipe"] })
+    child.on("error", (e) => reject(new Error(`wake did not start: ${e.message}`))) // a failed spawn is a failed wake
     let err = ""
     child.stderr.on("data", (d) => (err = (err + d).slice(-2000)))
     const timer = setTimeout(() => child.kill("SIGTERM"), WAKE_TIMEOUT_MS)
@@ -155,6 +161,7 @@ function proxy(opts, req, res, route, retried = false) {
       }
       try {
         await wake(route.tag, opts.wakeRun)
+        if (res.destroyed) return // the client left while its stack woke
         return proxy(opts, req, res, route, true)
       } catch (w) {
         return refuse(res, 503, `the stack ${route.tag} did not wake: ${w.message}`)
@@ -179,6 +186,7 @@ function proxyUpgrade(opts, req, socket, head, route, retried = false) {
   let connected = false
   const upstream = net.connect(route.port, "127.0.0.1", () => {
     connected = true
+    if (socket.destroyed) return upstream.destroy() // the client left before the stack answered: nothing to hold open
     const lines = [`${req.method} ${req.url} HTTP/1.1`]
     for (let i = 0; i < req.rawHeaders.length; i += 2) lines.push(`${req.rawHeaders[i]}: ${req.rawHeaders[i + 1]}`)
     upstream.write(lines.join("\r\n") + "\r\n\r\n")
@@ -192,10 +200,10 @@ function proxyUpgrade(opts, req, socket, head, route, retried = false) {
     socket.destroy()
   }
   upstream.on("error", async (e) => {
-    if (!connected && !retried && e.code === "ECONNREFUSED") {
+    if (!connected && !retried && e.code === "ECONNREFUSED" && !socket.destroyed) {
       try {
         await wake(route.tag, opts.wakeRun)
-        return proxyUpgrade(opts, req, socket, head, route, true)
+        if (!socket.destroyed) return proxyUpgrade(opts, req, socket, head, route, true)
       } catch {}
     }
     close()
@@ -213,6 +221,13 @@ export function createRouter(opts = {}) {
   opts = { base: BASE, wakeRun: runWake, ...opts }
   const table = () => loadRoutes(join(opts.base, "routes.json"))
   const server = http.createServer(async (req, res) => {
+    try {
+      await handleRequest(req, res)
+    } catch (e) {
+      refuse(res, 500, `router error: ${e.message}`) // one bad request never takes the router (and every stack's sockets) down
+    }
+  })
+  const handleRequest = async (req, res) => {
     const route = routeFor(table(), req.headers.host)
     if (!route) return refuse(res, 421, `no tag stack answers on ${req.headers.host ?? "(no host)"}`)
     heartbeat(opts.base, route.tag)
@@ -228,11 +243,18 @@ export function createRouter(opts = {}) {
     }
     if (gone) return
     proxy(opts, req, res, route)
-  })
+  }
   server.on("upgrade", async (req, socket, head) => {
     // node drops its own error listener from an upgraded socket: a client reset while the stack wakes must not
     // throw out of the router (proxyUpgrade adds the real one).
     socket.on("error", () => {})
+    try {
+      await handleUpgrade(req, socket, head)
+    } catch {
+      socket.destroy()
+    }
+  })
+  const handleUpgrade = async (req, socket, head) => {
     const route = routeFor(table(), req.headers.host)
     if (!route) return socket.end("HTTP/1.1 421 Misdirected Request\r\nconnection: close\r\n\r\n")
     heartbeat(opts.base, route.tag)
@@ -243,7 +265,7 @@ export function createRouter(opts = {}) {
     }
     if (socket.destroyed) return // the client left while its stack woke
     proxyUpgrade(opts, req, socket, head, route)
-  })
+  }
   // Long-lived sockets (the mobile Worker's team hub, the hub's signaling) must not be cut by node's defaults.
   server.requestTimeout = 0
   server.headersTimeout = 60_000

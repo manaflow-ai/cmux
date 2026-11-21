@@ -593,7 +593,7 @@ class LifetimeTests(unittest.TestCase):
     def test_wake_starts_the_same_unit_and_port_and_marks_it_running(self):
         self.stack("w", "stopped", 100, port=4710, ports=[4710, 4711, 4712], local_port=23810)
         # Asked as its tailnet authorities (vm.ts.net:4710-4712), on wrangler's local port.
-        v.wait_healthy = lambda tag, port, host, timeout, local=None: (port == 4710 and local == 23810 and host == "vm.ts.net", "")
+        v.wait_healthy = lambda tag, port, host, timeout, local=None, **kw: (port == 4710 and local == 23810 and host == "vm.ts.net", "")
         out = v.cmd_wake(types.SimpleNamespace(tag="w", wait=5))
         self.assertTrue(out["woke"])
         e = v.read_entry("w")
@@ -670,7 +670,7 @@ class LifetimeTests(unittest.TestCase):
         self.stack("w", "stopped", 100)
         seen = {}
 
-        def healthy(tag, port, host, timeout, local=None):
+        def healthy(tag, port, host, timeout, local=None, **kw):
             seen.update(v.read_entry(tag))
             return True, ""
         v.wait_healthy = healthy
@@ -692,7 +692,7 @@ class LifetimeTests(unittest.TestCase):
     def test_a_wake_that_lost_the_stack_to_an_up_leaves_its_unit_alone(self):
         self.stack("l", "stopped", 100)
 
-        def taken_by_start(tag, port, host, timeout, local=None):
+        def taken_by_start(tag, port, host, timeout, local=None, **kw):
             e = v.read_entry(tag)  # cmd_start takes the stack and restarts its unit while the wake waits
             for k in v.WAKE_KEYS:
                 e.pop(k, None)
@@ -704,6 +704,75 @@ class LifetimeTests(unittest.TestCase):
             v.cmd_wake(types.SimpleNamespace(tag="l", wait=5))
         self.assertNotIn(("stop", v.unit("l")), self.calls, "the start that owns it now is not stopped under it")
         self.assertEqual(v.read_entry("l")["state"], "starting")
+
+    # Review of 7e3a284: an up-done that cleared the re-up mark, a wake in progress, an up in progress
+    def test_a_start_that_fails_after_the_macs_up_done_still_keeps_the_stack(self):
+        self.stack("m", "stopped", 100, port=4750)
+        token = v.cmd_prepare(types.SimpleNamespace(tag="m"))["token"]
+        e = v.read_entry("m")
+        e["state"] = "starting"  # start took it; then the Mac's ssh dropped and its up-done ran
+        v.write_entry(e)
+        self.active["m"] = True  # start is still booting the new code on the VM
+        self.assertEqual(v.cmd_up_done(types.SimpleNamespace(tag="m", token=token, failed=True))["state"], "running")
+        self.assertNotIn("reup_at", v.read_entry("m"))
+        self.assertEqual(v.settle_failed_start(v.read_entry("m")), "stopped", "the start's own failure still keeps it")
+        self.assertEqual(self.released, [])
+
+    def test_up_done_leaves_a_wake_in_progress_alone(self):
+        self.stack("k", "stopped", 100, port=4760)
+        token = v.cmd_prepare(types.SimpleNamespace(tag="k"))["token"]
+        e = v.read_entry("k")
+        e.update({"state": "starting", "wake_token": "w1", "wake_started_at": int(time.time())})  # a request woke it
+        v.write_entry(e)
+        self.active["k"] = False
+        v.cmd_up_done(types.SimpleNamespace(tag="k", token=token, failed=True))
+        e = v.read_entry("k")
+        self.assertEqual((e["state"], e["wake_token"]), ("starting", "w1"), "the wake settles its own entry")
+
+    def test_a_stopped_stack_is_never_released_under_an_up(self):
+        week = v.RETAIN_SECS
+        self.stack("u", "stopped", 100, port=4770)
+        v.cmd_prepare(types.SimpleNamespace(tag="u"))  # its re-up is syncing
+        now = int(time.time())
+        self.assertGreater(now - 100, week)  # its last up is past retention
+        self.assertIsNone(v.reap_one("u", now + 60), "retention waits for the up")
+        v.MAX_KEPT = 0
+        self.assertEqual(v.trim_kept(now), [])
+        self.disk = v.MIN_DISK_GIB - 1
+        with mock_sleep(), self.assertRaises(v.Refused):
+            v.admit("other", now=now)
+        self.assertEqual(v.read_entry("u")["state"], "stopped")
+        self.assertEqual(self.released, [])
+
+    def test_a_stack_whose_last_start_failed_refuses_a_wake_at_once(self):
+        self.stack("b", "stopped", 100, port=4780, served_at=100)
+        e = v.read_entry("b")
+        e["state"] = "starting"
+        self.assertEqual(v.settle_failed_start(e), "stopped")
+        v.wait_healthy = lambda *a, **kw: self.fail("no wake attempt for code whose start failed")
+        with self.assertRaises(v.Refused) as r:
+            v.cmd_wake(types.SimpleNamespace(tag="b", wait=150))
+        self.assertIn("did not start", str(r.exception))
+        self.assertNotIn(("start", v.unit("b")), self.calls)
+
+    def test_a_wake_stops_waiting_when_the_build_failed(self):
+        log = v.stack_dir("w") / "logs/wrangler.log"
+        log.parent.mkdir(parents=True)
+        log.write_text("old run: Build failed\n")
+        self.active["w"] = True
+        saved = v.probe
+        v.probe = lambda port, authority: (False, "connection refused")
+        try:
+            with mock_sleep():
+                ok, why = v.wait_healthy("w", 4700, "vm.ts.net", 0.3, local=23800, log=log, log_start=log.stat().st_size)
+                self.assertEqual((ok, "build failed" in why), (False, False), "an earlier run's failure is not this wake's")
+                with open(log, "a") as f:
+                    f.write("✘ [ERROR] Build failed with 1 error\n")
+                started = time.time()
+                self.assertEqual(v.wait_healthy("w", 4700, "vm.ts.net", 150, local=23800, log=log, log_start=0), (False, "build failed"))
+                self.assertLess(time.time() - started, 5)
+        finally:
+            v.probe = saved
 
     def test_serve_points_every_stack_port_at_the_router(self):
         saved = (v.serve_lock, v.serve_config, v.classic_ports, subprocess.run)
