@@ -99,7 +99,12 @@ extension WorkspaceListView {
                             // Keep creation separate from the filter group. On
                             // narrow Cloud lists UIKit can otherwise drop the
                             // second group child while retaining the filter.
-                            ToolbarItem(id: "workspace-list-new-workspace", placement: .topBarTrailing) {
+                            ToolbarItem(
+                                id: "workspace-list-new-workspace",
+                                placement: placesNewWorkspaceControlInBottomBar
+                                    ? .bottomBar
+                                    : .topBarTrailing
+                            ) {
                                 newWorkspaceButton.equatable()
                             }
                         }
