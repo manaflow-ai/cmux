@@ -116,6 +116,8 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-daemon-launch-core",
                     # The app health model (cmux-health-core).
                     "cmux-health-core",
+                    # The sign-in and session reducer the app links in process (cmux#48882).
+                    "cmux-auth-coordinator",
                     "cmux-local-auth",
                     "cmux-palette-ranker",
                     "cmux-remote-browser",
