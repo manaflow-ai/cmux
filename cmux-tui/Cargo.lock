@@ -1660,6 +1660,7 @@ dependencies = [
  "base64",
  "cmux-embed",
  "cmux-json",
+ "cmux-layout-reducer",
  "cmux-theme-tokens",
  "core-foundation 0.10.1",
  "core-foundation-sys",
