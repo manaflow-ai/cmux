@@ -53,3 +53,11 @@ extension SidebarListDrag {
         var block: SidebarBlockGap?
     }
 }
+
+extension DragPayload {
+    /// One workspace row or one group: a release in its own slot moves nothing (`SidebarListView.finishDrag`).
+    var isSingleRow: Bool {
+        if case let .workspaces(ids) = self { return ids.count == 1 }
+        return true
+    }
+}

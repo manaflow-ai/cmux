@@ -114,8 +114,9 @@ extension SidebarListViewComponents {
         guard let drag else { return }
         let started = CACurrentMediaTime()
         defer { lastDragWorkMs = (CACurrentMediaTime() - started) * 1000 }
-        // Every way a move can change the drop slot returns through here: the slot change taps the trackpad.
-        defer { reorderHaptics.moved(to: drag.hapticSlot) }
+        // Every way a move can change the drop slot returns through here: the slot change taps the trackpad. A move that
+        // ended the drag (a hand-off to another window or a pane) leaves the sidebar: no slot tap for it.
+        defer { if self.drag === drag { reorderHaptics.moved(to: drag.hapticSlot) } }
         if SidebarListPinDrop.holds(self, drag, at: windowPoint) || offerHandoff(drag, windowPoint: windowPoint) || holdsDragOut(drag, windowPoint: windowPoint) { return }
         drag.lastWindowPoint = windowPoint
         let point = convert(windowPoint, from: nil)
@@ -201,8 +202,10 @@ extension SidebarListViewComponents {
         // A drop moves rows, not the list: its reloads anchor on the first visible row (cx-fnfj, cx-8quut) and reveal only
         // a focused row the drop moved or pushed out of view (sidebar-focused-visible).
         revealedActive = selectionRevealKey
-        // Released where it started (its own slot): the order stays, so no drop tap.
-        var moved = drag.origin.map { target != .position($0) } ?? true
+        // One row released where it started (its own slot): the order stays, so no drop tap. A selection of several
+        // rows dropped there can still move (its other rows join the first), so it taps.
+        let inPlace = drag.origin.map { target == .position($0) } ?? false
+        var moved = !(inPlace && drag.payload.isSingleRow)
         switch (drag.payload, target) {
         case let (.workspaces(ids), .position(position)):
             model.send(.reorder(ids, to: position))
