@@ -104,7 +104,7 @@ with open(path, "w") as f:  # in place, one write: one save, as an editor's
     f.write(new)
 open(log, "a").write(f"{t:.6f}\n")
 PY
-  wait_for "$out/watch.log" "^fs_event" 10 >/dev/null 2>&1 || true
+  for ((i = 0; i < 200; i++)); do (( $(grep -c "^fs_event" "$out/watch.log" || true) >= k )) && break; sleep 0.05; done
   (( $(grep -c "^fs_event" "$out/watch.log" || true) >= k )) || die "round $k: the watcher heard no save of Badge.swift in 10 s (watch.log in OUT)"
   wait_for "$out/shell.log" "redrawn generation=$k " 120 || die "round $k never redrew (watch.log and shell.log in OUT)"
   sleep 0.3  # the watcher's line for this round, and a quiet machine before the next edit
