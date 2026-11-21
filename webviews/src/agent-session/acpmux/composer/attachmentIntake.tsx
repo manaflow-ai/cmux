@@ -208,7 +208,6 @@ export function PendingChip({
         aria-label={name}
         aria-busy={failed ? undefined : "true"}
         data-paste-look={failed ? undefined : look}
-        {...(!failed && chip.sizing ? { "data-sizing": "" } : {})}
         /* tooltip-allow: the tile shows no reason; the tooltip says why it failed */ title={chip.failed}
       >
         <FileAttachment
