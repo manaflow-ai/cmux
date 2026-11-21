@@ -1023,10 +1023,14 @@ class Workflow(unittest.TestCase):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         early, check = jobs["react-apps-base-early"], jobs["react-apps-base-check"]
         self.assertEqual(early["needs"], "web-subarea-scope")  # alongside the head shards, not after them
-        self.assertIn("react-apps-base-early", check["needs"])
+        # Off pull requests unless labelled full-ci (1.10% of PR runner-minutes, no red caught, 11-13..19), and never
+        # a need of the base check: a skipped need would skip the required replay.
+        self.assertNotIn("react-apps-base-early", check["needs"])
         self.assertIn("react-apps-check-shard", check["needs"])
         self.assertIs(early["continue-on-error"], True)
-        self.assertEqual(early["if"], check["if"])
+        self.assertEqual(early["if"], check["if"].replace(
+            "github.event_name == 'pull_request' && ",
+            "github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci') && ", 1))
         sys.path.insert(0, str(ROOT / "tests"))
         import workflow_jobs  # noqa: PLC0415
         self.assertEqual(workflow_jobs.runs_on(early), workflow_jobs.runs_on(check))

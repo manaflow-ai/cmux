@@ -859,9 +859,14 @@ jobs:
   # agent-pane-send-motion-contract timeout alone on shard 1, ended at 15.0 min; the rest 7.5-8.8 min), and 12
   # setups for 21 more jobs than the step table's budget allows. The split puts the 600 s file first on shard 1
   # and about as many seconds again on shard 2; 4 dev-server lanes take the rest beside it.
+  # Off pull requests unless the full-ci label asks for it. Leo, 2026-11-21: "id rather we simply cut shit now and
+  # revisit later." Over 11-13..19 these 2 shards were 1.10% of pull request runner-minutes and caught no red (0 of
+  # 2,950 heads; cmuxterm-hq docs/ci/bottleneck-and-skip-candidates-2026-11-21.md): they only make a verdict sooner,
+  # and react-apps-base-check replays the same base reds itself when no early result is there. Not in its needs, so
+  # a skipped early job never skips the base check; a full-ci run's early results count when they are uploaded first.
   react-apps-base-early:
     needs: web-subarea-scope
-    if: ${{ github.event_name == 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
+    if: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci') && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'push' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     continue-on-error: true
     # Under the head shards' 40: a stuck early shard must not hold the base check past what its own replay costs.
@@ -1007,7 +1012,7 @@ jobs:
   # run the recorded base reds in parallel with the head suite; this one job
   # replays only the head reds that remain after those results are joined.
   react-apps-base-check:
-    needs: [web-subarea-scope, react-apps-check-shard, react-apps-base-early]
+    needs: [web-subarea-scope, react-apps-check-shard]
     if: ${{ github.event_name == 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'push' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_LINUX_GATE_OWNED_RUNNER || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # 55: the base replay and the head re-run of up to 25 files each (13 files took about 6 minutes alone). The base's
