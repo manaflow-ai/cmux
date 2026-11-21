@@ -150,6 +150,11 @@ path = "tests/test_ci_edit_events_start_no_runner.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_ephemeral_pool_readers.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_ci_ephemeral_pool_readers.py yourself after changing the pool readers it reads."
+
+[[test]]
 path = "tests/test_ci_evidence_outcomes.py"
 lane = "linux-guard"
 
@@ -490,6 +495,10 @@ path = "tests/test_ci_portable_job_placement.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_post_merge_batch.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_post_merge_checks.py"
 lane = "linux-guard"
 
@@ -503,8 +512,7 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_pr_ran_line.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_pr_ran_line.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_pr_runner_pool.py"
@@ -516,6 +524,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_pr_size.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_pr_trigger_paths.py"
 lane = "linux-guard"
 
 [[test]]
@@ -849,11 +861,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_tooling_steps.py"
-lane = "manual"
-reason = "Lawrence 2026-10-23: no new CI tests; linux-guard needs a workflow step that runs the file, and none does. Pins scripts/ci/tooling_steps.py's per-step selection and that every tooling-tests run step in cmux-next-guards.yml is a setup step or carries its tt- id and selection if:; run python3 -m unittest tests/test_ci_tooling_steps.py yourself after changing tooling_steps.py, workflow_paths_cover_inputs.py or a tooling-tests step (about 5 s, no build)."
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_tree_result.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_tui_rerun_leg_rereads_pool.py"
 lane = "linux-guard"
 
 [[test]]
@@ -942,8 +957,3 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_xcodebuild_noninteractive_helper.py"
 lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ci_ephemeral_pool_readers.py"
-lane = "manual"
-reason = "No new CI tests (Lawrence 2026-10-23). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_ci_ephemeral_pool_readers.py yourself after changing the pool readers it reads."
