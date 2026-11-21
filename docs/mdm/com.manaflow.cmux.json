@@ -5113,6 +5113,12 @@
       "title" : "Session Tree",
       "type" : "boolean"
     },
+    "sidebar.settleFinished" : {
+      "default" : false,
+      "description" : "A chat whose answer you have read folds into Settled at the end of its list until its next turn.",
+      "title" : "Settle Finished Chats",
+      "type" : "boolean"
+    },
     "sidebar.showChats" : {
       "default" : true,
       "description" : "New Tab lists every agent chat on this computer, not only recent ones.",
@@ -5156,7 +5162,7 @@
       "type" : "boolean"
     },
     "sidebar.showSpaces" : {
-      "default" : false,
+      "default" : true,
       "description" : "sidebar.showSpaces",
       "title" : "Show Spaces",
       "type" : "boolean"
@@ -5805,10 +5811,6 @@
       "description" : "The layout of the New Tab page. Terminal opens a terminal instead.",
       "enum" : [
         "minimal",
-        "cards",
-        "default",
-        "threads",
-        "console",
         "classic",
         "terminal"
       ],
