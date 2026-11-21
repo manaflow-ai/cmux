@@ -50,7 +50,7 @@ impl Hub {
                 let marked = (!item.read).then(|| (item.thread.clone(), vec![id.to_owned()]));
                 item.read = true;
                 (team_message(session, item), marked)
-            } else if inbox.items.iter().any(|i| i.thread == id) {
+            } else if inbox.items.iter().any(|i| i.thread == id) || inbox.spilled.covers(id) {
                 drop(inbox);
                 let thread = self.inbox_thread(session, id, true);
                 let messages = thread.get("messages").and_then(Value::as_array);

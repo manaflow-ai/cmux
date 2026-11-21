@@ -42,6 +42,8 @@ fn item(
         tool_notice: None,
         noticed: false,
         read: false,
+        whole: false,
+        size: 0,
         answer: None,
         reader: None,
     }
@@ -388,21 +390,45 @@ fn class_aliases_name_the_inbox_kinds() {
 }
 
 #[test]
-fn trim_lets_go_only_of_answered_read_messages_and_remembers_them() {
+fn trim_lets_go_of_done_messages_first_never_a_carried_or_new_one_and_remembers_them() {
     let mut inbox = Inbox::default();
     for n in 0..KEEP + 3 {
         let mut i = item(&format!("m-{n}"), "from:a", "a", PromptClass::Result, n as u64, "x");
-        (i.noticed, i.read) = (true, true);
-        // The first two are answered; the third went in with no answer yet (its notice runs).
-        if n < 2 {
+        i.noticed = n != 3;
+        // Every one past the first ten went in whole or was read; the first ten went in as a
+        // preview nobody read.
+        i.read = n >= 10 && n % 2 == 0;
+        i.whole = n >= 10 && n % 2 == 1;
+        if n != 2 {
             i.answered = Some(Ok(json!({"stopReason": "end_turn"})));
         }
         inbox.items.push(i);
     }
+    // m-2's notice has not ended: it may be new again. m-3 no notice told the agent of yet.
+    inbox.in_flight = Some(("inbox-notice-2".into(), vec!["m-2".into()]));
     trim(&mut inbox);
-    assert_eq!(inbox.items.len(), KEEP + 1, "only the answered ones go");
-    assert!(inbox.trimmed.contains("m-0") && inbox.trimmed.contains("m-1"));
-    assert!(inbox.items.iter().any(|i| i.prompt_id == "m-2"));
+    assert_eq!(inbox.items.len(), KEEP - KEEP / 4, "down to three quarters of the bound");
+    let held = |id: &str| inbox.items.iter().any(|i| i.prompt_id == id);
+    assert!(held("m-2") && held("m-3"), "never one a notice carries or none told of yet");
+    // The read and whole ones go first: the unread previews stay, with room left for them.
+    assert!(held("m-0") && held("m-9"), "the unread ones stay while done ones can go");
+    assert!(!held("m-10") && inbox.trimmed.contains("m-10"));
+    assert!(!inbox.spilled.covers("from:a"), "nothing unread let go of");
+}
+
+#[test]
+fn trim_lets_go_of_unread_ones_last_and_remembers_their_thread() {
+    let mut inbox = Inbox::default();
+    for n in 0..KEEP + 1 {
+        let thread = if n == 0 { "from:b" } else { "from:a" };
+        let mut i = item(&format!("m-{n}"), thread, "a", PromptClass::Result, n as u64, "x");
+        i.noticed = true;
+        i.answered = Some(Ok(json!({"stopReason": "end_turn"})));
+        inbox.hold(i);
+    }
+    assert!(!inbox.items.iter().any(|i| i.prompt_id == "m-0"));
+    assert!(inbox.spilled.covers("from:b") && inbox.spilled.covers("from:a"));
+    assert!(!inbox.spilled.covers("from:c"));
 }
 
 #[test]
@@ -931,4 +957,184 @@ async fn an_opened_thread_names_its_senders_plainly_for_the_transcript() {
         (&m["sender"]["verification"], &m["sender"]["label"]),
         (&json!("declared"), &json!("dot"))
     );
+}
+
+/// The bytes an inbox holds that grow with what was sent: each message's text, sender and
+/// details.
+fn held_bytes(inbox: &Inbox) -> usize {
+    let json = |v: &Value| v.to_string().len();
+    inbox
+        .items
+        .iter()
+        .map(|i| i.text.len() + json(&i.sender) + i.details.as_ref().map_or(0, json))
+        .sum()
+}
+
+/// Takes `message` into `inbox` as `inbox_accept` does.
+fn take(inbox: &mut Inbox, message: Item) {
+    inbox.hold(message);
+}
+
+/// The most items and bytes one chat's inbox may hold of messages a notice told its agent of.
+const HELD_ITEMS: usize = 600;
+const HELD_BYTES: usize = 2 << 20;
+
+/// Huge-blue, 2026-11-19: the acpmux daemon reached 25 GB after 19 hours of lanes reporting to
+/// coordinators. A notice tells the agent of each message; a short one it carries whole and the
+/// agent never opens its thread, a long one it previews and the agent often never reads. Trim
+/// let go only of read messages, so a chat's inbox held every message it was ever sent, each
+/// with its text, sender and details, for the life of the daemon. Whatever the volume, one
+/// chat's inbox holds a bounded window, and a message costs the same at the 20,000th as at the
+/// first.
+#[test]
+fn an_inbox_holds_a_bounded_window_however_many_messages_go_unread() {
+    const N: usize = 20_000;
+    let mut inbox = Inbox::default();
+    let short = "lane report: done, tests green".repeat(10);
+    let long = "a long lane report line\n".repeat(250);
+    let answer = json!({"stopReason": "end_turn"});
+    let mut times = Vec::with_capacity(N);
+    for n in 0..N {
+        let started = std::time::Instant::now();
+        let text = if n % 2 == 0 { &short } else { &long };
+        let thread = format!("from:lane-{}", n % 40);
+        let mut message =
+            item(&format!("m-{n}"), &thread, "lane", PromptClass::Result, n as u64, text);
+        message.sender = json!({"name": format!("lane-{}", n % 40), "verification": "session"});
+        message.details = Some(json!({"pr": n, "summary": "x".repeat(400)}));
+        take(&mut inbox, message);
+        // Its notice: what is new, gathered as `deliver_notice` does, goes in and is answered.
+        // Nobody opens a thread.
+        let notice = format!("inbox-notice-{n}");
+        let new: Vec<usize> = (0..inbox.items.len()).filter(|i| !inbox.items[*i].noticed).collect();
+        for i in new {
+            let message = &mut inbox.items[i];
+            message.noticed = true;
+            message.notice = Some(notice.clone());
+            message.answered = Some(Ok(answer.clone()));
+        }
+        times.push(started.elapsed());
+    }
+    let per = |range: std::ops::Range<usize>| {
+        let n = range.len() as u32;
+        times[range].iter().sum::<std::time::Duration>() / n
+    };
+    eprintln!(
+        "inbox after {N} unread messages: {} items, {} bytes held, {} ids remembered; \
+         per message {:?} over the first 1000, {:?} over the last 1000",
+        inbox.items.len(),
+        held_bytes(&inbox),
+        inbox.trimmed.len(),
+        per(0..1000),
+        per(N - 1000..N),
+    );
+    assert!(inbox.items.len() <= HELD_ITEMS, "{} items held", inbox.items.len());
+    assert!(held_bytes(&inbox) <= HELD_BYTES, "{} bytes held", held_bytes(&inbox));
+    assert!(inbox.trimmed.len() <= 4096, "{} trimmed ids remembered", inbox.trimmed.len());
+    // The newest messages are all still held, read or not.
+    assert!(inbox.items.iter().any(|i| i.prompt_id == format!("m-{}", N - 1)));
+}
+
+/// A chat whose log holds `n` messages, each noticed by a notice that went in and was answered,
+/// none read.
+fn chat_with_unread_log(id: &str, n: usize) -> (Arc<Hub>, Arc<Session>) {
+    let (hub, session) = hub_with_chat(id);
+    // Its first look at the inbox: the empty log, so the restore below is the only one.
+    drop(session.inbox());
+    let text = "a lane report line\n".repeat(120);
+    for m in 0..n {
+        let id = format!("m-{m}");
+        let notice = format!("inbox-notice-{m}");
+        hub.append(
+            &session,
+            "mux",
+            "inbox",
+            json!({"promptId": id, "threadId": format!("from:lane-{}", m % 40),
+                   "from": format!("lane-{}", m % 40), "class": "result", "text": text}),
+        );
+        hub.append(
+            &session,
+            "mux",
+            "inbox_noticed",
+            json!({"noticePromptId": notice, "promptIds": [id]}),
+        );
+        hub.append(
+            &session,
+            "mux",
+            "inbox_answered",
+            json!({"noticePromptId": notice, "promptIds": [id], "answer": {"stopReason": "end_turn"}}),
+        );
+    }
+    (hub, session)
+}
+
+/// A restart rebuilds a chat's inbox from its log: only its newest window of what a notice
+/// told the agent of, however long the log, and every message still dedups after that. A resend
+/// of a message let go of answers from the log (`turns.rs` asks `logged_inbox_answer` for every
+/// resend), and a repeat of one let go of recently answers as a duplicate, never as a new
+/// message.
+#[tokio::test]
+async fn a_restart_holds_a_bounded_window_and_every_message_still_dedups() {
+    // The memory store keeps a chat's newest 20,000 records (`store/memory.rs`), and each
+    // message here is three (`inbox`, `inbox_noticed`, `inbox_answered`): 6,000 messages fit
+    // whole, ten times the bound. More would test the store's cap, not the inbox's.
+    const N: usize = 6_000;
+    let (hub, session) = chat_with_unread_log("inbox-bound", N);
+    let logged = hub.store.events(&session.id, 0, usize::MAX).unwrap().len();
+    assert!(logged >= 3 * N, "the log keeps every message: {logged} records");
+    let started = std::time::Instant::now();
+    hub.restore_inbox(&session);
+    let took = started.elapsed();
+    let (held, bytes) = {
+        let inbox = session.inbox();
+        (inbox.items.len(), held_bytes(&inbox))
+    };
+    eprintln!("restore of {N} unread messages: {held} items, {bytes} bytes held, {took:?}");
+    assert!(held <= HELD_ITEMS, "{held} items held after a restart");
+    assert!(bytes <= HELD_BYTES, "{bytes} bytes held after a restart");
+    // The oldest, let go of long ago: its resend answers from the log, a duplicate.
+    let oldest = hub.logged_inbox_answer(&session, "m-0").expect("the log answers m-0");
+    let oldest = oldest.expect("its notice's answer");
+    assert_eq!(oldest["_meta"]["acpmux"]["duplicate"], json!(true), "{oldest}");
+    // One let go of recently, sent again: a duplicate, and the inbox takes nothing new.
+    let again = format!("m-{}", N - HELD_ITEMS - 10);
+    let blocks = vec![json!({"type": "text", "text": "again"})];
+    let mut accepted = Value::Null;
+    let answer = hub
+        .inbox_accept(
+            &session,
+            &blocks,
+            "test",
+            &again,
+            "lane-1",
+            PromptClass::Result,
+            None,
+            None,
+            false,
+            false,
+            None,
+            &mut |v| accepted = v,
+        )
+        .await
+        .expect("answered");
+    assert!(
+        accepted["duplicate"] == json!(true) || accepted["resent"] == json!(true),
+        "{accepted}"
+    );
+    assert_eq!(answer["_meta"]["acpmux"]["duplicate"], json!(true), "{answer}");
+    {
+        let inbox = session.inbox();
+        assert!(inbox.items.len() <= held, "the repeat added nothing");
+        assert!(inbox.items.iter().filter(|i| i.prompt_id == again).count() <= 1);
+    }
+    // Nothing unread is lost: a read of a thread gives every one of its messages, those let go
+    // of from the log, newest first; once marked read, the next read finds them all read.
+    let thread = hub.inbox_thread(&session, "from:lane-0", true);
+    let messages = thread["messages"].as_array().expect("messages");
+    assert_eq!(messages.len(), N / 40, "every message of the thread");
+    assert_eq!(messages[0]["promptId"], json!(format!("m-{}", N - 40)));
+    assert_eq!(messages.last().unwrap()["promptId"], json!("m-0"));
+    let again = hub.inbox_thread(&session, "from:lane-0", false);
+    let unread = again["messages"].as_array().unwrap().iter().filter(|m| m["read"] != json!(true));
+    assert_eq!(unread.count(), 0, "{again}");
 }
