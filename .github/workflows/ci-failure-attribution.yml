@@ -29,6 +29,9 @@ on:
     types: [completed]
 
 env:
+  # Temporary REST budget attribution until 2026-11-22 00:00 UTC: one gh-call line per GitHub API call
+  # (scripts/ci/api_call_log/env.sh). GitHub runs this file from main, and it had no attribution.
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
   SOURCE_WORKFLOW_PATHS: .github/workflows/ci.yml
 
 permissions: {}
