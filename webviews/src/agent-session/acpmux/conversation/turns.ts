@@ -423,6 +423,10 @@ export type TurnView = {
   /// Where each next-step card is in `rows`, with the row as its turn shaped it
   /// (`settleNextSteps`).
   nextSteps: NextStepAt[];
+  /// Where each failed turn's summary is in `rows`, and the last turn summary that completed
+  /// (`markRecovered`), -1 for none.
+  failures: number[];
+  lastCompleted: number;
   rows: AcpmuxRow[];
 };
 
@@ -647,6 +651,8 @@ export function turnViewFrom(
   let dated: boolean[];
   let ends: TurnView["ends"];
   let nextSteps: NextStepAt[];
+  let failures: number[];
+  let lastCompleted: number;
   if (reuse > 0) {
     lead = previous!.lead;
     index = previous!.starts[reuse]!;
@@ -659,6 +665,8 @@ export function turnViewFrom(
     dated = previous!.dated.slice(0, reuse);
     ends = previous!.ends.slice(0, reuse);
     nextSteps = previous!.nextSteps.filter((card) => card.at < out.length);
+    failures = previous!.failures.filter((at) => at < out.length);
+    lastCompleted = previous!.lastCompleted < out.length ? previous!.lastCompleted : -1;
   } else {
     out = [];
     index = 0;
@@ -679,6 +687,8 @@ export function turnViewFrom(
     dated = [];
     ends = [];
     nextSteps = [];
+    failures = [];
+    lastCompleted = -1;
   }
   const first = starts.length;
   // The cards before the last reused one keep their state: what follows each, up to the next card,
@@ -836,6 +846,8 @@ export function turnViewFrom(
     } else dated[at] = false;
     for (const row of drawn) {
       if (row.kind === NEXT_STEP && row.nextStep) nextSteps.push({ at: out.length, row });
+      else if (isFailed(row)) failures.push(out.length);
+      else if (row.kind === "turnSummary" && row.status === "completed") lastCompleted = out.length;
       out.push(row);
     }
     ends.push({ count: out.length, row: out.at(-1), visible, ...(openRun && { openRun }) });
@@ -847,6 +859,7 @@ export function turnViewFrom(
   while (settleFrom > 0 && (!nextSteps[settleFrom - 1]!.spoke || nextSteps[settleFrom - 1]!.outOfOrder))
     settleFrom -= 1;
   reusedRows = Math.min(reusedRows, settleNextSteps(out, nextSteps, settleFrom));
+  reusedRows = Math.min(reusedRows, markRecovered(out, failures, lastCompleted));
   return {
     source: rows,
     expanded,
@@ -869,9 +882,45 @@ export function turnViewFrom(
     foldedBackground,
     ends,
     nextSteps,
+    failures,
+    lastCompleted,
     rows: out,
   };
 }
+
+/// Each failed turn's summary a later completed turn follows, marked `recovered`: the chat went on
+/// after it (Continue, a fork of it, a new message), so its error card is history, not a problem to
+/// act on, and no longer draws (cmux#48434: "if i somehow continue the chat ... and it works i
+/// shouldnt see this dialog again"). Returns the first index whose row it changed, or Infinity.
+function markRecovered(out: AcpmuxRow[], failures: readonly number[], lastCompleted: number): number {
+  let changed = Number.POSITIVE_INFINITY;
+  for (const at of failures) {
+    const row = out[at]!;
+    const recovered = at < lastCompleted;
+    if (recovered === (row.recovered === true)) continue;
+    // A reused row marked in an earlier view whose later completed turn is gone draws its card again.
+    let next: AcpmuxRow | undefined;
+    if (!recovered) {
+      const { recovered: _, ...failed } = row;
+      next = failedRows.get(row) ?? { ...failed, version: row.version - 2 * VERSION_SPAN };
+    } else {
+      next = recoveredRows.get(row);
+      if (!next) {
+        next = { ...row, recovered: true, version: row.version + 2 * VERSION_SPAN };
+        recoveredRows.set(row, next);
+        failedRows.set(next, row);
+      }
+    }
+    out[at] = next;
+    changed = Math.min(changed, at);
+  }
+  return changed;
+}
+
+/// Each failed summary's recovered row and back, kept while the summary holds, so the memo and
+/// height cache keep it.
+const recoveredRows = new WeakMap<AcpmuxRow, AcpmuxRow>();
+const failedRows = new WeakMap<AcpmuxRow, AcpmuxRow>();
 
 /// A next-step card in a turn view: its index in the drawn rows, the row as its turn shaped it,
 /// whether the person said anything after it before the next card, and whether the answer clicked

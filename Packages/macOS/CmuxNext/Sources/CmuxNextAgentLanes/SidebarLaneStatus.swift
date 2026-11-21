@@ -57,8 +57,9 @@ enum SidebarLaneStatus {
                     row.chiefAvatar = owned.first.flatMap(chiefAvatar)
                 }
                 guard mergesState || namesState || saysStep else { return row }
-                if mergesState { merge(local, into: &row) }
-                if namesState { row.agentChip = chip(local, marks: marks.state) }
+                let standing = withoutSupersededFailures(local)
+                if mergesState { merge(standing, into: &row) }
+                if namesState { row.agentChip = chip(standing, marks: marks.state) }
                 if saysStep { row.agentStep = step(local) }
                 return row
             }
@@ -85,6 +86,24 @@ enum SidebarLaneStatus {
             row.activity = state
             row.activityStyle = nil
             row.detail.activitySince = lane.since
+        }
+    }
+
+    /// `lanes` without each failed or lost chat that another chat of the same workspace went on past
+    /// (cmux#48434: "just because one of them is red and open but something else is running means that
+    /// this shouldnt be red again"): one that is working or waits on the person now, or one that came to
+    /// rest after the failure, the chat continued or forked and finished. A failure with nothing after
+    /// it stays, so a workspace whose only news is a failure still reads red.
+    static func withoutSupersededFailures(_ lanes: [AgentActivityLane]) -> [AgentActivityLane] {
+        let failures = lanes.filter { $0.state == .failed || $0.state == .lost }
+        guard !failures.isEmpty, failures.count < lanes.count else { return lanes }
+        let active = lanes.contains { $0.state == .working || $0.state == .input }
+        let lastRest = lanes.filter { $0.state == .idle }.compactMap(\.since).max()
+        return lanes.filter { lane in
+            guard lane.state == .failed || lane.state == .lost else { return true }
+            if active { return false }
+            guard let lastRest, let failedAt = lane.since else { return true }
+            return failedAt >= lastRest
         }
     }
 

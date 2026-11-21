@@ -172,4 +172,40 @@ import Testing
         let unboundWorkspace = try #require(fixture.store.workspaces.first)
         #expect(fixture.lanes.keepsWorkspace(unboundWorkspace, turns: fixture.turns))
     }
+
+    /// cmux#48434: "just because one of them is red and open but something else is running means that this shouldnt
+    /// be red again". A workspace with a failed chat and another chat that runs, waits on the person, or finished after
+    /// the failure does not read red; a failure with nothing after it still does.
+    @Test func aFailureAnotherChatWentOnPastDoesNotMarkTheWorkspaceRed() throws {
+        func lane(_ session: String, _ state: String, at seconds: Double) throws -> AgentActivityLane {
+            try #require(AgentActivityLane.of(summary: ["sessionId": session, "name": session,
+                                                        "lane": ["state": state, "since": seconds * 1000]]))
+        }
+        let store = DaemonStore(), turns = AgentTurnStateStore(), lanes = AgentLaneStore()
+        var workspace = Self.workspace(1, "two chats", session: "s-failed", harness: "codex")
+        var second = TabSnapshot(surface: SurfaceID(rawValue: 101), kind: .conversation, cwd: nil)
+        second.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: Self.host, session: "s-other", harness: "codex"))
+        workspace.screens[0].panes[0].tabs.append(second)
+        store.apply(snapshot: DaemonTree(workspaces: [workspace]))
+        turns.localHost = Self.host
+        func shown() -> StatusIndicatorState? {
+            Self.activity(SidebarMapping.shared.sections(store.sidebarSections, machine: SidebarMachine(id: .local, name: "This Mac", kind: .local),
+                                                         rowSource: SidebarLaneStatus.applying(nil, lanes: lanes, turns: turns),
+                                                         workspaceFilter: { _ in true }))["two chats"]
+        }
+        try Self.withLaneStatus(true) {
+            lanes.lanes["s-failed"] = try lane("s-failed", "failed", at: 100)
+            lanes.lanes["s-other"] = try lane("s-other", "working", at: 200)
+            #expect(shown() == .working, "a running chat beside a failed one is not red")
+            lanes.lanes["s-other"] = try lane("s-other", "input", at: 200)
+            #expect(shown() == .waiting)
+            lanes.lanes["s-other"] = try lane("s-other", "idle", at: 300)
+            #expect(shown() != .error, "a chat that finished after the failure went on past it")
+            lanes.lanes["s-other"] = try lane("s-other", "idle", at: 50)
+            #expect(shown() == .error, "a chat that came to rest before the failure did not")
+            lanes.lanes["s-other"] = try lane("s-other", "failed", at: 300)
+            #expect(shown() == .error, "two failures are still red")
+        }
+        #expect(SidebarLaneStatus.withoutSupersededFailures([try lane("solo", "failed", at: 1)]).count == 1)
+    }
 }
