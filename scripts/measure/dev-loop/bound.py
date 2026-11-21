@@ -71,10 +71,12 @@ def judge(loop: dict) -> dict:
     floors = {k: [float(x) for x in v] for k, v in (loop.get("floors_ms") or {}).items() if v}
     if not rounds:
         return {"measured": False, "why": "no measured rounds"}
-    observed = sorted({s for r in rounds for s in (r.get("stages_ms") or {})} - {UNATTRIBUTED})
+    observed: list[str] = []  # in the order the rounds name them, which is the order they ran
+    for r in rounds:
+        observed += [s for s in (r.get("stages_ms") or {}) if s != UNATTRIBUTED and s not in observed]
     graph = loop.get("graph") or {}
     if not graph:  # no graph given: the observed stages in a plain chain, which never overlaps
-        graph = {s: [] for s in observed}
+        graph = {s: observed[i - 1:i] for i, s in enumerate(observed)}
     graph = {s: list(graph.get(s, [])) for s in set(graph) | set(observed)}
     missing = sorted(s for s in graph if s not in floors)
     if missing:
