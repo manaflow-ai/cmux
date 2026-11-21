@@ -124,9 +124,25 @@ pub fn claude_env(env: &[(String, String)]) -> Vec<(&'static str, &'static str)>
 /// `args` of a `codex app-server` launch with acpmux's config overrides
 /// first (global options go before the subcommand), each only when neither
 /// `args` nor codex's `configs` set that key already.
+///
+/// The model codex's config names (its active profile's, else the top-level
+/// `model`) goes first too, as `-m <model>`, when `args` name none (cmux#48354).
+/// A chat's app-server is told its model over the protocol (`thread/start`),
+/// after it started, so a launcher that routes by the model on its command
+/// line (a subrouter wrapper installed as `codex`) saw none and sent the
+/// configured model to the plain provider, which refused it (400
+/// `model_not_found`), while `codex` in a terminal, whose wrapper puts the
+/// configured model on the command line, worked. Codex itself takes `-m` before
+/// a subcommand and the chat's model still comes from the protocol.
 pub fn codex_args(args: Vec<String>, configs: &[toml::Table]) -> Vec<String> {
     let profile = codex_profile(&args, configs);
     let mut lifted: Vec<String> = Vec::new();
+    if !names_codex_model(&args)
+        && let Some(model) = codex_config_model(configs, profile.as_deref())
+    {
+        lifted.push("-m".into());
+        lifted.push(model);
+    }
     for (key, value) in CODEX_CONFIG {
         let in_config = configs.iter().any(|c| {
             toml_has(c, key)
@@ -196,6 +212,30 @@ fn codex_profile(args: &[String], configs: &[toml::Table]) -> Option<String> {
             .iter()
             .find_map(|c| c.get("profile").and_then(toml::Value::as_str).map(str::to_owned))
     })
+}
+
+/// The model codex's `configs` (nearest first) name for a launch on `profile`:
+/// the first config whose active profile names one, else whose top level does.
+fn codex_config_model(configs: &[toml::Table], profile: Option<&str>) -> Option<String> {
+    let model = |t: &toml::Table| {
+        t.get("model").and_then(toml::Value::as_str).map(str::trim).filter(|m| !m.is_empty())
+    };
+    let in_profile = profile.and_then(|p| {
+        configs.iter().find_map(|c| c.get("profiles")?.get(p)?.as_table().and_then(model))
+    });
+    in_profile.or_else(|| configs.iter().find_map(model)).map(str::to_owned)
+}
+
+/// Whether `args` name a model: `-m`, `--model` (with its value, or `=value`), `-m<value>`, or
+/// a `-c model=…` override.
+fn names_codex_model(args: &[String]) -> bool {
+    sets_codex_key(args, "model")
+        || args.iter().any(|a| {
+            a == "-m"
+                || a == "--model"
+                || a.starts_with("--model=")
+                || (a.starts_with("-m") && a.len() > 2 && !a.starts_with("--"))
+        })
 }
 
 /// Whether `table` has the dotted `key`.
