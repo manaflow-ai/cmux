@@ -52,17 +52,15 @@ describe("setupSteps", () => {
     expect(answered[0]?.action).toBeUndefined();
   });
 
-  test("chats found on this Mac: a chat history row after the agents, with Import and Not Now, until done", () => {
-    const steps = setupSteps({ ...fresh, history: { done: false } }, strings);
-    expect(steps.map((step) => step.id)).toEqual(["agents", "history", "account", "cli"]);
-    expect(steps[1]).toMatchObject({ title: "Your chat history", detail: "Chats from Claude Code and Codex" });
-    expect(steps[1]?.action?.run).toEqual({ kind: "importHistory" });
-    expect(steps[1]?.secondary?.run).toEqual({ kind: "declineHistory" });
-    const done = setupSteps({ ...fresh, history: { done: true } }, strings)[1]!;
-    expect(done.done).toBe(true);
-    expect([done.action, done.secondary]).toEqual([undefined, undefined]);
-    // None found: no row.
-    expect(setupSteps({ ...fresh, history: null }, strings).map((step) => step.id)).not.toContain("history");
+  // Bring your history is gone (David Beyer's Nov 20 feedback; Lawrence: remove it): chats found on this Mac
+  // add no row, and a host that still sends `history` changes nothing.
+  test("chats found on this Mac: no chat history row", () => {
+    const withHistory = { ...fresh, history: { done: false } } as SetupState;
+    const steps = setupSteps(withHistory, strings);
+    expect(steps.map((step) => step.id)).toEqual(["agents", "account", "cli"]);
+    const runs = steps.flatMap((step) => [step.action?.run.kind, step.secondary?.run.kind]);
+    expect(runs).not.toContain("importHistory");
+    expect(runs).not.toContain("declineHistory");
   });
 
   test("cmux tools: a row after the agents asks before adding anything, then says what the answer did", () => {
