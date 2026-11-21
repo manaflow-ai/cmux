@@ -102,3 +102,216 @@ python3 scripts/ci/pr_cloud_backend_check.py --body-file "$RUNNER_TEMP/cloud-bod
   --status-file "$RUNNER_TEMP/status.txt" --map .github/cloud-backend-paths.json \
   || echo "::warning title=Cloud backend belongs in cmux-platform::the check could not run (exit $?); see this job's log"
 '''
+
+# pr-checks.yml's advisory checks, once five jobs on five runners for every feat-cmux-next pull request push
+# (24 h to 2026-11-21T12Z: 10,498 jobs and 9,754 runner-minutes, 7,132 of them split-plan's fetch of every
+# branch), now steps of its one `advisory` job (CI v2 step 6, cmuxterm-hq docs/design/ci-v2.md). The job's
+# "Pick the steps" step keeps each old job's conditions (drafts, CI_QUOTA_HOLD, fork pull requests, a
+# base-only update, a description edit) and names the steps to run with `--only`. None ever failed a pull
+# request and none does now.
+#
+# Leo, 2026-11-21: "we need to absolutely get that f***ing CI V2, that Borg design up and running everywhere.
+# Like as much as possible, as fast as possible, as efficiently as possible".
+#
+# They run at once in the base checkout, so each writes only its own files under $RUNNER_TEMP (pr-size-*,
+# ui-review-*, split-plan/, swift-logic*, review-link.md). The workflow step sets what they read: GH_TOKEN,
+# REPOSITORY, SERVER, URL, PR, ACTION, HEAD_SHA, HEAD_REF, BASE_SHA, BASE_REF, MERGE_SHA (the event's merge
+# commit) and BODY.
+
+# Warns on a pull request over about 800 changed lines (added + deleted, less the paths in
+# scripts/ci/pr_size_exclusions.json) whose body has no `Size:` line with the reason. Never a gate: Leo,
+# 2026-10-28, "as long as you're mindful about it, I feel like it's reasonable, but you don't need to make it,
+# like, a hard gate". One paginated GraphQL query reads the files and the current body (not the event's copy:
+# a re-run of an older run must not answer with a `Size:` line the body no longer has); REST is only its
+# fallback. It runs on a base-only update too: a previous head's green run from before it could fail (or that
+# a later Size: edit changed) must not answer for it.
+[step.pr-size]
+job = "advisory"
+blocks = false
+class = "idle"
+timeout = 300
+title = "PR size"
+about = "a pull request over about 800 changed lines says why in a Size: line"
+run = '''
+if [ ! -f scripts/ci/pr_size.py ]; then
+  echo "::notice title=PR size::the base predates the size check; skipped"
+  exit 0
+fi
+# GraphQL has its own hourly pool; the REST reads below, the GITHUB_TOKEN pool every workflow shares (it ran
+# out at 00:50Z on 2026-10-31), are only the fallback. --paginate advances only a cursor named $endCursor.
+# Each page repeats the body line.
+# shellcheck disable=SC2016 # GraphQL's $variables, not the shell's
+query='query($owner:String!,$name:String!,$number:Int!,$endCursor:String){repository(owner:$owner,name:$name){pullRequest(number:$number){body changedFiles files(first:100,after:$endCursor){pageInfo{hasNextPage endCursor} nodes{path additions deletions}}}}}'
+rows='.data.repository.pullRequest | ({pull_request: {body, changed_files: .changedFiles}} | @json), (.files.nodes[] | {filename: .path, additions, deletions} | @json)'
+event="$GITHUB_EVENT_PATH"
+if gh api graphql --paginate -f query="$query" -f owner="${REPOSITORY%%/*}" -f name="${REPOSITORY#*/}" \
+  -F number="$PR" --jq "$rows" > "$RUNNER_TEMP/pr-size-graphql.jsonl" 2>/dev/null \
+  && grep -m1 '^{"pull_request":' "$RUNNER_TEMP/pr-size-graphql.jsonl" > "$RUNNER_TEMP/pr-size-live-event.json"; then
+  grep -v '^{"pull_request":' "$RUNNER_TEMP/pr-size-graphql.jsonl" > "$RUNNER_TEMP/pr-size-files.jsonl" || true
+  event="$RUNNER_TEMP/pr-size-live-event.json"
+else
+  echo "::notice title=PR size::GraphQL read failed; reading the files over REST"
+  # An API error (rate limit, outage) warns and passes, as an oversized pull request does.
+  if ! gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" \
+    --jq '.[] | {filename, additions, deletions} | @json' > "$RUNNER_TEMP/pr-size-files.jsonl"; then
+    echo "::warning title=PR size::could not read the pull request's files; size not measured"
+    exit 0
+  fi
+  # A failed read of the current body keeps the event's.
+  if gh api "repos/$REPOSITORY/pulls/$PR" --jq '{pull_request: {body, changed_files}}' \
+    > "$RUNNER_TEMP/pr-size-live-event.json" 2>/dev/null && [ -s "$RUNNER_TEMP/pr-size-live-event.json" ]; then
+    event="$RUNNER_TEMP/pr-size-live-event.json"
+  else
+    echo "::notice title=PR size::could not read the current body; using the event's"
+  fi
+fi
+status=0
+python3 scripts/ci/pr_size.py --files "$RUNNER_TEMP/pr-size-files.jsonl" --event "$event" || status=$?
+case "$status" in
+  0) ;;
+  3) ;;  # over the limit with no `Size:` line: the script printed the warning; never a gate
+  *) echo "::warning title=PR size::the size script failed (exit $status); size not measured" ;;
+esac
+'''
+
+# Webview and native UI changes carry the review loop from the aiforui course: a missing `## UI review`
+# section or `Verdict:` line warns. The changed paths come from the event's merge commit without blobs, as
+# pr-body-checks.yml reads them (no API call); the paginated REST file list is only the fallback.
+[step.ui-review]
+job = "advisory"
+blocks = false
+class = "idle"
+timeout = 300
+title = "UI review"
+about = "a pull request that changes webview or native UI files has a ## UI review section with a Verdict: line"
+run = '''
+if [ ! -f scripts/ci/ui_review_advisory.py ]; then
+  echo "::warning title=UI review::the advisory script is not present on the base; review the UI section manually"
+  exit 0
+fi
+paths="$RUNNER_TEMP/ui-review-paths.txt"
+files="$RUNNER_TEMP/ui-review-files.json"
+body="$RUNNER_TEMP/ui-review-body.md"
+listed() {
+  if timeout 120 git fetch --no-tags --quiet --depth=2 --filter=blob:none origin "$MERGE_SHA" \
+    && [ "$(git rev-parse "$MERGE_SHA^2")" = "$HEAD_SHA" ] \
+    && git diff --name-only -z --no-renames "$MERGE_SHA^1" "$MERGE_SHA" | tr '\0' '\n' > "$paths"; then
+    echo "changed files: $(wc -l < "$paths" | tr -d ' ') from the merge commit (git)"
+    return 0
+  fi
+  echo "::notice title=UI review::git could not list the changed files; reading them over the API"
+  timeout 120 gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[].filename' > "$paths"
+}
+if ! listed || ! python3 -c 'import json, sys; json.dump([{"filename": l} for l in open(sys.argv[1]).read().splitlines() if l], open(sys.argv[2], "w"))' \
+  "$paths" "$files"; then
+  echo "::warning title=UI review::could not check out the advisory or read changed files; review the UI section manually"
+  exit 0
+fi
+printf '%s' "$BODY" > "$body"
+python3 scripts/ci/ui_review_advisory.py --body-file "$body" --files-json "$files" \
+  || echo "::warning title=UI review::the advisory script could not run; review the UI section manually"
+'''
+
+# The split-plan advisory (scripts/cmux-next/check-pr-split.py, the base's copy: a head branched before the
+# guard has none, and a pull request should not grade itself with its own edits to it). The classifier reads
+# only `merge-base`, `rev-list --count` and `diff --name-only` of the base and head commits, so a scratch
+# repository fetches those two commits' last 14 days of commits and trees, no blobs, no tags, no submodules
+# (cmuxterm-hq docs/handbook/whole-origin-fetch-pulls-submodule-pins.md), and deepens only when their merge
+# base is older. It was a head checkout plus `git fetch --unshallow origin` of every branch: 7,132
+# runner-minutes a day.
+[step.split-plan]
+job = "advisory"
+blocks = false
+class = "idle"
+timeout = 300
+title = "split-plan advisory"
+about = "a pull request that spans many surfaces or commits gets split-plan triggers as a warning"
+run = '''
+if [ ! -f scripts/cmux-next/check-pr-split.py ]; then
+  echo "::notice title=split-plan advisory::the base has no scripts/cmux-next/check-pr-split.py; skipped"
+  exit 0
+fi
+repo="$RUNNER_TEMP/split-plan"
+rm -rf "$repo"
+git init -q "$repo"
+git -C "$repo" remote add origin "$URL"
+fetch() { timeout 180 git -C "$repo" fetch -q --no-tags --no-recurse-submodules --filter=blob:none "$@"; }
+# A SHA fetch works on GitHub; the pull request's head ref and the base branch are the fallback. Either
+# can find no commit that new (a head or base older than 14 days): the whole history below answers that.
+fetch --shallow-since="14 days ago" origin "$BASE_SHA" "$HEAD_SHA" \
+  || fetch --shallow-since="14 days ago" origin "+refs/pull/$PR/head:refs/remotes/pr/head" "+refs/heads/$BASE_REF:refs/remotes/origin/base" \
+  || true
+if ! git -C "$repo" merge-base "$BASE_SHA" "$HEAD_SHA" > /dev/null 2>&1; then
+  echo "No merge base in the last 14 days; fetching the whole history of the two commits."
+  # --unshallow deepens what the window fetched; a window that fetched nothing left no shallow file.
+  deepen=()
+  if [ -f "$repo/.git/shallow" ]; then deepen=(--unshallow); fi
+  fetch "${deepen[@]}" origin "$BASE_SHA" "$HEAD_SHA" \
+    || fetch "${deepen[@]}" origin "+refs/pull/$PR/head:refs/remotes/pr/head" "+refs/heads/$BASE_REF:refs/remotes/origin/base"
+fi
+python3 scripts/cmux-next/check-pr-split.py --repo "$repo" --base "$BASE_SHA" --head "$HEAD_SHA" --mode advisory
+'''
+
+# The pull request's own Swift logic growth, as the `swift-logic` line of its status comment
+# (scripts/cmux-next/swift-logic-pr-status.py, swift-logic-delta.py): goal swift-share-falls. Lawrence
+# 2026-11-02: "move as much from swift into rust as possible"; Leo 2026-11-07: "swift to anything but swift".
+# A report, never a gate: growth and a count that cannot be made ("not counted") both pass. A pull request
+# that changes no *.swift file gets no line. The pull request's commits are only fetched and read as data.
+# Cost: one cold count (about a minute) on a pull request's first push, a few seconds after that: the
+# workflow restores the facts cache under $RUNNER_TEMP/swift-logic, kept per pull request.
+[step.swift-logic]
+job = "advisory"
+blocks = false
+class = "idle"
+timeout = 540
+title = "Swift logic report"
+about = "the pull request's own Swift logic growth, as the swift-logic line of its status comment"
+run = '''
+if [ ! -f scripts/cmux-next/swift-logic-pr-status.py ] || [ ! -f scripts/ci/pr_status.py ]; then
+  echo "::notice title=Swift logic report::the base has no swift-logic-pr-status.py or pr_status.py; skipped"
+  exit 0
+fi
+out="$RUNNER_TEMP/swift-logic.md"
+python3 -I scripts/cmux-next/swift-logic-pr-status.py --url "$URL" --base-ref "$BASE_REF" \
+  --head "$HEAD_SHA" --work "$RUNNER_TEMP/swift-logic" --out "$out" \
+  || echo "Swift logic: not counted (swift-logic-pr-status.py exited $?; see this run)" > "$out"
+if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then cat "$out" >> "$GITHUB_STEP_SUMMARY"; fi
+if [ -s "$out" ]; then
+  python3 scripts/ci/pr_status.py set --repo "$REPOSITORY" --pr "$PR" --section swift-logic --body-file "$out"
+else
+  python3 scripts/ci/pr_status.py set --repo "$REPOSITORY" --pr "$PR" --section swift-logic --clear
+fi
+'''
+
+# Keep pull requests navigable without publishing internal gallery payloads: the visual evidence stays in the
+# private HQ feed and Actions artifacts, and the pull request gets one stable link to them as the `review`
+# line of its status comment (scripts/ci/pr_status.py), naming the newest head. No link to this run: it only
+# writes the line, and the HQ feed would read an Actions run link here as the pull request's build.
+[step.review-link]
+job = "advisory"
+blocks = false
+class = "idle"
+timeout = 300
+title = "link"
+about = "the review line of the pull request's status comment: its HQ feed card, gallery runs, checks and app"
+run = '''
+if [ ! -f scripts/ci/pr_status.py ]; then
+  echo "::notice title=link::the base has no scripts/ci/pr_status.py; skipped"
+  exit 0
+fi
+feed_url="${FEED_URL:-https://cmux-lawrences-mac-mini.tail137216.ts.net:18443/feed/}"
+repo_url="$SERVER/$REPOSITORY"
+ref_query=$(jq -rn --arg q "branch:$HEAD_REF" '$q|@uri')
+# The branch keeps reload-build's cache warm; a name that is not shell-safe to paste falls back to the SHA.
+build_ref=$HEAD_SHA
+if [[ "$HEAD_REF" =~ ^[A-Za-z0-9._/-]+$ ]]; then build_ref=$HEAD_REF; fi
+cat > "$RUNNER_TEMP/review-link.md" <<EOF
+Review [\`${HEAD_SHA:0:7}\`]($repo_url/commit/$HEAD_SHA): [HQ feed card](${feed_url}?pr=${PR}&view=all) · [gallery before/after runs]($repo_url/actions/workflows/gallery-advisory.yml?query=$ref_query) · [checks]($repo_url/pull/$PR/checks?sha=$HEAD_SHA)
+<details><summary>App of this head (app.zip, kept 1 day)</summary>
+
+\`gh workflow run reload-build.yml -R $REPOSITORY --ref feat-cmux-next -f tag=pr$PR -f ref=$build_ref -f platform=macos -f backend_mode=local\`
+</details>
+EOF
+python3 scripts/ci/pr_status.py set --repo "$REPOSITORY" --pr "$PR" --section review \
+  --body-file "$RUNNER_TEMP/review-link.md" --legacy "<!-- cmux-gallery-link -->"
+'''
