@@ -234,15 +234,19 @@
 /* The `/` and `@` lists' layer (backdropLayer.tsx): out of the composer box's glass, on the box's place and size, so the list's own rules below place it as inside the box. Only the list takes presses. */
 .acpmux-composer-list-layer{position:absolute;pointer-events:none}
 .acpmux-composer-list-layer>*{pointer-events:auto}
-.acpmux-slash-menu{--popup-scroll-cap:296px;position:absolute;bottom:calc(100% + 6px);left:0;right:0;z-index:3;max-height:min(296px,50vh);overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border-radius:var(--ui-popup-radius);font-size:13px;transform-origin:bottom}
+/* In its layer a list takes the box's corner (--composer-list-radius), padded so its rows' corners are concentric with it, and no more height than the room on its side of the box (--composer-list-room); below the box when only that side has room (data-side, listPlacement.ts). David Beyer 2026-11-20: New Tab's / list ran over the screen's edge in 8 px corners on a 20 px box. */
+.acpmux-composer-list-layer>.acpmux-slash-menu{--composer-list-gap:6px;--composer-list-r:var(--composer-list-radius,var(--ui-popup-radius));--ui-popup-padding:max(4px,calc(var(--composer-list-r) * 6 / 20),calc(var(--composer-list-r) - var(--ui-row-height) / 2));--ui-row-radius:max(4px,min(calc(var(--composer-list-r) - var(--ui-popup-padding)),calc(var(--ui-row-height) / 2)));border-radius:var(--composer-list-r);max-height:min(var(--popup-scroll-cap),var(--composer-list-room,50vh))}
+.acpmux-composer-list-layer[data-side="below"]>.acpmux-slash-menu{bottom:auto;top:calc(100% + var(--composer-list-gap));transform-origin:top}
+.acpmux-slash-menu{--popup-scroll-cap:296px;position:absolute;bottom:calc(100% + 6px);left:0;right:0;z-index:3;max-height:min(296px,50vh);overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border-radius:var(--ui-popup-radius);font-size:var(--text-control);letter-spacing:var(--text-control--letter-spacing,normal);-webkit-font-smoothing:antialiased;transform-origin:bottom}
 .acpmux-slash-row{display:flex;align-items:center;gap:var(--cmux-menu-icon-gap);min-height:var(--ui-row-height);height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);border-radius:var(--ui-row-radius);white-space:nowrap}
 .acpmux-slash-active{background:var(--acpmux-menu-hover)}
 .acpmux-slash-menu .ui-listbox-row[aria-selected="true"]{background:var(--acpmux-menu-hover)}
-.acpmux-slash-name{flex:none;color:var(--agent-text)}
+.acpmux-slash-name{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--agent-text)}
 .acpmux-slash-name mark{background:none;color:inherit;font-weight:600}
-.acpmux-slash-hint{flex:none;color:var(--acpmux-composer-dim);font-style:italic}
-.acpmux-slash-source{flex:none;color:var(--acpmux-composer-dim);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
-.acpmux-slash-description{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim)}
+.acpmux-slash-hint{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim)}
+/* Where a row comes from (cmux, Skill, Prompt, an extension) closes the row, quiet, in plain case. */
+.acpmux-slash-source{flex:none;order:1;margin-left:auto;padding-left:var(--ds-space-2,8px);color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing,normal)}
+.acpmux-slash-description{flex:0 1000 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim)}
 /* The @ picker's rows (MentionMenu.tsx): the kind's icon, then a long chat title gives way to its place last. */
 .acpmux-mention-row{width:100%;box-sizing:border-box;margin:0;border:0;background:none;color:inherit;font:inherit;text-align:left;-webkit-appearance:none;appearance:none}
 .acpmux-mention-row.acpmux-slash-active{background:var(--acpmux-menu-hover)}
@@ -264,7 +268,7 @@
 .acpmux-emoji-menu.is-strip .acpmux-emoji-row{width:var(--ds-control-primary);height:var(--ds-control-primary);padding:0;justify-content:center}
 .acpmux-emoji-menu.is-strip .acpmux-emoji-glyph{width:auto;font-size:var(--text-heading)}
 .acpmux-emoji-strip-code{height:var(--ds-control-compact);padding:0 var(--ds-space-2);display:flex;align-items:center;color:var(--acpmux-composer-dim);font-size:var(--text-caption);white-space:nowrap}
-.acpmux-slash-empty{padding:0 14px;height:40px;display:flex;align-items:center;color:var(--acpmux-composer-dim);border-radius:8px}
+.acpmux-slash-empty{padding:0 var(--ui-row-padding-inline);height:var(--ui-row-height);display:flex;align-items:center;color:var(--acpmux-composer-dim);border-radius:var(--ui-row-radius)}
 .acpmux-import-input{display:none}
 /* New tab page (NewTabPage.tsx, #16620): one field with a Terminal | Browser | Agent switch
    that Tab cycles, each option with its shortcut, over the recent sessions. Same surfaces

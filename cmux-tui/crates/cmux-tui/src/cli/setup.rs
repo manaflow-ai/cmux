@@ -264,6 +264,24 @@ const TASKS: &[Task] = &[
         person: Some("signing in to cmux, and allowing the new machine on the card cmux shows"),
         prompt: "Make me a cmux Cloud machine. I know it costs money every hour it runs. Run `cmux setup cloud-machine`, tell me which card to click, and tell me the undo.",
     },
+    // Leo, 2026-11-20: "you say there's a copy pastable command that you can just get to your
+    // agents? Like, people love that shit." The first Cloud chat and its follow-up, with the
+    // CLI the composer's Cloud start shares (chat_start.rs, chat_send.rs).
+    Task {
+        id: "cloud_chat",
+        summary: "Start a chat on cmux Cloud and send it a follow-up",
+        setup: None,
+        check: &["cmux whoami", "cmux cloud diagnostics", "cmux vm ls"],
+        apply: &[
+            "cmux login",
+            "cmux chat --on vm --prompt TEXT --wait --json",
+            "cmux chat send SESSION_ID TEXT --wait",
+        ],
+        person: Some(
+            "signing in to cmux in the browser, picking a Cloud plan, and connecting a model (Claude setup token, ChatGPT or an API key) when the team shares none",
+        ),
+        prompt: "Start me a chat on cmux Cloud and show me it works: run `cmux whoami`; if I am signed out, run `cmux login` and wait while I finish it in the browser. Then run `cmux chat --on vm --harness HARNESS --prompt 'Say hello in one sentence.' --wait --json` (HARNESS is claude or codex) and show me its reply, then `cmux chat send SESSION_ID 'Say it once more, shorter.' --wait` with the answer's session_id. If a start is refused for a Cloud plan, a model connection or GitHub, tell me the one card or Settings page that fixes it and run it again once I have. Tell me how long each step took, and that `cmux vm pause NAME` or `cmux vm rm NAME --yes` stops the machine.",
+    },
     Task {
         id: "tailnet",
         summary: "Serve this machine to the person's other machines over Tailscale",
