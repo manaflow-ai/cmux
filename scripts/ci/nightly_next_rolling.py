@@ -71,7 +71,8 @@ from the refs API only when that fails. The gap from that head to the tip comes
 from the tick's own checkout of feat-cmux-next (git_oldest_after), and from the
 compare API only when the head is not in it; a tip already on nightly-next
 reads nothing more and waits (there is nothing to promote). Every other read goes through the
-API with the job's token. A head neither can read waits, with a
+API with the job's token, and a read that fails there is read once more from the public API with no
+token (gh_api; the error names gh's own stderr line). A head neither can read waits, with a
 warning: the feed watch's dispatch for one commit skips this rule, so that costs
 at most the backstop's delay. So does a failed run listing, and any other failed read while a
 nightly-next push run created within RUN_LOOKBACK is not completed (or its creation is unreadable): that run
@@ -94,6 +95,7 @@ from pathlib import Path
 import subprocess
 import sys
 import urllib.parse
+import urllib.request
 
 HERE = Path(__file__).resolve().parent
 _spec = importlib.util.spec_from_file_location("nightly_next_feed_watch", HERE / "nightly_next_feed_watch.py")
@@ -417,9 +419,43 @@ def git_oldest_after(head: str, tip: str, git=None):
         raise LookupError(f"could not read the commits after {head[:12]}") from error
 
 
-def gh_api(path: str):
-    out = subprocess.run(["gh", "api", path], check=True, capture_output=True, text=True).stdout
-    return json.loads(out)
+# A bound on each gh api read: a read that hangs is a failed read, never a tick that never decides.
+GH_API_SECONDS = 60
+PUBLIC_API = "https://api.github.com/"
+
+
+def public_api_get(path: str, timeout: float = 30):
+    """GET `path` from the public REST API with no token. The repository is public, so this reads the same answer
+    from another quota (the address's own) when the job token's is spent."""
+    request = urllib.request.Request(PUBLIC_API + path, headers={
+        "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "cmux-nightly-next-rolling"})
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read())
+
+
+def gh_api(path: str, run=subprocess.run, public_get=public_api_get):
+    """One read through `gh api` (the job's token), then, when that fails, the same path from the public API.
+
+    Ticks 44931403939, 44931656964 and 44931849241 (2026-11-21 17:42-17:48Z) each failed the nightly-next run
+    listing and waited, with only CalledProcessError(1, ...) in the log: gh's stderr was dropped, so the cause was
+    lost, and the 23.7 min gap between two builds that afternoon spent about 12 min there. The error now carries
+    gh's last stderr line, and a failed gh read is tried once on the public API before the caller waits."""
+    try:
+        out = run(["gh", "api", path], check=True, capture_output=True, text=True, timeout=GH_API_SECONDS).stdout
+        return json.loads(out)
+    except subprocess.CalledProcessError as error:
+        lines = [line for line in (error.stderr or "").splitlines() if line.strip()]
+        why = f"gh api exited {error.returncode}: {lines[-1].strip()[:200] if lines else 'no stderr'}"
+    except subprocess.TimeoutExpired:
+        why = f"gh api took more than {GH_API_SECONDS} s"
+    except (OSError, ValueError) as error:
+        why = f"gh api failed: {error!r}"
+    print(f"{path}: {why}; reading it from the public API")
+    try:
+        return public_get(path)
+    except Exception as error:  # noqa: BLE001 - both reads failed: the caller decides what an unread answer means
+        raise RuntimeError(f"{why}; the public API too: {error!r}") from None
 
 
 def evaluate(now: dt.datetime, repo: str, tip: str, api=gh_api,
