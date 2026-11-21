@@ -1039,3 +1039,65 @@ async fn an_opened_thread_names_its_senders_plainly_for_the_transcript() {
         (&json!("declared"), &json!("dot"))
     );
 }
+
+/// The row's held count is the messages still held: a triage record that decides one (digested,
+/// owner-bound or dropped) lowers it by that many, and a restart reads the lower count back.
+#[tokio::test]
+async fn a_triage_record_lowers_the_held_count_by_the_messages_it_decides() {
+    let (hub, session) = hub_with_chat("held-count");
+    for (seq, at, kind) in [(1, 10_000, "turn_started"), (2, 40_000, "turn_result")] {
+        let msg = json!({"turnSeq":1,"turnId":"finished","status":"completed"});
+        session.time_breakdown.lock().unwrap().record(&EventRecord {
+            seq,
+            at,
+            kind: kind.into(),
+            dir: "mux".into(),
+            msg,
+            host_seq: None,
+        });
+    }
+    let opts = PromptOptions { class: Some(PromptClass::Fyi), ..Default::default() };
+    let body = [json!({"type":"text","text":"runner queued"})];
+    assert!(
+        hub.hold_surge_message(&session, "first", "cli", &body, &opts, 41_000).unwrap().is_none()
+    );
+    for (n, id) in ["m1", "m2", "m3"].into_iter().enumerate() {
+        let at = 42_000 + n as u64;
+        assert!(hub.hold_surge_message(&session, id, "cli", &body, &opts, at).unwrap().is_some());
+    }
+    assert_eq!(hub.inbox_threads(&session)["surge"]["held"], 3);
+    let record = json!({"batchId":"b1","items":[{"promptId":"m1"},{"promptId":"m2"}]});
+    hub.persist_surge_triage(&session, record, 1).unwrap();
+    assert_eq!(hub.inbox_threads(&session)["surge"], json!({"held":1,"needYou":1}));
+    // A delivery marker decides nothing.
+    hub.persist_surge_triage(&session, json!({"digestDelivered":"d","items":[]}), 1).unwrap();
+    assert_eq!(hub.inbox_threads(&session)["surge"]["held"], 1);
+    *session.inbox() = Default::default();
+    hub.restore_inbox(&session);
+    assert_eq!(hub.inbox_threads(&session)["surge"], json!({"held":1,"needYou":1}));
+    hub.persist_surge_triage(&session, json!({"batchId":"b2","items":[{"promptId":"m3"}]}), 0)
+        .unwrap();
+    assert_eq!(hub.inbox_threads(&session)["surge"], json!({"held":0,"needYou":0}));
+}
+
+/// A FYI tool notice of severity `fire` wakes an idle chat outside any surge, at once, while an
+/// ordinary FYI waits for its flush.
+#[tokio::test]
+async fn a_fire_notice_wakes_an_idle_chat_outside_a_surge_and_an_ordinary_fyi_does_not() {
+    for (severity, wakes_now) in [("fire", true), ("warn", false)] {
+        let (hub, session) = hub_with_chat(&format!("fire-{severity}"));
+        let mut fyi = item("n1", "t", "watcher", PromptClass::Fyi, now_ms(), "runner down");
+        fyi.tool_notice = tool_notice_of(Some(&crate::prompt_provenance::notice(
+            &json!({"sender":"watcher","severity":severity,"title":"Runner"}),
+            &session.id,
+        )));
+        assert!(!fyi.surge_held);
+        session.inbox().items.push(fyi);
+        hub.inbox_review(&session);
+        let inbox = session.inbox();
+        assert_eq!(inbox.in_flight.is_some(), wakes_now, "{severity}");
+        if !wakes_now {
+            assert!(inbox.timer.is_some(), "an ordinary FYI waits for its flush");
+        }
+    }
+}
