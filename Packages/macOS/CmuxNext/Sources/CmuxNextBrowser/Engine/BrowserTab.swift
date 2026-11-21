@@ -87,6 +87,10 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
     /// Whether `markAgentDriven` has run on this page.
     var isAgentDriven: Bool { get }
 
+    /// Runs a passkey hand-off's `trigger` with the page's WebAuthn handed to the person, who clicked the request (a
+    /// Chromium tab an agent drove refuses WebAuthn otherwise). The default runs `trigger`: WebKit has no refusal.
+    func handOverWebAuthn(during trigger: @Sendable () async throws -> Void) async throws
+
     /// True for an extension's own window (`chrome.windows.create`, a password manager's popout) that
     /// cmux shows over a pane: the extension made it, not the page cmux names as its opener, so no
     /// page script reaches it. The default is false (an engine without extension windows).
@@ -140,6 +144,7 @@ extension BrowserTab {
 
     public func markAgentDriven() {}
     public var isAgentDriven: Bool { false }
+    public func handOverWebAuthn(during trigger: @Sendable () async throws -> Void) async throws { try await trigger() }
     public var isExtensionWindow: Bool { false }
     public var siteZoomLevels: SiteZoomLevels? { nil }
     public var pageGround: CGColor? { nil }
