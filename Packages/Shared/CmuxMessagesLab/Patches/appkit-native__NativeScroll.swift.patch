@@ -9,11 +9,10 @@
  
      override init(frame: NSRect) {
          super.init(frame: frame)
-@@ -72,6 +74,36 @@
- 
+@@ -73,6 +75,36 @@
      /// The shared window view's transcript list (a layer-only scroll view).
      var collection: UIScrollView? { demo?.collection }
-+
+ 
 +    /// cmux: a wheel or trackpad event over the transcript: true when the open thread view took it.
 +    /// While a thread or reply view is open, every wheel is the view's (it scrolls when taller than its
 +    /// space, MessagesWindowView.scrollThread) and the dimmed transcript under it never moves; with no
@@ -43,9 +42,10 @@
 +        guard let frameView = window?.contentView?.superview else { return false }
 +        return frameView.hitTest(e.locationInWindow)?.isDescendant(of: self) ?? false
 +    }
- 
++
      func attach(_ demo: MessagesWindowView) {
          self.demo = demo
+         // The window view stays the list's delegate through this bridge.
 @@ -132,7 +164,12 @@
          if PacingLog.shared.isOn { logClip() }
          pinContent()
@@ -60,23 +60,35 @@
          guard y != cv.contentOffset.y else { return }
          TranscriptScrollView.clipSyncs += 1
          applyingClip = true
-@@ -278,6 +315,7 @@
+@@ -278,15 +315,27 @@
          if document.frame != f { document.frame = f }
          applyingModel -= 1
          pushOffset()
 +        knownOrigin = clip.bounds.origin.y // cmux
      }
++
++    /// cmux: the offset the model last pushed and where AppKit left the clip for it, with the document and clip
++    /// heights that decide that place. A push of the same offset into the same geometry, the clip still there, is no
++    /// move: pinned to the bottom, the offset is past the document's end and AppKit stops the clip short of it, and
++    /// each key set the origin again, marking the window's tracking areas dirty (a walk of every view in the next
++    /// display; HomeKeyTranscriptSyncTests).
++    private var pushed: (target: CGFloat, origin: CGFloat, document: CGFloat, clip: CGFloat)?
  
      private func pushOffset() {
-@@ -287,6 +325,7 @@
+         guard let cv = collection else { return }
+         let y = cv.contentOffset.y + shift
+         guard clip.bounds.origin.y != y else { return }
++        if let p = pushed, p.target == y, p.origin == clip.bounds.origin.y, p.document == document.frame.height,
++           p.clip == clip.bounds.height { return }
          TranscriptScrollView.modelSyncs += 1
          applyingModel += 1
          clip.setBoundsOrigin(NSPoint(x: 0, y: y))
 +        knownOrigin = clip.bounds.origin.y // cmux: AppKit can stop it short of `y`
++        pushed = (y, clip.bounds.origin.y, document.frame.height, clip.bounds.height)
          reflectScrolledClipView(clip)
          pinContent()
          applyingModel -= 1
-@@ -418,6 +457,9 @@
+@@ -418,6 +467,9 @@
      /// following click (or a scroll) shows first are ready when it comes.
      private func prerenderPage(beyond dir: Int) {
          guard RowBitmaps.prerenderEnabled, let r = collection as? RowRecycler else { return }
@@ -86,10 +98,12 @@
          let b = r.bounds, h = b.height
          let rect = dir > 0 ? CGRect(x: b.minX, y: b.maxY, width: b.width, height: h) : CGRect(x: b.minX, y: b.minY - h, width: b.width, height: h)
          let n = r.layout.model.count
-@@ -479,6 +521,18 @@
+@@ -477,6 +529,18 @@
+         super.layout()
+         applyingModel -= 1
          if !tiling { tiling = true; syncFromModel(); tiling = false }
-     }
- 
++    }
++
 +    /// cmux: runs `change`, a geometry change of the host (Home's zoom: its bounds scale), as the model's. AppKit
 +    /// realigns the clip view to the new pixel grid inside it, and a realignment is not the reader's scroll: in a
 +    /// window shrunk on screen it met a clip held 13.5 pt short of the bottom by the document's old end, and
@@ -100,12 +114,10 @@
 +        change()
 +        applyingModel -= 1
 +        syncFromModel()
-+    }
-+
+     }
+ 
      override func tile() {
-         // AppKit keeps the visible content in place when the automatic inset
-         // changes (it moves the clip view); the shared model's offset (pinned
-@@ -531,7 +585,10 @@
+@@ -531,7 +595,10 @@
          window?.firstResponder?.keyDown(with: event)
      }
      private func hostPoint(_ e: NSEvent) -> CGPoint { controller?.host.convert(e.locationInWindow, from: nil) ?? .zero }
@@ -117,7 +129,7 @@
      override func mouseDragged(with event: NSEvent) { controller?.mouseDragged(at: hostPoint(event), event) }
      override func mouseUp(with event: NSEvent) { controller?.mouseUp(at: hostPoint(event), event) }
      override func menu(for event: NSEvent) -> NSMenu? { controller?.menu(at: hostPoint(event)) }
-@@ -563,6 +620,29 @@
+@@ -563,6 +630,29 @@
          get { super.knobProportion }
          set { super.knobProportion = fixed?.proportion ?? newValue }
      }

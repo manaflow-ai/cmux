@@ -217,6 +217,10 @@ mod share_cli;
 mod shorthand;
 #[cfg(unix)]
 mod skew;
+#[cfg(unix)]
+mod stale_app;
+#[cfg(unix)]
+pub(crate) use stale_app::InstalledApp;
 mod skill;
 #[cfg(unix)]
 mod status;
@@ -528,6 +532,7 @@ pub(crate) fn rewrite_deprecated_server_lifecycle(args: &mut Vec<String>) {
 pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "agents",
     "chats",
+    "board",
     "harness",
     "remote",
     "script",
@@ -543,6 +548,7 @@ pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "chat",
     "vm",
     "customize",
+    "agent-config",
 ];
 
 /// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
@@ -626,7 +632,7 @@ pub(crate) fn early_usage_error(args: &[String], message: &str) -> i32 {
 /// Scopes `main` routes by their first word, before the cmux global options
 /// are read, whose own parser takes `--json` right after the scope word:
 /// acpmux's (`--json` is a global clap option there).
-const JSON_AFTER_SCOPE: &[&str] = &["acp", "agent", "harness", "chats"];
+const JSON_AFTER_SCOPE: &[&str] = &["acp", "agent", "harness", "chats", "board"];
 
 /// `cmux --json <scope> …` for a scope `main` routes by its first word: the
 /// leading `--json` moves to just after the scope word (to the end for `host`
