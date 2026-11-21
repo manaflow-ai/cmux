@@ -16,6 +16,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 type Box = { top: number; bottom: number };
 type Frame = { t: number; reply: Box & { opacity: number }; kept: Box; folding: boolean; animations: number };
@@ -44,6 +45,10 @@ await requireBrowserLane("reply-settle-frames-real-browser.test.ts", async () =>
       logLevel: "error",
     });
     await vite.listen();
+    // The page is blank; the modules the stage imports are what a cold server would make it wait for.
+    const conversation = `${vite.config.base}src/agent-session/acpmux/conversation/`;
+    await warmViteServer(vite, `${conversation}turnEndFold.ts`);
+    await warmViteServer(vite, `${conversation}turns.ts`);
     browser = await chromium.launch({ headless: true });
   });
   afterAll(async () => {
@@ -135,8 +140,10 @@ await requireBrowserLane("reply-settle-frames-real-browser.test.ts", async () =>
               const done = !last.folding && last.reply.opacity === 1 && document.getAnimations().length === 0;
               if (done && frames.length > relayoutAt + 3) return resolve();
               if (frames.length > 600) return reject(new Error("the fold never settled"));
+              // raf-read: the fade is the behavior; each frame's ink is read as that frame is drawn.
               requestAnimationFrame(step);
             };
+            // raf-read: every frame of the fade (above).
             requestAnimationFrame(step);
           });
           settleTurnEnd(thread, fold);
