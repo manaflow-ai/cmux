@@ -14,7 +14,7 @@ struct AcpmuxLookupStatusHedgeTests {
         func next() -> Int { lock.withLock { count += 1; return count } }
     }
 
-    private static let answer = AcpmuxStatus(["pid": 7])
+    private nonisolated static let answer = AcpmuxStatus(["pid": 7])
 
     /// A slow first call is not given up when the next one joins: its answer wins.
     @Test func aSlowFirstCallStillAnswers() async throws {
