@@ -192,10 +192,13 @@ fi
 paths="$RUNNER_TEMP/ui-review-paths.txt"
 files="$RUNNER_TEMP/ui-review-files.json"
 body_file="$RUNNER_TEMP/ui-review-body.md"
+# Its own scratch repository: the other steps run beside it in the shared base checkout.
+repo="$RUNNER_TEMP/ui-review-git"
 listed() {
-  if timeout 120 git fetch --no-tags --quiet --depth=2 --filter=blob:none origin "$MERGE_SHA" \
-    && [ "$(git rev-parse "$MERGE_SHA^2")" = "$HEAD_SHA" ] \
-    && git diff --name-only -z --no-renames "$MERGE_SHA^1" "$MERGE_SHA" | tr '\0' '\n' > "$paths"; then
+  if git init -q "$repo" && git -C "$repo" remote add origin "${URL:-}" \
+    && timeout 120 git -C "$repo" fetch --no-tags --no-recurse-submodules --quiet --depth=2 --filter=blob:none origin "$MERGE_SHA" \
+    && [ "$(git -C "$repo" rev-parse "$MERGE_SHA^2")" = "$HEAD_SHA" ] \
+    && git -C "$repo" diff --name-only -z --no-renames "$MERGE_SHA^1" "$MERGE_SHA" | tr '\0' '\n' > "$paths"; then
     echo "changed files: $(wc -l < "$paths" | tr -d ' ') from the merge commit (git)"
     return 0
   fi
