@@ -430,6 +430,19 @@ pub(super) fn now_ms() -> u64 {
         .map_or(0, |since| since.as_millis() as u64)
 }
 
+/// The roots for the settings file `file` (an `--app-socket` app's): this
+/// process's environment with `CMUX_NEXT_CONFIG_FILE` naming `file`, so its
+/// generations stay beside that file too.
+fn app_roots(file: &std::path::Path) -> Option<cmux_customize::Roots> {
+    cmux_customize::Roots::from(|name| {
+        if name == cmux_config::CONFIG_OVERRIDE {
+            Some(file.as_os_str().to_owned())
+        } else {
+            std::env::var_os(name).filter(|value| !value.is_empty())
+        }
+    })
+}
+
 /// `Some(exit code)` when `args` is `customize …`.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (mut global, words) = super::parse_globals(args).ok()?;
@@ -469,7 +482,16 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         return Some(0);
     }
     let chat = ask::Child { globals: child_globals(&global) };
-    let result = Customize::from_env()
+    // With `--app-socket` the settings file is that app's, never this
+    // process's default (`settings_file`); an app that does not answer refuses.
+    let customize = match &global.app_socket {
+        Some(_) => match super::settings_file::path(&global) {
+            Ok(file) => app_roots(&file).map(Customize::open).ok_or(Error::NoHome),
+            Err(error) => return Some(super::wire::print_local_error(&error, global.output, 1)),
+        },
+        None => Customize::from_env(),
+    };
+    let result = customize
         .map_err(Failure::from)
         .and_then(|customize| execute(&customize, request, "cli", now_ms(), &chat));
     Some(match result {

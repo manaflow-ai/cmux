@@ -2,7 +2,9 @@
 //! whole look of the app as one dotfile; `cmux_config::theme_file`). The
 //! reads, checks and writes run in process, so they work with cmux quit; the
 //! running app reloads a saved file at once. Picking a file (`use`, `reset`
-//! with no key) is a settings write, sent as `cmux settings` sends it.
+//! with no key) is a settings write, sent as `cmux settings` sends it. With
+//! `--app-socket`, the settings file and themes folder are the ones that app
+//! reports (`settings_file`).
 //!
 //! - `list`: the theme files, the active one marked.
 //! - `path [NAME]`: where a theme file is (default: the active one).
@@ -162,8 +164,13 @@ struct Paths {
 }
 
 impl Paths {
-    fn current() -> Paths {
-        let settings = cmux_config::config_path();
+    /// The app's files: with `--app-socket`, the ones that app reports
+    /// (`settings_file::path`).
+    fn of(global: &GlobalArgs) -> Result<Paths, Value> {
+        super::settings_file::path(global).map(Paths::beside)
+    }
+
+    fn beside(settings: PathBuf) -> Paths {
         let config_dir = settings.parent().map(Path::to_path_buf).unwrap_or_default();
         Paths { settings, config_dir }
     }
@@ -259,7 +266,10 @@ fn settings(global: &GlobalArgs, prefix: &[String], args: &[&str]) -> i32 {
 }
 
 pub(super) fn run(global: &GlobalArgs, prefix: &[String], request: Request) -> i32 {
-    let paths = Paths::current();
+    let paths = match Paths::of(global) {
+        Ok(paths) => paths,
+        Err(error) => return super::wire::print_local_error(&error, global.output, 1),
+    };
     match request {
         Request::List => {
             let active = theme_file::name_in(&paths.settings_root()).map(str::to_string);
