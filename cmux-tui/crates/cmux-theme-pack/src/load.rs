@@ -35,6 +35,8 @@ pub const MAXIMUM_ASSET_BYTES: u64 = 256 * 1024 * 1024;
 pub const MAXIMUM_VALUES: usize = 4096;
 /// The folder in a pack that `file:` and `folder:` values may point into.
 pub const ASSETS: &str = "assets";
+/// A value nested deeper than this is dropped rather than walked for paths.
+const MAXIMUM_ASSET_DEPTH: usize = 32;
 /// Asset kinds a background may name.
 const ASSET_EXTENSIONS: [&str; 10] =
     ["png", "jpg", "jpeg", "heic", "webp", "gif", "tiff", "mp4", "mov", "m4v"];
@@ -454,9 +456,16 @@ impl Reader<'_> {
                 Some(other),
             )),
         }
+        // Edits go through the same flattening as the manifest, so a nested
+        // edit (`sidebar` = `{"sectionLook": ..}`) replaces, is checked and is
+        // reported under the dotted keys it sets.
         for (key, value) in edits {
-            values.retain(|(written, _)| written != key);
-            values.push((key.clone(), value.clone()));
+            let mut flat = Vec::new();
+            self.flatten(value, key_path(key), &mut flat);
+            for (key, value) in flat {
+                values.retain(|(written, _)| *written != key);
+                values.push((key, value));
+            }
         }
         if values.len() > MAXIMUM_VALUES {
             self.diagnostics.push(PackDiagnostic::new(
@@ -479,37 +488,20 @@ impl Reader<'_> {
     /// A nested `look` written as dotted keys: a schema row is a leaf, an
     /// object that is no row goes one level down, anything else is kept for
     /// the schema check to name.
-    fn flatten(&mut self, value: &Value, path: Vec<String>, out: &mut Vec<(String, Value)>) {
-        if path.is_empty() || out.len() > MAXIMUM_VALUES {
-            return;
-        }
-        if self.context.schema.row_at(&path).is_some() {
-            out.push((dotted(&path), value.clone()));
-        } else if let Value::Object(members) = value {
-            let mut keys: Vec<&String> = members.keys().collect();
-            keys.sort();
-            for key in keys {
-                let mut child = path.clone();
-                child.push(key.clone());
-                self.flatten(&members[key], child, out);
-            }
-        } else {
-            out.push((dotted(&path), value.clone()));
-        }
+    fn flatten(&self, value: &Value, path: Vec<String>, out: &mut Vec<(String, Value)>) {
+        flatten(self.context.schema, value, path, out);
     }
 
-    /// A `file:` or `folder:` value as an absolute path inside the pack's
-    /// `assets/`; `None` (dropped) when it points anywhere else.
+    /// `value` with every `file:` and `folder:` string in it (at any depth:
+    /// a schedule maps times to pictures) made an absolute path inside the
+    /// pack's `assets/`. `None` (dropped) when any string in it points
+    /// anywhere else: a `file:`/`folder:` outside `assets/`, a `system:`
+    /// picture, or an absolute path the pack did not resolve from its own
+    /// files. A pack shows only pictures it ships.
     fn asset(&mut self, key: &str, value: Value) -> Option<Value> {
-        let Some(raw) = value.as_str() else { return Some(value) };
-        let Some((prefix, rest)) = ["file:", "folder:"]
-            .into_iter()
-            .find_map(|prefix| raw.strip_prefix(prefix).map(|rest| (prefix, rest)))
-        else {
-            return Some(value);
-        };
-        match self.resolve_asset(rest, prefix == "folder:") {
-            Ok(path) => Some(Value::String(format!("{prefix}{}", path.display()))),
+        let mut resolved = value.clone();
+        match self.assets_in(&mut resolved, 0) {
+            Ok(()) => Some(resolved),
             Err(problem) => {
                 self.diagnostics.push(PackDiagnostic::new(
                     "assets",
@@ -520,6 +512,54 @@ impl Reader<'_> {
                 None
             }
         }
+    }
+
+    /// Resolves (in place) or refuses every string in `value`.
+    fn assets_in(&self, value: &mut Value, depth: usize) -> Result<(), String> {
+        if depth > MAXIMUM_ASSET_DEPTH {
+            return Err("nested too deep".into());
+        }
+        match value {
+            Value::String(raw) => {
+                if let Some(resolved) = self.asset_string(raw)? {
+                    *raw = resolved;
+                }
+                Ok(())
+            }
+            Value::Array(items) => {
+                items.iter_mut().try_for_each(|item| self.assets_in(item, depth + 1))
+            }
+            Value::Object(members) => {
+                members.values_mut().try_for_each(|member| self.assets_in(member, depth + 1))
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// `Some(resolved)` for a `file:`/`folder:` string inside the pack's
+    /// assets, `None` for a string that names no file, an error for any
+    /// other path.
+    fn asset_string(&self, raw: &str) -> Result<Option<String>, String> {
+        if let Some((prefix, rest)) = ["file:", "folder:"]
+            .into_iter()
+            .find_map(|prefix| raw.strip_prefix(prefix).map(|rest| (prefix, rest)))
+        {
+            let path = self.resolve_asset(rest, prefix == "folder:")?;
+            return Ok(Some(format!("{prefix}{}", path.display())));
+        }
+        if raw.starts_with("system:") {
+            return Err(format!(
+                "a pack shows only its own pictures (file:{ASSETS}/NAME), not system: ones"
+            ));
+        }
+        if raw.starts_with('/')
+            || raw.starts_with('~')
+            || raw.starts_with('\\')
+            || Path::new(raw).is_absolute()
+        {
+            return Err(format!("a pack names only its own files, as file:{ASSETS}/NAME"));
+        }
+        Ok(None)
     }
 
     fn resolve_asset(&self, relative: &str, is_folder: bool) -> Result<PathBuf, String> {
@@ -548,11 +588,17 @@ impl Reader<'_> {
         if relative.is_empty() || !inside || !relative.starts_with(&format!("{ASSETS}/")) {
             return Err(format!("a pack names only its own files, as {ASSETS}/NAME"));
         }
+        let pack =
+            self.dir.canonicalize().map_err(|_| "the pack folder is unreadable".to_string())?;
         let root = self
             .dir
             .join(ASSETS)
             .canonicalize()
             .map_err(|_| format!("the pack has no {ASSETS} folder"))?;
+        // `assets` may itself be a link: it must still lead into the pack.
+        if root == pack || !root.starts_with(&pack) {
+            return Err(format!("the pack's {ASSETS} folder points outside the pack"));
+        }
         let path = self
             .dir
             .join(written)
@@ -752,6 +798,36 @@ impl Reader<'_> {
             self.theme.remove("colors");
         }
     }
+}
+
+/// A nested `look` value as dotted keys: a schema row is a leaf, an object
+/// that is no row goes one level down, anything else is kept for the schema
+/// check to name.
+fn flatten(schema: &Schema, value: &Value, path: Vec<String>, out: &mut Vec<(String, Value)>) {
+    if path.is_empty() || out.len() > MAXIMUM_VALUES {
+        return;
+    }
+    if schema.row_at(&path).is_some() {
+        out.push((dotted(&path), value.clone()));
+    } else if let Value::Object(members) = value {
+        let mut keys: Vec<&String> = members.keys().collect();
+        keys.sort();
+        for key in keys {
+            let mut child = path.clone();
+            child.push(key.clone());
+            flatten(schema, &members[key], child, out);
+        }
+    } else {
+        out.push((dotted(&path), value.clone()));
+    }
+}
+
+/// The dotted look values an edit of `key` to `value` sets, flattened the
+/// way the manifest's `look` is.
+pub fn flatten_edit(schema: &Schema, key: &str, value: &Value) -> Vec<(String, Value)> {
+    let mut out = Vec::new();
+    flatten(schema, value, key_path(key), &mut out);
+    out
 }
 
 /// Each slot in `schemas/theme/slots.json` with its variant ids.

@@ -69,6 +69,7 @@ impl Peer {
             person_instance: StdMutex::new(None),
             trust_gate: AtomicBool::new(false),
             vm_boundary: AtomicBool::new(false),
+            wake_hook: std::sync::OnceLock::new(),
             github_broker: AtomicBool::new(false),
             github_slots: crate::github_broker::owner_slots(name),
             github_link: AtomicU64::new(0),
@@ -185,22 +186,6 @@ impl Peer {
         }
         let Some(states) = self.states.lock_or_recover().clone() else { return };
         states.changed(&self.name, self.generation, self.observed(link));
-    }
-
-    pub(super) fn observed(&self, link: &Link) -> crate::peer_states::Observed {
-        let error = self.last_error.lock_or_recover().clone();
-        let state = link.state();
-        let mut facts = self.facts.lock_or_recover();
-        let (whole, since) = facts.observe(state, crate::store::now_ms());
-        crate::peer_states::Observed {
-            link: whole,
-            carrier: facts.live_carrier(state),
-            cause: carrier::cause(whole, error.as_deref()),
-            since,
-            next_retry_at: link.retry_at.filter(|_| !link.is_ready()),
-            last_seen: link.last_seen,
-            error,
-        }
     }
 
     /// The carrier this attempt runs over (`carrier` while its link is open).
@@ -754,6 +739,8 @@ impl Peer {
             "link": observed.link,
             "carrier": observed.carrier,
             "cause": observed.cause,
+            "reason": observed.reason,
+            "action": observed.reason.map(crate::protocol::peer_state::OfflineReason::action),
             "since": observed.since,
             "nextRetryAt": observed.next_retry_at,
             "lastSeen": link.last_seen,

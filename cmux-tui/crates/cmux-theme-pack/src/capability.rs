@@ -11,7 +11,7 @@ pub enum Capability {
     /// Look settings no other capability covers: accent, surfaces, glass,
     /// density, chrome style.
     Tokens,
-    /// The terminal palette (`colors`).
+    /// The terminal palette (`colors`, a `ghostty` block, `appearance.themeEdits`).
     Colors,
     /// Wallpapers, pane backgrounds and their tint, opacity and rotation,
     /// including pictures and videos shipped in the pack's `assets/`.
@@ -69,8 +69,21 @@ impl Capability {
             "appearance.font",
             "appearance.metrics.chromeFont",
         ];
+        // Everything that changes the terminal palette: the theme file's own
+        // `colors` and `ghostty` blocks and the per-theme color edits they
+        // become. A pack sets them only with the colors capability.
+        const COLORS: [&str; 3] = ["colors", "ghostty", "appearance.themeEdits"];
         let starts = |prefixes: &[&str]| prefixes.iter().any(|prefix| key.starts_with(prefix));
-        if starts(&BACKGROUNDS) {
+        let under = |roots: &[&str]| {
+            roots.iter().any(|root| {
+                key.strip_prefix(root).is_some_and(|rest| rest.is_empty() || rest.starts_with('.'))
+            })
+        };
+        if under(&COLORS) {
+            Capability::Colors
+        } else if key == "slots" || key.starts_with("slots.") {
+            Capability::Components
+        } else if starts(&BACKGROUNDS) {
             Capability::Backgrounds
         } else if starts(&MOTION) {
             Capability::Motion
@@ -101,6 +114,13 @@ mod tests {
         assert_eq!(Capability::of_key("appearance.metrics.chromeFontSize"), Capability::Fonts);
         assert_eq!(Capability::of_key("sidebar.sectionLook"), Capability::Components);
         assert_eq!(Capability::of_key("appearance.accent"), Capability::Tokens);
+        // The terminal palette is colors, however it is written.
+        assert_eq!(Capability::of_key("ghostty"), Capability::Colors);
+        assert_eq!(Capability::of_key("colors"), Capability::Colors);
+        assert_eq!(Capability::of_key("appearance.themeEdits"), Capability::Colors);
+        assert_eq!(Capability::of_key("appearance.themeEdits.Nord/background"), Capability::Colors);
+        assert_eq!(Capability::of_key("colorsish"), Capability::Tokens);
+        assert_eq!(Capability::of_key("slots"), Capability::Components);
     }
 
     #[test]

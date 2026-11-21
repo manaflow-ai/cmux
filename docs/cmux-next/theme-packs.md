@@ -132,17 +132,28 @@ half of one. The step before the first generation is the theme file you had pick
 - `edit` adds a generation each time.
 - `off` goes back to the look before any pack, and is itself one step, so `undo` brings the pack back.
 - 64 generations are kept; the oldest go first.
+- If you pick another theme file yourself (`cmux theme use`, or undoing `appearance.themeFile` in the
+  settings), the next pack command starts the history over from that file: `off` and `undo` go back
+  to it, never to an older look over yours. A theme of your own is never taken for a pack's, whatever
+  its name.
+- The history moves only once the setting does: if `cmux settings` fails to pick the step's theme
+  file, the history stays where it was.
 
-The history is `packs/.history.json` beside `cmux-next.json`. If it doesn't parse, it starts over.
+The history is `packs/.history.json` beside `cmux-next.json`. If it doesn't parse, it starts over;
+any name in it that isn't a plain theme file name (or, for a pack's file, doesn't start with
+`pack-`) is dropped. Each command holds `packs/.history.lock` while it reads and writes the history,
+so `use --watch` and an `undo` in another terminal never lose each other's step.
 
 ## How a pack applies
 
 cmux compiles a pack to a theme file, `themes/pack-OWNER-NAME-HASH.json` (`cmux/sakura` becomes
 `pack-cmux-sakura-` plus a hash of the compiled look), and sets `appearance.themeFile` to it. Each
 generation has its own file, so undoing `appearance.themeFile` in the settings history brings back the
-look that name had. A live edit rewrites the current file in place. Files no kept generation names are
-removed. The running app already reloads theme files
-live, so a pack needs nothing new in the app, and it writes your `cmux-next.json` no more than a theme
+look that name had. A live edit rewrites the current file in place. The theme files cmux wrote are
+kept, so that undo keeps working, up to the 256 most recently written; beyond that the oldest are
+removed, never the one `appearance.themeFile` picks, the one you had before any pack, or one a kept
+generation names. A theme file of your own is never removed. The running app already reloads theme
+files live, so a pack needs nothing new in the app, and it writes your `cmux-next.json` no more than a theme
 file does. The compiled file holds every value that passed, plus `colors` and `slots`.
 
 `slots` are accepted and carried in the compiled file, but they don't paint yet. They will once the

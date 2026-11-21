@@ -55,6 +55,9 @@ final class HomePictureViewer: NSView {
     private let tools = NSSegmentedControl(frame: .zero)
     /// In the comparison, in the tools' place: Side by Side, Flip, Slider (``HomePictureCompare/Style``).
     private let styles = NSSegmentedControl(frame: .zero)
+    /// Each segmented control's segment tooltips, and the controls whose tooltips `layout` has placed.
+    private var toolTips: [ObjectIdentifier: [String]] = [:]
+    private var toolTipsPlaced: Set<ObjectIdentifier> = []
     /// The comparison's rows ("Light | Dark"), when the gallery's rows have labels.
     private let rowSwitch = NSSegmentedControl(frame: .zero)
     private var rowSwitchRows: [Int] = []
@@ -143,9 +146,9 @@ final class HomePictureViewer: NSView {
         tools.segmentStyle = .separated
         for (i, entry) in toolList.enumerated() {
             tools.setImage(NSImage(systemSymbolName: entry.1, accessibilityDescription: entry.2), forSegment: i)
-            tools.setToolTip(entry.2, forSegment: i)
             tools.setWidth(30, forSegment: i)
         }
+        toolTips[ObjectIdentifier(tools)] = toolList.map(\.2)
         tools.selectedSegment = 0
         tools.target = self
         tools.action = #selector(toolChanged)
@@ -160,9 +163,9 @@ final class HomePictureViewer: NSView {
         styles.segmentStyle = .separated
         for (i, entry) in styleList.enumerated() {
             styles.setImage(NSImage(systemSymbolName: entry.1, accessibilityDescription: entry.2), forSegment: i)
-            styles.setToolTip(entry.2, forSegment: i)
             styles.setWidth(30, forSegment: i)
         }
+        toolTips[ObjectIdentifier(styles)] = styleList.map(\.2)
         styles.selectedSegment = HomePictureCompare.Style.sideBySide.rawValue
         styles.target = self
         styles.action = #selector(styleChanged)
@@ -213,7 +216,7 @@ final class HomePictureViewer: NSView {
         b.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
         b.symbolConfiguration = .init(pointSize: size, weight: .regular)
         b.contentTintColor = NSColor.white.withAlphaComponent(0.85)
-        b.toolTip = label
+        b.setHomeToolTip(label)
         b.setAccessibilityLabel(label)
     }
 
@@ -365,7 +368,14 @@ final class HomePictureViewer: NSView {
         let barWidth = 12 + toolsWidth + 12 + CGFloat(barButtons.count) * buttonWidth + 8
         bar.frame = CGRect(x: (bounds.midX - barWidth / 2).rounded(), y: bounds.maxY - 50, width: barWidth, height: 38)
         for control in [tools, styles] {
-            control.frame = CGRect(x: 12, y: (38 - control.fittingSize.height) / 2, width: control.fittingSize.width, height: control.fittingSize.height)
+            let size = control.fittingSize
+            let sizeChanged = control.frame.size != size || !toolTipsPlaced.contains(ObjectIdentifier(control))
+            control.frame = CGRect(x: 12, y: (38 - size.height) / 2, width: size.width, height: size.height)
+            // Each segment's tooltip is a region of the control: placed again only when the control's size changes.
+            if sizeChanged, let texts = toolTips[ObjectIdentifier(control)] {
+                control.setHomeSegmentToolTips(texts)
+                toolTipsPlaced.insert(ObjectIdentifier(control))
+            }
         }
         var x = shownTools.frame.maxX + 12
         for b in barButtons {

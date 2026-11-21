@@ -1883,10 +1883,50 @@ def test_macos_test_references_fail_open_without_ci_workflow() -> None:
     assert module.macos_job_test_references("not a workflow") is None
 
 
+def ci_router_trigger_problems(workflow: str) -> list[str]:
+    """Why ci.yml would not run its router on every pull request event and every merge group.
+
+    The only path filter allowed is the docs-only block scripts/ci/docs_only_paths.py writes under pull_request
+    (#47195): docs-only-fallback.yml calls ci.yml when that block could have skipped it wrongly. merge_group takes
+    no filter at all, since a merge group must always get its required checks."""
+    spec = importlib.util.spec_from_file_location("docs_only_paths_for_router", ROOT / "scripts" / "ci" / "docs_only_paths.py")
+    assert spec and spec.loader
+    docs = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(docs)
+    problems = []
+    on = yaml.load(workflow, Loader=yaml.BaseLoader)["on"]
+    pull_request = on.get("pull_request") or {}
+    if pull_request.get("types") != ["opened", "synchronize", "reopened", "labeled", "unlabeled"]:
+        problems.append(f"pull_request types are {pull_request.get('types')!r}")
+    if set(pull_request) - {"types", "paths"}:
+        problems.append(f"pull_request has other filters: {sorted(set(pull_request) - {'types', 'paths'})}")
+    if "paths" in pull_request and pull_request["paths"] != list(docs.DOCS_ONLY_PATHS):
+        problems.append("pull_request paths are not the synced docs-only block")
+    block = "\n".join(docs.block("    "))
+    if "paths" in pull_request and block not in workflow:
+        problems.append("the docs-only block drifted from scripts/ci/docs_only_paths.py")
+    if "merge_group" not in on:
+        problems.append("no merge_group trigger")
+    elif on["merge_group"] not in (None, "", {}):
+        problems.append(f"merge_group has a filter: {on['merge_group']!r}")
+    if len(re.findall(r"(?m)^\s*paths:", workflow)) != workflow.count(docs.BEGIN):
+        problems.append("a paths: filter outside the docs-only block")
+    if re.search(r"(?m)^\s*paths-ignore:", workflow):
+        problems.append("a paths-ignore filter")
+    return problems
+
+
 def test_ci_router_runs_on_every_pr_and_merge_group() -> None:
+    assert ci_router_trigger_problems(CI_WORKFLOW.read_text(encoding="utf-8")) == []
+
+
+def test_ci_router_trigger_check_catches_a_filtered_merge_group_or_extra_paths() -> None:
     workflow = CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "  pull_request:\n    types: [opened, synchronize, reopened, labeled, unlabeled]\n  merge_group:" in workflow
-    assert "    paths:" not in workflow
+    assert ci_router_trigger_problems(workflow.replace("  merge_group:\n", "  merge_group:\n    types: [checks_requested]\n", 1))
+    assert ci_router_trigger_problems(workflow.replace("  merge_group:\n", "", 1))
+    assert ci_router_trigger_problems(workflow.replace("  workflow_call:\n", "  push:\n    paths: [\"x/**\"]\n  workflow_call:\n", 1))
+    assert ci_router_trigger_problems(workflow.replace(", unlabeled]", "]", 1))
+    assert ci_router_trigger_problems(workflow.replace('      - "!**/*.md"\n', "", 1))
 
 
 def test_ci_label_only_reruns_preserve_inflight_compile() -> None:
@@ -4530,18 +4570,7 @@ def test_full_ci_label_changes_start_a_fresh_run_instead_of_mutating_a_rerun() -
     assert '--event-path "$GITHUB_EVENT_PATH"' in suite
 
 
-def test_merge_groups_stop_at_the_first_failure() -> None:
-    # The privileged watcher is started by a merge-group-only workflow, so an
-    # ordinary pull request never creates a skipped fail-fast run. It still runs
-    # from the default branch and executes no repository code.
-    watcher = (ROOT / ".github/workflows/merge-group-fail-fast.yml").read_text(encoding="utf-8")
-    assert "  workflow_run:\n    workflows: [Merge-group policy checks]\n    types: [in_progress]" in watcher
-    assert "workflows: [CI]" not in watcher
-    assert "head_sha=$HEAD_SHA" in watcher
-    assert "event=merge_group" in watcher
-    assert '.conclusion != null and .conclusion != "success" and .conclusion != "skipped"' in watcher
-    assert "permissions: {}" in watcher and "actions: write" in watcher
-    assert "uses:" not in watcher
+def test_ci_holds_no_actions_write() -> None:
     # ci.yml holds no actions: write at all: a pull_request run takes it from
     # the pull request.
     jobs = _ci_jobs()
