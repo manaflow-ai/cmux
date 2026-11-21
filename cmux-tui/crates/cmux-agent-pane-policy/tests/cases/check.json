@@ -2143,6 +2143,7 @@
     "pick": null,
     "session_id": null,
     "needs_gesture": true,
+    "needs_click": false,
     "needs_path_check": false,
     "setting": null,
     "attach_session": null,
