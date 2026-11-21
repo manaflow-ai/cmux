@@ -89,7 +89,6 @@ SCOPED: dict[str, str] = {
     "cmux-next.yml": "the plan docs a Swift target names (put back by name; test_unrouted_plan_docs_skip_cmux_next) "
                      "and the README its checks tier reads",
     "cmux-tui-sdks.yml": "cmux-tui/**",
-    "cmux-tui-windows-check.yml": "cmux-tui/**",
     "cmux-vm.yml": "workers/cmux-vm/**",
     "coderouter-ci.yml": "coderouter/**",
     "device-hub.yml": "workers/device-hub/**",

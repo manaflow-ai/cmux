@@ -3,14 +3,18 @@ name: cmux-tui Windows check
 # A fast compile check of cmux-tui-core and the cmux-tui bins for
 # x86_64-pc-windows-gnu, cross-compiled on Linux. Two feat-cmux-next landings
 # broke the Windows build on 2026-10-08 and only the dispatch-only full-mode
-# cmux-tui.yml run (test (windows)) caught them hours later. This runs on every
-# same-repository pull request into feat-cmux-next that touches cmux-tui, so a
-# unix-only item is caught within minutes, before it lands; the base push's
-# cmux-tui artifacts run builds the Windows daemon after it lands. It used to
-# run on pushes to feat-cmux-next-* side branches, which also started it for
-# side branches with no pull request (the 2026-10-27 push flood).
+# cmux-tui.yml run (test (windows)) caught them hours later. It runs on each
+# push to feat-cmux-next that touches these paths, so a unix-only item is caught
+# right after it lands (a newer push cancels an older run: one at a time), and
+# on dispatch. It ran on every same-repository pull request until 2026-11-21:
+# 1,005 jobs and ~6,100 runner-minutes a day, 82% red, for a target no release
+# ships (CI time map; cmuxterm-hq#16094 puts the miss at 1.36% of PR heads).
+# Putting `pull_request: branches: [feat-cmux-next]` back with this paths list is
+# the revert. A schedule here would never fire (schedules run only from main).
+# It used to run on pushes to feat-cmux-next-* side branches, which also started
+# it for side branches with no pull request (the 2026-10-27 push flood).
 on:
-  pull_request:
+  push:
     branches: [feat-cmux-next]
     paths:
       - "cmux-tui/**"
