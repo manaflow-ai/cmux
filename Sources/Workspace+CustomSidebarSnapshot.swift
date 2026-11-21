@@ -8,7 +8,8 @@ extension Workspace {
     func customSidebarWorkspaceSnapshot(
         index: Int,
         selectedId: UUID?,
-        unreadCount: Int
+        unreadCount: Int,
+        ref: String?
     ) -> CustomSidebarWorkspaceSnapshot {
         let focusedPanelId = focusedPanelId
         let displayTitle = customTitle ?? title
@@ -25,6 +26,7 @@ extension Workspace {
         }
         return CustomSidebarWorkspaceSnapshot(
             id: id,
+            ref: ref,
             title: displayTitle,
             isSelected: id == selectedId,
             isPinned: isPinned,
