@@ -1004,7 +1004,7 @@ class QueueBudget(unittest.TestCase):
 
     def test_the_workflow_passes_the_rounds_and_ci_uploads_no_queue_marker(self):
         doc = yaml.safe_load((ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text())
-        step = doc["jobs"]["rescue"]["steps"][-1]
+        step = next(s for s in doc["jobs"]["rescue"]["steps"] if s.get("name") == "Watch runs on persistent pools")
         self.assertEqual(step["env"]["QUEUE_ROUNDS"], "${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}")
         self.assertEqual(step["env"]["SIDE_RESCUE_SECONDS"], "${{ vars.CI_OWNED_POOL_RESCUE_SECONDS }}")
         self.assertNotIn("macos-pool-queued", (ROOT / ".github/workflows/ci.yml").read_text())
@@ -7291,6 +7291,10 @@ class Workflow(unittest.TestCase):
         self.text = (ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text(encoding="utf-8")
         self.doc = yaml.safe_load(self.text)
 
+    def rescue_step(self):
+        # The rescue itself; the cmux-bot spend reading (scripts/ci/app_spend_mark.py) follows it.
+        return next(s for s in self.doc["jobs"]["rescue"]["steps"] if s.get("name") == "Watch runs on persistent pools")
+
     def test_default_branch_code_with_actions_write_only_in_the_job(self):
         self.assertEqual(self.doc["permissions"], {})
         job = self.doc["jobs"]["rescue"]
@@ -7355,7 +7359,7 @@ class Workflow(unittest.TestCase):
                      "github.event.workflow_run.run_attempt == 1 || "
                      + self.COMPLETED_DEV_RUN + ")"):
             self.assertIn(part, condition)
-        step = self.doc["jobs"]["rescue"]["steps"][-1]
+        step = self.rescue_step()
         self.assertEqual(step["env"]["WATCH_RUN_ID"], "${{ inputs.run_id }}")
         self.assertIn("inputs.run_id || github.event.workflow_run.id", self.doc["concurrency"]["group"])
 
@@ -7398,11 +7402,11 @@ class Workflow(unittest.TestCase):
         # A queued sweeper waits for the running one, so a rescue it started is never killed;
         # a single run's watch still cancels its predecessor.
         self.assertEqual(self.doc["concurrency"]["cancel-in-progress"], "${{ !" + sweeper + " }}")
-        env = self.doc["jobs"]["rescue"]["steps"][-1]["env"]
+        env = self.rescue_step()["env"]
         self.assertEqual(env["SWEEP"], "${{ " + sweeper + " && '1' || '' }}")
 
     def test_runs_the_rescue_script(self):
-        step = self.doc["jobs"]["rescue"]["steps"][-1]
+        step = self.rescue_step()
         self.assertEqual(step["run"], "python3 scripts/ci/owned_pool_rescue.py")
         self.assertEqual(step["env"]["RESCUE_SECONDS"], "${{ vars.CI_OWNED_POOL_RESCUE_SECONDS }}")
         self.assertEqual(step["env"]["POOL_OWNED"], "${{ vars.CI_PR_POOL_OWNED }}")
@@ -7418,12 +7422,12 @@ class Workflow(unittest.TestCase):
 
     def test_polls_from_an_ephemeral_runner(self):
         # Never from an owned pool it may rescue, and never only from
-        # GitHub-hosted: a GitHub billing block must not stop the rescue. The
-        # scheduled sweeper leads with the fleet's one-job label, off the pools
-        # it rescues from; per-run watches keep the ephemeral selector.
+        # GitHub-hosted: a GitHub billing block must not stop the rescue. Every
+        # event leads with the repair one-job JIT label, off the pools it
+        # rescues from, and the ephemeral selector follows it.
         self.assertEqual(
             self.doc["jobs"]["rescue"]["runs-on"],
-            '${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || (github.event_name == \'schedule\' || github.event_name == \'workflow_dispatch\' && !inputs.run_id) && vars.CI_REPAIR_SKIP_FLEET != \'1\' && \'cmux-fleet-linux-x64\' || contains(fromJSON(\'["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}',
+            '${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || vars.CI_REPAIR_SKIP_FLEET != \'1\' && \'cmux-gcp-repair-jit-x64\' || contains(fromJSON(\'["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}',
         )
 
     def test_marker_steps_never_fail_the_changes_job(self):

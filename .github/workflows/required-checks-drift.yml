@@ -41,10 +41,10 @@ on:
 permissions:
   contents: read
 
+# A pull request's newer push cancels its older run; scheduled and main runs are never cut short
+# (tests/test_ci_cron_concurrency.py).
 concurrency:
   group: required-checks-drift-${{ github.ref }}
-  # A newer push to a pull request supersedes its run; scheduled and push runs
-  # on main still finish, since a red one there is the signal.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
