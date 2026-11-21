@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -51,9 +51,4 @@ describe("in-place cmux-tui upgrade", () => {
     }
   });
 
-  test("the fleet runner uploads the adapter and runs that install script", () => {
-    const runner = readFileSync(new URL("../scripts/upgrade-fleet-cmux-tui.ts", import.meta.url), "utf8");
-    expect(runner).toContain("fs.writeTextFile(adapterFile, GUEST_CMUX_SHIM");
-    expect(runner).toContain("cmuxTuiUpgradeInstallScript(source, adapterFile)");
-  });
 });

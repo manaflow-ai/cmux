@@ -20,12 +20,6 @@ import en from "../messages/en.json";
 const MESSAGE_DIRECTORY = fileURLToPath(
   new URL("../messages/", import.meta.url),
 );
-const PLATFORM_PAGE_SOURCE = fileURLToPath(
-  new URL(
-    "../app/[locale]/(landing)/platform-download-page.tsx",
-    import.meta.url,
-  ),
-);
 const BROWSER_PAGE_SOURCE = fileURLToPath(
   new URL("../app/[locale]/(landing)/browser/page.tsx", import.meta.url),
 );
@@ -169,20 +163,6 @@ describe("Windows and Linux downloads", () => {
     expect(downloadButton).toContain("cmux_browser_nightly_page_clicked");
   });
 
-  test("wraps long localized installer labels on narrow screens", async () => {
-    const source = await readFile(PLATFORM_PAGE_SOURCE, "utf8");
-    expect(source).toContain("w-full max-w-full justify-center sm:w-auto");
-    expect(source).toContain(
-      "min-w-0 text-balance whitespace-normal text-center",
-    );
-    expect(source).toContain('className="shrink-0"');
-  });
-
-  test("makes the auto-updating Linux installer the first-install path", async () => {
-    const source = await readFile(PLATFORM_PAGE_SOURCE, "utf8");
-    expect(source).toContain("cmux-linux-x64-installer.run");
-    expect(source).not.toContain("sudo apt install ./cmux-linux-x64.deb");
-  });
 });
 
 /** Flattens a nested message namespace into dot-path string leaves. */

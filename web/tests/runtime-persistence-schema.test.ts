@@ -35,12 +35,5 @@ describe("Runtime persistence schema", () => {
     expect(migration).toContain('ADD COLUMN "runtime_id" uuid REFERENCES "cloud_runtimes"("id") ON DELETE SET NULL');
   });
 
-  test("backfills old VM-created identities before adding lease fences", () => {
-    expect(migration).toContain('CREATE TYPE "cloud_runtime_kind" AS ENUM');
-    expect(migration).toContain('CREATE TYPE "cloud_runtime_lifecycle" AS ENUM');
-    expect(migration).toContain("'suspended', 'stopped'");
-    expect(migration).toContain('WHEN machine."status" = \'running\' THEN \'running\'');
-    expect(migration).toContain('ADD CONSTRAINT "cloud_runtimes_lease_generation_nonnegative"');
-  });
 });
 

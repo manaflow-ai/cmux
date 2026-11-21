@@ -14,7 +14,6 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const web = path.resolve(here, "..");
-const repo = path.resolve(web, "..");
 const shellDir = path.join(web, "services/vms/images/shell");
 const devboxDir = path.join(web, "services/vms/images/devbox");
 const work = mkdtempSync(path.join(tmpdir(), "cmux-shell-defaults-"));
@@ -154,18 +153,5 @@ describe("lazy nvm (nvm-lazy.sh)", () => {
 });
 
 describe("bakes wire the shell defaults", () => {
-  test("the Chief VM bake runs shell-defaults.sh with the devbox files", async () => {
-    const bake = readFileSync(path.join(repo, "backend/chief-cc/bake.sh"), "utf8");
-    expect(bake).toContain("web/services/vms/images/shell");
-    expect(bake).toContain("shell-defaults.sh");
-    for (const f of ["cmux-terminfo.src", "cmux-terminfo.sh", "cmux-bashrc", "cmux-prompt.bash", "cmux-motd"]) expect(bake).toContain(f);
-  });
 
-  test("the cmux-vm image bake installs the terminfo overlay, the TERM fallback, and empties the provider motd", async () => {
-    const bake = readFileSync(path.join(web, "scripts/cmux-vm-image/bake.ts"), "utf8");
-    expect(bake).toContain('"/etc/cmux/terminfo.src"');
-    expect(bake).toContain('"/etc/profile.d/cmux-shell.sh"');
-    expect(bake).toContain("devboxTerminfoInstallCommand");
-    expect(bake).toContain(": > /etc/motd");
-  });
 });

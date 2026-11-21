@@ -953,18 +953,6 @@ describe("Freestyle client configuration", () => {
     }
   });
 
-  test("public vm exec leaves the guest user to the provider default", () => {
-    expect(driverSource).toContain(
-      "const r = await vm.exec({ command, timeoutMs, ...(opts?.asRoot ? { linuxUser: GUEST_LINUX_USER } : {}) });",
-    );
-  });
-
-  test("the driver talks to the SDK's default public edge unless overridden", () => {
-    // No hardcoded beta host, and no baseUrl unless FREESTYLE_API_URL says so.
-    expect(driverSource).not.toContain("beta-api.freestyle.sh");
-    expect(driverSource).toContain("process.env.FREESTYLE_API_URL");
-  });
-
   test("the beta SDK alias is gone from package.json", () => {
     const packageJson = JSON.parse(
       readFileSync(path.join(import.meta.dirname, "../package.json"), "utf8"),

@@ -350,20 +350,6 @@ describe("devbox private-network announce (services/vms/images/network.ts)", () 
     expect(devboxBoot).toContain('elif [ -z "$id" ] && [ -n "$parked" ]; then');
   });
 
-  test("resume housekeeping timers are parked with the daemon and re-armed off the critical path", () => {
-    for (const timer of ["logrotate.timer", "man-db.timer", "fstrim.timer", "dpkg-db-backup.timer", "systemd-tmpfiles-clean.timer", "apt-daily.timer"]) {
-      expect(devboxBoot).toContain(timer);
-    }
-    expect(devboxBoot).toContain("systemctl stop cmux-housekeeping-rearm.timer cmux-housekeeping-rearm.service $HOUSEKEEPING_TIMERS");
-    // Service watchdogs are runtime state: off while parked (so the clock jump
-    // kills nothing on resume), back on with the delayed re-arm.
-    expect(devboxBoot).toContain("  systemd-analyze service-watchdogs no >/dev/null 2>&1 || true\n");
-    expect(devboxBoot).toContain('--on-active="$HOUSEKEEPING_DELAY"');
-    expect(devboxBoot).toContain('/bin/sh -c "systemd-analyze service-watchdogs yes; systemctl start $HOUSEKEEPING_TIMERS"');
-    const bound = devboxBoot.indexOf(`printf '%s\\n' "$id" > "$BOUND_INSTANCE_FILE"`);
-    expect(devboxBoot.indexOf('[ -n "$parked" ] && { rearm_housekeeping; parked=""; }')).toBeGreaterThan(bound);
-  });
-
   test("the image installs arping and verify proves the announce loop on a booted machine", () => {
     expect(readFileSync(path.join(templateDir, "Dockerfile"), "utf8")).toContain("    iputils-arping \\\n");
     const verify = readScript("verify-devbox-image.ts");

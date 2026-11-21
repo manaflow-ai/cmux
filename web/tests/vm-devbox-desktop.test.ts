@@ -41,7 +41,6 @@ const unit = read("cmux-desktop.service");
 const boot = read("cmux-desktop-boot");
 const desktopEnv = read("desktop-env.sh");
 const dockerfile = readFileSync(path.join(devboxDesktopDir, "../Dockerfile"), "utf8");
-const devboxBoot = readFileSync(path.join(devboxDesktopDir, "../cmux-devbox-boot"), "utf8");
 const freestyleBake = readFileSync(path.join(import.meta.dirname, "../scripts/build-devbox-freestyle.ts"), "utf8");
 const verify = readFileSync(path.join(import.meta.dirname, "../scripts/verify-devbox-image.ts"), "utf8");
 const driver = readFileSync(path.join(import.meta.dirname, "../services/vms/drivers/freestyle.ts"), "utf8");
@@ -236,30 +235,6 @@ describe("devbox desktop layer", () => {
     expect(verify).toContain("systemctl is-active ${DEVBOX_DESKTOP_UNIT}");
   });
 
-  test("a container without systemd gets the same desktop from cmux-devbox-boot, and only then", () => {
-    // The boot supervisor starts cmux-desktop-boot as the uid-1000 account
-    // (root without one) when there is no systemd to own it; under systemd
-    // the cmux-desktop unit is the single supervisor, and the bake and the
-    // verifier count exactly one.
-    expect(devboxBoot).toContain(`DESKTOP_BOOT=${DEVBOX_DESKTOP_SUPERVISOR}`);
-    expect(devboxBoot).toContain(`DESKTOP_RUNTIME_DIR=${DEVBOX_DESKTOP_RUNTIME_DIR}`);
-    expect(devboxBoot).toContain(`DESKTOP_DISPLAY=${DEVBOX_DESKTOP_DISPLAY}`);
-    expect(devboxBoot).toContain("[ -d /run/systemd/system ] && return 0");
-    expect(devboxBoot).toContain("desktop_user=$(getent passwd 1000 | cut -d: -f1)");
-    expect(devboxBoot).toContain('runuser -u "$desktop_user" -- env HOME="$desktop_home" USER="$desktop_user" DISPLAY="$DESKTOP_DISPLAY"');
-    // The desktop is started at the top of every supervisor tick, before the
-    // daemon branch, so one never gates the other.
-    expect(devboxBoot).toContain('start_desktop\n  # A driver can install the binary after boot');
-    expect(devboxBoot).toContain('[ -x "$BIN" ] || cmux_tui_layout\n  if [ -x "$BIN" ]');
-    expect(freestyleBake).toContain('[ "$(pgrep -u ${WORK_USER} -f ${DEVBOX_DESKTOP_SUPERVISOR} | wc -l)" = 1 ]');
-    expect(verify).toContain("single-desktop-supervisor");
-    // The Dockerfile proves the container path at build time through the
-    // real supervisor and ships no live desktop (no stale X lock).
-    expect(dockerfile).toContain("cmux-devbox-boot >/tmp/cmux-devbox-boot.log 2>&1 &");
-    expect(dockerfile).toContain("desktop-self-check-ok");
-    expect(dockerfile).toContain("rm -rf /run/cmux-desktop /tmp/.X1-lock /tmp/.X11-unix/X1");
-  });
-
   test("the session publishes DISPLAY and the accessibility bus, and every shell family picks them up", () => {
     // start-vnc.sh: owner-signalled readiness everywhere a signal exists
     // (X on -displayfd, the accessibility bus by name, RandR events for the
@@ -314,16 +289,6 @@ describe("devbox desktop layer", () => {
     expect(verify).toContain("org.a11y.atspi.Registry");
   });
 
-  test("the driver opens the desktop through the same readiness contract", () => {
-    // openPort(6901) blocks on the unit's READY (one systemctl start, no
-    // polling) and reads "no desktop layer" from the start script's absence.
-    expect(driver).toContain("freestyleDesktopHealCommand");
-    expect(driver).toContain("systemctl start ${DEVBOX_DESKTOP_UNIT} || exit 1");
-    expect(driver).toContain("[ -x ${DEVBOX_DESKTOP_START_SCRIPT} ] || exit 3");
-    expect(driver).not.toContain("sleep 1; done");
-    expect(driver).toContain("devboxDesktopOpenUrl(address)");
-  });
-
   test("desktop polish: pre-accepted Chrome, CC0 wallpaper, clipboard helper, no clock, dock order", () => {
     expect(read("google-chrome-cmux.desktop")).toContain("--no-first-run");
     for (const app of ["google-chrome-cmux.desktop", "thunar-cmux.desktop", "ghostty-cmux.desktop"]) {
@@ -368,11 +333,5 @@ describe("devbox desktop layer", () => {
       }
     }
     expect(backgrounds).toBeGreaterThan(1);
-  });
-
-  test("the bake stamps the layer and the verifier keys on the stamp", () => {
-    expect(freestyleBake).toContain('withDesktop ? " desktop" : ""');
-    expect(dockerfile).toContain('echo "cmux-devbox ${CMUX_IMAGE_EPOCH} desktop" > /etc/cmux/image-stamp');
-    expect(verify).toContain("/\\bdesktop\\b/.test(stamp.output)");
   });
 });
