@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 650,
+  "count": 651,
   "sections": [
     {
       "id": "general",
@@ -4246,6 +4246,20 @@
           "kind": "toggle",
           "default": true,
           "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.look",
+          "title": "Sidebar Look",
+          "help": "Rows, headers and status marks like another app's sidebar. Your own sidebar settings still win.",
+          "kind": "choice",
+          "default": "cmux",
+          "group": "Sidebar",
+          "values": [
+            "cmux",
+            "claude",
+            "codex",
+            "studio"
+          ]
         },
         {
           "key": "sidebar.minimal",
