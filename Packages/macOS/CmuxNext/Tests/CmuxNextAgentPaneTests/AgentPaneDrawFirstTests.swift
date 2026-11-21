@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextPages
 import CmuxNextTestSupport
 import Foundation
 import Observation
