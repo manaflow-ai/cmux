@@ -178,4 +178,33 @@ final class SubagentTranscriptUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Step ")).firstMatch.exists, "the rows stay")
         attach(app, "2-offline")
     }
+
+    /// SUB-8 under the real load, 50 tokens a second: the reader rests on the end (the screen's
+    /// position, no gesture) while the transcript grows; over every layout pass while it grows,
+    /// the end stays within the 60 pt band (the rig's FollowProbe measures it in the app).
+    @MainActor
+    func testFollowAtFiftyHzKeepsTheEndInTheBand() {
+        let app = launch("subagent", count: 20, stream: true, edge: "follow", after: 5, hz: 50)
+        defer { app.terminate() }
+        XCTAssertTrue(app.navigationBars["WireGuard dialer"].waitForExistence(timeout: 40), "the transcript opens\n\(app.debugDescription)")
+        let probe = app.staticTexts["chat.subagent.followprobe"].firstMatch
+        XCTAssertTrue(probe.waitForExistence(timeout: 10), "the probe shows\n\(app.debugDescription)")
+        attach(app, "1-at-end")
+        // 15 s of stream: 750 tokens, 30 tool calls.
+        pass(20)
+        let label = probe.label
+        attach(app, "2-after-15s-at-50hz")
+        let note = XCTAttachment(string: label)
+        note.name = "follow-probe"
+        note.lifetime = .keepAlways
+        add(note)
+        print("CMUX_FOLLOW_PROBE \(label)")
+        let numbers = label.split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }
+        guard numbers.count == 3 else { XCTFail("the probe reports, has '\(label)'"); return }
+        let (gap, passes, growths) = (numbers[0], numbers[1], numbers[2])
+        XCTAssertGreaterThan(growths, 100, "the transcript grew while measured: \(label)")
+        XCTAssertGreaterThanOrEqual(passes, growths, label)
+        XCTAssertLessThanOrEqual(gap, 60, "the end stayed within 60 pt of the screen: \(label)")
+        XCTAssertTrue(app.staticTexts["chat.subagent.footer"].firstMatch.isHittable, "the end (the footer) is on screen\n\(app.debugDescription)")
+    }
 }

@@ -89,6 +89,8 @@ public struct ListStressSettings: Equatable, Sendable {
     /// `drop` (inspector: 60 more records arrive, dropping the oldest under the reader), `burst`
     /// (subagent: 1000 items in one main-actor turn), `offline` (inspector: no more records).
     /// `late` (subagent, with `LIST_STREAM=1`): the stream starts after `edgeAfter`.
+    /// `follow` (subagent): opens on the end, then streams at `LIST_LIVE_HZ` (default 50) after
+    /// `edgeAfter`, measuring how far the end gets from the screen (`FollowProbe`).
     public var edge: String?
     /// `CMUX_MOBILE_LIST_EDGE_AFTER=SECONDS` (default 4): when the edge case happens.
     public var edgeAfter: Double

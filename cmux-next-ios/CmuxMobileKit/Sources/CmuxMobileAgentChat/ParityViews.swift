@@ -218,13 +218,25 @@ struct SubagentTranscriptScreen: View {
     let store: AgentChatStore
     let surface: AgentChatSurface
     let subagentID: String
+    /// DEBUG rig: measures how far from the end a following reader gets (`FollowProbe`).
+    let probe: FollowProbe?
     @State private var nested: String?
     @State private var memo = SubagentRowsMemo()
-    @State private var position = ScrollPosition(edge: .top)
+    @State private var position: ScrollPosition
     /// The reader is at the end: a running subagent's new rows scroll into view. Scrolled away,
     /// rows added below move nothing (the list keeps its place from the top).
-    @State private var follows = false
+    @State private var follows: Bool
     @State private var phase = ScrollPhase.idle
+
+    /// `startsAtEnd`: opens on the transcript's end, following (the rig's follow measurement).
+    init(store: AgentChatStore, surface: AgentChatSurface, subagentID: String, startsAtEnd: Bool = false, probe: FollowProbe? = nil) {
+        self.store = store
+        self.surface = surface
+        self.subagentID = subagentID
+        self.probe = probe
+        _position = State(initialValue: ScrollPosition(edge: startsAtEnd ? .bottom : .top))
+        _follows = State(initialValue: startsAtEnd)
+    }
 
     var body: some View {
         if let agent = store.subagent(subagentID) {
@@ -270,13 +282,18 @@ struct SubagentTranscriptScreen: View {
                 .padding(.vertical, 16)
             }
             .defaultScrollAnchor(.top)
+            // Following, growth keeps the end in place in the same layout pass (no frame with the
+            // new row below the screen); otherwise it keeps the reader's row in place.
+            .defaultScrollAnchor(follows ? .bottom : .top, for: .sizeChanges)
             .scrollPosition($position)
             .onScrollPhaseChange { _, new in phase = new }
             .onScrollGeometryChange(for: TranscriptEnd.self) { geometry in
                 // In content coordinates: the bottom inset counts as seen, as at rest on the end.
                 // Within 60 pt of the end counts as on it (a fling that stops just short while a row lands).
-                TranscriptEnd(atEnd: geometry.visibleRect.maxY >= geometry.contentSize.height - 60, height: geometry.contentSize.height)
+                TranscriptEnd(atEnd: geometry.visibleRect.maxY >= geometry.contentSize.height - 60, height: geometry.contentSize.height,
+                              gap: probe == nil ? 0 : geometry.contentSize.height - geometry.visibleRect.maxY)
             } action: { old, new in
+                if let probe, follows, running, phase == .idle { probe.sample(gap: new.gap, grew: new.height > old.height) }
                 if phase == .interacting || phase == .decelerating {
                     // The reader's own scroll decides.
                     follows = new.atEnd
@@ -285,6 +302,12 @@ struct SubagentTranscriptScreen: View {
                 } else if follows, running, new.height > old.height {
                     // Rows came in below a reader at rest on the end: keep the end in view.
                     position.scrollTo(edge: .bottom)
+                }
+            }
+            .overlay(alignment: .topLeading) {
+                if let probe {
+                    Text(probe.summary).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("chat.subagent.followprobe")
                 }
             }
             .background(Color.cmuxMobileBackground)
@@ -304,6 +327,35 @@ struct SubagentTranscriptScreen: View {
 private struct TranscriptEnd: Equatable {
     var atEnd: Bool
     var height: CGFloat
+    /// Content below the visible rect (measured only with a `FollowProbe`).
+    var gap: CGFloat
+}
+
+/// How far below the screen the end of a following subagent transcript got, over every layout
+/// pass while it grew (the list rig's `CMUX_MOBILE_LIST_EDGE=follow`).
+@MainActor @Observable
+public final class FollowProbe {
+    /// Samples count once armed (the stream started).
+    @ObservationIgnored public var armed = false
+    @ObservationIgnored private(set) var samples = 0
+    @ObservationIgnored private(set) var growths = 0
+    @ObservationIgnored private(set) var maxGap: CGFloat = 0
+    /// Redrawn twice a second, not per sample (the overlay would add a redraw per frame).
+    private(set) var summary = "follow probe: waiting"
+    @ObservationIgnored private var shownAt = Date.distantPast
+
+    public init() {}
+
+    func sample(gap: CGFloat, grew: Bool) {
+        guard armed else { return }
+        samples += 1
+        if grew { growths += 1 }
+        maxGap = max(maxGap, gap)
+        if Date().timeIntervalSince(shownAt) > 0.5 {
+            shownAt = Date()
+            summary = "follow gap max \(Int(maxGap.rounded())) pt over \(samples) passes, \(growths) growths"
+        }
+    }
 }
 
 /// A transcript row inside a subagent (no permission or question cards: those reach the parent).
