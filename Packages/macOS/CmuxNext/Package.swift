@@ -257,7 +257,9 @@ let uiLayerPreviewTargets: [Target] = [
 // before the next launch can start: about 500 ms for a 100 MB executable, 20 ms
 // for a stub (a pool M4 Pro, Dock launches). A framework nobody links stays scanned.
 // The live code build (docs/cmux-next/live-code.md) interposes symbols of the one
-// image it links, so it keeps the static link.
+// image it links, so it keeps the static link; its xcodebuild settings skip the app's
+// Embed Frameworks copy of CmuxNextApp, which a static link does not make
+// (scripts/live-code/lib/xcodebuild-args.sh).
 let appLinksStatically = Context.environment["CMUX_LIVE_CODE_BUILD"] == "1"
 
 /// The framework's link, outside live code builds: it exports only the C

@@ -38,8 +38,13 @@ live_code_xcodebuild_args() { # CONFIG [LIST]
   # "/Library/Application Support".
   [[ -n "$list" ]] && ldflags+=" -Xlinker -interposable_list -Xlinker \"$list\""
   # shellcheck disable=SC2016 # Xcode expands $(TARGET_NAME), not the shell
+  # EXCLUDED_SOURCE_FILE_NAMES: Package.swift links CmuxNextApp statically into the app here (one
+  # image to repoint), so the build makes no CmuxNextApp framework, and the app target's Embed
+  # Frameworks phase (cmux.xcodeproj, CE7A00000000000000000047) stopped the build copying it
+  # (cmux#48325). Excluding the name skips that copy; the regular build embeds it as before.
   printf '%s\n' \
     EMIT_FRONTEND_COMMAND_LINES=YES \
+    'EXCLUDED_SOURCE_FILE_NAMES=$(inherited) CmuxNextApp' \
     'SWIFT_OPTIMIZATION_LEVEL=$(CMUX_LIVE_CODE_OPT_$(TARGET_NAME):default=-O)' \
     'ENABLE_TESTABILITY=$(CMUX_LIVE_CODE_TESTABLE_$(TARGET_NAME):default=NO)' \
     "SWIFT_COMPILATION_MODE=\$(CMUX_LIVE_CODE_MODE_\$(TARGET_NAME):default=$mode)" \
