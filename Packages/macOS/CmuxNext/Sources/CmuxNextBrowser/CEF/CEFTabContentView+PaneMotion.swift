@@ -130,8 +130,11 @@ extension CEFTabContentView: PaneMotionTargeting {
             // A retarget: a key press that caught the spring (its pane's host starts no key resize on a running spring,
             // so ``holdPage(for:)`` never comes) or another close. The page follows its pane from here, as any page does.
             endRestHold()
-        } else if !pageSyncReasons.contains(.paneSpring), pageHoldsKeys {
-            // Decided at the spring's start: the page that holds the keys waits at its rest.
+        } else if !pageSyncReasons.contains(.paneSpring) {
+            // Decided at the spring's start: every plain page waits at its rest, not only the one that holds the keys.
+            // Its renderer gets the final size in the key's turn and lays out once, instead of working through each
+            // frame's size and starting the final layout at the landing (split scale bench, b2dab851a: a heavy page
+            // painted for about 350 ms after its pane stopped, instant-splits).
             let rest = CGSize(width: bounds.width + sizeChange.width, height: bounds.height + sizeChange.height)
             if holdPageAtRest(rest) {
                 pageRestHold = true
