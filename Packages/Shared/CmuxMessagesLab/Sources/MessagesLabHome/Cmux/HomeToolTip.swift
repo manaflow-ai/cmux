@@ -2,9 +2,10 @@
 import AppKit
 
 extension NSView {
-    /// cmux: the control's tooltip, through the host's ``MessagesLabHomeHost/toolTip``; nil or empty: none.
-    @MainActor func setHomeToolTip(_ text: String?) {
-        MessagesLabHomeView.host.toolTip(self, text?.isEmpty == false ? text : nil)
+    /// cmux: the control's tooltip, through the host's ``MessagesLabHomeHost/toolTip``; nil or empty: none. Callable
+    /// from the transcript's nonisolated controllers (as `toolTip` was); off the main thread it sets nothing.
+    func setHomeToolTip(_ text: String?) {
+        HomeToolTipSeam(view: self).set(text)
     }
 }
 
