@@ -11,9 +11,11 @@ public nonisolated struct AgentApproval: Sendable, Equatable {
     public var digest: String
     /// What the agent asks to do (its tool call's title and command, scrubbed): the banner's body.
     public var summary: String
+    /// The prompt offers one Always allow (`allow_always`): its banner offers it too.
+    public var alwaysOffered: Bool
 
-    public init(session: String, permission: String, digest: String, summary: String) {
-        (self.session, self.permission, self.digest, self.summary) = (session, permission, digest, summary)
+    public init(session: String, permission: String, digest: String, summary: String, alwaysOffered: Bool = false) {
+        (self.session, self.permission, self.digest, self.summary, self.alwaysOffered) = (session, permission, digest, summary, alwaysOffered)
     }
 }
 
@@ -27,6 +29,14 @@ public protocol AgentApprovalAnswering: AnyObject {
     /// Answers `approval` (allow once, else deny) while it is still pending unchanged; false
     /// when nothing was answered.
     func answer(_ approval: AgentApproval, allow: Bool) async -> Bool
+    /// Answers `approval` with its Always allow while it is still pending unchanged and offers
+    /// one; false when nothing was answered.
+    func answerAlways(_ approval: AgentApproval) async -> Bool
+}
+
+public extension AgentApprovalAnswering {
+    /// An answerer that never offers Always allow answers none.
+    func answerAlways(_ approval: AgentApproval) async -> Bool { false }
 }
 
 /// The approval banners of this launch, by tab (cx-kz6m0.2). A banner waits for its chat's
@@ -75,23 +85,37 @@ public final class AgentApprovalBanners {
     }
 
     public nonisolated static let category = "cmux.notification.approval"
+    /// The category of a banner whose prompt offers Always allow (``AgentApproval/alwaysOffered``).
+    public nonisolated static let alwaysCategory = "cmux.notification.approval.always"
     public nonisolated static let allowAction = "cmux.notification.approval.allow-once"
+    public nonisolated static let alwaysAction = "cmux.notification.approval.allow-always"
     public nonisolated static let denyAction = "cmux.notification.approval.deny"
 
-    /// The banners' category: Allow once (the Mac must be unlocked: an allow runs what the agent
-    /// asked for) and Deny (destructive). Where macOS hides previews, the command stays hidden.
-    public nonisolated static func notificationCategory() -> UNNotificationCategory {
+    /// The banners' categories: Allow once (the Mac must be unlocked: an allow runs what the agent
+    /// asked for), Always allow where the prompt offers it (unlocked too), and Deny (destructive).
+    /// Where macOS hides previews, the command stays hidden.
+    public nonisolated static func notificationCategories() -> [UNNotificationCategory] {
         let allow = UNNotificationAction(identifier: allowAction, title: String(
             localized: "notifications.approval.allowOnce", defaultValue: "Allow once", bundle: .module), options: [.authenticationRequired])
+        let always = UNNotificationAction(identifier: alwaysAction, title: String(
+            localized: "notifications.approval.allowAlways", defaultValue: "Always allow", bundle: .module), options: [.authenticationRequired])
         let deny = UNNotificationAction(identifier: denyAction, title: String(
             localized: "notifications.approval.deny", defaultValue: "Deny", bundle: .module), options: [.destructive])
         let hidden = String(localized: "notifications.approval.hiddenBody", defaultValue: "An agent is waiting for your approval", bundle: .module)
-        return UNNotificationCategory(identifier: category, actions: [allow, deny], intentIdentifiers: [],
-                                      hiddenPreviewsBodyPlaceholder: hidden, options: [])
+        return [(category, [allow, deny]), (alwaysCategory, [allow, always, deny])].map { identifier, actions in
+            UNNotificationCategory(identifier: identifier, actions: actions, intentIdentifiers: [],
+                                   hiddenPreviewsBodyPlaceholder: hidden, options: [])
+        }
     }
 
-    /// A banner action's answer: true for Allow once, false for Deny, nil for any other action.
+    /// A banner action's answer: true for Allow once, false for Deny, nil for any other action
+    /// (Always allow is ``isAlways(_:)``).
     public nonisolated static func decision(_ action: String) -> Bool? {
         action == allowAction ? true : action == denyAction ? false : nil
+    }
+
+    /// Whether a banner action is Always allow.
+    public nonisolated static func isAlways(_ action: String) -> Bool {
+        action == alwaysAction
     }
 }

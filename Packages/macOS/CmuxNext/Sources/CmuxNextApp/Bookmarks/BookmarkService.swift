@@ -37,7 +37,6 @@ final class BookmarkService {
     @ObservationIgnored var fetching: [String: Task<Void, Never>] = [:]
     @ObservationIgnored var homeObservation: Task<Void, Never>?
     @ObservationIgnored var barObservation: Task<Void, Never>?
-    @ObservationIgnored var faviconObservation: Task<Void, Never>?
     /// Stored folder icons a bar drew the folder symbol for while they load (``followFolderIcons()``).
     var awaitedFolderIcons: Set<String> = []
     @ObservationIgnored var folderIconObservation: Task<Void, Never>?
@@ -54,11 +53,9 @@ final class BookmarkService {
     final class WeakChrome {
         weak var entry: BrowserEntry?
         let bar: BookmarksBarView
-        let source: BookmarkBarSourceAdapter
-        init(entry: BrowserEntry, bar: BookmarksBarView, source: BookmarkBarSourceAdapter) {
+        init(entry: BrowserEntry, bar: BookmarksBarView) {
             self.entry = entry
             self.bar = bar
-            self.source = source
         }
     }
 

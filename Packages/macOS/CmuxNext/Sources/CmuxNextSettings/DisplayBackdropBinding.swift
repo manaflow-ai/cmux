@@ -148,9 +148,8 @@ public final class DisplayBackdropBinding {
             return
         }
         guard raw != "none" else { displayScope.pinBackdrop(.none); return }
-        let rotation = root.value(at: BackdropSelectionSetting.displayBackgroundRotationsPath)?.objectValue?[id]?.stringValue
-            .flatMap(BackdropRotation.init(rawValue:))
-            ?? root.value(at: BackdropSelectionSetting.rotationPath)?.stringValue.flatMap(BackdropRotation.init(rawValue:))
+        let rotation = BackdropSelectionSetting.rotation(root.value(at: BackdropSelectionSetting.displayBackgroundRotationsPath)?.objectValue?[id])
+            ?? BackdropSelectionSetting.rotation(root.value(at: BackdropSelectionSetting.rotationPath))
             ?? BackdropSelectionSetting.rotationDefault
         if let path = BackdropSelectionSetting.folderPath(raw) {
             refreshFolder(path, rotation: rotation)

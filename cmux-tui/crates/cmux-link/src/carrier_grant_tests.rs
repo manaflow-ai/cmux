@@ -106,6 +106,24 @@ fn chats_and_name_are_read_as_signed() {
     assert_eq!(grant.name.as_deref(), Some("Ana Lí"));
 }
 
+/// #38420 review F1: a grant at the chats and name limits (the most chats, each
+/// 128 bytes, and the longest name in 4-byte characters) fits the token
+/// cap and is admitted; the old 4096-byte cap refused it as `token_size`.
+#[test]
+fn a_grant_at_the_chats_and_name_limits_is_admitted() {
+    let signer = Signer::generate("k1");
+    let (verifier, _) = verifier(&signer);
+    let key = [3_u8; 32];
+    let mut c = claims(&key);
+    c["vmk"] = json!("team");
+    c["chats"] = json!((0..MAX_GRANT_CHATS).map(|i| format!("{i:0>128}")).collect::<Vec<_>>());
+    c["name"] = json!("\u{1F600}".repeat(MAX_NAME_CHARS));
+    let token = signer.sign(GRANT_TYP, &c);
+    assert!(token.len() > 4096 && token.len() <= MAX_GRANT_BYTES, "{}", token.len());
+    let grant = verifier.verify(&token, &key, ATTEMPT).unwrap();
+    assert_eq!(grant.chats.map(|chats| chats.len()), Some(MAX_GRANT_CHATS));
+}
+
 #[test]
 fn a_malformed_chats_or_name_claim_is_refused_and_spends_nothing() {
     let signer = Signer::generate("k1");

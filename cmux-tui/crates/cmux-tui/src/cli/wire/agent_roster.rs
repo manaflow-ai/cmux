@@ -4,8 +4,11 @@
 //! one status vocabulary (`working`, `blocked`, `done`, `idle`, `unknown`;
 //! `cmux_tui_core::AgentStatus`) that `terminal list --agents` and the TUI
 //! show. `done` is a finished turn nobody has viewed (the terminal's unread
-//! notification); the daemon's own `state` keeps `done` for a session that
-//! ended, which has `status: null` and counts as `ended`.
+//! notification). The daemon's own `state` says `done` for a session that
+//! ended, which has `status: "ended"` (the send receipt's word); the printed
+//! `state` is a deprecated alias of `status`, so a row has one word (W5-Q).
+//! An ended agent of a closed terminal is left out unless `--state ended`
+//! asks for it; `hidden_ended` counts them and the text output says so.
 
 use std::borrow::Cow;
 use std::cmp::Reverse;
@@ -25,7 +28,7 @@ use super::{append_table_row, human_cell, sanitize_human_cell};
 /// attention order), then `ended` for a session that ended.
 const STATUSES: [&str; 6] = ["blocked", "done", "working", "idle", "unknown", "ended"];
 
-/// The status word of a row whose session ended (`status: null`).
+/// The status word of a row whose session ended.
 const ENDED: &str = "ended";
 
 /// The daemon `state` that `agent list --state <status>` asks for; the CLI
@@ -115,7 +118,18 @@ pub(super) fn with_terminals(
     } else {
         result
     };
-    shape(result, &terminals, &unseen_terminals(&notifications), view, unix_ms())
+    let tabs = super::super::resolve::read(reader, ResourceOperation::TabList, route_of(plan))
+        .ok()
+        .and_then(|tabs| tabs.as_array().cloned())
+        .unwrap_or_default();
+    let mut roster = shape(result, &terminals, &unseen_terminals(&notifications), view, unix_ms());
+    add_names(&mut roster, &terminals, &tabs);
+    roster
+}
+
+/// The session route of `plan`'s request, for the reads that join it.
+fn route_of(plan: &RequestPlan) -> Map<String, Value> {
+    plan.params.as_object().map(super::super::resolve::route).unwrap_or_default()
 }
 
 /// `notification.list`'s largest `limit`: a session keeps at most this many.
@@ -231,7 +245,7 @@ fn acp_state(status: &str) -> &'static str {
 }
 
 /// [`with_terminals`] for `--all-sessions`: `agents` is the joined rows,
-/// `terminals` every session's terminals and `notifications` every
+/// `terminals` and `tabs` every session's terminals and tabs, and `notifications` every
 /// session's notifications. Without a terminal selector every acpmux chat
 /// on this machine joins them, whatever its workspace, filtered by
 /// `params.state` as the daemons filtered their rows.
@@ -239,6 +253,7 @@ pub(in crate::cli) fn across(
     view: ResponseView,
     agents: Value,
     terminals: &[Value],
+    tabs: &[Value],
     notifications: &[Value],
     params: &Value,
 ) -> Value {
@@ -250,12 +265,15 @@ pub(in crate::cli) fn across(
     } else {
         agents
     };
-    shape(agents, terminals, &unseen_terminals(notifications), view, unix_ms())
+    let mut roster = shape(agents, terminals, &unseen_terminals(notifications), view, unix_ms());
+    add_names(&mut roster, terminals, tabs);
+    roster
 }
 
 /// What a machine-readable mode prints. `--json` stays the bare ranked
 /// array that scripts already read; `--json --counts` is the whole
-/// `{"agents","counts"}` roster. `--jsonl` prints one agent per line.
+/// `{"agents","counts","hidden_ended"}` roster. `--jsonl` prints one agent
+/// per line.
 pub(super) fn machine_view<'a>(
     plan: &RequestPlan,
     result: &'a Value,
@@ -287,13 +305,16 @@ fn unix_ms() -> u64 {
         .map_or(0, |elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
 }
 
-/// The printed roster: `{"agents":[...],"counts":{...}}`. Each agent keeps
-/// every daemon field and gains `status` (its terminal is in `unseen` when
-/// it has an unread notification), `age_ms` (since its `updated_at_ms`)
-/// and, when its terminal is in `terminals`, that terminal's `title` and
-/// `cwd`. `view.status` keeps only the agents with that status word.
-/// `counts` (by status word) covers every listed agent, before
-/// `view.limit`.
+/// The printed roster: `{"agents":[...],"counts":{...},"hidden_ended":N}`.
+/// Each agent keeps every daemon field but `state`, which becomes an alias
+/// of its `status`, and gains `status` (`ended` for a session that ended;
+/// its terminal is in `unseen` when it has an unread notification),
+/// `age_ms` (since its `updated_at_ms`) and, when its terminal is in
+/// `terminals`, that terminal's `title` and `cwd`. `view.status` keeps only
+/// the agents with that status word; without it, an ended agent of a
+/// terminal not in `terminals` is left out (when `terminals` is not empty)
+/// and counted in `hidden_ended`. `counts` (by status word) covers every
+/// listed agent, before `view.limit`.
 pub(super) fn shape(
     rows: Value,
     terminals: &[Value],
@@ -306,14 +327,34 @@ pub(super) fn shape(
         other => return other,
     };
     for agent in &mut agents {
-        let status = status_of(agent, unseen).map(AgentStatus::as_str);
+        let status = status_of(agent, unseen).map_or(ENDED, AgentStatus::as_str);
         if let Some(object) = agent.as_object_mut() {
             object.insert("status".into(), json!(status));
+            // `state` is a deprecated alias of `status`: one word per agent
+            // (W5-Q).
+            object.insert("state".into(), json!(status));
         }
     }
+    let listed = agents.len();
     if let Some(wanted) = view.status {
         agents.retain(|agent| status_word(agent) == wanted);
+    } else if !terminals.is_empty() {
+        // An ended agent of a closed terminal is history, not an agent:
+        // `--state ended` still lists it. With no terminals read (an older
+        // daemon), nothing is left out.
+        let open: HashSet<&str> = terminals
+            .iter()
+            .filter_map(|terminal| terminal.get("id").and_then(Value::as_str))
+            .collect();
+        agents.retain(|agent| {
+            status_word(agent) != ENDED
+                || agent
+                    .get("terminal_id")
+                    .and_then(Value::as_str)
+                    .is_none_or(|terminal| open.contains(terminal))
+        });
     }
+    let hidden_ended = if view.status.is_none() { listed.saturating_sub(agents.len()) } else { 0 };
     let mut counts = Map::new();
     for status in STATUSES {
         let count = agents.iter().filter(|agent| status_word(agent) == status).count();
@@ -354,12 +395,59 @@ pub(super) fn shape(
             }
         }
     }
-    json!({"agents": agents, "counts": counts})
+    json!({"agents": agents, "counts": counts, "hidden_ended": hidden_ended})
 }
 
-/// The human roster: a counts line, then one row per agent. `home` is
-/// shown as `~` in FOLDER.
+/// Adds each terminal agent's `name` (W5-Q): its tab's name when that is an
+/// agent name, the name `terminal list --agents` shows (roster_names.rs),
+/// else null. An acpmux chat keeps its own `name`.
+#[cfg(unix)]
+pub(super) fn add_names(result: &mut Value, terminals: &[Value], tabs: &[Value]) {
+    let facts = super::super::terminal_talk::roster_names::facts(
+        &json!({"tabs": tabs, "terminals": terminals}),
+    );
+    let Some(agents) = result.get_mut("agents").and_then(Value::as_array_mut) else { return };
+    for agent in agents {
+        let Some(terminal) = agent.get("terminal_id").and_then(Value::as_str) else { continue };
+        let name = facts.get(terminal).and_then(|facts| facts.name()).map(str::to_owned);
+        if let Some(object) = agent.as_object_mut() {
+            object.insert("name".into(), json!(name));
+        }
+    }
+}
+
+/// [`add_names`] where the roster names (terminal_talk, unix only) are not
+/// built: every terminal agent gets `name: null`, so the field is always
+/// there. An acpmux chat keeps its own `name`.
+#[cfg(not(unix))]
+pub(super) fn add_names(result: &mut Value, _terminals: &[Value], _tabs: &[Value]) {
+    let Some(agents) = result.get_mut("agents").and_then(Value::as_array_mut) else { return };
+    for agent in agents {
+        if agent.get("terminal_id").and_then(Value::as_str).is_none() {
+            continue;
+        }
+        if let Some(object) = agent.as_object_mut() {
+            object.insert("name".into(), Value::Null);
+        }
+    }
+}
+
+/// The human roster: a counts line, then one row per agent, then a line
+/// for the ended agents of closed terminals it left out. `home` is shown as
+/// `~` in FOLDER.
 pub(super) fn human(result: &Value, home: Option<&str>) -> String {
+    let mut output = roster_text(result, home);
+    let hidden = result.get("hidden_ended").and_then(Value::as_u64).unwrap_or(0);
+    if hidden > 0 {
+        let line = crate::localization::catalog().pane_cli.agent_list_hidden_ended;
+        output.push_str(&line.replace("{count}", &hidden.to_string()));
+        output.push('\n');
+    }
+    output
+}
+
+/// [`human`] without the line for the rows it left out.
+fn roster_text(result: &Value, home: Option<&str>) -> String {
     let agents = result["agents"].as_array().map(Vec::as_slice).unwrap_or_default();
     let count = |key: &str| result["counts"][key].as_u64().unwrap_or(0);
     let total = count("total");
@@ -378,9 +466,13 @@ pub(super) fn human(result: &Value, home: Option<&str>) -> String {
     output.push('\n');
 
     let sessions = agents.iter().any(|agent| agent.get("session").is_some());
+    let names = agents.iter().any(|agent| agent.get("name").and_then(Value::as_str).is_some());
     let mut header = Vec::new();
     if sessions {
         header.push("SESSION");
+    }
+    if names {
+        header.push("NAME");
     }
     header.extend(["STATE", "AGE", "AGENT", "TITLE", "FOLDER", "TERMINAL"]);
     let rows = agents
@@ -389,6 +481,9 @@ pub(super) fn human(result: &Value, home: Option<&str>) -> String {
             let mut row = Vec::new();
             if sessions {
                 row.push(cell(agent.get("session")));
+            }
+            if names {
+                row.push(cell(agent.get("name").filter(|name| !name.is_null())));
             }
             row.push(status_word(agent).to_owned());
             row.push(agent["age_ms"].as_u64().map_or_else(|| "-".to_owned(), age_text));
@@ -456,7 +551,7 @@ fn status_of(agent: &Value, unseen: &HashSet<&str>) -> Option<AgentStatus> {
     AgentStatus::from_state_str(state, unseen)
 }
 
-/// The row's status word ([`shape`] set it): `ended` for `status: null`.
+/// The row's status word ([`shape`] set it; `ended` for a row without one).
 fn status_word(agent: &Value) -> &str {
     agent.get("status").and_then(Value::as_str).unwrap_or(ENDED)
 }

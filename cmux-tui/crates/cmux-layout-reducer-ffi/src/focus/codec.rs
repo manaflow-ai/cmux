@@ -250,6 +250,12 @@ pub(crate) unsafe fn decode_topology(
             items(topology.column_panes, topology.column_pane_count)?,
         )
     };
+    // SAFETY: the caller's contract; null means no siblings.
+    let column_siblings = if topology.column_siblings.is_null() {
+        &[][..]
+    } else {
+        unsafe { items(topology.column_siblings, topology.column_pane_count)? }
+    };
     let mut out_panes = Vec::with_capacity(panes.len());
     for pane in panes {
         let start = pane.tab_start as usize;
@@ -282,10 +288,19 @@ pub(crate) unsafe fn decode_topology(
         let end = start.checked_add(column.pane_count as usize).ok_or(())?;
         let ids = column_panes.get(start..end).ok_or(())?;
         let panes = ids.iter().map(|r| s.required(*r)).collect::<Result<Vec<_>, _>>()?;
-        screens
-            .get_mut(column.screen as usize)
-            .ok_or(())?
-            .push(Column { id: s.required(column.id)?, panes });
+        let mut siblings = std::collections::BTreeMap::new();
+        if let Some(refs) = column_siblings.get(start..end) {
+            for (pane, sibling) in panes.iter().zip(refs) {
+                if let Some(sibling) = s.get(*sibling)?.filter(|id| !id.is_empty()) {
+                    siblings.insert(pane.clone(), sibling);
+                }
+            }
+        }
+        screens.get_mut(column.screen as usize).ok_or(())?.push(Column {
+            id: s.required(column.id)?,
+            panes,
+            siblings,
+        });
     }
     Ok(Topology::new(s.get(topology.workspace)?, out_panes, screens))
 }

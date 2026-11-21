@@ -13,16 +13,19 @@ pub fn compile(pattern: &str) -> Result<regex::Regex, regex::Error> {
     regex::RegexBuilder::new(pattern).multi_line(true).build()
 }
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn w4j_anchors_match_at_each_line_unless_the_pattern_turns_multi_line_off() {
-        let text = "step 1\nBENCH_OK\nstep 3\n$ ";
-        assert!(super::compile("^BENCH_OK$").unwrap().is_match(text));
-        assert!(!super::compile("(?-m)^BENCH_OK$").unwrap().is_match(text));
-        assert!(!super::compile(r"\ABENCH_OK").unwrap().is_match(text));
-        assert!(super::compile("(?m)^BENCH_OK$").unwrap().is_match(text));
-        assert!(super::compile("BENCH").unwrap().is_match(text));
-        assert!(super::compile("(").is_err());
-    }
+/// One line saying why `pattern` does not compile, for the wait's error:
+/// the `regex` crate's own reason ("unclosed group") without its multi-line
+/// caret drawing, so an agent sees what to fix.
+pub fn invalid_message(pattern: &str, error: &regex::Error) -> String {
+    let text = error.to_string();
+    let reason = text
+        .lines()
+        .rev()
+        .find_map(|line| line.trim().strip_prefix("error: "))
+        .map_or_else(|| text.lines().next().unwrap_or_default().trim().to_owned(), str::to_owned);
+    format!("terminal wait pattern {pattern:?} is not a valid regular expression: {reason}")
 }
+
+#[cfg(test)]
+#[path = "wait_pattern_tests.rs"]
+mod tests;

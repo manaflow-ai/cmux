@@ -13,7 +13,8 @@ Motion"). It reports and never fails; a gate can be added once the count is 0.
   (`.animate([...]` or `.animate({...}`) and a smooth scroll (`behavior: "smooth"`), in a file that never reads the
   reduce or motion-off state (WEB_GATE).
 - iOS: a UIKit or SwiftUI animation call (IOS_SITE) in a file that never reads Reduce Motion (IOS_GATE), in the
-  NEXT iPhone app, the shared iOS packages and the classic iOS app (IOS_DIRS), each reported by its own path.
+  NEXT iPhone app and the shared iOS packages it builds on (IOS_DIRS), each reported by its own path. The classic iOS
+  app (ios/) is frozen and not counted.
 
 A file counts as gated as soon as it reads the state anywhere. That is coarse: a file with one gated animation and
 one that is not reads as gated. A reviewed exception carries `motion: allow <reason>` on the line or the line above,
@@ -36,14 +37,15 @@ WEB_GATE = re.compile(r"prefers-reduced-motion|isAgentMotionOff|cmuxMotion|agent
                       # The shared helpers that read it: ui/motion/motionMode.ts, conversation/fold.ts,
                       # session-info/foldMotion.ts, composer/SendSlotGlyph.tsx.
                       r"\bmotionMode\(|\bfoldMs\(|\bfoldMoves\(|\bmotionAllowed\(", re.I)
-# The NEXT iPhone app (cmux-next-ios, its home is CmuxMobileHome) and the shared packages it builds on; ios/ is the
-# classic iOS app, counted beside them while its home shares those packages.
-IOS_DIRS = ("cmux-next-ios", "Packages/iOS", "ios")
+# The NEXT iPhone app (cmux-next-ios, its home is CmuxMobileHome) and the shared packages it builds on. The classic
+# iOS app (ios/) is frozen: no change may land there, so counting it would keep the goal from ever reading 0.
+IOS_DIRS = ("cmux-next-ios", "Packages/iOS")
 IOS_SITE = re.compile(r"UIView\.animate|UIView\.transition|UIViewPropertyAnimator|withAnimation|CABasicAnimation|"
                       r"CASpringAnimation|CAKeyframeAnimation|\.animation\((?!forKey)")
-# HomeMotion (ios CmuxiOSDesign) is the iOS home's gate.
+# HomeMotion (ios CmuxiOSDesign) is the iOS home's gate; CmuxTabsKit's is `theme.motion.resolve(_:)`, a crossfade
+# under Reduce Motion.
 IOS_GATE = re.compile(r"isReduceMotionEnabled|accessibilityReduceMotion|reduceMotion|reducesMotion|MotionPolicy|"
-                      r"HomeMotion\.", re.I)
+                      r"HomeMotion\.|\bmotion\.resolve\(", re.I)
 SKIP = re.compile(r"(^|/)(tests?|Tests|UITests|__tests__|fixtures?)(/|$)|\.test\.|\.gallery\.|\.spec\.|Tests?\.swift$")
 ALLOW = re.compile(r"motion:? ?-?allow\b")
 FINDING = re.compile(r"^\s+(\S+?):(\d+): (.+)$")

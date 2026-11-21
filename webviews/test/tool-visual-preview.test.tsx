@@ -9,6 +9,7 @@ import { toolImages } from "../src/agent-session/acpmux/toolImages";
 import { ToolVisualRow } from "../src/agent-session/acpmux/conversation/ToolVisualPreview";
 import { ImageViewerContext } from "../src/agent-session/acpmux/conversation/imageViewerContext";
 import { JSDOM } from "jsdom";
+import { settleReact } from "./support/domTeardown";
 
 const image = "data:image/png;base64,iVBORw0KGgo=";
 const envelope = JSON.stringify([{ type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" }]);
@@ -31,15 +32,16 @@ export const captureCases = () => [
   ),
 ];
 
-test("completed, running and MCP captures have a trailing thumbnail without removing the image strip", () => {
+test("completed, running and MCP captures have a trailing thumbnail; closed, no image strip under them", () => {
   const cases = captureCases();
   console.info(
     `PERF capture_thumbnail_cases=${cases.filter((html) => html.includes('class="cv-tool-visual"')).length}/3`,
   );
   for (const html of cases) {
     expect(html).toContain('class="cv-tool-visual"');
-    expect(html).toContain('class="cv-tool-images"');
-    expect(html.match(/<img /g)).toHaveLength(2);
+    // The strip draws once the row opens (Lucas, 2026-11-11: a run of screenshots was one tall scroll).
+    expect(html).not.toContain('class="cv-tool-images"');
+    expect(html.match(/<img /g)).toHaveLength(1);
     expect(html).not.toContain('class="cv-tool-visual-card__body"');
   }
 });
@@ -128,6 +130,7 @@ test.each(["inline", "file"])("a new %s capture keeps its preview open and updat
     await act(async () => root.unmount());
     setChipHost(undefined);
     resetLinkStore();
+    await settleReact();
     dom.window.close();
     for (const [key, had, value] of saved) {
       if (had) scope[key] = value;

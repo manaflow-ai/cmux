@@ -53,11 +53,12 @@ pub fn normalize(text: &str, home: &Path) -> String {
 fn id_of_path(path: &Path) -> Option<String> {
     let stem = path.file_stem()?.to_str()?;
     let stem = stem.strip_suffix(".jsonl").unwrap_or(stem);
-    if stem.len() > 36 && stem.is_char_boundary(stem.len() - 36) {
-        let tail = &stem[stem.len() - 36..];
-        if is_uuid(tail) {
-            return Some(tail.to_owned());
-        }
+    let tail =
+        stem.len().checked_sub(36).filter(|start| *start > 0).and_then(|start| stem.get(start..));
+    if let Some(tail) = tail
+        && is_uuid(tail)
+    {
+        return Some(tail.to_owned());
     }
     Some(stem.to_owned())
 }

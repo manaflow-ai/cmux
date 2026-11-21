@@ -85,10 +85,16 @@ impl Daemon {
         let config = json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all", "autoResumeDelaysMs": []});
         std::fs::write(home.join("config.json"), config.to_string()).expect("config");
         let socket = home.join("s.sock");
-        let child = daemon_env::command(&home, daemon_env::Agents::StandIn, &[])
+        let child = Self::spawn(&home, &socket, tag).await;
+        Self { home, socket, child }
+    }
+
+    /// Runs the daemon in `home` and waits until it listens on `socket`.
+    async fn spawn(home: &Path, socket: &Path, tag: &str) -> std::process::Child {
+        let child = daemon_env::command(home, daemon_env::Agents::StandIn, &[])
             .args(["daemon", "run", "--log", "warn"])
-            .env("ACPMUX_HOME", &home)
-            .env("ACPMUX_SOCKET", &socket)
+            .env("ACPMUX_HOME", home)
+            .env("ACPMUX_SOCKET", socket)
             // No agent hosts: a host outlives its daemon, and this test kills only the daemon.
             .env("ACPMUX_AGENT_HOSTS", "0")
             .env("ACPMUX_LOGIN_ENV", "0")
@@ -98,17 +104,40 @@ impl Daemon {
             .spawn()
             .expect("spawn daemon");
         let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
-        while tokio::net::UnixStream::connect(&socket).await.is_err() {
+        while tokio::net::UnixStream::connect(socket).await.is_err() {
             assert!(tokio::time::Instant::now() < deadline, "daemon {tag} never listened");
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
-        Self { home, socket, child }
+        child
+    }
+
+    /// Stops the daemon as an update does (`daemon shutdown`) and starts it again on the same home.
+    async fn restart(&mut self, tag: &str) {
+        let stopped = daemon_env::tokio_command(&self.home, daemon_env::Agents::Deny)
+            .args(["daemon", "shutdown"])
+            .env("ACPMUX_HOME", &self.home)
+            .env("ACPMUX_SOCKET", &self.socket)
+            .output()
+            .await
+            .expect("run acpmux daemon shutdown");
+        assert!(stopped.status.success(), "{}", String::from_utf8_lossy(&stopped.stderr));
+        let _ = self.child.wait();
+        let _ = std::fs::remove_file(&self.socket);
+        self.child = Self::spawn(&self.home, &self.socket, tag).await;
     }
 
     /// Runs `acpmux --json session resume <session>` as an agent would (no person proof).
     async fn resume(&self, session: &str) -> (bool, Value, String) {
+        self.resume_with(session, &["--json"]).await
+    }
+
+    /// `acpmux [FLAGS] session resume <session> [--open]`: FLAGS before the command, `--open` after.
+    async fn resume_with(&self, session: &str, flags: &[&str]) -> (bool, Value, String) {
+        let (global, open): (Vec<&str>, Vec<&str>) = flags.iter().partition(|f| **f != "--open");
         let out = daemon_env::tokio_command(&self.home, daemon_env::Agents::Deny)
-            .args(["--json", "session", "resume", session])
+            .args(global)
+            .args(["session", "resume", session])
+            .args(open)
             .env("ACPMUX_HOME", &self.home)
             .env("ACPMUX_SOCKET", &self.socket)
             .output()
@@ -221,4 +250,44 @@ async fn retry_sends_a_failed_turn_again_from_the_cli() {
     info_until(&mut rpc, &id, |i| i["lastTurn"]["status"] == "completed").await;
     let (ok, _, out) = daemon.retry(&id).await;
     assert!(!ok && out.contains("retry.nothing_failed"), "{out}");
+}
+
+/// A queue a daemon start holds for a person (its chat's folder is guarded) is named by
+/// `session resume`, with how to release it, and `--open` releases it: before, it said "nothing is
+/// held" over a lane VM's queue that never drained.
+#[tokio::test]
+async fn session_resume_names_a_hold_for_a_person_and_open_releases_it() {
+    let mut daemon = Daemon::start("hld").await;
+    let guarded = daemon_env::home(&daemon.home).join("Downloads").join("project");
+    std::fs::create_dir_all(&guarded).expect("guarded folder");
+    let mut rpc = Rpc::connect(&daemon.socket).await;
+    let made = rpc.call("session/new", json!({"cwd": guarded, "mcpServers": []})).await;
+    let id = made["sessionId"].as_str().expect("session id").to_owned();
+    rpc.send("session/prompt", text_prompt(&id, "p-turn", "until-cancel")).await;
+    rpc.wait_for("session/update", |p| p["update"]["content"]["text"] == "running").await;
+    rpc.send("session/prompt", text_prompt(&id, "p-q", "queued")).await;
+    rpc.wait_for("_acpmux/prompt_accepted", |p| p["promptId"] == "p-q" && p["queued"] == true)
+        .await;
+    drop(rpc);
+    daemon.restart("hld2").await;
+
+    let mut rpc = Rpc::connect(&daemon.socket).await;
+    let held = info_until(&mut rpc, &id, |i| i["personHold"].is_object()).await;
+    assert_eq!(held["personHold"]["folder"], json!(guarded), "{held}");
+    let (ok, _, out) = daemon.resume_with(&id, &[]).await;
+    assert!(ok, "{out}");
+    assert!(out.contains("held for a person:"), "{out}");
+    assert!(out.contains("--open"), "{out}");
+
+    let (ok, v, out) = daemon.resume_with(&id, &["--json", "--open"]).await;
+    assert!(ok, "{out}");
+    assert_eq!(v["opened"], true, "{out}");
+    assert_eq!(v["resumed"], true, "{out}");
+    assert!(v["personHold"].is_null(), "{out}");
+    // This connection never attached the chat, so it hears no session/update: read its info.
+    let ran = info_until(&mut rpc, &id, |i| {
+        i["lastTurn"]["promptId"] == "p-q" && i["lastTurn"]["status"] == "completed"
+    })
+    .await;
+    assert_eq!(ran["queued"], 0, "{ran}");
 }

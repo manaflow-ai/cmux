@@ -35,7 +35,7 @@ while IFS=$'\t' read -r run_id artifact; do
     echo "::notice title=Recovery refused::run $run_id: build $BUILD: $verdict; skipping"
     echo "::endgroup::"; continue
   fi
-  if ! python3 scripts/ci/nightly_version.py check-build --build "$BUILD" "${feeds[@]}"; then
+  if ! python3 scripts/ci/nightly_version.py check-build --build "$BUILD" ${feeds[@]+"${feeds[@]}"}; then
     echo "::notice::run $run_id: build $BUILD is no longer above both feeds; skipping"
     echo "::endgroup::"; continue
   fi

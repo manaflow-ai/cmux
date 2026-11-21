@@ -206,7 +206,11 @@ describe("one subtle elevation scale", () => {
   test("no filter drop-shadow blurs past the scale", () => {
     const filters = css.flatMap(({ file, text }) =>
       [...text.matchAll(/drop-shadow\(([^()]*(?:\([^()]*\)[^()]*)*)\)/g)]
-        .filter((match) => (lengths(match[1])[2] ?? 0) > MAX_BLUR || !(alpha(match[1]) <= MAX_ALPHA))
+        .filter((match) => {
+          // `drop-shadow(var(--elevation-2))` casts the token: check what it resolves to.
+          const drops = tokenCall(match[1].trim()) ? blurredDrops(match[1].trim()) : [match[1]];
+          return drops.some((drop) => (lengths(drop)[2] ?? 0) > MAX_BLUR || !(alpha(drop) <= MAX_ALPHA));
+        })
         .map((match) => `${file}: ${match[0]}`),
     );
     expect(filters).toEqual([]);

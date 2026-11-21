@@ -1,7 +1,9 @@
 //! The folder a remote-origin Claude Code session may be created in.
 //!
-//! A remote chain's Claude Code runs with `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`
-//! (`remote_sandbox.rs`), and in that mode Claude creates empty placeholder
+//! A remote chain's Claude Code at a `vmBoundary` runs with
+//! `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` (`remote_sandbox.rs`; a sandboxed one
+//! turns it off, and the check below holds for both), and in that mode
+//! Claude creates empty placeholder
 //! files in its working folder at every start: `package.json`, the npm, yarn
 //! and pnpm lockfiles, `bunfig.toml`, `.npmrc`, `.yarnrc*`, `.gitmodules`,
 //! the `.env*` files and `node_modules/.bin`. In a folder that holds

@@ -6,6 +6,7 @@ import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { LayeredMap } from "../src/agent-session/acpmux/conversation/layeredMap";
+import { settleReact } from "./support/domTeardown";
 
 // Exercise the production callback with React's real priority queues, without mounting the
 // whole agent pane. In particular, an updater is not interchangeable with its eager result.
@@ -47,11 +48,13 @@ type Inputs = {
   pendingDrawn: Ref<Heights>;
   changedDrawn: Ref<Set<string>>;
   setDrawn: (update: (current: Drawn) => Drawn) => void;
+  /// The transcript's fold ride (conversation/foldRide.ts), let go before rows are placed; none rides here.
+  foldRide: Ref<{ release(): void } | undefined>;
 };
 const useFlush = compileFunction(
   new Bun.Transpiler({ loader: "ts" }).transformSync(`
 ${comparison}
-function useFlush({ drawnRef, pendingDrawn, changedDrawn, setDrawn }) {
+function useFlush({ drawnRef, pendingDrawn, changedDrawn, setDrawn, foldRide }) {
 ${callback}
 return flushDrawn;
 }`) + "\nreturn useFlush;",
@@ -65,6 +68,7 @@ const saved = new Map<string, unknown>();
 afterEach(async () => {
   await act(async () => root?.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -114,6 +118,7 @@ async function setup() {
       drawnRef,
       pendingDrawn,
       changedDrawn,
+      foldRide: { current: undefined },
       setDrawn: (update) => {
         control.calls += 1;
         setDrawn(update);

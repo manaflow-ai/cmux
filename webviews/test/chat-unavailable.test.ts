@@ -160,6 +160,9 @@ describe("ChatUnavailableState", () => {
       createElement(ChatUnavailableState, {
         unavailable,
         session,
+        // Each state as it reads once shown: offline and paused wait out their delay first (the
+        // delay itself is ChatUnavailableState.test.tsx's).
+        noteDelayMs: 0,
         ...(machine ? { machine } : {}),
         onRemove: none,
         onReconnect: none,

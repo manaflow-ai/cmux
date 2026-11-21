@@ -19,7 +19,7 @@ extension InternalPageID {
 final class FileTreePageService: InternalPageProvider {
     private struct Tab {
         var folder: URL?
-        var link: AgentPaneGitLink?
+        var link: AgentPaneGitLink?, machine: DaemonService?
         var page: PageWebView?
     }
 
@@ -41,8 +41,8 @@ final class FileTreePageService: InternalPageProvider {
     /// Opens a Files tab on `folder` where an agent's diff opens beside chat tab `chat`
     /// (AgentBesidePlacement): in tab `target`'s column, or with no target in a new column right of
     /// the chat. A person clicked it, so the tab takes the focus. `link` reads the folder on the
-    /// chat's own machine.
-    func openBeside(folder: URL, chat: String, target: String?, link: AgentPaneGitLink?) {
+    /// chat's own machine; `machine`: the folder is that machine's (a Cloud chat's path chip), never looked up here.
+    func openBeside(folder: URL, chat: String, target: String?, link: AgentPaneGitLink?, machine: DaemonService? = nil) {
         guard let services, let pane = pane(showing: target ?? chat) else { return }
         var invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: target ?? chat), origin: .user)
         invocation.besideCaller = true
@@ -50,7 +50,7 @@ final class FileTreePageService: InternalPageProvider {
         invocation.besideTakesFocus = true
         let created = AgentBesidePlacement.placed(invocation, in: pane, then: nil)
         let key = LocalPageTab.makeKey(.files)
-        tabs[key] = Tab(folder: folder, link: link)
+        tabs[key] = Tab(folder: folder, link: link, machine: machine.flatMap { $0.isLocal ? nil : $0 })
         if let window = services.windowController(showing: pane),
            services.pages.openStoreTab(.files, in: pane, window: window, focus: false, key: key, created: created) != nil {
             return
@@ -74,9 +74,7 @@ final class FileTreePageService: InternalPageProvider {
     func makeView(for key: String, in window: WindowController?) -> NSView {
         guard let services else { return NSView() }
         var tab = tabs[key] ?? Tab()
-        let provider = FileTreePageProvider(folder: tab.folder, link: tab.link) { [weak self] file in
-            self?.open(file, from: key)
-        }
+        let provider = FileTreePageProvider(folder: tab.folder, link: tab.link, onMachine: tab.machine != nil) { [weak self] file in guard let self else { return FileTreeStrings.unavailable }; return await self.open(file, from: key) }
         let native = AppPageNativeProvider(services: services, page: .files)
         let routes = [PageRoute(prefix: "cmux.files.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         guard let page = PageWebView(descriptor: .files, routes: routes) else { return NSView() }
@@ -90,10 +88,11 @@ final class FileTreePageService: InternalPageProvider {
         tabs.removeValue(forKey: key)?.page?.close()
     }
 
-    /// Opens `file` from tab `key`'s tree in the file pages (FilePageOpener), in the tree's pane. Nil,
-    /// or why it did not open.
-    private func open(_ file: URL, from key: String) -> String? {
+    /// Opens `file` from tab `key`'s tree in the file pages (FilePageOpener), in its pane (a machine's there, through no symlink); nil, or why not.
+    private func open(_ file: URL, from key: String) async -> String? {
         guard let services else { return FileTreeStrings.unavailable }
-        return services.viewers.fileOpener.open(file, in: services.paneController(showingTab: key))
+        guard let machine = tabs[key]?.machine else { return services.viewers.fileOpener.open(file, in: services.paneController(showingTab: key)) }
+        guard let opener = services.viewers.fileOpener as? FilePageOpener, await !services.agentGit.link(for: machine).reachesThroughLink(file.path) else { return FileTreeStrings.unavailable }
+        return opener.open(file, on: machine, in: services.paneController(showingTab: key), userChose: true, noFollow: true)
     }
 }

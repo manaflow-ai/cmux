@@ -8,11 +8,13 @@
 // bold title over a muted reason, a quiet details band, then Deny (esc) and the filled Allow once
 // (⌘↩) at the trailing edge with their keycaps. scopeStyle and rowStyle draw gallery-only
 // alternatives over the shipped card.
-import type { ComponentProps } from "react";
+import { type ComponentProps, useRef } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
+import type { ChatUiFont } from "./chatUiFont";
 import type { AcpmuxPermission } from "./model";
 import { PermissionCard } from "./PermissionCard";
+import { CardFontCaption, fontMeasured, PAIRED_UI_FONTS, useCardFont } from "./permissions/cardFontGallery";
 import { SHORTCUT_ACTIONS, ShortcutsContext } from "./shortcuts";
 
 type ScopeStyle = "under" | "labelled" | "front";
@@ -20,14 +22,43 @@ type RowStyle = "light" | "keycap" | "hover" | "trailing";
 /// How the one-time line of an ask the chat's highest mode does not answer reads: "line" (shipped,
 /// a muted line under the title), "callout" (an inset tinted box) or "pill" (a small pill).
 type OneTimeStyle = "line" | "callout" | "pill";
+/// Where a plan's other builds are offered beside Approve plan: "split" (shipped, a chevron joined to
+/// the filled Approve plan), "quiet" (a quiet "Build elsewhere" button at the row's leading edge) or
+/// "detached" (a separate quiet chevron just before Approve plan).
+type BuildStyle = "split" | "quiet" | "detached";
 /// How each answer's letter (y, a, n) sits beside its other keys: "slash" (shipped, "Y / ⌘ ↩"),
 /// "only" (the letter alone; Esc and ⌘↩ still answer) or "joined" (no slash, a wider gap).
 type LetterStyle = "slash" | "only" | "joined";
 type Props = Pick<ComponentProps<typeof PermissionCard>, "permission" | "harness" | "fullAccessMode" | "shortcuts"> & {
+  buildStyle?: BuildStyle;
   letterStyle?: LetterStyle;
   scopeStyle?: ScopeStyle;
   rowStyle?: RowStyle;
   oneTimeStyle?: OneTimeStyle;
+  /// The chat's Interface Font for the card (chatUiFont.ts), with a caption of the row estimator's
+  /// first height for it (permissions/cardHeight.ts) beside the height the card draws.
+  uiFont?: ChatUiFont;
+};
+
+const buildStyles: Record<Exclude<BuildStyle, "split">, string> = {
+  quiet: `
+    .acpmux-permission-ask .acpmux-permission-allows,
+    .acpmux-permission-ask .acpmux-plan-build-split { display: contents; }
+    .acpmux-permission-ask .acpmux-permission-buttons .acpmux-plan-build-split button.acpmux-plan-build-chevron {
+      order: -1; width: auto; gap: 4px; padding: 4px 10px 4px 12px; margin-inline-end: auto;
+      border-radius: var(--ds-radius-popup); background: none; color: var(--agent-muted);
+    }
+    .acpmux-permission-ask .acpmux-plan-build-chevron::before { content: "Build elsewhere"; }
+    .acpmux-permission-ask .acpmux-plan-build-split > button.acpmux-permission-primary:first-child { border-radius: var(--ds-radius-popup); }
+    .acpmux-permission-ask .acpmux-permission-allows > button { order: 1; }
+  `,
+  detached: `
+    .acpmux-permission-ask .acpmux-plan-build-split { gap: 8px; background: none; flex-direction: row-reverse; }
+    .acpmux-permission-ask .acpmux-plan-build-split > button.acpmux-permission-primary:first-child { border-radius: var(--ds-radius-popup); }
+    .acpmux-permission-ask .acpmux-permission-buttons .acpmux-plan-build-split button.acpmux-plan-build-chevron {
+      border-radius: var(--ds-radius-popup); background: color-mix(in srgb, var(--agent-text) 10%, transparent); color: var(--agent-text);
+    }
+  `,
 };
 
 const oneTimeStyles: Record<Exclude<OneTimeStyle, "line">, string> = {
@@ -217,8 +248,12 @@ function GalleryPermissionCard({
   scopeStyle,
   rowStyle,
   oneTimeStyle,
+  buildStyle,
   letterStyle,
+  uiFont,
 }: Props) {
+  const stack = useRef<HTMLDivElement>(null);
+  const font = useCardFont(uiFont, permission, stack);
   return (
     <div
       className="acpmux-shell"
@@ -226,14 +261,15 @@ function GalleryPermissionCard({
       data-row-style={rowStyle}
       data-one-time-style={oneTimeStyle}
       data-letter-style={letterStyle}
-      style={{ paddingTop: 12 }}
+      style={{ paddingTop: 12, ...font.style }}
     >
       {scopeStyle && scopeStyle !== "under" && <style>{scopeStyles[scopeStyle]}</style>}
       {rowStyle && rowStyle !== "light" && <style>{rowStyles[rowStyle]}</style>}
       {oneTimeStyle && oneTimeStyle !== "line" && <style>{oneTimeStyles[oneTimeStyle]}</style>}
+      {buildStyle && buildStyle !== "split" && <style>{buildStyles[buildStyle]}</style>}
       {letterStyle && letterStyle !== "slash" && <style>{letterStyles[letterStyle]}</style>}
       <div className="acpmux-main">
-        <div className="acpmux-permission acpmux-asks-stack">
+        <div className="acpmux-permission acpmux-asks-stack" ref={stack}>
           <ShortcutsContext value={labels}>
             <PermissionCard
               permission={permission}
@@ -241,9 +277,12 @@ function GalleryPermissionCard({
               fullAccessMode={fullAccessMode}
               shortcuts={shortcuts}
               onAnswer={() => undefined}
+              // A plan offers its other builds, as the chat's card does (rows/PermissionAsk.tsx).
+              onBuildPlan={permission.plan ? () => new Promise(() => undefined) : undefined}
             />
           </ShortcutsContext>
         </div>
+        <CardFontCaption caption={font.caption} />
       </div>
     </div>
   );
@@ -258,6 +297,16 @@ const scopeOnce: Play = async (ctx) => {
     throw new Error("A button repeats the scope line");
   if (ctx.document.querySelectorAll(".acpmux-permission-scope").length !== 1)
     throw new Error("The scope is drawn more than once");
+};
+
+/// The build menu opens from Approve plan's chevron with its three targets, and Approve plan keeps
+/// its label and ⌘↩.
+const buildMenu: Play = async (ctx) => {
+  await ctx.click({ selector: 'button[data-menu="plan-build"]' });
+  await ctx.waitFor(() => ctx.document.querySelector('[role="menuitem"][data-value="compare"]'));
+  const approve = ctx.document.querySelector(".acpmux-plan-build-split button.acpmux-permission-primary");
+  if (approve?.getAttribute("aria-label") !== "Approve plan") throw new Error("Approve plan lost its label");
+  if (!approve.getAttribute("aria-keyshortcuts")?.includes("Meta+Enter")) throw new Error("Approve plan lost ⌘↩");
 };
 
 export default componentEntry<Props>({
@@ -297,6 +346,18 @@ export default componentEntry<Props>({
       note: "Grid measurement: pending permission without a play that answers it.",
       props: { permission: shortRule, harness: "claude" },
     },
+    // cmux#38886 review: System UI and System UI, tight share a stack, as Inter and cmux Inter do,
+    // but not their letter-spacing: the card's first estimate measures each font's tracking.
+    ...Object.fromEntries(
+      PAIRED_UI_FONTS.map((font) => [
+        `font-${font}`,
+        {
+          note: `The four-option transcript card (no key hints) in the ${font} Interface Font, with the row estimator's first height beside the drawn one.`,
+          props: { permission: fourOptions, harness: "codex" as const, shortcuts: false, uiFont: font },
+          play: fontMeasured,
+        },
+      ]),
+    ),
     "long-rule": {
       note: 'Leo 2026-11-05, on Claude desktop\'s "Allow Claude to use …?" card: "The whole, like, allow whatever to use, allow for this session, or deny. And then it shows the hotkeys." A bold title and a muted reason, a quiet details band with the command and the long rule on one muted line (cut, whole on hover), then the answers at the trailing edge: Deny with its esc keycap, Always allow with ⌥⌘2, and the filled Allow once with ⌘↩.',
       props: { permission: longRule, harness: "claude" },
@@ -315,6 +376,26 @@ export default componentEntry<Props>({
     "plan-claude": {
       note: 'Leo 2026-11-05: "i like these plans too... i want us to be able to render it in ours". Claude Code\'s ExitPlanMode: the plan renders as Markdown in the card, with Approve plan and Keep planning (which opens a field for what to change).',
       props: { permission: claudePlan, harness: "claude" },
+    },
+    "plan-build-split": {
+      note: 'Shipped. Leo 2026-11-08: "esp valuable things that people would think "wow this is awesome"". Approve plan stays the filled primary with ⌘↩; a chevron joined to it opens Build here, Build in a new worktree, and Build on two agents and compare (Claude and Codex), one split button instead of more buttons.',
+      props: { permission: claudePlan, harness: "claude" },
+      play: buildMenu,
+    },
+    "plan-build-quiet": {
+      note: "Alternative: a quiet Build elsewhere button at the row's leading edge opens the same menu. Reads as a third answer competing with Keep planning, and moves Keep planning off the leading edge.",
+      props: { permission: claudePlan, harness: "claude", buildStyle: "quiet" },
+      play: buildMenu,
+    },
+    "plan-build-detached": {
+      note: "Alternative: a separate quiet chevron just before Approve plan. Clear, but reads as an unlabeled fourth button rather than more ways to approve.",
+      props: { permission: claudePlan, harness: "claude", buildStyle: "detached" },
+      play: buildMenu,
+    },
+    "plan-build-codex": {
+      note: "A Codex chat's plan: the compare item names Codex and Claude.",
+      props: { permission: claudePlan, harness: "codex" },
+      play: buildMenu,
     },
     "plan-grok": {
       note: "Grok's plan approval (x.ai/exit_plan_mode): the same plan card.",

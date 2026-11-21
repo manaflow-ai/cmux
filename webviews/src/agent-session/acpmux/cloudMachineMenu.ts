@@ -8,11 +8,20 @@
 // request returns before the turn stops, so the pause waits for the turn to end
 // (`StopWaiter`, on the chat's own turn state, not the working indicator a forced stop clears)
 // and is not sent if the turn still runs after STOP_WAIT_MS, or if the pane shows another chat.
+//
+// Delete Machine… sits after them while the machine runs or is paused (Leo, 2026-11-08: "how would
+// I be able to shut it down?"): it asks the app (`cloudMachine.delete`), which shows Kill Machine's
+// own confirmation and deletes it only on the person's answer. A paused machine's rows start with
+// what pausing means: opening the chat resumes it, and, when the server says so (`evictAt`), the
+// date it is deleted unless it resumes, drawn as a warning within its last EVICT_WARN_MS.
 import type { ChatMenuItem } from "./header/chatHeaderToolsModel";
 import type { CloudMachine } from "./cloudMachines";
-import type { Translate } from "./i18n";
+import { currentLanguage, type Translate } from "./i18n";
 
 type Call = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
+
+/// A paused machine's delete date within this long (7 days, in ms) is drawn as a warning.
+export const EVICT_WARN_MS = 7 * 24 * 60 * 60 * 1000;
 
 /// How long Stop and Pause waits for the chat's turn to end before it gives up on the pause.
 export const STOP_WAIT_MS = 10_000;
@@ -72,7 +81,8 @@ export function chatCloudMachine(
 }
 
 /// The menu rows for the chat's machine: Pause while it runs (stopping a running turn first),
-/// Resume while it is paused, none while it starts, fails or is not one of the account's.
+/// Resume while it is paused (after what pausing means, `pausedInfoRows`), Delete Machine… in
+/// both, none while it starts, fails or is not one of the account's.
 /// Each row's pick is the person's click (the app runs it only on a gesture); `after` reads the
 /// account's list again so the next look shows the machine's new stage. `live` is the chat the
 /// pane shows now and whether its turn runs, read at the pick (not when the menu was drawn);
@@ -88,10 +98,16 @@ export function cloudMachineRows(
   stopped: (session: string | undefined) => Promise<boolean>,
   /// The chat the menu was drawn for: a Pause picked once the pane shows another does nothing.
   drawnFor?: string,
+  /// The time the paused rows count the delete date from (tests pass their own).
+  now: number = Date.now(),
+  /// Whether the pane still shows the chat the menu was drawn for: a row picked from a menu kept
+  /// open across a chat switch runs nothing, so Delete never lands on another chat's machine.
+  current: () => boolean = () => true,
 ): ChatMenuItem[] {
   if (!machine) return [];
   const run = (method: string) => () =>
     void (async () => {
+      if (!current()) return;
       const { session, running } = live();
       try {
         if (method === "cloudMachine.pause" && (session === undefined || session !== drawnFor)) return;
@@ -106,6 +122,8 @@ export function cloudMachineRows(
         const before = live();
         if (method === "cloudMachine.pause" && (session === undefined || before.session !== session || before.running))
           return;
+        // A stop awaited above may outlast a chat switch: check the chat again before the call.
+        if (!current()) return;
         await call(method, { id: machine.id });
       } catch {
         // The app refused (no gesture, the machine moved on): the list read shows its stage.
@@ -113,6 +131,14 @@ export function cloudMachineRows(
         after(machine);
       }
     })();
+  // The app asks before it deletes (Kill Machine's sheet); the row's ellipsis says so.
+  const remove: ChatMenuItem = {
+    key: "deleteMachine",
+    label: t("chatMenu.deleteMachine"),
+    icon: "action.delete",
+    destructive: true,
+    onSelect: run("cloudMachine.delete"),
+  };
   if (machine.stage === "ready") {
     return [
       {
@@ -121,17 +147,42 @@ export function cloudMachineRows(
         icon: "action.pause",
         onSelect: run("cloudMachine.pause"),
       },
+      remove,
     ];
   }
   if (machine.stage === "paused") {
     return [
+      ...pausedInfoRows(machine, t, now),
       {
         key: "resumeMachine",
         label: t("chatMenu.resumeMachine"),
         icon: "action.resume",
         onSelect: run("cloudMachine.resume"),
       },
+      remove,
     ];
   }
   return [];
+}
+
+/// What a paused machine's pause means, as rows no click runs: opening the chat resumes it, and the
+/// date the server deletes it unless it resumes (when the record carries `evictAt`), a warning
+/// within EVICT_WARN_MS of it.
+export function pausedInfoRows(machine: CloudMachine, t: Translate, now: number = Date.now()): ChatMenuItem[] {
+  const rows: ChatMenuItem[] = [
+    { key: "machinePaused", label: t("chatMenu.machinePausedInfo"), icon: "agent.paused", disabled: true },
+  ];
+  if (machine.evictAt !== undefined) {
+    const language = currentLanguage() || globalThis.navigator?.language || "en";
+    const date = new Intl.DateTimeFormat(language, { dateStyle: "medium" }).format(new Date(machine.evictAt));
+    const soon = machine.evictAt - now <= EVICT_WARN_MS;
+    rows.push({
+      key: "machineEvicts",
+      label: t("chatMenu.machineDeletedOn", { date }),
+      icon: soon ? "status.warning" : "time.waiting",
+      disabled: true,
+      ...(soon ? { destructive: true } : {}),
+    });
+  }
+  return rows;
 }

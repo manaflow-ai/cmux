@@ -5,9 +5,9 @@
 //! There is no tick; an idle bound machine wakes once per heartbeat.
 //!
 //! Resume comes from the supervisor (`HostEvent::Resumed`, its clock-set
-//! wake after a metadata read confirmed the id), replacing the interim
-//! agent's `OnClockChange` timer. A `{"resume": true}` socket line still
-//! works.
+//! wake or its pause watch's, after a metadata read confirmed the id),
+//! replacing the interim agent's `OnClockChange` timer. A
+//! `{"resume": true}` socket line still works.
 
 use crate::json::JsonField;
 use std::fs::{self, OpenOptions};
@@ -27,10 +27,8 @@ use cmux_server_core::role::{HostEvent, Role, RoleContext, RoleError, StopContex
 use serde_json::{Value, json};
 
 use super::agent_socket::listen;
-use super::carrier_server::{CarrierServer, Resumes};
-use super::client::{
-    BindResult, CloudClient, Http, Store, bind_machine, ensure_install_key, ensure_wg_key,
-};
+use super::carrier_server::{BindGeneration, CarrierServer, Resumes};
+use super::client::{BindResult, CloudClient, Http, Store, ensure_install_key, ensure_wg_key};
 use super::github;
 use super::github_minter::{Ask, Minter, Stop};
 use super::handoff::{self, HandoffReport};
@@ -59,7 +57,7 @@ fn log(line: &str) {
     eprintln!("cmux-host: cloud: {line}");
 }
 
-fn wall_ms() -> u64 {
+pub(crate) fn wall_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }
 
@@ -288,6 +286,10 @@ impl Http for PosterHttp {
         #[cfg(test)]
         let _ = test_route("/", |poster, _| poster.reset());
     }
+
+    fn fresh(&self) -> Option<Self> {
+        self.0.twin().ok().map(PosterHttp)
+    }
 }
 
 /// One `identify` on the daemon's control socket. `timeout` bounds the whole
@@ -351,6 +353,78 @@ pub fn resolve_daemon_info(paths: &Paths) -> Result<DaemonInfo, String> {
     Ok(with_desktop(paths, info.with_activity(false, false, false)))
 }
 
+/// How long an update's flip or a rollback waits for its `stopping` report before it restarts
+/// the services ([`report_stopping`]).
+pub const STOPPING_REPORT_BOUND: Duration = Duration::from_secs(2);
+
+/// One `cloud.vm.status.report` with state `stopping`, sent right before an update's flip or a
+/// rollback restarts the services (`updater/role.rs` `restart_after_flip`), so the Cloud clears
+/// the machine's ready and hands no spare out while its services restart (2026-11-15 04:23Z: a
+/// warm spare flipped at 04:23:23Z, was claimed 41 s later, and its chat never connected). The
+/// restarted service says `degraded` until its session host answers ([`Session::after_restart`]).
+///
+/// It waits at most `bound` ([`STOPPING_REPORT_BOUND`]): the token mint and the report run on a
+/// thread of their own, and one past the bound is left to finish or die with the restart. Every
+/// failure (not bound, no key, no answer) is the caller's to log; it never stops the restart.
+/// Any process may call it (the service's updater, `cmux host update check`, the guard): it
+/// reads `bound.json`, the install key and the daemon block the Cloud role last reported.
+pub fn report_stopping(paths: &Paths, bound: Duration) -> Result<(), String> {
+    let paths = paths.clone();
+    within(bound, move || {
+        let poster = JsonPoster::new()?;
+        report_stopping_with(&paths, PosterHttp(poster))
+    })
+}
+
+/// [`report_stopping`]'s request on `http`, unbounded (the caller bounds it).
+pub(crate) fn report_stopping_with<H: Http>(paths: &Paths, http: H) -> Result<(), String> {
+    let store = FileStore::new(paths.clone());
+    let saved = store.read(BOUND_FILE).ok_or("not bound (no bound.json)")?;
+    let bound: Bound = serde_json::from_str(&saved).map_err(|e| format!("bound.json: {e}"))?;
+    let key = store
+        .read(super::wire::INSTALL_KEY_FILE)
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .and_then(|v| v.field("pkcs8").as_str().map(str::to_owned))
+        .ok_or("no install key")?;
+    let key = InstallKey::from_pkcs8_base64url(&key, &SystemRandom::new())?;
+    // The block the running Cloud role last reported (its state file), else the daemon's own.
+    let daemon = store
+        .read(AGENT_STATE_FILE)
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .and_then(|v| serde_json::from_value::<DaemonInfo>(v.field("daemon").clone()).ok())
+        .map_or_else(|| resolve_daemon_info(paths), Ok)?;
+    let mut reporter = super::sender::Reporter::new(&bound.machine, daemon);
+    let request = reporter
+        .set_state(super::sender::MachineState::Stopping, 0)
+        .ok_or("no stopping report due")?;
+    let mut client = CloudClient::new(http, bound, key);
+    match client.op(&request, wall_ms()) {
+        answer if answer.ok() => Ok(()),
+        Answer::Http { status, .. } => Err(format!("the Cloud answered HTTP {status}")),
+        Answer::Transport => Err("no answer from the Cloud".to_owned()),
+    }
+}
+
+/// Runs `work` on a thread of its own and waits at most `bound` for it: past the bound the
+/// thread is left to finish on its own, and the caller goes on.
+pub(crate) fn within<T: Send + 'static>(
+    bound: Duration,
+    work: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::Builder::new()
+        .name("cmux-host-stopping".to_owned())
+        .spawn(move || {
+            let _ = tx.send(work());
+        })
+        .map_err(|e| format!("spawning the report: {e}"))?;
+    match rx.recv_timeout(bound) {
+        Ok(done) => done,
+        Err(RecvTimeoutError::Timeout) => Err(format!("no answer within {} ms", bound.as_millis())),
+        Err(RecvTimeoutError::Disconnected) => Err("the report ended without an answer".to_owned()),
+    }
+}
+
 /// `info` with [`DESKTOP_CAPABILITY`] exactly when the image installed the
 /// desktop's socket unit (a recorded daemon.json never decides it).
 fn with_desktop(paths: &Paths, mut info: DaemonInfo) -> DaemonInfo {
@@ -394,6 +468,8 @@ pub struct CloudRole {
     paths: Paths,
     worker: Option<WorkerHandle>,
     bootstrap: Option<super::bootstrap_role::RoleBridge>,
+    /// This service is the restart a flip or a rollback queued ([`CloudRole::after_queued_restart`]).
+    restarted: bool,
 }
 
 struct WorkerHandle {
@@ -411,7 +487,15 @@ struct WorkerHandle {
 
 impl CloudRole {
     pub fn new(paths: Paths) -> CloudRole {
-        CloudRole { paths, worker: None, bootstrap: None }
+        CloudRole { paths, worker: None, bootstrap: None, restarted: false }
+    }
+
+    /// With `restarted` (the gate's [`crate::updater::gate::Gate::service_started_at`]), the
+    /// first session's reports say `degraded` until the restarted session host answers
+    /// `identify` ([`Session::after_restart`]).
+    pub fn after_queued_restart(mut self, restarted: bool) -> Self {
+        self.restarted = restarted;
+        self
     }
 
     pub fn with_root_bootstrap(
@@ -471,6 +555,8 @@ impl Role for CloudRole {
         let worker_stop = Arc::clone(&github_stop);
         let resumes = Arc::new(Resumes::default());
         let worker_resumes = Arc::clone(&resumes);
+        // Only the first worker of this process is the queued restart.
+        let restarted = std::mem::take(&mut self.restarted);
         let thread = std::thread::Builder::new()
             .name("cmux-host-cloud".to_owned())
             .spawn(move || {
@@ -485,6 +571,7 @@ impl Role for CloudRole {
                 )
                 .map(|mut worker| {
                     worker.bootstrap = bootstrap;
+                    worker.restarted = restarted;
                     worker
                 });
                 if let Err(e) = worker.and_then(|mut w| w.run()) {
@@ -593,6 +680,9 @@ struct Worker {
     workload_at: Option<u64>,
     rng: SystemRandom,
     epoch: Instant,
+    /// This service is the restart a flip or a rollback queued: the first session starts
+    /// degraded ([`Session::after_restart`]).
+    restarted: bool,
 }
 
 impl Worker {
@@ -658,6 +748,7 @@ impl Worker {
             workload_at: None,
             rng: SystemRandom::new(),
             epoch: Instant::now(),
+            restarted: false,
         })
     }
 
@@ -983,7 +1074,10 @@ impl Worker {
         // The bind writes carrier.json; the keyset refresher's write waits.
         let carrier_lock = self.keyset.carrier_lock();
         let carrier_held = carrier_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let result = bind_machine(
+        // The updater's connect hold, then the request (`hold_then_bind`).
+        let carrier_generation = self.carrier.as_ref().map(CarrierServer::bind_generation);
+        let result = super::client::hold_then_bind(
+            &self.paths,
             &mut self.store,
             &http,
             &key,
@@ -993,18 +1087,19 @@ impl Worker {
             wall_ms(),
         );
         drop(carrier_held);
+        let Some(result) = result else {
+            log("bind: a restart of this service is pending; the restarted service binds");
+            self.bind_retry_at = Some(self.now() + 30_000);
+            return;
+        };
         log(&format!("bind: {}", result.describe()));
         match result {
-            BindResult::Bound(bound) => {
+            BindResult::Bound(bound, first_ticket) => {
                 self.bind_backoff.reset();
-                // A person's machine from here: its first link comes up now, so
-                // the updater holds its flip (the supervisor's `Bound` is an
-                // instance id change, which a bind of the same machine is not).
-                crate::updater::role::hold_connects();
                 if let Err(e) = super::client::record_owner_kind(&mut self.store) {
                     log(&format!("vm-kind write: {e}"));
                 }
-                self.start_live(*bound, key, http, daemon);
+                self.start_live(*bound, key, http, daemon, carrier_generation.zip(first_ticket));
             }
             BindResult::Retry(_) => {
                 let changed = cmux_server::cloud_http::network_changes() != changes;
@@ -1050,12 +1145,21 @@ impl Worker {
             Err(e) => return log(&format!("daemon info: {e}")),
         };
         match JsonPoster::new() {
-            Ok(poster) => self.start_live(bound, loaded.key, PosterHttp(poster), daemon),
+            Ok(poster) => self.start_live(bound, loaded.key, PosterHttp(poster), daemon, None),
             Err(e) => log(&e),
         }
     }
 
-    fn start_live(&mut self, bound: Bound, key: InstallKey, http: PosterHttp, daemon: DaemonInfo) {
+    /// `first_ticket`: the bind answer's relay Register ticket, kept for the
+    /// session host's first Register (`carrier_server.rs`).
+    fn start_live(
+        &mut self,
+        bound: Bound,
+        key: InstallKey,
+        http: PosterHttp,
+        daemon: DaemonInfo,
+        first_ticket: Option<(BindGeneration, Value)>,
+    ) {
         let heartbeat = heartbeat_ms_for(bound.env, self.heartbeat_env.as_deref());
         if heartbeat != super::wire::DEFAULT_HEARTBEAT_MS {
             log(&format!("heartbeat test override: {heartbeat} ms (dev only)"));
@@ -1066,9 +1170,13 @@ impl Worker {
         }
         if let Some(carrier) = self.carrier.as_ref() {
             match github_client(&bound, &key) {
-                // A machine with a relay carrier asks for its first ticket now (`carrier_server.rs`).
-                Ok(client) => carrier
-                    .bound(client, self.paths.at(crate::carrier_entry::CARRIER_FILE).is_file()),
+                // A machine with a relay carrier keeps the bind's ticket, or asks for its first one now
+                // (`carrier_server.rs`).
+                Ok(client) => carrier.bound_with_ticket(
+                    client,
+                    self.paths.at(crate::carrier_entry::CARRIER_FILE).is_file(),
+                    first_ticket,
+                ),
                 Err(e) => log(&format!("carrier ticket: {e}")),
             }
         }
@@ -1092,7 +1200,16 @@ impl Worker {
             }
             Err(e) => log(&format!("inference gateway token: {e}")),
         }
-        let mut session = Session::new(&bound.machine, daemon, heartbeat);
+        // The first report carries the updater's block: after an update's restart, its swap.
+        // After a flip's or a rollback's restart, degraded until the restarted session host
+        // answers `identify` (`connect_activity`, `Session::daemon_identified`).
+        let restarted = std::mem::take(&mut self.restarted);
+        if restarted {
+            log("the restart a flip or rollback queued: degraded until the session host answers");
+        }
+        let mut session = Session::new(&bound.machine, daemon, heartbeat)
+            .with_updater(crate::updater::look::report(&self.paths))
+            .after_restart(restarted);
         let reqs = session.start(self.now());
         self.live = Some(Live { client: CloudClient::new(http, bound, key), session });
         if let Some(bridge) = &self.bootstrap {
@@ -1236,6 +1353,10 @@ impl Worker {
     fn probe_workload(&mut self) {
         let now = self.now();
         self.workload_at = Some(now + super::workload::PROBE_INTERVAL_MS);
+        let Some(live) = self.live.as_mut() else { return };
+        // The updater's block, read on the same tick (a small file; a report only when it changed).
+        let reqs = live.session.updater(crate::updater::look::report(&self.paths), now);
+        self.drive(reqs);
         let Some(live) = self.live.as_mut() else { return };
         let seen = match super::workload::read_snapshot(self.paths.root(), now) {
             // The first probe has no CPU baseline yet: it changes nothing.
@@ -1460,5 +1581,5 @@ pub fn print_daemon_info(paths: &Paths, timeout: Duration) -> Result<Value, Stri
 mod role_tests;
 
 #[cfg(all(test, target_os = "linux"))]
-#[path = "carrier_register_harness.rs"]
+#[path = "carrier_register_harness_tests.rs"]
 mod carrier_register_harness;

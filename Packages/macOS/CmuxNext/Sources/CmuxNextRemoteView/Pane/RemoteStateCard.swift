@@ -10,7 +10,7 @@ final class RemoteStateCard: NSView {
     var onCancel: (() -> Void)?
     var onClose: (() -> Void)?
 
-    let surface = Glass.makeOverlayPanel(cornerRadius: Metrics.surfaceCornerRadius)
+    let surface = Glass.makeOverlayPanel(cornerRadius: Metrics.surfaceCornerRadius, tone: .neutralGlass(.transient))
     private let column = NSStackView()
     private var content: [NSView] = []
 
@@ -54,9 +54,12 @@ final class RemoteStateCard: NSView {
         }()
         let title = RemoteChrome.label(spec.title, size: 15, weight: .semibold)
         title.textColor = colors.textPrimary
-        let detail = RemoteChrome.wrapping(spec.detail, size: 12.5, width: 330)
-        detail.textColor = colors.textSecondary
-        var views: [NSView] = [icon, title, detail]
+        var views: [NSView] = [icon, title]
+        if let text = spec.detail {
+            let detail = RemoteChrome.wrapping(text, size: 12.5, width: 330)
+            detail.textColor = colors.textSecondary
+            views.append(detail)
+        }
         if let note = spec.note {
             let label = RemoteChrome.wrapping(note, size: 11, width: 330)
             label.textColor = colors.attention
@@ -102,42 +105,45 @@ final class RemoteStateCard: NSView {
         var symbolIsAttention = false
         var spinner = false
         var title: String
-        var detail: String
+        /// One line the title does not already say; nil when it says everything.
+        var detail: String?
         var buttons: [ButtonKind]
         /// The phase-1 trust gap, shown where a connection is made.
         var note: String?
     }
 
     /// `viaCloudTunnel`: a Cloud desktop over the app's own tunnel, which the phase-1 trust gap
-    /// (the development note) does not describe.
+    /// (the development note, on the consent card) does not describe.
     /// `reconnecting`: an earlier session showed frames, so this connect is a reconnect (the last
     /// frame stays behind the card).
+    /// The pane draws a connect in the Connect card's own frame (``RemoteViewUnavailableView``,
+    /// `.connecting`), not this card; `.connecting` here is its words for tools and tests.
+    /// No card narrates the path or the dial's steps: the title, the spinner and Cancel say it
+    /// (Leo, 2026-11-16: "so many layout shifts with the [...] display text in between").
     static func spec(for overlay: RemotePaneOverlay, host: String, viaCloudTunnel: Bool = false, reconnecting: Bool = false) -> Spec {
-        if viaCloudTunnel, overlay == .connecting {
-            return Spec(spinner: true, title: reconnecting ? RemoteViewStrings.reconnectingTitle(host) : RemoteViewStrings.connectingTitle(host),
-                        detail: RemoteViewStrings.connectingCloudDetail, buttons: [.cancel])
-        }
         switch overlay {
         case .connecting:
-            return Spec(spinner: true, title: RemoteViewStrings.connectingTitle(host),
-                        detail: RemoteViewStrings.connectingDetail, buttons: [.cancel],
-                        note: RemoteViewStrings.developmentOnly)
+            return Spec(spinner: true, title: reconnecting ? RemoteViewStrings.reconnectingTitle(host) : RemoteViewStrings.connectingTitle(host),
+                        detail: nil, buttons: [.cancel])
         case .waitingForConsent:
             return Spec(symbol: "hand.raised", title: RemoteViewStrings.consentTitle(host),
                         detail: RemoteViewStrings.consentDetail(host), buttons: [.cancel],
                         note: RemoteViewStrings.developmentOnly)
         case let .ended(.disconnectedBy(name)):
             return Spec(symbol: "person.crop.circle.badge.xmark", title: RemoteViewStrings.kickedTitle(name),
-                        detail: RemoteViewStrings.kickedDetail(name, host), buttons: [.reconnect, .close])
+                        detail: nil, buttons: [.reconnect, .close])
         case .ended(.hostStoppedSharing):
             return Spec(symbol: "rectangle.on.rectangle.slash", title: RemoteViewStrings.stoppedTitle,
-                        detail: RemoteViewStrings.stoppedDetail(host), buttons: [.reconnect, .close])
+                        detail: nil, buttons: [.reconnect, .close])
+        case let .ended(.hostFailed(reason)):
+            return Spec(symbol: "exclamationmark.triangle", symbolIsAttention: true, title: RemoteViewStrings.hostFailedTitle,
+                        detail: RemoteViewStrings.hostFailedDetail(host, reason), buttons: [.reconnect, .close])
         case .ended(.stoppedByViewer):
             return Spec(symbol: "stop.circle", title: RemoteViewStrings.viewerStoppedTitle,
-                        detail: RemoteViewStrings.viewerStoppedDetail, buttons: [.reconnect, .close])
+                        detail: nil, buttons: [.reconnect, .close])
         case .ended(.connectionLost):
             return Spec(symbol: "wifi.exclamationmark", symbolIsAttention: true, title: RemoteViewStrings.lostTitle,
-                        detail: RemoteViewStrings.lostDetail(host), buttons: [.reconnect, .close])
+                        detail: nil, buttons: [.reconnect, .close])
         case .ended(.consentDenied):
             return Spec(symbol: "hand.raised.slash", title: RemoteViewStrings.deniedTitle,
                         detail: RemoteViewStrings.deniedDetail(host), buttons: [.reconnect, .close])

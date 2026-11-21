@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextFloating
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -85,7 +86,7 @@ import Testing
 
     static func controller(_ recorder: Recorder) -> ChiefPetController {
         let name = "ChiefPetReplyTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: name)!
+        let defaults = UserDefaults(testSuiteName: name)!
         defaults.removePersistentDomain(forName: name)
         return ChiefPetController(makePanel: { ChiefPetPanel(defaults: defaults) },
                                   actions: ChiefPetActions(open: { recorder.opened.append($0) }, send: { target, text in
@@ -161,7 +162,7 @@ import Testing
 
     static func defaults() -> UserDefaults {
         let name = "ChiefPetShowInMiniTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: name)!
+        let defaults = UserDefaults(testSuiteName: name)!
         defaults.removePersistentDomain(forName: name)
         return defaults
     }

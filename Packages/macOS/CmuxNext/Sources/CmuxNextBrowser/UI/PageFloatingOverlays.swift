@@ -35,6 +35,9 @@ final class PageFloatingOverlays {
         case bottomCenter
         /// At the left edge (the link status bubble, as Chrome places it).
         case bottomLeading
+        /// Its top left at `topLeft` in the page (points from the page's top left corner), kept
+        /// inside the page's insets (the verification code suggestion under its field).
+        case anchored(topLeft: CGPoint)
     }
 
     private struct Card {
@@ -46,11 +49,16 @@ final class PageFloatingOverlays {
         var handle: OverlayHandle?
         /// Fading out: it no longer takes clicks (`release`).
         var isReleased = false
+        /// Presented but hidden while its tab does not have the keyboard (the cookie import card's
+        /// `waitsForFocus`): it takes no clicks, and shows again in place, with no new present.
+        var isWaiting = false
         /// Its size the last time it was presented: where a card taken off under a pane in front
         /// would show, without an Auto Layout pass of it on each frame of the motion.
         var lastSize: CGSize?
         /// Where it takes clicks (its own coordinates) while a pane in front cuts it; nil when whole.
         var mouseRect: NSRect?
+        /// The constraint that holds it `lift` above the page's bottom inset while presented.
+        var bottom: NSLayoutConstraint?
     }
 
     private var cards: [Card] = []
@@ -91,13 +99,14 @@ final class PageFloatingOverlays {
     }
 
     /// `view`, added passing its clicks through while it is not drawn yet (the cookie import card
-    /// waits for its page to measure itself), takes clicks from now on; the next ``sync()``
-    /// presents it again with its mouse region.
+    /// waits for its page to measure itself), takes clicks from now on, where it is: presenting it
+    /// again moved its page to a new view, which drew a blank frame as it faded in (Leo
+    /// 2026-11-08: "the import cookies from google chrome card flickers sometimes").
     func startTakingClicks(_ view: NSView) {
         guard let index = cards.firstIndex(where: { $0.view === view }), cards[index].passesThroughClicks,
               !cards[index].isReleased else { return }
         cards[index].passesThroughClicks = false
-        dismiss(index)
+        if !cards[index].isWaiting { cards[index].handle?.startTakingMouse() }
     }
 
     /// `view` starts to fade out: from now on clicks pass through it to the
@@ -127,7 +136,7 @@ final class PageFloatingOverlays {
     func sync() {
         guard !cards.isEmpty, let page else { return }
         guard let window = page.window, !page.isHiddenOrHasHiddenAncestor else {
-            for index in cards.indices { dismiss(index) }
+            for index in cards.indices where !holdInPlace(index, in: page.window) { dismiss(index) }
             return
         }
         let clip = page.convert(page.bounds, to: nil)
@@ -137,30 +146,43 @@ final class PageFloatingOverlays {
             let view = cards[index].view
             // A hidden card waits for its tab (one chrome per pane): off screen, it takes no clicks.
             // So does a card that a pane in front of the page covers whole: the page is cut there too.
-            if view.isHidden || (view as? BrowserCookieImportCard)?.waitsForFocus == true
-                || !shown.showsAny(of: placedRect(of: cards[index], in: clip))
-            {
+            // The cookie import card, once presented, waits hidden in place instead (`holdInPlace`).
+            let off = view.isHidden || !shown.showsAny(of: placedRect(of: cards[index], in: clip))
+            if off, !holdInPlace(index, in: window) {
                 dismiss(index)
                 continue
             }
+            if off { continue }
+            // Waiting for its tab's keyboard (focus moved to a terminal or chat beside it): hidden
+            // where it is. Each focus flip dismissed and presented it again, and its page drew a
+            // blank frame when it came back.
+            let waits = (view as? BrowserCookieImportCard)?.waitsForFocus == true
+            if waits, cards[index].handle == nil { continue }
             if view.themeScope !== scope { scope.root(view) }
             if let handle = cards[index].handle, !handle.isDismissed, view.window?.parent === window {
                 handle.update(paneClip: clip)
             } else {
                 dismiss(index)
-                // The host shows what it presents at full opacity; a card keeps its own (the cookie
-                // import card waits clear until its page measured itself, then fades in).
-                let alpha = view.alphaValue
-                let handle = WindowOverlayHost.host(for: window).present(
-                    view, options: OverlayOptions(kind: .attached, anchor: NSRect(origin: clip.origin, size: .zero),
-                                                  passesThroughClicks: cards[index].isReleased || cards[index].passesThroughClicks,
-                                                  layer: .pane(clip: clip))
-                )
-                view.alphaValue = alpha
+                // A card keeps its own opacity (the cookie import card waits clear until its page
+                // measured itself, then fades in); the host leaves it as it is from the first frame.
+                var options = OverlayOptions(kind: .attached, anchor: NSRect(origin: clip.origin, size: .zero),
+                                             passesThroughClicks: cards[index].isReleased || cards[index].passesThroughClicks,
+                                             layer: .pane(clip: clip))
+                options.keepsContentAlpha = true
+                let handle = WindowOverlayHost.host(for: window).present(view, options: options)
                 cards[index].handle = handle
-                if let holder = view.superview { pin(view, in: holder, lift: cards[index].lift, placement: cards[index].placement) }
+                cards[index].isWaiting = false
+                if let holder = view.superview {
+                    cards[index].bottom = pin(view, in: holder, lift: cards[index].lift, placement: cards[index].placement)
+                }
             }
             guard let holder = view.superview, let handle = cards[index].handle else { continue }
+            if waits != cards[index].isWaiting {
+                cards[index].isWaiting = waits
+                handle.setHiddenInPlace(waits)
+                if waits { handle.stopTakingMouse() }
+                else if !cards[index].isReleased, !cards[index].passesThroughClicks { handle.startTakingMouse() }
+            }
             holder.layoutSubtreeIfNeeded()
             let solved = view.frame
             cards[index].lastSize = solved.size
@@ -234,24 +256,67 @@ final class PageFloatingOverlays {
         let x = switch card.placement {
         case .bottomCenter: clip.midX - width / 2
         case .bottomLeading: clip.minX + inset
+        case .anchored(let topLeft): min(max(clip.minX + topLeft.x, clip.minX + inset), clip.maxX - inset - width)
+        }
+        if case .anchored(let topLeft) = card.placement {
+            return CGRect(x: x, y: clip.maxY - topLeft.y - size.height, width: width, height: size.height).intersection(clip)
         }
         // A card taller than a short page shows cut by it, as before: only what of it the page holds counts.
         return CGRect(x: x, y: clip.minY + inset + card.lift, width: width, height: size.height).intersection(clip)
     }
 
-    /// The card's place in its overlay clip, as it was in the chrome.
-    private func pin(_ view: NSView, in holder: NSView, lift: CGFloat, placement: Placement) {
+    /// Moves an anchored card to `topLeft` in the page (its field moved: a scroll, a resize).
+    func move(_ view: NSView, to topLeft: CGPoint) {
+        guard let index = cards.firstIndex(where: { $0.view === view }), case .anchored(let old) = cards[index].placement, old != topLeft else { return }
+        cards[index].placement = .anchored(topLeft: topLeft)
+        if let holder = view.superview, cards[index].handle != nil {
+            cards[index].bottom?.constant = topLeft.y
+            for constraint in holder.constraints where constraint.firstItem === view && constraint.firstAttribute == .leading
+                && constraint.relation == .equal { constraint.constant = topLeft.x }
+        }
+        sync()
+    }
+
+    /// Raises `view` to `lift` over the page's bottom inset where it is, with no new present (the cookie
+    /// import card offered again while a window toast now shows).
+    func setLift(_ lift: CGFloat, for view: NSView) {
+        guard let index = cards.firstIndex(where: { $0.view === view }), cards[index].lift != lift else { return }
+        cards[index].lift = lift
+        if case .anchored = cards[index].placement { return }
+        cards[index].bottom?.constant = -BrowserMetrics.overlayInset - lift
+        sync()
+    }
+
+    /// The lift of `view` (tests, diagnostics); nil when it is not a card here.
+    func lift(of view: NSView) -> CGFloat? { cards.first { $0.view === view }?.lift }
+
+    /// The card's place in its overlay clip, as it was in the chrome; answers its bottom constraint.
+    private func pin(_ view: NSView, in holder: NSView, lift: CGFloat, placement: Placement) -> NSLayoutConstraint {
         let inset = BrowserMetrics.overlayInset
+        if case .anchored(let topLeft) = placement {
+            // Under its field; the insets win when the field is near an edge.
+            let top = view.topAnchor.constraint(equalTo: holder.topAnchor, constant: topLeft.y)
+            NSLayoutConstraint.activate([
+                top,
+                view.leadingAnchor.constraint(equalTo: holder.leadingAnchor, constant: topLeft.x).prioritized(.defaultHigh),
+                view.leadingAnchor.constraint(greaterThanOrEqualTo: holder.leadingAnchor, constant: inset),
+                view.trailingAnchor.constraint(lessThanOrEqualTo: holder.trailingAnchor, constant: -inset),
+            ])
+            return top
+        }
         let horizontal = switch placement {
         case .bottomCenter: view.centerXAnchor.constraint(equalTo: holder.centerXAnchor)
         case .bottomLeading: view.leadingAnchor.constraint(equalTo: holder.leadingAnchor, constant: inset)
+        case .anchored: view.leadingAnchor.constraint(equalTo: holder.leadingAnchor, constant: inset)
         }
+        let bottom = view.bottomAnchor.constraint(equalTo: holder.bottomAnchor, constant: -inset - lift)
         NSLayoutConstraint.activate([
             horizontal,
-            view.bottomAnchor.constraint(equalTo: holder.bottomAnchor, constant: -inset - lift),
+            bottom,
             view.leadingAnchor.constraint(greaterThanOrEqualTo: holder.leadingAnchor, constant: inset),
             view.trailingAnchor.constraint(lessThanOrEqualTo: holder.trailingAnchor, constant: -inset),
         ])
+        return bottom
     }
 
     /// Whether a click at `view`'s center goes to the overlay host
@@ -279,10 +344,29 @@ final class PageFloatingOverlays {
         }
     }
 
+    /// Hides the cookie import card at `index` where it is, taking no clicks, while it is presented on
+    /// `window`'s overlay host: its tab, its workspace or a pane in front hid its page. Dismissed, it
+    /// came back with a new present at full opacity, and its page drew a blank frame (Leo 2026-11-08:
+    /// "the import cookies from google chrome card flickers sometimes"). False for any other card, or
+    /// one not presented there, which leaves.
+    private func holdInPlace(_ index: Int, in window: NSWindow?) -> Bool {
+        let view = cards[index].view
+        guard view is BrowserCookieImportCard, let window, let handle = cards[index].handle, !handle.isDismissed,
+              view.window?.parent === window else { return false }
+        if !cards[index].isWaiting {
+            cards[index].isWaiting = true
+            handle.setHiddenInPlace(true)
+            handle.stopTakingMouse()
+        }
+        return true
+    }
+
     private func dismiss(_ index: Int) {
         let handle = cards[index].handle
         cards[index].handle = nil
+        cards[index].isWaiting = false
         cards[index].mouseRect = nil
+        cards[index].bottom = nil
         handle?.dismiss()
     }
 }

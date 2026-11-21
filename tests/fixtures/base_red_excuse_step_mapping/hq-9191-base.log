@@ -1,0 +1,88 @@
+2026-11-11T07:45:31.8672383Z Current runner version: '2.338.2'
+2026-11-11T07:45:31.8680380Z ##[endgroup]
+2026-11-11T07:45:32.2651535Z ##[group]Run '/setup.sh'
+2026-11-11T07:45:32.2687177Z ##[endgroup]
+2026-11-11T07:45:32.4900727Z ##[group]Run actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+2026-11-11T07:45:32.4907610Z ##[endgroup]
+2026-11-11T07:45:32.5893512Z ##[endgroup]
+2026-11-11T07:45:32.6028566Z ##[endgroup]
+2026-11-11T07:45:32.6055105Z ##[endgroup]
+2026-11-11T07:45:32.6769909Z ##[endgroup]
+2026-11-11T07:45:39.3306540Z ##[endgroup]
+2026-11-11T07:45:39.3307145Z ##[endgroup]
+2026-11-11T07:45:41.7838350Z ##[endgroup]
+2026-11-11T07:45:41.8698130Z ##[endgroup]
+2026-11-11T07:45:41.8828197Z ##[group]Run python3 tests/test_warm_sources.py -v
+2026-11-11T07:45:41.8842550Z ##[endgroup]
+2026-11-11T07:45:43.0255958Z ##[group]Run set -euo pipefail
+2026-11-11T07:45:43.0306496Z ##[endgroup]
+2026-11-11T07:45:59.6687219Z ##[group]Run python3 tests/test_skills_workflow_budget.py
+2026-11-11T07:45:59.6703817Z ##[endgroup]
+2026-11-11T07:45:59.7125548Z ##[group]Run python3 tests/test_no_piped_sudo.py -v
+2026-11-11T07:45:59.7138027Z ##[endgroup]
+2026-11-11T07:46:00.6092590Z ##[group]Run python3 tests/test_tests_isolate_git_config.py -v
+2026-11-11T07:46:00.6104784Z ##[endgroup]
+2026-11-11T07:46:00.9167643Z ##[group]Run python3 tests/test_tests_run_in_ci.py -v
+2026-11-11T07:46:00.9181839Z ##[endgroup]
+2026-11-11T07:46:02.0478610Z ##[group]Run python3 tests/test_test_integrity.py -v
+2026-11-11T07:46:02.0490734Z ##[endgroup]
+2026-11-11T07:46:03.2889063Z ##[group]Run python3 tests/test_shell_invocations.py -v
+2026-11-11T07:46:03.2903887Z ##[endgroup]
+2026-11-11T07:46:03.6633617Z ##[group]Run python3 -m unittest discover -s skills/agents/parallel-work-coordinator/tests -p 'test_*.py'
+2026-11-11T07:46:03.6646661Z ##[endgroup]
+2026-11-11T07:46:03.7107618Z ##[group]Run python3 tests/test_nightly_next_workflow_guards.py
+2026-11-11T07:46:03.7119382Z ##[endgroup]
+2026-11-11T07:46:03.7631741Z ##[group]Run python3 tests/test_linux_pool_overflow_controller_free.py -v
+2026-11-11T07:46:03.7643843Z ##[endgroup]
+2026-11-11T07:46:03.9900496Z ##[group]Run python3 build-fleet/ci-shadow/workflow_concurrency_test.py
+2026-11-11T07:46:03.9913653Z ##[endgroup]
+2026-11-11T07:46:04.5177592Z ##[group]Run python3 tests/test_main_push_concurrency.py -v
+2026-11-11T07:46:04.5189929Z ##[endgroup]
+2026-11-11T07:46:05.5797944Z ##[group]Run python3 tests/test_delivery_concurrency.py
+2026-11-11T07:46:05.5809810Z ##[endgroup]
+2026-11-11T07:46:05.6265323Z ##[group]Run python3 tests/test_upload_artifact_retention.py
+2026-11-11T07:46:05.6278222Z ##[endgroup]
+2026-11-11T07:46:05.6941977Z ##[group]Run python3 tests/test_bash_heredoc_pipe_guard.py
+2026-11-11T07:46:05.6954289Z ##[endgroup]
+2026-11-11T07:46:06.3985385Z ##[group]Run python3 tests/test_gh_guard_broker.py
+2026-11-11T07:46:06.3997149Z ##[endgroup]
+2026-11-11T07:51:40.2566396Z ##[group]Run python3 tests/test_acpmux_guard.py
+2026-11-11T07:51:40.2583826Z ##[endgroup]
+2026-11-11T07:51:41.8234261Z ##[group]Run python3 tests/test_gh_poll_guard.py -v
+2026-11-11T07:51:41.8251758Z ##[endgroup]
+2026-11-11T07:51:50.0053200Z ##[group]Run ./scripts/test-tsadmin-accounts.sh
+2026-11-11T07:51:50.0069868Z ##[endgroup]
+2026-11-11T07:51:50.0311854Z ##[group]Run ./tests/test_ts_key_expiry_guard.sh
+2026-11-11T07:51:50.0328428Z ##[endgroup]
+2026-11-11T07:51:50.1353989Z ##[group]Run python3 tests/test_tailnet_fleet_ssh.py -v
+2026-11-11T07:51:50.1368179Z ##[endgroup]
+2026-11-11T07:51:50.2102250Z ##[group]Run python3 tests/test_tsadmin_fleet_rollout.py -v
+2026-11-11T07:51:50.2118492Z ##[endgroup]
+2026-11-11T07:51:55.0617764Z ##[group]Run ./tests/test_testbox_doc_blocks.sh
+2026-11-11T07:51:55.0634182Z ##[endgroup]
+2026-11-11T07:51:55.1278319Z ##[group]Run ./tests/test_testbox_warmup.sh
+2026-11-11T07:51:55.1294918Z ##[endgroup]
+2026-11-11T07:51:55.8541380Z ##[group]Run ./tests/test_testbox_release.sh
+2026-11-11T07:51:55.8557617Z ##[endgroup]
+2026-11-11T07:51:56.7383744Z ##[group]Run python3 -m unittest discover -s tests -p test_testbox_test.py
+2026-11-11T07:51:56.7400680Z ##[endgroup]
+2026-11-11T07:51:58.8696027Z ##[group]Run python3 -m unittest discover -s tests -p test_fast_checks_fleet.py
+2026-11-11T07:51:58.8708783Z ##[endgroup]
+2026-11-11T07:52:17.9193329Z ##[group]Run python3 -m unittest discover -s tests -p test_fast_checks_box_credentials.py
+2026-11-11T07:52:17.9209023Z ##[endgroup]
+2026-11-11T07:52:18.0166425Z ##[group]Run ./scripts/test-testbox-run-umask.sh
+2026-11-11T07:52:18.0179488Z ##[endgroup]
+2026-11-11T07:52:19.0292721Z ##[group]Run ./scripts/test-testbox-run-mtimes.sh
+2026-11-11T07:52:19.0305388Z ##[endgroup]
+2026-11-11T07:52:21.3547587Z ##[group]Run ./tests/test_worktree_refresh_concurrency.sh
+2026-11-11T07:52:21.3561429Z ##[endgroup]
+2026-11-11T07:52:32.7065263Z ##[group]Run ./tests/test_shared_clone_git_limits.sh
+2026-11-11T07:52:32.7077269Z ##[endgroup]
+2026-11-11T07:52:33.2423034Z ##[group]Run ./tests/test_shared_clone_maintenance_launchagent.sh
+2026-11-11T07:52:33.2435060Z ##[endgroup]
+2026-11-11T07:52:33.3448724Z AssertionError: ['/bin/bash', '/home/runner/Library/Application Support/cmuxterm-hq/shared-clone-maintenance/scripts/shared-clone-maintenance.sh', '/x/a&b/repo']
+2026-11-11T07:52:33.3580075Z FAIL: plist content
+2026-11-11T07:52:33.3600890Z ##[error]Process completed with exit code 1.
+2026-11-11T07:52:33.3913910Z Post job cleanup.
+2026-11-11T07:52:33.5060118Z ##[group]Run '/job_completed.sh'
+2026-11-11T07:52:33.5071059Z ##[endgroup]

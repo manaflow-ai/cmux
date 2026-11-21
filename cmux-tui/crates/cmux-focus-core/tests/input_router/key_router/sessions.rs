@@ -21,6 +21,8 @@ const A: u16 = 0;
 const B: u16 = 11;
 const D: u16 = 2;
 const F: u16 = 3;
+const G: u16 = 5;
+const R: u16 = 15;
 const RETURN: u16 = 36;
 const ESCAPE: u16 = 53;
 
@@ -327,21 +329,40 @@ fn a_page_first_chord_runs_its_action_only_when_the_page_leaves_it_unhandled() {
 #[test]
 fn a_report_of_a_newer_key_means_the_older_offers_were_handled() {
     let mut s = page_window();
-    let bold = s.press(KeyRecord {
-        page_editing_chord: true,
-        ..chord("w1", B, "toggleSidebar", Tier::Navigation, Some(content("b1")))
-    });
+    let next = s.press(chord("w1", G, "findNext", Tier::Navigation, Some(content("b1"))));
     let find = s.press(chord("w1", F, "find", Tier::Navigation, Some(content("b1"))));
-    assert!(matches!(s.last(bold), Some(InputEffect::Offer { .. })));
+    assert!(matches!(s.last(next), Some(InputEffect::Offer { .. })));
     let ran = s.send(InputEvent::PageUnhandled { id: find });
     assert_eq!(
         ran,
         vec![
-            InputEffect::OfferClosed { id: bold, reason: OfferEnd::Handled },
+            InputEffect::OfferClosed { id: next, reason: OfferEnd::Handled },
             InputEffect::Run { id: find, action: arc("find"), tab: Some(arc("b1")) },
         ]
     );
-    assert!(s.send(InputEvent::PageUnhandled { id: bold }).is_empty());
+    assert!(s.send(InputEvent::PageUnhandled { id: next }).is_empty());
+}
+
+/// Lawrence 2026-11-11 ("im in linear and cmd b goes to linear itself instead
+/// of toggling left sidebar"): a cmux shortcut on a chord pages also use
+/// (Cmd-B Bold) and the browser's own content shortcuts (Reload) run before
+/// the page; only Find and its neighbors wait for the page's report.
+#[test]
+fn cmux_shortcuts_run_before_the_page_outside_focus_mode() {
+    let mut s = page_window();
+    let sidebar = s.press(KeyRecord {
+        page_editing_chord: true,
+        ..chord("w1", B, "toggleSidebar", Tier::Navigation, Some(content("b1")))
+    });
+    assert!(
+        matches!(s.last(sidebar), Some(InputEffect::Run { .. })),
+        "Cmd-B went to the page first"
+    );
+    let reload = s.press(chord("w1", R, "browserReload", Tier::Content, Some(content("b1"))));
+    assert!(
+        matches!(s.last(reload), Some(InputEffect::Run { .. })),
+        "Cmd-R went to the page first"
+    );
 }
 
 /// #32849: an action that opens a browser is never offered to a page, and a

@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import React from "react";
 import { ACTIVATION_SETTLE_MS, shouldBlurComposerOnPress, useComposerKeyboard } from "./composerFocus";
+import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -17,6 +18,7 @@ afterEach(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -99,7 +101,7 @@ describe("composer click-away focus", () => {
   test("a chip in the composer's strip or quiet row keeps its editor focus", () => {
     const { editor } = fixture();
     const document = editor.ownerDocument;
-    for (const row of ["acpmux-composer-strip", "acpmux-composer-foot", "acpmux-composer-under"]) {
+    for (const row of ["acpmux-composer-strip", "acpmux-composer-foot"]) {
       const chip = document.createElement("button");
       const host = document.createElement("div");
       host.className = row;

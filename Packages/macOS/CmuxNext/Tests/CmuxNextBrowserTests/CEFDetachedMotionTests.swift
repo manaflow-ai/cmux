@@ -89,6 +89,22 @@ import Testing
         #expect(calls == ["4:detach", "4:attach"])
     }
 
+    /// NIGHTLY 23c9f5a, 2026-11-11 01:22:39Z: a display change made AppKit adjust the window to its screen, which
+    /// starts a live resize; the detach it caused hung the main thread 2.3 s in Chromium's display observer. A live
+    /// resize no person drives keeps the page attached, and a drag that follows still detaches.
+    @Test func aLiveResizeNobodyDrivesKeepsThePageAttached() {
+        let hosting = hostedPage()
+        hosting.windowLiveResize(active: true, byPerson: false)
+        #expect(calls.isEmpty, "a display change's frame adjustment detaches nothing")
+        #expect(!hosting.isDetached)
+        hosting.windowLiveResize(active: false)
+        #expect(calls.isEmpty)
+        hosting.resizeMotion(active: true)
+        #expect(calls == ["4:detach"], "the next divider drag detaches as before")
+        hosting.resizeMotion(active: false)
+        #expect(calls == ["4:detach", "4:attach"])
+    }
+
     @Test func belowForkAPI30NothingReachesTheFork() {
         let hosting = hostedPage(fork: CEFLayerHosting.Fork(setLayerHosting: { _, on in on ? 7 : 0 }))
         hosting.resizeMotion(active: true)
@@ -347,5 +363,45 @@ import Testing
         #expect(calls == ["4:detach", "4:attach"], "the drop attaches with no ask")
         commit()
         #expect(grants == 0 && hosting.firstFrameHold == .none, "no grant into a closed window")
+    }
+
+    /// A hidden tab an agent drove shows in the agent render window, and its hold waits for that window's frame. A
+    /// click on the tab moves its view to its pane's window, and the agent render window closes: the page shows in
+    /// the pane's window, so the hold ends at that window's next frame and grants the kept ask. With the drop taken as
+    /// the frame, the hold ended with no grant: the tab kept its ask, and no key reached the page (fleet, real
+    /// Chromium: 0 of 20 clicks then "abc" reached the page's field).
+    @Test func aHoldWhoseViewMovedToAnotherWindowBeforeItsWindowClosedGrantsAtThatWindowsFrame() {
+        func window() -> NSWindow {
+            NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        }
+        let parked = window(), pane = window()
+        defer { parked.closeAfterTest(); pane.closeAfterTest() }
+        parked.contentView?.addSubview(view)
+        var blocks: [@MainActor @Sendable () -> Void] = []
+        var committed: [@MainActor @Sendable () -> Void] = []
+        let commit = {
+            let pass = committed
+            committed.removeAll()
+            for block in pass { block() }
+        }
+        let hosting = CEFLayerHosting(isEnabled: { true }, schedule: { blocks.append($0) },
+                                      makePage: { CEFHostedPageView(frame: $0, makeLayerHost: { _ in CALayer() }) },
+                                      holdsFocus: { false }, afterCommit: { committed.append($0) })
+        hosting.view = view
+        hosting.pageWindowCreated(browser: 4, fork: fake.fork)
+        for block in blocks { block() }
+        var grants = 0
+        hosting.pageAppeared(windowInWindow: false) { grants += 1 }
+        #expect(calls == ["4:detach"])
+        pane.contentView?.addSubview(view)
+        hosting.windowDidChange()
+        FrameScheduler.forWindow(parked).invalidate()
+        commit()
+        #expect(grants == 0 && hosting.holdsFirstFrame(), "the hold waits for the frame of the window the page shows in")
+        FrameScheduler.forWindow(pane).frameDidFire()
+        commit()
+        commit()
+        #expect(grants == 1, "the kept focus ask was never granted: no key reaches the page")
+        #expect(!hosting.holdsFirstFrame() && !hosting.isDetached)
     }
 }

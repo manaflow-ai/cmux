@@ -1,5 +1,6 @@
 import CmuxNextDictation
 import CmuxNextSettings
+import CmuxNextTestSupport
 import CoreGraphics
 import Foundation
 import Testing
@@ -110,7 +111,7 @@ import Testing
     /// a page can't learn from an icon ask whether an app is installed.
     @Test func onlyListedDictationAppsHaveAnIcon() throws {
         let suite = "dictation-icons-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let icons = AttachmentSourceIcons(defaults: defaults, ownBundleId: "com.cmuxterm.test")
         // Finder stands in for an installed app: refused until listed.

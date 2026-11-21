@@ -18,7 +18,11 @@ impl Mux {
     ) -> anyhow::Result<CreatedTerminalEffect> {
         // Absent only on the daemon's and the user's own new screens: the
         // resource router sends `focus: false` for a caller that did not ask.
-        let focus = intent["fields"][SCREEN_CREATE_FOCUS_FIELD].as_bool().unwrap_or(true);
+        let focus = intent
+            .get("fields")
+            .and_then(|fields| fields.get(SCREEN_CREATE_FOCUS_FIELD))
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
         let workspace_key = self
             .with_state(|state| state.workspace_by_id(workspace).map(|item| item.key.clone()))
             .with_context(|| format!("workspace {workspace} disappeared"))?;
@@ -73,20 +77,7 @@ impl Mux {
                 stamp_pane_focus(self, &mut state, pane_id);
             }
             let workspace = &mut state.workspaces[workspace_index];
-            workspace.screens.push(Screen {
-                id: screen_id,
-                public_id,
-                name,
-                root: Node::Leaf(pane_id),
-                active_pane: pane_id,
-                zoomed_pane: None,
-                creation_order_auto_layout: Some(vec![pane_id]),
-                viewport_splits: Default::default(),
-                viewport_base_width: None,
-                layout_columns: Vec::new(),
-                layout_revision: 0,
-                layout_undo: Default::default(),
-            });
+            workspace.screens.push(Screen::with_one_pane(screen_id, public_id, name, pane_id));
             // A workspace whose only screen this is shows it either way.
             if focus || workspace.screens.len() == 1 {
                 workspace.active_screen = workspace.screens.len() - 1;

@@ -490,10 +490,15 @@ export function LiveChat({
       }),
     [snapshot?.historyFrom],
   );
-  const toggle = useCallback((id: string) => {
+  // A joined run's line is open under any of its keys (turns.ts `foldCovers`): closing it clears them
+  // all, as turns.ts `toggleTurnFold` does. Inline, so this first chunk does not load the transcript's.
+  const toggle = useCallback((id: string, covers: readonly string[] = []) => {
     setExpanded((open) => {
       const next = new Set(open);
-      if (!next.delete(id)) next.add(id);
+      const keys = [id, ...covers];
+      const wasOpen = keys.some((key) => open.has(key));
+      for (const key of keys) next.delete(key);
+      if (!wasOpen) next.add(id);
       return next;
     });
   }, []);

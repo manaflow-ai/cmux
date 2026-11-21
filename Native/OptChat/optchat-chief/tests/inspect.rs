@@ -506,6 +506,7 @@ fn the_tools_socket_inspect_tool_is_read_only_by_construction() {
             turn: None,
             peers: None,
             fork: None,
+            mcp: None,
         },
     )
     .unwrap();

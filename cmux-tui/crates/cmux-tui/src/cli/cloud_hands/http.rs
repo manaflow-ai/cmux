@@ -8,6 +8,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 /// Each call's deadline.
+// timeout: a Cloud call that never answers fails that call.
 pub(super) const TIMEOUT: Duration = Duration::from_secs(20);
 
 /// Why a call gave no value, as the app reads it (`kind`: `not_signed_in`,

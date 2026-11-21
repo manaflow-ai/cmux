@@ -21,6 +21,9 @@ import "../../src/agent-session/acpmux/conversation/conversation.css";
 const message = (text: string, name = "release-rings-32") => ({ name, sessionId: "lane-1", text, raw: text });
 const waiting = (id: string, text: string, name?: string) =>
   ({ id, kind: "incoming", incoming: { kind: "message", message: message(text, name) } }) as unknown as AcpmuxRow;
+// A sender's name wider than a 320px pane's line (cmux#37653 review): its chip is cut with an ellipsis.
+// At a 640px line the same name fits whole beside part of a long first line (cmux#38642 review).
+const LONG_NAME = "release-rings-coordinator-for-the-nightly-and-the-promote-builds";
 // A first line far wider than the row: it, not the sender's name, gives way (cmux#37653 review).
 const LONG =
   "Confirmed. On feat-cmux-next today, the overlay card is as tall as its content and ends 15px under its last section, so no fix needed.";
@@ -57,7 +60,7 @@ const draw = (row: AcpmuxRow) => {
 document.body.style.margin = "0";
 createRoot(document.getElementById("root")!).render(
   // Rows are placed absolutely, as the virtualized transcript places them.
-  <div style={{ position: "relative", width: 640, height: 680 }}>
+  <div style={{ position: "relative", width: 640, height: 720 }}>
     <div className="acpmux-row" data-testid="pending" style={{ top: 0 }}>
       <PendingMessagesCard row={group} onOpen={() => {}} renderMessage={draw} />
     </div>
@@ -66,6 +69,16 @@ createRoot(document.getElementById("root")!).render(
     </div>
     <div className="acpmux-row" data-testid="long-preview" style={{ top: 560 }}>
       {draw(waiting("r-2", LONG, "summary-panel"))}
+    </div>
+    <div style={{ position: "absolute", top: 680, width: 320 }}>
+      <div className="acpmux-row" data-testid="narrow-sender" style={{ top: 0 }}>
+        {draw(waiting("r-3", "Done.", LONG_NAME))}
+      </div>
+    </div>
+    <div style={{ position: "absolute", top: 720, width: 640 }}>
+      <div className="acpmux-row" data-testid="middle-sender" style={{ top: 0 }}>
+        {draw(waiting("r-4", LONG, LONG_NAME))}
+      </div>
     </div>
     <SubsessionContext.Provider value={{ store: chats, open: () => {} }}>
       <div className="acpmux-row" data-testid="sent" style={{ top: 600 }}>

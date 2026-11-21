@@ -26,6 +26,8 @@ const comment = (body: string): ConversationEntry => ({
 const withEntries = (details: PullRequestDetails, ...bodies: string[]): PullRequestDetails => ({
   ...details,
   conversation: bodies.map(comment),
+  conversationTotal: bodies.length,
+  conversationRead: bodies.length,
 });
 const kinds = (details: PullRequestDetails, pr = mockReady.pullRequest!, checks = mockReadyChecks) =>
   readiness(pr, details, checks).blockers.map((blocker) => blocker.kind);
@@ -104,4 +106,45 @@ test("without the dashboard, the rollup's own reds and pending checks block", ()
   const red = state.blockers.find((blocker) => blocker.kind === "red");
   expect(red?.kind === "red" && red.checks.map((check) => check.name)).toEqual(["unit tests"]);
   expect(state.blockers.find((blocker) => blocker.kind === "running")).toEqual({ kind: "running", count: 1 });
+});
+
+// Review of #38115, F1: a subagent of another family is still the author's own review.
+test("a subagent's SHIP does not count, whatever model it names", () => {
+  for (const reviewer of ["gpt-6.1-sol subagent", "codex subagent", "claude-opus-5-5 subagent"]) {
+    expect(reviewerFamily(reviewer)).toBe("self");
+    expect(kinds(withEntries(mockReadyDetails, `Review (${reviewer}): SHIP at ${HEAD}`))).toEqual(["review"]);
+  }
+});
+
+// Review of #38115, F2: GitHub's own merge state refuses what the Merge button refuses.
+test("GitHub's blocked or behind merge state keeps it from ready", () => {
+  for (const mergeState of ["blocked", "behind"] as const) {
+    const state = readiness(mockReady.pullRequest!, { ...mockReadyDetails, mergeState }, mockReadyChecks);
+    expect(state.state).toBe("blocked");
+    expect(state.blockers).toEqual([{ kind: "github", state: mergeState }]);
+  }
+  for (const mergeState of ["clean", "unstable", "has_hooks", "unknown", ""]) {
+    expect(kinds({ ...mockReadyDetails, mergeState })).toEqual([]);
+  }
+});
+
+// Review of #38115, F3: the read keeps only the newest comments and reviews, so a BLOCK at the
+// head may sit in the part it did not read. Ready is never claimed from part of the history.
+test("a conversation read only in part is never ready: an older BLOCK may be in what was not read", () => {
+  const partial = { ...mockReadyDetails, conversationTotal: mockReadyDetails.conversationRead + 40 };
+  const state = readiness(mockReady.pullRequest!, partial, mockReadyChecks);
+  expect(state.state).toBe("blocked");
+  expect(state.blockers).toEqual([
+    { kind: "history", shown: mockReadyDetails.conversationRead, total: partial.conversationTotal },
+  ]);
+  // A read that has it all claims nothing.
+  expect(kinds({ ...mockReadyDetails, conversationTotal: mockReadyDetails.conversationRead })).toEqual([]);
+});
+
+// Review of #38263, F1: the host counts the total over every comment and review but leaves empty
+// review wrappers out of the conversation, so the conversation's length is no measure of the read.
+// A complete read with two empty wrappers left out is not partial.
+test("a complete read whose conversation left out empty review wrappers is not partial", () => {
+  const read = mockReadyDetails.conversation.length + 2;
+  expect(kinds({ ...mockReadyDetails, conversationTotal: read, conversationRead: read })).toEqual([]);
 });
