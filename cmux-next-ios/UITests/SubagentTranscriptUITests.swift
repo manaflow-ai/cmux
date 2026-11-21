@@ -137,7 +137,10 @@ final class SubagentTranscriptUITests: XCTestCase {
         pass(4)
         let after = app.staticTexts.matching(NSPredicate(format: "label == %@", label)).firstMatch.frame
         XCTAssertEqual(after.minY, before.minY, accuracy: 1, "the row being read stays put while rows arrive below")
-        XCTAssertFalse(footer.isHittable, "scrolled away, the transcript does not follow")
+        // Off screen, a lazy row may have no activation point (isHittable fails there): its frame decides.
+        let window = app.windows.firstMatch.frame
+        XCTAssertFalse(footer.exists && !footer.frame.isEmpty && window.contains(footer.frame),
+                       "scrolled away, the transcript does not follow")
         attach(app, "4-held")
 
         for _ in 0..<30 where !(footer.exists && footer.isHittable) { app.swipeUp(velocity: .fast) }
