@@ -254,6 +254,97 @@ class Verdicts(unittest.TestCase):
                          {HOSTED: {"queued": 2, "running": 3}})
 
 
+ROOT_STD, GUI_STD, ROOT_LIGHT = "glaeda-root-std-xcode-26.6", "glaeda-gui-std-xcode-26.6", "glaeda-root-light-xcode-26.6"
+
+
+def runner(ident: int, *labels: str, status: str = "online") -> dict:
+    """One entry of GitHub's runner listing (GET /orgs/<org>/actions/runners)."""
+    return {"id": ident, "name": f"mini-{ident}-glaeda", "status": status, "busy": False,
+            "labels": [{"name": "self-hosted"}, {"name": "macOS"}, *({"name": label} for label in labels)]}
+
+
+# Three std minis' runners: two carry the pool and root labels, one the pool and side labels, one the gui label only;
+# one more std runner is offline. Two light runners. A Linux runner carries no owned label.
+LISTING = [runner(1, STD, ROOT_STD), runner(2, STD, ROOT_STD), runner(3, STD, SIDE_STD), runner(4, GUI_STD),
+           runner(5, STD, SIDE_STD, status="offline"), runner(6, LIGHT, ROOT_LIGHT), runner(7, LIGHT),
+           runner(8, "cmux-linux")]
+
+
+class OnlineRunnerCounts(unittest.TestCase):
+    """The owned slots come from the runners online, not the hand-set CI_OWNED_POOL_SLOTS (cmuxterm-hq
+    docs/handbook/hand-set-concurrency-number.md)."""
+
+    def test_each_label_counts_its_online_runners(self):
+        labels, _ = ew.owned_capacity(LISTING)
+        self.assertEqual(labels, {STD: 3, ROOT_STD: 2, SIDE_STD: 1, GUI_STD: 1, LIGHT: 2, ROOT_LIGHT: 1})
+
+    def test_a_family_has_its_distinct_online_runners_not_the_max_or_sum_of_its_labels(self):
+        _, families = ew.owned_capacity(LISTING)
+        # std: runners 1-4 (the max over its labels is 3, the sum 7); light: runners 6 and 7.
+        self.assertEqual(families, {"std-xcode-26.6": 4, "light-xcode-26.6": 2})
+
+    def test_a_configured_route_stays_above_zero(self):
+        # pr_runner_pool.gui_runner() and side_runner() skip a label at 0: a label CI_OWNED_POOL_SLOTS routes to keeps
+        # 1 with no runner online, and so does its family; a label it does not name stays absent.
+        xl, root_xl = "glaeda-xl-xcode-26.6", "glaeda-root-xl-xcode-26.6"
+        slots = json.dumps({STD: 60, xl: 4, root_xl: 2, "glaeda-ios-sim": 11})
+        labels, families = ew.owned_capacity([runner(5, STD, status="offline")], slots)
+        self.assertEqual(labels, {STD: 1, xl: 1, root_xl: 1})
+        self.assertEqual(families, {"std-xcode-26.6": 1, "xl-xcode-26.6": 1})
+        # The variable's count never raises an online one: 60 configured, 3 online.
+        labels, families = ew.owned_capacity(LISTING, slots)
+        self.assertEqual((labels[STD], families["std-xcode-26.6"]), (3, 4))
+
+    def test_the_verdict_takes_the_online_runners_over_the_variable(self):
+        # The variable says 60 std slots; 4 std runners are online and 5 jobs hold them with 3 queued: saturated.
+        slots = json.dumps({STD: 60, LIGHT: 23})
+        live = feed(jobs(STD, queued=3, running=2), jobs(ROOT_STD, running=2), jobs(LIGHT, running=1))
+        found = ew.verdicts(live, [], now=NOW, slots_raw=slots, runners=LISTING)
+        self.assertEqual(found[STD], {"queued": 3, "running": 4, "slots": 4, "basis": "counts", "saturated": True,
+                                      "slots_from": "runners", "runners": 3})
+        self.assertEqual((found[ROOT_STD]["slots"], found[ROOT_STD]["runners"]), (4, 2))
+        self.assertEqual((found[GUI_STD]["runners"], found[SIDE_STD]["runners"]), (1, 1))
+        self.assertEqual((found[LIGHT]["slots"], found[LIGHT]["saturated"]), (2, False))
+        # Unread (None), the variable decides as before.
+        self.assertFalse(ew.verdicts(live, [], now=NOW, slots_raw=slots)[STD]["saturated"])
+
+    def test_a_family_online_without_a_configured_label_is_judged(self):
+        found = ew.verdicts(feed(jobs(LIGHT, queued=2, running=2)), [], now=NOW, slots_raw="", runners=LISTING)
+        self.assertTrue(found[LIGHT]["saturated"])
+        self.assertEqual(found[LIGHT]["slots"], 2)
+
+    def test_admission_reads_the_listing_with_its_token_and_falls_back_without_it(self):
+        def request(url, seconds):
+            return 200, json.dumps(feed(jobs(STD, queued=3, running=4))).encode(), {}
+
+        calls = []
+
+        class GitHub:
+            def __init__(self, token, repo):
+                calls.append((token, repo))
+
+            def runners(self):
+                return LISTING
+
+        env = {"GH_REPO": "manaflow-ai/cmux", "RUNNER_ADMISSION_CONTROLLER": "http://controller",
+               "CI_OWNED_POOL_SLOTS": json.dumps({STD: 60})}
+        pools = ew.admission(env, NOW, request=request, github=GitHub)[ew.ADMISSION_KEY]["pools"]
+        self.assertEqual(calls, [])  # no token, no listing
+        self.assertEqual((pools[STD]["slots"], pools[STD]["saturated"]), (60, False))
+        pools = ew.admission({**env, "RUNNER_ADMISSION_RUNNERS_TOKEN": "t"}, NOW, request=request,
+                             github=GitHub)[ew.ADMISSION_KEY]["pools"]
+        self.assertEqual(calls, [("t", "manaflow-ai/cmux")])
+        self.assertEqual((pools[STD]["slots"], pools[STD]["runners"], pools[STD]["saturated"]), (4, 3, True))
+
+        class Refused(GitHub):
+            def runners(self):
+                raise RuntimeError("403 rate limit")
+
+        pools = ew.admission({**env, "RUNNER_ADMISSION_RUNNERS_TOKEN": "t"}, NOW, request=request,
+                             github=Refused)[ew.ADMISSION_KEY]["pools"]
+        self.assertEqual((pools[STD]["slots"], pools[STD]["saturated"]), (60, False))
+
+
 class Admission(unittest.TestCase):
     def test_no_controller_reads_nothing_and_publishes_nothing(self):
         def request(url, seconds):
