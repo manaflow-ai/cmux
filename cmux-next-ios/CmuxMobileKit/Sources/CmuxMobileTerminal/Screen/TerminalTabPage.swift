@@ -101,8 +101,8 @@ public struct TerminalTabPage: View {
             // Not attached: the page as last seen on this phone, as it was (a
             // warm surface keeps its own rows, live and scrollable, under
             // nothing). A skeleton only for a terminal never opened here. No
-            // status over the content: the connection's line is by the
-            // composer after 10 s (`TerminalModel.connectionLine`).
+            // status line over the content: after 10 s the connection's chip
+            // floats at the top (`terminalConnectionChip`), moving nothing.
             .overlay {
                 Group {
                     if model.connectionState.keepsWarmFrame {
@@ -124,6 +124,7 @@ public struct TerminalTabPage: View {
                 .allowsHitTesting(isInteractive)
                 .accessibilityHidden(!isInteractive)
             }
+            .terminalConnectionChip(model, topInset: insets.top)
             // Presented by the controller (UIKit), not with `.sheet` here: a
             // SwiftUI sheet presented from inside the TabsKit page left the
             // controller's keyboard layout guide at 172 pt with no keyboard

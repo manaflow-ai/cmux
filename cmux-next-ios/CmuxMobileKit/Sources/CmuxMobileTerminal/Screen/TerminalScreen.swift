@@ -31,6 +31,7 @@ public struct TerminalScreen: View {
                         .transition(.opacity)
                 }
             }
+            .terminalConnectionChip(model)
             .navigationBarTitleDisplayMode(.inline)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {

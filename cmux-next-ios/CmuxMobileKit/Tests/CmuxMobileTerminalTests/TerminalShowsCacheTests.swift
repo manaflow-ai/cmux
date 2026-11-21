@@ -61,11 +61,16 @@ import UIKit
         #expect(model.connectionLine == nil)
         for _ in 0..<200 where model.connectionLine == nil { try await Task.sleep(for: .milliseconds(10)) }
         #expect(model.connectionLine == "Reconnecting to Mac Studio…")
+        // The chip is a word or two; the sentence is its VoiceOver label.
+        #expect(model.connectionChip?.word == "Reconnecting")
+        #expect(model.connectionChip?.sentence == "Reconnecting to Mac Studio…")
         // Retries keep the first instant; a failure after them reads plainly.
         model.ingest(.connection(.failed(message: "daemon channel closed")))
         #expect(model.connectionLine == "Can't reach this terminal")
+        #expect(model.connectionChip?.word == "Can't reach")
         model.ingest(.connection(.attached))
         #expect(model.connectionLine == nil)
+        #expect(model.connectionChip == nil)
     }
 
     @Test func quietLinesNeverCarryTransportWords() {
