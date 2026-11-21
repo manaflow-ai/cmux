@@ -156,7 +156,12 @@ async fn machines(root: &Scratch, dialer: &str) -> (Arc<Hub>, TestClient, Arc<Hu
     let env = || BTreeMap::from([("FAKE_SESSION_PREFIX".to_owned(), "fake-session-".to_owned())]);
     let (a, src) = setup_env(PermissionPolicy::ApproveAll, env()).await;
     let (b, dst) = setup_env(PermissionPolicy::ApproveAll, env()).await;
-    b.config.write().await.web_roots = vec![root.text()];
+    {
+        let mut cfg = b.config.write().await;
+        cfg.web_roots = vec![root.text()];
+        // A chat under the guard's `peer` control runs only in a mode that asks (`resolve.rs`).
+        cfg.web_asking_modes.insert("fake".into(), vec!["normal".into()]);
+    }
     b.set_transfer_dial(Arc::new(Direct { source: a.clone(), from: dialer.to_owned() }));
     (a, src, b, dst)
 }
@@ -328,7 +333,13 @@ async fn a_lost_ack_or_a_move_sent_again_imports_the_chat_once() {
     let other = super::transfer_hub::hook(fresh.path(), &["move"]);
     let resent = ack_json(&other.control(&b, &move_message("m-8", "user-1", &body)).await.unwrap());
     assert_eq!(resent["state"], "delivered", "{resent}");
-    assert_eq!(resent["result"], first["result"], "{resent}");
+    // The same chat and folder; `timings` only on the answer of the pull that ran.
+    let moved = |ack: &Value| {
+        let mut moved: Value = serde_json::from_str(ack["result"].as_str().unwrap()).unwrap();
+        moved.as_object_mut().unwrap().remove("timings");
+        moved
+    };
+    assert_eq!(moved(&resent), moved(&first), "{resent}");
 
     let landed = records(&mut dst, &id, "transferred_in").await;
     assert_eq!(landed.len(), 1, "one import: {landed:?}");

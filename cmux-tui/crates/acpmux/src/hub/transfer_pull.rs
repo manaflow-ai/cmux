@@ -17,8 +17,9 @@
 //!    `webRoots`), makes or checks the folder under those roots, reads the bundle's pages from the
 //!    source through a [`TransferDial`] (the hub carrier's `TransferSource` circuit,
 //!    `transfer_service.rs`), and receives, writes and finishes it in process. Its answer is the
-//!    control's result: `{sessionId, cwd, branch?, commit?}`. A repeat of a move that landed
-//!    answers the same without a second import.
+//!    control's result: `{sessionId, cwd, branch?, commit?, timings}`, `timings` the freeze's split
+//!    on this side (`dialMs`, `pages`, `pageBytes`, `pagesMs`, `finishMs`). A repeat of a move that
+//!    landed answers the same chat and folder without a second import (and no `timings`).
 //! 4. The client commits the move on the source with `movedTo {host, via: "hub", ...}`, or aborts
 //!    it on a refusal. A move whose client goes away is ended by the source's watch, which asks
 //!    the target with op `move_forget` (`transfer_watch.rs`).
@@ -229,7 +230,13 @@ impl Hub {
         let dial = self.transfer_dial().ok_or_else(|| {
             pull_error("no_route", "this daemon has no hub carrier to the source")
         })?;
+        // The freeze's split, in the answer: the circuit's open (relay and handshake), the pages
+        // (one round trip each) and the import.
+        let dialing = std::time::Instant::now();
         let mut pages = dial.open(source).await.map_err(|e| pull_error("unreachable", e))?;
+        let dial_ms = dialing.elapsed().as_millis() as u64;
+        let paging = std::time::Instant::now();
+        let (mut page_count, mut page_bytes) = (0u64, 0u64);
         let received =
             self.transfer_receive(&json!({"manifest": manifest, "guard": guard_value})).await?;
         let receive_id = received.get("receiveId").cloned().unwrap_or(Value::Null);
@@ -240,6 +247,8 @@ impl Hub {
                 let read = json!({"transferId": transfer_id, "path": path, "offset": offset,
                                   "limit": PULL_PAGE, "epoch": epoch});
                 let page = pages.call("read", read).await?;
+                page_count += 1;
+                page_bytes += page["data"].as_str().map_or(0, |d| d.len() as u64);
                 let write = json!({"receiveId": receive_id, "path": path, "offset": offset,
                                    "data": page["data"], "epoch": epoch});
                 self.transfer_write(&write)?;
@@ -257,11 +266,19 @@ impl Hub {
         if let Some(host) = source_host.filter(|h| !h.is_empty()) {
             from.set("host", json!(host));
         }
+        let pages_ms = paging.elapsed().as_millis() as u64;
         let finish = json!({"receiveId": receive_id, "from": from, "epoch": epoch, "cwd": cwd});
+        let finishing = std::time::Instant::now();
         let moved = self.transfer_finish(&finish).await?;
+        let finish_ms = finishing.elapsed().as_millis() as u64;
         let mut moved =
             json!({"sessionId": moved.get("sessionId").cloned().unwrap_or(json!(session_id))});
         moved.set("cwd", json!(cwd));
+        moved.set(
+            "timings",
+            json!({"dialMs": dial_ms, "pages": page_count, "pageBytes": page_bytes,
+                   "pagesMs": pages_ms, "finishMs": finish_ms}),
+        );
         Ok(answer(moved))
     }
 
