@@ -101,13 +101,13 @@ import CmuxNextTestSupport
         var filePromises: [any HomeFilePromise] { promises }
     }
 
-    /// The native hosts (the docked Home and the Home tab show the React Messages page now).
-    enum Container: String, CaseIterable { case conversationTab }
+    enum Container: String, CaseIterable { case dock, homeTab, conversationTab }
 
     struct Harness {
         let window: NSWindow
         let content: TabContent
         let home: HomeHostView
+        let list: NSView?
 
         var transcript: HomeNativeTranscriptView { home.transcript }
         var drafted: [String] { transcript.transcript.draftAttachments.map(\.ref.name) }
@@ -168,7 +168,8 @@ import CmuxNextTestSupport
             for label in home.subviews where label is NSTextField { label.isHidden = true }
         }
 
-        /// Views of the pane a pointer can be over: the transcript's rows, its header and the message box.
+        /// Views of the pane a pointer can be over: the transcript's rows, its header, the message box,
+        /// and the conversation list (Home tab and dock only).
         var places: [(String, NSView)] {
             var all: [NSView] = []
             var stack: [NSView] = [transcript]
@@ -181,6 +182,7 @@ import CmuxNextTestSupport
             if let rows = named("TranscriptDocumentView") { out.append(("transcript", rows)) }
             if let header = named("PaneHeaderView") { out.append(("header", header)) }
             out.append(("field", transcript.primaryInput))
+            if let list { out.append(("list", list)) }
             return out
         }
 
@@ -198,7 +200,20 @@ import CmuxNextTestSupport
         let conversation = ConversationID("conv_image_drop")
         let content: TabContent
         let host: () -> HomeHostView?
+        var list: NSView?
         switch container {
+        case .dock:
+            let dock = HomeDockView(services: services, mode: .messages)
+            dock.messages?.show(conversation)
+            content = .page(InternalPageView(key: "image-drop-dock", page: .homeDock, content: dock))
+            host = { dock.messages?.host }
+            list = dock.messages?.list
+        case .homeTab:
+            let page = TopHomePageView(services: services, windowKey: { "image-drop" })
+            page.show(conversation)
+            content = .page(InternalPageView(key: "image-drop-tab", page: .homeTab, content: page))
+            host = { page.host }
+            list = page.list
         case .conversationTab:
             let view = HomeHostView(services: services, conversation: conversation.rawValue)
             content = .conversation(view)
@@ -213,7 +228,7 @@ import CmuxNextTestSupport
         content.view.layoutSubtreeIfNeeded()
         await wait { host()?.focusTarget is NSTextView }
         let home = try #require(host(), "Home shows no conversation")
-        let harness = Harness(window: window, content: content, home: home)
+        let harness = Harness(window: window, content: content, home: home, list: list)
         harness.showConversation()
         content.view.layoutSubtreeIfNeeded()
         return harness
@@ -305,7 +320,7 @@ import CmuxNextTestSupport
     /// A browser's picture: a promise of its file the drag can't read before the drop, its bytes and its
     /// link. The bytes alone make the drag a picture drop (the promise answered nothing).
     @Test func aBrowserPictureWithAnUnreadablePromiseAttachesItsBytes() async throws {
-        let h = try await Self.harness(.conversationTab)
+        let h = try await Self.harness(.homeTab)
         defer { h.close() }
         let data = try #require(Self.picture(.png))
         let rows = try #require(h.places.first { $0.0 == "transcript" }?.1)
@@ -321,7 +336,7 @@ import CmuxNextTestSupport
     /// a browser adds the picture's link.
     @Test(arguments: [(NSPasteboard.PasteboardType.tiff, UTType.tiff), (.pdf, .pdf), (NSPasteboard.PasteboardType("com.compuserve.gif"), .gif)])
     func pictureBytesAttach(_ type: NSPasteboard.PasteboardType, _ format: UTType) async throws {
-        let h = try await Self.harness(.conversationTab)
+        let h = try await Self.harness(.homeTab)
         defer { h.close() }
         let data = try #require(Self.picture(format))
         let rows = try #require(h.places.first { $0.0 == "transcript" }?.1)
@@ -336,7 +351,7 @@ import CmuxNextTestSupport
     /// Text and link drags are not attachments: the pane takes none of them (the field types text,
     /// and a link keeps the panes' link drop zones).
     @Test func textAndLinkDragsAreNotTaken() async throws {
-        let h = try await Self.harness(.conversationTab)
+        let h = try await Self.harness(.homeTab)
         defer { h.close() }
         for (index, (place, view)) in h.places.enumerated() where place != "field" {
             let board = Board(text: "https://example.com/page", link: true)

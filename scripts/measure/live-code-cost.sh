@@ -35,6 +35,10 @@ fi
 sha="$(git rev-parse HEAD)"
 out="artifacts/live-code-cost"
 work="$(mktemp -d)"
+# Remove the scratch folder on every exit (a failed build, a TERM), not only at the end: a leaked one holds a build.
+trap 'rm -rf -- "$work"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 rm -rf "$out" && mkdir -p "$out"
 regular_tag="livecost-regular" live_tag="livecost-live"
 # Each build its own DerivedData: a measurement step's reload.sh otherwise shares .build/DerivedData/cmux-measure

@@ -101,6 +101,7 @@ const fn access(operation: Op) -> Access {
         | Op::GitBranches
         | Op::GitDiff
         | Op::GitFilesList
+        | Op::GitFingerprint
         | Op::GitFilesSearch
         | Op::GitCommit
         | Op::GitPush
@@ -123,6 +124,7 @@ const fn access(operation: Op) -> Access {
         | Op::GitReviewStart
         | Op::GitReviewComment
         | Op::GitReviewPost
+        | Op::DiffCommentsSend
         | Op::SessionJournalHookPut
         // It tells whether a path exists and is a folder (cx-9aps).
         | Op::WorkspaceAgentStartGet
@@ -140,6 +142,8 @@ const fn access(operation: Op) -> Access {
         // Conductor's database and worktrees, read by the app's Import from Conductor.
         | Op::ConductorImportPlan
         | Op::ConductorImportRecord
+        // Another browser's bookmarks, history and tabs, read for the app's browser import.
+        | Op::BrowserImportRead
         // A Cloud machine's files and commands (server/cloud_api.rs).
         | Op::CloudMachineIo => Access::Denied(Denied::FileSystem),
         // A browser profile's visited pages: never a page's to read or delete.
@@ -272,6 +276,7 @@ const fn access(operation: Op) -> Access {
         | Op::SettingsSet
         | Op::SettingsReset
         | Op::SettingsResetAll
+        | Op::SettingsEdit
         | Op::KeybindingsGet
         | Op::KeybindingsSet
         | Op::KeybindingsRemove
@@ -404,6 +409,16 @@ const fn access(operation: Op) -> Access {
         // through its allow list (page-router.json: home-channels reads
         // palette.rank).
         | Op::PaletteRank
+        // The person's ACP chats (chat.list, chat.mark_read, chat.pin): for apps and
+        // the app, never a page unless its allow list names one.
+        | Op::ChatList
+        | Op::ChatMarkRead
+        | Op::ChatPin
+        // Scheme conversion and a palette from pixels the page sends: a page
+        // reaches them only through its allow list (theme-scheme-v1).
+        | Op::ThemeSchemeConvert
+        | Op::ThemeSchemeExport
+        | Op::ThemeSchemeFromImage
         // A page never reads or writes the person's conversations.
         | Op::ConversationList
         | Op::ConversationGet
@@ -444,9 +459,16 @@ const fn access(operation: Op) -> Access {
         | Op::CloudOwnerHandoffBeginTurn
         | Op::CloudOwnerHarnessLoginCopy
         | Op::CloudOwnerGithubApp
+        | Op::CloudOwnerGithubRepos
+        | Op::CloudOwnerGithubConnect
+        | Op::CloudOwnerTurnCheckpoint
+        | Op::CloudOwnerTurnRewind
+        | Op::CloudOwnerTurns
         | Op::CloudPreviewsRefresh
         | Op::CloudPreviewsCreateLink
         | Op::CloudPreviewsRevokeLink
+        | Op::CloudMachineChatAccess
+        | Op::CloudMachineShareChat
         => Access::Denied(Denied::NotAllowed),
     }
 }

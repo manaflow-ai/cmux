@@ -25,6 +25,19 @@ import Testing
         #expect(CloudMoveCLI.spareWarmRequest(platform: platform, account: "user_a", end: nil, claimed: nil)["claimed"] == nil)
         let finished = CloudMoveCLI.spareWarmRequest(platform: platform, account: "user_a", end: .finished("vm_0123456789abcdefghij"), claimed: nil)
         #expect(finished["finished"] as? String == "vm_0123456789abcdefghij" && finished["claimed"] == nil)
+        // An installed copy is named as such: Rust keeps it as the start's login receipt.
+        let installed = CloudMoveCLI.spareWarmRequest(platform: platform, account: "user_a", end: .installed("vm_0123456789abcdefghij"), claimed: nil)
+        #expect(installed["installed"] as? String == "vm_0123456789abcdefghij" && installed["finished"] == nil && installed["claimed"] == nil)
+    }
+
+    @Test func aReadySpareIsNamedToRustAndAClaimWinsOverIt() {
+        let platform = URL(string: "https://platform.example")!
+        let ready = CloudMoveCLI.spareWarmRequest(platform: platform, account: "user_a", end: nil, claimed: nil, ready: "vm_0123456789abcdefghij")
+        #expect(ready["ready"] as? String == "vm_0123456789abcdefghij" && ready["claimed"] == nil)
+        let both = CloudMoveCLI.spareWarmRequest(platform: platform, account: "user_a", end: nil, claimed: "vm_0123456789abcdefghij", ready: "vm_ffffffffffffffffffff")
+        #expect(both["claimed"] as? String == "vm_0123456789abcdefghij" && both["ready"] == nil)
+        let ended = CloudMoveCLI.spareWarmRequest(platform: platform, account: "user_a", end: .finished("vm_0123456789abcdefghij"), claimed: nil, ready: "vm_0123456789abcdefghij")
+        #expect(ended["ready"] == nil)
     }
 
     @Test func aReservationsMachineIsTheOneItAnswered() {

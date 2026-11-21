@@ -444,8 +444,8 @@ command -v cmux &>/dev/null && echo "cmux available"
 # In cmux-managed terminals these are auto-set
 [ -n "\${CMUX_WORKSPACE_ID:-}" ] && [ -n "\${CMUX_SURFACE_ID:-}" ] && echo "Inside cmux surface"
 
-# Distinguish from regular Ghostty
-[ "$TERM_PROGRAM" = "ghostty" ] && [ -n "\${CMUX_WORKSPACE_ID:-}" ] && echo "In cmux"`}</CodeBlock>
+# cmux terminals set TERM_PROGRAM=cmux
+[ "$TERM_PROGRAM" = "cmux" ] && echo "In cmux"`}</CodeBlock>
 
       <DocsHeading level={2} id="examples">{t("examples")}</DocsHeading>
 

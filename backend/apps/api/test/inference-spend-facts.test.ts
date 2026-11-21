@@ -379,15 +379,17 @@ describe("team included mode per team or per seat (cx-y79zh.1)", () => {
     const added = Object.fromEntries(stripe.calls.filter((c) => c.path === "/v1/subscription_items").map((c) => [c.form.subscription, c.form.price]))
     expect(added).toEqual({ sub_side_a: "price_e2e_pro", sub_side_b: "price_e2e_team_seat" })
     const byCustomer = (cus: string) => stripe.events.filter((e) => e["payload[stripe_customer_id]"] === cus)
-    // Per team: the whole level, whatever the seats. Per seat: 2.5 - 2 x 0.5 = 1.5.
-    expect(byCustomer("cus_side_a")).toEqual([expect.objectContaining({ event_name: "cmux_ai_usage", "payload[value]": "2.500000" })])
-    expect(byCustomer("cus_side_b")).toEqual([expect.objectContaining({ event_name: "cmux_ai_usage_above_included", "payload[value]": "1.500000" })])
-    // A third seat for both: per team nothing changes; per seat 2.5 - 3 x 0.5 = 1.0, and leaving again keeps 3 seats.
+    // e2e bills by v2's rules: model overage at list + 10%. Per team: the whole billed level, whatever the seats,
+    // 1 + 1.5 x 1.1 = 2.65. Per seat: the pool is 2 x 0.5 = 1, so 1 + 1.5 x 1.1 - 1 = 1.65.
+    expect(byCustomer("cus_side_a")).toEqual([expect.objectContaining({ event_name: "cmux_ai_usage", "payload[value]": "2.650000" })])
+    expect(byCustomer("cus_side_b")).toEqual([expect.objectContaining({ event_name: "cmux_ai_usage_above_included", "payload[value]": "1.650000" })])
+    // A third seat for both: per team nothing changes; per seat the pool is 1.5, 1.5 + 1.0 x 1.1 - 1.5 = 1.1, and
+    // leaving again keeps 3 seats.
     a.items.data[0].quantity = 3
     b.items.data[0].quantity = 3
     await sync(e2eEnv)
     expect(byCustomer("cus_side_a")).toHaveLength(1)
-    expect(byCustomer("cus_side_b").at(-1)).toMatchObject({ "payload[value]": "1.000000" })
+    expect(byCustomer("cus_side_b").at(-1)).toMatchObject({ "payload[value]": "1.100000" })
     b.items.data[0].quantity = 2
     await sync(e2eEnv)
     expect(byCustomer("cus_side_b")).toHaveLength(2)

@@ -15,6 +15,9 @@
 //! `cmux repo wait DIR SECONDS` waits until the barrier on DIR is open: 0 once it is (or DIR has
 //! none), 1 when its sync failed, 124 after SECONDS. The machine-config applier waits on it for a
 //! checkout still filling, before its setup runs in it.
+//!
+//! `cmux repo mcp-lazy DIR -- CMD…` runs a project MCP server once that barrier is open, and
+//! answers for it until then (`repo_mcp_lazy.rs`).
 
 use std::io::{BufRead as _, BufReader};
 use std::path::{Path, PathBuf};
@@ -22,7 +25,8 @@ use std::path::{Path, PathBuf};
 use cmux_git::sync_barrier::Sync;
 use cmux_process::{Command, Stdio};
 
-const USAGE: &str = "usage: cmux repo hold DIR -- CMD [ARG...] | cmux repo wait DIR SECONDS";
+const USAGE: &str = "usage: cmux repo hold DIR -- CMD [ARG...] | cmux repo wait DIR SECONDS \
+                     | cmux repo mcp-lazy DIR -- CMD [ARG...]";
 /// The child's one stdout line once it holds the barrier.
 const HELD: &str = "held";
 
@@ -36,6 +40,11 @@ pub(crate) fn run(args: &[String]) -> i32 {
         Some((verb, [dir, seconds])) if verb == "wait" => match seconds.parse::<u64>() {
             Ok(seconds) => wait(Path::new(dir), std::time::Duration::from_secs(seconds)),
             Err(_) => usage(),
+        },
+        Some((verb, rest)) if verb == "mcp-lazy" => match parse(rest) {
+            Some(_) if rest.first().is_some_and(|a| a == "--help") => help(),
+            Some((dir, cmd)) => super::repo_mcp_lazy::run(&dir, cmd),
+            None => usage(),
         },
         Some((verb, rest)) if verb == "hold-run" => match parse(rest) {
             Some((dir, cmd)) => hold_run(&dir, cmd, || println!("{HELD}")),
@@ -113,6 +122,7 @@ fn hold(dir: &Path, cmd: &[String]) -> i32 {
             return 1;
         }
     };
+    child.detach("the hold outlives this command and the caller's terminal (its own session)");
     let Some(stdout) = child.stdout.take() else { return 1 };
     let mut line = String::new();
     // One blocking read: the child writes its line once it holds the barrier, or exits.

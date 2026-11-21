@@ -1,0 +1,16 @@
+{
+  "//": "cmux-extension-sdk resolves to ./sdk, the copy of the SDK this cmux ships, so the folder builds with no install and no registry.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "lib": ["ES2022"],
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
+    "skipLibCheck": true,
+    "paths": { "cmux-extension-sdk": ["./sdk/src/index.ts"] }
+  },
+  "include": ["src", "cmux-app.d.ts"]
+}

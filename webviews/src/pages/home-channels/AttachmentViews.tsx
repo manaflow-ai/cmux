@@ -10,6 +10,7 @@ import "../../agent-session/acpmux/chips/chips.css";
 import { Dialog } from "../../ui/Dialog";
 import { DialogButton, keyedIconProps } from "../../ui/DialogButton";
 import { KeyboardScope } from "../../ui/KeyboardScope";
+import { useScrimClose } from "../../ui/scrimClose";
 import type { Strings } from "../shared/i18n";
 import { AttachmentService, attachmentClass, formatBytes, type UploadProgress } from "./attachmentService";
 import { HomeIcon } from "./icons";
@@ -19,22 +20,12 @@ import "../../ui/motion/motion.css";
 /** The page's attachment service (absent: attachments show as named rows only). */
 export const AttachmentContext = createContext<AttachmentService | undefined>(undefined);
 
-/** A page's own viewer for a message's media (the Messages page's picture viewer and View Larger).
- * Absent: pictures and videos open in the lightbox here. */
-export interface AttachmentOpener {
-  openImages(conversation: string, images: readonly HomeAttachment[], index: number): void;
-  /** `video`: the bubble's player, which pauses; the viewer goes on from its time. */
-  openVideo(conversation: string, part: HomeAttachment, video?: HTMLVideoElement): void;
-}
-
-export const AttachmentOpenContext = createContext<AttachmentOpener | undefined>(undefined);
-
 /** Most image tiles shown in a message; the last one counts the rest. */
 const GRID_TILES = 4;
 
 /** A data URL (or URL) of one image variant: `src` once loaded, `failed` when this host cannot read
  * it (an owner without attachment reads here, a record that is gone). */
-export function useImage(
+function useImage(
   conversation: string,
   part: HomeAttachment,
   prefer: "preview" | "original",
@@ -79,7 +70,6 @@ export function MessageAttachments({
   /** Each inline player by its index in `videos`: the lightbox takes over its position on Play and
    * hands its own back on close. */
   const inline = useRef(new Map<number, HTMLVideoElement>());
-  const opener = useContext(AttachmentOpenContext);
   return (
     <div className="hc-attachments">
       {images.length > 0 && (
@@ -92,7 +82,7 @@ export function MessageAttachments({
               single={images.length === 1}
               more={index === GRID_TILES - 1 ? images.length - GRID_TILES : 0}
               strings={strings}
-              onOpen={() => (opener ? opener.openImages(conversation, images, index) : setOpen(index))}
+              onOpen={() => setOpen(index)}
             />
           ))}
         </div>
@@ -107,9 +97,7 @@ export function MessageAttachments({
             if (element) inline.current.set(index, element);
             else inline.current.delete(index);
           }}
-          onExpand={() =>
-            opener ? opener.openVideo(conversation, part, inline.current.get(index)) : setOpen(images.length + index)
-          }
+          onExpand={() => setOpen(images.length + index)}
         />
       ))}
       {files.map((part, index) => (
@@ -160,7 +148,6 @@ function ImageTile({
       type="button"
       className={`hc-att-image${single ? " single" : ""}${src ? "" : failed ? " failed" : " loading"}`}
       style={size}
-      data-attachment={part.hash}
       aria-label={part.name}
       /* tooltip-allow: a loaded image shows no name; the name shows only once it fails */
       title={part.name}
@@ -225,15 +212,13 @@ function VideoPlayer({
   onExpand(): void;
 }) {
   const { src, renew, resumeAt } = useVideoLink(conversation, part);
-  const opener = useContext(AttachmentOpenContext);
   const posterSrc = usePoster(conversation, part);
   const size = frame(part, 480, 320);
   return (
-    <figure className="hc-att-video ui-reveal-host" style={{ width: size.width }} data-attachment={part.hash}>
+    <figure className="hc-att-video ui-reveal-host" style={{ width: size.width }}>
       {/* oxlint-disable-next-line jsx-a11y/media-has-caption -- a user's attached file; it has no caption track. */}
       <video
         ref={videoRef}
-        data-attachment-video={part.hash}
         src={src}
         poster={posterSrc}
         controls
@@ -243,7 +228,6 @@ function VideoPlayer({
         height={size.height}
         aria-label={part.name}
         onError={(event) => renew(event.currentTarget)}
-        onDoubleClick={opener ? (event) => opener.openVideo(conversation, part, event.currentTarget) : undefined}
         onLoadedMetadata={(event) => {
           const at = resumeAt();
           if (at) event.currentTarget.currentTime = at;
@@ -322,7 +306,7 @@ function FileRow({ conversation, part, strings }: { conversation: string; part: 
     anchor.click();
   };
   return (
-    <div className="hc-att-file ui-reveal-host" data-attachment={part.hash}>
+    <div className="hc-att-file ui-reveal-host">
       <span className="hc-att-file-mark" aria-hidden>
         {extension.slice(0, 4) || <HomeIcon name="attach" />}
       </span>
@@ -374,6 +358,8 @@ function Lightbox({
   const step = (by: number) => onIndex((index + by + items.length) % items.length);
   const canStep = items.length > 1;
   const closeButton = useRef<HTMLButtonElement | null>(null);
+  // A click beside the image or video closes, as in the agent chat's viewers (ui/scrimClose.ts).
+  const scrim = useScrimClose(onClose);
   return (
     <Dialog
       open
@@ -402,7 +388,8 @@ function Lightbox({
             {strings.t("lightbox.close")}
           </DialogButton>
         </header>
-        <div className="hc-lightbox-stage">
+        {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+        <div className="hc-lightbox-stage" {...scrim.props}>
           {canStep && (
             <button
               type="button"
@@ -544,8 +531,7 @@ function TrayItem({ item, strings, onRemove }: { item: PendingAttachment; string
   const fraction = item.progress.total > 0 ? item.progress.sent / item.progress.total : 0;
   const percent = `${Math.round(fraction * 100)}%`;
   const state = item.error ? "failed" : item.part ? "done" : "uploading";
-  const status =
-    item.error ?? (item.part ? formatBytes(item.part.byteCount) : strings.format("attach.uploading", percent));
+  const status = item.error ?? (item.part ? formatBytes(item.file.size) : strings.format("attach.uploading", percent));
   const kind = useMemo(() => attachmentClass(item.file.type), [item.file.type]);
   return (
     <li className={`hc-tray-item ${state}`}>
@@ -574,6 +560,8 @@ function TrayItem({ item, strings, onRemove }: { item: PendingAttachment; string
         type="button"
         className="hc-tray-remove"
         aria-label={strings.format("attach.remove", item.file.name)}
+        // The prompt keeps the keyboard: Cmd-Z right after brings the file back.
+        onMouseDown={(event) => event.preventDefault()}
         onClick={onRemove}
       >
         <HomeIcon name="close" />

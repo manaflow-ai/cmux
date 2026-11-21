@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { useAnswerHold } from "./answerHold";
 import { experimentArm } from "../../experiments/experiment";
 import { cloudStartAskLook } from "./cloudStartAsk.experiment";
 import type { CloudStartAsk as Ask } from "./cloudStartProgress";
@@ -23,7 +24,10 @@ export function CloudStartAsk({
   const t = useT();
   const arm = experimentArm(cloudStartAskLook);
   const [copied, setCopied] = useState(false);
-  const [sent, setSent] = useState(false);
+  // Held until the host takes the question away, ANSWER_HOLD_MS at most (answerHold.ts): a host that
+  // never does leaves the buttons taking a click again, never disabled for good.
+  const [sentHeld, setSent] = useAnswerHold<true>();
+  const sent = sentHeld === true;
   const code = ask.code;
   const actions = (
     <span className="acpmux-cloud-ask__actions">
@@ -36,8 +40,12 @@ export function CloudStartAsk({
           disabled={!onAnswer || sent}
           onClick={() => {
             setSent(true);
-            // A refused answer (no fresh click, the question already gone) lets the buttons take another.
-            void onAnswer?.(ask.id, button.id)?.then((taken) => taken || setSent(false));
+            // A refused answer (no fresh click, the question already gone) or a failed one lets the
+            // buttons take another.
+            void onAnswer?.(ask.id, button.id)?.then(
+              (taken) => taken || setSent(undefined),
+              () => setSent(undefined),
+            );
           }}
         >
           {button.title}

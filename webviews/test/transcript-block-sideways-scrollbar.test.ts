@@ -5,8 +5,8 @@
 // really display properly or even show that there's a horizontal scrollbar i think it's cut off").
 // Unwrapped, an edit's diff (Pierre's code rows, in a shadow root) and a command's output keep a
 // thin thumb on no track under their lines at rest, in the shared thumb color (scrollers.ts
-// SIDEWAYS_ATTRIBUTE), on a lane no taller than the thin scroller's. A block cut to its eight-line
-// preview ends with that lane, clear of the preview's bottom fade. Nothing over a block shows a
+// SIDEWAYS_ATTRIBUTE), on a lane no taller than the thin scroller's. A block past eight lines,
+// scrolling in its eight-line box, ends with that lane, clear of the box's bottom fade. Nothing over a block shows a
 // resize cursor (the same ask: "the cursor hover that turns into the resizing cursor").
 //
 // The lane never moves the transcript and is never an empty tail (Codex review of #23967): a diff
@@ -105,8 +105,8 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
   ];
   /// Cut call outputs: eight whole lines and the lane under them.
   const cutCalls: Block[] = [outputCut];
-  /// Wrapped diffs, cut and whole.
-  const wrapped: Block[] = [diff("edit-long-line-prose", true), diff("edit-preview-open", false)];
+  /// Wrapped diffs past eight lines, each scrolling in its box: at its start and scrolled to its end.
+  const wrapped: Block[] = [diff("edit-long-line-prose", true), diff("edit-preview-scrolled", true)];
 
   const webviews = path.resolve(import.meta.dir, "..");
   const { createServer } = await import("vite");
@@ -137,6 +137,9 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
     await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant: block.variant })}`);
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 120_000 });
     expect(await page.evaluate(() => document.documentElement.dataset.galleryReady)).toBe("1");
+    // The play has drawn the block by the time the gallery is ready: a block that is not there in
+    // 15 s never comes. A 60 s wait here, four cases a file, pushed the file past its hard limit
+    // when a play stopped finding its block (#41353), and the file's timeout read as every change's.
     await page.waitForFunction(
       ({ scroller, shadow }) => {
         const body = document.querySelector(scroller);
@@ -146,7 +149,7 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
           : Boolean(body.querySelector(".cv-line"));
       },
       block,
-      { timeout: 60_000 },
+      { timeout: 15_000 },
     );
     await page.evaluate((card) => document.querySelector(card)!.scrollIntoView({ block: "center" }), block.card);
     // Without the fade the agent pane's theme turns on (App.tsx applyPaneTheme): the tests that

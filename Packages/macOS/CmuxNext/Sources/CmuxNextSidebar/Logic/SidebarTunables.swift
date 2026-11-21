@@ -144,6 +144,20 @@ public nonisolated enum SidebarTunables {
         "sidebar.groupRowLimit", .sidebar, "Rows before Show more",
         help: "A group or list longer than this shows its first rows, the ones that need you and the active one, then a Show more row. 0 shows every row.",
         default: 0, range: 0...100, step: 1, unit: .count, code: "SidebarTunables.groupRowLimit")
+
+    /// Black over the sidebar so it reads a step dimmer than the panes beside it, as the Codex desktop sidebar's
+    /// under-surface does (https://github.com/manaflow-ai/cmux/issues/39956). Off by default: the sidebar is the
+    /// chrome's own surface, one color with the footer, its cards and the titlebar (Leo 2026-11-11, on the nightly
+    /// that shipped a 0.2 dim: "bro why is the sidebar now a different color?"). A Debug toggle to try the dim.
+    /// Only where nothing else shades the sidebar: no `appearance.surfaces.sidebar` color, no separate chrome shade.
+    public static let surfaceDimDark = Tunable<Double>.number(
+        "sidebar.surfaceDim.dark", .sidebar, "Sidebar dim (dark themes)",
+        help: "Dark themes: black over the sidebar so it reads a step dimmer than the panes, as the Codex sidebar does. 0 (the default) draws the sidebar on the window's own color.",
+        default: 0, range: 0...0.6, step: 0.01, unit: .fraction, code: "SidebarTunables.surfaceDimDark")
+    public static let surfaceDimLight = Tunable<Double>.number(
+        "sidebar.surfaceDim.light", .sidebar, "Sidebar dim (light themes)",
+        help: "Light themes: black over the sidebar so it reads a step dimmer than the panes, as the Codex sidebar does. 0 (the default) draws the sidebar on the window's own color.",
+        default: 0, range: 0...0.3, step: 0.005, unit: .fraction, code: "SidebarTunables.surfaceDimLight")
     /// `groupRowLimit` as a row count.
     public static var rowLimit: Int { max(0, Int(groupRowLimit.value)) }
 
@@ -153,6 +167,14 @@ public nonisolated enum SidebarTunables {
         "sidebar.nowLine", .sidebar, "Rows say what their agent does now",
         help: "While an agent chat in a workspace works, the row's second line reads \"Now:\" and what the agent is doing. A one-line row stays one line.",
         default: false, code: "SidebarTunables.nowLine")
+
+    /// A row whose agent chat has steps left in its task list (acpmux `taskList`: the harness's
+    /// plan, else the one its Chief keeps) shows how many are done ("3/7") on the name's line, and
+    /// its hover card says what runs now and what is next. On by default (David Beyer, Nov 20 call).
+    public static let taskProgress = Tunable<Bool>.toggle(
+        "sidebar.taskProgress", .sidebar, "Rows show their agent's task progress",
+        help: "While an agent chat in a workspace has steps left in its task list, the row shows how many are done (3/7) and the hover card says what runs now and what is next.",
+        default: true, code: "SidebarTunables.taskProgress")
 
     /// Sample agent lanes on every row (`SidebarLaneFixture`), for captures on a slot with no agents.
     public static let laneFixture = Tunable<Bool>.toggle(
@@ -253,11 +275,14 @@ public nonisolated enum SidebarTunables {
             groupEdgeFraction.descriptor,
             groupExitFraction.descriptor,
             groupRowLimit.descriptor,
+            surfaceDimDark.descriptor,
+            surfaceDimLight.descriptor,
             laneStatus.descriptor,
             rowStatus.descriptor,
             laneFixture.descriptor,
             remoteMachineResources.descriptor,
             nowLine.descriptor,
+            taskProgress.descriptor,
             multiView.descriptor,
             NotificationBadgeLook.tunable.descriptor,
             NotificationIconLook.tunable.descriptor,
@@ -285,10 +310,13 @@ public nonisolated enum SidebarTunables {
             updateCardAutomaticControl.descriptor,
             updateCardAutomaticSize.descriptor,
             updateCardButton.descriptor,
+            updateCardLayout.descriptor,
+            workspaceHoverCardLeave.descriptor,
+            workspaceHoverCardTitle.descriptor,
             workspaceOntoEnd.descriptor,
             workspaceOntoStart.descriptor,
             workspacesAsTabs.descriptor,
             workspaceTitleMotion.descriptor,
-        ] + SidebarSectionTunables.all
+        ] + SidebarSectionTunables.all + SidebarRowTuning.all
     }
 }

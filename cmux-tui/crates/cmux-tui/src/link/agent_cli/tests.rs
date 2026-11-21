@@ -1,4 +1,5 @@
 use super::*;
+use std::path::Path;
 
 fn args(words: &[&str]) -> Vec<String> {
     words.iter().map(|word| (*word).to_owned()).collect()
@@ -105,6 +106,48 @@ fn an_incomplete_or_relative_group_is_bad_usage() {
             "/b",
             "--sync-local",
             "/l",
+        ])
+        .is_none()
+    );
+}
+
+#[test]
+fn a_relay_group_names_both_machines_and_its_seed() {
+    let relay = [
+        "--sync",
+        "relay",
+        "--sync-from-socket",
+        "/one",
+        "--sync-socket",
+        "/two",
+        "--sync-local",
+        "/home/a",
+        "--sync-remote",
+        "/home/b",
+        "--sync-seed-local",
+        "/Users/me/app",
+    ];
+    let one = parsed(&relay).expect("a relay group");
+    let sync = one.syncs.first().expect("one group");
+    assert!(sync.way == Way::Relay);
+    assert_eq!(sync.from_socket.as_deref(), Some(Path::new("/one")));
+    assert_eq!(sync.seed_local.as_deref(), Some(Path::new("/Users/me/app")));
+    // A relay without its source, and a seed record on anything but a relay, are bad usage.
+    let no_source: Vec<&str> =
+        relay.iter().copied().filter(|w| *w != "--sync-from-socket" && *w != "/one").collect();
+    assert!(parsed(&no_source).is_none());
+    assert!(
+        parsed(&[
+            "--sync",
+            "seed",
+            "--sync-socket",
+            "/s",
+            "--sync-local",
+            "/l",
+            "--sync-remote",
+            "/r",
+            "--sync-seed-local",
+            "/m"
         ])
         .is_none()
     );

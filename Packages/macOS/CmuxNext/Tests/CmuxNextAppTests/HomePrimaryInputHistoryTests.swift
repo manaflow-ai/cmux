@@ -9,19 +9,19 @@ import CmuxNextTestSupport
 ///
 /// The key dispatcher's one primary-input path (`KeyRouter.typesIntoPrimaryInput` with
 /// `PrimaryInputTarget.routesToPrimaryInput`): a plain Up or Down while a Home container has the
-/// keyboard outside its message box goes to the box's history (a conversation tab; the Home tab and the docked
-/// Home show the React Messages page); the box itself and other text inputs keep their arrows.
+/// keyboard outside its message box goes to the box's history, from every container (a conversation tab, a Home tab, the docked
+/// Home); the box itself, other text inputs and the conversation list keep their arrows.
 /// The recall's content (newest sent message, Down back to the draft) is covered by
 /// MessagesLabHomeTests.ComposerHistoryKeysTests.
 @MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(2))) struct HomePrimaryInputHistoryTests {
-    /// The native hosts (the docked Home's Messages view is the React page now).
-    enum Container: String, CaseIterable { case conversationTab }
+    enum Container: String, CaseIterable { case dock, homeTab, conversationTab }
 
     struct Harness {
         let window: NSWindow
         let content: TabContent
         let box: NSView
         let home: HomeHostView
+        let list: NSView?
         func close() { window.closeWithHomePopovers() }
     }
 
@@ -37,7 +37,20 @@ import CmuxNextTestSupport
         let conversation = ConversationID("conv_history_keys")
         let content: TabContent
         let host: () -> HomeHostView?
+        var list: NSView?
         switch container {
+        case .dock:
+            let dock = HomeDockView(services: services, mode: .messages)
+            dock.messages?.show(conversation)
+            content = .page(InternalPageView(key: "history-dock", page: .homeDock, content: dock))
+            host = { dock.messages?.host }
+            list = dock.messages?.list
+        case .homeTab:
+            let page = TopHomePageView(services: services, windowKey: { "history-keys" })
+            page.show(conversation)
+            content = .page(InternalPageView(key: "history-tab", page: .homeTab, content: page))
+            host = { page.host }
+            list = page.list
         case .conversationTab:
             let view = HomeHostView(services: services, conversation: conversation.rawValue)
             content = .conversation(view)
@@ -53,7 +66,7 @@ import CmuxNextTestSupport
         await wait { host()?.focusTarget is NSTextView }
         let home = try #require(host(), "Home shows no conversation")
         let box = try #require(home.focusTarget as? NSTextView, "Home's message box never appeared")
-        return Harness(window: window, content: content, box: box, home: home)
+        return Harness(window: window, content: content, box: box, home: home, list: list)
     }
 
     private static func key(_ code: UInt16, _ flags: NSEvent.ModifierFlags = [.function, .numericPad]) -> NSEvent {
@@ -117,14 +130,21 @@ import CmuxNextTestSupport
         #expect(Self.routes(Self.key(126), target), "\(container): outside the card Up still recalls")
     }
 
-    /// The box recalls through its own keys (first-line rule).
+    /// The box recalls through its own keys (first-line rule); the conversation list keeps arrows.
     @Test(arguments: Container.allCases)
-    func theBoxKeepsItsArrows(_ container: Container) async throws {
+    func theBoxAndTheListKeepTheirArrows(_ container: Container) async throws {
         let h = try await Self.harness(container)
         defer { h.close() }
         let target = try #require(h.content.primaryInput)
         h.window.makeFirstResponder(h.box)
         #expect(!Self.routes(Self.key(126), target), "\(container): the box's own Up was taken by the dispatcher")
+        if let list = h.list {
+            h.window.makeFirstResponder(list)
+            let responder = h.window.firstResponder as? NSView
+            if let responder, responder === list || responder.isDescendant(of: list) {
+                #expect(!target.routesToPrimaryInput(Self.key(125)), "\(container): the conversation list lost its arrows")
+            }
+        }
     }
 }
 

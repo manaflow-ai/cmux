@@ -8,12 +8,8 @@
 // - A search (title, preview or another member's name; case, width and accents aside) or the Unread
 //   filter lists the matching conversations as rows, pinned ones first, and no grid.
 // - Each row: avatar, name, a two-line preview, Messages' list time and the unread dot.
-// - After the conversations, every team member with no DM yet (no search); a search lists the
-//   people with no DM whose name matches under "Teammates" (HomeSidebarModel.teammates and
-//   `people`). Choosing one starts the DM; they have no pin, read state or menu.
 import { activityAt, channelIds, chiefState, conversationName, type ChiefState } from "../../home-channels/model";
 import type { HomeConversation, HomeParticipant } from "../../home-channels/types";
-import type { ListPerson } from "../types";
 
 /** One conversation as the list draws it (a row or a pinned tile). */
 export interface ListItem {
@@ -46,26 +42,10 @@ export interface ListItem {
   label: string;
 }
 
-/** A person with no DM yet as the list draws them: their avatar and name, nothing else. */
-export interface TeammateItem {
-  /** `teammate:` and the person's id (never a conversation's). */
-  id: string;
-  person: HomeParticipant;
-  title: string;
-  label: string;
-}
-
 export interface ListModel {
   pinned: readonly ListItem[];
   rows: readonly ListItem[];
-  /** People with no DM yet, after the rows. */
-  people?: readonly TeammateItem[];
-  /** The people are a search's "Teammates" section (drawn under its header). */
-  peopleSection?: boolean;
 }
-
-/** A teammate row's id. */
-export const TEAMMATE_PREFIX = "teammate:";
 
 /** The words the model puts in rows (the page's string table: `home.*` keys of the Swift list). */
 export interface ListWords {
@@ -89,10 +69,6 @@ export interface ListOptions {
   badges?: ReadonlyMap<string, string>;
   /** Who types or writes a reply, by conversation: a Chief's row shows it working. */
   activity?: ReadonlyMap<string, ReadonlySet<string>>;
-  /** The team members with no DM yet (rows after the conversations while no search runs). */
-  teammates?: readonly ListPerson[];
-  /** Everyone with no DM yet (a search's "Teammates" section lists the names that match). */
-  people?: readonly ListPerson[];
 }
 
 /** Folded for comparison as `localizedStandardContains` folds: case, width and accents aside. */
@@ -185,25 +161,12 @@ export function listModel(conversations: ReadonlyMap<string, HomeConversation>, 
   const query = options.query?.trim() ?? "";
   const pinnedItems = pinned.map(item);
   const restItems = rest.map(item);
-  const teammate = (person: ListPerson): TeammateItem => ({
-    id: TEAMMATE_PREFIX + person.id,
-    person: { id: person.id, kind: "human", name: person.name, chief: false },
-    title: person.name,
-    label: person.name,
-  });
-  if (!query && !options.unreadOnly) {
-    const people = (options.teammates ?? []).filter((p) => p.id !== me).map(teammate);
-    return { pinned: pinnedItems, rows: restItems, ...(people.length ? { people } : {}) };
-  }
+  if (!query && !options.unreadOnly) return { pinned: pinnedItems, rows: restItems };
   // A search or a filter lists every match as a row, pinned ones first, and no grid.
   const rows = [...pinnedItems, ...restItems].filter(
     (row) => (!options.unreadOnly || row.unread) && (!query || matches(row, query)),
   );
-  const needle = fold(query);
-  const people = needle
-    ? (options.people ?? []).filter((p) => p.id !== me && fold(p.name).includes(needle)).map(teammate)
-    : [];
-  return { pinned: [], rows, ...(people.length ? { people, peopleSection: true } : {}) };
+  return { pinned: [], rows };
 }
 
 /** The list's visual order: the pinned grid, then the rows. */
@@ -252,22 +215,4 @@ export function unreadConversations(model: ListModel): string[] {
 /** The list holds at most one conversation and nothing under it: a narrow column folds it away. */
 export function holdsOneConversation(model: ListModel, extras: { note?: string; requests?: number }): boolean {
   return model.pinned.length + model.rows.length <= 1 && !extras.note && !extras.requests;
-}
-
-/** The conversations the list shows: each deleted one (Delete Conversation…, `hidden`: the newest
- * seq it had then) stays off until a newer message, as the native list's `HomeSidebarSource.shows`.
- * The same map when nothing is hidden, so the list model is not rebuilt. */
-export function visibleConversations(
-  conversations: ReadonlyMap<string, HomeConversation>,
-  hidden: ReadonlyMap<string, number>,
-): ReadonlyMap<string, HomeConversation> {
-  if (hidden.size === 0) return conversations;
-  let out: Map<string, HomeConversation> | undefined;
-  for (const [id, seq] of hidden) {
-    const conversation = conversations.get(id);
-    if (!conversation || conversation.lastSeq > seq) continue;
-    out ??= new Map(conversations);
-    out.delete(id);
-  }
-  return out ?? conversations;
 }

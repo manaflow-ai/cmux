@@ -16,6 +16,7 @@
 // on the stack's parts, the dock and the pane's main column; a child-list observer on the dock only,
 // never on the transcript), and sent only when it changed.
 import { postNative } from "./native";
+import { onVisualViewport } from "../../ui/visualViewportBox";
 
 /// The bottom stack's box in the page's viewport, CSS pixels.
 export type StackBox = { left: number; top: number; right: number; bottom: number };
@@ -43,14 +44,17 @@ export function bottomStackBox(dock: Element, skip: string = NOT_STACK): StackBo
       : { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
   }
   if (!box) return undefined;
+  // Where the stack shows under a trackpad pinch: the App lifts its toasts above that.
+  const shown = onVisualViewport(box, dock.ownerDocument.defaultView);
   const round = (value: number) => Math.round(value);
-  return { left: round(box.left), top: round(box.top), right: round(box.right), bottom: round(box.bottom) };
+  return { left: round(shown.left), top: round(shown.top), right: round(shown.right), bottom: round(shown.bottom) };
 }
 
 /// One element's own box (a composer card), or none while it takes no room.
 export function elementBox(element: Element | null | undefined): StackBox | undefined {
-  const rect = element?.getBoundingClientRect();
-  if (!rect || !(rect.width > 0 && rect.height > 0)) return undefined;
+  const layout = element?.getBoundingClientRect();
+  if (!layout || !(layout.width > 0 && layout.height > 0)) return undefined;
+  const rect = onVisualViewport(layout, element?.ownerDocument.defaultView);
   const round = (value: number) => Math.round(value);
   return { left: round(rect.left), top: round(rect.top), right: round(rect.right), bottom: round(rect.bottom) };
 }
@@ -95,11 +99,16 @@ export function watchToastAvoidance(
   parts.observe(dock, { childList: true });
   observeParts();
   view.addEventListener("resize", schedule);
+  // A trackpad pinch moves where the stack shows (onVisualViewport) without a window resize.
+  view.visualViewport?.addEventListener("resize", schedule);
+  view.visualViewport?.addEventListener("scroll", schedule);
   schedule();
   return () => {
     parts.disconnect();
     sizes.disconnect();
     view.removeEventListener("resize", schedule);
+    view.visualViewport?.removeEventListener("resize", schedule);
+    view.visualViewport?.removeEventListener("scroll", schedule);
     if (frame) view.cancelAnimationFrame(frame);
     frame = 0;
     if (sent) send(undefined);

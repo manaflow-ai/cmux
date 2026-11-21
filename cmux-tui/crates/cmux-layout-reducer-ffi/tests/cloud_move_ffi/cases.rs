@@ -81,7 +81,8 @@ fn a_call_names_its_arguments() {
             "c"
         ])
     );
-    assert_eq!(body["timeoutSeconds"], Value::Null);
+    // A ledger verb: a minute (cmux-cloud-start-core START_CHAT_LEDGER_TIMEOUT_SECONDS).
+    assert_eq!(body["timeoutSeconds"], json!(60));
     assert_eq!(call(c"cloud_move_cli_invocation", &json!({"verb": "rm"})).0, ERR_INVALID);
 }
 

@@ -8,7 +8,7 @@ import Testing
 /// card-wide slabs, two of them loud pink, and a stray Escape glyph): Cancel and the default on one line, the default
 /// rightmost; the destructive choices as quiet red text on their own line under them, never card-wide and never
 /// filled at rest; "Don't ask again" last; no key glyphs, while Return and Escape still answer. The overlay page
-/// draws the card (webviews/src/pages/overlay/dialog); this guards the spec's layout, keys and quiet look.
+/// draws the card (``CmuxDialogView``); this guards the spec's layout, keys and quiet look.
 @MainActor
 struct CmuxDialogSafeDefaultLayoutTests {
     private static let spec = CmuxDialogSpec(
@@ -27,7 +27,7 @@ struct CmuxDialogSafeDefaultLayoutTests {
         #expect(CmuxDialogSpec.Layout(alertFor: Self.spec.buttons.filter { $0.role != .destructive }) == .standard)
     }
 
-    /// The overlay page lays the buttons out (OverlayDialog.test.tsx: the quiet row); the dialog itself
+    /// The card lays the buttons out (``CmuxDialogView``: the quiet row); the dialog itself
     /// gives no button a key glyph in this layout, while Return and Escape still answer.
     @Test func noButtonShowsAKeyAndReturnAndEscapeStillAnswer() {
         let dialog = CmuxDialogPresentation(id: 1, spec: Self.spec, activeLook: nil)

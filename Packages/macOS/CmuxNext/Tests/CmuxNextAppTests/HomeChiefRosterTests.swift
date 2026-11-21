@@ -54,6 +54,9 @@ struct HomeChiefRosterTests {
         #expect(unii.place == .thisMac)
         #expect(unii.listBadge?.hasPrefix(HomeModelStrings.placeThisMac) == true)
         #expect(unii.accessibilityLabel.hasPrefix("Unii, " + HomeModelStrings.placeThisMac))
+        // The list draws the tag after the name.
+        let entry = HomeSidebarView.entry(unii)
+        #expect(entry.shownTitle.hasPrefix("Unii \u{00B7} " + HomeModelStrings.placeThisMac))
         // A DM gets no tag.
         #expect(model.rows.first { $0.id == Self.ada }?.listBadge == nil)
     }

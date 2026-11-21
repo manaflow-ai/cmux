@@ -44,7 +44,10 @@ struct SidebarScrollHoverForwardTests {
         #expect(forwards.workspaces.isEmpty, "a scroll forwarded \(forwards.workspaces.count) hovered rows while it ran")
         #expect(forwards.tabs.isEmpty, "a scroll sent \(forwards.tabs.count) chat prefetches while it ran")
 
-        try await Task.sleep(for: .milliseconds(100))
+        // The settle timer forwards the rested row: wait for that forward, bounded by a deadline, not a fixed sleep.
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(10))
+        while forwards.workspaces.isEmpty, clock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
         let rested = bench.list.hoveredKey
         let restedWorkspace: WorkspaceID? = if case let .workspace(id)? = rested { id } else { nil }
         #expect(forwards.workspaces.count == 1, "after the scroll rested: \(forwards.workspaces)")

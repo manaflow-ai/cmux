@@ -10,11 +10,7 @@ export class SetupCardStore {
   private unsubscribe: (() => void) | null = null;
   private stopped = false;
 
-  /** `ops`: where the host serves `state` and `changed` (the Messages page has them under its own prefix). */
-  constructor(
-    private readonly client: PageClient | null,
-    private readonly ops: { readonly state: string; readonly changed: string } = SETUP_OPS,
-  ) {}
+  constructor(private readonly client: PageClient | null) {}
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -28,14 +24,14 @@ export class SetupCardStore {
     const client = this.client;
     if (!client) return;
     let changed = false;
-    const unsubscribe = await client.subscribe<SetupState>(this.ops.changed, (next) => {
+    const unsubscribe = await client.subscribe<SetupState>(SETUP_OPS.changed, (next) => {
       changed = true;
       this.set(next);
     });
     if (this.stopped) return unsubscribe();
     this.unsubscribe = unsubscribe;
     try {
-      const first = await client.call<SetupState>(this.ops.state, {});
+      const first = await client.call<SetupState>(SETUP_OPS.state, {});
       if (!changed) this.set(first);
     } catch {
       // The host pushes the state on its next change.

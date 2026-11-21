@@ -126,12 +126,13 @@ const listActive = async (key: string): Promise<{ subs: StripeSubscription[]; tr
 
 /**
  * The price set in force: `e2e` only on the development Worker that asks for it; `v2` (Team 25 USD per seat,
- * Leo 2026-11-09) only on development or staging with BILLING_USAGE_PRICE_SET=v2. Production stays v1
- * whatever the setting: it waits for Leo's go.
+ * model overage at list + 10%, the spending cap; Leo 2026-11-09) on development, staging or production with
+ * BILLING_USAGE_PRICE_SET=v2. Production has no setting, so it stays v1 until the founders' go sets it
+ * (plans/cmux-next/billing-go-live.md); live keys stay refused by stripeKeyMode either way.
  */
 export const usagePriceSet = (env: Pick<Env, "ENVIRONMENT" | "BILLING_USAGE_PRICE_SET">): UsagePriceSet => {
   if (env.ENVIRONMENT === "development" && env.BILLING_USAGE_PRICE_SET === "e2e") return "e2e"
-  if ((env.ENVIRONMENT === "development" || env.ENVIRONMENT === "staging") && env.BILLING_USAGE_PRICE_SET === "v2") return "v2"
+  if ((env.ENVIRONMENT === "development" || env.ENVIRONMENT === "staging" || env.ENVIRONMENT === "production") && env.BILLING_USAGE_PRICE_SET === "v2") return "v2"
   return "v1"
 }
 

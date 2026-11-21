@@ -2,7 +2,7 @@
 """cmux-next-web.yml's coalesced push runs (scripts/ci/web_coalesce.py) and their bisect.
 
 The decision (claude-sr2-coord, 2026-11-03): coalesce the push runs to the newest tip when (1) a run still starts
-at least every 30 minutes of landings (15 until 2026-11-04), (2) a red coalesced run bisects only its failing named tests over the commits
+at least every 120 minutes of landings (15 until 2026-11-04, 30 until 2026-11-21), (2) a red coalesced run bisects only its failing named tests over the commits
 it skipped, so test_reds.py still names the first red commit and its pull request, and (3) the PR-time webview
 verdict (react-apps-base-check) is unchanged.
 """
@@ -22,6 +22,13 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import yaml
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
@@ -528,7 +535,7 @@ class ProbeTests(unittest.TestCase):
             pin.write_text("#!/usr/bin/env bash\necho 'pin-browser-test-font: the UI font stack draws Inter'\n")
             pin.chmod(0o755)
             got = subprocess.run(["bash", "-c", f"runner={tmp}\n{block}\nprintf '%s' \"$CMUX_CHROME_HEADLESS_SHELL\""],
-                                 capture_output=True, text=True, check=True, env={"PATH": os.environ["PATH"]})
+                                 capture_output=True, text=True, check=True, env=git_fixture_env.fixture_env({"PATH": os.environ["PATH"]}))
             self.assertTrue(got.stdout.endswith("/cache/chrome-headless-shell"), got.stdout)
 
 
@@ -574,10 +581,10 @@ class WorkflowTests(unittest.TestCase):
         # ... and it never saves a marker, so a late save cannot roll the newest one back.
         save = next(s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/cache/save@"))
         self.assertIn("github.run_attempt == '1'", save["if"])
-        self.assertIn("--hold-minutes 30", next(s for s in job["steps"] if s.get("id") == "wait")["run"])
-        # The sleep, then a few minutes of work; the decision's bound on the window is 30 minutes.
-        self.assertEqual(coalesce.HOLD_MINUTES, 30.0)
-        self.assertLessEqual(job["timeout-minutes"], 35)
+        self.assertIn("--hold-minutes 120", next(s for s in job["steps"] if s.get("id") == "wait")["run"])
+        # The sleep, then a few minutes of work; the bound on the window is 120 minutes (CI time map, 2026-11-21).
+        self.assertEqual(coalesce.HOLD_MINUTES, 120.0)
+        self.assertLessEqual(job["timeout-minutes"], 125)
         self.assertIs(self.web["concurrency"]["cancel-in-progress"], False)
         self.assertNotIn("cancel-in-progress: true", WEB.read_text())
 
@@ -677,11 +684,14 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual(output.read_text(), everything.read_text())
 
     def test_the_pull_request_webview_verdict_is_untouched(self):
-        # Condition 3: react-apps-base-check runs on pull requests only, from the head shards' own results.
+        # Condition 3: react-apps-base-check runs on pull requests only, from the head shards' own results (and the
+        # early base replay of the same merge parent, a pull-request-only job too).
         ci_web = yaml.safe_load(CI_WEB.read_text())
         base = ci_web["jobs"]["react-apps-base-check"]
         self.assertEqual(base["needs"], ["web-subarea-scope", "react-apps-check-shard"])
         self.assertTrue(base["if"].startswith("${{ github.event_name == 'pull_request'"))
+        self.assertTrue(ci_web["jobs"]["react-apps-base-early"]["if"].startswith(
+            "${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci')"))
 
 
 if __name__ == "__main__":

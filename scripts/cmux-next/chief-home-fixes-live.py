@@ -193,7 +193,7 @@ def check_rename_and_engine():
 
 def check_send_after_shutdown():
     # Show the default Chief's conversation BEFORE the shutdown: showing another conversation is
-    # an ask of its own (the Messages page opening it), which would start the brain without the fix.
+    # an ask of its own (TopHomePageView.show), which would start the brain without the fix.
     default = conversation_with("agent_mux")
     if default:
         open_conversation(default["id"])

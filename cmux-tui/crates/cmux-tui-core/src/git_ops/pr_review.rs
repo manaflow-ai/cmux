@@ -306,7 +306,7 @@ fn worktree(
     let attempt = worktree::plan(repository, target.common_dir(), &fields)?;
     // Untrusted: no hook or filter driver runs, since either could run the
     // pull request's code in its checkout before anyone read it.
-    worktree::create(repository, git, &attempt, Some(&pull.url()))?;
+    worktree::create(repository, git, &attempt, target.common_dir(), Some(&pull.url()))?;
     Ok((attempt.root, attempt.branch, false))
 }
 
@@ -525,7 +525,7 @@ fn post(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, Resour
     mux.resolve_resource_path(crate::ResourceTarget::Session, &request.selectors)?;
     let root = diff_comments::root(&request.fields)?;
     let ids = diff_comments::ids(&request.fields)?;
-    let versions = diff_comments::versions(&request.fields)?;
+    let versions = diff_comments::versions(&request.fields, false)?;
     // Every draft's version: a retry that finds its review already posted
     // clears only drafts unchanged since, so an edit made after a lost reply
     // stays for the next post instead of being cleared unposted.

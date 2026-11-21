@@ -127,9 +127,29 @@ test("an approval answers allow once and deny once, never the lasting allow", ()
   ]);
 });
 
-test("a question is answered in its chat; another machine's ask and a pull request take no one-click answer", () => {
-  // No chat shows on the page for `chat.permission`, and the host's one-click answer takes tool
-  // permissions only, so a question's choices are its chat card's.
+test("a one-pick question takes its choices here; another machine's ask and a pull request take no one-click answer", async () => {
+  // The host answers another chat's question as its card would (homeInboxModel.ts `replyElsewhere`;
+  // Leo, 2026-11-10: "this is unusable to respond to i necessarily have to open... this is bad ui").
+  const fs = await import("node:fs");
+  const record = JSON.parse(
+    fs.readFileSync(
+      new URL(
+        "../../Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/pending-single.request.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  expect(
+    queueAnswers(item({ kind: "question", question: record.request, permissionId: record.permissionId })).map(
+      (answer) => [answer.label, answer.tone],
+    ),
+  ).toEqual([
+    ["OAuth 2.0", "choice"],
+    ["API keys", "choice"],
+    ["Passkeys", "choice"],
+  ]);
+  // A question whose ask can't be read here has none: its chat's card takes it.
   const question = item({
     kind: "question",
     options: [

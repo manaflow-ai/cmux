@@ -70,13 +70,18 @@ import Testing
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent() // Packages/macOS/CmuxNext
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
 
-    /// The sources linked into the macOS app.
-    static let sourceRoots = [
-        "Packages/macOS/CmuxNext/Sources",
-        "Packages/Shared/CmuxMessagesLab/Sources",
-        "Packages/Shared/CmuxScreenKit/Sources",
-        "Packages/iOS/CmuxConversation/Sources/CmuxConversationMacUI",
-    ].map { repoRoot.appendingPathComponent($0, isDirectory: true) }
+    /// The Swift sources linked into the macOS app, named as file patterns: the CI router reads each pattern as
+    /// "a changed .swift file here selects this suite", where a bare folder would also select it for a web bundle
+    /// or a resource under the same folder (Resources/agent-pane/index.html), which it never reads.
+    static let sourcePatterns = [
+        "Packages/macOS/CmuxNext/Sources/**/*.swift",
+        "Packages/Shared/CmuxMessagesLab/Sources/**/*.swift",
+        "Packages/Shared/CmuxScreenKit/Sources/**/*.swift",
+        "Packages/iOS/CmuxConversation/Sources/CmuxConversationMacUI/**/*.swift",
+    ]
+    static let sourceRoots = sourcePatterns.map {
+        repoRoot.appendingPathComponent(String($0.dropLast("/**/*.swift".count)), isDirectory: true)
+    }
 
     static func swiftFiles(under root: URL) -> [URL] {
         guard let walk = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil) else { return [] }

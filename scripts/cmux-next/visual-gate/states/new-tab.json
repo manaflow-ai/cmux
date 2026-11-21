@@ -15,7 +15,7 @@
         "--focus"
       ],
       "wait": 2.5,
-      "cite": "Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog/TabActionCatalog.swift:59-63 (cli `tab new-page`; --focus: cli/app.rs run_action)"
+      "cite": "cmux-tui/crates/cmux-action-catalog/src/catalog/tab.rs (cli `tab new-page`; --focus: cli/app.rs run_action)"
     },
     {
       "title": "Select tab 2 (the New Tab) in case --focus left it in the background",
@@ -27,7 +27,7 @@
         "2"
       ],
       "wait": 2,
-      "cite": "Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog/TabActionCatalog.swift:285-289",
+      "cite": "cmux-tui/crates/cmux-action-catalog/src/catalog/tab.rs",
       "optional": "the tab may already be selected"
     }
   ]

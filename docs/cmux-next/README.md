@@ -57,7 +57,7 @@ The terminal daemon outlives the app. An update (Sparkle or the DEV script) quit
 swaps it, and relaunches it. The new build takes over the running terminals, so shells,
 scrollback and running agent turns keep going. Screens also come back after a reboot.
 
-To go back one build: palette **Roll Back to Previous Version**, or `cmux update rollback`.
+To go back one build: palette **Roll Back to Previous Version**, or `cmux settings rollback-update --confirm`.
 It's refused, with a message, when the newer build has already changed stored data that the
 older one can't read.
 

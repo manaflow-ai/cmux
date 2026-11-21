@@ -27,6 +27,8 @@ import { diffItemKind, orderItemsByKind } from "./diff-kind-groups";
 import { filterDiffItems, isDiffFileFilterActive } from "./file-filter";
 import { createDiffViewerLabelResolver, shouldAssertMissingLabels } from "./labels";
 import { codeViewOptions, workerHighlighterOptions, type DiffViewerOptions } from "./pierre-options";
+import { useDiffCodeLineHeight } from "./diff-viewer/useDiffCodeLineHeight";
+import { diffChromeRows, useDiffDensityScale } from "./diff-viewer/density";
 import { applyDiffViewerStatusToDocument, createDiffViewerStatus } from "./status";
 import { NO_HOST_CAPABILITIES, UNCOMMITTED_BASE_REF } from "./toolbar-model";
 import {
@@ -76,6 +78,11 @@ import {
 } from "./diff-viewer/state";
 import { FileHeader } from "./diff-viewer/FileHeader";
 import { diffGitSource, useDiffStageAction } from "./diff-viewer/git";
+import {
+  PullRequestActionButton,
+  PullRequestActionStatus,
+  usePullRequestAction,
+} from "./diff-viewer/PullRequestAction";
 import { diffRevertSource, revertScopeOf } from "./diff-viewer/revert";
 import {
   DIFF_BULK_BAR_ROOM,
@@ -248,8 +255,12 @@ export function App({ config, initialStatus }: ConfigProps) {
   // The auto layout draws unified while the viewer is too narrow for two readable sides.
   const fits = splitFits(state.viewerWidth);
   const drawnOptions = useMemo(() => drawnDiffOptions(state.options, fits), [state.options, fits]);
+  // The code line at the tab's zoom (Cmd-= / Cmd-- / Cmd-0): the virtualizer's row metric follows it.
+  const codeLineHeight = useDiffCodeLineHeight();
+  // The file header bar at the app density (diff-viewer/density.ts): the virtualizer's header metric follows it.
+  const headerHeight = diffChromeRows(useDiffDensityScale()).header;
   const renderedCodeViewOptions = useMemo(() => {
-    const options = codeViewOptions(drawnOptions, appearance);
+    const options = codeViewOptions(drawnOptions, appearance, codeLineHeight, headerHeight);
     options.onGutterUtilityClick = ((range: SelectedLineRange, context: { item: DiffItem }) =>
       gutterClick.current(range, context)) as any;
     Object.assign(options, hunkHoverCallbacks(hunkHover));
@@ -262,7 +273,7 @@ export function App({ config, initialStatus }: ConfigProps) {
         reportFirstHunk(diffPageClient(), latestState.current.items.length);
     }) as any;
     return options;
-  }, [appearance, gutterClick, lineClick, drawnOptions, bulkBarRoom, latestState]);
+  }, [appearance, gutterClick, lineClick, drawnOptions, bulkBarRoom, latestState, codeLineHeight, headerHeight]);
   const closeActiveSession = useCallback(() => {
     const activeSession = activeSessionRef.current;
     if (!transport) {
@@ -897,6 +908,8 @@ export function App({ config, initialStatus }: ConfigProps) {
     if (op === "commit") setCommitOpen(false);
     if (op !== "push") refreshRef.current();
   });
+  const pullRequestAction = usePullRequestAction(gitSource);
+  const pullRequestDisabled = commitOpen || git.state?.phase === "busy" || git.status?.detached === true;
   const stageAction = useDiffStageAction(
     gitSource,
     resolvedSessionSource ?? activeSessionSource,
@@ -954,6 +967,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   return (
     <div
       id="app"
+      style={{ "--cmux-diff-file-header-height": `${headerHeight}px` } as React.CSSProperties}
       data-file-search-open={state.fileSearchOpen}
       data-file-filter-active={isDiffFileFilterActive(state.fileFilter)}
     >
@@ -1009,7 +1023,9 @@ export function App({ config, initialStatus }: ConfigProps) {
                   git={git}
                   formOpen={commitOpen}
                   onToggleForm={() => setCommitOpen((open) => !open)}
+                  disabled={pullRequestAction.busy}
                 />
+                <PullRequestActionButton action={pullRequestAction} disabled={pullRequestDisabled} />
               </span>
             ) : null}
             <DiffPill
@@ -1052,7 +1068,13 @@ export function App({ config, initialStatus }: ConfigProps) {
             instead of the pill's Commit and Push below 600 px. */}
         {gitTools ? (
           <span className="diff-git-tools diff-git-tools-row">
-            <GitToolbarButtons git={git} formOpen={commitOpen} onToggleForm={() => setCommitOpen((open) => !open)} />
+            <GitToolbarButtons
+              git={git}
+              formOpen={commitOpen}
+              onToggleForm={() => setCommitOpen((open) => !open)}
+              disabled={pullRequestAction.busy}
+            />
+            <PullRequestActionButton action={pullRequestAction} disabled={pullRequestDisabled} />
           </span>
         ) : null}
         {(filesChanged || machineUnavailable) && (
@@ -1063,10 +1085,12 @@ export function App({ config, initialStatus }: ConfigProps) {
             </button>
           </output>
         )}
+        {gitTools && <PullRequestActionStatus action={pullRequestAction} />}
         <GitWriteBar
           git={git}
           formOpen={commitOpen}
           onCloseForm={() => setCommitOpen(false)}
+          disabled={pullRequestAction.busy}
           reloadKey={state.renderGeneration}
         />
         {reviewBrief ? (

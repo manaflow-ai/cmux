@@ -14,8 +14,14 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
+
 
 def load(name: str, path: Path):
+    # One module object per file (tests/test_script_module_loads.py): reuse what another test registered.
+    if name in sys.modules:
+        return sys.modules[name]
     spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
@@ -24,7 +30,9 @@ def load(name: str, path: Path):
 
 
 drill = load("rollback_drill", ROOT / "scripts/ci/nightly_next_rollback_drill.py")
-rollback = load("feed_rollback_for_drill", ROOT / "scripts/ci/nightly_next_feed_rollback.py")
+# By name: other tests load this script too, and one module object per file is what they share
+# (tests/test_script_module_loads.py). workflow_jobs put scripts/ci on sys.path.
+import nightly_next_feed_rollback as rollback  # noqa: E402
 GUARD = ROOT / "scripts/ci/nightly-next-guard.py"
 BASE = "https://files-next.cmux.com/nightly-next/"
 
@@ -203,7 +211,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("github.event_name == 'schedule'", job)
         self.assertIn("github.event.schedule == '15 9 * * 1' && 'publish' || 'pull'", job)
         self.assertIn("--ref nightly-next -f step=\"$STEP\"", job)
-        self.assertNotIn("secrets.", job)
+        self.assertEqual(workflow_jobs.secret_names(job), set())
 
     def test_a_failed_pull_still_writes_its_receipt(self):
         job = self.job(self.text, "receipt")

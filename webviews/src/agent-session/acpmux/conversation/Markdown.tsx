@@ -162,12 +162,14 @@ function Block({
     case "list": {
       const L = block.ordered ? "ol" : "ul";
       const tasks = block.items.every((it) => it.task);
+      const numbers = listNumberStyle(block);
       return (
         <L
           className={`cv-list ${block.ordered ? "cv-ol" : "cv-ul"}${tasks ? " cv-tasks" : ""}${motion}`}
           data-depth={depth}
           start={block.ordered && block.start !== 1 ? block.start : undefined}
-          style={listNumberStyle(block)}
+          style={numbers}
+          data-wide-numbers={numbers ? "" : undefined}
         >
           {block.items.map((it, i) => (
             <li key={i} className={it.task ? "cv-task" : undefined}>

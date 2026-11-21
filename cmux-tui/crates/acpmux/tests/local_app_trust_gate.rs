@@ -44,6 +44,7 @@ fn paths(d: &Path) -> Paths {
         record: d.join("home").join("trust.json"),
         agent_home: Some(d.join("agent-home")),
         cmux_worktrees: Some(d.join("home").join(".cmux").join("worktrees")),
+        peer_scratch: None,
     }
 }
 
@@ -572,5 +573,38 @@ async fn an_inline_side_question_for_the_app_waits_for_the_folders_trust() {
     let r = local.call("_acpmux/btw", ask).await;
     assert_eq!(reason(&r), "trust.untrusted", "{r}");
     assert_eq!(hub.sessions().len(), before, "a held side question opens nothing");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// A switch onto another harness (`session/fork` with `_meta.acpmux.harness`) starts that
+/// harness's agent in the folder: the folder must be trusted for the picked harness's family, so
+/// a switch that answer does not cover is refused before a fork exists, as `session/new` is
+/// (review of cmux#41030). Claude Code trusts the folder on its own; Codex has no answer for it.
+#[tokio::test]
+async fn a_switch_onto_another_harness_waits_for_its_own_folder_trust() {
+    let d = dir("switch");
+    let hub = hub(&d);
+    let mut app = Client::new(&hub, Origin::LocalApp);
+    let mut local = Client::new(&hub, Origin::Local);
+    let work = d.join("work");
+    std::fs::write(
+        &paths(&d).claude_json,
+        json!({"projects": {d.to_string_lossy(): {"hasTrustDialogAccepted": true}}}).to_string(),
+    )
+    .unwrap();
+    let claude = local.new_session(&work, "fclaude").await;
+    let before =
+        local.call("session/list", json!({})).await.to_string().matches("sessionId").count();
+    let switch = json!({"sessionId": claude, "cwd": work, "mcpServers": [],
+                        "_meta": {"acpmux": {"harness": "fcodex"}}});
+    let r = app.call("session/fork", switch.clone()).await;
+    assert_eq!(reason(&r), "trust.pending", "{r}");
+    let after =
+        local.call("session/list", json!({})).await.to_string().matches("sessionId").count();
+    assert_eq!(before, after, "no fork was made");
+    // Its family's own answer: the switch goes.
+    app.trust(&work, "trusted").await;
+    let r = app.call("session/fork", switch).await;
+    assert!(r.get("error").is_none(), "{r}");
     let _ = std::fs::remove_dir_all(&d);
 }

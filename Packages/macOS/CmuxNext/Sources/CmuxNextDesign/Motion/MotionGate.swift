@@ -31,13 +31,18 @@ public nonisolated struct MotionGate: Sendable, Equatable {
     }
 
     /// The live policy for this category: the master switch, the category
-    /// switch, `ui.animationSpeed`, Reduce Motion and a live resize.
+    /// switch, `ui.animationSpeed` and Reduce Motion. It knows no window, so no live resize: for
+    /// fades, loops, spring parameters and values a page or a cache keeps after a drag ends.
+    /// Movement inside an app window asks ``policy(in:)``.
     @MainActor public var policy: MotionPolicy { Motion.basePolicy.for(category) }
 
-    /// ``policy`` with no live resize: for values a page or a cache keeps after a drag ends.
-    @MainActor public var policyIgnoringLiveResize: MotionPolicy {
+    /// The live policy for a motion that `window` shows: ``policy``, and movement snaps while
+    /// `window` is in a live resize or a full screen transition (``Motion/isLiveResizing(_:)``),
+    /// so its content follows the edge in every frame. A resize of another window changes nothing
+    /// here: its motion runs as usual.
+    @MainActor public func policy(in window: NSWindow?) -> MotionPolicy {
         var policy = self.policy
-        policy.liveResize = false
+        policy.liveResize = Motion.isLiveResizing(window)
         return policy
     }
 

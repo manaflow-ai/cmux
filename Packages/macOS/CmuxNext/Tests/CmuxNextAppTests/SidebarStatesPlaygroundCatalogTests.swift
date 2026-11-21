@@ -126,10 +126,11 @@ import Testing
         #expect(leading[.current] != leading[.adaptive], "the adaptive column draws the dark mono favicon as fetched")
     }
 
-    /// The RGBA bytes of `cell`'s row left of its title (the leading inset guide).
+    /// The RGBA bytes of `cell`'s row left of where a title after an icon starts: the leading inset guide plus the icon
+    /// column. A leading icon's ink starts on the guide (Lawrence 2026-11-09, one left edge), so its pixels are right of it.
     static func leadingPixels(_ cell: SidebarStatesPlaygroundCell) throws -> [UInt8] {
         let image = try #require(cell.image), guide = try #require(cell.leadingGuideX)
-        let width = Int(guide * cell.scale), height = image.height
+        let width = min(image.width, Int(((guide + SidebarStyle.rowGlyphOpticalSide) * cell.scale).rounded())), height = image.height
         var bytes = [UInt8](repeating: 0, count: width * height * 4)
         let drawn = bytes.withUnsafeMutableBytes { buffer -> Bool in
             guard let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,

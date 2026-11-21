@@ -64,7 +64,7 @@ nonisolated enum MarkdownViewerSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.markdown.remoteImages", "Load Web Images Automatically"),
-                help: SettingsText.keyed("settings.markdown.remoteImages.help", "Web image sites can see your address and when you open a document. When off, each document asks before loading its web images."),
+                help: SettingsText.keyed("settings.markdown.remoteImages.help", "Image sites can see your address and when you open a document."),
                 kind: .toggle,
                 default: .bool(MarkdownViewerSettingsSchema.remoteImagesDefault),
                 keywords: ["markdown", "viewer", "reading", "image", "web", "remote", "privacy", "tracking", "automatic"]
@@ -74,7 +74,7 @@ nonisolated enum MarkdownViewerSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.markdown.width", "Text Width"),
-                help: SettingsText.keyed("settings.markdown.width.help", "The widest a line of text gets, in characters (30 to 1000). On a wider window the text stays centered with margins. Wide tables and code scroll sideways in their own box."),
+                help: SettingsText.keyed("settings.markdown.width.help", "The widest a line gets, in characters."),
                 kind: .number(SettingNumber(MarkdownViewerSettingsSchema.widthRange, step: 1, unit: .count, placeholder: MarkdownViewerSettingsSchema.widthPlaceholder)),
                 default: .number(MarkdownViewerSettingsSchema.widthDefault),
                 keywords: ["markdown", "viewer", "reading", "width", "max width", "column", "measure", "line length", "wide", "ultrawide", "monitor"]
@@ -94,7 +94,7 @@ nonisolated enum MarkdownViewerSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.markdown.fontSize", "Default Font Size"),
-                help: SettingsText.keyed("settings.markdown.fontSize.help", "The text size every markdown viewer opens at. Cmd-= and Cmd-- change it in one viewer; Cmd-0 goes back to this size."),
+                help: SettingsText.keyed("settings.markdown.fontSize.help", "The size viewers open at. Cmd-= and Cmd-- change one viewer."),
                 kind: .number(SettingNumber(MarkdownViewerSettingsSchema.fontSizeRange, step: 1, unit: .points, placeholder: MarkdownViewerSettingsSchema.fontSizePlaceholder)),
                 default: .number(MarkdownViewerSettingsSchema.fontSizeDefault),
                 keywords: ["markdown", "font", "size", "text", "zoom", "viewer", "reading"]
@@ -136,7 +136,7 @@ nonisolated enum MarkdownViewerSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.markdown.codeSize", "Code Font Size"),
-                help: SettingsText.keyed("settings.markdown.codeScale.help", "Code as a share of the text size. A monospaced font looks bigger than the text font at the same size, so code is a little smaller by default."),
+                help: SettingsText.keyed("settings.markdown.codeScale.help", "Code size as a share of the text size."),
                 kind: .number(SettingNumber(MarkdownViewerSettingsSchema.codeScaleRange, step: 0.025, unit: .fraction, placeholder: MarkdownViewerSettingsSchema.codeScalePlaceholder)),
                 default: .number(MarkdownViewerSettingsSchema.codeScaleDefault),
                 keywords: ["markdown", "viewer", "reading", "code", "font", "size", "monospace", "scale"]
@@ -146,7 +146,7 @@ nonisolated enum MarkdownViewerSettingsSchema {
                 section: .appearance,
                 group: group,
                 title: SettingsText.keyed("settings.markdown.codeFont", "Code Font"),
-                help: SettingsText.keyed("settings.markdown.codeFont.help", "The font of code blocks and inline code. Empty uses the terminal font. The agent chat uses it too unless it has its own."),
+                help: SettingsText.keyed("settings.markdown.codeFont.help", "Empty uses the terminal font."),
                 kind: .fontFamily,
                 default: nil,
                 keywords: ["markdown", "viewer", "reading", "code", "font", "family", "monospace"]

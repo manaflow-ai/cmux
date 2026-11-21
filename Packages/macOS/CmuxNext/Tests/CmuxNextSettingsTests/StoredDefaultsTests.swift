@@ -16,7 +16,7 @@ import Testing
     func controller(_ text: String, managed: ManagedPreferences = ManagedPreferences()) async throws -> SettingsController {
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         try Data(text.utf8).write(to: url)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(managed), managedWatchFiles: [])
         await settings.reload()
         return settings
@@ -191,7 +191,7 @@ import Testing
         #expect(try await nightly.file.value(at: UpdatesSettings.downloadAutomaticallyPath) == .bool(true))
 
         // A DEV build launches on the same file with its own UserDefaults.
-        let dev = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let dev = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                      managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await dev.reload()
         let devMarker = try marker()
@@ -291,7 +291,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: home) }
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         try Data(#"{ "appearance": { "chromeStyle": "card", "theme": "Nord" }, "diff": { "layout": null } }"#.utf8).write(to: url)
-        let file = CmuxConfigFile(url: url)
+        let file = CmuxConfigFile(url: url, writer: TestSettingsWriter())
 
         let (removed, before) = try await file.removeUnchanged([
             (path: ["appearance", "chromeStyle"], value: .string(ChromeStyleSetting.fallback.rawValue)),

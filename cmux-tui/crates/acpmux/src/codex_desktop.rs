@@ -45,6 +45,7 @@ pub const DESKTOP_ORIGINATOR: &str = "codex_desktop";
 pub const THREAD_ENV: &str = "CODEX_THREAD_ID";
 
 /// Longest a delivery over the daemon's control socket takes, connecting included.
+// timeout: one delivery over the local Codex daemon's control socket; a slow one returns an error to the sender, who sees it
 const SOCKET_TIMEOUT: Duration = Duration::from_secs(10);
 /// Longest a delivery through a `codex app-server` started for it takes, its start included.
 const SPAWNED_TIMEOUT: Duration = Duration::from_secs(30);
@@ -282,6 +283,7 @@ impl Link {
             Link::Spawned { mut child, stdin, .. } => {
                 // Its input closed, the server exits; one that does not is ended.
                 drop(stdin);
+                // timeout: reaping a `codex app-server` child after its input closed; one still running is ended, the delivery already finished
                 let waited = tokio::time::timeout(Duration::from_secs(2), child.wait()).await;
                 if waited.is_err() {
                     let _ = child.kill().await;

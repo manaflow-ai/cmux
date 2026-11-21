@@ -204,6 +204,11 @@ impl Mux {
         crate::debug_spans::mark("projection.built");
         persist_public_topology_result(operation, &mut projection.result, &projection.changes)?;
         #[cfg(test)]
+        crate::walk_counters::projection_prepared(
+            projection.patch.changes.len(),
+            projection.changes.as_array().map_or(0, Vec::len),
+        );
+        #[cfg(test)]
         if let Some(hook) = self.resource_projection_before_commit.lock().unwrap().clone() {
             hook();
         }
@@ -216,11 +221,15 @@ impl Mux {
             &projection.changes,
             projection.restates_all,
         )?;
+        let restated = std::mem::take(&mut projection.restated);
         drop(projection);
         drop(state);
         crate::debug_spans::mark("projection.intent_prepared");
         let commit =
             self.commit_effect_intent(&mut registry, intent, finish)?.into_patch_commit()?;
+        if !commit.replayed {
+            registry.mark_workspaces_whole(commit.revision, &restated);
+        }
         crate::debug_spans::mark("projection.writer_committed");
         self.state.lock().unwrap_or_else(PoisonError::into_inner).resource_revision =
             commit.revision;
@@ -267,6 +276,97 @@ impl Mux {
         )
     }
 
+    /// [`Self::commit_ordinary_full_resource_projection`] for a change that is confined to the
+    /// workspace that shows a surface (`surface` finds it in the state, under the locks): a
+    /// tab that a browser opened, a terminal that an adoption placed. Only that workspace is
+    /// projected, so the commit does not grow with the session. A surface that no workspace
+    /// shows takes the full projection.
+    #[track_caller]
+    pub(super) fn commit_ordinary_surface_projection(
+        &self,
+        actor: &Actor,
+        operation: &'static str,
+        surface: impl FnOnce(&State) -> Option<SurfaceId>,
+        result: Value,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        let mutation = WorkspaceMutation::local("cmux-tui", actor.clone());
+        let fingerprint = serde_json::json!({"operation":operation,"result":result});
+        self.commit_resource_mutation_plan(
+            &mutation,
+            operation,
+            &fingerprint,
+            None,
+            None,
+            |state, registry| {
+                let workspace = surface(state)
+                    .and_then(|surface| state.pane_of(surface))
+                    .and_then(|pane| state.screen_of(pane))
+                    .and_then(|(workspace, _)| state.workspaces.get(workspace))
+                    .map(|workspace| workspace.public_id.clone());
+                let projection = match workspace {
+                    Some(workspace) => self.changed_workspaces_projection_locked(
+                        registry,
+                        state,
+                        &[workspace],
+                        result,
+                    )?,
+                    None => self.resource_effect_projection_locked(registry, state, result)?,
+                };
+                Ok(projection_plan(projection))
+            },
+        )
+    }
+
+    /// The commit of the views of the terminal `terminal_id` of a host, which an adoption
+    /// placed: the scoped projection of each workspace that shows the terminal, in the order of
+    /// the workspace list. One terminal can have a view in 2 or more workspaces
+    /// (`terminal.project`), and a scope of the first view alone left the other workspaces to a
+    /// later commit. The full projection when no workspace shows the terminal and above
+    /// [`resource_content::CHANGED_WORKSPACES_MAX`] workspaces.
+    #[track_caller]
+    pub(super) fn commit_placed_terminal_projection(
+        &self,
+        operation: &'static str,
+        terminal_id: &str,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        let mutation = WorkspaceMutation::local("cmux-tui", Actor::Daemon);
+        let result = serde_json::json!({});
+        let fingerprint = serde_json::json!({"operation":operation,"result":result});
+        self.commit_resource_mutation_plan(
+            &mutation,
+            operation,
+            &fingerprint,
+            None,
+            None,
+            |state, registry| {
+                let shown = state
+                    .surfaces
+                    .values()
+                    .filter(|surface| {
+                        let host = surface.terminal_host_identity();
+                        host.is_some_and(|identity| identity.terminal_id == terminal_id)
+                    })
+                    .filter_map(|surface| state.pane_of(surface.id))
+                    .filter_map(|pane| state.screen_of(pane))
+                    .map(|(workspace, _)| workspace)
+                    .collect::<BTreeSet<usize>>();
+                let workspaces = shown
+                    .into_iter()
+                    .filter_map(|index| state.workspaces.get(index))
+                    .map(|workspace| workspace.public_id.clone())
+                    .collect::<Vec<_>>();
+                let scoped = !workspaces.is_empty()
+                    && workspaces.len() <= resource_content::CHANGED_WORKSPACES_MAX;
+                let projection = if scoped {
+                    self.changed_workspaces_projection_locked(registry, state, &workspaces, result)?
+                } else {
+                    self.resource_effect_projection_locked(registry, state, result)?
+                };
+                Ok(projection_plan(projection))
+            },
+        )
+    }
+
     #[track_caller]
     pub(crate) fn commit_full_resource_projection_with_mutation(
         &self,
@@ -290,7 +390,7 @@ impl Mux {
 
     /// [`Self::commit_full_resource_projection_with_mutation`] for a terminal
     /// just created as `surface` in the workspace whose key is
-    /// `workspace_key`: once the public fold is seeded, only the workspace
+    /// `workspace_key`: only the workspace
     /// the surface is in now (a concurrent move can bind it elsewhere) and
     /// the requested one are projected, as
     /// [`Self::created_view_projection_locked`] does for an effect commit, so
@@ -321,7 +421,7 @@ impl Mux {
                     .and_then(|pane| state.screen_of(pane))
                     .and_then(|(workspace, _)| state.workspaces.get(workspace))
                     .map(|workspace| workspace.public_id.clone());
-                let scope = placed.filter(|_| registry.public_fold_seeded()).map(|placed| {
+                let scope = placed.map(|placed| {
                     let requested = state
                         .workspace_by_key(workspace_key)
                         .map(|workspace| workspace.public_id.clone())
@@ -453,11 +553,26 @@ impl Mux {
 
 /// The plan that commits `projection`: its commit drops the upserts the
 /// journal already states (a scoped walk still restates every workspace's
-/// row), and a full projection's, unpruned, may seed the public fold.
-fn projection_plan(projection: ResourceEffectProjection) -> ResourceMutationPlan {
-    let mut plan =
-        ResourceMutationPlan::new(projection.patch, projection.result, projection.changes, |_| {});
-    plan.restates_all = projection.restates_all;
-    plan.prunes_stated = true;
-    plan
+/// row), a full projection's, unpruned, may seed the public fold, and the
+/// workspaces that a scoped walk stated again are marked whole in it.
+pub(super) fn projection_plan(projection: ResourceEffectProjection) -> ResourceMutationPlan {
+    ResourceMutationPlan::new(projection.patch, projection.result, projection.changes, |_| {})
+        .projected(projection.restates_all)
+        .restating(projection.restated)
+}
+
+/// [`projection_plan`] for the projection of a copy of the state (`projected`): the commit puts
+/// the copy in the place of the live state.
+pub(super) fn replacing_projection_plan(
+    projection: ResourceEffectProjection,
+    projected: State,
+) -> ResourceMutationPlan {
+    ResourceMutationPlan::replacing(
+        projection.patch,
+        projection.result,
+        projection.changes,
+        projected,
+    )
+    .projected(projection.restates_all)
+    .restating(projection.restated)
 }

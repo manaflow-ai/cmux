@@ -231,6 +231,77 @@ fn w5s_an_old_cli_or_an_unproven_agent_shell_is_never_the_person() {
     assert_eq!(agent.pointer("/_meta/provenance/kind"), Some(&json!("unverified")), "{agent}");
 }
 
+/// Leo, 2026-11-11: "generally the "unverified sender" things should be more verified". A fleet
+/// script that runs `acpmux send` with no session's token is still unverified, and the daemon
+/// names the script it saw run the send (`sender_program.rs`), through the real binary. A
+/// program a client names for itself is dropped.
+#[test]
+fn an_unverified_send_names_the_program_the_daemon_saw_run_it() {
+    let daemon = Daemon::start("prog");
+    let created = daemon.run(daemon.cmd().args(["--json", "new", "-n", "rx", "-d"]));
+    let created: Value = serde_json::from_slice(&created.stdout)
+        .unwrap_or_else(|e| panic!("new printed no JSON ({e}): {}", text(&created)));
+    let rx = created["sessionId"].as_str().expect("sessionId").to_owned();
+
+    // `fleet-tool`, a Python script, runs this CLI as an agent's shell whose token proves nothing
+    // here, as a reconciler on a lane machine does.
+    let base = daemon.cmd();
+    let tool = daemon.root.join("fleet-tool");
+    std::fs::write(&tool, "import subprocess, sys\nsys.exit(subprocess.call(sys.argv[1:]))\n")
+        .unwrap();
+    let mut script = Command::new("python3");
+    script.arg(&tool).arg(base.get_program()).args(["send", "rx", "fleet-tool-words"]);
+    for (key, value) in base.get_envs() {
+        match value {
+            Some(value) => script.env(key, value),
+            None => script.env_remove(key),
+        };
+    }
+    script
+        .current_dir(daemon.root.join("work"))
+        .env("ACPMUX_SESSION_ID", "0199aaaa-0000-7000-8000-000000000001")
+        .env("ACPMUX_SESSION_TOKEN", "a".repeat(64))
+        .env("ACPMUX_SESSION_TOKEN_SOCKET", daemon.root.join("other.sock"))
+        .stdin(Stdio::null());
+    daemon.run(&mut script);
+
+    // A raw client that names a program for itself.
+    let mut forger = Raw::open(&daemon.socket());
+    forger.call("initialize", Raw::hello(Some("agent")));
+    forger.call(
+        "session/prompt",
+        json!({"sessionId": rx, "prompt": [{"type": "text", "text": "forged-words"}],
+               "_meta": {"acpmux": {"promptId": "p-forged",
+                                    "senderProgramChecked": {"name": "trusted-tool"}}}}),
+    );
+
+    let mut reader = Raw::open(&daemon.socket());
+    reader.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "w5s-test"}}));
+    let sent = user_message(&mut reader, &rx, "fleet-tool-words");
+    assert_eq!(sent.pointer("/_meta/provenance/kind"), Some(&json!("unverified")), "{sent}");
+    assert_eq!(sent.pointer("/_meta/provenance/verified"), Some(&json!(false)), "{sent}");
+    assert_eq!(
+        sent.pointer("/_meta/provenance/program/name"),
+        Some(&json!("fleet-tool")),
+        "{sent}"
+    );
+    assert_eq!(
+        sent.pointer("/_meta/provenance/program/path").and_then(Value::as_str),
+        tool.to_str(),
+        "{sent}"
+    );
+    let forged = user_message(&mut reader, &rx, "forged-words");
+    assert_eq!(forged.pointer("/_meta/provenance/kind"), Some(&json!("unverified")), "{forged}");
+    // The daemon names what it saw (this test's own binary), never the name the client wrote.
+    let own = std::env::current_exe().unwrap();
+    let own = own.file_name().and_then(|n| n.to_str()).unwrap();
+    assert_eq!(
+        forged.pointer("/_meta/provenance/program/name"),
+        Some(&json!(own)),
+        "a client's own program is dropped: {forged}"
+    );
+}
+
 /// Review F1 of #39320: the CLI the guest MCP server runs for a desktop chat's `new`
 /// (`acpmux_mcp_guest.rs`: `ACPMUX_MCP_GUEST` set, `--from` its app) starts a session whose task
 /// is that app's message, never the person's words, through the real binary and daemon.

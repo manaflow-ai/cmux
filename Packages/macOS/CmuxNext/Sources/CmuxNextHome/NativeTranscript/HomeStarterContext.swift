@@ -33,12 +33,3 @@ public nonisolated struct HomeStarterContext: Sendable, Equatable {
         return result
     }
 }
-
-extension HomeStarterContext {
-    /// Each list by its wire name (`workspaces`, `working`, `failures`, `pullRequests`), as the
-    /// Messages page's first run reads them (HomeMessagesFirstRunProvider).
-    public func mapValues<T>(_ transform: ([String]) -> T) -> [String: T] {
-        ["workspaces": transform(workspaces), "working": transform(working), "failures": transform(failures),
-         "pullRequests": transform(pullRequests)]
-    }
-}

@@ -12,10 +12,11 @@ import { JSDOM } from "jsdom";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { AcpmuxRpcError } from "../src/agent-session/acpmux/handoff/protocol";
 import { NativeError } from "../src/agent-session/acpmux/nativeError";
-import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import { RequestBudget } from "../src/agent-session/acpmux/requestBudget";
 import type { AgentQuestion } from "../src/agent-session/acpmux/question/model";
 import { QuestionCard } from "../src/agent-session/acpmux/question/QuestionCard";
+import { directClientStub } from "./support/directClientStub";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -67,6 +68,7 @@ afterEach(async () => {
   });
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -210,11 +212,11 @@ async function nativeReturnCard() {
     field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
     field.focus();
   });
-  const client = Object.assign(Object.create(AcpmuxDirectClient.prototype), {
+  const client = directClientStub<NativeReplyClient>({
     pending: new Map(),
     budget: new RequestBudget(),
     wire: { received: () => undefined },
-  }) as NativeReplyClient;
+  });
   nativeClients.push(client);
   const card = container.querySelector<HTMLElement>(".acpmux-question")!;
   const announce = async (id: string, sessionId = question.source.session) => {

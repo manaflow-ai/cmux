@@ -5,6 +5,7 @@
 // (scripts/agent-pane/reactCompilerPlugin.mjs), draws a harness's mark before its icon is known,
 // then delivers the icon: the compiled mark must redraw.
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { settleReact } from "../../../test/support/domTeardown";
 import { JSDOM } from "jsdom";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -37,8 +38,12 @@ beforeAll(() => {
   }
 });
 
-afterAll(() => {
-  for (const [key, value] of saved) scope[key] = value;
+afterAll(async () => {
+  await settleReact();
+  for (const [key, value] of saved) {
+    if (value === undefined) delete scope[key];
+    else scope[key] = value;
+  }
   dom.window.close();
   rmSync(dir, { recursive: true, force: true });
 });
