@@ -825,6 +825,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_gh_budget_wait.py
 
+      - name: Validate scheduled workflows wait through GitHub API rate limits and 5xx
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_scheduled_workflow_gh_retry.py
+
       - name: Validate the nightly-next tick re-runs a cancelled tip
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_nightly_next_cancelled_tip.py

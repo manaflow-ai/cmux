@@ -103,6 +103,7 @@ jobs:
           path: .tick-tooling
           sparse-checkout: |
             scripts/ci/gh_budget_wait.sh
+            scripts/ci/gh_budget_wait.cjs
             scripts/ci/nightly_next_cancelled_tip.sh
             scripts/ci/delivery_workflows.py
             scripts/ci/nightly_compile_red.py
@@ -300,6 +301,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/gh_app_token.sh
             scripts/ci/gh_budget_wait.sh
+            scripts/ci/gh_budget_wait.cjs
             scripts/ci/nightly_next_cancelled_tip.sh
             scripts/ci/delivery_workflows.py
             scripts/ci/nightly_compile_red.py
