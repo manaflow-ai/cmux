@@ -150,8 +150,7 @@
   max-width: var(--available-width, calc(100vw - 24px));
   overflow: hidden;
   border-radius: var(--ui-popup-radius, var(--ds-radius-popup));
-  background: color-mix(in srgb, var(--agent-text) 5%, var(--surface-popup, var(--cmux-surface-solid, #1e1e1e)));
-  box-shadow: var(--ui-popup-shadow);
+  --glass-elevation: var(--ui-popup-drop, var(--elevation-2));
 }
 .acpmux-cols-card-head { display: flex; align-items: center; gap: var(--ds-space-3); padding: var(--ds-space-3); }
 .acpmux-cols-card-who { display: flex; flex-direction: column; min-width: 0; }

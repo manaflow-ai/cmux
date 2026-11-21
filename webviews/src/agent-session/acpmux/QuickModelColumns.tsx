@@ -1244,7 +1244,10 @@ function Columns({
   const canSignIn = signedOut && (!!owner?.logIn || (onChatTab && !!auth?.onLogin));
 
   const card = profileOpen && (
-    <InlineCard className="acpmux-cols-card" label={`${ownerName} · ${t("picker.account")}`}>
+    <InlineCard
+      className="acpmux-cols-card ui-glass ui-glass-floats ui-glass-transient"
+      label={`${ownerName} · ${t("picker.account")}`}
+    >
       <div className="acpmux-cols-card-head">
         <Avatar face={face} size={40} {...(badge ? { badge } : {})} />
         <span className="acpmux-cols-card-who">
