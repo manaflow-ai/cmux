@@ -916,6 +916,8 @@ jobs:
       swift_filter: ${{ steps.route.outputs.swift_filter }}
       swift_priority_filter: ${{ steps.route.outputs.swift_priority_filter }}
       swift_targets: ${{ steps.route.outputs.swift_targets }}
+      # The lane packages a pull request changes (package-test-lane.sh select), for package-tests-fleet; `unknown` when unread.
+      swift_packages: ${{ steps.packages.outcome == 'failure' && 'unknown' || steps.packages.outputs.names }}
       # Why: docs/ci/cmux-next-workflow-notes.md#note-92
       tree_state: ${{ steps.marker-upload.outcome == 'failure' && 'failed' || steps.tree-final.outputs.tree_state || steps.tree.outputs.tree_state }}
       tree_key: ${{ steps.tree.outputs.tree_key }}
@@ -1189,6 +1191,24 @@ jobs:
             python3 -I scripts/ci/fast_tier_cargo_route.py --changed-files "$changed" --labels "$labels" \
               --github-output "$GITHUB_OUTPUT" >> "$GITHUB_STEP_SUMMARY" || echo "fast_tier_cargo=true" >> "$GITHUB_OUTPUT"
           fi
+      # ci.yml's macos job skips feat-cmux-next pull requests, so the package lane's selection runs here:
+      # the changed Packages/** packages only, none for a draft or idle head (head_tier.py).
+      - name: Select the changed Swift packages
+        id: packages
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          CI_DRAFT_CHEAP_TIER: ${{ vars.CI_DRAFT_CHEAP_TIER || '1' }}
+          CI_IDLE_BASE_MERGE_SKIP: ${{ vars.CI_IDLE_BASE_MERGE_SKIP || '1' }}
+        run: |
+          set -euo pipefail
+          tier="$(python3 -I scripts/ci/head_tier.py tier 2>/dev/null || true)"
+          if [[ "$tier" == cheap || "$tier" == none ]]; then echo "names=" >> "$GITHUB_OUTPUT"; exit 0; fi
+          out="$RUNNER_TEMP/package-select.out"
+          GITHUB_OUTPUT="$out" bash scripts/ci/package-test-lane.sh select --event pull_request
+          list="$(sed -n 's/^selected_packages=//p' "$out" | tail -n 1)"
+          echo "names=$(xargs < "$list")" >> "$GITHUB_OUTPUT"
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-359
       - name: Probe the same-tree cmux-tui
@@ -3534,6 +3554,29 @@ jobs:
           if [[ "$FFI_REPIN" != true ]]; then judge 1 Packages/Shared/CmuxHomeRender; fi
           judge 2 Packages/macOS/CmuxNext
           finish "$verdict"
+
+  # The package lane for feat-cmux-next pull requests: every PACKAGES entry of package-test-lane.sh that the change
+  # reaches (path_route's swift_packages), as one light-class fleet step (scripts/ci/next-package-tests-fleet.sh).
+  package-tests-fleet:
+    needs: [path_route, push-head-preflight]
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next' && github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository && vars.CI_COMPILE_CHECK_GATEWAY != '' && needs.push-head-preflight.outputs.current == 'true' && needs.path_route.outputs.swift_packages != '' && !(github.event.action == 'labeled' || github.event.action == 'unlabeled') }}
+    name: cmux-next package tests (build fleet)
+    concurrency:
+      group: cmux-next-pr-${{ github.event.pull_request.number }}-package-tests-fleet
+      cancel-in-progress: true
+    runs-on: ${{ vars.CI_COMPILE_CHECK_GATEWAY }}
+    permissions:
+      contents: read
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: scripts/ci
+          persist-credentials: false
+      - name: Run the changed Swift packages' tests on the build fleet
+        env:
+          PACKAGES: ${{ needs.path_route.outputs.swift_packages }}
+        run: bash scripts/ci/next-package-tests-fleet.sh "$GITHUB_SHA" "$PACKAGES"
 
   # The fast tier's queued hand-back, placed again (side_lane_placement.handback()). When fast-tier-fleet hands
   # Why: docs/ci/cmux-next-workflow-notes.md#note-37
