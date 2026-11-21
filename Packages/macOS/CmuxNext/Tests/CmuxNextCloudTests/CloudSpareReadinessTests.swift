@@ -377,6 +377,41 @@ import Testing
         #expect(world.links == ["vm_spare"])
     }
 
+    /// A reserve's prime names no team and dials: its link is made and dialed in the spare's team, the warm's prime
+    /// (the same team, named by the service) keeps that link and dials nothing more, and the claim takes it.
+    @Test func aDialingPrimeWithNoTeamDialsInTheSparesTeam() async {
+        let world = World()
+        var dependencies = world.dependencies()
+        var linkedTeams: [String?] = []
+        let link = dependencies.link
+        dependencies.link = { machine, team in linkedTeams.append(team); return link(machine, team) }
+        dependencies.team = { "team_install" }
+        world.dialed = true
+        let readiness = CloudSpareReadiness(dependencies)
+        readiness.prime("vm_spare", dials: true)
+        await readiness.settled("vm_spare")
+        readiness.prime("vm_spare", team: "team_install", dials: true)
+        await readiness.settled("vm_spare")
+        #expect(linkedTeams == ["team_install"])
+        #expect(world.dials == ["vm_spare"])
+        #expect(readiness.link(for: "vm_spare", team: "team_install") != nil)
+    }
+
+    /// The claim asks while a dialing prime still reads the team: nothing is linked and nothing is dialed.
+    @Test func aClaimDuringTheTeamReadLeavesADialingPrimeDialingNothing() async {
+        let world = World()
+        var dependencies = world.dependencies()
+        var claim: @MainActor () -> Void = {}
+        dependencies.team = { claim(); return "team_install" }
+        world.dialed = true
+        let readiness = CloudSpareReadiness(dependencies)
+        claim = { #expect(readiness.link(for: "vm_spare", team: "team_install") == nil) }
+        readiness.prime("vm_spare", dials: true)
+        await readiness.settled("vm_spare")
+        #expect(world.links.isEmpty)
+        #expect(world.dials.isEmpty)
+    }
+
     @Test func aLinkPastItsKeepIsEndedNotTaken() async {
         let world = World(), readiness = CloudSpareReadiness(world.dependencies())
         var clock = ContinuousClock.now
