@@ -472,6 +472,9 @@ private struct FeedWorkspacesSheet: View {
                                     }
                                 }
                             }
+                            // The app's green switch: the neutral accent tints a plain Toggle solid
+                            // white in dark mode, where on and off read the same.
+                            .toggleStyle(.cmuxMobileSwitch)
                             .accessibilityIdentifier("feed.workspace.\(workspace.id)")
                         }
                     } header: {

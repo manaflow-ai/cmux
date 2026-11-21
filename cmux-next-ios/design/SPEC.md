@@ -974,7 +974,7 @@ permission requests, errors, PR events.
   All Notifications (red, only when a Mac can clear) and Cancel. The chips are the only event-kind
   filter; the sheet does not repeat them.
 - Filter sheet (title "Filter", medium and large detents, `Done`, leading `Show All`): a
-  "Workspaces" section with one switch per workspace in the Mac's order, the Mac's name under it
+  "Workspaces" section with one green switch (`.cmuxMobileSwitch`) per workspace in the Mac's order, the Mac's name under it
   when more than one Mac is linked, searchable; footer "Events from hidden workspaces stay out of
   the Feed until you turn them back on." Empty: "No Workspaces"; a search with no match: the
   system search empty state.
