@@ -8,13 +8,14 @@
    insets conversation.css centers it with), so it goes with the card in the frames Session Info
    pushes the column or the computer use preview takes its end. Its fade stays in place: switching
    arms changes the anchor, never a transition, so no frame draws it between two places.
-   - end (ships): over the send button's column, the arrow's center on the send button's.
+   - end (ships): at the card's end edge, the arrow's center over the card's last button (the mic or
+     Send, whichever ends the row).
    - start: over the attach button's column.
    - corner: its edge on the card's end edge, a step lower, still a gap clear of the card's top.
    - center (before): conversation.css's centered rule, untouched.
    Token only (scripts/check-design-tokens.ts TOKEN_ONLY_FILES). */
 .acpmux-main {
-  /* The arrow's center over the send and attach buttons' centers: the composer's inline padding plus
+  /* The arrow's center over the end and start buttons' centers: the composer's inline padding plus
      half a control, less half the disc. */
   --acpmux-jump-side-inset: calc(var(--ds-space-2) + var(--ds-control-icon) / 2 - var(--ds-control-primary) / 2);
 }

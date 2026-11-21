@@ -101,7 +101,7 @@ export default agentPaneEntry({
   experiment: { definition: jumpLatestPlace, script: [{ name: "Park mid-chat, the hat tucked", run: park() }] },
   variants: {
     end: {
-      note: "Selected (ships): the stack over the send button's column; the hat's \"^ 3\" pill stands alone in the middle.",
+      note: "Selected (ships): the stack at the card's end edge, over its last button; the hat's \"^ 3\" pill stands alone in the middle.",
       snapshot,
       display: display(),
       play: park(),

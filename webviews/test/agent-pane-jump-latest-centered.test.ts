@@ -69,9 +69,9 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
         const columnEnd =
           main.getBoundingClientRect().right -
           (Number.parseFloat(getComputedStyle(document.querySelector(".acpmux-composer")!).paddingRight) || 0);
-        const button = document.querySelector(".acpmux-jump-latest")?.getBoundingClientRect();
+        const button = document.querySelector(JUMP_LATEST)?.getBoundingClientRect();
         return {
-          button: center(".acpmux-jump-latest"),
+          button: center(JUMP_LATEST),
           buttonLeft: button?.left ?? Number.NaN,
           composer: center(".acpmux-main > .acpmux-dock > .acpmux-composer > .acpmux-composer-box"),
           composerMiddle: box ? box.left + box.width / 2 : Number.NaN,
@@ -189,20 +189,23 @@ await requireBrowserLane("agent-pane-jump-latest-centered.test.ts", async () => 
         // Push always makes it slide the column, the motion this case reads.
         await sessionInfoPushAlways(page);
         await page.emulateMedia({ reducedMotion: "no-preference" });
-        await page.evaluate(() => {
-          const holder = window as unknown as { __centered?: number[][] };
-          const frames: number[][] = [];
-          holder.__centered = frames;
-          const center = (selector: string) => document.querySelector(selector)!.getBoundingClientRect().right;
-          window.cmuxAfterPaint(() => {
-            if (holder.__centered !== frames) return false;
-            frames.push([
-              center(".acpmux-jump-latest"),
-              center(".acpmux-main > .acpmux-dock > .acpmux-composer > .acpmux-composer-box"),
-            ]);
-            return true;
-          });
-        });
+        await page.evaluate(
+          ({ JUMP_LATEST }) => {
+            const holder = window as unknown as { __centered?: number[][] };
+            const frames: number[][] = [];
+            holder.__centered = frames;
+            const center = (selector: string) => document.querySelector(selector)!.getBoundingClientRect().right;
+            window.cmuxAfterPaint(() => {
+              if (holder.__centered !== frames) return false;
+              frames.push([
+                center(JUMP_LATEST),
+                center(".acpmux-main > .acpmux-dock > .acpmux-composer > .acpmux-composer-box"),
+              ]);
+              return true;
+            });
+          },
+          { JUMP_LATEST },
+        );
         await sessionInfo(page, true);
         await settle(page);
         await sessionInfo(page, false);
