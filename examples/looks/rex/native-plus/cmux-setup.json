@@ -7,6 +7,6 @@
   "license": "MIT",
   "cmuxProfile": 1,
   "settings": {
-    "tabs.plusMenu": ["terminal", "localWorkspace", "host"]
+    "tabs.plusMenu": ["terminal", "localWorkspace", "machineWorkspace", "host"]
   }
 }

@@ -93,6 +93,7 @@ nonisolated enum TabSettingsSchema {
                 kind: .orderedChoices([
                     SettingChoice("terminal", SettingsText.keyed("settings.tabs.plusMenu.terminal", "New Terminal Tab")),
                     SettingChoice("localWorkspace", SettingsText.keyed("settings.tabs.plusMenu.localWorkspace", "New Local Workspace")),
+                    SettingChoice("machineWorkspace", SettingsText.keyed("settings.tabs.plusMenu.machineWorkspace", "New Workspace on Machine…")),
                     SettingChoice("host", SettingsText.keyed("settings.tabs.plusMenu.host", "Connect to Machine…")),
                 ]),
                 default: .array(CmuxConfigSnapshot.plusMenuDefault.map { .string($0) }),

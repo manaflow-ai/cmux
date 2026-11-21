@@ -1,10 +1,11 @@
 # Native pane + menu
 
-`tabs.plusMenu` is an ordered subset of `terminal`, `localWorkspace`, and `host`.
+`tabs.plusMenu` is an ordered subset of `terminal`, `localWorkspace`,
+`machineWorkspace` and `host`.
 Its default is `[]`, which keeps the direct New Tab action. For example:
 
 ```json
-{"tabs":{"plusMenu":["terminal","localWorkspace","host"]}}
+{"tabs":{"plusMenu":["terminal","localWorkspace","machineWorkspace","host"]}}
 ```
 
 The General > Tabs setting uses the standard ordered choices editor. The descriptor
@@ -17,7 +18,8 @@ the next click, without observing settings separately in every pane.
 | --- | --- | --- |
 | `terminal` | `newSurface` | Clicked pane and its machine; existing terminal placement preferences apply |
 | `localWorkspace` | `workspace.newOnMachine` | Explicit local machine, even from a remote pane |
-| `host` | `remote.connect` | Existing destination picker |
+| `machineWorkspace` | `workspace.newOnMachine` | Its own machine picker (New Workspace on Machine…) |
+| `host` | `remote.connect` | Existing destination picker (add a remote host) |
 
 The chevron, context click, Option-click, screen bar and keyboard shortcuts keep
 their current behavior. `contextMenus.layouts.newTab` still controls the separate

@@ -2,6 +2,6 @@
   "name": "native-plus-menu",
   "description": "Opt in to the native pane + creation menu.",
   "settings": {
-    "tabs.plusMenu": ["terminal", "localWorkspace", "host"]
+    "tabs.plusMenu": ["terminal", "localWorkspace", "machineWorkspace", "host"]
   }
 }

@@ -5,6 +5,9 @@ extension WindowRules {
     /// A configured primary + menu row. Rust owns validation, order and action routing.
     public nonisolated struct PlusMenuRow: Decodable, Equatable, Sendable {
         public var action: String
+        /// Runs against the clicked pane and its machine.
+        public var paneTarget: Bool
+        /// Runs on the local machine, even from a remote pane.
         public var localWorkspace: Bool
     }
 

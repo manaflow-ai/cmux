@@ -305,6 +305,13 @@
               }
             },
             {
+              "value": "machineWorkspace",
+              "title": {
+                "key": "settings.tabs.plusMenu.machineWorkspace",
+                "text": "New Workspace on Machine…"
+              }
+            },
+            {
               "value": "host",
               "title": {
                 "key": "settings.tabs.plusMenu.host",

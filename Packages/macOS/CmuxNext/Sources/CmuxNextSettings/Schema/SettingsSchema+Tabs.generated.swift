@@ -39,7 +39,7 @@ extension CmuxConfigSnapshot {
     /// `tabs.plusMenu`: Opt-in ordered creation menu for the native pane + primary click only. Rust resolves its rows; empty keeps direct creation. Chevron, context click, Option-click and keyboard actions keep their existing behavior.
     public nonisolated static let plusMenuPath = ["tabs", "plusMenu"]
     public nonisolated static let plusMenuDefault: [String] = []
-    public nonisolated static let plusMenuValues = ["terminal", "localWorkspace", "host"]
+    public nonisolated static let plusMenuValues = ["terminal", "localWorkspace", "machineWorkspace", "host"]
     /// `app.warnBeforeClosingTab`: Side by side with app.warnBeforeClosingAgentSession, as in classic (#17430).
     public nonisolated static let warnBeforeClosingTabPath = ["app", "warnBeforeClosingTab"]
     public nonisolated static let warnBeforeClosingTabDefault = true

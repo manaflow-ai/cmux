@@ -9,18 +9,20 @@ import Testing
 @MainActor @Suite(.closesItsWindows, .serialized) struct ConfiguredPlusMenuTests {
     @Test func orderedActionsKeepTheirTargetsAndExplicitLocalDestination() throws {
         let registry = ActionRegistry.standard()
-        let root = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"tabs":{"plusMenu":["host","localWorkspace","terminal"]}}"#.utf8))
+        let root = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"tabs":{"plusMenu":["host","machineWorkspace","localWorkspace","terminal"]}}"#.utf8))
         let target = ActionTargetRef(kind: .pane, id: "remote-pane")
         let menu = try #require(registry.makeConfiguredPlusMenu(root: root, target: target, machineID: "remote", localMachineID: "local"))
         let runs = menu.items.compactMap { ActionRegistry.menuRun(of: $0) }
-        #expect(runs.map(\.id.rawValue) == ["remote.connect", "workspace.newOnMachine", "newSurface"])
-        try #require(runs.count == 3)
+        #expect(runs.map(\.id.rawValue) == ["remote.connect", "workspace.newOnMachine", "workspace.newOnMachine", "newSurface"])
+        try #require(runs.count == 4)
         #expect(runs[0].target == target)
         #expect(runs[0].arguments.isEmpty, "the existing host picker asks for the destination")
         #expect(runs[1].target == nil)
-        #expect(runs[1].arguments["machine"] == .string("local"))
-        #expect(runs[2].target == target)
-        #expect(menu.items.compactMap { ($0.representedObject as? ActionMenuPayload)?.targetMachineID } == ["remote", "local", "remote"])
+        #expect(runs[1].arguments.isEmpty, "New Workspace on Machine… asks for the machine")
+        #expect(runs[2].target == nil)
+        #expect(runs[2].arguments["machine"] == .string("local"))
+        #expect(runs[3].target == target)
+        #expect(menu.items.compactMap { ($0.representedObject as? ActionMenuPayload)?.targetMachineID } == ["remote", "remote", "local", "remote"])
         #expect(registry.makeConfiguredPlusMenu(root: .null, target: target, machineID: "remote", localMachineID: "local") == nil)
     }
 

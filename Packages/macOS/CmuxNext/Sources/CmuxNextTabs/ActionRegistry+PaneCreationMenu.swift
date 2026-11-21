@@ -13,7 +13,7 @@ extension ActionRegistry {
         let menu = NSMenu()
         for row in rows {
             let arguments: [String: ActionValue] = row.localWorkspace ? ["machine": .string(localMachineID)] : [:]
-            let items = makeContextMenu(for: .newTab, target: row.localWorkspace ? nil : target,
+            let items = makeContextMenu(for: .newTab, target: row.paneTarget ? target : nil,
                                         entries: [.action(ActionID(rawValue: row.action))], arguments: arguments,
                                         customize: false, machineID: row.localWorkspace ? localMachineID : machineID)
             let detached = items.items
