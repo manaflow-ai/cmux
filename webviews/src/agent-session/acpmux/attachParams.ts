@@ -87,6 +87,12 @@ export function settledAttachFailed(error: unknown): boolean {
   );
 }
 
+/// Whether a forward attach (`afterSeq`) failed because the host's params rule refused it as
+/// malformed: an app built before its relay took `afterSeq`. The page asks the newest page instead.
+export function forwardAttachRefused(error: unknown): boolean {
+  return (error as { code?: unknown } | undefined)?.code === "transport.intent_invalid";
+}
+
 /// The chat's detail an attach reply carries, naming the machine it runs on. A reply acpmux forwarded
 /// from a peer names that peer at its top level only (`server/peer_forward.rs`): its `session` is the
 /// peer daemon's own detail, with no `peer`, so the detail alone read as this Mac's chat and Session
