@@ -5,6 +5,7 @@ use std::cell::{Cell, RefCell};
 struct Fake {
     starts: RefCell<BTreeMap<String, String>>,
     effects: Cell<usize>,
+    refuse_start: Cell<bool>,
     fenced: Cell<bool>,
     allowed: RefCell<Value>,
     upstream_names: RefCell<Option<Value>>,
@@ -35,6 +36,13 @@ impl Backend for Fake {
         }
         assert_eq!(method, ACTIVITY_METHOD);
         if params["action"] == "start" {
+            if self.refuse_start.get() {
+                return Ok(json!({
+                    "ok": false,
+                    "message": "activity refused",
+                    "error": {"code": "activity.refused", "message": "activity refused"}
+                }));
+            }
             self.effects.set(self.effects.get() + 1);
             self.starts.borrow_mut().insert(
                 params["activityId"].as_str().unwrap().into(),
@@ -192,6 +200,48 @@ fn native_workflow_host_fences_before_raw_call_and_catalog_blocks_primitives() {
     assert_eq!(result["ok"], false);
     assert_eq!(server.backend.effects.get(), 0);
     assert!(server.workflow_activity.is_none());
+}
+
+#[test]
+fn native_workflow_host_journals_explicit_activity_refusal_for_immediate_replay() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut server = Server::new(Fake::default(), None);
+    server.backend.refuse_start.set(true);
+    let mut journal = Journal::open(directory.path(), "source", 1).unwrap();
+    let mut pending = BTreeMap::new();
+    let mut tools = None;
+    let mut images = Vec::new();
+    let request = code_mode::Request::ActivityStart {
+        kind: "agent".into(),
+        prompt: "refused".into(),
+        options: Map::new(),
+    };
+    let first =
+        handle(&mut server, &proof(), &mut journal, &mut pending, &mut tools, &mut images, request)
+            .unwrap();
+    assert_eq!(first["ok"], false);
+    journal.finish().unwrap();
+    drop(journal);
+
+    let mut resumed = Journal::open(directory.path(), "source", 0).unwrap();
+    let replay_request = code_mode::Request::ActivityStart {
+        kind: "agent".into(),
+        prompt: "refused".into(),
+        options: Map::new(),
+    };
+    let replay = handle(
+        &mut server,
+        &proof(),
+        &mut resumed,
+        &mut BTreeMap::new(),
+        &mut None,
+        &mut Vec::new(),
+        replay_request,
+    )
+    .unwrap();
+    assert_eq!(replay, first);
+    assert!(resumed.finish().is_ok());
+    assert_eq!(server.backend.effects.get(), 0, "a refusal must never dispatch twice");
 }
 
 #[test]
