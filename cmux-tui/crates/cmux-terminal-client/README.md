@@ -98,7 +98,10 @@ workspace that already exists. It sends `tab.create_terminal` with only the
 `workspace` selector, and the daemon puts the new tab in that workspace's
 focused pane (the active pane of its active screen) and selects it there, the
 way opening a tab in the TUI does; a workspace with no screen gets a new screen
-and pane. The session's focused workspace does not move. The result is the same
+and pane. When the focused pane is a chat dock or holds an agent chat, the tab
+goes to a pane on the chat's right instead when there is one; an agent chat that
+is not docked and is alone on its screen gets a new column there. The session's
+focused workspace does not move. The result is the same
 `MutationResult` shape as create, so `value.terminal_id` is the id to attach.
 The workspace must be named by its opaque `ws_` id. The library rejects a name
 or `current` before sending anything, because the daemon would otherwise

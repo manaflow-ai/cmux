@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 641,
+  "count": 643,
   "sections": [
     {
       "id": "general",
@@ -1727,7 +1727,7 @@
           "title": "Show Feature Tips",
           "help": "A small tip now and then points at a feature an update added.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Updates"
         },
         {
@@ -2557,6 +2557,14 @@
           "group": "Window Background"
         },
         {
+          "key": "appearance.backgroundMemory",
+          "title": "Background Mode Memory",
+          "help": "The folder and picture each background mode last showed, so switching back restores them.",
+          "kind": "string_map",
+          "default": null,
+          "group": "Window Background"
+        },
+        {
           "key": "appearance.backgroundOpacity",
           "title": "Opacity",
           "help": "How much of the theme color covers the material behind the window.",
@@ -2883,13 +2891,13 @@
         {
           "key": "appearance.metrics.chromeFontSize",
           "title": "Text Size",
-          "help": "Text size of tabs, the sidebar and chat. Terminals have their own size.",
+          "help": "Text size of the sidebar, tabs, menus and chat. Terminals have their own size.",
           "kind": "number",
           "default": null,
           "group": "Density and Motion",
           "range": {
             "min": 10,
-            "max": 16,
+            "max": 20,
             "unit": "points"
           }
         },
@@ -3888,7 +3896,7 @@
           "title": "Show Tips",
           "help": "A daily card shows one cmux feature you have not used yet.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Sidebar"
         },
         {
@@ -4143,7 +4151,7 @@
           "title": "Workspace Card Layout",
           "help": "What a workspace's hover card shows.",
           "kind": "choice",
-          "default": "timeline",
+          "default": "compact",
           "group": "Sidebar",
           "values": [
             "timeline",
@@ -4372,7 +4380,7 @@
           "title": "Show Search Button",
           "help": "A search button after the profile button. Off: search from the palette.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Sidebar"
         },
         {
@@ -6010,7 +6018,7 @@
     },
     {
       "id": "home",
-      "title": "Home",
+      "title": "Chief",
       "rows": [
         {
           "key": "chief.autoRouteSubagents",
@@ -6956,6 +6964,14 @@
           "group": "Labs"
         },
         {
+          "key": "labs.liveTree",
+          "title": "Live Tree",
+          "help": "Show the shared live-tree path and compile lanes in the agent pane.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Labs"
+        },
+        {
           "key": "labs.machineJoin",
           "title": "Screen Sharing for Joined Machines",
           "help": "Shows Screen sharing and Control in Settings > Devices once this Mac joins.",
@@ -6966,7 +6982,7 @@
         {
           "key": "labs.previewFeatures",
           "title": "Show Preview Features",
-          "help": "Unfinished surfaces, such as the agent session's coverage label and Pull requests view.",
+          "help": "Unfinished surfaces, such as the App Store and the agent session's coverage label and Pull requests view.",
           "kind": "toggle",
           "default": false,
           "group": "Labs"

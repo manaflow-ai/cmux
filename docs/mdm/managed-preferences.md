@@ -72,7 +72,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `updates.notify` | string | `"badge"` | `badge`, `silent` | When an Update Is Ready |
 | `updates.keepPreviousVersions` | real | `1` | 0 to 5 | Keep Previous Versions. Earlier builds kept so you can roll back. Uses almost no disk until files change. |
 | `updates.showWhatsNew` | boolean | `true` |  | Show What's New After Updates. A sidebar card links to What's New after an update. |
-| `updates.showFeatureTips` | boolean | `true` |  | Show Feature Tips. A small tip now and then points at a feature an update added. |
+| `updates.showFeatureTips` | boolean | `false` |  | Show Feature Tips. A small tip now and then points at a feature an update added. |
 | `updates.idleInstallMaxWaitSeconds` | real | `600` | 60 to 7200 | Install Within. A nightly installs when you are idle, and never waits longer than this. |
 | `updates.idleInstallQuietSeconds` | real | `60` | 5 to 600 | Quiet Time Before Installing. How long you must be idle before a nightly installs. |
 | `announcements.enabled` | boolean | `true` |  | Show Announcements. Short cards from the cmux team above Settings, shown when the pointer is over the sidebar. |
@@ -190,6 +190,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.backgroundSchedule` | dictionary |  |  | Time of Day Pictures. A time (07:00) or sun event (sunset-30m) for each picture. |
 | `appearance.backgroundDynamic` | string | `"appearance"` | `appearance`, `time` | Dynamic Wallpaper. Follow light and dark, or change with the sun through the day. |
 | `appearance.backgroundLocation` | string |  |  | Sun Location. Latitude,longitude for sunrise and sunset, such as 37.77,-122.42. Unset: your time zone. |
+| `appearance.backgroundMemory` | dictionary |  |  | Background Mode Memory. The folder and picture each background mode last showed, so switching back restores them. |
 | `appearance.displayBackgrounds` | dictionary |  |  | Per-display Backgrounds. Display ID to daily, folder:<path>, desktop, a background or none. |
 | `appearance.displayBackgroundRotations` | dictionary |  |  | Per-display Background Rotation. Display ID to 15m, hourly or daily. Others use the global rotation. |
 | `appearance.paneBackgrounds` | string | `"shared"` | `shared`, `perPane` | Pane Backgrounds. One background behind the window, or a copy in each pane. |
@@ -207,7 +208,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.customDensity` | string |  |  | Custom Density |
 | `appearance.customDensities` | string | `[]` |  | Custom Densities |
 | `app.uiScale` | real | `1` | 0.25 to 5 | App Zoom. Zoom for chat, Settings and other app pages. |
-| `appearance.metrics.chromeFontSize` | real |  | 10 to 16 | Text Size. Text size of tabs, the sidebar and chat. Terminals have their own size. |
+| `appearance.metrics.chromeFontSize` | real |  | 10 to 20 | Text Size. Text size of the sidebar, tabs, menus and chat. Terminals have their own size. |
 | `appearance.fontSmoothing` | string | `"auto"` | `auto`, `antialiased`, `subpixel` | Text Smoothing. How text draws. Some text changes after cmux restarts; terminals keep their own. |
 | `appearance.interfaceScale` | real |  | 0.9 to 1.25 | Interface Size. Text size of tabs, the sidebar and other controls. Terminal text has its own size. |
 | `appearance.metrics.sidebarWidth` | real |  | 160 to 420 | Sidebar Width |
@@ -407,7 +408,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.groupBy` | string | `"none"` | `none`, `folder`, `recents` | Group Projects By |
 | `sidebar.showSpaces` | boolean | `false` |  | Show Spaces. Spaces show once you have more than one. New Space is in the command palette. |
 | `sidebar.showProfileControl` | boolean | `true` |  | Show Profile Button |
-| `sidebar.showSearchButton` | boolean | `true` |  | Show Search Button. A search button after the profile button. Off: search from the palette. |
+| `sidebar.showSearchButton` | boolean | `false` |  | Show Search Button. A search button after the profile button. Off: search from the palette. |
 | `sidebar.showNewWorkspaceChooser` | boolean | `false` |  | Show New Workspace Menu Button. A chevron beside the + opens the New Workspace menu. Off: right-click the +. |
 | `sidebar.workspacesAsTabs` | boolean | `false` |  | Workspaces as Tabs. Each workspace is one line, and Cmd-Shift-[ and ] switch workspaces. |
 | `sidebar.chromeGroups` | boolean | `false` |  | Chrome-Style Groups. Groups get a colored rail with a rounded end, like Chrome's tab groups. |
@@ -431,7 +432,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.groupPalette` | string | `"glass"` | `glass`, `theme`, `wallpaper`, `grayscale`, `vibrant`, `gradient`, `pictorial` | Group Colors. Where group colors come from. A color you pick for a group stays. |
 | `sidebar.groupGradient` | string | `"sunset"` | `sunset`, `aurora`, `lagoon`, `twoTone` | Group Gradient. The gradient Group Colors uses when set to Gradient. |
 | `sidebar.minimalMode` | string | `"off"` | `off`, `bottom`, `top`, `both` | Hide Bands Until Hover. Hides the chosen sections until the pointer is over the sidebar. |
-| `sidebar.cards.tips` | boolean | `true` |  | Show Tips. A daily card shows one cmux feature you have not used yet. |
+| `sidebar.cards.tips` | boolean | `false` |  | Show Tips. A daily card shows one cmux feature you have not used yet. |
 | `sidebar.priorityView.enabled` | boolean | `false` |  | Priority View. A bell listing every agent chat, the ones waiting on you first. |
 | `sidebar.priorityView.shown` | boolean | `true` |  | Show Priority View. The sidebar bell's state while the Priority view is on. Off, the sidebar is unchanged. |
 | `sidebar.side` | string | `"left"` | `left`, `right` | Sidebar Side. On the right, the window buttons sit over the tab bar. |
@@ -444,7 +445,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.steppingWraps` | boolean | `true` |  | Wrap Around. Past the last item, the next item is the first again. |
 | `sidebar.hoverCards.enabled` | boolean | `true` |  | Show Hover Cards. A card with details opens when the pointer rests on a workspace or a tab. |
 | `sidebar.hoverCards.delay` | real | `1300` | 0 to 5000 | Hover Card Delay. How long the pointer rests before a card opens. |
-| `sidebar.hoverCards.layout` | string | `"timeline"` | `timeline`, `compact`, `log`, `classic`, `minimal` | Workspace Card Layout. What a workspace's hover card shows. |
+| `sidebar.hoverCards.layout` | string | `"compact"` | `timeline`, `compact`, `log`, `classic`, `minimal` | Workspace Card Layout. What a workspace's hover card shows. |
 | `sidebar.hoverCards.sections.timings` | boolean | `true` |  | Show Running Times in Workspace Cards. How long the workspace has worked or waited, and how long its command has run. |
 | `sidebar.hoverCards.sections.prompts` | boolean | `true` |  | Show Prompts in Workspace Cards. Each prompt you sent and when, in the card's history. |
 | `sidebar.hoverCards.sections.waiting` | boolean | `true` |  | Show Waits in Workspace Cards. When an agent waited for your input or finished its turn, in the card's history. |
@@ -672,7 +673,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `notifications.sounds.workspaces` | dictionary | `{}` |  | Workspace Sounds. Sounds per workspace id. Set one from the workspace's sidebar menu. |
 | `notifications.sounds.groups` | dictionary | `{}` |  | Group Sounds. Sounds per group id or name. Set one from the group's sidebar menu. |
 | `notifications.sounds.agents` | dictionary | `{}` |  | Agent Sounds. Sounds per agent kind, such as claude or codex. |
-| `labs.previewFeatures` | boolean | `false` |  | Show Preview Features. Unfinished surfaces, such as the agent session's coverage label and Pull requests view. |
+| `labs.previewFeatures` | boolean | `false` |  | Show Preview Features. Unfinished surfaces, such as the App Store and the agent session's coverage label and Pull requests view. |
+| `labs.liveTree` | boolean | `false` |  | Live Tree. Show the shared live-tree path and compile lanes in the agent pane. |
 | `labs.voiceRoom` | boolean | `false` |  | Voice Room. While a room is open, cmux sends a transcript of your mic and your screen's text to it. |
 | `labs.voiceRoomURL` | string | `""` |  | Voice Room Address. The room's web address. Empty uses the room server on this Mac. |
 | `labs.machineJoin` | boolean | `false` |  | Screen Sharing for Joined Machines. Shows Screen sharing and Control in Settings > Devices once this Mac joins. |
@@ -712,7 +714,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `remote.endSharingOnQuit` | boolean | `false` |  | End Sharing When cmux Quits. Off: this Mac stays available to your devices while cmux is quit. |
 | `remote.ultra` | string | `"auto"` | `off`, `auto`, `always` | Ultra Connection Mode. Sends repair data so lossy networks stay fast. Always uses 2 to 3 times the data. |
 | `deviceHub.url` | string | `""` |  | Device Hub Address. The device hub for Mac Screen sharing. Empty uses the built-in one. |
-| `contextMenus.showCustomizeItem` | boolean | `true` |  | Show Customize Menu…. Adds Customize Menu… to the end of every right-click menu. |
+| `contextMenus.showCustomizeItem` | boolean | `false` |  | Show Customize Menu…. Adds Customize Menu… to the end of every right-click menu. |
 | `imessage.enabled` | boolean | `false` |  | Connect iMessage. Lets cmux read Messages conversations on this Mac. Sending needs your click. |
 | `imessage.automationSkipped` | boolean | `false` |  | Skip Messages Automation. Remembers that you skipped the Messages Automation step. |
 | `EnrollmentToken` | string |  |  | Team enrollment token from the cmux dashboard. Signed-in users in a verified domain of the team join it; the token alone never grants membership. |

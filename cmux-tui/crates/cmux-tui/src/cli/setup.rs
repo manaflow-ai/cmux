@@ -253,7 +253,7 @@ const TASKS: &[Task] = &[
         check: &["cmux accounts list --json"],
         apply: &["cmux login"],
         person: Some("the cmux sign-in in the browser"),
-        prompt: "Check and recover my sign-ins: run `cmux accounts list --json`. If cmux is signed out, run `cmux login` and tell me to finish it in the browser; if the command or browser reports offline or Cloud unavailable, stop and tell me to reconnect before retrying. If a provider is missing or expired, open Settings > Accounts and use Sign In or Re-authenticate (or run `cmux accounts reauth --provider PROVIDER`), then run the list again. If I picked the wrong cmux account, use Switch Account in Settings > Accounts and verify the masked account; if a saved key is missing or unreadable, use Add Key there and save or send it without printing the secret. Tell me which providers remain unavailable and never claim an unknown or Keychain-backed sign-in is valid.",
+        prompt: "Check and recover my sign-ins: run `cmux accounts list --json`. If cmux is signed out, run `cmux login` and tell me to finish it in the browser; if the command or browser reports offline or Cloud unavailable, stop and tell me to reconnect before retrying. If a provider is missing or expired, open Settings > Accounts and use Sign In or Re-authenticate (or run `cmux accounts reauth --provider PROVIDER`), then run the list again. If I picked the wrong cmux account, use Switch Account in Settings > Accounts and verify the masked account; if a saved key is missing or unreadable, use Add Key there and save or send it without printing the secret. Tell me which providers remain unavailable and never claim an unknown or Keychain-backed sign-in is valid. These are cmux and CodeRouter sign-ins: a model for Cloud chats is connected in Settings > Cloud (`cmux://settings/cloud`), not here.",
     },
     Task {
         id: "cloud_machine",
@@ -276,11 +276,12 @@ const TASKS: &[Task] = &[
             "cmux login",
             "cmux chat --on vm --prompt TEXT --wait --json",
             "cmux chat send SESSION_ID TEXT --wait",
+            "open cmux://settings/cloud/claude",
         ],
         person: Some(
-            "signing in to cmux in the browser, picking a Cloud plan, and connecting a model (Claude setup token, ChatGPT or an API key) when the team shares none",
+            "signing in to cmux in the browser, picking a Cloud plan, and connecting a model in Settings > Cloud (Claude setup token, ChatGPT or an API key; `cmux://settings/cloud/claude`) when the team shares none",
         ),
-        prompt: "Start me a chat on cmux Cloud and show me it works: run `cmux whoami`; if I am signed out, run `cmux login` and wait while I finish it in the browser. Then run `cmux chat --on vm --harness HARNESS --prompt 'Say hello in one sentence.' --wait --json` (HARNESS is claude or codex) and show me its reply, then `cmux chat send SESSION_ID 'Say it once more, shorter.' --wait` with the answer's session_id. If a start is refused for a Cloud plan, a model connection or GitHub, tell me the one card or Settings page that fixes it and run it again once I have. Tell me how long each step took, and that `cmux vm pause NAME` or `cmux vm rm NAME --yes` stops the machine.",
+        prompt: "Start me a chat on cmux Cloud and show me it works: run `cmux whoami`; if I am signed out, run `cmux login` and wait while I finish it in the browser. Then run `cmux chat --on vm --harness HARNESS --prompt 'Say hello in one sentence.' --wait --json` (HARNESS is claude or codex) and show me its reply, then `cmux chat send SESSION_ID 'Say it once more, shorter.' --wait` with the answer's session_id. If a start is refused for a model connection, open `cmux://settings/cloud/claude` (Settings > Cloud; `/cloud/chatgpt` or `/cloud/api-key` for those), not `cmux accounts`, which is CodeRouter. If it is refused for a Cloud plan or GitHub, tell me the one card or Settings page that fixes it. Run it again once I have. Tell me how long each step took, and that `cmux vm pause NAME` or `cmux vm rm NAME --yes` stops the machine.",
     },
     Task {
         id: "cloud_session",

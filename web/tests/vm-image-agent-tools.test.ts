@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { agentStepPlan, attachedComputerUse, computerUseWorkerCommand, CU_SERVER, LEGACY_CU_SERVER, parseRecordedLaunch, probeOptionsFromArgv, rdActivateCommand, rdConnectCommand, rdOtherUserCommand, rdReadCommand, rdStaticCheckCommand, recorderScript, requiredTools, screenshotShowsDisplay, staticCheckCommand, toolListProblems, videoToolProblems } from "../scripts/cmux-vm-image/agent-tools-probe";
+import { agentStepPlan, attachedComputerUse, computerUseWorkerCommand, CU_SERVER, gatewayProblems, LEGACY_CU_SERVER, parseRecordedLaunch, probeOptionsFromArgv, rdActivateCommand, rdConnectCommand, rdOtherUserCommand, rdReadCommand, rdStaticCheckCommand, recorderScript, requiredTools, screenshotShowsDisplay, staticCheckCommand, toolListProblems, videoToolProblems } from "../scripts/cmux-vm-image/agent-tools-probe";
 import { readFileSync as readSource } from "node:fs";
 import {
   A11Y_SCRIPT,
@@ -256,6 +256,24 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  test("probe: acpmux's gateway (#48374) attaches cmux as loopback HTTP with no command; the parser keeps its url", () => {
+    // Bake run 44875111659: the launch's cmux entry was {type: http, url} and the probe threw on its missing command.
+    const url = "http://127.0.0.1:41733/mcp/s-1f2e/tools";
+    const text = `--print\n--mcp-config\n${JSON.stringify({ mcpServers: { cmux: { type: "http", url, headers: { Authorization: "Bearer x" } } } })}\n\x1e\n`;
+    const servers = parseRecordedLaunch(text).servers;
+    expect(servers).toEqual([{ name: "cmux", command: "", args: [], env: {}, url }]);
+    expect(gatewayProblems(servers)).toEqual([]);
+    expect(attachedComputerUse(servers)).toBeNull();
+    expect(gatewayProblems([{ ...servers[0], url: "http://10.0.0.5:41733/mcp/s-1f2e/tools" }])).toEqual(["cmux url http://10.0.0.5:41733/mcp/s-1f2e/tools is not loopback"]);
+    // Roll 44895229777: acpmux gives a harness its session endpoint itself, `/mcp/<session>` (mcp_gateway.rs).
+    for (const path of ["/mcp/s-1f2e", "/mcp/s-1f2e/tools/cmux"]) expect(gatewayProblems([{ ...servers[0], url: `http://127.0.0.1:41733${path}` }])).toEqual([]);
+    expect(gatewayProblems([{ ...servers[0], url: "http://127.0.0.1:41733/other" }])).toHaveLength(1);
+    expect(gatewayProblems([{ ...servers[0], url: "http://127.0.0.1:41733/mcp/s-1f2e/admin" }])).toHaveLength(1);
+    expect(gatewayProblems([{ name: "cmux", command: `${AGENT_TOOLS_BIN}/cmux`, args: ["mcp", "serve"], env: {} }])).toEqual([]);
+    expect(gatewayProblems([{ name: "cmux", command: "/tmp/cmux", args: [], env: {} }])).toHaveLength(1);
+    expect(gatewayProblems([])).toEqual(["no cmux server"]);
   });
 
   test("probe: in code mode the cmux server must list cmux_exec; with --all-tools its browser tools; cmux-cua always its own", () => {
