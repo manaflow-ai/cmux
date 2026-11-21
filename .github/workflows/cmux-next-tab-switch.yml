@@ -41,10 +41,9 @@ name: cmux-next tab switch (advisory)
 # refused in "Set up runner" after waiting 600 s with "all 2 gateway tokens are taken".
 
 # Cut from pull requests on 2026-11-21 (ci-time-map: advisory, GATE_MODE report, never required; ~4.2k fleet runner-min a day).
-# Only docs-only-fallback.yml's workflow_call still reaches it.
+# It runs on workflow_dispatch only; docs-only-fallback.yml no longer calls it.
 on:
-  # docs-only-fallback.yml calls this (a pull request with over 300 changed files, or a full-ci/dev-build label).
-  workflow_call:
+  workflow_dispatch:
 
 permissions: {}
 
