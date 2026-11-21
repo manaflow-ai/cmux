@@ -955,12 +955,12 @@ fn wakes_as(meta: &SessionMeta, class: PromptClass, report: bool, from: Option<&
 
 /// Whether `item` steers into a running turn at once, bringing every new message with it: a
 /// blocker (a block or a question), or a message from the chat's parent or delegator, which
-/// directs the work the turn does. Any other result waits [`STEER_COALESCE_MS`] for others to
-/// join it; an FYI waits for its flush.
+/// directs the work the turn does, or a fire notice. Any other result waits [`STEER_COALESCE_MS`]
+/// for others to join it; an ordinary FYI waits for its flush.
 fn steers_at_once(meta: &SessionMeta, item: &Item) -> bool {
     match item.class {
         PromptClass::Block | PromptClass::Question => true,
-        PromptClass::Fyi => false,
+        PromptClass::Fyi => item.fire,
         PromptClass::Result => controls(meta, item.from_session.as_deref()),
     }
 }
@@ -1613,6 +1613,15 @@ impl Hub {
                 // Nothing new but FYIs: they go with the next notice, or once the oldest is
                 // `FLUSH_MS` old (module docs).
                 let fyi_only = new.iter().all(|i| ordinary_fyi(i));
+                // Read before a Stop's `due_now` below takes the inbox mutably.
+                let urgent = new.iter().any(|i| steers_at_once(&meta, i));
+                let coalesced = new
+                    .iter()
+                    .filter(|i| !ordinary_fyi(i))
+                    .map(|i| i.at)
+                    .min()
+                    .unwrap_or(oldest)
+                    .saturating_add(STEER_COALESCE_MS);
                 if new.is_empty()
                     || inbox.in_flight.is_some()
                     || meta.status == SessionStatus::Closed
@@ -1653,18 +1662,12 @@ impl Hub {
                                 // Stop's `due_now` still lets it in at once.
                                 // Results alone wait [`STEER_COALESCE_MS`] after the oldest that
                                 // is no FYI, so a burst is one steer (module docs).
-                                let urgent = new.iter().any(|i| steers_at_once(&meta, i));
                                 let flush = if inbox.due_now || urgent {
                                     0
                                 } else if fyi_only {
                                     oldest.saturating_add(FLUSH_MS)
                                 } else {
-                                    new.iter()
-                                        .filter(|i| i.class != PromptClass::Fyi)
-                                        .map(|i| i.at)
-                                        .min()
-                                        .unwrap_or(oldest)
-                                        .saturating_add(STEER_COALESCE_MS)
+                                    coalesced
                                 };
                                 let at = retry.max(flush);
                                 if at > now { Next::WakeAt(at) } else { Next::Steer }
