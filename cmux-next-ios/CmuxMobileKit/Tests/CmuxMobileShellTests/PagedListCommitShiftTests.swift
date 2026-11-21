@@ -11,7 +11,28 @@ import UIKit
 /// one frame and with no layout pass of the list, must still count in full.
 @MainActor
 @Suite(.serialized) struct PagedListCommitShiftTests {
-    struct Row: Identifiable, Equatable { let id: Int }
+    struct Row: Identifiable, Equatable {
+        let id: Int
+        var tall = false
+    }
+
+    /// The rows, which a test changes in place (a row that grows, as a Chief that starts typing).
+    @Observable final class Rows {
+        var items: [Row] = (0 ..< 200).map { Row(id: $0) }
+    }
+
+    private struct Screen: View {
+        let rows: Rows
+        let probe: PagedListProbe
+
+        var body: some View {
+            PagedList(direction: .down, items: rows.items, phase: .loaded, edge: .end, loadMore: {}, retry: {}) { row in
+                Text("Row \(row.id)").frame(maxWidth: .infinity, minHeight: row.tall ? 82 : 60, alignment: .leading)
+            }
+            .pagedIdentifier("commit.list")
+            .pagedProbe(probe)
+        }
+    }
 
     final class Seen {
         var shifts: [CGFloat] = []
@@ -22,6 +43,7 @@ import UIKit
         let window: UIWindow
         let list: UICollectionView
         let seen: Seen
+        let rows: Rows
         /// A plain view holding the list's host. A transform on it moves the list on screen with no
         /// layout pass and no safe-area change (SwiftUI and the window put back a transform on the
         /// collection or the root view, steps 797372f0 and 93049c31; moving it under a safe area
@@ -34,12 +56,8 @@ import UIKit
         let seen = Seen()
         let probe = PagedListProbe()
         probe.frameShift = { seen.shifts.append($0) }
-        let list = PagedList(direction: .down, items: (0 ..< 200).map(Row.init), phase: .loaded, edge: .end,
-                             loadMore: {}, retry: {}) { row in
-            Text("Row \(row.id)").frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
-        }
-        .pagedIdentifier("commit.list")
-        .pagedProbe(probe)
+        let rows = Rows()
+        let list = Screen(rows: rows, probe: probe)
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
         let root = UIViewController()
         let container = UIView(frame: root.view.bounds)
@@ -62,7 +80,7 @@ import UIKit
         }, "the list showed no rows")
         settle()
         seen.shifts = []
-        return Hosted(window: window, list: found, seen: seen, container: container)
+        return Hosted(window: window, list: found, seen: seen, rows: rows, container: container)
     }
 
     /// A row being read that moves on screen and stays there is a shift of its full size, even when
@@ -103,6 +121,35 @@ import UIKit
         list.layoutIfNeeded()
         settle()
         #expect(hosted.seen.worst <= 0.5, "a placement no frame drew measured \(hosted.seen.shifts)")
+    }
+
+    /// The row being read straddles the list's top edge and grows 22 pt (#47121 step f902d4d6, the
+    /// up-*-flood and up-fast-busy cases): the layout's correction keeps every row below it where it
+    /// was, and only the row's own top moves, with its size. Nothing the reader sees moved.
+    @Test func theRowBeingReadGrowingInPlaceIsNoShift() throws {
+        let hosted = try host()
+        defer { hosted.window.isHidden = true }
+        let list = hosted.list
+        list.setContentOffset(CGPoint(x: 0, y: 10 * 60 + 20 - list.adjustedContentInset.top), animated: false)
+        settle()
+        hosted.seen.shifts = []
+        hosted.rows.items[10].tall = true
+        settle()
+        #expect(hosted.seen.worst <= 0.5, "the row being read grew in place and measured \(hosted.seen.shifts)")
+    }
+
+    /// With the reader straddling the top edge as above, a 22 pt move of everything read (both edges
+    /// of the row being read, and the row after it) still counts in full.
+    @Test func aMoveOfEverythingReadCountsWhileTheReaderStraddlesTheEdge() throws {
+        let hosted = try host()
+        defer { hosted.window.isHidden = true }
+        let list = hosted.list
+        list.setContentOffset(CGPoint(x: 0, y: 10 * 60 + 20 - list.adjustedContentInset.top), animated: false)
+        settle()
+        hosted.seen.shifts = []
+        hosted.container.transform = CGAffineTransform(translationX: 0, y: 22)
+        settle()
+        #expect(abs(hosted.seen.worst - 22) < 0.5, "a 22 pt move of everything read measured \(hosted.seen.shifts)")
     }
 
     /// One run loop turn: the frame so far is committed.
