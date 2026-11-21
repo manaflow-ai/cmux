@@ -80,8 +80,8 @@
 # editor-page timed out the same way beside ui-a11y and text-field-focus. So one file per Vite
 # config runs first, alone, and warms that config's cache (CMUX_VITE_CACHE_DIR, which the dev
 # configs read); the rest then run CMUX_WEB_TEST_DEV_JOBS at once (default a quarter of the jobs), each
-# on its own copy of its config's warm cache. A warming file that fails leaves no trustworthy
-# cache, so the config's next file warms a fresh one, up to CMUX_WEB_TEST_WARM_ATTEMPTS files
+# on its own copy of its config's warm cache. A warming file that fails with no committed dependency
+# cache (deps/_metadata.json) leaves no trustworthy cache, so the config's next file warms a fresh one, up to CMUX_WEB_TEST_WARM_ATTEMPTS files
 # (default 3); a config none of them warms keeps its other files one at a time on a cold cache each.
 # Every file of the run shares one cache of the React Compiler's output (CMUX_VITE_TRANSFORM_CACHE,
 # a folder of the run's own unless set; webviews/reactCompiler.mjs), keyed by each module's exact code.
@@ -469,6 +469,15 @@ while IFS= read -r -d '' file; do
   seed="$vite/seed-$config-$((tried + 1))"
   bash "$self" --one "$file" "$results" "$timeout_seconds" "$seed"
   if grep -qxF "PASS $file $results/$(printf '%s' "$file" | tr '/' '_').log" "$results/summary"; then
+    printf '%s %s\n' "$config" "$seed" >> "$results/warmed"
+  elif [ -s "$seed/deps/_metadata.json" ]; then
+    # A red warming file whose dev server committed its optimized dependencies still warmed the cache: Vite
+    # optimizes into deps_temp_* and renames it to deps/ only once the bundle is whole, so deps/_metadata.json
+    # is a finished cache whatever the test then asserted. Red gallery files (accent-glass-invariants,
+    # control-contrast, red on the base too) each took the next warming try alone, 450-900 s apiece, and left
+    # the config's other files one at a time: 17.5 of a shard's 51 min ran one file at a time (33 shard logs,
+    # 2026-11-21 07:21-08:55Z).
+    echo "$config cache warm from $file's dev server (the file itself is red)"
     printf '%s %s\n' "$config" "$seed" >> "$results/warmed"
   else
     rm -rf "$seed" || true
