@@ -19,7 +19,7 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
 {
     /// Exposed so the scene injects the SAME catalog the provider fills as
     /// `personalIrohRouteCatalog` (known-Mac route lookups read it).
-    public let routeCatalog = MobileIrohRouteCatalog()
+    public let routeCatalog: MobileIrohRouteCatalog
 
     private let preferredTag: String
     private let compatibilityPolicy: MobileMacBuildCompatibilityPolicy?
@@ -47,13 +47,24 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
         return stream
     }
 
+    /// Keeps the route catalog aligned with runtime account and team changes.
     private func observe(_ irx: MobileIrxRuntimeComposition) {
         runtimeObservation = Task { [weak self] in
             for await _ in await irx.changes() {
                 guard let self, !Task.isCancelled else { return }
                 let owner = await irx.directoryScopeID()
                 let directory = await irx.currentDirectory()
-                guard let owner, owner == (await irx.directoryScopeID()) else { continue }
+                let currentOwner = await irx.directoryScopeID()
+                guard owner == currentOwner else {
+                    // Do not let an older observer callback clear a projection
+                    // that a newer discovery has already installed.
+                    guard observedScope == owner else { continue }
+                    guard await applyDirectory(nil, owner: currentOwner, expectedObservedScope: owner) else {
+                        continue
+                    }
+                    for observer in observers.values { observer.yield(()) }
+                    continue
+                }
                 guard await applyDirectory(directory, owner: owner) else { continue }
                 for observer in observers.values { observer.yield(()) }
             }
@@ -63,19 +74,27 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
     /// Applies directory snapshots through one monotonic projection path. An
     /// older async observation can never replace a newer revision.
     @discardableResult
-    private func applyDirectory(_ directory: V2Directory?, owner: String) async -> Bool {
+    func applyDirectory(
+        _ directory: V2Directory?,
+        owner: String?,
+        expectedObservedScope: String? = nil
+    ) async -> Bool {
+        if let expectedObservedScope, observedScope != expectedObservedScope {
+            return false
+        }
         let ownerChanged = observedScope != owner
         if ownerChanged {
             observedScope = owner
             lastAppliedDirectoryRevision = nil
         }
-        guard let directory else {
+        if directory == nil || owner == nil {
             guard ownerChanged || lastAppliedDirectoryRevision != nil else { return false }
             scope &+= 1
             lastAppliedDirectoryRevision = nil
-            await routeCatalog.activate(scope: scope)
+            await routeCatalog.activate(scope: scope, owner: owner)
             return true
         }
+        guard let owner, let directory else { return false }
         guard lastAppliedDirectoryRevision.map({ directory.revision >= $0 }) ?? true else {
             return false
         }
@@ -83,12 +102,15 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
         lastAppliedDirectoryRevision = directory.revision
         scope &+= 1
         let generation = scope
-        await routeCatalog.activate(scope: generation)
+        await routeCatalog.activate(scope: generation, owner: owner)
         guard observedScope == owner, lastAppliedDirectoryRevision == directory.revision else { return false }
         return await routeCatalog.replace(with: directory, scope: generation)
     }
 
     /// Closure-injected core, so tests can drive it without the actor stack.
+    /// `authenticatedScopeID` must include the account and selected team; when
+    /// it is omitted, discovery fails closed instead of falling back to account
+    /// identity, which cannot fence a same-account team switch.
     public init(
         preferredTag: String,
         compatibilityPolicy: MobileMacBuildCompatibilityPolicy?,
@@ -104,7 +126,11 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
         self.invalidateSnapshot = invalidateSnapshot
         self.revokeBinding = revokeBinding
         self.authenticatedAccountID = authenticatedAccountID
-        self.authenticatedScopeID = authenticatedScopeID ?? authenticatedAccountID
+        // A missing scope identity must fail closed. Account-only identity is
+        // insufficient because a team switch can keep the account unchanged.
+        let scopeID: @Sendable () async -> String? = authenticatedScopeID ?? { nil }
+        self.authenticatedScopeID = scopeID
+        self.routeCatalog = MobileIrohRouteCatalog(authenticatedScopeID: scopeID)
     }
 
     public convenience init(
@@ -126,6 +152,7 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
 
     // MARK: - MobileIrohMacDiscovering
 
+    /// Discovers Macs for the currently authenticated account and team.
     public func discoverLiveMacs() async -> [MobileDiscoveredIrohMac] {
         let owner = await authenticatedScopeID()
         guard let discovery = await discover(), owner == (await authenticatedScopeID()) else { return [] }
@@ -145,6 +172,7 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
 
     // MARK: - MobileIrohMacForgetting
 
+    /// Revokes the selected Mac binding after rechecking account and team scope.
     public func forgetComputer(
         macDeviceID: String,
         instanceTag: String?,
@@ -156,7 +184,9 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
         guard account == expectedAccountID else {
             throw MobileIrxForgetError.accountMismatch
         }
-        let owner = await authenticatedScopeID()
+        guard let owner = await authenticatedScopeID() else {
+            throw MobileIrxForgetError.discoveryUnavailable
+        }
         guard let discovery = await discover(), owner == (await authenticatedScopeID()) else {
             throw MobileIrxForgetError.discoveryUnavailable
         }
@@ -173,7 +203,8 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
         for binding in matches {
             // Re-verify before each revoke: an account switch landing
             // mid-operation must never revoke another account's binding.
-            guard await authenticatedAccountID() == expectedAccountID, owner == (await authenticatedScopeID()) else {
+            guard await authenticatedAccountID() == expectedAccountID,
+                  let currentScope = await authenticatedScopeID(), owner == currentScope else {
                 throw MobileIrxForgetError.accountMismatch
             }
             try await revokeBinding(binding.deviceRecordID)
